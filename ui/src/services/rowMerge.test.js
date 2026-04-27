@@ -46,7 +46,7 @@ describe('mergeRenderedRows', () => {
             assistantMessageId: 'assistant-1',
             modelMessageId: 'assistant-1',
             sequence: 1,
-            preamble: 'Thinking'
+            narration: 'Thinking'
           }
         ]
       }
@@ -391,7 +391,7 @@ describe('mergeRenderedRows', () => {
           {
             assistantMessageId: 'assistant-live',
             status: 'thinking',
-            preamble: 'Thinking...'
+            narration: 'Thinking...'
           }
         ]
       }
@@ -412,7 +412,7 @@ describe('mergeRenderedRows', () => {
     expect(merged[0].turnId).toBe('turn-1');
     expect(merged[0].executionGroups).toHaveLength(1);
     expect(merged[0].executionGroups[0]).toMatchObject({
-      preamble: 'Thinking...'
+      narration: 'Thinking...'
     });
   });
 
@@ -427,12 +427,12 @@ describe('mergeRenderedRows', () => {
         status: 'running',
         turnStatus: 'running',
         content: 'Calling updatePlan.',
-        preamble: 'Calling updatePlan.',
+        narration: 'Calling updatePlan.',
         executionGroups: [
           {
             assistantMessageId: 'assistant-live-1',
             status: 'completed',
-            preamble: 'Calling updatePlan.'
+            narration: 'Calling updatePlan.'
           }
         ]
       },
@@ -445,12 +445,12 @@ describe('mergeRenderedRows', () => {
         status: 'running',
         turnStatus: 'running',
         content: 'Checking the hierarchy before forecasting.',
-        preamble: 'Checking the hierarchy before forecasting.',
+        narration: 'Checking the hierarchy before forecasting.',
         executionGroups: [
           {
             assistantMessageId: 'assistant-live-2',
             status: 'completed',
-            preamble: 'Checking the hierarchy before forecasting.'
+            narration: 'Checking the hierarchy before forecasting.'
           }
         ]
       }
@@ -500,12 +500,12 @@ describe('mergeRenderedRows', () => {
           createdAt: '2026-03-16T01:00:03Z',
           interim: 1,
           content: 'Thinking about the follow-up...',
-          preamble: 'Thinking about the follow-up...',
+          narration: 'Thinking about the follow-up...',
           executionGroups: [
             {
               assistantMessageId: 'assistant-2',
               iteration: 2,
-              preamble: 'Thinking about the follow-up...',
+              narration: 'Thinking about the follow-up...',
               status: 'running'
             }
           ]

@@ -20,7 +20,7 @@ function isVisibleExecutionPage(page = {}) {
   if (!page || typeof page !== 'object') return false;
   const status = String(page?.status || '').trim().toLowerCase();
   const phase = String(page?.phase || '').trim().toLowerCase();
-  const hasVisibleContent = String(page?.preamble || '').trim() !== '' || String(page?.content || '').trim() !== '';
+  const hasVisibleContent = String(page?.narration || '').trim() !== '' || String(page?.content || '').trim() !== '';
   const hasError = String(page?.errorMessage || page?.ErrorMessage || '').trim() !== '';
   const hasTools = (Array.isArray(page?.toolSteps) && page.toolSteps.length > 0)
     || (Array.isArray(page?.toolCallsPlanned) && page.toolCallsPlanned.length > 0);
@@ -36,7 +36,7 @@ function executionPageIteration(page = {}) {
   if (Number.isFinite(raw)) return raw;
   const status = String(page?.status || '').trim().toLowerCase();
   const hasAssistantIdentity = String(page?.assistantMessageId || page?.pageId || '').trim() !== '';
-  const hasVisibleContent = String(page?.preamble || '').trim() !== '' || String(page?.content || '').trim() !== '';
+  const hasVisibleContent = String(page?.narration || '').trim() !== '' || String(page?.content || '').trim() !== '';
   const isActive = ['running', 'thinking', 'streaming', 'processing', 'waiting_for_user', 'in_progress', 'tool_calls'].includes(status);
   if (hasAssistantIdentity || hasVisibleContent || isActive) return 1;
   return 0;
@@ -229,7 +229,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
     }
 
     const assistantFinal = turn?.assistant?.final || null;
-    const assistantPreamble = turn?.assistant?.preamble || null;
+    const assistantPreamble = turn?.assistant?.narration || null;
     if (renderPage) {
       const transcriptElicitation = turn?.elicitation && typeof turn.elicitation === 'object'
         ? turn.elicitation
@@ -249,7 +249,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
           ? 1
           : (renderPage?.finalResponse || String(assistantFinal?.content || '').trim() !== '' ? 0 : 1),
         content: suppressAssistantContent ? '' : renderedContent,
-        preamble: renderPage?.preamble || assistantPreamble?.content || '',
+        narration: renderPage?.narration || assistantPreamble?.content || '',
         turnId,
         turnStatus,
         status: renderPage?.status || turnStatus,
@@ -270,7 +270,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
         role: 'assistant',
         interim: 1,
         content: '',
-        preamble: assistantPreamble?.content || '',
+        narration: assistantPreamble?.content || '',
         turnId,
         turnStatus,
         status: turnStatus,
@@ -281,7 +281,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
           assistantMessageId: '',
           parentMessageId: turn?.startedByMessageId || turn?.user?.messageId || '',
           iteration: 1,
-          preamble: assistantPreamble?.content || '',
+          narration: assistantPreamble?.content || '',
           content: '',
           finalResponse: false,
           status: turnStatus,
@@ -294,7 +294,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
           assistantMessageId: '',
           parentMessageId: turn?.startedByMessageId || turn?.user?.messageId || '',
           iteration: 1,
-          preamble: assistantPreamble?.content || '',
+          narration: assistantPreamble?.content || '',
           content: '',
           finalResponse: false,
           status: turnStatus,
@@ -313,7 +313,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
         role: 'assistant',
         interim: 0,
         content: assistantFinal?.content || '',
-        preamble: assistantPreamble?.content || '',
+        narration: assistantPreamble?.content || '',
         turnId,
         turnStatus,
         status: turnStatus,
@@ -422,7 +422,7 @@ export function buildConversationRenderRows({
     return {
       ...row,
       content: String(row?.content || '').trim() !== '' ? row.content : matchingExplicit?.content || row?.content || '',
-      preamble: String(row?.preamble || '').trim() !== '' ? row.preamble : matchingExplicit?.preamble || row?.preamble || '',
+      narration: String(row?.narration || '').trim() !== '' ? row.narration : matchingExplicit?.narration || row?.narration || '',
       isStreaming: matchingExplicit?.isStreaming,
       _streamContent: matchingExplicit?._streamContent,
       _streamFence: matchingExplicit?._streamFence,

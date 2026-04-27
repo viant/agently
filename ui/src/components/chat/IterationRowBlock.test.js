@@ -7,7 +7,7 @@ vi.mock('forge/components', () => ({
 }));
 
 import IterationRowBlock from './IterationRowBlock.jsx';
-import { rowToLegacyIterationMessage } from './iterationRowLegacyAdapter.js';
+
 
 const h = React.createElement;
 
@@ -29,23 +29,23 @@ function makeRow(partial = {}) {
 
 describe('IterationRowBlock', () => {
   it('renders nothing for a non-iteration row', () => {
-    const html = renderToStaticMarkup(h(IterationRowBlock, { message: null }));
+    const html = renderToStaticMarkup(h(IterationRowBlock, { iterationRow: null }));
     expect(html).toBe('');
   });
 
   it('renders the header label from row.header — no (0) for lifecycle-only', () => {
-    const html = renderToStaticMarkup(h(IterationRowBlock, { message: rowToLegacyIterationMessage(makeRow({
+    const html = renderToStaticMarkup(h(IterationRowBlock, { iterationRow: makeRow({
       header: { label: 'Starting turn…', tone: 'running', count: 0 },
-    })) }));
+    }) }));
     expect(html).toContain('Execution details');
     expect(html).not.toContain('(0)');
   });
 
   it('applies tone class from header.tone', () => {
-    const html = renderToStaticMarkup(h(IterationRowBlock, { message: rowToLegacyIterationMessage(makeRow({
+    const html = renderToStaticMarkup(h(IterationRowBlock, { iterationRow: makeRow({
       header: { label: 'Completed', tone: 'success', count: 0 },
       lifecycle: 'completed',
-    })) }));
+    }) }));
     expect(html).toContain('tone-success');
     expect(html).toContain('Execution details');
   });
@@ -68,7 +68,7 @@ describe('IterationRowBlock', () => {
         finalResponse: false,
       }],
     });
-    const html = renderToStaticMarkup(h(IterationRowBlock, { message: rowToLegacyIterationMessage(row) }));
+    const html = renderToStaticMarkup(h(IterationRowBlock, { iterationRow: row }));
     expect(html).not.toContain('Turn started');
     expect(html).toContain('Execution details');
   });
@@ -96,7 +96,7 @@ describe('IterationRowBlock', () => {
         finalResponse: false,
       }],
     });
-    const html = renderToStaticMarkup(h(IterationRowBlock, { message: rowToLegacyIterationMessage(row) }));
+    const html = renderToStaticMarkup(h(IterationRowBlock, { iterationRow: row }));
     expect(html).toContain('openai/gpt-5');
     expect(html).toContain('search');
     expect(html).toContain('Execution details');
@@ -109,7 +109,7 @@ describe('IterationRowBlock', () => {
         renderKey: 'rk_r1',
         iteration: 0,
         phase: 'intake',
-        preamble: 'Checking intake.',
+        narration: 'Checking intake.',
         modelSteps: [{
           renderKey: 'rk_ms1',
           provider: 'openai',
@@ -122,18 +122,18 @@ describe('IterationRowBlock', () => {
         finalResponse: false,
       }],
     });
-    const html = renderToStaticMarkup(h(IterationRowBlock, { message: rowToLegacyIterationMessage(row) }));
+    const html = renderToStaticMarkup(h(IterationRowBlock, { iterationRow: row }));
     expect(html).toContain('Checking intake.');
     expect(html).toContain('Execution details');
   });
 
-  it('renders the assistant bubble path from preamble/final content', () => {
+  it('renders the assistant bubble path from narration/final content', () => {
     const row = makeRow({
       rounds: [{
         renderKey: 'rk_r1',
         iteration: 0,
         phase: 'main',
-        preamble: 'Calling updatePlan.',
+        narration: 'Calling updatePlan.',
         modelSteps: [],
         toolCalls: [],
         lifecycleEntries: [],
@@ -141,7 +141,7 @@ describe('IterationRowBlock', () => {
         finalResponse: false,
       }],
     });
-    const html = renderToStaticMarkup(h(IterationRowBlock, { message: rowToLegacyIterationMessage(row) }));
+    const html = renderToStaticMarkup(h(IterationRowBlock, { iterationRow: row }));
     expect(html).toContain('Calling updatePlan.');
     expect(html).toContain('app-bubble');
   });

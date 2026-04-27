@@ -16,6 +16,11 @@ import {
   clearPendingElicitation,
   onElicitationChange
 } from '../services/elicitationBus';
+import {
+  translateSchema,
+  extractLookupBindings,
+  registerLookupDataSourceServices,
+} from './lookups/forgeBridge';
 
 export default function ElicitationOverlay({ context }) {
   const [pending, setPending] = useState(getPendingElicitation);
@@ -43,7 +48,21 @@ export default function ElicitationOverlay({ context }) {
   const isOOB = !!url || mode === 'oob' || mode === 'webonly' || mode === 'url';
   const hasSchemaProps = !!(schema && typeof schema === 'object' && schema.properties && Object.keys(schema.properties).length > 0);
 
-  const preparedSchema = useMemo(() => prepareRequestedSchema(schema), [schema]);
+  // Mirror ElicitationForm: run the default elicitation preparation first,
+  // then let the lookup bridge turn server-emitted `x-ui-lookup` attachments
+  // into forge `item.lookup` shape AND register a forge-compatible Service
+  // on each referenced datasource so dialog fetches route through our
+  // /v1/api/datasources/{id}/fetch endpoint instead of forge's default HTTP
+  // Service.
+  const preparedSchema = useMemo(() => {
+    const base = prepareRequestedSchema(schema);
+    const translated = translateSchema(base);
+    const bindings = extractLookupBindings(translated);
+    if (bindings.length > 0) {
+      registerLookupDataSourceServices(bindings);
+    }
+    return translated;
+  }, [schema]);
   const approvalMeta = useMemo(() => extractToolApprovalMeta(schema), [schema]);
   const submitAction = useMemo(() => resolveElicitationSubmitAction(schema), [schema]);
 

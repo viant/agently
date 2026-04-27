@@ -5,8 +5,10 @@ import { SettingProvider } from 'forge/core';
 import 'forge/packs/blueprint/index.jsx';
 import Root from './components/Root';
 import OAuthCallback from './components/OAuthCallback';
+import LookupChipPreview from './lookupChipPreview.jsx';
 import { endpoints } from './endpoint';
 import { connectorConfig } from './connector';
+import { appRoutePaths } from './appRoutePaths.js';
 import { chatService } from './services/chatService';
 import { scheduleService } from './services/scheduleService';
 import { redirectToLogin } from './services/httpClient';
@@ -45,14 +47,22 @@ const targetContext = {
   capabilities: webClientContext.capabilities
 };
 
-const router = createBrowserRouter([
+export const routes = [
   { path: '/v1/api/auth/oauth/callback', element: <OAuthCallback /> },
+  { path: '/lookup-chip-preview', element: <LookupChipPreview /> },
+  { path: '/ui/lookup-chip-preview', element: <LookupChipPreview /> },
   { path: '/', element: <Root /> },
   { path: '/ui', element: <Root /> },
   { path: '/v1/conversation/:id', element: <Root /> },
   { path: '/conversation/:id', element: <Root /> },
   { path: '/ui/conversation/:id', element: <Root /> }
-]);
+];
+
+if (JSON.stringify(routes.map((entry) => entry.path)) !== JSON.stringify(appRoutePaths)) {
+  throw new Error('App route path list drifted from appRoutePaths');
+}
+
+const router = createBrowserRouter(routes);
 
 export default function App() {
   return (

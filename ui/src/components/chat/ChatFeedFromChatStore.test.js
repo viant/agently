@@ -6,13 +6,13 @@ vi.mock('forge/components', () => ({
   AvatarIcon: ({ name = '' }) => React.createElement('span', { 'data-avatar-icon': name }),
 }));
 
-const iterationRowBlockSpy = vi.fn(({ message }) => React.createElement(
+const iterationRowBlockSpy = vi.fn(({ iterationRow }) => React.createElement(
   'div',
   {
     'data-testid': 'iteration-row-block',
-    'data-message-id': String(message?.id || ''),
+    'data-row-render-key': String(iterationRow?.renderKey || ''),
   },
-  `Execution details ${String(message?._iterationData?.response?.content || message?.content || '').trim()}`,
+  `Execution details`,
 ));
 
 vi.mock('./IterationRowBlock.jsx', () => ({
@@ -24,7 +24,7 @@ import ChatFeedFromChatStore from './ChatFeedFromChatStore.jsx';
 const h = React.createElement;
 
 describe('ChatFeedFromChatStore', () => {
-  it('passes the canonical iteration row alongside the legacy message adapter output', () => {
+  it('passes the canonical iteration row directly to IterationRowBlock', () => {
     iterationRowBlockSpy.mockClear();
     const rows = [
       {
@@ -60,14 +60,10 @@ describe('ChatFeedFromChatStore', () => {
     );
 
     expect(iterationRowBlockSpy).toHaveBeenCalledTimes(1);
+    // IterationRowBlock consumes the canonical row directly; no adapter, no
+    // synthesized "legacy message" prop.
     expect(iterationRowBlockSpy.mock.calls[0][0].iterationRow).toBe(rows[0]);
-    expect(iterationRowBlockSpy.mock.calls[0][0].message?._iterationData?.executionGroups?.[0]?.modelSteps?.[0]).toMatchObject({
-      modelCallId: 'mc_intake',
-      assistantMessageId: 'msg_intake',
-      requestPayloadId: 'req_intake',
-      providerRequestPayloadId: 'prov_req_intake',
-      responsePayloadId: 'resp_intake',
-    });
+    expect(iterationRowBlockSpy.mock.calls[0][0].message).toBeUndefined();
   });
 
   it('renders nothing when the projection is empty', () => {

@@ -53,6 +53,9 @@ import IterationPaginator from '../components/chat/IterationPaginator';
 import BubbleMessage from '../components/chat/BubbleMessage';
 import StarterTasks from '../components/chat/StarterTasks';
 import SteerQueue from '../components/chat/SteerQueue';
+import NamedLookupInput from '../components/lookups/NamedLookupInput.jsx';
+import { flattenStored } from '../components/lookups/tokens.js';
+import { listLookupRegistry } from '../components/lookups/client.js';
 import { composerPresentation } from './composerPresentation';
 import { connectForgeUIActionsToChat } from './forgeUIActions';
 import { openCodeDiffDialog, openFileViewDialog, updateCodeDiffDialog, updateFileViewDialog } from '../utils/dialogBus';
@@ -288,15 +291,27 @@ export function onFetchQueuedTurns({ context, data }) {
 }
 
 export async function submitMessage({ context, message, model, agent }) {
-  const query = typeof message === 'string'
+  const rawQuery = typeof message === 'string'
     ? message.trim()
     : String(message?.content || message?.text || message?.value || '').trim();
+  const selectedAgent = sanitizeAutoSelection(agent || '');
+  const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+  const convForm = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
+  const persistedAgent = sanitizeAutoSelection(getPersistedSelectedAgent());
+  const effectiveAgentForLookup = resolveSubmitAgent({ selectedAgent, persistedAgent, metaForm, convForm }) || 'default';
+  let query = rawQuery;
+  if (rawQuery && rawQuery.includes('@{')) {
+    try {
+      const registry = await listLookupRegistry('chat-composer', effectiveAgentForLookup);
+      query = flattenStored(rawQuery, registry).trim();
+    } catch (err) {
+      showToast(String(err?.message || err || 'Resolve required lookups before sending.'), { intent: 'warning' });
+      return;
+    }
+  }
   if (!query) return;
   setStage({ phase: 'thinking', text: 'Assistant thinking…' });
   const convDS = context?.Context?.('conversations')?.handlers?.dataSource;
-  const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
-  const persistedAgent = sanitizeAutoSelection(getPersistedSelectedAgent());
-  const selectedAgent = sanitizeAutoSelection(agent || '');
   const selectedModel = sanitizeAutoSelection(model || '');
   const defaultModel = sanitizeAutoSelection(metaForm?.defaults?.model || metaForm?.defaultModel || '');
   const preferredAgentModel = (() => {
@@ -327,7 +342,6 @@ export async function submitMessage({ context, message, model, agent }) {
   const conversationID = await ensureConversation(context, { agent: selectedAgent, model: effectiveModel || selectedModel });
   const clientRequestId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
   rememberSeedTitle(conversationID, query);
-  const convForm = convDS?.peekFormData?.() || {};
   convDS?.setFormData?.({
     values: {
       ...convForm,
@@ -444,8 +458,16 @@ export function resolveComposerProps({ context, container } = {}) {
   const metaCtx = context?.Context?.(metaRef);
   const metaDS = metaCtx?.handlers?.dataSource;
   const metaForm = metaDS?.peekFormData?.() || {};
+  const convForm = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
   const defaults = metaForm?.defaults || {};
   const currentAgent = normalizeString(metaForm?.agent);
+  const persistedAgent = sanitizeAutoSelection(getPersistedSelectedAgent());
+  const effectiveLookupAgent = resolveSubmitAgent({
+    selectedAgent: currentAgent,
+    persistedAgent,
+    metaForm,
+    convForm,
+  }) || 'default';
   const currentModel = resolveCurrentModel(metaForm);
   const defaultModel = normalizeString(defaults?.model);
   const ensureOption = (options = [], value = '', label = '') => {
@@ -513,6 +535,12 @@ export function resolveComposerProps({ context, container } = {}) {
   return {
     commandCenter: true,
     starterTasks: Array.isArray(metaForm?.starterTasks) ? metaForm.starterTasks : [],
+    inputComponent: NamedLookupInput,
+    inputProps: {
+      context,
+      contextKind: 'chat-composer',
+      contextID: effectiveLookupAgent,
+    },
     agentOptions,
     agentValue: currentAgent,
     onAgentChange: (agentID) => applyAgentSelection({ agentID, metaDS, metaSnapshot: metaForm, context }),

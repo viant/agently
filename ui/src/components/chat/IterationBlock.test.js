@@ -23,7 +23,7 @@ import IterationBlock, {
   buildIterationDataFromCanonicalRow,
   resolveCanonicalDetailStep,
   shouldAutoScrollExecutionGroups,
-  shouldShowPreambleBubble,
+  shouldShowNarrationBubble,
   hasPendingElicitationStep,
   phaseBadgeLabel,
   toolStepSummaryText
@@ -152,7 +152,7 @@ describe('mapCanonicalExecutionGroups', () => {
         pageId: 'page_intake',
         iteration: 0,
         phase: 'intake',
-        preamble: 'Classifying request.',
+        narration: 'Classifying request.',
         content: '',
         status: 'running',
         finalResponse: false,
@@ -175,7 +175,7 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(data.executionGroups[0]).toMatchObject({
       pageId: 'page_intake',
       phase: 'intake',
-      preamble: 'Classifying request.',
+      narration: 'Classifying request.',
     });
     expect(data.executionGroups[0].modelSteps[0]).toMatchObject({
       modelCallId: 'mc_intake',
@@ -285,12 +285,12 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(anchor).toBe(Date.parse('2026-04-14T12:10:00Z'));
   });
 
-  it('falls back to the latest active preamble timestamp when active groups are all historical', () => {
+  it('falls back to the latest active narration timestamp when active groups are all historical', () => {
     const anchor = resolveIterationElapsedAnchor(
       {
         status: 'running',
-        preamble: { createdAt: '2026-04-14T12:20:00Z', content: 'Working…' },
-        preambles: [{ createdAt: '2026-04-14T12:19:30Z', content: 'Starting…' }]
+        narration: { createdAt: '2026-04-14T12:20:00Z', content: 'Working…' },
+        narrations: [{ createdAt: '2026-04-14T12:19:30Z', content: 'Starting…' }]
       },
       [
         {
@@ -312,7 +312,7 @@ describe('mapCanonicalExecutionGroups', () => {
       {
         status: 'running',
         streamCreatedAt: '2026-04-14T12:30:00Z',
-        preamble: { createdAt: '2026-04-14T01:00:00Z', content: 'Old preamble' }
+        narration: { createdAt: '2026-04-14T01:00:00Z', content: 'Old narration' }
       },
       [
         {
@@ -362,7 +362,7 @@ describe('mapCanonicalExecutionGroups', () => {
               {
                 assistantMessageId: 'child-1',
                 status: 'completed',
-                preamble: 'Calling roots.',
+                narration: 'Calling roots.',
                 toolSteps: [
                   { toolName: 'resources/roots', status: 'completed' }
                 ]
@@ -370,7 +370,7 @@ describe('mapCanonicalExecutionGroups', () => {
               {
                 assistantMessageId: 'child-2',
                 status: 'completed',
-                preamble: 'Compiling final answer.',
+                narration: 'Compiling final answer.',
                 content: 'Forecast returned zero reach.'
               }
             ]
@@ -406,7 +406,7 @@ describe('mapCanonicalExecutionGroups', () => {
         parentMessageId: 'm1',
         modelMessageId: 'm1',
         sequence: 1,
-        preamble: 'I am going to inspect the repository.',
+        narration: 'I am going to inspect the repository.',
         finalResponse: false,
         status: 'completed',
         modelCall: {
@@ -444,7 +444,7 @@ describe('mapCanonicalExecutionGroups', () => {
       toolName: 'llm/agents:run',
       linkedConversationId: 'child-1'
     });
-    expect(groups[0].preambleContent).toBe('I am going to inspect the repository.');
+    expect(groups[0].narrationContent).toBe('I am going to inspect the repository.');
   });
 
   it('keeps explicit intake groups visible even when they only contain a model step', () => {
@@ -477,7 +477,7 @@ describe('mapCanonicalExecutionGroups', () => {
         parentMessageId: 'm1',
         modelMessageId: 'm1',
         sequence: 1,
-        preamble: '',
+        narration: '',
         finalResponse: false,
         status: 'thinking',
         modelCall: {
@@ -574,7 +574,7 @@ describe('mapCanonicalExecutionGroups', () => {
         modelMessageId: 'narrator-1',
         sequence: 2,
         status: 'running',
-        preamble: 'Delegated to agent "coder" to list top-level files in the workspace; awaiting results...',
+        narration: 'Delegated to agent "coder" to list top-level files in the workspace; awaiting results...',
         modelSteps: [
           {
             modelCallId: 'narrator-step-1',
@@ -627,7 +627,7 @@ describe('mapCanonicalExecutionGroups', () => {
         parentMessageId: 'm1',
         modelMessageId: 'm1',
         sequence: 1,
-        preamble: 'Using resources-list.',
+        narration: 'Using resources-list.',
         finalResponse: false,
         status: 'completed',
         modelCall: {
@@ -647,7 +647,7 @@ describe('mapCanonicalExecutionGroups', () => {
         parentMessageId: 'm2',
         modelMessageId: 'm2',
         sequence: 2,
-        preamble: '',
+        narration: '',
         finalResponse: false,
         status: 'thinking',
         modelCall: {
@@ -661,7 +661,7 @@ describe('mapCanonicalExecutionGroups', () => {
 
     expect(groups[0].toolSteps).toHaveLength(1);
     expect(groups[1].toolSteps).toHaveLength(0);
-    expect(groups[1].preambleContent).toBe('');
+    expect(groups[1].narrationContent).toBe('');
   });
 
   it('treats a blank model-only group as non-presentable trailing state', () => {
@@ -670,7 +670,7 @@ describe('mapCanonicalExecutionGroups', () => {
         parentMessageId: 'm1',
         modelMessageId: 'm1',
         sequence: 1,
-        preamble: 'I found the workspace root; next I am listing the repo.',
+        narration: 'I found the workspace root; next I am listing the repo.',
         finalResponse: false,
         status: 'completed',
         modelCall: {
@@ -690,7 +690,7 @@ describe('mapCanonicalExecutionGroups', () => {
         parentMessageId: 'm2',
         modelMessageId: 'm2',
         sequence: 2,
-        preamble: '',
+        narration: '',
         finalResponse: false,
         status: 'thinking',
         modelCall: {
@@ -703,7 +703,7 @@ describe('mapCanonicalExecutionGroups', () => {
     ]);
 
     const presentable = groups.filter((group) => {
-      const preambleText = String(group?.preambleContent || '').trim();
+      const preambleText = String(group?.narrationContent || '').trim();
       const finalText = String(group?.finalContent || '').trim();
       const toolCount = Array.isArray(group?.toolSteps) ? group.toolSteps.length : 0;
       const plannedCount = Array.isArray(group?.toolCallsPlanned) ? group.toolCallsPlanned.length : 0;
@@ -712,7 +712,7 @@ describe('mapCanonicalExecutionGroups', () => {
     });
 
     expect(presentable).toHaveLength(1);
-    expect(presentable[0].preambleContent).toContain('workspace root');
+    expect(presentable[0].narrationContent).toContain('workspace root');
   });
 
   it('renders plan and planned tool calls from the model response when persisted tool rows have not arrived yet', () => {
@@ -721,7 +721,7 @@ describe('mapCanonicalExecutionGroups', () => {
         parentMessageId: 'm1',
         modelMessageId: 'm1',
         sequence: 1,
-        preamble: 'I am going to inspect the repository structure.',
+        narration: 'I am going to inspect the repository structure.',
         finalResponse: false,
         status: 'thinking',
         modelCall: {
@@ -757,7 +757,7 @@ describe('mapCanonicalExecutionGroups', () => {
         parentMessageId: 'm1',
         modelMessageId: 'm1',
         sequence: 1,
-        preamble: 'Calling updatePlan.',
+        narration: 'Calling updatePlan.',
         finalResponse: false,
         status: 'completed',
         modelCall: {
@@ -779,31 +779,31 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(groups[0].toolSteps.map((step) => step.toolName)).toEqual([
       'orchestration/updatePlan'
     ]);
-    expect(groups[0].preambleContent).toBe('Calling updatePlan.');
+    expect(groups[0].narrationContent).toBe('Calling updatePlan.');
   });
 
   it('uses final content for the visible page bubble when a visible page is final', () => {
     const text = resolveVisibleBubbleContent([
       {
         finalResponse: false,
-        preambleContent: 'Thinking...'
+        narrationContent: 'Thinking...'
       },
       {
         finalResponse: true,
-        preambleContent: 'I am about to retrieve HOME.',
+        narrationContent: 'I am about to retrieve HOME.',
         finalContent: '{"HOME":"/Users/awitas"}'
       }
     ]);
 
     expect(text).toBe('I am about to retrieve HOME.');
-    expect(shouldShowPreambleBubble([], text)).toBe(true);
+    expect(shouldShowNarrationBubble([], text)).toBe(true);
   });
 
   it('uses the elicitation prompt when final visible page content is embedded elicitation JSON', () => {
     const text = resolveVisibleBubbleContent([
       {
         finalResponse: true,
-        preambleContent: 'Need input.',
+        narrationContent: 'Need input.',
         finalContent: '{"type":"elicitation","message":"Please provide the environment variable name.","requestedSchema":{"type":"object"}}'
       }
     ]);
@@ -811,24 +811,24 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(text).toBe('Please provide the environment variable name.');
   });
 
-  it('falls back to visible preamble content when no visible page is final', () => {
+  it('falls back to visible narration content when no visible page is final', () => {
     const text = resolveVisibleBubbleContent([
       {
         finalResponse: false,
-        preambleContent: 'Thinking...'
+        narrationContent: 'Thinking...'
       }
     ]);
 
     expect(text).toBe('Thinking...');
-    expect(shouldShowPreambleBubble([], text)).toBe(true);
+    expect(shouldShowNarrationBubble([], text)).toBe(true);
   });
 
-  it('prefers streamed text over preamble while execution groups are still live', () => {
+  it('prefers streamed text over narration while execution groups are still live', () => {
     const text = resolveIterationBubbleContent({
       visibleGroups: [
         {
           finalResponse: false,
-          preambleContent: 'Delegating the initial repository analysis…'
+          narrationContent: 'Delegating the initial repository analysis…'
         }
       ],
       streamContent: 'Scanning the repository root now…'
@@ -918,17 +918,17 @@ describe('mapCanonicalExecutionGroups', () => {
     })).toBe('Please confirm the exact folder path to check.');
   });
 
-  it('falls back to the latest tool-derived group title when newer groups have no preamble text', () => {
+  it('falls back to the latest tool-derived group title when newer groups have no narration text', () => {
     const text = resolveVisibleBubbleContent([
       {
         finalResponse: false,
-        preambleContent: 'Calling updatePlan.',
+        narrationContent: 'Calling updatePlan.',
         title: 'Calling updatePlan.',
         toolSteps: []
       },
       {
         finalResponse: false,
-        preambleContent: '',
+        narrationContent: '',
         title: 'Using llm/agents/run.',
         toolSteps: [{ toolName: 'llm/agents/run' }]
       }
@@ -942,12 +942,12 @@ describe('mapCanonicalExecutionGroups', () => {
       visibleGroups: [],
       iterationContent: 'Once upon a time, a bear met a dog in the woods.',
       responseContent: '',
-      preambleContent: '',
+      narrationContent: '',
       streamContent: 'Once upon a time, a bear met a dog in the woods.'
     });
 
     expect(text).toContain('bear met a dog');
-    expect(shouldShowPreambleBubble([], text)).toBe(true);
+    expect(shouldShowNarrationBubble([], text)).toBe(true);
   });
 
   it('does not promote live stream sidecar content into the main bubble while execution details are active', () => {
@@ -955,12 +955,12 @@ describe('mapCanonicalExecutionGroups', () => {
       visibleGroups: [
         {
           finalResponse: false,
-          preambleContent: 'Calling MetricsAdCube.'
+          narrationContent: 'Calling MetricsAdCube.'
         }
       ],
       iterationContent: '',
       responseContent: '',
-      preambleContent: 'Calling MetricsAdCube.',
+      narrationContent: 'Calling MetricsAdCube.',
       streamContent: '<!-- CHART_SPEC:v1 -->\n```json\n{"chart":{"type":"bar"},"data":[{"x":"a","value":1}]}\n```'
     });
 
@@ -1371,7 +1371,7 @@ describe('mapCanonicalExecutionGroups', () => {
       {
         parentMessageId: 'p1',
         status: 'completed',
-        preamble: 'Checking files.',
+        narration: 'Checking files.',
         finalResponse: false,
         modelSteps: [
           {
@@ -1472,7 +1472,7 @@ describe('mapCanonicalExecutionGroups', () => {
         status: 'completed',
         modelSteps: [],
         toolSteps: [],
-        preamble: '',
+        narration: '',
         content: '',
         finalResponse: false
       }

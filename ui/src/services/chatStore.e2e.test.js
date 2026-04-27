@@ -271,13 +271,14 @@ describe('T-note-live control message_add ordering', () => {
             },
         });
         onSSE(CONV, {
-            type: 'assistant_final',
+            type: 'model_completed',
             conversationId: CONV,
             turnId: 'tn_live_note',
             pageId: 'page_final_live',
             assistantMessageId: 'page_final_live',
             content: 'Final answer',
             iteration: 1,
+            status: 'completed',
             createdAt: '2026-04-21T00:00:09Z',
         });
 
@@ -395,13 +396,14 @@ describe('T-parent-terminal linked child still running', () => {
             createdAt: '2026-04-21T00:00:01Z',
         });
         onSSE(CONV, {
-            type: 'assistant_final',
+            type: 'model_completed',
             conversationId: CONV,
             turnId: 'tn_parent_live_done',
             pageId: 'page_parent_live_done',
             assistantMessageId: 'page_parent_live_done',
             content: 'Parent answer',
             iteration: 1,
+            status: 'completed',
             createdAt: '2026-04-21T00:00:02Z',
         });
         onSSE(CONV, {
@@ -775,13 +777,13 @@ describe('T-live active SSE sequence stays consolidated by iteration', () => {
             createdAt: '2025-01-01T00:00:09.500Z',
         });
         onSSE(CONV, {
-            type: 'assistant_preamble',
+            type: 'narration',
             conversationId: CONV,
             turnId: 'tn_live',
             assistantMessageId: 'msg_task_2',
             mode: 'task',
             iteration: 2,
-            preamble: 'Pulling benchmark recommendation…',
+            narration: 'Pulling benchmark recommendation…',
             createdAt: '2025-01-01T00:00:10Z',
         });
 
@@ -896,7 +898,7 @@ describe('T-elicitation resolved history keeps execution-details state honest', 
                     pages: [{
                         assistantMessageId: 'msg_assistant_done',
                         status: 'running',
-                        preamble: 'Using prompt/get.',
+                        narration: 'Using prompt/get.',
                         modelCall: {
                             provider: 'openai',
                             model: 'gpt-5-mini',

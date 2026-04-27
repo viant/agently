@@ -11,6 +11,11 @@ import {
   resolveElicitationSubmitAction,
   triggerElicitationFormSubmit
 } from '../elicitationHelpers';
+import {
+  translateSchema,
+  extractLookupBindings,
+  registerLookupDataSourceServices,
+} from '../lookups/forgeBridge';
 
 export function parseConversationAndElicitation(message = {}) {
   const elicitation = message?.elicitation || {};
@@ -44,7 +49,19 @@ export default function ElicitationForm({ message, context, onResolved = null })
   const formValuesRef = useRef({});
   const formWrapperId = useRef(`elic-form-${Date.now()}`);
   const ids = useMemo(() => parseConversationAndElicitation(message), [message]);
-  const preparedSchema = useMemo(() => prepareRequestedSchema(requestedSchema), [requestedSchema]);
+  // First run the existing elicitation preparation, then translate any
+  // server-emitted `x-ui-lookup` attachments into forge `item.lookup` and
+  // register a forge-compatible Service on each referenced datasource so
+  // dialog fetches route through /v1/api/datasources/{id}/fetch.
+  const preparedSchema = useMemo(() => {
+    const base = prepareRequestedSchema(requestedSchema);
+    const translated = translateSchema(base);
+    const bindings = extractLookupBindings(translated);
+    if (bindings.length > 0) {
+      registerLookupDataSourceServices(bindings);
+    }
+    return translated;
+  }, [requestedSchema]);
   const approvalMeta = useMemo(() => extractToolApprovalMeta(requestedSchema), [requestedSchema]);
   const dataBindingKey = elicitationDataBindingKey(ids.elicitationId);
   const submitAction = useMemo(() => resolveElicitationSubmitAction(requestedSchema), [requestedSchema]);

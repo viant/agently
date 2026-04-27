@@ -26,7 +26,7 @@ describe('ExecutionWorkspace helpers', () => {
 
   it('treats planned tool calls as presentable latest-page content', () => {
     expect(isPresentableGroup({
-      preamble: '',
+      narration: '',
       toolCalls: [],
       toolCallsPlanned: [{ toolName: 'llm/agents/run' }],
       finalResponse: false,
@@ -39,7 +39,7 @@ describe('ExecutionWorkspace helpers', () => {
       {
         assistantMessageId: 'm1',
         sequence: 1,
-        preamble: 'Using llm/agents/run.',
+        narration: 'Using llm/agents/run.',
         toolCalls: [{ toolName: 'llm/agents/run' }],
         toolCallsPlanned: [],
         finalResponse: false,
@@ -48,7 +48,7 @@ describe('ExecutionWorkspace helpers', () => {
       {
         assistantMessageId: 'm2',
         sequence: 2,
-        preamble: '',
+        narration: '',
         toolCalls: [],
         toolCallsPlanned: [],
         finalResponse: false,
@@ -79,7 +79,7 @@ describe('ExecutionWorkspace helpers', () => {
     const step = normalizeModelStep({
       assistantMessageId: 'a1',
       status: 'streaming',
-      preamble: 'Thinking...',
+      narration: 'Thinking...',
       content: 'partial streamed text',
       finalResponse: false,
       modelSteps: [{
@@ -93,7 +93,7 @@ describe('ExecutionWorkspace helpers', () => {
     expect(step.streamPayload).toEqual({
       status: 'streaming',
       content: 'partial streamed text',
-      preamble: 'Thinking...'
+      narration: 'Thinking...'
     });
   });
 

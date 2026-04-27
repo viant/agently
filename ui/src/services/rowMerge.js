@@ -162,7 +162,7 @@ function mergeExecutionGroupEntry(existing = {}, incoming = {}) {
     modelMessageId: chooseRichValue(incoming?.modelMessageId, existing?.modelMessageId, ''),
     sequence: chooseRichValue(incoming?.sequence, existing?.sequence, null),
     iteration: chooseRichValue(incoming?.iteration, existing?.iteration, null),
-    preamble: chooseRichValue(incoming?.preamble, existing?.preamble, ''),
+    narration: chooseRichValue(incoming?.narration, existing?.narration, ''),
     content: chooseRichValue(incoming?.content, existing?.content, ''),
     finalResponse: Boolean(existing?.finalResponse || existing?.FinalResponse || incoming?.finalResponse || incoming?.FinalResponse),
     status: chooseRichValue(incoming?.status, existing?.status, ''),
@@ -239,10 +239,10 @@ function mergeRow(existing = {}, incoming = {}) {
     ? chooseRichValue(incoming?.content, existing?.content, '')
     : chooseRichValue(existing?.content, incoming?.content, '');
   const mergedPreamble = replaceOpenAssistantBubble
-    ? chooseRichValue(existing?.preamble, incoming?.preamble, '')
+    ? chooseRichValue(existing?.narration, incoming?.narration, '')
     : preferIncomingAssistantContent
-    ? chooseRichValue(incoming?.preamble, existing?.preamble, '')
-    : chooseRichValue(existing?.preamble, incoming?.preamble, '');
+    ? chooseRichValue(incoming?.narration, existing?.narration, '')
+    : chooseRichValue(existing?.narration, incoming?.narration, '');
 
   return {
     ...existing,
@@ -260,7 +260,7 @@ function mergeRow(existing = {}, incoming = {}) {
     interim: chooseRichValue(existing?.interim, incoming?.interim, 0),
     content: mergedContent,
     rawContent: chooseRichValue(existing?.rawContent, incoming?.rawContent, ''),
-    preamble: mergedPreamble,
+    narration: mergedPreamble,
     toolName: chooseRichValue(existing?.toolName, incoming?.toolName, ''),
     linkedConversationId: chooseRichValue(existing?.linkedConversationId, incoming?.linkedConversationId, ''),
     modelSteps: mergeUniqueEntries(existing?.modelSteps, incoming?.modelSteps),

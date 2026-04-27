@@ -178,12 +178,12 @@ export function normalizeModelStep(group = {}) {
   const status = firstString(modelCall?.status, group?.status);
   const finalResponse = Boolean(group?.finalResponse);
   const finalContent = firstString(group?.content);
-  const preamble = firstString(group?.preamble);
-  const derivedStreamPayload = modelCall?.streamPayload || (!finalResponse && (finalContent || preamble)
+  const narration = firstString(group?.narration);
+  const derivedStreamPayload = modelCall?.streamPayload || (!finalResponse && (finalContent || narration)
     ? {
         status,
         content: finalContent || '',
-        preamble: preamble || ''
+        narration: narration || ''
       }
     : null);
   const derivedResponsePayload = modelCall?.responsePayload ?? (finalResponse && finalContent ? finalContent : null);
@@ -275,7 +275,7 @@ function truncateText(value, limit = 72) {
 }
 
 export function modelPreamblePreview(group = {}, limit = 72) {
-  return truncateText(group?.preamble || '', limit);
+  return truncateText(group?.narration || '', limit);
 }
 
 export function isPresentableGroup(group = {}) {
@@ -746,7 +746,7 @@ export default function ExecutionWorkspace() {
                   >
                     <div className="app-execution-step-head">
                       <span>{`${displayStepIcon(modelStep)} ${displayStepTitle(modelStep)}`}</span>
-                      <span title={String(group?.preamble || '').trim()}>
+                      <span title={String(group?.narration || '').trim()}>
                         {modelPreamblePreview(group) || ''}
                       </span>
                     </div>
@@ -826,7 +826,7 @@ export default function ExecutionWorkspace() {
                     ) : null}
                   </div>
                 );})}
-                {group.preamble ? <div className="app-execution-response preamble">{group.preamble}</div> : null}
+                {group.narration ? <div className="app-execution-response narration">{group.narration}</div> : null}
                 {group.content ? <div className="app-execution-response final">{group.content}</div> : null}
                     </>
                   );

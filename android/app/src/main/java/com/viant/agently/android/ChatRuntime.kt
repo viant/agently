@@ -32,19 +32,19 @@ internal fun latestAssistantMarkdown(snapshot: ConversationStreamSnapshot): Stri
         .asReversed()
         .firstOrNull { message ->
             message.role.equals("assistant", ignoreCase = true) &&
-                (!message.content.isNullOrBlank() || !message.preamble.isNullOrBlank())
+                (!message.content.isNullOrBlank() || !message.narration.isNullOrBlank())
         }
         ?: return null
     return combineAssistantMarkdown(latest)
 }
 
 private fun combineAssistantMarkdown(message: BufferedMessage): String? {
-    val preamble = message.preamble?.trim().orEmpty()
+    val narration = message.narration?.trim().orEmpty()
     val content = message.content?.trim().orEmpty()
     return when {
-        preamble.isNotEmpty() && content.isNotEmpty() -> "$preamble\n\n$content"
+        narration.isNotEmpty() && content.isNotEmpty() -> "$narration\n\n$content"
         content.isNotEmpty() -> content
-        preamble.isNotEmpty() -> preamble
+        narration.isNotEmpty() -> narration
         else -> null
     }
 }
@@ -133,12 +133,12 @@ internal fun transcriptFromState(state: ConversationStateResponse): List<ChatEnt
                 )
             )
         }
-        val assistantId = turn.assistant?.final?.messageId ?: turn.assistant?.preamble?.messageId
+        val assistantId = turn.assistant?.final?.messageId ?: turn.assistant?.narration?.messageId
         val assistantContent = buildString {
-            val preamble = turn.assistant?.preamble?.content?.trim().orEmpty()
+            val narration = turn.assistant?.narration?.content?.trim().orEmpty()
             val final = turn.assistant?.final?.content?.trim().orEmpty()
-            if (preamble.isNotEmpty()) {
-                append(preamble)
+            if (narration.isNotEmpty()) {
+                append(narration)
             }
             if (final.isNotEmpty()) {
                 if (isNotEmpty()) append("\n\n")

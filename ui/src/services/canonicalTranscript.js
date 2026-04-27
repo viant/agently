@@ -115,7 +115,7 @@ export function extractCanonicalExecutionGroups(turns = []) {
         parentMessageId: firstText(page?.parentMessageId),
         sequence: firstNumber(page?.pageIndex, page?.iteration),
         iteration: firstNumber(page?.iteration),
-        preamble: firstText(page?.preamble),
+        narration: firstText(page?.narration),
         content: firstText(page?.content),
         status: firstText(page?.status, turnStatus),
         finalResponse: Boolean(page?.finalResponse),

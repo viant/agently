@@ -18,7 +18,7 @@ class ChatRuntimeTest {
             pendingElicitation = null,
             bufferedMessages = listOf(
                 BufferedMessage(id = "m1", turnId = "turn-1", role = "assistant", content = "Earlier"),
-                BufferedMessage(id = "m2", turnId = "turn-2", role = "assistant", preamble = "Heads up", content = "Latest")
+                BufferedMessage(id = "m2", turnId = "turn-2", role = "assistant", narration = "Heads up", content = "Latest")
             ),
             liveExecutionGroupsById = emptyMap()
         )

@@ -45,6 +45,15 @@ function normalizeExecutionRowStatus(value = '') {
   return 'running';
 }
 
+function normalizedExecutionPayloadStatus(payload = {}) {
+  const explicit = normalizedStatusValue(payload?.status);
+  if (explicit) return normalizeExecutionRowStatus(explicit);
+  const eventType = String(payload?.type || '').trim().toLowerCase();
+  if (eventType === 'model_completed') return 'completed';
+  if (eventType === 'model_started') return 'running';
+  return 'running';
+}
+
 function normalizedMessageIds(payload = {}) {
   const patch = payload?.patch && typeof payload.patch === 'object' ? payload.patch : {};
   return [
@@ -75,7 +84,7 @@ function canonicalPayloadMessageId(payload = {}) {
   ].map((value) => String(value || '').trim()).find(Boolean);
   if (explicit) return explicit;
   const type = String(payload?.type || '').trim().toLowerCase();
-  if (type === 'text_delta' || type === 'assistant_preamble' || type === 'assistant_final') {
+  if (type === 'text_delta' || type === 'narration' || type === 'assistant') {
     return String(payload?.id || '').trim();
   }
   if (String(payload?.op || '').trim().toLowerCase() === 'message_patch') {
@@ -105,14 +114,14 @@ function syntheticExecutionRoleFromPreamblePayload(payload = {}) {
   return '';
 }
 
-function syntheticModelStepForPreamble(payload = {}, preamble = '', existing = null) {
+function syntheticModelStepForPreamble(payload = {}, narration = '', existing = null) {
   const executionRole = syntheticExecutionRoleFromPreamblePayload(payload);
   if (!executionRole) return existing;
   const assistantMessageId = canonicalPayloadMessageId(payload);
   const phase = String(payload?.phase || '').trim();
   return {
     ...(existing || {}),
-    modelCallId: String(existing?.modelCallId || assistantMessageId || `preamble:${String(payload?.turnId || '').trim()}`).trim(),
+    modelCallId: String(existing?.modelCallId || assistantMessageId || `narration:${String(payload?.turnId || '').trim()}`).trim(),
     assistantMessageId: String(existing?.assistantMessageId || assistantMessageId).trim(),
     executionRole,
     phase,
@@ -120,7 +129,7 @@ function syntheticModelStepForPreamble(payload = {}, preamble = '', existing = n
     model: String(existing?.model || payload?.modelName || payload?.model?.model || '').trim(),
     status: String(payload?.status || existing?.status || 'running').trim() || 'running',
     responsePayload: {
-      content: String(preamble || '').trim(),
+      content: String(narration || '').trim(),
       messageKind: executionRole,
     }
   };
@@ -407,12 +416,13 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
   const createdAt = String(payload?.createdAt || '').trim();
   const finalResponse = !!payload?.finalResponse;
   const normalizedPayloadContent = normalizeStreamingMarkdown(String(payload?.content || '').trim()).content;
-  const normalizedVisibleContent = normalizeStreamingMarkdown(String(payload?.preamble || payload?.content || '').trim()).content;
+  const normalizedVisibleContent = normalizeStreamingMarkdown(String(payload?.narration || payload?.content || '').trim()).content;
   const errorMessage = String(payload?.error || payload?.errorMessage || '').trim();
   const startedAt = String(payload?.startedAt || payload?.createdAt || '').trim() || undefined;
-  const normalizedStatus = normalizeExecutionRowStatus(payload?.status);
+  const normalizedStatus = normalizedExecutionPayloadStatus(payload);
   const completedAt = String(
     payload?.completedAt
+    || (String(payload?.type || '').trim().toLowerCase() === 'model_completed' ? (payload?.createdAt || '') : '')
     || (payload?.finalResponse ? (payload?.createdAt || '') : '')
     || (String(normalizedStatus || '').toLowerCase() === 'completed' ? (payload?.createdAt || '') : '')
     || ''
@@ -424,7 +434,7 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
     phase: String(payload?.phase || '').trim() || undefined,
     sequence: Number(payload?.pageIndex || payload?.iteration || payload?.eventSeq || 0) || undefined,
     iteration: Number(payload?.iteration || 0) || undefined,
-    preamble: String(payload?.preamble || '').trim(),
+    narration: String(payload?.narration || '').trim(),
     content: finalResponse ? normalizedPayloadContent : '',
     finalResponse,
     status: normalizedStatus,
@@ -471,7 +481,7 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
     turnStatus: normalizedStatus,
     interim: finalResponse ? 0 : 1,
     content: finalResponse ? normalizedPayloadContent : normalizedVisibleContent,
-    preamble: String(payload?.preamble || '').trim(),
+    narration: String(payload?.narration || '').trim(),
     executionGroups: [group]
   };
 }
@@ -514,7 +524,7 @@ function appendLifecycleStep(row = {}, kind = '', payload = {}) {
     phase: 'lifecycle',
     sequence: -1,
     iteration: 0,
-    preamble: '',
+    narration: '',
     content: '',
     finalResponse: false,
     status: String(payload?.status || row?.status || 'running').trim(),
@@ -620,7 +630,7 @@ function ensureLiveTurnRows(chatState = {}, payload = {}, fallbackConversationID
     turnStatus: 'running',
     interim: 1,
     content: '',
-    preamble: '',
+    narration: '',
     executionGroups: []
   }, 'turn_started', payload);
   rows.push(lifecycleRow);
@@ -664,7 +674,7 @@ function applyExecutionStreamEventToRows(rows = [], payload = {}, fallbackConver
       sequence: nextRow.sequence ?? null,
       interim: updatedInterim,
       content: updatedContent,
-      preamble: nextRow.preamble || prev.preamble,
+      narration: nextRow.narration || prev.narration,
       executionGroups: preserveModelStepStartedAt(
         prev.executionGroups,
         preserveExecutionGroupStartedAt(
@@ -722,7 +732,7 @@ function applyToolStreamEventToRows(rows = [], payload = {}, fallbackConversatio
   const updatedGroups = [...groups];
   updatedGroups[groupIdx] = group;
   row.executionGroups = updatedGroups;
-  // Propagate turnId to the row so later events (assistant_final, turn_completed)
+  // Propagate turnId to the row so later terminal turn events
   // can find this row by turnId even when model_started never fired.
   if (turnId && !row.turnId) {
     row.turnId = turnId;
@@ -763,7 +773,7 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
     interim: Number(patch?.interim ?? 0) || 0,
     content: patchContent,
     rawContent: rawContent,
-    preamble: String(patch?.preamble || '').trim(),
+    narration: String(patch?.narration || '').trim(),
     toolName: String(patch?.toolName || '').trim(),
     linkedConversationId: String(patch?.linkedConversationId || '').trim(),
     parentMessageId: String(patch?.parentMessageId || '').trim(),
@@ -788,7 +798,7 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
     const isExecutionEvidence = role === 'tool'
       || messageType === 'tool'
       || messageType === 'tool_op'
-      || (role === 'assistant' && Number(baseRow.interim || 0) === 1 && (baseRow.content || baseRow.preamble));
+      || (role === 'assistant' && Number(baseRow.interim || 0) === 1 && (baseRow.content || baseRow.narration));
     return !isExecutionEvidence;
   });
   if (!role && !turnId) {
@@ -820,7 +830,7 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
         interim: baseRow.interim,
         content: patchContent || prev.content,
         rawContent: rawContent || String(prev.rawContent || ''),
-        preamble: baseRow.preamble || prev.preamble,
+        narration: baseRow.narration || prev.narration,
         toolName: baseRow.toolName || prev.toolName,
         linkedConversationId: baseRow.linkedConversationId || prev.linkedConversationId,
         parentMessageId: baseRow.parentMessageId || prev.parentMessageId,
@@ -847,7 +857,7 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
       const groups = Array.isArray(prev.executionGroups) ? [...prev.executionGroups] : [];
       const patchInterim = Number(patch?.interim ?? 0) || 0;
       const patchStatus = String(patch?.status || '').trim();
-      const patchPreamble = String(patch?.preamble || '').trim();
+      const patchPreamble = String(patch?.narration || '').trim();
       let groupPatched = false;
       const updatedGroups = groups.map((group, index) => {
         const assistantMessageId = String(group?.assistantMessageId || '').trim();
@@ -857,7 +867,7 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
         groupPatched = true;
         return {
           ...group,
-          preamble: patchPreamble || group?.preamble || '',
+          narration: patchPreamble || group?.narration || '',
           content: patchContent || group?.content || '',
           finalResponse: patchInterim === 0 && patchContent !== '' ? true : !!group?.finalResponse,
           status: patchStatus || (patchInterim === 0 ? 'completed' : 'streaming') || group?.status || ''
@@ -865,14 +875,14 @@ function applyMessagePatchToRows(rows = [], payload = {}) {
       });
       // Never set interim=0 from message_patch — the backend may
       // prematurely clear interim for tool-call responses. Only
-      // assistant_final and turn_completed should mark a row as final.
+      // Assistant message appends and turn_completed should mark a row as final.
       filtered[existingIdx] = {
         ...prev,
         phase: baseRow.phase || prev.phase,
         mode: baseRow.mode || prev.mode,
         content: patchContent || prev.content,
         rawContent: rawContent || String(prev.rawContent || ''),
-        preamble: String(patch?.preamble || '').trim() || prev.preamble,
+        narration: String(patch?.narration || '').trim() || prev.narration,
         status: baseRow.status || prev.status,
         turnStatus: baseRow.turnStatus || prev.turnStatus,
         executionGroups: groupPatched ? updatedGroups : prev.executionGroups
@@ -977,10 +987,10 @@ export function applyStreamChunk(chatState = {}, payload = {}, conversationID = 
     };
     row.content = normalized.content;
     row.isStreaming = true;
-    // Clear preamble once real content starts streaming — prevents
-    // concatenated preamble+response in the bubble.
-    if (row.preamble && row._streamContent.length > 0) {
-      row.preamble = '';
+    // Clear narration once real content starts streaming — prevents
+    // concatenated narration+response in the bubble.
+    if (row.narration && row._streamContent.length > 0) {
+      row.narration = '';
     }
     const groups = Array.isArray(row.executionGroups) ? [...row.executionGroups] : [];
     if (groups.length > 0) {
@@ -1161,8 +1171,8 @@ export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConvers
   }
   const turnId = String(payload?.turnId || '').trim();
   const assistantMessageId = canonicalPayloadMessageId(payload);
-  const preamble = String(payload?.content || payload?.preamble || '').trim();
-  if (!preamble) return chatState.liveRows || [];
+  const narration = String(payload?.content || payload?.narration || '').trim();
+  if (!narration) return chatState.liveRows || [];
 
   const rows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
   const index = findAssistantExecutionRowIndex(rows, turnId, assistantMessageId);
@@ -1171,9 +1181,9 @@ export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConvers
     const groups = Array.isArray(prev.executionGroups) ? [...prev.executionGroups] : [];
     if (groups.length > 0) {
       const last = { ...groups[groups.length - 1] };
-      last.preamble = preamble;
+      last.narration = narration;
       const modelSteps = Array.isArray(last.modelSteps) ? [...last.modelSteps] : [];
-      const syntheticStep = syntheticModelStepForPreamble(payload, preamble, modelSteps[0] || null);
+      const syntheticStep = syntheticModelStepForPreamble(payload, narration, modelSteps[0] || null);
       if (syntheticStep) {
         if (modelSteps.length > 0) {
           modelSteps[0] = syntheticStep;
@@ -1193,10 +1203,10 @@ export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConvers
       ...prev,
       agentIdUsed: String(payload?.agentIdUsed || prev?.agentIdUsed || '').trim(),
       agentName: String(payload?.agentName || prev?.agentName || '').trim(),
-      // For active interim pages, the latest preamble should own the bubble
+      // For active interim pages, the latest narration should own the bubble
       // until actual streamed/final content replaces it.
-      content: hasStreamContent ? prev.content : preamble,
-      preamble,
+      content: hasStreamContent ? prev.content : narration,
+      narration,
       executionGroups: groups
     };
     rows[index] = maybePromoteAssistantRowIdentity(rows[index], turnId, assistantMessageId);
@@ -1213,14 +1223,14 @@ export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConvers
       agentName: String(payload?.agentName || '').trim(),
       turnStatus: 'running',
       interim: 1,
-      content: preamble,
-      preamble,
+      content: narration,
+      narration,
       executionGroups: [{
         assistantMessageId,
-        preamble,
+        narration,
         iteration: Number(payload?.iteration || 0) || undefined,
         modelSteps: (() => {
-          const step = syntheticModelStepForPreamble(payload, preamble, null);
+          const step = syntheticModelStepForPreamble(payload, narration, null);
           return step ? [step] : [];
         })()
       }],
@@ -1255,7 +1265,7 @@ export function applyAssistantMessageAddEvent(chatState = {}, payload = {}) {
   const messageId = String(payload?.messageId || payload?.id || patch?.id || '').trim();
   const turnId = String(patch?.turnId || payload?.turnId || '').trim();
   const role = String(patch?.role || '').trim().toLowerCase();
-  const content = normalizeStreamingMarkdown(String(patch?.rawContent || patch?.content || '').trim()).content;
+  const content = normalizeStreamingMarkdown(String(patch?.rawContent || payload?.content || patch?.content || '').trim()).content;
   if (!messageId || !turnId || role !== 'assistant' || !content) {
     return Array.isArray(chatState.liveRows) ? chatState.liveRows : [];
   }
@@ -1266,15 +1276,15 @@ export function applyAssistantMessageAddEvent(chatState = {}, payload = {}) {
     _bubbleSource: 'message_add',
     role: 'assistant',
     mode: String(patch?.mode || '').trim().toLowerCase(),
-    type: String(patch?.messageType || 'text').trim().toLowerCase(),
+    type: String(patch?.messageType || patch?.type || 'text').trim().toLowerCase(),
     turnId,
     createdAt: String(patch?.createdAt || payload?.createdAt || '').trim(),
-    status: String(patch?.status || 'completed').trim(),
+    status: String(payload?.status || patch?.status || 'completed').trim(),
     turnStatus: String(patch?.status || 'running').trim(),
     interim: Number(patch?.interim ?? 0) || 0,
     content,
     rawContent: String(patch?.rawContent || '').trim(),
-    preamble: String(patch?.preamble || '').trim(),
+    narration: String(patch?.narration || '').trim(),
     parentMessageId: String(patch?.parentMessageId || '').trim(),
     sequence: Number.isFinite(Number(patch?.sequence)) ? Number(patch.sequence) : null,
     iteration: Number.isFinite(Number(patch?.iteration)) ? Number(patch.iteration) : null,
@@ -1425,7 +1435,7 @@ export function finalizeStreamTurn(chatState = {}, payload = {}, fallbackConvers
       turnId: turnID,
       status,
       finalResponse: false,
-      preamble: '',
+      narration: '',
       content: ''
     }, fallbackConversationID);
     if (fallbackRow) {

@@ -30,6 +30,13 @@ export function classifyMessage(message) {
 
 const SYNTHETIC_RENDER_TYPES = new Set(['iteration', 'queue']);
 
+function isHiddenInternalMessage(item = {}) {
+  const role = String(item?.role || '').trim().toLowerCase();
+  const mode = String(item?.mode || '').trim().toLowerCase();
+  if (role !== 'user') return false;
+  return mode === 'chain';
+}
+
 function mergeGeneratedFiles(...lists) {
   const out = [];
   const seen = new Set();
@@ -78,6 +85,7 @@ export function normalizeMessages(raw = [], options = {}) {
         const kind = String(item?._type || '').toLowerCase();
         return !SYNTHETIC_RENDER_TYPES.has(kind) && !item?._iterationData;
       })
+      .filter((item) => !isHiddenInternalMessage(item))
       .map((item) => {
         return normalizeOne(item);
       })
@@ -92,6 +100,7 @@ export function normalizeMessages(raw = [], options = {}) {
       if (kind === 'paginator') return false;
       if (kind === 'iteration' && !item?._iterationData?.optimistic) return false;
       if (String(item?.role || '').trim().toLowerCase() === 'user' && String(item?.type || '').trim().toLowerCase() === 'elicitation_response') return false;
+      if (isHiddenInternalMessage(item)) return false;
       return true;
     })
     .filter((item) => String(item?.status || '').toLowerCase() !== 'summarized')
@@ -369,8 +378,8 @@ function mergeIterationItems(existing = {}, incoming = {}) {
     turnCompletedAt: chooseRichString(incoming?.turnCompletedAt, existing?.turnCompletedAt),
     summary: incoming?.summary || existing?.summary || null,
     response: incoming?.response || existing?.response || null,
-    preamble: mergePreamble(existing?.preamble, incoming?.preamble),
-    preambles: [],
+    narration: mergePreamble(existing?.narration, incoming?.narration),
+    narrations: [],
     toolCalls: mergeStepList(existing?.toolCalls, incoming?.toolCalls),
     linkedConversations: [],
     executionGroups: mergeExecutionGroups(existing?.executionGroups, incoming?.executionGroups)
@@ -384,25 +393,25 @@ function mergeIterationItems(existing = {}, incoming = {}) {
     linked.push(item);
   }
   merged.linkedConversations = linked;
-  const preambles = [];
+  const narrations = [];
   const seen = new Map();
-  for (const item of [...(Array.isArray(existing?.preambles) ? existing.preambles : []), ...(Array.isArray(incoming?.preambles) ? incoming.preambles : [])]) {
+  for (const item of [...(Array.isArray(existing?.narrations) ? existing.narrations : []), ...(Array.isArray(incoming?.narrations) ? incoming.narrations : [])]) {
     const key = chooseRichString(item?.id, item?.createdAt, item?.content);
     if (!key) {
-      preambles.push(item);
+      narrations.push(item);
       continue;
     }
     const idx = seen.get(key);
     if (idx == null) {
-      seen.set(key, preambles.length);
-      preambles.push(item);
+      seen.set(key, narrations.length);
+      narrations.push(item);
     } else {
-      preambles[idx] = mergePreamble(preambles[idx], item);
+      narrations[idx] = mergePreamble(narrations[idx], item);
     }
   }
-  merged.preambles = preambles;
-  if (!merged.preamble && merged.preambles.length > 0) {
-    merged.preamble = merged.preambles[merged.preambles.length - 1];
+  merged.narrations = narrations;
+  if (!merged.narration && merged.narrations.length > 0) {
+    merged.narration = merged.narrations[merged.narrations.length - 1];
   }
   return merged;
 }
@@ -411,8 +420,8 @@ function groupedIterationResponseId(item = {}) {
   return chooseRichString(
     item?.response?.id,
     item?.response?.messageId,
-    item?.preamble?.id,
-    Array.isArray(item?.preambles) && item.preambles.length > 0 ? item.preambles[item.preambles.length - 1]?.id : '',
+    item?.narration?.id,
+    Array.isArray(item?.narrations) && item.narrations.length > 0 ? item.narrations[item.narrations.length - 1]?.id : '',
     ''
   );
 }
@@ -453,8 +462,8 @@ export function groupIntoIterations(messages = []) {
     if (Array.isArray(item?.executionGroups) && item.executionGroups.length > 0) return true;
     if (Array.isArray(item?.toolCalls) && item.toolCalls.length > 0) return true;
     if (Array.isArray(item?.linkedConversations) && item.linkedConversations.length > 0) return true;
-    if (Array.isArray(item?.preambles) && item.preambles.some((entry) => String(entry?.content || '').trim() !== '')) return true;
-    if (String(item?.preamble?.content || '').trim() !== '') return true;
+    if (Array.isArray(item?.narrations) && item.narrations.some((entry) => String(entry?.content || '').trim() !== '')) return true;
+    if (String(item?.narration?.content || '').trim() !== '') return true;
     if (String(item?.streamContent || '').trim() !== '') return true;
     if (String(item?.response?.content || '').trim() !== '') return true;
     if (String(item?.errorMessage || '').trim() !== '') return true;
@@ -510,8 +519,8 @@ export function groupIntoIterations(messages = []) {
           return Number.isFinite(raw) && raw > 0 ? raw : null;
         })(),
         agentId: '',
-        preambles: [],
-        preamble: null,
+        narrations: [],
+        narration: null,
         content: '',
         streamContent: '',
         streamCreatedAt: '',
@@ -535,8 +544,8 @@ export function groupIntoIterations(messages = []) {
     if (!Array.isArray(steps) || steps.length === 0) return;
     const target = ensureCurrent(message);
     target.toolCalls = mergeStepList(target.toolCalls, steps);
-    const preambles = Array.isArray(target.preambles) ? target.preambles : [];
-    const lastPreamble = preambles[preambles.length - 1];
+    const narrations = Array.isArray(target.narrations) ? target.narrations : [];
+    const lastPreamble = narrations[narrations.length - 1];
     if (lastPreamble) {
       lastPreamble.steps = mergeStepList(lastPreamble.steps, steps);
     }
@@ -650,18 +659,18 @@ export function groupIntoIterations(messages = []) {
       ensureCurrent(message);
       attachAgent(message);
       attachLinkedConversations(message);
-      current.preambles = Array.isArray(current.preambles) ? current.preambles : [];
+      current.narrations = Array.isArray(current.narrations) ? current.narrations : [];
       if (!String(preambleEntry.content || '').trim()) {
-        current.preamble = current.preambles[current.preambles.length - 1] || null;
-      } else if (current.preambles.length > 0) {
-        current.preambles[current.preambles.length - 1] = mergePreamble(current.preambles[current.preambles.length - 1], preambleEntry);
+        current.narration = current.narrations[current.narrations.length - 1] || null;
+      } else if (current.narrations.length > 0) {
+        current.narrations[current.narrations.length - 1] = mergePreamble(current.narrations[current.narrations.length - 1], preambleEntry);
       } else {
-        current.preambles.push(preambleEntry);
-        current.preamble = preambleEntry;
+        current.narrations.push(preambleEntry);
+        current.narration = preambleEntry;
       }
       current.status = String(message.turnStatus || message.status || current.status || 'running');
       current.errorMessage = chooseRichString(message?.errorMessage, current?.errorMessage);
-      debugIterationTimeline('interim-preamble', {
+      debugIterationTimeline('interim-narration', {
         turnId: current?.turnId || '',
         iteration: current?.iteration,
         content: String(preambleEntry?.content || '').trim(),
@@ -688,7 +697,7 @@ export function groupIntoIterations(messages = []) {
       }
       if (isFinalAssistant && assistantText !== '' && hasNonModelStep && !streamOwnsBubble) {
         // Text arrived alongside tool calls (common in streaming). Treat as
-        // preamble so it renders alongside the execution block. Not set as
+        // narration so it renders alongside the execution block. Not set as
         // response — the streaming bubble (_type:'stream') is a separate
         // rendering path and is unaffected.
         const preambleEntry = {
@@ -699,13 +708,13 @@ export function groupIntoIterations(messages = []) {
         ensureCurrent(message);
         attachAgent(message);
         attachLinkedConversations(message);
-        current.preambles = Array.isArray(current.preambles) ? current.preambles : [];
-        if (current.preambles.length > 0) {
-          current.preambles[current.preambles.length - 1] = mergePreamble(current.preambles[current.preambles.length - 1], preambleEntry);
+        current.narrations = Array.isArray(current.narrations) ? current.narrations : [];
+        if (current.narrations.length > 0) {
+          current.narrations[current.narrations.length - 1] = mergePreamble(current.narrations[current.narrations.length - 1], preambleEntry);
         } else {
-          current.preambles.push(preambleEntry);
+          current.narrations.push(preambleEntry);
         }
-        current.preamble = preambleEntry;
+        current.narration = preambleEntry;
         current.status = String(message.turnStatus || message.status || current.status || 'running');
         current.errorMessage = chooseRichString(message?.errorMessage, current?.errorMessage);
       } else if (isFinalAssistant && assistantText !== '' && !streamOwnsBubble) {
@@ -774,7 +783,7 @@ export function groupIntoIterations(messages = []) {
     iterations: items.filter((item) => item?.type === 'iteration').map((item) => ({
       turnId: item?.turnId || '',
       iteration: item?.iteration,
-      preambles: Array.isArray(item?.preambles) ? item.preambles.length : 0,
+      narrations: Array.isArray(item?.narrations) ? item.narrations.length : 0,
       toolCalls: Array.isArray(item?.toolCalls) ? item.toolCalls.length : 0,
       response: String(item?.response?.content || '').trim()
     }))
@@ -818,7 +827,7 @@ export function synthesizeIterationMessages(messages = [], visibleCount = Number
       continue;
     }
     if (item.type === 'response') {
-      // Skip interim messages — they are already captured as preambles.
+      // Skip interim messages — they are already captured as narrations.
       const isInterim = Number(item.message?.interim || 0) === 1;
       if (isInterim) continue;
       const turnId = String(item?.message?.turnId || '').trim();
@@ -834,7 +843,7 @@ export function synthesizeIterationMessages(messages = [], visibleCount = Number
 
     if (item.type === 'iteration') {
       if (seenIterations >= firstVisibleIndex) {
-        const createdAt = String(item?.response?.createdAt || item?.preamble?.createdAt || '').trim();
+        const createdAt = String(item?.response?.createdAt || item?.narration?.createdAt || '').trim();
         const isLatestIteration = seenIterations === iterations.length - 1;
         const turnId = String(item?.turnId || '').trim();
         const pendingStreams = deferredStreams.get(turnId) || [];
@@ -852,7 +861,7 @@ export function synthesizeIterationMessages(messages = [], visibleCount = Number
           item?.response?.content
           || streamContent
           || item?.content
-          || item?.preamble?.content
+          || item?.narration?.content
           || ''
         ).trim();
         const hasNonLifecycleExecutionEvidence = (Array.isArray(item?.executionGroups) ? item.executionGroups : []).some((group) => {
@@ -884,8 +893,8 @@ export function synthesizeIterationMessages(messages = [], visibleCount = Number
           content: iterationContent,
           generatedFiles: mergeGeneratedFiles(
             item?.response?.generatedFiles,
-            item?.preamble?.generatedFiles,
-            ...(Array.isArray(item?.preambles) ? item.preambles.map((entry) => entry?.generatedFiles) : [])
+            item?.narration?.generatedFiles,
+            ...(Array.isArray(item?.narrations) ? item.narrations.map((entry) => entry?.generatedFiles) : [])
           ),
           _iterationData: {
             ...item,

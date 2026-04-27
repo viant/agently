@@ -17,7 +17,7 @@ final class ChatRuntimeTests: XCTestCase {
                     conversationID: "conv-1",
                     turnID: "turn-1",
                     content: "buffered fallback",
-                    preamble: "buffered preamble",
+                    narration: "buffered narration",
                     status: "running"
                 )
             ],
@@ -27,7 +27,7 @@ final class ChatRuntimeTests: XCTestCase {
                     assistantMessageID: "msg-live",
                     turnID: "turn-1",
                     sequence: 2,
-                    preamble: "live preamble",
+                    narration: "live narration",
                     content: "live content",
                     status: "running",
                     createdAt: "2026-04-15T22:00:00Z"
@@ -39,7 +39,7 @@ final class ChatRuntimeTests: XCTestCase {
 
         XCTAssertEqual(runtime.transcript.count, 1)
         XCTAssertEqual(runtime.transcript.first?.id, "msg-live")
-        XCTAssertEqual(runtime.transcript.first?.markdown, "live preamble\n\nlive content")
+        XCTAssertEqual(runtime.transcript.first?.markdown, "live narration\n\nlive content")
         XCTAssertEqual(runtime.transcript.first?.statusLabel, "Streaming")
     }
 
@@ -57,7 +57,7 @@ final class ChatRuntimeTests: XCTestCase {
                     conversationID: "conv-1",
                     turnID: "turn-1",
                     content: "buffered content",
-                    preamble: "buffered preamble",
+                    narration: "buffered narration",
                     status: "completed"
                 )
             ],
@@ -68,7 +68,7 @@ final class ChatRuntimeTests: XCTestCase {
 
         XCTAssertEqual(runtime.transcript.count, 1)
         XCTAssertEqual(runtime.transcript.first?.id, "msg-buffered")
-        XCTAssertEqual(runtime.transcript.first?.markdown, "buffered preamble\n\nbuffered content")
+        XCTAssertEqual(runtime.transcript.first?.markdown, "buffered narration\n\nbuffered content")
         XCTAssertNil(runtime.transcript.first?.statusLabel)
     }
 
