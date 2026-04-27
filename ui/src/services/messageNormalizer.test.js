@@ -44,7 +44,7 @@ describe('normalizeMessages', () => {
             parentMessageId: 'router-1',
             phase: 'intake',
             status: 'completed',
-            preamble: 'Classifying request.',
+            narration: 'Classifying request.',
             modelSteps: [
               {
                 modelCallId: 'router-1',
@@ -404,7 +404,7 @@ describe('normalizeMessages', () => {
     expect(iterations).toHaveLength(2);
     expect(iterations[0]?._iterationData?.response?.content).toBe('Here is the first answer.');
     expect(iterations[1]?._iterationData?.response?.content).toBe('Here is the revised answer.');
-    expect(iterations[1]?._iterationData?.preamble?.content).toBe('Using resources-list and resources-grepFiles.');
+    expect(iterations[1]?._iterationData?.narration?.content).toBe('Using resources-list and resources-grepFiles.');
   });
 
   it('keeps synthesized iteration createdAt deterministic when source timestamps are missing', () => {
@@ -555,7 +555,7 @@ describe('normalizeMessages', () => {
     expect(normalized.some((entry) => entry?._type === 'paginator')).toBe(false);
   });
 
-  it('prefers live stream content over preamble content for the active iteration bubble', () => {
+  it('prefers live stream content over narration content for the active iteration bubble', () => {
     const messages = [
       {
         id: 'u1',
@@ -588,7 +588,7 @@ describe('normalizeMessages', () => {
 
     expect(iteration).toBeTruthy();
     expect(iteration.content).toBe('Hello there');
-    expect(iteration._iterationData?.preamble?.content).toBe('Let me think about that...');
+    expect(iteration._iterationData?.narration?.content).toBe('Let me think about that...');
     expect(iteration._iterationData?.streamContent).toBe('Hello there');
   });
 
@@ -617,7 +617,7 @@ describe('normalizeMessages', () => {
             modelMessageId: 'model-1',
             sequence: 1,
             status: 'running',
-            preamble: 'Inspecting the repository.',
+            narration: 'Inspecting the repository.',
             modelCall: {
               provider: 'openai',
               model: 'gpt-5.2',
@@ -684,7 +684,7 @@ describe('normalizeMessages', () => {
             modelMessageId: 'model-1',
             sequence: 1,
             status: 'running',
-            preamble: 'Checking blocker diagnosis.',
+            narration: 'Checking blocker diagnosis.',
             modelCall: {
               provider: 'openai',
               model: 'gpt-5.4',
@@ -1127,6 +1127,38 @@ describe('normalizeMessages', () => {
     });
   });
 
+  it('hides internal chain-mode user messages from rendered chat rows', () => {
+    const normalized = normalizeMessages([
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        content: 'Troubleshoot 2655998 order',
+        createdAt: '2026-04-24T19:00:00Z'
+      },
+      {
+        id: 'u-chain',
+        role: 'user',
+        mode: 'chain',
+        turnId: 'turn-1',
+        content: 'Troubleshoot 2655998 order: {\"name\":\"forecast\",\"input\":{\"order_id\":2655998}}',
+        createdAt: '2026-04-24T19:00:01Z'
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        interim: 0,
+        content: 'Final answer',
+        createdAt: '2026-04-24T19:00:02Z'
+      }
+    ], { visibleCount: Number.MAX_SAFE_INTEGER });
+
+    expect(normalized.some((entry) => String(entry?.id || '') === 'u-chain')).toBe(false);
+    expect(normalized.some((entry) => String(entry?.content || '').includes('"name":"forecast"'))).toBe(false);
+    expect(normalized.some((entry) => String(entry?.content || '') === 'Troubleshoot 2655998 order')).toBe(true);
+  });
+
   it('preserves distinct same-turn user rows when they have different ids', () => {
     const normalized = normalizeMessages([
       {
@@ -1161,7 +1193,7 @@ describe('normalizeMessages', () => {
     });
   });
 
-  it('keeps an interim assistant preamble even when it matches the user prompt and execution details are present', () => {
+  it('keeps an interim assistant narration even when it matches the user prompt and execution details are present', () => {
     const prompt = 'What are my HOME, SHELL, and PATH environment variables?';
     const normalized = normalizeMessages([
       {

@@ -546,7 +546,7 @@ describe('handleStreamEvent', () => {
     };
 
     handleStreamEvent(chatState, context, 'conv-1', {
-      type: 'assistant_preamble',
+      type: 'narration',
       conversationId: 'conv-1',
       turnId: 'turn-1',
       assistantMessageId: 'intake-msg-1',
@@ -924,7 +924,7 @@ describe('handleStreamEvent', () => {
       }
     ];
     chatState.streamTracker.applyEvent({
-      type: 'assistant_preamble',
+      type: 'narration',
       conversationId: 'conv-1',
       turnId: 'turn-1',
       messageId: 'msg-1',
@@ -999,7 +999,7 @@ describe('handleStreamEvent', () => {
       }
     ];
     chatState.streamTracker.applyEvent({
-      type: 'assistant_preamble',
+      type: 'narration',
       conversationId: 'conv-1',
       turnId: 'turn-1',
       messageId: 'msg-1',
@@ -1074,7 +1074,7 @@ describe('handleStreamEvent', () => {
       }
     ];
     chatState.streamTracker.applyEvent({
-      type: 'assistant_preamble',
+      type: 'narration',
       conversationId: 'conv-1',
       turnId: 'turn-1',
       messageId: 'msg-1',
@@ -1154,7 +1154,7 @@ describe('handleStreamEvent', () => {
       }
     ];
     chatState.streamTracker.applyEvent({
-      type: 'assistant_preamble',
+      type: 'narration',
       conversationId: 'conv-1',
       turnId: 'turn-1',
       messageId: 'msg-1',
@@ -1226,7 +1226,7 @@ describe('handleStreamEvent', () => {
       }
     ];
     chatState.streamTracker.applyEvent({
-      type: 'assistant_preamble',
+      type: 'narration',
       conversationId: 'conv-1',
       turnId: 'turn-1',
       messageId: 'msg-1',
@@ -1485,7 +1485,7 @@ describe('handleStreamEvent', () => {
       }
     ];
     chatState.streamTracker.applyEvent({
-      type: 'assistant_preamble',
+      type: 'narration',
       conversationId: 'conv-1',
       turnId: 'turn-1',
       messageId: 'msg-tracker',
@@ -2028,6 +2028,71 @@ describe('createNewConversation', () => {
     expect(context.resources.chat.lastConversationID).toBe('');
     expect(context.resources.chat.explicitNewConversationRequested).toBe(true);
   });
+
+  it('clears persisted composer drafts for current and pending conversations on explicit new conversation', async () => {
+    const store = {
+      'forge.composerDrafts.v1': JSON.stringify({
+        'conv-old': 'stale draft',
+        '__pending__': 'starter prompt',
+        'conv-keep': 'keep me'
+      })
+    };
+    const sessionStorage = {
+      getItem: (key) => store[key] || null,
+      setItem: (key, value) => { store[key] = String(value); }
+    };
+    const originalWindow = global.window;
+    global.window = { sessionStorage };
+
+    const conversationState = { values: { id: 'conv-old', agent: 'steward', queuedTurns: [] } };
+    const metaState = { values: { agent: 'steward', defaults: { agent: 'steward' } } };
+    const context = {
+      resources: {},
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => conversationState.values,
+                setFormData: ({ values }) => { conversationState.values = values; }
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => metaState.values,
+                setFormData: ({ values }) => { metaState.values = values; }
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    try {
+      await createNewConversation(context);
+      const parsed = JSON.parse(store['forge.composerDrafts.v1']);
+      expect(parsed['conv-old']).toBeUndefined();
+      expect(parsed['__pending__']).toBeUndefined();
+      expect(parsed['conv-keep']).toBe('keep me');
+    } finally {
+      global.window = originalWindow;
+    }
+  });
 });
 
 describe('switchConversation', () => {
@@ -2425,12 +2490,12 @@ describe('renderMergedRowsForContext', () => {
               status: 'running',
               turnStatus: 'running',
               content: 'Calling updatePlan.',
-              preamble: 'Calling updatePlan.',
+              narration: 'Calling updatePlan.',
               executionGroups: [
                 {
                   assistantMessageId: 'assistant-live-1',
                   iteration: 1,
-                  preamble: 'Calling updatePlan.',
+                  narration: 'Calling updatePlan.',
                   status: 'running'
                 }
               ]
@@ -2524,7 +2589,7 @@ describe('renderMergedRowsForContext', () => {
                 {
                   assistantMessageId: 'assistant-live-1',
                   iteration: 1,
-                  preamble: 'Checking targeting tree…',
+                  narration: 'Checking targeting tree…',
                   status: 'running'
                 }
               ]
@@ -2636,7 +2701,7 @@ describe('renderMergedRowsForContext', () => {
                 {
                   assistantMessageId: 'assistant:turn-2:1',
                   iteration: 1,
-                  preamble: 'Checking forecast…',
+                  narration: 'Checking forecast…',
                   status: 'running'
                 }
               ]
@@ -2852,7 +2917,7 @@ describe('renderMergedRowsForContext', () => {
               status: 'streaming',
               finalResponse: false,
               content: '1) Miso was a small tabby cat.',
-              preamble: 'Writing story...'
+              narration: 'Writing story...'
             }
           ]
         }
@@ -2864,7 +2929,7 @@ describe('renderMergedRowsForContext', () => {
     expect(assistant).toMatchObject({
       id: 'page-stream',
       content: '1) Miso was a small tabby cat.',
-      preamble: 'Writing story...',
+      narration: 'Writing story...',
       interim: 1,
       status: 'streaming'
     });
@@ -2902,7 +2967,7 @@ describe('renderMergedRowsForContext', () => {
               status: 'streaming',
               finalResponse: false,
               content: '',
-              preamble: ''
+              narration: ''
             }
           ]
         }

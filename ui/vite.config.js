@@ -5,6 +5,9 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
 const NET_LOG = '/tmp/browser-network.log';
+const LOCAL_APP_TARGET = 'http://localhost:8383';
+const LOCAL_DEV_HOST = 'localhost';
+const LOCAL_DEV_PORT = 5173;
 
 function networkLoggerPlugin() {
   return {
@@ -36,7 +39,7 @@ const pickEnv = (env, keys) => {
 };
 
 const resolveProxyTarget = (env) => {
-  const candidates = [env.DATA_URL, env.APP_URL, 'http://127.0.0.1:8585'];
+  const candidates = [env.DATA_URL, env.APP_URL, LOCAL_APP_TARGET];
   for (const candidate of candidates) {
     const value = String(candidate || '').trim();
     if (!value) continue;
@@ -44,7 +47,7 @@ const resolveProxyTarget = (env) => {
       return value.replace(/\/+$/, '');
     }
   }
-  return 'http://127.0.0.1:8585';
+  return LOCAL_APP_TARGET;
 };
 
 export default defineConfig(({ mode }) => {
@@ -52,8 +55,8 @@ export default defineConfig(({ mode }) => {
   const safeEnv = pickEnv(env, ['AUTH_URL', 'DATA_URL', 'APP_URL', 'APPSERVER_URL', 'VITE_FORGE_LOG_LEVEL']);
   const prodEnv = { AUTH_URL: '/', DATA_URL: '/', APPSERVER_URL: '/', ...safeEnv };
   const proxyTarget = resolveProxyTarget(env);
-  const devHost = String(env.VITE_HOST || 'localhost').trim() || 'localhost';
-  const devPort = Number(env.VITE_PORT || env.PORT || 5173) || 5173;
+  const devHost = String(env.VITE_HOST || LOCAL_DEV_HOST).trim() || LOCAL_DEV_HOST;
+  const devPort = Number(env.VITE_PORT || env.PORT || LOCAL_DEV_PORT) || LOCAL_DEV_PORT;
   const uiRoot = __dirname;
   const forgeRoot = resolve(__dirname, '../../forge');
   const forgeNodeModules = resolve(uiRoot, 'node_modules/forge');

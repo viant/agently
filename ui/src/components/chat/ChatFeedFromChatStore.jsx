@@ -18,7 +18,6 @@ import React from 'react';
 
 import { useChatProjection } from '../../services/chatStore.js';
 import IterationRowBlock from './IterationRowBlock.jsx';
-import { rowToLegacyIterationMessage } from './iterationRowLegacyAdapter.js';
 import BubbleMessage from './BubbleMessage.jsx';
 
 function UserBubble({ row }) {
@@ -70,7 +69,7 @@ function renderRow(row, context) {
     case 'assistant':
       return <AssistantBubble key={row.renderKey} row={row} />;
     case 'iteration':
-      return <IterationRowBlock key={row.renderKey} message={rowToLegacyIterationMessage(row)} iterationRow={row} context={context} />;
+      return <IterationRowBlock key={row.renderKey} iterationRow={row} context={context} />;
     default:
       return null;
   }

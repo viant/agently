@@ -16,14 +16,15 @@ import IterationRowBlock from './IterationRowBlock.jsx';
 
 describe('IterationRowBlock layout bridge', () => {
   it('keeps tool feed detail enabled on canonical iteration rows', () => {
+    const iterationRow = { kind: 'iteration', renderKey: 'rk_iter_1' };
     const html = renderToStaticMarkup(React.createElement(IterationRowBlock, {
-      message: { id: 'iter-1' },
+      iterationRow,
       context: {},
     }));
 
     expect(iterationBlockSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: { id: 'iter-1' },
+        canonicalRow: iterationRow,
         showToolFeedDetail: true,
       })
     );

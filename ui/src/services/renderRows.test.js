@@ -20,7 +20,7 @@ describe('buildCanonicalTranscriptRows', () => {
             iteration: 0,
             phase: 'intake',
             status: 'completed',
-            preamble: '',
+            narration: '',
             content: '',
             modelCall: {
               provider: 'openai',
@@ -57,7 +57,7 @@ describe('buildCanonicalTranscriptRows', () => {
             assistantMessageId: 'assistant-1',
             sequence: 1,
             status: 'waiting_for_user',
-            preamble: '',
+            narration: '',
             content: 'Please provide your favorite color.',
             modelCall: {
               provider: 'openai',
@@ -105,7 +105,7 @@ describe('buildCanonicalTranscriptRows', () => {
             parentMessageId: 'page-status',
             iteration: 1,
             status: 'running',
-            preamble: '',
+            narration: '',
             content: '',
             modelSteps: [{
               assistantMessageId: 'page-status',

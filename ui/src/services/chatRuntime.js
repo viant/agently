@@ -30,7 +30,6 @@ import {
 } from './transcriptStore';
 import {
   applyAssistantMessageAddEvent,
-  applyAssistantTerminalEvent,
   applyElicitationRequestedEvent,
   applyExecutionStreamEvent,
   applyMessagePatchEvent,
@@ -364,7 +363,7 @@ function shouldIgnoreExecutionStreamEvent(payload = {}) {
   const phase = String(payload?.phase || '').trim().toLowerCase();
   const type = String(payload?.type || '').trim().toLowerCase();
   if (mode === 'summary' || phase === 'summary') return true;
-  const isStreamingContentEvent = type === 'text_delta' || type === 'assistant_preamble';
+  const isStreamingContentEvent = type === 'text_delta' || type === 'narration';
   if (!isStreamingContentEvent) return false;
   return phase === 'intake';
 }
@@ -492,7 +491,7 @@ function isLatePostTerminalExecutionEvent(type = '', payload = {}) {
     || eventType === 'tool_calls_planned'
     || eventType === 'tool_call_started'
     || eventType === 'tool_call_completed'
-    || eventType === 'assistant_preamble'
+    || eventType === 'narration'
     || eventType === 'elicitation_requested'
     || eventType === 'linked_conversation_attached'
     || eventType === 'turn_started') {
@@ -1762,7 +1761,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
       // tool_calls_planned is emitted by the reactor when the LLM plans tool
-      // calls. It carries toolCallsPlanned and content/preamble. Update the
+      // calls. It carries toolCallsPlanned and content/narration. Update the
       // execution row so planned tools appear immediately in the UI.
       applyExecutionStreamEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload), conversationID);
       applyStreamConversationState(context, 'executing', payload);
@@ -1943,11 +1942,11 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       return;
     }
 
-    if (type === 'assistant_preamble') {
+    if (type === 'narration') {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
       const preamblePayload = enrichPayloadWithTurnAgent(chatState, context, payload);
-      logStreamDebug(chatState, 'stream-assistant-preamble', {
+      logStreamDebug(chatState, 'stream-assistant-narration', {
         turnId: String(preamblePayload?.turnId || '').trim(),
         assistantMessageId: String(preamblePayload?.assistantMessageId || '').trim(),
         preambleLen: String(preamblePayload?.content || '').length,
@@ -1960,12 +1959,10 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       return;
     }
 
-    if (type === 'assistant_final') {
+    if (type === 'assistant') {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
-      // assistant_final is terminal content for the active execution row,
-      // not "the one final assistant message of the turn".
-      applyAssistantTerminalEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload));
+      applyAssistantMessageAddEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload));
       applyStreamConversationState(context, 'thinking', payload);
       setStage({ phase: 'executing', text: 'Assistant responding…', startedAt: stageStartedAtValue(payload, chatState), completedAt: 0 });
       renderMergedRowsForContext(context);
@@ -2396,6 +2393,20 @@ export async function createNewConversation(context) {
   chatState.switchingConversationID = '';
   chatState.explicitNewConversationRequested = true;
   const current = conversationsDS.peekFormData?.() || {};
+  if (typeof window !== 'undefined') {
+    try {
+      const key = 'forge.composerDrafts.v1';
+      const raw = window.sessionStorage?.getItem(key) || '{}';
+      const parsed = JSON.parse(raw);
+      const next = parsed && typeof parsed === 'object' ? parsed : {};
+      const currentId = String(current?.id || '').trim();
+      if (currentId) {
+        delete next[currentId];
+      }
+      delete next.__pending__;
+      window.sessionStorage?.setItem(key, JSON.stringify(next));
+    } catch (_) {}
+  }
   const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
   const metaDefaults = metaForm?.defaults || {};
   const persistedAgent = resolveVisibleSelectedAgent(metaForm, getPersistedSelectedAgent());

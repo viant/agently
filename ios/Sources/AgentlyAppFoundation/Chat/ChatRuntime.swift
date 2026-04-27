@@ -191,7 +191,7 @@ public final class ChatRuntime: ObservableObject {
                 )
             }
 
-            let assistantMarkdown = [turn.assistant?.preamble?.content, turn.assistant?.final?.content]
+            let assistantMarkdown = [turn.assistant?.narration?.content, turn.assistant?.final?.content]
                 .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n\n")
@@ -199,7 +199,7 @@ public final class ChatRuntime: ObservableObject {
             if !assistantMarkdown.isEmpty {
                 next.append(
                     ChatTranscriptEntry(
-                        id: turn.assistant?.final?.messageID ?? turn.assistant?.preamble?.messageID ?? "\(turn.id)-assistant",
+                        id: turn.assistant?.final?.messageID ?? turn.assistant?.narration?.messageID ?? "\(turn.id)-assistant",
                         role: "assistant",
                         markdown: assistantMarkdown,
                         timestampLabel: Self.timestampLabel(for: turn.createdAt)
@@ -236,7 +236,7 @@ public final class ChatRuntime: ObservableObject {
                     return lhs.pageID < rhs.pageID
                 }
                 .map { group in
-                    let markdown = [group.preamble, group.content]
+                    let markdown = [group.narration, group.content]
                         .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
                         .filter { !$0.isEmpty }
                         .joined(separator: "\n\n")
@@ -251,7 +251,7 @@ public final class ChatRuntime: ObservableObject {
         }
 
         return snapshot.bufferedMessages.map { message -> ChatTranscriptEntry in
-            let markdown = [message.preamble, message.content]
+            let markdown = [message.narration, message.content]
                 .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n\n")

@@ -381,8 +381,8 @@ export function toolStepSummaryText(step = {}) {
   return '';
 }
 
-function groupTitleFromSteps({ preamble, modelStep, toolSteps = [] } = {}) {
-  const explicit = truncate(preamble?.content || '', 80);
+function groupTitleFromSteps({ narration, modelStep, toolSteps = [] } = {}) {
+  const explicit = truncate(narration?.content || '', 80);
   if (explicit) return explicit;
   const delegatedAssistantText = [...(Array.isArray(toolSteps) ? toolSteps : [])]
     .reverse()
@@ -628,8 +628,8 @@ export function mapCanonicalExecutionGroups(groups = []) {
       || modelStep?.phase
       || ''
     ).trim().toLowerCase();
-    const rawPreambleContent = String(group?.preamble || group?.Preamble || '').trim();
-    const preambleContent = rawPreambleContent;
+    const rawPreambleContent = String(group?.narration || group?.Narration || '').trim();
+    const narrationContent = rawPreambleContent;
     const status = String(group?.status || group?.Status || modelStep?.status || '').trim();
     const errorMessage = String(group?.errorMessage || group?.ErrorMessage || modelStep0?.errorMessage || modelStep0?.ErrorMessage || '').trim();
     const modelStepWithError = modelStep ? {
@@ -647,7 +647,7 @@ export function mapCanonicalExecutionGroups(groups = []) {
     } : null);
     const finalContent = String(group?.content || group?.Content || '').trim();
     const title = groupTitleFromSteps({
-      preamble: preambleContent ? { content: preambleContent } : null,
+      narration: narrationContent ? { content: narrationContent } : null,
       modelStep: effectiveModelStep,
       toolSteps
     });
@@ -666,8 +666,8 @@ export function mapCanonicalExecutionGroups(groups = []) {
               ? 'summary'
               : (effectiveModelStep ? 'model' : 'tool')))),
       title: lifecycleTitle || title,
-      fullTitle: plainText(preambleContent || lifecycleTitle || title),
-      preambleContent,
+      fullTitle: plainText(narrationContent || lifecycleTitle || title),
+      narrationContent,
       modelStep: effectiveModelStep,
       toolSteps,
       detailStep: effectiveModelStep || toolSteps[0] || null,
@@ -681,7 +681,7 @@ export function mapCanonicalExecutionGroups(groups = []) {
   }).filter((group) => {
     const hasModel = !!group?.modelStep;
     const hasTools = Array.isArray(group?.toolSteps) && group.toolSteps.length > 0;
-    const hasPreamble = String(group?.preambleContent || '').trim() !== '';
+    const hasPreamble = String(group?.narrationContent || '').trim() !== '';
     const hasFinal = !!group?.finalResponse || String(group?.finalContent || '').trim() !== '';
     const hasError = String(group?.errorMessage || '').trim() !== '';
     return hasModel || hasTools || hasPreamble || hasFinal || hasError;
@@ -703,12 +703,12 @@ function mapFallbackExecutionGroups(data = {}) {
   return [{
     id: `fallback:${String(data?.turnId || 'iteration').trim() || 'iteration'}`,
     title: groupTitleFromSteps({
-      preamble: data?.preamble || null,
+      narration: data?.narration || null,
       modelStep: primaryModel,
       toolSteps
     }),
     fullTitle: '',
-    preambleContent: String(data?.preamble?.content || '').trim(),
+    narrationContent: String(data?.narration?.content || '').trim(),
     modelStep: primaryModel,
     toolSteps,
     detailStep: primaryModel || toolSteps[0] || null,
@@ -733,7 +733,7 @@ export function resolveVisibleBubbleContent(visibleGroups = []) {
   }
   for (let index = groups.length - 1; index >= 0; index -= 1) {
     const group = groups[index] || {};
-    const preambleText = String(group?.preambleContent || '').trim();
+    const preambleText = String(group?.narrationContent || '').trim();
     if (preambleText) {
       return preambleText;
     }
@@ -803,14 +803,14 @@ export function resolveIterationBubbleContent({
   visibleGroups = [],
   iterationContent = '',
   responseContent = '',
-  preambleContent = '',
+  narrationContent = '',
   streamContent = '',
   errorMessage = ''
 } = {}) {
   const groups = Array.isArray(visibleGroups) ? visibleGroups : [];
   const finalVisibleBubble = String(resolveVisibleBubbleContent(visibleGroups) || '').trim();
   const visibleStreamBubble = isStructuredAssistantArtifact(streamContent) ? '' : String(streamContent || '').trim();
-  const explicitPreambleBubble = isStructuredAssistantArtifact(preambleContent) ? '' : String(preambleContent || '').trim();
+  const explicitNarrationBubble = isStructuredAssistantArtifact(narrationContent) ? '' : String(narrationContent || '').trim();
   const hasFinalVisibleGroup = groups.some((group) => {
     const finalText = String(group?.finalContent || '').trim();
     return !!group?.finalResponse && finalText !== '';
@@ -819,7 +819,7 @@ export function resolveIterationBubbleContent({
     return String(
       (hasFinalVisibleGroup ? finalVisibleBubble : '')
       || (!hasFinalVisibleGroup ? visibleStreamBubble : '')
-      || (!hasFinalVisibleGroup ? explicitPreambleBubble : '')
+      || (!hasFinalVisibleGroup ? explicitNarrationBubble : '')
       || responseContent
       || finalVisibleBubble
       || resolveFailedBubbleContent(groups, errorMessage)
@@ -832,13 +832,13 @@ export function resolveIterationBubbleContent({
     || finalVisibleBubble
     || iterationContent
     || responseContent
-    || preambleContent
+    || narrationContent
     || resolveFailedBubbleContent(visibleGroups, errorMessage)
     || ''
   ).trim();
 }
 
-export function shouldShowPreambleBubble(visibleGroups = [], visibleText = '', responseContent = '') {
+export function shouldShowNarrationBubble(visibleGroups = [], visibleText = '', responseContent = '') {
   const text = String(visibleText || '').trim();
   if (!text) return false;
   const groups = Array.isArray(visibleGroups) ? visibleGroups : [];
@@ -926,7 +926,7 @@ function paginate(total, visible, offset) {
 
 function isPresentableGroup(group = {}) {
   const hasModel = !!group?.modelStep;
-  const preambleText = String(group?.preambleContent || '').trim();
+  const preambleText = String(group?.narrationContent || '').trim();
   const finalText = String(group?.finalContent || '').trim();
   const errorText = String(group?.errorMessage || group?.modelStep?.errorMessage || '').trim();
   const toolCount = Array.isArray(group?.toolSteps) ? group.toolSteps.length : 0;
@@ -952,12 +952,12 @@ export function buildSyntheticModelGroup({ data = {}, message = {}, context = nu
   const isFailed = isErrorStatus(status);
   const finalResponse = text !== '' && !isActiveStatus(status) && !isFailed;
   const content = finalResponse ? text : '';
-  const preambleContent = finalResponse ? '' : text;
+  const narrationContent = finalResponse ? '' : text;
   return {
     id: `synthetic:${String(message?.id || data?.turnId || 'iteration').trim() || 'iteration'}`,
     title: modelLabel || 'model',
     fullTitle: modelLabel || 'model',
-    preambleContent,
+    narrationContent,
     modelStep: {
       id: `synthetic-model:${String(message?.id || data?.turnId || 'iteration').trim() || 'iteration'}`,
       kind: 'model',
@@ -1132,8 +1132,8 @@ export function resolveIterationElapsedAnchor(data = {}, groups = [], linkedConv
     ...(Array.isArray(group?.toolSteps) ? group.toolSteps : [])
   ]);
   const latestPreambleStartedAt = latestStartedAt([
-    data?.preamble,
-    ...(Array.isArray(data?.preambles) ? data.preambles : []),
+    data?.narration,
+    ...(Array.isArray(data?.narrations) ? data.narrations : []),
     data?.response
   ]);
   const streamStartedAt = parseTimestamp(data?.streamCreatedAt || '');
@@ -1186,7 +1186,7 @@ export function buildIterationDataFromCanonicalRow(canonicalRow = null, message 
     assistantMessageId: (Array.isArray(round?.modelSteps) ? round.modelSteps[0]?.assistantMessageId : '') || '',
     iteration: Number(round?.iteration || 0) || 0,
     phase: round?.phase || '',
-    preamble: round?.preamble || '',
+    narration: round?.narration || '',
     content: round?.content || '',
     status: round?.status || '',
     finalResponse: !!round?.finalResponse,
@@ -1195,14 +1195,14 @@ export function buildIterationDataFromCanonicalRow(canonicalRow = null, message 
     toolSteps: Array.isArray(round?.toolCalls) ? round.toolCalls : [],
     toolCallsPlanned: [],
   }));
-  const firstPreamble = rounds.map((round) => String(round?.preamble || '').trim()).find(Boolean) || '';
+  const firstNarration = rounds.map((round) => String(round?.narration || '').trim()).find(Boolean) || '';
   const finalContent = [...rounds].reverse().map((round) => String(round?.content || '').trim()).find(Boolean) || '';
   return {
     ...(message?._iterationData || {}),
     turnId: canonicalRow?.turnId || message?._iterationData?.turnId || '',
     status: canonicalRow?.lifecycle || message?._iterationData?.status || '',
     turnStartedAt: canonicalRow?.createdAt || message?._iterationData?.turnStartedAt || '',
-    preamble: firstPreamble ? { content: firstPreamble } : (message?._iterationData?.preamble || null),
+    narration: firstNarration ? { content: firstNarration } : (message?._iterationData?.narration || null),
     response: {
       ...(message?._iterationData?.response || {}),
       content: finalContent || message?._iterationData?.response?.content || '',
@@ -1363,10 +1363,10 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
     visibleGroups: allGroupEntries.filter((group) => isPresentableGroup(group)),
     iterationContent: message?.content,
     responseContent: data?.response?.content,
-    preambleContent: data?.preamble?.content,
+    narrationContent: data?.narration?.content,
     streamContent: data?.streamContent,
     errorMessage: data?.errorMessage
-  }), [allGroupEntries, data?.errorMessage, data?.preamble?.content, data?.response?.content, data?.streamContent, message?.content]);
+  }), [allGroupEntries, data?.errorMessage, data?.narration?.content, data?.response?.content, data?.streamContent, message?.content]);
   const displayGroupEntries = useMemo(
     () => {
       const presentable = allGroupEntries.filter((group) => isPresentableGroup(group));
@@ -1501,10 +1501,10 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
     visibleGroups,
     iterationContent: message?.content,
     responseContent: data?.response?.content,
-    preambleContent: data?.preamble?.content,
+    narrationContent: data?.narration?.content,
     streamContent: data?.streamContent,
     errorMessage: data?.errorMessage
-  }), [data?.errorMessage, data?.preamble?.content, data?.response?.content, data?.streamContent, message?.content, visibleGroups]);
+  }), [data?.errorMessage, data?.narration?.content, data?.response?.content, data?.streamContent, message?.content, visibleGroups]);
   const hasVisibleElicitation = !!data?.response?.elicitation?.requestedSchema;
   const hasPendingExecutionElicitation = useMemo(
     () => hasPendingElicitationStep(visibleGroups),
@@ -2000,10 +2000,10 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
         </section>
       ) : null}
       {showExecutionDetails && showToolFeedDetail ? <ToolFeedDetail context={context} /> : null}
-      {!hasVisibleElicitation && !hasPendingExecutionElicitation && shouldShowPreambleBubble(visibleGroups, visibleRenderedText, data?.response?.content) ? (
+      {!hasVisibleElicitation && !hasPendingExecutionElicitation && shouldShowNarrationBubble(visibleGroups, visibleRenderedText, data?.response?.content) ? (
         <BubbleMessage
           message={{
-            id: `${message?.id || 'iteration'}:preamble`,
+            id: `${message?.id || 'iteration'}:narration`,
             role: 'assistant',
             content: visibleRenderedText,
             generatedFiles

@@ -30,7 +30,7 @@ export default function BubbleMessage({ message, messageIndex = 0 }) {
   const rowRef = useRef(null);
   const role = String(message?.role || 'assistant').toLowerCase();
   const isUser = role === 'user';
-  const isPreamble = !!message?._preambleBubble;
+  const isPreamble = !!message?._narrationBubble;
   const terminalStatus = ['completed', 'succeeded', 'success', 'done'].includes(String(message?.turnStatus || message?.status || '').toLowerCase());
   const isStreaming = !isUser
     && !terminalStatus
@@ -55,10 +55,10 @@ export default function BubbleMessage({ message, messageIndex = 0 }) {
 
   if (isPreamble) {
     return (
-      <div className="app-preamble-bubble-row" data-testid={`chat-message-${message?.id || messageIndex}-row`} ref={rowRef}>
-        <div className="app-preamble-bubble">
-          <span className="app-preamble-bubble-indicator" />
-          <div className="app-preamble-bubble-content">
+      <div className="app-narration-bubble-row" data-testid={`chat-message-${message?.id || messageIndex}-row`} ref={rowRef}>
+        <div className="app-narration-bubble">
+          <span className="app-narration-bubble-indicator" />
+          <div className="app-narration-bubble-content">
             <RichContent
               content={String(message?.content || '').trim()}
               generatedFiles={Array.isArray(message?.generatedFiles) ? message.generatedFiles : []}

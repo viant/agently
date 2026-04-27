@@ -291,6 +291,8 @@ func newRouter(api http.Handler, meta http.Handler, speech http.Handler, uiDist 
 		}
 
 		if path == "/" || path == "/ui" || path == "/ui/" ||
+			path == "/lookup-chip-preview" ||
+			path == "/ui/lookup-chip-preview" ||
 			strings.HasPrefix(path, "/conversation/") ||
 			strings.HasPrefix(path, "/ui/conversation/") ||
 			strings.HasPrefix(path, "/v1/conversation/") {
