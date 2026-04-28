@@ -1127,7 +1127,7 @@ describe('applyExecutionStreamEvent', () => {
   expect(chatState.liveRows[0].interim).toBe(0);
   });
 
-  it('message_add folds the final assistant response into the existing execution row', () => {
+  it('message_add stays standalone even when an execution row already exists', () => {
     const chatState = { liveRows: [] };
 
     applyExecutionStreamEvent(chatState, {
@@ -1154,22 +1154,23 @@ describe('applyExecutionStreamEvent', () => {
       }
     });
 
-    expect(chatState.liveRows).toHaveLength(1);
-    expect(chatState.liveRows[0]).toMatchObject({
+    expect(chatState.liveRows).toHaveLength(2);
+    const standalone = chatState.liveRows.find((row) => row?.id === 'assistant-note-1');
+    const iteration = chatState.liveRows.find((row) => row?.executionGroups?.length > 0);
+    expect(standalone).toMatchObject({
       id: 'assistant-note-1',
       role: 'assistant',
       content: 'Preliminary investigation: PMP supply looks constrained.',
       interim: 0
     });
-    expect(chatState.liveRows[0].executionGroups).toHaveLength(1);
-    expect(chatState.liveRows[0].executionGroups[0]).toMatchObject({
+    expect(iteration?.executionGroups).toHaveLength(1);
+    expect(iteration?.executionGroups[0]).toMatchObject({
       assistantMessageId: 'mc-1',
-      content: 'Preliminary investigation: PMP supply looks constrained.',
-      finalResponse: true
+      narration: 'Checking things…'
     });
   });
 
-  it('keeps one execution row when a later narration arrives after the final assistant response', () => {
+  it('keeps the standalone message_add note and appends later same-turn narration as a new execution group', () => {
     const chatState = { liveRows: [] };
 
     applyExecutionStreamEvent(chatState, {
@@ -1206,15 +1207,19 @@ describe('applyExecutionStreamEvent', () => {
       createdAt: '2026-03-16T10:00:03Z'
     }, 'conv-1');
 
-    expect(chatState.liveRows).toHaveLength(1);
-    expect(chatState.liveRows[0]).toMatchObject({
+    expect(chatState.liveRows).toHaveLength(2);
+    const standalone = chatState.liveRows.find((row) => row?.id === 'assistant-note-1');
+    const groups = chatState.liveRows.filter((row) => row?.executionGroups?.length > 0);
+    expect(standalone).toMatchObject({
       id: 'assistant-note-1',
       role: 'assistant',
-      content: 'Calling llm/agents/start.'
+      content: 'PRELIMINARY NOTE'
     });
-    expect(chatState.liveRows[0].executionGroups).toHaveLength(1);
-    expect(chatState.liveRows[0].executionGroups[0]).toMatchObject({
-      assistantMessageId: 'mc-1',
+    expect(groups).toHaveLength(1);
+    expect(groups[0].executionGroups).toHaveLength(2);
+    expect(groups[0].executionGroups[0]).toMatchObject({ assistantMessageId: 'mc-1' });
+    expect(groups[0].executionGroups[1]).toMatchObject({
+      assistantMessageId: 'mc-2',
       narration: 'Calling llm/agents/start.'
     });
   });

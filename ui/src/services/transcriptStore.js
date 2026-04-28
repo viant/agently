@@ -240,7 +240,10 @@ export async function tickTranscript({
   if (!conversationID) return;
   const chatState = ensureContextResources(context);
   const since = String(chatState.lastSinceCursor || '').trim();
-  let turns = await fetchTranscript(conversationID, since);
+  const transcriptOptions = options?.transcript && typeof options.transcript === 'object'
+    ? options.transcript
+    : {};
+  let turns = await fetchTranscript(conversationID, since, transcriptOptions);
   const currentID = String(conversationsDS?.peekFormData?.()?.id || '').trim();
   if (currentID && currentID !== conversationID) {
     return;
@@ -249,7 +252,7 @@ export async function tickTranscript({
     if (!shouldRecoverWithFullTranscript(chatState)) {
       return;
     }
-    turns = await fetchTranscript(conversationID, '');
+    turns = await fetchTranscript(conversationID, '', transcriptOptions);
     if (currentID && String(conversationsDS?.peekFormData?.()?.id || '').trim() !== conversationID) {
       return;
     }

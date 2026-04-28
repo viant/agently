@@ -1189,23 +1189,40 @@ export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConvers
     const prev = rows[index];
     const groups = Array.isArray(prev.executionGroups) ? [...prev.executionGroups] : [];
     if (groups.length > 0) {
-      const last = { ...groups[groups.length - 1] };
-      last.narration = narration;
-      const modelSteps = Array.isArray(last.modelSteps) ? [...last.modelSteps] : [];
-      const syntheticStep = syntheticModelStepForPreamble(payload, narration, modelSteps[0] || null);
-      if (syntheticStep) {
-        if (modelSteps.length > 0) {
-          modelSteps[0] = syntheticStep;
-        } else {
-          modelSteps.push(syntheticStep);
+      const lastIndex = groups.length - 1;
+      const last = { ...groups[lastIndex] };
+      const lastAssistantMessageId = String(last?.assistantMessageId || '').trim();
+      const shouldAppendGroup = assistantMessageId && lastAssistantMessageId && lastAssistantMessageId !== assistantMessageId;
+      if (shouldAppendGroup) {
+        const syntheticStep = syntheticModelStepForPreamble(payload, narration, null);
+        groups.push({
+          assistantMessageId,
+          pageId: assistantMessageId,
+          narration,
+          iteration: Number(payload?.iteration || 0) || undefined,
+          status: String(payload?.status || 'running').trim().toLowerCase() || 'running',
+          modelSteps: syntheticStep ? [syntheticStep] : [],
+          toolSteps: [],
+          toolCallsPlanned: [],
+        });
+      } else {
+        last.narration = narration;
+        const modelSteps = Array.isArray(last.modelSteps) ? [...last.modelSteps] : [];
+        const syntheticStep = syntheticModelStepForPreamble(payload, narration, modelSteps[0] || null);
+        if (syntheticStep) {
+          if (modelSteps.length > 0) {
+            modelSteps[0] = syntheticStep;
+          } else {
+            modelSteps.push(syntheticStep);
+          }
+          last.modelSteps = modelSteps;
         }
-        last.modelSteps = modelSteps;
+        if (!String(last?.assistantMessageId || '').trim() && assistantMessageId) {
+          last.assistantMessageId = assistantMessageId;
+          last.pageId = String(last?.pageId || '').trim() || assistantMessageId;
+        }
+        groups[lastIndex] = last;
       }
-      if (!String(last?.assistantMessageId || '').trim() && assistantMessageId) {
-        last.assistantMessageId = assistantMessageId;
-        last.pageId = String(last?.pageId || '').trim() || assistantMessageId;
-      }
-      groups[groups.length - 1] = last;
     }
     const hasStreamContent = String(prev?._streamContent || '').trim() !== '';
     rows[index] = {
@@ -1279,11 +1296,6 @@ export function applyAssistantMessageAddEvent(chatState = {}, payload = {}) {
     return Array.isArray(chatState.liveRows) ? chatState.liveRows : [];
   }
   const rows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
-  const executionIndex = findAssistantExecutionRowIndex(rows, turnId, messageId);
-  if (executionIndex !== -1) {
-    chatState.liveRows = applyAssistantFinalToRows(rows, payload);
-    return chatState.liveRows;
-  }
   const existingIndex = rows.findIndex((row) => String(row?.id || '').trim() === messageId);
   const nextRow = {
     id: messageId,

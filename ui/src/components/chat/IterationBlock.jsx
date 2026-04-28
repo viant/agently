@@ -176,12 +176,13 @@ export function displayLinkedConversationIcon() {
   return '🔗';
 }
 
-function latencyLabel(step, now = Date.now(), fallbackStartedAt = 0) {
+function latencyLabel(step, now = Date.now(), fallbackStartedAt = 0, allowLiveClock = true) {
   const explicitMs = totalLatencyMs([step]);
   if (explicitMs >= 1000) {
     const explicit = formatDurationClock(explicitMs);
     if (explicit) return explicit;
   }
+  if (!allowLiveClock) return '';
   if (!isActiveStatus(step?.status)) return '';
   const startedAt = earliestStartedAt([step]) || fallbackStartedAt;
   if (!startedAt) return '';
@@ -858,6 +859,14 @@ export function hasPendingElicitationStep(visibleGroups = []) {
   );
 }
 
+function hasAnyElicitationStep(visibleGroups = []) {
+  return (Array.isArray(visibleGroups) ? visibleGroups : []).some((group) =>
+    (Array.isArray(group?.toolSteps) ? group.toolSteps : []).some((step) => (
+      String(step?.kind || '').trim().toLowerCase() === 'elicitation'
+    ))
+  );
+}
+
 function summaryModeMessageContent(value = {}) {
   return String(value?.content || '').trim();
 }
@@ -1179,6 +1188,9 @@ export function buildIterationDataFromCanonicalRow(canonicalRow = null, message 
     return message?._iterationData || {};
   }
   const rounds = Array.isArray(canonicalRow?.rounds) ? canonicalRow.rounds : [];
+  const canonicalElicitation = canonicalRow?.elicitation && typeof canonicalRow.elicitation === 'object'
+    ? canonicalRow.elicitation
+    : null;
   const executionGroups = rounds.map((round) => ({
     pageId: round?.pageId || round?.renderKey || '',
     assistantMessageId: (Array.isArray(round?.modelSteps) ? round.modelSteps[0]?.assistantMessageId : '') || '',
@@ -1201,10 +1213,16 @@ export function buildIterationDataFromCanonicalRow(canonicalRow = null, message 
     status: canonicalRow?.lifecycle || message?._iterationData?.status || '',
     turnStartedAt: canonicalRow?.createdAt || message?._iterationData?.turnStartedAt || '',
     narration: firstNarration ? { content: firstNarration } : (message?._iterationData?.narration || null),
+    elicitation: canonicalElicitation || message?._iterationData?.elicitation || null,
+    elicitationId: canonicalElicitation?.elicitationId || message?._iterationData?.elicitationId || '',
+    elicitationStatus: canonicalElicitation?.status || message?._iterationData?.elicitationStatus || '',
     response: {
       ...(message?._iterationData?.response || {}),
       content: finalContent || message?._iterationData?.response?.content || '',
       status: canonicalRow?.lifecycle || message?._iterationData?.response?.status || '',
+      elicitation: canonicalElicitation || message?._iterationData?.response?.elicitation || null,
+      elicitationId: canonicalElicitation?.elicitationId || message?._iterationData?.response?.elicitationId || '',
+      elicitationStatus: canonicalElicitation?.status || message?._iterationData?.response?.elicitationStatus || '',
     },
     executionGroups,
     linkedConversations: Array.isArray(canonicalRow?.linkedConversations) ? canonicalRow.linkedConversations : (message?._iterationData?.linkedConversations || []),
@@ -1313,8 +1331,8 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
       };
     }
     // Inject elicitation as a step in the last group so it appears in execution details.
-    const elic = message?.elicitation || data?.elicitation;
-    const elicId = String(message?.elicitationId || data?.elicitationId || '').trim();
+    const elic = message?.elicitation || data?.elicitation || data?.response?.elicitation;
+    const elicId = String(message?.elicitationId || data?.elicitationId || data?.response?.elicitationId || data?.response?.elicitation?.elicitationId || '').trim();
     if (elic && elicId && groups.length > 0) {
       const last = groups[groups.length - 1];
       const alreadyPresent = last.toolSteps.some((s) => s.elicitationId === elicId);
@@ -1323,7 +1341,9 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
           elic?.status
           || message?.elicitationStatus
           || data?.elicitationStatus
+          || data?.response?.elicitationStatus
           || message?.status
+          || data?.response?.status
           || data?.status
         ) || 'pending';
         const elicStep = {
@@ -1356,7 +1376,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
       }
     }
     return groups;
-  }, [data, message?.elicitation, message?.elicitationId, message?.status, message?.createdAt, data?.elicitation, data?.elicitationId]);
+  }, [data, message?.elicitation, message?.elicitationId, message?.status, message?.createdAt, data?.elicitation, data?.elicitationId, data?.response?.elicitation, data?.response?.elicitationId, data?.response?.status]);
   const visiblePreambleText = useMemo(() => resolveIterationBubbleContent({
     visibleGroups: allGroupEntries.filter((group) => isPresentableGroup(group)),
     iterationContent: message?.content,
@@ -1402,12 +1422,17 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
     () => isIterationActive(data, allGroupEntries, linkedConversationStates.map((entry) => entry?.status || '')),
     [allGroupEntries, data, linkedConversationStates]
   );
+  const useLiveWallClock = isLatestIteration && isActiveIteration;
+  const hasExecutionElicitation = useMemo(
+    () => hasAnyElicitationStep(allGroupEntries),
+    [allGroupEntries]
+  );
 
   const iterationDisplayStatus = useMemo(
     () => resolveIterationDisplayStatus(data, allGroupEntries, linkedConversationStates.map((entry) => entry?.status || '')),
     [allGroupEntries, data, linkedConversationStates]
   );
-  const [collapsed, setCollapsed] = useState(() => !(isLatestIteration && isActiveIteration));
+  const [collapsed, setCollapsed] = useState(() => !(isLatestIteration && isActiveIteration) && !hasExecutionElicitation);
   const prevLatestRef = useRef(isLatestIteration);
   const prevActiveRef = useRef(isActiveIteration);
 
@@ -1423,7 +1448,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
     ]);
     const explicit = formatDurationClock(totalLatencyMs(sourceSteps));
     const turnCompletedAt = parseTimestamp(data?.turnCompletedAt || '');
-    if (!isActiveIteration) {
+    if (!useLiveWallClock) {
       if (turnStartedAt && turnCompletedAt && turnCompletedAt >= turnStartedAt) {
         return formatDurationClock(turnCompletedAt - turnStartedAt) || explicit;
       }
@@ -1431,7 +1456,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
     }
     if (!turnStartedAt) return explicit;
     return formatDurationClock(Math.max(0, now - turnStartedAt)) || explicit;
-  }, [allGroupEntries, isActiveIteration, turnStartedAt, data?.turnCompletedAt, now]);
+  }, [allGroupEntries, useLiveWallClock, turnStartedAt, data?.turnCompletedAt, now]);
 
   const linkedConversations = useMemo(() => {
     const seen = new Map();
@@ -1581,8 +1606,8 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
           </div>
           <div className="app-iteration-tool-row-meta">
             <span className={`app-iteration-status tone-${statusTone(modelStep?.status)}`}>{statusLabel(modelStep?.status)}</span>
-            {latencyLabel(modelStep, now, turnStartedAt) ? (
-              <span className="app-iteration-group-time">{latencyLabel(modelStep, now, turnStartedAt)}</span>
+            {latencyLabel(modelStep, now, turnStartedAt, useLiveWallClock) ? (
+              <span className="app-iteration-group-time">{latencyLabel(modelStep, now, turnStartedAt, useLiveWallClock)}</span>
             ) : null}
               <Button
               minimal
@@ -1625,8 +1650,8 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
                 </div>
                 <div className="app-iteration-tool-row-meta">
                   <span className={`app-iteration-status tone-${statusTone(toolStep?.status)}`}>{statusLabel(toolStep?.status)}</span>
-                  {latencyLabel(toolStep, now, turnStartedAt) ? (
-                    <span className="app-iteration-group-time">{latencyLabel(toolStep, now, turnStartedAt)}</span>
+                  {latencyLabel(toolStep, now, turnStartedAt, useLiveWallClock) ? (
+                    <span className="app-iteration-group-time">{latencyLabel(toolStep, now, turnStartedAt, useLiveWallClock)}</span>
                   ) : null}
                   <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, toolStep))}>Details</Button>
                 </div>
@@ -1643,8 +1668,8 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
                 </div>
                 <div className="app-iteration-tool-row-meta">
                   <span className={`app-iteration-status tone-${statusTone(toolStep?.status)}`}>{statusLabel(toolStep?.status)}</span>
-                  {latencyLabel(toolStep, now, turnStartedAt) ? (
-                    <span className="app-iteration-group-time">{latencyLabel(toolStep, now, turnStartedAt)}</span>
+                  {latencyLabel(toolStep, now, turnStartedAt, useLiveWallClock) ? (
+                    <span className="app-iteration-group-time">{latencyLabel(toolStep, now, turnStartedAt, useLiveWallClock)}</span>
                   ) : null}
                   <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, toolStep))}>Details</Button>
                 </div>
@@ -1917,16 +1942,20 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
   }, [allGroupEntries, data?.status, data?.turnId, displayGroupEntries, iterationDisplayStatus, message?.id, message?.status, message?.turnStatus, visibleRenderedText]);
 
   useEffect(() => {
+    if (hasExecutionElicitation) {
+      setCollapsed(false);
+      return;
+    }
     if (isLatestIteration && isActiveIteration) {
       setCollapsed(false);
     }
-  }, [message?.id, data?.turnId, isActiveIteration, isLatestIteration]);
+  }, [message?.id, data?.turnId, isActiveIteration, isLatestIteration, hasExecutionElicitation]);
 
   useEffect(() => {
-    if (!isActiveIteration) return undefined;
+    if (!useLiveWallClock) return undefined;
     const timer = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(timer);
-  }, [isActiveIteration]);
+  }, [useLiveWallClock]);
 
   useEffect(() => {
     setExpandedLinkedIds({});
