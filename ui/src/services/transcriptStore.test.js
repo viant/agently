@@ -517,8 +517,8 @@ describe('tickTranscript', () => {
     });
 
     expect(fetchTranscript).toHaveBeenCalledTimes(2);
-    expect(fetchTranscript).toHaveBeenNthCalledWith(1, 'conv-1', 'msg-user-1');
-    expect(fetchTranscript).toHaveBeenNthCalledWith(2, 'conv-1', '');
+    expect(fetchTranscript).toHaveBeenNthCalledWith(1, 'conv-1', 'msg-user-1', {});
+    expect(fetchTranscript).toHaveBeenNthCalledWith(2, 'conv-1', '', {});
     expect(fetchPendingElicitations).toHaveBeenCalledWith('conv-1');
     expect(resolveLastTranscriptCursor).toHaveBeenCalledWith(fullTurns);
     expect(syncTranscriptSnapshot).toHaveBeenCalledWith({
@@ -577,8 +577,57 @@ describe('tickTranscript', () => {
     });
 
     expect(fetchTranscript).toHaveBeenCalledTimes(1);
-    expect(fetchTranscript).toHaveBeenCalledWith('conv-1', 'msg-assistant-1');
+    expect(fetchTranscript).toHaveBeenCalledWith('conv-1', 'msg-assistant-1', {});
     expect(syncTranscriptSnapshot).not.toHaveBeenCalled();
     expect(result).toBeUndefined();
+  });
+
+  it('forwards transcript options to incremental and recovery fetches', async () => {
+    const chatState = {
+      lastSinceCursor: 'msg-user-1',
+      transcriptRows: [
+        {
+          id: 'msg-user-1',
+          role: 'user',
+          turnId: 'turn-1',
+          createdAt: '2026-03-20T10:00:00Z',
+          content: 'run schedule'
+        }
+      ],
+      lastHasRunning: false
+    };
+    const conversationsDS = {
+      peekFormData: () => ({ id: 'conv-1' })
+    };
+    const context = {
+      Context: (name) => {
+        if (name === 'conversations') {
+          return { handlers: { dataSource: conversationsDS } };
+        }
+        return null;
+      }
+    };
+    const fullTurns = [{ id: 'turn-1', message: [{ id: 'msg-assistant-1', role: 'assistant', interim: 0, content: 'done' }] }];
+    const fetchTranscript = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(fullTurns);
+
+    await tickTranscript({
+      context,
+      options: {
+        transcript: {
+          includeExecutionDetails: false
+        }
+      },
+      ensureContextResources: () => chatState,
+      fetchTranscript,
+      fetchPendingElicitations: vi.fn().mockResolvedValue([]),
+      resolveLastTranscriptCursor: vi.fn(() => 'msg-assistant-1'),
+      syncTranscriptSnapshot: vi.fn(() => ({ hasRunning: false, conversationID: 'conv-1' }))
+    });
+
+    expect(fetchTranscript).toHaveBeenCalledTimes(2);
+    expect(fetchTranscript).toHaveBeenNthCalledWith(1, 'conv-1', 'msg-user-1', { includeExecutionDetails: false });
+    expect(fetchTranscript).toHaveBeenNthCalledWith(2, 'conv-1', '', { includeExecutionDetails: false });
   });
 });

@@ -863,6 +863,105 @@ describe('mapCanonicalExecutionGroups', () => {
     ])).toBe(false);
   });
 
+  it('preserves canonical elicitation payload when building iteration data from projector rows', () => {
+    const canonicalRow = {
+      kind: 'iteration',
+      turnId: 'tn_elic_done',
+      lifecycle: 'running',
+      createdAt: '2026-04-18T19:00:00Z',
+      elicitation: {
+        renderKey: 'rk_elic_done',
+        elicitationId: 'elic-done-1',
+        status: 'accepted',
+        message: 'Please confirm the exact folder path you want counted.',
+        requestedSchema: {
+          type: 'object',
+          properties: { path: { type: 'string' } },
+          required: ['path']
+        }
+      },
+      rounds: [{
+        renderKey: 'rk_round',
+        pageId: 'msg_assistant_done',
+        iteration: 1,
+        phase: 'main',
+        narration: 'Using prompt/get.',
+        content: '',
+        status: 'running',
+        finalResponse: false,
+        modelSteps: [{
+          renderKey: 'rk_model',
+          assistantMessageId: 'msg_assistant_done',
+          modelCallId: 'mc_done',
+          provider: 'openai',
+          model: 'gpt-5-mini',
+          status: 'running'
+        }],
+        toolCalls: [],
+        lifecycleEntries: [],
+        hasContent: true
+      }],
+      linkedConversations: [],
+      header: { label: 'Execution details (1)', tone: 'running', count: 1 },
+      isStreaming: true
+    };
+
+    const data = buildIterationDataFromCanonicalRow(canonicalRow, {});
+    expect(data.elicitation).toMatchObject({
+      elicitationId: 'elic-done-1',
+      status: 'accepted',
+      message: 'Please confirm the exact folder path you want counted.'
+    });
+    expect(data.response.elicitation).toMatchObject({
+      elicitationId: 'elic-done-1',
+      status: 'accepted',
+      message: 'Please confirm the exact folder path you want counted.'
+    });
+    expect(data.elicitationStatus).toBe('accepted');
+    expect(data.response.elicitationStatus).toBe('accepted');
+  });
+
+  it('does not advance a live wall-clock for transcript-owned running history rows', () => {
+    const html = renderToStaticMarkup(React.createElement(IterationBlock, {
+      canonicalRow: {
+        kind: 'iteration',
+        turnId: 'tn_history_running',
+        lifecycle: 'running',
+        createdAt: '2026-04-18T19:00:00Z',
+        isStreaming: false,
+        rounds: [{
+          renderKey: 'rk_history_round',
+          pageId: 'pg_history_running',
+          iteration: 1,
+          phase: 'main',
+          narration: 'Using prompt/get.',
+          content: '',
+          status: 'running',
+          finalResponse: false,
+          modelSteps: [{
+            renderKey: 'rk_history_model',
+            assistantMessageId: 'msg_assistant_done',
+            modelCallId: 'mc_history_running',
+            provider: 'openai',
+            model: 'gpt-5-mini',
+            status: 'running'
+          }],
+          toolCalls: [],
+          lifecycleEntries: [],
+          hasContent: true
+        }],
+        linkedConversations: [],
+        header: { label: 'Execution details (1)', tone: 'running', count: 1 },
+      },
+      context: null,
+      showToolFeedDetail: true
+    }));
+
+    expect(html).toContain('Execution details (1)');
+    expect(html).toContain('00:00');
+    expect(html).not.toContain('14287:43');
+  });
+
   it('keeps terminal turn lifecycle entries after elicitation steps', () => {
     const groups = mapCanonicalExecutionGroups([{
       id: 'group-1',

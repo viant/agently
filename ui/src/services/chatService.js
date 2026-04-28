@@ -213,11 +213,20 @@ export async function onInit({ context }) {
         conversationsDS?.setFormData?.({
           values: mergeConversationSnapshot(conversationsDS?.peekFormData?.() || {}, existing)
         });
-        const snapshot = await dsTick(context, { conversationID });
-        if (snapshot?.hasRunning || isConversationLiveish(existing)) {
+        const conversationLiveish = isConversationLiveish(existing);
+        const initialTransportActive = syncConversationTransport(context, conversationID);
+        const snapshot = await dsTick(context, {
+          conversationID,
+          transcript: {
+            includeExecutionDetails: !conversationLiveish,
+          },
+        });
+        if ((snapshot?.hasRunning || conversationLiveish) && !initialTransportActive) {
           syncConversationTransport(context, conversationID);
         } else {
-          disconnectStream(context);
+          if (!initialTransportActive) {
+            disconnectStream(context);
+          }
         }
         publishActiveConversation(conversationID, context);
       }

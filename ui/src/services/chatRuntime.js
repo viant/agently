@@ -1169,11 +1169,12 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
       });
     }
   }
+  const includeExecutionDetails = options?.includeExecutionDetails !== false;
   const transcriptInput = {
     conversationId: conversationID,
-    includeModelCalls: true,
-    includeToolCalls: true,
-    includeFeeds: true,
+    includeModelCalls: includeExecutionDetails,
+    includeToolCalls: includeExecutionDetails,
+    includeFeeds: includeExecutionDetails,
     since: since || undefined,
   };
   const transcriptOptions = options?.selectors
@@ -1450,8 +1451,19 @@ export async function dsTick(context, options = {}) {
     await refreshGeneratedFiles(context, conversationID);
     renderMergedRowsForContext(context);
   }
-  const ownsLiveTransport = shouldUseLiveStream(context, conversationID);
-  if (result?.hasRunning && conversationID && !ownsLiveTransport && !chatState.stream) {
+  const transcriptReportedRunning = !!(
+    result?.hasRunning
+    || chatState?.lastHasRunning
+    || String(chatState?.runningTurnId || '').trim()
+    || String(chatState?.activeStreamTurnId || '').trim()
+  );
+  if (transcriptReportedRunning && conversationID && !chatState.stream) {
+    const promoted = syncConversationTransport(context, conversationID);
+    if (promoted) {
+      return result;
+    }
+  }
+  if (transcriptReportedRunning && conversationID && !chatState.stream) {
     queueTranscriptRefresh(context, { delay: 900 });
   }
   return result;
@@ -2130,7 +2142,7 @@ export function shouldUseLiveStream(context, conversationID = '') {
   const trackerRunning = !!trackerActiveTurnId(chatState);
   const localRunning = !!String(chatState.runningTurnId || chatState.activeStreamTurnId || '').trim();
   if (currentConversationID && currentConversationID === targetID) {
-    return formRunning || trackerRunning || localRunning || ownedConversationID === targetID;
+    return true;
   }
   if (!ownedConversationID || ownedConversationID !== targetID) return false;
   return true;
@@ -2273,11 +2285,20 @@ export async function switchConversation(context, conversationID = '') {
     conversationsDS.setFormData?.({
       values: applyConversationFormSnapshot(form, existing)
     });
-    const snapshot = await dsTick(context, { conversationID: targetID });
-    if (snapshot?.hasRunning || isConversationLiveish(existing)) {
+    const conversationLiveish = isConversationLiveish(existing);
+    const initialTransportActive = syncConversationTransport(context, targetID);
+    const snapshot = await dsTick(context, {
+      conversationID: targetID,
+      transcript: {
+        includeExecutionDetails: !conversationLiveish,
+      },
+    });
+    if ((snapshot?.hasRunning || conversationLiveish) && !initialTransportActive) {
       syncConversationTransport(context, targetID);
     } else {
-      disconnectStream(context);
+      if (!initialTransportActive) {
+        disconnectStream(context);
+      }
     }
     publishActiveConversation(targetID, context);
     return;
@@ -2290,11 +2311,20 @@ export async function switchConversation(context, conversationID = '') {
   messagesDS.setError?.('');
   resetConversationSnapshotState(context);
   chatState.switchingConversationID = '';
-  const snapshot = await dsTick(context, { conversationID: targetID });
-  if (snapshot?.hasRunning || isConversationLiveish(existing)) {
+  const conversationLiveish = isConversationLiveish(existing);
+  const initialTransportActive = syncConversationTransport(context, targetID);
+  const snapshot = await dsTick(context, {
+    conversationID: targetID,
+    transcript: {
+      includeExecutionDetails: !conversationLiveish,
+    },
+  });
+  if ((snapshot?.hasRunning || conversationLiveish) && !initialTransportActive) {
     syncConversationTransport(context, targetID);
   } else {
-    disconnectStream(context);
+    if (!initialTransportActive) {
+      disconnectStream(context);
+    }
   }
   publishActiveConversation(targetID, context);
 }

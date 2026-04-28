@@ -2020,6 +2020,78 @@ describe('dsTick', () => {
     expect(Array.isArray(result)).toBe(true);
     expect(context.resources.chat.liveRows[0].content).toBe('live text');
   });
+
+  it('promotes a transcript-discovered running conversation onto live stream transport', async () => {
+    client.getTranscript.mockReset();
+    client.listGeneratedFiles.mockReset();
+    client.listGeneratedFiles.mockResolvedValue([]);
+    client.getTranscript.mockResolvedValueOnce({
+      conversation: {
+        conversationId: 'conv-live-promote',
+        turns: [
+          {
+            turnId: 'turn-live-promote',
+            status: 'running',
+            user: { messageId: 'user-1', content: 'hi' }
+          }
+        ]
+      },
+      feeds: []
+    });
+    const close = vi.fn();
+    client.streamEvents = vi.fn(() => ({ close }));
+    const context = {
+      resources: {
+        chat: {
+          transcriptRows: [],
+          liveRows: [],
+          renderRows: [],
+          lastQueuedTurns: [],
+          lastHasRunning: false,
+          runningTurnId: '',
+          activeStreamTurnId: '',
+          liveOwnedConversationID: '',
+          liveOwnedTurnIds: []
+        }
+      },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-live-promote', running: false }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({})
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    await dsTick(context, { conversationID: 'conv-live-promote' });
+
+    expect(client.streamEvents).toHaveBeenCalledWith('conv-live-promote', expect.any(Object));
+  });
 });
 
 describe('createNewConversation', () => {
@@ -2221,6 +2293,7 @@ describe('switchConversation', () => {
       },
       feeds: []
     });
+    client.streamEvents = vi.fn(() => ({ close: vi.fn() }));
     client.listGeneratedFiles.mockResolvedValueOnce([]);
 
     await switchConversation(context, 'conv-target');
@@ -2236,6 +2309,156 @@ describe('switchConversation', () => {
     expect(context.resources.chat.lastConversationID).toBe('conv-target');
     expect(context.resources.chat.lastSinceCursor).toBe('user-target');
     expect(messageState.collection).toEqual(expect.any(Array));
+  });
+
+  it('uses a lightweight transcript fetch when switching to a live conversation', async () => {
+    const messageState = { collection: [] };
+    const conversationState = { values: { id: 'conv-live-target', queuedTurns: [] } };
+    const context = {
+      resources: {
+        chat: {
+          lastSinceCursor: '',
+          lastConversationID: 'conv-live-target',
+          transcriptRows: [],
+          renderRows: [],
+          liveRows: [],
+          lastQueuedTurns: [],
+          lastHasRunning: false,
+          runningTurnId: '',
+          activeConversationID: 'conv-live-target',
+          liveOwnedConversationID: '',
+          liveOwnedTurnIds: []
+        }
+      },
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => conversationState.values,
+                setFormData: ({ values }) => { conversationState.values = values; }
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: {}, agentInfos: [] }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    client.getConversation.mockResolvedValueOnce({ id: 'conv-live-target', title: 'live', status: 'running' });
+    client.getTranscript.mockResolvedValueOnce({
+      conversation: {
+        conversationId: 'conv-live-target',
+        turns: []
+      },
+      feeds: []
+    });
+    client.streamEvents = vi.fn(() => ({ close: vi.fn() }));
+    client.listGeneratedFiles.mockResolvedValueOnce([]);
+
+    await switchConversation(context, 'conv-live-target');
+
+    expect(client.getTranscript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conv-live-target',
+        includeModelCalls: false,
+        includeToolCalls: false,
+        includeFeeds: false,
+        since: undefined
+      }),
+      undefined
+    );
+    expect(messageState.collection).toEqual(expect.any(Array));
+  });
+
+  it('connects stream immediately when switching to a visible idle conversation', async () => {
+    const messageState = { collection: [] };
+    const conversationState = { values: { id: 'conv-idle-target', queuedTurns: [] } };
+    const context = {
+      resources: {
+        chat: {
+          lastSinceCursor: '',
+          lastConversationID: 'conv-idle-target',
+          transcriptRows: [],
+          renderRows: [],
+          liveRows: [],
+          lastQueuedTurns: [],
+          lastHasRunning: false,
+          runningTurnId: '',
+          activeConversationID: 'conv-idle-target',
+          liveOwnedConversationID: '',
+          liveOwnedTurnIds: []
+        }
+      },
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => conversationState.values,
+                setFormData: ({ values }) => { conversationState.values = values; }
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: {}, agentInfos: [] }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    client.getConversation.mockResolvedValueOnce({ id: 'conv-idle-target', title: 'idle', status: '' });
+    client.getTranscript.mockResolvedValueOnce({
+      conversation: {
+        conversationId: 'conv-idle-target',
+        turns: []
+      },
+      feeds: []
+    });
+    client.streamEvents = vi.fn(() => ({ close: vi.fn() }));
+    client.listGeneratedFiles.mockResolvedValueOnce([]);
+
+    await switchConversation(context, 'conv-idle-target');
+
+    expect(client.streamEvents).toHaveBeenCalledWith('conv-idle-target', expect.any(Object));
   });
 });
 
@@ -3631,7 +3854,7 @@ describe('shouldUseLiveStream', () => {
     expect(shouldUseLiveStream(context, 'conv-transcript')).toBe(false);
   });
 
-  it('uses stream for the visible conversation only when it is marked running', () => {
+  it('uses stream for the visible conversation even before it is marked running', () => {
     const context = {
       resources: {
         chat: {
@@ -3644,7 +3867,7 @@ describe('shouldUseLiveStream', () => {
           return {
             handlers: {
               dataSource: {
-                peekFormData: () => ({ id: 'conv-visible', running: true })
+                peekFormData: () => ({ id: 'conv-visible', running: false })
               }
             }
           };
@@ -3733,7 +3956,7 @@ describe('shouldUseLiveStream', () => {
       }
     };
 
-    expect(shouldUseLiveStream(context, 'conv-finished')).toBe(false);
+    expect(shouldUseLiveStream(context, 'conv-finished')).toBe(true);
   });
 
   it('allows forced transcript refresh scheduling even while live owns the turn', () => {
