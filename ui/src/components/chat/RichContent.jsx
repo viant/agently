@@ -53,6 +53,7 @@ import {
   validateForgeDataBlock,
   validateForgeUIBlock,
 } from '../../services/forgeFenceContract.js';
+import { isStreamDebugEnabled } from '../../services/debugFlags';
 import { dispatchForgeUIAction } from '../../services/forgeUIActions.js';
 
 const DASHBOARD_BLOCK_KINDS = [
@@ -872,6 +873,41 @@ function ForgeUIFenceInner({ payload, dataBlocks = [], messageId = '' }) {
   const rootRef = React.useRef(null);
   const [exportError, setExportError] = React.useState(null);
 
+  React.useEffect(() => {
+    if (!isStreamDebugEnabled()) return;
+    try {
+      console.log('[forge-presentation]', {
+        ts: new Date().toISOString(),
+        messageId: String(messageId || '').trim(),
+        dashboardKey,
+        title: ui?.title || '',
+        blockCount: Array.isArray(ui?.blocks) ? ui.blocks.length : 0,
+        dataSources: Object.values(dataStore || {}).map((entry) => ({
+          id: entry?.id,
+          format: entry?.format,
+          mode: entry?.mode,
+          rowCount: Array.isArray(entry?.rows) ? entry.rows.length : -1,
+          sample: Array.isArray(entry?.rows) ? entry.rows.slice(0, 2) : entry?.rows,
+        })),
+        blocks: (Array.isArray(ui?.blocks) ? ui.blocks : []).map((block) => {
+          const ref = String(block?.dataSourceRef || block?.dataSource || '').trim();
+          const ds = ref ? dataStore?.[ref] : null;
+          return {
+            id: block?.id,
+            kind: block?.kind,
+            title: block?.title,
+            dataSourceRef: ref,
+            chartType: block?.chartType || block?.chart?.type || '',
+            series: block?.series || block?.chart?.series || null,
+            dateField: block?.dateField || block?.timeColumn || block?.chart?.xAxis?.dataKey || '',
+            rowCount: Array.isArray(ds?.rows) ? ds.rows.length : -1,
+            sample: Array.isArray(ds?.rows) ? ds.rows.slice(0, 2) : null,
+          };
+        }),
+      });
+    } catch (_) {}
+  }, [dashboardKey, dataStore, messageId, ui]);
+
   const hasRenderableBlocks = Array.isArray(ui.blocks) && ui.blocks.length > 0;
 
   const handleDownload = React.useCallback(() => {
@@ -1256,7 +1292,7 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [], generatedFiles 
     for (const r of rows) { const c = String((r || [])[i] ?? '').length; if (c > m) m = c; }
     return clamp(m, 4, 48);
   });
-  const baseWidthPx = 720;
+  const baseWidthPx = Math.min(1400, Math.max(920, visIdx.length * 160));
   const totalLens = visIdx.reduce((acc, i) => acc + allMaxLens[i], 0) || visIdx.length;
   const computedColWidths = visIdx.map(i => Math.max(80, Math.round((allMaxLens[i] / totalLens) * baseWidthPx)));
   const colWidths = visIdx.map((i, j) => {
@@ -1313,38 +1349,46 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [], generatedFiles 
   });
 
   return (
-    <div style={{ overflowX: 'auto', margin: '6px 0' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+    <div className="app-rich-data-table">
+      <div className="app-rich-data-table-toolbar">
+        <div className="app-rich-data-table-actions">
           <Button small minimal icon="cog" onClick={() => setShowCols(true)} title="Columns & display" />
+          <span className="app-rich-data-table-count">
+            {total === 0 ? '0 rows' : `${start + 1}-${end} of ${total}`}
+          </span>
           {total > pageSize && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div className="app-rich-data-table-pagination">
               <Button small minimal icon="double-chevron-left" onClick={() => setPage(0)} disabled={safePage === 0} />
               <Button small minimal icon="chevron-left" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={safePage === 0} />
-              <span style={{ fontSize: 12 }}>{start + 1}–{end} of {total}</span>
+              <span>Page {safePage + 1} of {pageCount}</span>
               <Button small minimal icon="chevron-right" onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))} disabled={safePage >= pageCount - 1} />
               <Button small minimal icon="double-chevron-right" onClick={() => setPage(pageCount - 1)} disabled={safePage >= pageCount - 1} />
             </div>
           )}
         </div>
-        <Button small minimal icon="download" onClick={downloadCSV} text="CSV" />
+        <Button small minimal icon="download" onClick={downloadCSV} text="CSV" title="Download CSV" />
       </div>
-      <BpTable
-        numRows={pageRows.length}
-        columnWidths={colWidths}
-        onColumnWidthChanged={(idx, next) => {
-          if (typeof idx === 'number' && typeof next === 'number') {
-            if (idx > 2000 && next < 200) { const t = idx; idx = next; next = t; }
-            const col = visIdx[idx];
-            if (col !== undefined && Number.isFinite(next) && next > 40) setWidthByCol((prev) => ({ ...prev, [col]: next }));
-          }
-        }}
-        enableGhostCells={false}
-        enableRowHeader={false}
-        defaultRowHeight={28}
-      >
-        {columns}
-      </BpTable>
+      <div className="app-rich-data-table-frame">
+        <BpTable
+          className="app-rich-bp-table"
+          numRows={pageRows.length}
+          columnWidths={colWidths}
+          onColumnWidthChanged={(idx, next) => {
+            if (typeof idx === 'number' && typeof next === 'number') {
+              if (idx > 2000 && next < 200) { const t = idx; idx = next; next = t; }
+              const col = visIdx[idx];
+              if (col !== undefined && Number.isFinite(next) && next > 40) setWidthByCol((prev) => ({ ...prev, [col]: next }));
+            }
+          }}
+          enableGhostCells={false}
+          enableRowHeader={false}
+          defaultRowHeight={34}
+          minColumnWidth={72}
+          maxColumnWidth={720}
+        >
+          {columns}
+        </BpTable>
+      </div>
 
       <Dialog isOpen={showCols} onClose={() => setShowCols(false)} title="Visible Columns">
         <div style={{ padding: 12, display: 'flex', gap: 10, flexDirection: 'column' }}>

@@ -516,7 +516,7 @@ describe('applyExecutionStreamEvent', () => {
     expect(chatState.liveRows[0].executionGroups).toHaveLength(1);
     // Row content must be the final response
     expect(chatState.liveRows[0].content).toBe('{"HOME": "/Users/awitas"}');
-    expect(chatState.liveRows[0].interim).toBe(1);
+    expect(chatState.liveRows[0].interim).toBe(0);
     // The existing execution group gets the final content
     expect(chatState.liveRows[0].executionGroups[0].content).toBe('{"HOME": "/Users/awitas"}');
     expect(chatState.liveRows[0].executionGroups[0].finalResponse).toBe(true);
@@ -876,6 +876,96 @@ describe('applyExecutionStreamEvent', () => {
     expect(chatState.liveRows[0].executionGroups[1].modelSteps[0].completedAt).toBeUndefined();
   });
 
+  it('finalizeStreamTurn clears live ownership and terminalizes older assistant rows for the turn', () => {
+    const chatState = {
+      liveRows: [
+        {
+          id: 'assistant:turn-1:older',
+          role: 'assistant',
+          turnId: 'turn-1',
+          createdAt: '2026-03-16T10:00:01Z',
+          interim: 1,
+          content: 'Older progress',
+          status: 'running',
+          turnStatus: 'running',
+          isStreaming: false,
+          executionGroups: [{
+            assistantMessageId: 'msg-old',
+            content: 'Older progress',
+            finalResponse: false,
+            status: 'running',
+            modelSteps: [{
+              modelCallId: 'mc-old',
+              status: 'running'
+            }],
+            toolSteps: [],
+            toolCallsPlanned: []
+          }]
+        },
+        {
+          id: 'assistant:turn-1:newest',
+          role: 'assistant',
+          turnId: 'turn-1',
+          createdAt: '2026-03-16T10:00:05Z',
+          interim: 1,
+          content: 'Newer progress',
+          _streamContent: 'Final answer',
+          status: 'running',
+          turnStatus: 'running',
+          isStreaming: true,
+          executionGroups: [{
+            assistantMessageId: 'msg-new',
+            content: '',
+            finalResponse: false,
+            status: 'running',
+            modelSteps: [{
+              modelCallId: 'mc-new',
+              status: 'running'
+            }],
+            toolSteps: [],
+            toolCallsPlanned: []
+          }]
+        }
+      ],
+      activeStreamTurnId: 'turn-1',
+      activeStreamStartedAt: Date.now(),
+      activeStreamPrompt: 'test',
+      liveOwnedConversationID: 'conv-1',
+      liveOwnedTurnIds: ['turn-1']
+    };
+
+    finalizeStreamTurn(chatState, {
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      status: 'completed'
+    }, 'conv-1');
+
+    expect(chatState.liveOwnedConversationID).toBe('');
+    expect(chatState.liveOwnedTurnIds).toEqual([]);
+    expect(chatState.liveRows[0]).toMatchObject({
+      status: 'completed',
+      turnStatus: 'completed',
+      content: 'Older progress',
+      interim: 0
+    });
+    expect(chatState.liveRows[0].executionGroups.at(-1)).toMatchObject({
+      status: 'completed',
+      finalResponse: false
+    });
+    expect(chatState.liveRows[1]).toMatchObject({
+      status: 'completed',
+      turnStatus: 'completed',
+      content: 'Final answer',
+      interim: 0,
+      isStreaming: false
+    });
+    expect(chatState.liveRows[1].executionGroups.at(-1)).toMatchObject({
+      status: 'completed',
+      finalResponse: true,
+      content: 'Final answer'
+    });
+  });
+
   it('suppresses mode=summary message_patch rows from live chat state', () => {
     const chatState = { liveRows: [] };
 
@@ -1034,10 +1124,10 @@ describe('applyExecutionStreamEvent', () => {
   // Still 1 row, content replaced
   expect(chatState.liveRows).toHaveLength(1);
   expect(chatState.liveRows[0].content).toBe('{"HOME": "/Users/awitas"}');
-  expect(chatState.liveRows[0].interim).toBe(1);
+  expect(chatState.liveRows[0].interim).toBe(0);
   });
 
-  it('message_add creates a standalone assistant row instead of merging into execution details', () => {
+  it('message_add folds the final assistant response into the existing execution row', () => {
     const chatState = { liveRows: [] };
 
     applyExecutionStreamEvent(chatState, {
@@ -1064,18 +1154,22 @@ describe('applyExecutionStreamEvent', () => {
       }
     });
 
-    expect(chatState.liveRows).toHaveLength(2);
-    expect(chatState.liveRows[0].executionGroups).toHaveLength(1);
-    expect(chatState.liveRows[1]).toMatchObject({
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0]).toMatchObject({
       id: 'assistant-note-1',
       role: 'assistant',
       content: 'Preliminary investigation: PMP supply looks constrained.',
       interim: 0
     });
-    expect(chatState.liveRows[1].executionGroups).toEqual([]);
+    expect(chatState.liveRows[0].executionGroups).toHaveLength(1);
+    expect(chatState.liveRows[0].executionGroups[0]).toMatchObject({
+      assistantMessageId: 'mc-1',
+      content: 'Preliminary investigation: PMP supply looks constrained.',
+      finalResponse: true
+    });
   });
 
-  it('starts a new execution bubble after a standalone assistant note in the same turn', () => {
+  it('keeps one execution row when a later narration arrives after the final assistant response', () => {
     const chatState = { liveRows: [] };
 
     applyExecutionStreamEvent(chatState, {
@@ -1112,20 +1206,15 @@ describe('applyExecutionStreamEvent', () => {
       createdAt: '2026-03-16T10:00:03Z'
     }, 'conv-1');
 
-    expect(chatState.liveRows).toHaveLength(3);
-    expect(chatState.liveRows[0].executionGroups).toHaveLength(1);
-    expect(chatState.liveRows[1]).toMatchObject({
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0]).toMatchObject({
       id: 'assistant-note-1',
-      role: 'assistant',
-      content: 'PRELIMINARY NOTE'
-    });
-    expect(chatState.liveRows[2]).toMatchObject({
-      id: 'mc-2',
       role: 'assistant',
       content: 'Calling llm/agents/start.'
     });
-    expect(chatState.liveRows[2].executionGroups[0]).toMatchObject({
-      assistantMessageId: 'mc-2',
+    expect(chatState.liveRows[0].executionGroups).toHaveLength(1);
+    expect(chatState.liveRows[0].executionGroups[0]).toMatchObject({
+      assistantMessageId: 'mc-1',
       narration: 'Calling llm/agents/start.'
     });
   });
@@ -1235,7 +1324,7 @@ describe('applyExecutionStreamEvent', () => {
     });
 
   expect(chatState.liveRows[0].content).toBe('Here are the results.');
-  expect(chatState.liveRows[0].interim).toBe(1);
+  expect(chatState.liveRows[0].interim).toBe(0);
   });
 
   it('handles tool call failure without breaking the row', () => {
@@ -1290,7 +1379,7 @@ describe('applyExecutionStreamEvent', () => {
     });
 
     expect(chatState.liveRows[0].content).toBe('The command failed. Let me try another approach.');
-    expect(chatState.liveRows[0].interim).toBe(1);
+    expect(chatState.liveRows[0].interim).toBe(0);
     // Tool step preserved
     expect(chatState.liveRows[0].executionGroups[0].toolSteps[0].status).toBe('failed');
   });
@@ -1510,7 +1599,7 @@ describe('applyExecutionStreamEvent', () => {
     // Turn 1 untouched
     expect(chatState.liveRows[0].turnId).toBe('turn-1');
     expect(chatState.liveRows[0].content).toBe('Hi! How can I help?');
-    expect(chatState.liveRows[0].interim).toBe(1);
+    expect(chatState.liveRows[0].interim).toBe(0);
     // Turn 2 has tool step
     expect(chatState.liveRows[1].turnId).toBe('turn-2');
     expect(chatState.liveRows[1].executionGroups[0].toolSteps).toHaveLength(1);
@@ -1766,7 +1855,7 @@ describe('applyExecutionStreamEvent', () => {
 
     expect(chatState.liveRows[0].content).toBe('{"HOME": "/Users/awitas"}');
     expect(chatState.liveRows[0].id).toBe('msg-final');
-    expect(chatState.liveRows[0].interim).toBe(1);
+    expect(chatState.liveRows[0].interim).toBe(0);
 
     // 9. model_completed iter 1 (conv service, no model info)
     applyExecutionStreamEvent(chatState, {
@@ -1862,7 +1951,7 @@ describe('applyExecutionStreamEvent', () => {
 
     expect(chatState.liveRows).toHaveLength(1);
     expect(chatState.liveRows[0].content).toBe('Hello world!');
-    expect(chatState.liveRows[0].interim).toBe(1);
+    expect(chatState.liveRows[0].interim).toBe(0);
   });
 
   it('text_delta creates execution row when model_started has not arrived yet', () => {

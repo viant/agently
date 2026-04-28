@@ -134,6 +134,7 @@ export function executionRoleLabel(step = {}) {
   if (!explicitRole) return '';
   switch (explicitRole.toLowerCase()) {
     case 'react': return '⌬';
+    case 'bootstrap': return '⇢';
     case 'intake': return '⇢';
     case 'narrator': return '✍';
     case 'router': return '🧭';
@@ -147,6 +148,7 @@ export function displayStepTitle(step = {}) {
   const kind = String(step?.kind || '').toLowerCase();
   if (kind === 'model') {
     const role = String(step?.executionRole || '').trim().toLowerCase();
+    if (role === 'bootstrap') return 'Bootstrap';
     if (role === 'narrator') return 'Narrator';
     if (role === 'intake') return 'Intake';
     if (role === 'summary') return 'Summary';

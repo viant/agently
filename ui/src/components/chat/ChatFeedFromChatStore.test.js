@@ -152,6 +152,33 @@ describe('ChatFeedFromChatStore', () => {
     expect(html).toContain('app-bubble-row-assistant');
   });
 
+  it('suppresses the older same-turn iteration bubble when a later assistant response owns the turn bubble slot', () => {
+    iterationRowBlockSpy.mockClear();
+    const rows = [
+      { kind: 'user', renderKey: 'rk_u0', turnId: 'tn_1', content: 'first', createdAt: 't0' },
+      {
+        kind: 'iteration',
+        renderKey: 'rk_iter',
+        turnId: 'tn_1',
+        lifecycle: 'running',
+        rounds: [],
+        elicitation: null,
+        linkedConversations: [],
+        header: { label: 'Execution details (1)', tone: 'running', count: 1 },
+        isStreaming: true,
+        createdAt: 't1',
+      },
+      { kind: 'assistant', renderKey: 'rk_a0', turnId: 'tn_1', messageId: 'msg_a0', content: 'PRELIMINARY NOTE', createdAt: 't2' },
+    ];
+
+    renderToStaticMarkup(
+      h(ChatFeedFromChatStore, { conversationId: 'c', rowsOverride: rows }),
+    );
+
+    expect(iterationRowBlockSpy).toHaveBeenCalledTimes(1);
+    expect(iterationRowBlockSpy.mock.calls[0][0].suppressBubble).toBe(true);
+  });
+
   it('never produces "(0)" for lifecycle-only turn_started', () => {
     const rows = [
       {

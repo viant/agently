@@ -283,12 +283,10 @@ describe('T-note-live control message_add ordering', () => {
         });
 
         const rows = getProjection(CONV);
-        expect(rows.map((r) => r.kind)).toEqual(['assistant', 'iteration']);
+        expect(rows.map((r) => r.kind)).toEqual(['iteration']);
         const html = render();
-        const idxNote = html.indexOf('PRELIMINARY NOTE');
         const idxFinal = html.indexOf('Final answer');
-        expect(idxNote).toBeGreaterThanOrEqual(0);
-        expect(idxFinal).toBeGreaterThan(idxNote);
+        expect(idxFinal).toBeGreaterThanOrEqual(0);
     });
 });
 
@@ -801,6 +799,54 @@ describe('T-live active SSE sequence stays consolidated by iteration', () => {
         expect(html).not.toContain('Turn completed');
         expect((html.match(/llm\/agents\/list/g) || []).length).toBeGreaterThanOrEqual(1);
         expect((html.match(/llm\/agents\/start/g) || []).length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('reuses the iteration bubble when narration is followed by the final assistant add for the same turn', () => {
+        onSSE(CONV, {
+            type: 'turn_started',
+            conversationId: CONV,
+            turnId: 'tn_single_bubble',
+            createdAt: '2025-01-01T00:00:00Z',
+        });
+        onSSE(CONV, {
+            type: 'model_started',
+            conversationId: CONV,
+            turnId: 'tn_single_bubble',
+            messageId: 'msg_iter_1',
+            assistantMessageId: 'msg_iter_1',
+            modelCallId: 'mc_iter_1',
+            iteration: 1,
+            status: 'thinking',
+            createdAt: '2025-01-01T00:00:01Z',
+        });
+        onSSE(CONV, {
+            type: 'narration',
+            conversationId: CONV,
+            turnId: 'tn_single_bubble',
+            messageId: 'msg_iter_1',
+            assistantMessageId: 'msg_iter_1',
+            iteration: 1,
+            narration: 'Checking the baseline first.',
+            createdAt: '2025-01-01T00:00:02Z',
+        });
+        onSSE(CONV, {
+            type: 'assistant',
+            conversationId: CONV,
+            turnId: 'tn_single_bubble',
+            messageId: 'msg_iter_1',
+            content: 'Baseline complete.',
+            createdAt: '2025-01-01T00:00:03Z',
+            patch: {
+                role: 'assistant',
+                sequence: 3,
+            },
+        });
+
+        const rows = getProjection(CONV);
+        expect(rows.map((row) => row.kind)).toEqual(['iteration']);
+        const html = render();
+        expect((html.match(/Baseline complete\./g) || []).length).toBe(1);
+        expect(rows[0].rounds[0].narration).toBe('Checking the baseline first.');
     });
 });
 

@@ -1,14 +1,9 @@
 import { compareExecutionGroups, compareTemporalEntries } from 'agently-core-ui-sdk';
 import { mergeRowSnapshots } from './rowMerge';
+import { isStreamDebugEnabled } from './debugFlags';
 
 function isLiveStoreDebugEnabled() {
-  if (typeof window === 'undefined') return false;
-  try {
-    const raw = String(window.localStorage?.getItem('agently.debugStream') || '').trim().toLowerCase();
-    return ['1', 'true', 'on', 'yes'].includes(raw);
-  } catch (_) {
-    return false;
-  }
+  return isStreamDebugEnabled();
 }
 
 function logLiveStoreDebug(event, detail = {}) {
@@ -1057,8 +1052,14 @@ export function applyStreamChunk(chatState = {}, payload = {}, conversationID = 
 }
 
 function applyAssistantFinalToRows(rows = [], payload = {}) {
-  const turnId = String(payload?.turnId || '').trim();
-  const content = String(payload?.content || '').trim();
+  const patch = payload?.patch && typeof payload.patch === 'object' ? payload.patch : {};
+  const turnId = String(payload?.turnId || patch?.turnId || '').trim();
+  const content = normalizeStreamingMarkdown(String(
+    patch?.rawContent
+    || payload?.content
+    || patch?.content
+    || ''
+  ).trim()).content;
   if (!turnId || !content) return Array.isArray(rows) ? rows : [];
   const existing = Array.isArray(rows) ? [...rows] : [];
   const index = findAssistantRowIndex(existing, turnId, canonicalPayloadMessageId(payload));
@@ -1066,6 +1067,14 @@ function applyAssistantFinalToRows(rows = [], payload = {}) {
   const prev = existing[index];
   const groups = Array.isArray(prev.executionGroups) ? [...prev.executionGroups] : [];
   // Update the last execution group with final content — don't create new groups.
+    const assistantMessageId = String(
+      payload?.messageId
+      || payload?.id
+      || patch?.messageId
+      || patch?.id
+      || canonicalPayloadMessageId(payload)
+      || ''
+    ).trim();
     if (groups.length > 0) {
       const last = groups[groups.length - 1];
       groups[groups.length - 1] = {
@@ -1075,22 +1084,22 @@ function applyAssistantFinalToRows(rows = [], payload = {}) {
         status: String(payload?.status || last.status || '').trim()
       };
     }
-  existing[index] = {
+  existing[index] = maybePromoteAssistantRowIdentity({
     ...prev,
-    id: canonicalPayloadMessageId(payload) || prev.id,
+    id: assistantMessageId || prev.id,
     agentIdUsed: String(payload?.agentIdUsed || prev?.agentIdUsed || '').trim(),
     agentName: String(payload?.agentName || prev?.agentName || '').trim(),
     mode: String(payload?.mode || prev?.mode || '').trim().toLowerCase(),
     content: normalizeStreamingMarkdown(content).content,
     completedAt: String(payload?.completedAt || payload?.createdAt || prev?.completedAt || '').trim(),
-    interim: prev?.interim ?? 1,
+    interim: 0,
     isStreaming: false,
     _streamContent: '',
     _streamFence: null,
-    status: prev.status || normalizeExecutionRowStatus(payload?.status),
-    turnStatus: prev.turnStatus || normalizeExecutionRowStatus(payload?.status),
+    status: normalizeExecutionRowStatus(payload?.status || prev.status),
+    turnStatus: normalizeExecutionRowStatus(payload?.status || prev.turnStatus),
     executionGroups: preserveExecutionGroupStartedAt(groups, prev.startedAt)
-  };
+  }, turnId, assistantMessageId);
   return existing;
 }
 
@@ -1270,6 +1279,11 @@ export function applyAssistantMessageAddEvent(chatState = {}, payload = {}) {
     return Array.isArray(chatState.liveRows) ? chatState.liveRows : [];
   }
   const rows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
+  const executionIndex = findAssistantExecutionRowIndex(rows, turnId, messageId);
+  if (executionIndex !== -1) {
+    chatState.liveRows = applyAssistantFinalToRows(rows, payload);
+    return chatState.liveRows;
+  }
   const existingIndex = rows.findIndex((row) => String(row?.id || '').trim() === messageId);
   const nextRow = {
     id: messageId,
@@ -1379,8 +1393,12 @@ export function finalizeStreamTurn(chatState = {}, payload = {}, fallbackConvers
   const errorMessage = String(payload?.error || payload?.errorMessage || '').trim();
   const rows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
   let finalized = false;
+  let assignedTerminalContent = false;
 
-  // Find the assistant execution row for this turn.
+  // Terminal turn ownership is exact: once the turn ends, every assistant row
+  // for that turn must stop presenting as live/running. The latest matching
+  // row receives the terminal content payload; earlier assistant rows keep
+  // their own content but still transition to the terminal lifecycle.
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const row = rows[index];
     const rowTurnID = String(row?.turnId || '').trim();
@@ -1388,10 +1406,12 @@ export function finalizeStreamTurn(chatState = {}, payload = {}, fallbackConvers
     const role = String(row?.role || '').toLowerCase();
     if (role !== 'assistant') continue;
 
-    // Use explicit content > stream content > existing content.
     const streamContent = String(row?._streamContent || '').trim();
-    const finalizedContent = normalizeStreamingMarkdown(content || streamContent || String(row?.content || '').trim()).content;
-
+    const baseContent = String(row?.content || '').trim();
+    const shouldAssignTerminalContent = !assignedTerminalContent;
+    const finalizedContent = shouldAssignTerminalContent
+      ? normalizeStreamingMarkdown(content || streamContent || baseContent).content
+      : normalizeStreamingMarkdown(baseContent).content;
     const groups = Array.isArray(row?.executionGroups) ? row.executionGroups : [];
     rows[index] = appendLifecycleStep({
       ...row,
@@ -1419,14 +1439,18 @@ export function finalizeStreamTurn(chatState = {}, payload = {}, fallbackConvers
           ...group,
           status,
           errorMessage: errorMessage || group?.errorMessage || '',
-          finalResponse: finalizedContent ? true : Boolean(group?.finalResponse || group?.FinalResponse),
+          finalResponse: shouldAssignTerminalContent
+            ? (finalizedContent ? true : Boolean(group?.finalResponse || group?.FinalResponse))
+            : Boolean(group?.finalResponse || group?.FinalResponse),
           content: finalizedContent || String(group?.content || ''),
           modelSteps
         };
       })
     }, payload?.type || 'turn_completed', payload);
     finalized = true;
-    break;
+    if (shouldAssignTerminalContent) {
+      assignedTerminalContent = true;
+    }
   }
 
   if (!finalized && turnID) {
@@ -1462,5 +1486,14 @@ export function finalizeStreamTurn(chatState = {}, payload = {}, fallbackConvers
   chatState.activeStreamTurnId = '';
   chatState.activeStreamStartedAt = 0;
   chatState.activeStreamPrompt = '';
+  if (turnID) {
+    const nextOwnedTurnIds = (Array.isArray(chatState.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [])
+      .map((value) => String(value || '').trim())
+      .filter((value) => value && value !== turnID);
+    chatState.liveOwnedTurnIds = nextOwnedTurnIds;
+    if (nextOwnedTurnIds.length === 0) {
+      chatState.liveOwnedConversationID = '';
+    }
+  }
   return rows;
 }

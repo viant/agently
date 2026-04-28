@@ -117,34 +117,29 @@ export function syncTranscriptSnapshot({
   const sameLiveConversation = conversationID
     && String(chatState.liveOwnedConversationID || '').trim() === conversationID;
   chatState.activeConversationID = conversationID;
-  const filteredRows = filterOwnedTurnRows(rows, conversationID, chatState.liveOwnedConversationID, chatState.liveOwnedTurnIds);
+  const pendingLocalLiveBootstrap = sameLiveConversation
+    && String(chatState.activeStreamPrompt || '').trim() !== '';
+  let filteredRows = filterOwnedTurnRows(rows, conversationID, chatState.liveOwnedConversationID, chatState.liveOwnedTurnIds);
   const sameConversation = String(chatState.lastConversationID || '').trim() === conversationID;
-  const previousTranscriptRows = filterOwnedTurnRows(
+  let previousTranscriptRows = filterOwnedTurnRows(
     Array.isArray(chatState.transcriptRows) ? chatState.transcriptRows : [],
     conversationID,
     chatState.liveOwnedConversationID,
     chatState.liveOwnedTurnIds
   );
-  const mergedRows = reason === 'poll' && sameConversation && previousTranscriptRows.length > 0
+  const effectiveRunningTurnId = String(
+    runningTurnId
+    || findLatestRunningTurnId(filteredRows)
+    || findLatestRunningTurnId(previousTranscriptRows)
+    || ''
+  ).trim();
+  if (pendingLocalLiveBootstrap && effectiveRunningTurnId) {
+    filteredRows = filteredRows.filter((row) => String(row?.turnId || '').trim() !== effectiveRunningTurnId);
+    previousTranscriptRows = previousTranscriptRows.filter((row) => String(row?.turnId || '').trim() !== effectiveRunningTurnId);
+  }
+  const finalMergedRows = reason === 'poll' && sameConversation && previousTranscriptRows.length > 0
     ? mergeRowSnapshots(previousTranscriptRows, filteredRows)
     : filteredRows;
-
-  // Opening an already-running conversation should bootstrap the active turn
-  // from transcript once, then let SSE own that turn going forward. This keeps
-  // active-turn rendering on the live side without losing request/detail fields
-  // that were persisted before the browser subscribed.
-  const effectiveRunningTurnId = String(runningTurnId || findLatestRunningTurnId(mergedRows) || '').trim();
-  if (effectiveRunningTurnId && normalizedLiveRows.length === 0 && conversationID) {
-    const seeded = mergedRows
-      .filter((row) => String(row?.turnId || '').trim() === effectiveRunningTurnId)
-      .map((row) => ({ ...row }));
-    if (seeded.length > 0) {
-      normalizedLiveRows = seeded;
-      chatState.liveRows = seeded;
-      chatState.liveOwnedConversationID = conversationID;
-      chatState.liveOwnedTurnIds = [effectiveRunningTurnId];
-    }
-  }
 
   const hasRunning = turns.some((turn) => {
     const status = String(turn?.status || turn?.Status || '').trim().toLowerCase();
@@ -185,13 +180,13 @@ export function syncTranscriptSnapshot({
   }
 
   chatState.lastSyncReason = reason;
-  chatState.transcriptRows = mergedRows;
+  chatState.transcriptRows = finalMergedRows;
   chatState.lastQueuedTurns = queuedTurns;
   chatState.lastHasRunning = effectiveHasRunning;
   chatState.lastConversationID = conversationID;
   chatState.runningTurnId = effectiveHasRunning
-    ? (runningTurnId || findLatestRunningTurnId(mergedRows) || chatState.runningTurnId || '')
-    : (runningTurnId || findLatestRunningTurnId(mergedRows));
+    ? (runningTurnId || findLatestRunningTurnId(finalMergedRows) || chatState.runningTurnId || '')
+    : (runningTurnId || findLatestRunningTurnId(finalMergedRows));
 
   const transcriptEmpty = !Array.isArray(turns) || turns.length === 0;
   const shouldPreserveTerminalLiveRows = transcriptEmpty && normalizedLiveRows.length > 0;
@@ -212,7 +207,7 @@ export function syncTranscriptSnapshot({
     setStage({
       phase: 'executing',
       text: 'Assistant executing…',
-      startedAt: resolveRunningStartedAt(mergedRows, chatState.runningTurnId)
+      startedAt: resolveRunningStartedAt(finalMergedRows, chatState.runningTurnId)
     });
   } else if (queuedTurns.length > 0) {
     setStage({ phase: 'waiting', text: `Queued turns: ${queuedTurns.length}` });
@@ -221,7 +216,7 @@ export function syncTranscriptSnapshot({
   }
 
   return {
-    transcriptRows: mergedRows,
+    transcriptRows: finalMergedRows,
     liveRows: shouldFinalizeActiveStream ? [] : normalizedLiveRows,
     queuedTurns,
     hasRunning,

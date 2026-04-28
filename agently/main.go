@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 
+	"github.com/google/gops/agent"
 	_ "github.com/viant/afsc/aws"
 	_ "github.com/viant/afsc/aws/secretmanager"
 	_ "github.com/viant/afsc/aws/ssm"
@@ -18,6 +19,7 @@ import (
 var Version = agently.Version
 
 func main() {
+	_ = agent.Listen(agent.Options{})
 	cagently.SetVersion(Version)
 	cagently.RunWithCommands(os.Args[1:])
 }

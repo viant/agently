@@ -1071,7 +1071,7 @@ export default function NamedLookupInput({
         autoFocus={false}
         enforceFocus={false}
       >
-        <div>
+        <div style={{ width: '100%', minWidth: 0 }}>
           {useInlineEditor ? (
             <div
               ref={editorRef}

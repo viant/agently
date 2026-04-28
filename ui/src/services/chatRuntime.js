@@ -58,6 +58,7 @@ import {
   normalizeWorkspaceModelInfos,
   normalizeWorkspaceModelOptions
 } from './workspaceMetadata';
+import { isExecutorDebugEnabled, isStreamDebugEnabled } from './debugFlags';
 
 const RUNNING_STATUSES = new Set(['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress']);
 const DEFAULT_VISIBLE_ITERATIONS = Number.MAX_SAFE_INTEGER;
@@ -174,32 +175,6 @@ function attachGeneratedFilesToRows(rows = [], files = []) {
       generatedFiles: mergeGeneratedFileLists(row?.generatedFiles, scopedFiles)
     };
   });
-}
-
-function isStreamDebugEnabled() {
-  if (typeof window === 'undefined') return false;
-  const envLevel = String(import.meta?.env?.VITE_FORGE_LOG_LEVEL || '').trim().toLowerCase();
-  if (envLevel === 'debug') return true;
-  try {
-    const raw = String(window.localStorage?.getItem('agently.debugStream') || '').trim().toLowerCase();
-    if (['0', 'false', 'off', 'no'].includes(raw)) return false;
-    if (['1', 'true', 'on', 'yes'].includes(raw)) return true;
-    return false;
-  } catch (_) {
-    return false;
-  }
-}
-
-function isExecutorDebugEnabled() {
-  if (typeof window === 'undefined') return false;
-  const envLevel = String(import.meta?.env?.VITE_FORGE_LOG_LEVEL || '').trim().toLowerCase();
-  if (envLevel === 'debug') return true;
-  try {
-    const raw = String(window.localStorage?.getItem('agently.debugExecutor') || '').trim().toLowerCase();
-    return raw === '1' || raw === 'true' || raw === 'on';
-  } catch (_) {
-    return false;
-  }
 }
 
 function logExecutorDebug(event, detail = {}) {
@@ -478,6 +453,31 @@ function clearPendingStreamScheduling(chatState = {}) {
     chatState.pendingStreamRender = null;
   }
   chatState.pendingTextDeltaQueue = [];
+}
+
+function clearPendingStreamReconnect(chatState = {}) {
+  if (!chatState) return;
+  if (chatState.pendingStreamReconnect != null) {
+    try { clearTimeout(chatState.pendingStreamReconnect); } catch (_) {}
+    chatState.pendingStreamReconnect = null;
+  }
+}
+
+function scheduleStreamReconnect(context, conversationID = '', reason = '') {
+  const chatState = ensureContextResources(context);
+  const targetID = String(conversationID || '').trim();
+  if (!targetID) return;
+  if (chatState.pendingStreamReconnect != null) return;
+  chatState.pendingStreamReconnect = window.setTimeout(() => {
+    chatState.pendingStreamReconnect = null;
+    if (!shouldUseLiveStream(context, targetID)) return;
+    queueTranscriptRefresh(context, { delay: 0, force: true });
+    connectStream(context, targetID);
+  }, 1000);
+  logStreamDebug(chatState, 'stream-reconnect-scheduled', {
+    conversationId: targetID,
+    reason: String(reason || '').trim()
+  });
 }
 
 function isLatePostTerminalExecutionEvent(type = '', payload = {}) {
@@ -1460,6 +1460,7 @@ export async function dsTick(context, options = {}) {
 export function resetConversationSnapshotState(context) {
   const chatState = ensureContextResources(context);
   clearPendingStreamScheduling(chatState);
+  clearPendingStreamReconnect(chatState);
   resetTranscriptState({
     context,
     ensureContextResources,
@@ -1473,9 +1474,9 @@ export function resetConversationSnapshotState(context) {
   chatState.generatedFiles = [];
 }
 
-export function queueTranscriptRefresh(context, { delay = 120, resetSince = false } = {}) {
+export function queueTranscriptRefresh(context, { delay = 120, resetSince = false, force = false } = {}) {
   const currentConversationID = String(getCurrentConversationID(context) || '').trim();
-  if (shouldDeferTranscriptToLiveStream(context, currentConversationID)) {
+  if (!force && shouldDeferTranscriptToLiveStream(context, currentConversationID)) {
     return null;
   }
   return queueTranscriptRefreshStore({
@@ -1490,6 +1491,7 @@ export function queueTranscriptRefresh(context, { delay = 120, resetSince = fals
 
 export function connectStream(context, conversationID) {
   const chatState = ensureContextResources(context);
+  clearPendingStreamReconnect(chatState);
   if (chatState.stream) {
     logStreamDebug(chatState, 'stream-close-replaced', {
       conversationId: String(chatState.activeConversationID || '').trim()
@@ -1501,10 +1503,13 @@ export function connectStream(context, conversationID) {
     onEvent: (payload) => {
       handleStreamEvent(chatState, context, conversationID, payload);
     },
-    onError: () => {
+    onError: (error) => {
       logStreamDebug(chatState, 'stream-error', {
-        conversationId: String(conversationID || '').trim()
+        conversationId: String(conversationID || '').trim(),
+        error: String(error || '').trim()
       });
+      if (String(error || '').trim().includes('unauthorized')) return;
+      scheduleStreamReconnect(context, conversationID, error);
     },
   });
   chatState.stream = subscription;
@@ -1623,6 +1628,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         iteration: payload?.iteration,
         pageIndex: payload?.pageIndex,
         pageCount: payload?.pageCount,
+        pageId: payload?.pageId,
         interim: payload?.patch?.interim ?? payload?.interim,
         createdAt: payload?.createdAt,
         startedAt: payload?.startedAt,
@@ -1669,6 +1675,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       payloadStreamPayloadId: String(payload?.streamPayloadId || '').trim(),
       payloadLinkedConversationId: String(payload?.linkedConversationId || '').trim(),
       payloadIteration: Number(payload?.iteration || 0) || 0,
+      payloadPageId: String(payload?.pageId || '').trim(),
       payloadPageIndex: Number(payload?.pageIndex || 0) || 0,
       payloadPageCount: Number(payload?.pageCount || 0) || 0
     });
@@ -1899,8 +1906,8 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
           reason: 'terminal-event-without-final-content'
         });
       }
-      if (turnId) {
-        chatState.terminalTurns[turnId] = String(payload?.completedAt || payload?.createdAt || type || 'terminal').trim();
+      if (completedTurnID) {
+        chatState.terminalTurns[completedTurnID] = String(payload?.completedAt || payload?.createdAt || type || 'terminal').trim();
       }
       logStreamDebug(chatState, 'stream-done', {
         status: String(payload?.status || type).trim()
@@ -2101,6 +2108,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
 
 export function disconnectStream(context) {
   const chatState = ensureContextResources(context);
+  clearPendingStreamReconnect(chatState);
   if (chatState.stream) {
     logStreamDebug(chatState, 'stream-close-manual', {
       conversationId: String(chatState.activeConversationID || '').trim()

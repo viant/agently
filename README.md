@@ -172,7 +172,7 @@ auth:
 | `AGENTLY_DB_DSN` | (workspace SQLite) | Database connection string |
 | `AGENTLY_UI_DIST` | (embedded) | Optional local UI dist path |
 | `AGENTLY_DEBUG` | `false` | Enable verbose logging |
-| `AGENTLY_SCHEDULER_RUNNER` | `false` | Enable scheduler watchdog in-process |
+| `AGENTLY_SCHEDULER_RUNNER` | `false` | Enable scheduler watchdog in-process (scheduled runs only) |
 | `AGENTLY_SCHEDULER_API` | `true` | Mount scheduler HTTP endpoints |
 | `AGENTLY_SCHEDULER_RUN_NOW` | `true` | Enable run-now endpoint |
 | `AGENTLY_SCHEDULER_MAX_CONCURRENT_RUNS` | `0` | Cap on in-flight scheduler runs; `0` = unbounded |

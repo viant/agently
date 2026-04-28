@@ -17,6 +17,7 @@
 import React from 'react';
 
 import { useChatProjection } from '../../services/chatStore.js';
+import { isStreamDebugEnabled } from '../../services/debugFlags';
 import IterationRowBlock from './IterationRowBlock.jsx';
 import BubbleMessage from './BubbleMessage.jsx';
 
@@ -75,6 +76,17 @@ function renderRow(row, context) {
   }
 }
 
+function latestTurnRowIndex(rows = []) {
+  const result = new Map();
+  (Array.isArray(rows) ? rows : []).forEach((row, index) => {
+    const turnId = String(row?.turnId || '').trim();
+    if (!turnId) return;
+    if (row?.kind !== 'iteration' && row?.kind !== 'assistant') return;
+    result.set(turnId, index);
+  });
+  return result;
+}
+
 /**
  * Props:
  *   conversationId — the conversation whose projection to render.
@@ -86,11 +98,46 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
   const subscribed = useChatProjection(conversationId);
   const rows = rowsOverride !== undefined ? rowsOverride : subscribed;
 
+  React.useEffect(() => {
+    if (!isStreamDebugEnabled()) return;
+    try {
+      console.log('[chat-projection]', {
+        ts: new Date().toISOString(),
+        conversationId: String(conversationId || '').trim(),
+        rowCount: Array.isArray(rows) ? rows.length : 0,
+        rows: (Array.isArray(rows) ? rows : []).map((row) => ({
+          kind: row?.kind,
+          renderKey: row?.renderKey,
+          turnId: row?.turnId,
+          lifecycle: row?.lifecycle,
+          status: row?.status,
+          contentHead: String(row?.content || '').slice(0, 120),
+          rounds: Array.isArray(row?.rounds) ? row.rounds.length : undefined,
+        })),
+      });
+    } catch (_) {}
+  }, [conversationId, rows]);
+
   if (!Array.isArray(rows) || rows.length === 0) return null;
+  const lastIndexByTurn = latestTurnRowIndex(rows);
 
   return (
     <div className="app-chat-feed" data-source="chatStore">
-      {rows.map((row) => renderRow(row, context))}
+      {rows.map((row, index) => {
+        if (row?.kind !== 'iteration') {
+          return renderRow(row, context);
+        }
+        const turnId = String(row?.turnId || '').trim();
+        const suppressBubble = !!turnId && (lastIndexByTurn.get(turnId) ?? index) > index;
+        return (
+          <IterationRowBlock
+            key={row.renderKey}
+            iterationRow={row}
+            context={context}
+            suppressBubble={suppressBubble}
+          />
+        );
+      })}
     </div>
   );
 }

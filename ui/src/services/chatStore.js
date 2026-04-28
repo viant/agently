@@ -222,3 +222,18 @@ export function useChatIsQueued(conversationId) {
 }
 
 const EMPTY_PROJECTION = Object.freeze([]);
+
+if (typeof window !== 'undefined') {
+    try {
+        Object.defineProperty(window, '__agentlyChatStoreDebug', {
+            configurable: true,
+            enumerable: false,
+            value: {
+                getState,
+                getProjection,
+                isRunning,
+                isQueued,
+            },
+        });
+    } catch (_) { /* ignore */ }
+}

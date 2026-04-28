@@ -306,6 +306,94 @@ describe('syncTranscriptSnapshot', () => {
     expect(chatState.transcriptRows).toEqual([]);
   });
 
+  it('does not let transcript render a locally active turn before SSE owns it', () => {
+    const chatState = {
+      transcriptRows: [
+        {
+          id: 'cached-user-1',
+          role: 'user',
+          turnId: 'turn-1',
+          createdAt: '2026-03-16T09:59:59Z',
+          content: 'Analyze performance of ad order 2652066.'
+        },
+        {
+          id: 'cached-assistant-1',
+          role: 'assistant',
+          turnId: 'turn-1',
+          createdAt: '2026-03-16T10:00:01Z',
+          interim: 1,
+          status: 'running',
+          content: 'Thinking...'
+        }
+      ],
+      liveRows: [],
+      liveOwnedConversationID: 'conv-1',
+      liveOwnedTurnIds: [],
+      activeStreamPrompt: 'Analyze performance of ad order 2652066.',
+      lastConversationID: 'conv-1',
+      lastQueuedTurns: [],
+      lastHasRunning: true,
+      runningTurnId: ''
+    };
+    const conversationsDS = {
+      peekFormData: () => ({ id: 'conv-1' }),
+      setFormData: vi.fn()
+    };
+    const context = {
+      Context: (name) => {
+        if (name === 'conversations') {
+          return { handlers: { dataSource: conversationsDS } };
+        }
+        return null;
+      }
+    };
+
+    const result = syncTranscriptSnapshot({
+      context,
+      turns: [
+        {
+          id: 'turn-1',
+          status: 'running'
+        }
+      ],
+      ensureContextResources: () => chatState,
+      resolveActiveStreamTurnId: () => '',
+      mapTranscriptToRows: () => ({
+        rows: [
+          {
+            id: 'msg-user-1',
+            role: 'user',
+            turnId: 'turn-1',
+            createdAt: '2026-03-16T09:59:59Z',
+            content: 'Analyze performance of ad order 2652066.'
+          },
+          {
+            id: 'msg-assistant-1',
+            role: 'assistant',
+            turnId: 'turn-1',
+            createdAt: '2026-03-16T10:00:01Z',
+            interim: 1,
+            status: 'running',
+            content: 'Thinking...'
+          }
+        ],
+        queuedTurns: [],
+        runningTurnId: 'turn-1'
+      }),
+      findLatestRunningTurnIdFromTurns: () => 'turn-1',
+      findLatestRunningTurnId: () => 'turn-1',
+      setStage: vi.fn(),
+      liveRows: chatState.liveRows
+    });
+
+    expect(result?.transcriptRows).toEqual([]);
+    expect(chatState.transcriptRows).toEqual([]);
+    expect(result?.liveRows).toEqual([]);
+    expect(chatState.liveRows).toEqual([]);
+    expect(chatState.liveOwnedConversationID).toBe('conv-1');
+    expect(chatState.liveOwnedTurnIds).toEqual([]);
+  });
+
   it('reapplies transcript-backed tool feeds for the settled conversation', () => {
     const applyFeedEvent = vi.fn();
     const chatState = {

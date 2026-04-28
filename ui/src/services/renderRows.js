@@ -102,6 +102,22 @@ function displayableElicitationMessage(rawMessage = '', embedded = null) {
   return explicit;
 }
 
+function pageOwnedAssistantMessageIds(turn = {}) {
+  const ids = new Set();
+  const pages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
+  for (const page of pages) {
+    const narrationId = String(page?.narrationMessageId || '').trim();
+    const finalId = String(page?.finalAssistantMessageId || page?.assistantMessageId || '').trim();
+    if (narrationId) ids.add(narrationId);
+    if (finalId) ids.add(finalId);
+  }
+  const assistantNarrationId = String(turn?.assistant?.narration?.messageId || '').trim();
+  const assistantFinalId = String(turn?.assistant?.final?.messageId || '').trim();
+  if (assistantNarrationId) ids.add(assistantNarrationId);
+  if (assistantFinalId) ids.add(assistantFinalId);
+  return ids;
+}
+
 export function isCanonicalTranscriptTurn(turn = {}) {
   return !!turn && typeof turn === 'object' && (
     Object.prototype.hasOwnProperty.call(turn, 'turnId')
@@ -208,7 +224,14 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
       }));
     }
 
-    const extraMessages = Array.isArray(turn?.messages) ? turn.messages : [];
+    const assistantOwnedIds = pageOwnedAssistantMessageIds(turn);
+    const extraMessages = (Array.isArray(turn?.messages) ? turn.messages : []).filter((message) => {
+      const role = String(message?.role || '').trim().toLowerCase();
+      if (role !== 'assistant') return true;
+      if (Number(message?.interim || 0) > 0) return false;
+      const messageId = String(message?.messageId || '').trim();
+      return !messageId || !assistantOwnedIds.has(messageId);
+    });
     for (const message of extraMessages) {
       rows.push(normalizeOne({
         id: message?.messageId || `${turnId}:message`,
