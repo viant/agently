@@ -1,0 +1,1 @@
+import{e as l}from"./index-qbdeTj_A.js";function m(c,e){var i,t,o;c.accDescr&&((i=e.setAccDescription)==null||i.call(e,c.accDescr)),c.accTitle&&((t=e.setAccTitle)==null||t.call(e,c.accTitle)),c.title&&((o=e.setDiagramTitle)==null||o.call(e,c.title))}l(m,"populateCommonDb");export{m as p};

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { activeWindows } from 'forge/core';
 
-import { bootstrapConversationSelection, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, handleStreamEvent, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, normalizeMetaResponse, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot } from './chatRuntime';
+import { bootstrapConversationSelection, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, handleStreamEvent, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, normalizeMetaResponse, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot } from './chatRuntime';
 import { client } from './agentlyClient';
 
 vi.mock('./agentlyClient', () => ({
@@ -1848,6 +1848,58 @@ describe('handleStreamEvent', () => {
       vi.useRealTimers();
     }
   });
+
+  it('ignores late post-terminal execution events for the completed turn id', () => {
+    const chatState = {
+      terminalTurns: {},
+      liveRows: [],
+      transcriptRows: [],
+      streamTracker: { canonicalState: { activeTurnId: null }, applyEvent: vi.fn() },
+      runningTurnId: 'turn-1',
+      activeStreamTurnId: 'turn-1',
+      lastHasRunning: true,
+    };
+    const setCollection = vi.fn();
+    const setFormData = vi.fn();
+    const context = {
+      resources: { chat: chatState },
+      Context(name) {
+        if (name === 'messages') {
+          return { handlers: { dataSource: { setCollection, peekFormData: () => ({}) } } };
+        }
+        if (name === 'conversations') {
+          return { handlers: { dataSource: { peekFormData: () => ({ id: 'conv-1', running: true }), setFormData } } };
+        }
+        if (name === 'meta') {
+          return { handlers: { dataSource: { peekFormData: () => ({}) } } };
+        }
+        return null;
+      }
+    };
+
+    handleStreamEvent(chatState, context, 'conv-1', {
+      type: 'turn_completed',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      status: 'succeeded',
+      createdAt: '2026-03-16T10:00:10Z'
+    });
+
+    expect(chatState.terminalTurns).toMatchObject({
+      'turn-1': '2026-03-16T10:00:10Z'
+    });
+
+    handleStreamEvent(chatState, context, 'conv-1', {
+      type: 'model_started',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      assistantMessageId: 'assistant-late',
+      status: 'running',
+      model: { provider: 'openai', model: 'gpt-5.4' }
+    });
+
+    expect(chatState.streamTracker.applyEvent).not.toHaveBeenCalled();
+  });
 });
 
 describe('dsTick', () => {
@@ -3682,6 +3734,50 @@ describe('shouldUseLiveStream', () => {
     };
 
     expect(shouldUseLiveStream(context, 'conv-finished')).toBe(false);
+  });
+
+  it('allows forced transcript refresh scheduling even while live owns the turn', () => {
+    const originalWindow = global.window;
+    global.window = {
+      setTimeout,
+      clearTimeout,
+      localStorage: createStorage(),
+      location: { pathname: '/conversation/conv-live' }
+    };
+    const context = {
+      resources: {
+        chat: {
+          liveOwnedConversationID: 'conv-live',
+          liveOwnedTurnIds: ['turn-1'],
+          runningTurnId: 'turn-1',
+          activeStreamTurnId: 'turn-1',
+          lastHasRunning: true
+        }
+      },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-live', running: true })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    try {
+      const deferred = queueTranscriptRefresh(context, { delay: 1000 });
+      expect(deferred).toBeNull();
+
+      const forced = queueTranscriptRefresh(context, { delay: 1000, force: true });
+      expect(forced).not.toBeNull();
+      clearTimeout(forced);
+    } finally {
+      global.window = originalWindow;
+    }
   });
 
   it('forwards only static transcript rows into chatStore while the latest turn is live-owned', async () => {

@@ -5,6 +5,7 @@ import { DetailContext } from '../../context/DetailContext';
 import { ConversationViewContext } from '../../context/ConversationViewContext';
 import { openLinkedConversationWindow } from '../../services/conversationWindow';
 import { client } from '../../services/agentlyClient';
+import { isStreamDebugEnabled } from '../../services/debugFlags';
 import { displayStepIcon, displayStepTitle, executionRoleLabel, isAgentRunTool, humanizeAgentId } from '../../services/toolPresentation';
 import BubbleMessage from './BubbleMessage';
 import RichContent from './RichContent';
@@ -391,16 +392,6 @@ function groupTitleFromSteps({ narration, modelStep, toolSteps = [] } = {}) {
   if (delegatedAssistantText) {
     return truncate(delegatedAssistantText, 80);
   }
-  const derivedNames = deriveToolNamesFromModelStep(modelStep);
-  if (derivedNames.length > 0) {
-    return truncate(`Using ${derivedNames.join(', ')}.`, 80);
-  }
-  const namedTools = toolSteps
-    .map((step) => String(step?.toolName || '').trim())
-    .filter(Boolean);
-  if (namedTools.length > 0) {
-    return truncate(`Using ${[...new Set(namedTools)].join(', ')}.`, 80);
-  }
   if (modelStep) {
     return truncate(stepTitle(modelStep), 80);
   }
@@ -654,19 +645,29 @@ export function mapCanonicalExecutionGroups(groups = []) {
     const lifecycleTitle = lifecycleOnly
       ? String(displayStepTitle(toolSteps[0] || {})).trim()
       : '';
+    const semanticTitle = lifecycleTitle
+      || (groupPhase === 'bootstrap'
+        ? 'Bootstrap'
+        : (groupPhase === 'sidecar'
+          ? 'Sidecar'
+          : (groupPhase === 'summary'
+            ? 'Summary'
+            : title)));
     return {
       id: String(group?.parentMessageId || group?.ParentMessageID || group?.modelMessageId || group?.ModelMessageID || `group:${index}`),
       groupKind: lifecycleOnly
         ? 'lifecycle'
         : (groupPhase === 'intake'
           ? 'intake'
+          : (groupPhase === 'bootstrap'
+            ? 'bootstrap'
           : (groupPhase === 'sidecar'
             ? 'sidecar'
             : (groupPhase === 'summary'
-              ? 'summary'
-              : (effectiveModelStep ? 'model' : 'tool')))),
-      title: lifecycleTitle || title,
-      fullTitle: plainText(narrationContent || lifecycleTitle || title),
+            ? 'summary'
+              : (effectiveModelStep ? 'model' : 'tool'))))),
+      title: semanticTitle,
+      fullTitle: plainText(narrationContent || semanticTitle),
       narrationContent,
       modelStep: effectiveModelStep,
       toolSteps,
@@ -736,11 +737,6 @@ export function resolveVisibleBubbleContent(visibleGroups = []) {
     const preambleText = String(group?.narrationContent || '').trim();
     if (preambleText) {
       return preambleText;
-    }
-    const hasTools = Array.isArray(group?.toolSteps) && group.toolSteps.length > 0;
-    const derivedTitle = String(group?.title || '').trim();
-    if (hasTools && derivedTitle) {
-      return derivedTitle;
     }
   }
   return '';
@@ -819,6 +815,7 @@ export function resolveIterationBubbleContent({
     return String(
       (hasFinalVisibleGroup ? finalVisibleBubble : '')
       || (!hasFinalVisibleGroup ? visibleStreamBubble : '')
+      || (!hasFinalVisibleGroup ? finalVisibleBubble : '')
       || (!hasFinalVisibleGroup ? explicitNarrationBubble : '')
       || responseContent
       || finalVisibleBubble
@@ -1018,6 +1015,7 @@ function currentConversationId() {
 }
 
 function iterationDebugEnabled() {
+  if (isStreamDebugEnabled()) return true;
   if (typeof window === 'undefined') return false;
   try {
     const raw = String(window.localStorage?.getItem('agently.debugIterationCollapse') || '').trim().toLowerCase();
@@ -1262,10 +1260,10 @@ export function resolveCanonicalDetailStep(canonicalRow = null, step = {}) {
   return step;
 }
 
-export default function IterationBlock({ message, canonicalRow = null, context, showToolFeedDetail = true }) {
+export default function IterationBlock({ message, canonicalRow = null, context, showToolFeedDetail = true, suppressBubble = false }) {
   const { showDetail } = useContext(DetailContext);
   const { showExecutionDetails = true } = useContext(ConversationViewContext);
-  const data = useMemo(() => buildIterationDataFromCanonicalRow(canonicalRow, message), [canonicalRow, message]);
+  const data = buildIterationDataFromCanonicalRow(canonicalRow, message);
   const toolCalls = Array.isArray(data.toolCalls) ? data.toolCalls : [];
   const displayToolCalls = useMemo(
     () => (Array.isArray(toolCalls) ? [...toolCalls] : []),
@@ -1376,6 +1374,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
     },
     [allGroupEntries, context, data, message, visiblePreambleText]
   );
+
   const linkedConversationIds = useMemo(() => {
     const ids = [];
     const seen = new Set();
@@ -1395,6 +1394,10 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
     }
     return ids;
   }, [allGroupEntries]);
+  const linkedConversationIdsKey = useMemo(
+    () => linkedConversationIds.join('|'),
+    [linkedConversationIds]
+  );
   const isActiveIteration = useMemo(
     () => isIterationActive(data, allGroupEntries, linkedConversationStates.map((entry) => entry?.status || '')),
     [allGroupEntries, data, linkedConversationStates]
@@ -1505,6 +1508,45 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
     streamContent: data?.streamContent,
     errorMessage: data?.errorMessage
   }), [data?.errorMessage, data?.narration?.content, data?.response?.content, data?.streamContent, message?.content, visibleGroups]);
+  useEffect(() => {
+    logIterationDebug('presentation-state', {
+      messageId: message?.id || '',
+      turnId: data?.turnId || '',
+      iterationDisplayStatus: iterationDisplayStatus || '',
+      dataStatus: String(data?.status || '').trim(),
+      responseHead: String(data?.response?.content || '').slice(0, 160),
+      narrationHead: String(data?.narration?.content || '').slice(0, 160),
+      visiblePreambleHead: String(visiblePreambleText || '').slice(0, 160),
+      visibleRenderedTextHead: String(visibleRenderedText || '').slice(0, 160),
+      displayGroupCount: displayGroupEntries.length,
+      displayGroups: displayGroupEntries.map((group) => ({
+        id: group?.id,
+        title: group?.title,
+        groupKind: group?.groupKind,
+        phase: group?.phase,
+        status: group?.status,
+        preambleHead: String(group?.preamble || '').slice(0, 160),
+        finalHead: String(group?.finalContent || '').slice(0, 160),
+        stepCount: group?.stepCount,
+        modelSteps: (Array.isArray(group?.modelSteps) ? group.modelSteps : []).map((step) => ({
+          assistantMessageId: step?.assistantMessageId,
+          modelCallId: step?.modelCallId,
+          provider: step?.provider,
+          model: step?.model,
+          status: step?.status,
+          requestPayloadId: step?.requestPayloadId,
+          responsePayloadId: step?.responsePayloadId,
+        })),
+        toolSteps: (Array.isArray(group?.toolSteps) ? group.toolSteps : []).map((step) => ({
+          kind: step?.kind,
+          toolName: step?.toolName,
+          status: step?.status,
+          linkedConversationId: step?.linkedConversationId,
+          contentHead: String(step?.content || '').slice(0, 120),
+        })),
+      })),
+    });
+  }, [data, displayGroupEntries, iterationDisplayStatus, message?.id, visiblePreambleText, visibleRenderedText]);
   const hasVisibleElicitation = !!data?.response?.elicitation?.requestedSchema;
   const hasPendingExecutionElicitation = useMemo(
     () => hasPendingElicitationStep(visibleGroups),
@@ -1517,6 +1559,12 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
   const renderGroupRow = (group, groupIndex) => (
     (() => {
       const modelStep = group.modelStep || null;
+      const showToolOnlyHeader = !modelStep
+        && group.groupKind !== 'lifecycle'
+        && (
+          String(group?.title || '').trim() !== ''
+          || String(phaseBadgeLabel(group) || '').trim() !== ''
+        );
       return (
         <div className="app-iteration-group" key={`${group.id}:${groupIndex}`}>
       {modelStep ? (
@@ -1544,6 +1592,20 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
             >
               Details
             </Button>
+          </div>
+        </div>
+      ) : null}
+      {showToolOnlyHeader ? (
+        <div className="app-iteration-model-row">
+          <div className="app-iteration-tool-row-main">
+            <span className="app-iteration-model-icon">{phaseBadgeLabel(group) || displayStepIcon({ kind: 'tool' })}</span>
+            <span className="app-iteration-model-title">{String(group?.title || '').trim() || 'Execution step'}</span>
+          </div>
+          <div className="app-iteration-tool-row-meta">
+            <span className={`app-iteration-status tone-${statusTone(group?.status)}`}>{statusLabel(group?.status)}</span>
+            {String(group?.elapsed || '').trim() ? (
+              <span className="app-iteration-group-time">{group.elapsed}</span>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -1725,7 +1787,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [data?.turnId, isActiveIteration, isLatestIteration, linkedConversationIds, message?.id]);
+  }, [data?.turnId, isActiveIteration, isLatestIteration, linkedConversationIdsKey, message?.id]);
 
   useEffect(() => {
     if (isLatestIteration && isActiveIteration) {
@@ -2000,7 +2062,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
         </section>
       ) : null}
       {showExecutionDetails && showToolFeedDetail ? <ToolFeedDetail context={context} /> : null}
-      {!hasVisibleElicitation && !hasPendingExecutionElicitation && shouldShowNarrationBubble(visibleGroups, visibleRenderedText, data?.response?.content) ? (
+      {!suppressBubble && !hasVisibleElicitation && !hasPendingExecutionElicitation && shouldShowNarrationBubble(visibleGroups, visibleRenderedText, data?.response?.content) ? (
         <BubbleMessage
           message={{
             id: `${message?.id || 'iteration'}:narration`,

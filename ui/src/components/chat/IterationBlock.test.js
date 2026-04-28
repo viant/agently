@@ -616,7 +616,7 @@ describe('mapCanonicalExecutionGroups', () => {
 
     expect(groups).toHaveLength(1);
     expect(groups[0]).toMatchObject({
-      title: 'Using llm/agents/status.',
+      title: 'Execution step',
       groupKind: 'tool'
     });
   });
@@ -895,6 +895,11 @@ describe('mapCanonicalExecutionGroups', () => {
 
     expect(phaseBadgeLabel({
       groupKind: 'tool',
+      toolSteps: [{ kind: 'tool', executionRole: 'bootstrap', toolName: 'llm/agents:list' }]
+    })).toBe('⇢');
+
+    expect(phaseBadgeLabel({
+      groupKind: 'tool',
       toolSteps: [{ kind: 'tool', executionRole: 'worker', toolName: 'llm/agents:start', requestPayload: JSON.stringify({ agentId: 'coder' }) }]
     })).toBe('⚙');
 
@@ -910,6 +915,61 @@ describe('mapCanonicalExecutionGroups', () => {
     })).toBe('⌬');
   });
 
+  it('titles bootstrap execution groups explicitly', () => {
+    const groups = mapCanonicalExecutionGroups([{
+      pageId: 'turn-1:bootstrap',
+      phase: 'bootstrap',
+      executionRole: 'bootstrap',
+      toolSteps: [
+        { kind: 'tool', executionRole: 'bootstrap', toolName: 'llm/agents:list', status: 'completed' },
+        { kind: 'tool', executionRole: 'bootstrap', toolName: 'llm/skills:list', status: 'completed' }
+      ]
+    }]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      groupKind: 'bootstrap',
+      title: 'Bootstrap',
+      toolSteps: expect.arrayContaining([
+        expect.objectContaining({ toolName: 'llm/agents:list', executionRole: 'bootstrap' }),
+        expect.objectContaining({ toolName: 'llm/skills:list', executionRole: 'bootstrap' })
+      ])
+    });
+  });
+
+  it('renders a visible header row for bootstrap tool-only groups', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(IterationBlock, {
+        message: {
+          _iterationData: {
+            turnId: 'turn-1',
+            status: 'running',
+            isLatestIteration: true,
+            executionGroups: [{
+              id: 'bootstrap-group',
+              phase: 'bootstrap',
+              executionRole: 'bootstrap',
+              groupKind: 'bootstrap',
+              title: 'Bootstrap',
+              fullTitle: 'Bootstrap',
+              status: 'running',
+              elapsed: '00:04',
+              toolSteps: [
+                { id: 'tool-1', kind: 'tool', toolName: 'llm/agents:list', status: 'running' },
+                { id: 'tool-2', kind: 'tool', toolName: 'llm/skills:list', status: 'running' }
+              ]
+            }]
+          }
+        },
+        context: null
+      })
+    );
+
+    expect(html).toContain('Bootstrap');
+    expect(html).toContain('llm/agents:list');
+    expect(html).toContain('llm/skills:list');
+  });
+
   it('prefers the elicitation prompt text over a generic fallback label', () => {
     expect(displayItemRowTitle({
       kind: 'elicitation',
@@ -918,11 +978,11 @@ describe('mapCanonicalExecutionGroups', () => {
     })).toBe('Please confirm the exact folder path to check.');
   });
 
-  it('falls back to the latest tool-derived group title when newer groups have no narration text', () => {
+  it('does not surface a tool-derived title as the visible bubble when no narration text exists', () => {
     const text = resolveVisibleBubbleContent([
       {
         finalResponse: false,
-        narrationContent: 'Calling updatePlan.',
+        narrationContent: '',
         title: 'Calling updatePlan.',
         toolSteps: []
       },
@@ -934,7 +994,7 @@ describe('mapCanonicalExecutionGroups', () => {
       }
     ]);
 
-    expect(text).toBe('Using llm/agents/run.');
+    expect(text).toBe('');
   });
 
   it('falls back to iteration stream content when there are no presentable execution groups yet', () => {
@@ -965,6 +1025,23 @@ describe('mapCanonicalExecutionGroups', () => {
     });
 
     expect(text).toBe('Calling MetricsAdCube.');
+  });
+
+  it('prefers the latest execution-group narration over stale top-level narration while a turn is still active', () => {
+    const text = resolveIterationBubbleContent({
+      visibleGroups: [
+        {
+          finalResponse: false,
+          narrationContent: 'Translating the baseline targeting stack into forecast parameters and checking the last three complete days one day at a time.'
+        }
+      ],
+      iterationContent: '',
+      responseContent: '',
+      narrationContent: 'I have the initial baseline and I’m running the deeper cross-check now to confirm whether anything beyond setup is materially contributing to the delivery issue.',
+      streamContent: ''
+    });
+
+    expect(text).toBe('Translating the baseline targeting stack into forecast parameters and checking the last three complete days one day at a time.');
   });
 
   it('resolves the execution header agent label from explicit iteration agent id using meta labels', () => {

@@ -20,6 +20,11 @@ import { installChatStoreMirror } from './services/chatRuntime';
 // transcript/SSE mirror explicit at bootstrap instead of relying on the
 // lazy CommonJS fallback inside chatRuntime.
 installChatStoreMirror(chatStore);
+if (typeof window !== 'undefined') {
+  try {
+    window.__agentlyChatStoreDebug = chatStore;
+  } catch (_) { /* ignore */ }
+}
 
 const services = {
   chat: chatService,
