@@ -61,7 +61,7 @@ func (c *ChatCmd) executeQuery(ctx context.Context, client *sdk.HTTPClient, inpu
 	}
 	select {
 	case err := <-resolverErr:
-		if err != nil {
+		if err != nil && !isShutdownElicitationError(err) {
 			return nil, false, err
 		}
 	default:
@@ -72,7 +72,7 @@ func (c *ChatCmd) executeQuery(ctx context.Context, client *sdk.HTTPClient, inpu
 	// select above but before cancellation took effect.
 	select {
 	case err := <-resolverErr:
-		if err != nil {
+		if err != nil && !isShutdownElicitationError(err) {
 			return nil, false, err
 		}
 	default:
@@ -407,6 +407,11 @@ func watchPendingElicitations(ctx context.Context, client *sdk.HTTPClient, conve
 		case <-ticker.C:
 			rows, err := client.ListPendingElicitations(ctx, &sdk.ListPendingElicitationsInput{ConversationID: conversationID})
 			if err != nil {
+				if isShutdownElicitationError(err) {
+					if ctx.Err() != nil {
+						return
+					}
+				}
 				select {
 				case errs <- err:
 				default:
@@ -443,6 +448,10 @@ func watchPendingElicitations(ctx context.Context, client *sdk.HTTPClient, conve
 			}
 		}
 	}
+}
+
+func isShutdownElicitationError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func plannedElicitationFromPending(input *sdk.PendingElicitation) *coreplan.Elicitation {

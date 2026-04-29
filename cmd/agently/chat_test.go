@@ -3,6 +3,7 @@ package agently
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -118,6 +119,18 @@ func TestLatestAssistantContentFromState_FailedTurn(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.False(t, ok)
+}
+
+func TestIsShutdownElicitationError(t *testing.T) {
+	if !isShutdownElicitationError(context.Canceled) {
+		t.Fatalf("expected context.Canceled to be treated as benign shutdown error")
+	}
+	if !isShutdownElicitationError(context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded to be treated as benign shutdown error")
+	}
+	if isShutdownElicitationError(errors.New("boom")) {
+		t.Fatalf("unexpected benign classification for non-shutdown error")
+	}
 }
 
 func TestResolveConversationExitCode(t *testing.T) {
