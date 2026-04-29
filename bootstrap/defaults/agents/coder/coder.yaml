@@ -46,6 +46,7 @@ intake:
     - title
     - context
     - intent
+    - profile
   model: openai_gpt-5-mini
   maxTokens: 200
   timeoutSec: 15

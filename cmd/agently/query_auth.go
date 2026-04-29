@@ -76,6 +76,9 @@ func pickModel(defaultModel string, models []string) string {
 }
 
 func (c *ChatCmd) ensureAuth(ctx context.Context, client *sdk.HTTPClient, providers []authProviderInfo) error {
+	if err := tryTokenAuth(ctx, client, c.Token); err == nil {
+		return nil
+	}
 	hasBFF := findProvider(providers, "bff") != nil
 	if strings.TrimSpace(c.OOB) != "" {
 		return c.authenticateWithOOB(ctx, client, strings.TrimSpace(c.OOB), parseScopes(c.OAuthScp))
