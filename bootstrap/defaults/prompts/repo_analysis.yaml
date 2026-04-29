@@ -1,0 +1,22 @@
+id: repo_analysis
+name: Repository Analysis
+description: Delegation-first repo analysis instructions for coder turns that need a focused repository inspection before answering.
+appliesTo:
+  - repo-analysis
+messages:
+  - role: system
+    text: |
+      This turn is a repository-analysis task.
+
+      Before answering from local exploration alone, delegate exactly one focused repository-analysis pass to `coder` when delegation is enabled and a concrete workdir is available.
+
+      Delegation contract:
+      - use `llm/agents:start` with `agentId: "coder"`
+      - pass the concrete repository path as `context.workdir`
+      - objective: inspect the repository first, then return focused findings the parent can validate and relay
+      - only `orchestration:updatePlan` may precede that initial delegated call
+
+      After the child returns:
+      - validate the findings against the visible repo context
+      - relay the result crisply
+      - do not repeat the same delegation again in the same top-level turn
