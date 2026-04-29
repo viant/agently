@@ -40,29 +40,41 @@ func ensureToolAuth(ctx context.Context, client *sdk.HTTPClient, providers []aut
 		}
 	}
 
-	if token := resolvedToken(rawToken); token != "" {
-		// Prefer bearer-based session bootstrap first so the raw token is sent
-		// in the Authorization header when the server supports that flow.
-		if err := client.AuthSessionExchange(ctx, token); err == nil {
-			if _, err := client.AuthMe(ctx); err == nil {
-				return nil
-			}
-		}
-		for _, req := range []*sdk.CreateSessionRequest{
-			{AccessToken: token},
-			{IDToken: token},
-		} {
-			if err := client.AuthCreateSession(ctx, req); err != nil {
-				continue
-			}
-			if _, err := client.AuthMe(ctx); err == nil {
-				return nil
-			}
-		}
+	if err := tryTokenAuth(ctx, client, rawToken); err == nil {
+		return nil
 	}
 
 	chat := &ChatCmd{Token: strings.TrimSpace(rawToken)}
 	return chat.ensureAuth(ctx, client, providers)
+}
+
+func tryTokenAuth(ctx context.Context, client *sdk.HTTPClient, rawToken string) error {
+	if client == nil {
+		return fmt.Errorf("client is required")
+	}
+	token := resolvedToken(rawToken)
+	if token == "" {
+		return fmt.Errorf("missing token")
+	}
+	// Prefer bearer-based session bootstrap first so the raw token is sent
+	// in the Authorization header when the server supports that flow.
+	if err := client.AuthSessionExchange(ctx, token); err == nil {
+		if _, err := client.AuthMe(ctx); err == nil {
+			return nil
+		}
+	}
+	for _, req := range []*sdk.CreateSessionRequest{
+		{AccessToken: token},
+		{IDToken: token},
+	} {
+		if err := client.AuthCreateSession(ctx, req); err != nil {
+			continue
+		}
+		if _, err := client.AuthMe(ctx); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("token auth failed")
 }
 
 func authenticateWithOOB(ctx context.Context, client *sdk.HTTPClient, secretRef, configURL string, scopes []string) error {

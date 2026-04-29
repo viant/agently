@@ -13,7 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-//go:embed defaults/config.yaml defaults/tools defaults/models defaults/embedders defaults/feeds defaults/knowledge defaults/templates defaults/agents/chatter defaults/agents/coder
+//go:embed defaults/config.yaml defaults/tools defaults/models defaults/embedders defaults/feeds defaults/knowledge defaults/templates defaults/prompts defaults/agents/chatter defaults/agents/coder
 var DefaultsFS embed.FS
 
 var defaultSeedAgents = []string{"chatter", "coder"}
@@ -45,6 +45,7 @@ func SetBootstrapHook() {
 				{src: "defaults/feeds", dest: "feeds"},
 				{src: "defaults/knowledge", dest: "knowledge"},
 				{src: "defaults/templates", dest: "templates"},
+				{src: "defaults/prompts", dest: "prompts"},
 			} {
 				if err := seedTreeIfMissing(store.Root(), seed.src, seed.dest); err != nil {
 					return err
