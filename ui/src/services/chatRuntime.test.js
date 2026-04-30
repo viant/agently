@@ -4027,51 +4027,12 @@ describe('shouldUseLiveStream', () => {
     try {
       const turns = await fetchTranscript('conv-live');
       expect(turns).toHaveLength(1);
-      expect(onTranscript).toHaveBeenCalledTimes(1);
-      const [, forwarded] = onTranscript.mock.calls[0];
-      expect(forwarded).toMatchObject({
-        conversationId: 'conv-live',
-        turns: [{
-          turnId: 'turn-1',
-          status: 'running',
-          execution: null,
-          assistant: null,
-          elicitation: null,
-        }],
-      });
+      expect(onTranscript).not.toHaveBeenCalled();
       expect(global.window.__agentlyActiveChatState.lastTranscriptFeedsByConversation).toBeUndefined();
     } finally {
       installChatStoreMirror(null);
       global.window = originalWindow;
     }
-  });
-
-  it('filterCanonicalConversationForLiveOwnedTurns preserves user and standalone messages for owned turns', () => {
-    const input = {
-      conversationId: 'conv-live',
-      turns: [{
-        turnId: 'turn-1',
-        status: 'running',
-        user: { messageId: 'user-1', content: 'Analyze repo' },
-        messages: [{ messageId: 'note-1', role: 'assistant', content: 'PRELIMINARY NOTE' }],
-        execution: { pages: [{ pageId: 'page-1', status: 'running' }] },
-        assistant: { final: { messageId: 'a1', content: 'done' } },
-        elicitation: { elicitationId: 'elic-1', message: 'Need input' },
-      }],
-    };
-
-    expect(filterCanonicalConversationForLiveOwnedTurns(input, ['turn-1'])).toEqual({
-      conversationId: 'conv-live',
-      turns: [{
-        turnId: 'turn-1',
-        status: 'running',
-        user: { messageId: 'user-1', content: 'Analyze repo' },
-        messages: [{ messageId: 'note-1', role: 'assistant', content: 'PRELIMINARY NOTE' }],
-        execution: null,
-        assistant: null,
-        elicitation: null,
-      }],
-    });
   });
 });
 

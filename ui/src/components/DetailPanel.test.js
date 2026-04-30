@@ -243,6 +243,34 @@ describe('DetailPanel pricing helpers', () => {
     expect(hydrated.providerResponsePayload).toEqual({ response: true });
   });
 
+  it('hydrates model payload data with an exact assistant message id', async () => {
+    transcriptConversationTurns.mockReturnValue([]);
+    flattenCanonicalTranscriptSteps.mockReturnValue([
+      {
+        kind: 'model',
+        id: 'mc-1',
+        modelCallId: 'mc-1',
+        assistantMessageId: 'msg-1',
+        provider: 'openai',
+        model: 'gpt-5-mini',
+        providerRequestPayloadId: 'prov-req-1',
+        providerResponsePayloadId: 'prov-resp-1',
+        streamPayloadId: 'stream-1'
+      }
+    ]);
+
+    const hydrated = await hydrateToolCallFromTranscript({
+      kind: 'model',
+      assistantMessageId: 'msg-1',
+      provider: 'openai',
+      model: 'gpt-5-mini'
+    });
+
+    expect(hydrated.providerRequestPayloadId).toBe('prov-req-1');
+    expect(hydrated.providerResponsePayloadId).toBe('prov-resp-1');
+    expect(hydrated.streamPayloadId).toBe('stream-1');
+  });
+
   it('hydrates tool payload ids with an exact toolCallId even when id is absent', async () => {
     transcriptConversationTurns.mockReturnValue([]);
     flattenCanonicalTranscriptSteps.mockReturnValue([
@@ -259,6 +287,30 @@ describe('DetailPanel pricing helpers', () => {
     const hydrated = await hydrateToolCallFromTranscript({
       kind: 'tool',
       toolCallId: 'call-1',
+      toolName: 'llm/agents/start'
+    });
+
+    expect(hydrated.requestPayloadId).toBe('req-start-1');
+    expect(hydrated.responsePayloadId).toBe('resp-start-1');
+  });
+
+  it('hydrates tool payload ids with an exact tool message id', async () => {
+    transcriptConversationTurns.mockReturnValue([]);
+    flattenCanonicalTranscriptSteps.mockReturnValue([
+      {
+        kind: 'tool',
+        id: 'call-1',
+        toolCallId: 'call-1',
+        toolMessageId: 'tm-1',
+        toolName: 'llm/agents/start',
+        requestPayloadId: 'req-start-1',
+        responsePayloadId: 'resp-start-1'
+      }
+    ]);
+
+    const hydrated = await hydrateToolCallFromTranscript({
+      kind: 'tool',
+      toolMessageId: 'tm-1',
       toolName: 'llm/agents/start'
     });
 

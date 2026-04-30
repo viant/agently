@@ -310,18 +310,19 @@ export function mergeRenderedRows({
   liveOwnedTurnIds = []
 } = {}) {
   const transcriptList = Array.isArray(transcriptRows) ? [...transcriptRows] : [];
+  const explicitLiveRows = Array.isArray(liveRows) ? liveRows : [];
   const normalizedCurrentConversationID = String(currentConversationID || '').trim();
   const normalizedLiveConversationID = String(liveOwnedConversationID || '').trim();
   const ownedTurnIds = new Set((Array.isArray(liveOwnedTurnIds) ? liveOwnedTurnIds : []).map((item) => String(item || '').trim()).filter(Boolean));
   const hasLiveSession = normalizedCurrentConversationID
     && normalizedLiveConversationID === normalizedCurrentConversationID
-    && ((Array.isArray(liveRows) && liveRows.length > 0) || ownedTurnIds.size > 0);
-  if (!hasRunning && !hasLiveSession) {
+    && (explicitLiveRows.length > 0 || ownedTurnIds.size > 0);
+  if (!hasRunning && !hasLiveSession && explicitLiveRows.length === 0) {
     return transcriptList.map((row) => ({ ...row, _rowSource: 'transcript' }));
   }
 
-  const streamRows = (Array.isArray(liveRows) ? liveRows : []).filter((row) => String(row?._type || '').toLowerCase() === 'stream');
-  const canonicalLiveRows = (Array.isArray(liveRows) ? liveRows : [])
+  const streamRows = explicitLiveRows.filter((row) => String(row?._type || '').toLowerCase() === 'stream');
+  const canonicalLiveRows = explicitLiveRows
     .filter((row) => String(row?._type || '').toLowerCase() !== 'stream')
     .map((row) => ({
       ...row,

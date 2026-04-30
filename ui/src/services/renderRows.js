@@ -431,7 +431,17 @@ export function buildConversationRenderRows({
 } = {}) {
   const trackerActiveTurnId = String(streamState?.activeTurnId || '').trim();
   const trackerTurns = projectTrackerToTurns(streamState, currentConversationID);
-  const explicitRows = Array.isArray(liveRows) ? liveRows : [];
+  const explicitRows = (Array.isArray(liveRows) ? liveRows : []).map((row) => {
+    const role = String(row?.role || '').trim().toLowerCase();
+    const hasExecutionGroups = Array.isArray(row?.executionGroups) && row.executionGroups.length > 0;
+    if (role !== 'assistant' || hasExecutionGroups || Number(row?.interim ?? 0) !== 0) {
+      return row;
+    }
+    return {
+      ...row,
+      _bubbleSource: String(row?._bubbleSource || '').trim() || 'message_add'
+    };
+  });
   const trackerRowsBase = buildCanonicalTranscriptRows(trackerTurns).rows;
   const trackerRows = trackerRowsBase.map((row) => {
     if (String(row?.role || '').trim().toLowerCase() !== 'assistant') return row;

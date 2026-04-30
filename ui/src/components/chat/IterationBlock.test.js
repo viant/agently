@@ -10,6 +10,7 @@ import IterationBlock, {
   displayItemRowIcon,
   displayItemRowTitle,
   mapCanonicalExecutionGroups,
+  buildToolStepTree,
   buildSyntheticModelGroup,
   statusTone,
   isIterationActive,
@@ -136,6 +137,74 @@ describe('mapCanonicalExecutionGroups', () => {
       streamPayloadId: 'stream_intake',
       requestPayload: { request: true },
       responsePayload: { response: true },
+    });
+  });
+
+  it('rehydrates model details by assistant message identity when the row lacks a model call id', () => {
+    const canonicalRow = {
+      rounds: [{
+        modelSteps: [{
+          renderKey: 'rk_model_assistant',
+          modelCallId: 'mc_assistant',
+          assistantMessageId: 'msg_assistant',
+          requestPayloadId: 'req_assistant',
+          responsePayloadId: 'resp_assistant',
+          providerRequestPayloadId: 'prov_req_assistant',
+          providerResponsePayloadId: 'prov_resp_assistant',
+          streamPayloadId: 'stream_assistant',
+        }],
+        toolCalls: [],
+      }],
+    };
+
+    const resolved = resolveCanonicalDetailStep(canonicalRow, {
+      kind: 'model',
+      id: 'msg_assistant',
+      assistantMessageId: 'msg_assistant',
+      modelCallId: '',
+    });
+
+    expect(resolved).toMatchObject({
+      modelCallId: 'mc_assistant',
+      assistantMessageId: 'msg_assistant',
+      requestPayloadId: 'req_assistant',
+      responsePayloadId: 'resp_assistant',
+      providerRequestPayloadId: 'prov_req_assistant',
+      providerResponsePayloadId: 'prov_resp_assistant',
+      streamPayloadId: 'stream_assistant',
+    });
+  });
+
+  it('rehydrates tool details by tool message identity when the row lacks a tool call id', () => {
+    const canonicalRow = {
+      rounds: [{
+        modelSteps: [],
+        toolCalls: [{
+          toolCallId: 'tc_nested',
+          toolMessageId: 'tm_nested',
+          parentMessageId: 'tm_parent',
+          toolName: 'llm/agents:start',
+          requestPayloadId: 'req_nested',
+          responsePayloadId: 'resp_nested',
+          linkedConversationId: 'child_nested'
+        }],
+      }],
+    };
+
+    const resolved = resolveCanonicalDetailStep(canonicalRow, {
+      kind: 'tool',
+      id: 'tm_nested',
+      toolMessageId: 'tm_nested',
+      toolCallId: '',
+    });
+
+    expect(resolved).toMatchObject({
+      toolCallId: 'tc_nested',
+      toolMessageId: 'tm_nested',
+      parentMessageId: 'tm_parent',
+      requestPayloadId: 'req_nested',
+      responsePayloadId: 'resp_nested',
+      linkedConversationId: 'child_nested'
     });
   });
 
@@ -445,6 +514,49 @@ describe('mapCanonicalExecutionGroups', () => {
       linkedConversationId: 'child-1'
     });
     expect(groups[0].narrationContent).toBe('I am going to inspect the repository.');
+  });
+
+  it('builds a nested tool tree from exact parent tool message ids', () => {
+    const roots = buildToolStepTree([
+      {
+        id: 'parent-step',
+        toolCallId: 'tc_parent',
+        toolMessageId: 'tm_parent',
+        toolName: 'llm/skills:activate',
+        status: 'completed'
+      },
+      {
+        id: 'child-step',
+        toolCallId: 'tc_child',
+        toolMessageId: 'tm_child',
+        parentMessageId: 'tm_parent',
+        toolName: 'llm/agents:start',
+        status: 'completed'
+      },
+      {
+        id: 'sibling-step',
+        toolCallId: 'tc_sibling',
+        toolMessageId: 'tm_sibling',
+        toolName: 'message:add',
+        status: 'completed'
+      }
+    ]);
+
+    expect(roots).toHaveLength(2);
+    expect(roots[0]).toMatchObject({
+      toolMessageId: 'tm_parent',
+      childToolSteps: [
+        expect.objectContaining({
+          toolMessageId: 'tm_child',
+          parentMessageId: 'tm_parent',
+          toolName: 'llm/agents:start'
+        })
+      ]
+    });
+    expect(roots[1]).toMatchObject({
+      toolMessageId: 'tm_sibling',
+      childToolSteps: []
+    });
   });
 
   it('keeps explicit intake groups visible even when they only contain a model step', () => {
@@ -1067,6 +1179,49 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(html).toContain('Bootstrap');
     expect(html).toContain('llm/agents:list');
     expect(html).toContain('llm/skills:list');
+  });
+
+  it('renders nested child tool calls under their parent execution row', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(IterationBlock, {
+        message: {
+          _iterationData: {
+            turnId: 'turn-nested',
+            status: 'running',
+            isLatestIteration: true,
+            executionGroups: [{
+              id: 'nested-group',
+              phase: 'sidecar',
+              status: 'completed',
+              toolSteps: [
+                {
+                  id: 'tool-parent',
+                  kind: 'tool',
+                  toolCallId: 'tc_parent',
+                  toolMessageId: 'tm_parent',
+                  toolName: 'llm/skills:activate',
+                  status: 'completed'
+                },
+                {
+                  id: 'tool-child',
+                  kind: 'tool',
+                  toolCallId: 'tc_child',
+                  toolMessageId: 'tm_child',
+                  parentMessageId: 'tm_parent',
+                  toolName: 'llm/agents:start',
+                  status: 'completed'
+                }
+              ]
+            }]
+          }
+        },
+        context: null
+      })
+    );
+
+    expect(html).toContain('llm/skills:activate');
+    expect(html).toContain('llm/agents:start');
+    expect(html).toContain('app-iteration-tool-list-nested');
   });
 
   it('prefers the elicitation prompt text over a generic fallback label', () => {

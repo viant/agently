@@ -128,6 +128,36 @@ describe('mergeRenderedRows', () => {
     expect(merged.map((row) => row.id)).toEqual(['user-1', 'assistant-1']);
   });
 
+  it('preserves terminal live rows until transcript replacement arrives', () => {
+    const liveRows = [
+      {
+        id: 'assistant-terminal',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-03-16T01:00:02Z',
+        interim: 0,
+        status: 'completed',
+        turnStatus: 'completed',
+        content: 'Temporary live content'
+      }
+    ];
+
+    const merged = mergeRenderedRows({
+      transcriptRows: [],
+      liveRows,
+      runningTurnId: '',
+      hasRunning: false,
+      findLatestRunningTurnId
+    });
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      id: 'assistant-terminal',
+      content: 'Temporary live content',
+      status: 'completed'
+    });
+  });
+
   it('prefers live session rows for owned turns in the current conversation', () => {
     const transcriptRows = [
       { id: 'user-1', role: 'user', turnId: 'turn-1', createdAt: '2026-03-16T01:00:00Z', content: 'hi' },
