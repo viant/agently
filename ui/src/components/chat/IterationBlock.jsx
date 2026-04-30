@@ -416,6 +416,44 @@ function toolStepKey(step = {}) {
   return `name:${normalizeToolName(step?.toolName)}`;
 }
 
+function toolMessageId(step = {}) {
+  return String(step?.toolMessageId || step?.ToolMessageId || '').trim();
+}
+
+function toolParentMessageId(step = {}) {
+  return String(step?.parentMessageId || step?.ParentMessageId || '').trim();
+}
+
+export function buildToolStepTree(toolSteps = []) {
+  const orderedSteps = Array.isArray(toolSteps) ? toolSteps : [];
+  const nodes = orderedSteps.map((step) => ({
+    ...step,
+    childToolSteps: []
+  }));
+  const nodeByToolMessageId = new Map();
+  nodes.forEach((node) => {
+    const messageID = toolMessageId(node);
+    if (messageID) {
+      nodeByToolMessageId.set(messageID, node);
+    }
+  });
+  const roots = [];
+  nodes.forEach((node) => {
+    const parentMessageID = toolParentMessageId(node);
+    if (!parentMessageID) {
+      roots.push(node);
+      return;
+    }
+    const parentNode = nodeByToolMessageId.get(parentMessageID);
+    if (!parentNode || parentNode === node) {
+      roots.push(node);
+      return;
+    }
+    parentNode.childToolSteps.push(node);
+  });
+  return roots;
+}
+
 function agentLabel(value = '') {
   const text = String(value || '').trim();
   if (!text) return '';
@@ -581,6 +619,8 @@ export function mapCanonicalExecutionGroups(groups = []) {
         latencyMs: ts?.latencyMs || ts?.LatencyMs || null,
         startedAt: ts?.startedAt || ts?.StartedAt || '',
         completedAt: ts?.completedAt || ts?.CompletedAt || '',
+        toolMessageId: messageID,
+        parentMessageId: ts?.parentMessageId || ts?.ParentMessageId || toolMessage?.parentMessageId || toolMessage?.ParentMessageId || '',
         requestPayloadId: ts?.requestPayloadId || ts?.RequestPayloadId || '',
         responsePayloadId: ts?.responsePayloadId || ts?.ResponsePayloadId || '',
         requestPayload: ts?.requestPayload || ts?.RequestPayload || null,
@@ -600,6 +640,8 @@ export function mapCanonicalExecutionGroups(groups = []) {
         toolName: call?.toolName || call?.ToolName || 'tool',
         status: modelStep0?.status || group?.status || group?.Status || 'planned',
         latencyMs: null,
+        toolMessageId: '',
+        parentMessageId: '',
         requestPayloadId: '',
         responsePayloadId: '',
         requestPayload: null,
@@ -1234,17 +1276,35 @@ export function resolveCanonicalDetailStep(canonicalRow = null, step = {}) {
   if (!canonicalRow || !step || typeof step !== 'object') return step;
   const rounds = Array.isArray(canonicalRow?.rounds) ? canonicalRow.rounds : [];
   const targetKind = String(step?.kind || '').trim().toLowerCase();
-  const targetId = String(step?.modelCallId || step?.toolCallId || step?.id || '').trim();
-  if (!targetKind || !targetId) return step;
+  const targetIds = new Set(
+    [
+      step?.modelCallId,
+      step?.assistantMessageId,
+      step?.toolCallId,
+      step?.toolMessageId,
+      step?.id
+    ]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  );
+  if (!targetKind || targetIds.size === 0) return step;
   for (const round of rounds) {
     if (targetKind === 'model') {
       for (const modelStep of Array.isArray(round?.modelSteps) ? round.modelSteps : []) {
-        const candidateId = String(modelStep?.modelCallId || modelStep?.renderKey || '').trim();
-        if (candidateId === targetId) {
+        const candidateIds = [
+          modelStep?.modelCallId,
+          modelStep?.assistantMessageId,
+          modelStep?.renderKey,
+          modelStep?.id
+        ]
+          .map((value) => String(value || '').trim())
+          .filter(Boolean);
+        if (candidateIds.some((candidateId) => targetIds.has(candidateId))) {
           return {
             ...step,
             modelCallId: modelStep?.modelCallId || step?.modelCallId || '',
             assistantMessageId: modelStep?.assistantMessageId || step?.assistantMessageId || '',
+            parentMessageId: modelStep?.parentMessageId || step?.parentMessageId || '',
             requestPayloadId: modelStep?.requestPayloadId || step?.requestPayloadId || '',
             responsePayloadId: modelStep?.responsePayloadId || step?.responsePayloadId || '',
             providerRequestPayloadId: modelStep?.providerRequestPayloadId || step?.providerRequestPayloadId || '',
@@ -1261,16 +1321,27 @@ export function resolveCanonicalDetailStep(canonicalRow = null, step = {}) {
       continue;
     }
     for (const toolStep of Array.isArray(round?.toolCalls) ? round.toolCalls : []) {
-      const candidateId = String(toolStep?.toolCallId || toolStep?.renderKey || '').trim();
-      if (candidateId === targetId) {
+      const candidateIds = [
+        toolStep?.toolCallId,
+        toolStep?.toolMessageId,
+        toolStep?.renderKey,
+        toolStep?.id
+      ]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean);
+      if (candidateIds.some((candidateId) => targetIds.has(candidateId))) {
         return {
           ...step,
           toolCallId: toolStep?.toolCallId || step?.toolCallId || '',
           toolMessageId: toolStep?.toolMessageId || step?.toolMessageId || '',
+          parentMessageId: toolStep?.parentMessageId || step?.parentMessageId || '',
           requestPayloadId: toolStep?.requestPayloadId || step?.requestPayloadId || '',
           responsePayloadId: toolStep?.responsePayloadId || step?.responsePayloadId || '',
           requestPayload: toolStep?.requestPayload ?? step?.requestPayload ?? null,
           responsePayload: toolStep?.responsePayload ?? step?.responsePayload ?? null,
+          linkedConversationId: toolStep?.linkedConversationId || step?.linkedConversationId || '',
+          linkedConversationAgentId: toolStep?.linkedConversationAgentId || step?.linkedConversationAgentId || '',
+          linkedConversationTitle: toolStep?.linkedConversationTitle || step?.linkedConversationTitle || '',
         };
       }
     }
@@ -1584,6 +1655,33 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
   const renderGroupRow = (group, groupIndex) => (
     (() => {
       const modelStep = group.modelStep || null;
+      const renderToolStepNode = (toolStep, nodeKey, depth = 0) => (
+        <React.Fragment key={nodeKey}>
+          <div className="app-iteration-tool-row">
+            <div className="app-iteration-tool-row-main">
+              <span className="app-iteration-tool-icon">{displayItemRowIcon(toolStep)}</span>
+              <span className="app-iteration-tool-row-title">{displayItemRowTitle(toolStep)}</span>
+              {toolStepSummaryText(toolStep) ? (
+                <span className="app-iteration-model-summary">{toolStepSummaryText(toolStep)}</span>
+              ) : null}
+            </div>
+            <div className="app-iteration-tool-row-meta">
+              <span className={`app-iteration-status tone-${statusTone(toolStep?.status)}`}>{statusLabel(toolStep?.status)}</span>
+              {latencyLabel(toolStep, now, turnStartedAt, useLiveWallClock) ? (
+                <span className="app-iteration-group-time">{latencyLabel(toolStep, now, turnStartedAt, useLiveWallClock)}</span>
+              ) : null}
+              <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, toolStep))}>Details</Button>
+            </div>
+          </div>
+          {Array.isArray(toolStep?.childToolSteps) && toolStep.childToolSteps.length > 0 ? (
+            <div className={`app-iteration-tool-list app-iteration-tool-list-nested depth-${depth + 1}`}>
+              {toolStep.childToolSteps.map((childStep, childIndex) => (
+                renderToolStepNode(childStep, `${nodeKey}:child:${childIndex}:${stepKey(childStep)}`, depth + 1)
+              ))}
+            </div>
+          ) : null}
+        </React.Fragment>
+      );
       const showToolOnlyHeader = !modelStep
         && group.groupKind !== 'lifecycle'
         && (
@@ -1637,6 +1735,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
       {group.toolSteps.length > 0 ? (() => {
         const lifecycleTools = group.toolSteps.filter((toolStep) => String(toolStep?.kind || '').toLowerCase() === 'turn');
         const regularTools = group.toolSteps.filter((toolStep) => String(toolStep?.kind || '').toLowerCase() !== 'turn');
+        const regularToolTree = buildToolStepTree(regularTools);
         return (
           <div className="app-iteration-tool-list">
             {lifecycleTools.map((toolStep, toolIndex) => (
@@ -1657,23 +1756,8 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
                 </div>
               </div>
             ))}
-            {regularTools.map((toolStep, toolIndex) => (
-              <div className="app-iteration-tool-row" key={`${group.id}:tool:${toolIndex}:${stepKey(toolStep)}`}>
-                <div className="app-iteration-tool-row-main">
-                  <span className="app-iteration-tool-icon">{displayItemRowIcon(toolStep)}</span>
-                  <span className="app-iteration-tool-row-title">{displayItemRowTitle(toolStep)}</span>
-                  {toolStepSummaryText(toolStep) ? (
-                    <span className="app-iteration-model-summary">{toolStepSummaryText(toolStep)}</span>
-                  ) : null}
-                </div>
-                <div className="app-iteration-tool-row-meta">
-                  <span className={`app-iteration-status tone-${statusTone(toolStep?.status)}`}>{statusLabel(toolStep?.status)}</span>
-                  {latencyLabel(toolStep, now, turnStartedAt, useLiveWallClock) ? (
-                    <span className="app-iteration-group-time">{latencyLabel(toolStep, now, turnStartedAt, useLiveWallClock)}</span>
-                  ) : null}
-                  <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, toolStep))}>Details</Button>
-                </div>
-              </div>
+            {regularToolTree.map((toolStep, toolIndex) => (
+              renderToolStepNode(toolStep, `${group.id}:tool:${toolIndex}:${stepKey(toolStep)}`)
             ))}
           </div>
         );

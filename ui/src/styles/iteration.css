@@ -285,6 +285,12 @@
   margin-left: 6px;
 }
 
+.app-iteration-tool-list-nested {
+  padding: 0 0 4px 16px;
+  margin-left: 14px;
+  border-left-color: #dbe5f4;
+}
+
 .app-iteration-tool-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

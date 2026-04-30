@@ -307,7 +307,17 @@ export async function hydrateToolCallFromTranscript(toolCall = {}) {
   } catch (_) {
     return toolCall;
   }
-  const targetId = String(toolCall?.id || toolCall?.modelCallId || toolCall?.toolCallId || '').trim();
+  const targetIds = new Set(
+    [
+      toolCall?.id,
+      toolCall?.modelCallId,
+      toolCall?.assistantMessageId,
+      toolCall?.toolCallId,
+      toolCall?.toolMessageId
+    ]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  );
   const targetName = String(toolCall?.toolName || '').trim().toLowerCase().replace(/[:\-_]/g, '');
   const targetKind = String(
     toolCall?.kind
@@ -317,24 +327,33 @@ export async function hydrateToolCallFromTranscript(toolCall = {}) {
   ).trim().toLowerCase();
   const candidates = flattenCanonicalTranscriptSteps(turns);
   if (targetKind === 'model') {
-    if (!targetId) return toolCall;
+    if (targetIds.size === 0) return toolCall;
     const exact = candidates.find((candidate) => (
       String(candidate.kind || '').toLowerCase() === 'model'
-      && (
-        String(candidate.id || '').trim() === targetId
-        || String(candidate.modelCallId || '').trim() === targetId
-      )
+      && [
+        candidate.id,
+        candidate.modelCallId,
+        candidate.assistantMessageId
+      ]
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+        .some((value) => targetIds.has(value))
     ));
     if (exact) return mergeHydratedToolCall(toolCall, exact);
     return toolCall;
   }
   for (const candidate of candidates) {
-    const candidateId = String(candidate.id || '').trim();
     if ((targetKind === 'tool' || targetKind === '') && String(candidate.kind || '').toLowerCase() === 'tool') {
-      if (targetId && candidateId === targetId) {
-        return mergeHydratedToolCall(toolCall, candidate);
-      }
-      if (targetId && String(candidate.toolCallId || '').trim() === targetId) {
+      if (
+        [
+          candidate.id,
+          candidate.toolCallId,
+          candidate.toolMessageId
+        ]
+          .map((value) => String(value || '').trim())
+          .filter(Boolean)
+          .some((value) => targetIds.has(value))
+      ) {
         return mergeHydratedToolCall(toolCall, candidate);
       }
     }

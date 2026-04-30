@@ -72,6 +72,14 @@ const SIDEBAR_ACTIVITY_EVENT_TYPES = new Set([
   'linked_conversation_attached',
 ]);
 
+function scheduleTimeout(callback, delay = 0) {
+  const scheduler = typeof window !== 'undefined' && typeof window.setTimeout === 'function'
+    ? window.setTimeout.bind(window)
+    : (typeof globalThis.setTimeout === 'function' ? globalThis.setTimeout.bind(globalThis) : null);
+  if (!scheduler) return 0;
+  return scheduler(callback, delay);
+}
+
 function normalizeGeneratedFiles(raw = null) {
   const list = Array.isArray(raw)
     ? raw
@@ -413,7 +421,7 @@ function scheduleTextDeltaFlush(context, chatState = {}, conversationID = '') {
     chatState.pendingTextDeltaFlush = raf(run);
     return;
   }
-  chatState.pendingTextDeltaFlush = window.setTimeout(run, 16);
+  chatState.pendingTextDeltaFlush = scheduleTimeout(run, 16);
 }
 
 function scheduleStreamRender(context, chatState = {}) {
@@ -433,7 +441,7 @@ function scheduleStreamRender(context, chatState = {}) {
     chatState.pendingStreamRender = raf(run);
     return;
   }
-  chatState.pendingStreamRender = window.setTimeout(run, 16);
+  chatState.pendingStreamRender = scheduleTimeout(run, 16);
 }
 
 function clearPendingStreamScheduling(chatState = {}) {
@@ -468,7 +476,7 @@ function scheduleStreamReconnect(context, conversationID = '', reason = '') {
   const targetID = String(conversationID || '').trim();
   if (!targetID) return;
   if (chatState.pendingStreamReconnect != null) return;
-  chatState.pendingStreamReconnect = window.setTimeout(() => {
+  chatState.pendingStreamReconnect = scheduleTimeout(() => {
     chatState.pendingStreamReconnect = null;
     if (!shouldUseLiveStream(context, targetID)) return;
     queueTranscriptRefresh(context, { delay: 0, force: true });
@@ -856,7 +864,7 @@ function queuePostTurnConversationRefresh(context, conversationID = '', turnID =
     clearTimeout(chatState.postTurnRefreshTimer);
     chatState.postTurnRefreshTimer = null;
   }
-  chatState.postTurnRefreshTimer = window.setTimeout(async () => {
+    chatState.postTurnRefreshTimer = scheduleTimeout(async () => {
     chatState.postTurnRefreshTimer = null;
     if (String(chatState.postTurnRefreshKey || '').trim() !== refreshKey) return;
     if (String(getCurrentConversationID(context) || '').trim() !== targetConversationID) return;
@@ -1190,19 +1198,15 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     ? activeChatState.liveOwnedTurnIds.map((value) => String(value || '').trim()).filter(Boolean)
     : [];
   // ── chatStore transcript forwarding shim (PR-0 side-consumer cutover) ───
-  // Forward the raw canonical ConversationState to the new client store so
-  // ChatFeedFromChatStore (and any downstream consumer) sees identical data
-  // without waiting for full chatRuntime migration. When the latest turn is
-  // live-owned, transcript must not reshape the active canonical feed; the
-  // runtime already treats transcript as idle in that state.
+  // Forward transcript snapshots only when the conversation is not currently
+  // SSE-owned. Active-turn truth belongs entirely to SSE on the web UI; do not
+  // forward any transcript fragment for that turn into the canonical client
+  // store.
   try {
-    if (canonicalConversation && canonicalConversation.conversationId) {
+    if (canonicalConversation && canonicalConversation.conversationId && !latestTurnLiveOwned) {
       const store = _chatStoreRef();
       if (store) {
-        const forwardedConversation = latestTurnLiveOwned
-          ? filterCanonicalConversationForLiveOwnedTurns(canonicalConversation, liveOwnedTurnIds)
-          : canonicalConversation;
-        store.onTranscript(canonicalConversation.conversationId, forwardedConversation);
+        store.onTranscript(canonicalConversation.conversationId, canonicalConversation);
       }
     }
   } catch (_) { /* best-effort mirror */ }
@@ -1235,25 +1239,6 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     return canonicalTurns;
   }
   return Array.isArray(data?.conversation?.turns) ? data.conversation.turns : [];
-}
-
-export function filterCanonicalConversationForLiveOwnedTurns(conversation = {}, liveOwnedTurnIds = []) {
-  const owned = new Set((Array.isArray(liveOwnedTurnIds) ? liveOwnedTurnIds : []).map((item) => String(item || '').trim()).filter(Boolean));
-  if (owned.size === 0) return conversation;
-  const turns = Array.isArray(conversation?.turns) ? conversation.turns : [];
-  return {
-    ...conversation,
-    turns: turns.map((turn) => {
-      const turnId = String(turn?.turnId || '').trim();
-      if (!turnId || !owned.has(turnId)) return turn;
-      return {
-        ...turn,
-        execution: null,
-        assistant: null,
-        elicitation: null,
-      };
-    }),
-  };
 }
 
 export async function fetchPendingElicitations(conversationID = '') {
@@ -1534,10 +1519,39 @@ export function connectStream(context, conversationID) {
 
 export function handleStreamEvent(chatState, context, conversationID, payload) {
     const type = String(payload?.type || '').toLowerCase();
-    try {
-      chatState?.streamTracker?.applyEvent?.(payload);
-      syncTrackerDerivedTurnState(chatState);
-    } catch (_) {}
+    const turnId = String(payload?.turnId || payload?.patch?.turnId || '').trim();
+    chatState.terminalTurns = chatState.terminalTurns || {};
+    if (turnId && chatState.terminalTurns[turnId] && type !== 'turn_completed' && type !== 'turn_failed' && type !== 'turn_canceled') {
+      const eventConversationID = resolveStreamEventConversationID(payload, conversationID);
+      const contextWindowID = getContextWindowId(context);
+      const scopedConversationID = getScopedConversationSelection(contextWindowID);
+      const formConversationID = getCurrentConversationID(context);
+      const visibleConversationID = String(formConversationID || scopedConversationID || '').trim();
+      logExecutorDebug('post-terminal-event', {
+        type,
+        conversationId: payload?.conversationId || payload?.streamId || conversationID,
+        turnId,
+        terminalAt: chatState.terminalTurns[turnId],
+        status: String(payload?.status || payload?.patch?.status || '').trim()
+      });
+      if (isLatePostTerminalExecutionEvent(type, payload)) {
+        logStreamDebug(chatState, 'stream-event-ignored-terminal', {
+          type,
+          turnId,
+          terminalAt: chatState.terminalTurns[turnId],
+          eventConversationId: eventConversationID,
+          visibleConversationId: visibleConversationID
+        });
+        return;
+      }
+    }
+    const shouldReplayIntoLegacyTracker = type !== 'turn_completed' && type !== 'turn_failed' && type !== 'turn_canceled';
+    if (shouldReplayIntoLegacyTracker) {
+      try {
+        chatState?.streamTracker?.applyEvent?.(payload);
+        syncTrackerDerivedTurnState(chatState);
+      } catch (_) {}
+    }
     // ── chatStore forwarding shim (PR-0 side-consumer cutover) ──────────────
     // Every SSE event that chatRuntime dispatches is also forwarded to the
     // canonical client chatStore. The legacy stores (liveRows/transcriptRows/
@@ -1601,27 +1615,6 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         return 0;
       }
     })();
-    const turnId = String(payload?.turnId || payload?.patch?.turnId || '').trim();
-    chatState.terminalTurns = chatState.terminalTurns || {};
-    if (turnId && chatState.terminalTurns[turnId] && type !== 'turn_completed' && type !== 'turn_failed' && type !== 'turn_canceled') {
-      logExecutorDebug('post-terminal-event', {
-        type,
-        conversationId: payload?.conversationId || payload?.streamId || conversationID,
-        turnId,
-        terminalAt: chatState.terminalTurns[turnId],
-        status: String(payload?.status || payload?.patch?.status || '').trim()
-      });
-      if (isLatePostTerminalExecutionEvent(type, payload)) {
-        logStreamDebug(chatState, 'stream-event-ignored-terminal', {
-          type,
-          turnId,
-          terminalAt: chatState.terminalTurns[turnId],
-          eventConversationId: eventConversationID,
-          visibleConversationId: visibleConversationID
-        });
-        return;
-      }
-    }
     if (isStreamDebugEnabled()) {
       console.log('[stream-event]', type, {
         conversationId: payload?.conversationId || payload?.streamId || conversationID,
@@ -1768,7 +1761,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       if (payload?.finalResponse) {
         finalizeStreamTurn(chatState, payload, conversationID);
         setStage({ phase: 'done', text: 'Done', completedAt: stageCompletedAtValue(payload) });
-        window.setTimeout(() => setStage({ phase: 'ready', text: 'Ready' }), 1100);
+        scheduleTimeout(() => setStage({ phase: 'ready', text: 'Ready' }), 1100);
       } else {
         setStage({ phase: 'executing', text: 'Assistant thinking…', startedAt: stageStartedAtValue(payload, chatState), completedAt: 0 });
       }
@@ -1924,6 +1917,10 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       logStreamDebug(chatState, 'stream-done', {
         status: String(payload?.status || type).trim()
       });
+      try {
+        chatState?.streamTracker?.reset?.();
+        syncTrackerDerivedTurnState(chatState);
+      } catch (_) {}
       finalizeStreamTurn(chatState, payload, conversationID);
       chatState.lastHasRunning = false;
       chatState.activeTurnAgentId = '';
@@ -1949,15 +1946,8 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       }
       // Don't clear feeds on turn end — they persist until a tool_feed_inactive
       // SSE event arrives (e.g., after revert/commit removes the feed's data).
-      window.setTimeout(() => setStage({ phase: 'ready', text: 'Ready' }), 1100);
+      scheduleTimeout(() => setStage({ phase: 'ready', text: 'Ready' }), 1100);
       renderMergedRowsForContext(context);
-      if (
-        resolvedConversationID
-        && resolvedConversationID === String(getCurrentConversationID(context) || '').trim()
-        && !latestTurnStillOwnedByLive(chatState, resolvedConversationID, completedTurnID)
-      ) {
-        queuePostTurnConversationRefresh(context, resolvedConversationID, completedTurnID);
-      }
       return;
     }
 

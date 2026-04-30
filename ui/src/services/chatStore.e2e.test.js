@@ -290,6 +290,47 @@ describe('T-note-live control message_add ordering', () => {
     });
 });
 
+describe('T-live transcript isolation', () => {
+    it('does not let transcript inject assistant content into an SSE-owned active turn', () => {
+        submit({
+            conversationId: CONV,
+            clientRequestId: 'crid_live_only',
+            content: 'analyze turn ordering',
+            createdAt: '2026-04-21T00:00:00Z',
+        });
+        onSSE(CONV, {
+            type: 'turn_started',
+            conversationId: CONV,
+            turnId: 'tn_live_only',
+            userMessageId: 'msg_live_only',
+            clientRequestId: 'crid_live_only',
+            createdAt: '2026-04-21T00:00:00.050Z',
+        });
+        onSSE(CONV, {
+            type: 'narration',
+            conversationId: CONV,
+            turnId: 'tn_live_only',
+            messageId: 'asst_live_only',
+            narration: 'Working...',
+            createdAt: '2026-04-21T00:00:00.100Z',
+            patch: { sequence: 2, status: 'running' },
+        });
+
+        // Simulate the web-ui transcript guard: active SSE-owned turn is
+        // omitted from transcript forwarding, so only historical turns reach
+        // the canonical client store.
+        onTranscript(CONV, {
+            conversationId: CONV,
+            turns: [],
+        });
+
+        const html = render();
+        expect(html).toContain('Working...');
+        expect(html).not.toContain('PRELIMINARY NOTE');
+        expect((html.match(/analyze turn ordering/g) || []).length).toBe(1);
+    });
+});
+
 describe('T-steer-transcript transcript extra user ordering', () => {
     it('renders [user, iteration, user] when a later same-turn user message has a higher sequence than the final page', () => {
         onTranscript(CONV, {
