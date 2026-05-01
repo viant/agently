@@ -199,6 +199,22 @@ function dashboardSeriesKey(entry) {
   return String(entry?.key || entry?.value || entry?.id || '').trim();
 }
 
+function resolveDashboardSelector(root, selector = '') {
+  const path = String(selector || '').trim();
+  if (!path) return undefined;
+  const segments = path.split('.').filter(Boolean);
+  let current = root;
+  for (const segment of segments) {
+    if (current == null) return undefined;
+    if (Array.isArray(current) && /^\d+$/.test(segment)) {
+      current = current[Number(segment)];
+      continue;
+    }
+    current = current?.[segment];
+  }
+  return current;
+}
+
 function aggregateRowsByDimension(collection = [], dimension = '', metrics = []) {
   const grouped = new Map();
   for (const row of Array.isArray(collection) ? collection : []) {
@@ -354,6 +370,39 @@ export function normalizeDashboardPayload(payload) {
       };
     }
 
+    if (block?.kind === 'dashboard.compare' && Array.isArray(block.items) && collection.length) {
+      const compareMetrics = {};
+      const compareItems = [];
+      for (const item of block.items) {
+        const id = String(item?.id || item?.label || '').trim();
+        if (!id) continue;
+        const currentValue = typeof item?.current === 'string'
+          ? resolveDashboardSelector(collection, item.current)
+          : item?.current;
+        const previousValue = typeof item?.previous === 'string'
+          ? resolveDashboardSelector(collection, item.previous)
+          : item?.previous;
+        compareMetrics[id] = {
+          current: currentValue ?? null,
+          previous: previousValue ?? null,
+        };
+        compareItems.push({
+          ...item,
+          id,
+          current: `${keyBase}.${id}.current`,
+          previous: `${keyBase}.${id}.previous`,
+          deltaLabel: item?.deltaLabel || 'vs previous',
+        });
+      }
+      if (compareItems.length > 0) {
+        metrics[keyBase] = compareMetrics;
+        return {
+          ...block,
+          items: compareItems,
+        };
+      }
+    }
+
     if (block?.kind === 'dashboard.timeline' && !block.chart && sourceID) {
       const chartType = String(block.chartType || 'line').trim().toLowerCase() || 'line';
       if (block.timeColumn && block.seriesColumn && block.valueColumn && collection.length) {
@@ -390,8 +439,52 @@ export function normalizeDashboardPayload(payload) {
       const seriesValues = (Array.isArray(block.series) ? block.series : (block.valueColumn ? [block.valueColumn] : ['value']))
         .map(dashboardSeriesKey)
         .filter(Boolean);
+      const dateKey = block.dateField || block.timeColumn || 'date';
+      const splitKey = block.groupBy || block.seriesColumn || 'split';
+      const valueKey = block.valueColumn || 'avails';
+      const isLongFormSplitSeries = collection.length > 0
+        && (block.dateField || block.timeColumn)
+        && !block.groupBy
+        && !block.seriesColumn
+        && seriesValues.length > 0
+        && collection.some((row) => row?.[splitKey] != null)
+        && collection.some((row) => row?.[valueKey] != null)
+        && collection.some((row) => seriesValues.includes(dashboardSeriesKey(row?.[splitKey])));
+      if (isLongFormSplitSeries) {
+        const transformedCollection = collection
+          .filter((row) => seriesValues.includes(dashboardSeriesKey(row?.[splitKey])))
+          .map((row) => ({
+            [dateKey]: row?.[dateKey],
+            series: titleizeDashboardKey(dashboardSeriesKey(row?.[splitKey])),
+            value: row?.[valueKey],
+          }));
+        return {
+          ...block,
+          dataSourceRef: sourceID,
+          __collection: transformedCollection,
+          chart: {
+            type: chartType,
+            xAxis: {
+              dataKey: dateKey,
+              label: titleizeDashboardKey(dateKey),
+              tickFormat: 'MM/dd',
+            },
+            yAxis: {
+              label: titleizeDashboardKey(valueKey),
+            },
+            cartesianGrid: {
+              strokeDasharray: '3 3',
+            },
+            series: {
+              nameKey: 'series',
+              valueKey: 'value',
+              values: seriesValues.map((entry) => ({ label: titleizeDashboardKey(entry), name: titleizeDashboardKey(entry), value: entry })),
+              palette: DEFAULT_DASHBOARD_PALETTE,
+            },
+          },
+        };
+      }
       if ((block.dateField || block.timeColumn) && seriesValues.length > 0 && !block.groupBy && !block.seriesColumn) {
-        const dateKey = block.dateField || block.timeColumn || 'date';
         const transformedCollection = collection.flatMap((row) =>
           seriesValues.map((entry) => ({
             [dateKey]: row?.[dateKey],

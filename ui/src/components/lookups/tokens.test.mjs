@@ -118,6 +118,12 @@ assert.throws(
 );
 console.log('authored-placeholder ✓ flattenStored blocks required unresolved');
 
+assert.equal(
+  flattenStored(authoredStored, registry, { allowUnresolvedRequired: true }),
+  'Analyze /advertiser in Q4.',
+);
+console.log('authored-placeholder ✓ flattenStored can preserve unresolved required token for submit-time fallback');
+
 // Non-required unresolved passes through as /name literal.
 const nonReqRegistry = [{ ...registry[0], required: false }];
 assert.equal(
