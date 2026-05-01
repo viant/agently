@@ -149,14 +149,15 @@ export function flatten(parts) {
  * @param {Array<object>} registry
  * @returns {string}
  */
-export function flattenStored(storedText, registry) {
+export function flattenStored(storedText, registry, options = {}) {
+  const allowUnresolvedRequired = options?.allowUnresolvedRequired === true;
   if (!storedText) return '';
   const byName = new Map();
   for (const e of registry) byName.set(e.name, e);
   return storedText.replace(TOKEN_RE, (raw, name, id, label) => {
     if (isUnresolvedToken(id)) {
       const entry = byName.get(name);
-      if (entry && entry.required) {
+      if (entry && entry.required && !allowUnresolvedRequired) {
         throw new Error(`unresolved required: /${name}`);
       }
       // Non-required unresolved → pass the literal /<name> through so the

@@ -57,6 +57,10 @@ vi.mock('./httpClient', () => ({
   showToast: vi.fn(),
 }));
 
+vi.mock('../components/lookups/client.js', () => ({
+  listLookupRegistry: vi.fn(),
+}));
+
 vi.mock('./toolFeedBus', () => ({
   getFeedData: vi.fn(),
   updateFeedData: vi.fn(),
@@ -72,6 +76,7 @@ vi.mock('../utils/dialogBus', () => ({
 import { client } from './agentlyClient';
 import { submit as submitToChatStore } from './chatStore';
 import { onInit, submitMessage } from './chatService';
+import { listLookupRegistry } from '../components/lookups/client.js';
 import {
   dsTick,
   ensureContextResources,
@@ -290,6 +295,75 @@ describe('submitMessage', () => {
     }));
   });
 
+  it('submits unresolved required starter lookups by preserving the /name token for the model', async () => {
+    listLookupRegistry.mockResolvedValue([
+      {
+        name: 'order',
+        required: true,
+        token: {
+          queryInput: 'AdOrderName',
+          resolveInput: 'AdOrderId',
+          modelForm: '${id}',
+        },
+      },
+    ]);
+    client.query.mockResolvedValue({});
+    ensureConversation.mockResolvedValue('conv-unresolved');
+    resolveUserID.mockReturnValue('');
+    ensureContextResources.mockReturnValue({
+      runningTurnId: '',
+      lastHasRunning: false,
+      activeConversationID: '',
+      liveOwnedConversationID: '',
+      activeStreamPrompt: '',
+      activeStreamTurnId: '',
+      activeStreamStartedAt: 0,
+    });
+    dsTick.mockResolvedValue({
+      conversationID: 'conv-unresolved',
+      hasRunning: false,
+    });
+
+    const convForm = {};
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => convForm,
+                setFormData: vi.fn(({ values }) => Object.assign(convForm, values)),
+              },
+            },
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({
+                  defaults: { model: 'openai_gpt-5_4' },
+                }),
+              },
+            },
+          };
+        }
+        return null;
+      },
+    };
+
+    await submitMessage({
+      context,
+      message: 'Troubleshoot @{order:? "Order"} order for delivery issues.',
+      model: 'openai_gpt-5_4',
+      agent: 'steward',
+    });
+
+    expect(client.query).toHaveBeenCalledWith(expect.objectContaining({
+      query: 'Troubleshoot /order order for delivery issues.',
+    }));
+  });
+
   it('attaches SSE on init when conversation metadata says the conversation is still live', async () => {
     fetchConversation.mockResolvedValue({
       id: 'conv-1',
@@ -342,7 +416,7 @@ describe('submitMessage', () => {
     await onInit({ context });
 
     expect(fetchConversation).toHaveBeenCalledWith('conv-1');
-    expect(dsTick).toHaveBeenCalledWith(context, { conversationID: 'conv-1' });
+    expect(dsTick).toHaveBeenCalledWith(context, expect.objectContaining({ conversationID: 'conv-1' }));
     expect(syncConversationTransport).toHaveBeenCalledWith(context, 'conv-1');
     expect(disconnectStream).not.toHaveBeenCalled();
   });

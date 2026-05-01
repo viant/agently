@@ -588,4 +588,86 @@ describe('RichContent fence parsing', () => {
       values: [{ label: 'Spend', name: 'Spend', value: 'spend' }],
     });
   });
+
+  it('normalizes a long-form split timeline into chart rows', () => {
+    const normalized = normalizeDashboardPayload({
+      type: 'forge_dashboard',
+      title: 'Forecast',
+      dataSources: [
+        {
+          id: 'forecast_daily',
+          collection: [
+            { date: '2026-04-29', split: 'overall', avails: 100 },
+            { date: '2026-04-29', split: 'inventory', avails: 70 },
+            { date: '2026-04-29', split: 'eligibility', avails: 500 },
+            { date: '2026-04-30', split: 'overall', avails: 90 },
+            { date: '2026-04-30', split: 'inventory', avails: 60 },
+            { date: '2026-04-30', split: 'eligibility', avails: 450 },
+          ],
+        },
+      ],
+      blocks: [
+        {
+          kind: 'dashboard.timeline',
+          title: '3-day avails by split',
+          dataSourceRef: 'forecast_daily',
+          dateField: 'date',
+          series: ['overall', 'inventory', 'eligibility'],
+          chartType: 'line',
+        },
+      ],
+    });
+
+    const timeline = normalized.blocks[0];
+    expect(timeline.__collection).toEqual([
+      { date: '2026-04-29', series: 'Overall', value: 100 },
+      { date: '2026-04-29', series: 'Inventory', value: 70 },
+      { date: '2026-04-29', series: 'Eligibility', value: 500 },
+      { date: '2026-04-30', series: 'Overall', value: 90 },
+      { date: '2026-04-30', series: 'Inventory', value: 60 },
+      { date: '2026-04-30', series: 'Eligibility', value: 450 },
+    ]);
+    expect(timeline.chart.series).toMatchObject({
+      nameKey: 'series',
+      valueKey: 'value',
+    });
+  });
+
+  it('normalizes compare items with selector paths into metric values', () => {
+    const normalized = normalizeDashboardPayload({
+      type: 'forge_dashboard',
+      title: 'Forecast',
+      dataSources: [
+        {
+          id: 'forecast_summary',
+          collection: [
+            {
+              inventory_avails: 252125,
+              eligibility_avails: 8181067117,
+            },
+          ],
+        },
+      ],
+      blocks: [
+        {
+          kind: 'dashboard.compare',
+          title: 'Split comparison',
+          dataSourceRef: 'forecast_summary',
+          items: [
+            { id: 'inventoryAvails', label: 'Inventory Avails', current: '0.inventory_avails', format: 'compactNumber' },
+            { id: 'eligibilityAvails', label: 'Eligibility Avails', current: '0.eligibility_avails', format: 'compactNumber' },
+          ],
+        },
+      ],
+    });
+
+    expect(normalized.metrics.block_0).toEqual({
+      inventoryAvails: { current: 252125, previous: null },
+      eligibilityAvails: { current: 8181067117, previous: null },
+    });
+    expect(normalized.blocks[0].items).toEqual([
+      expect.objectContaining({ current: 'block_0.inventoryAvails.current', previous: 'block_0.inventoryAvails.previous' }),
+      expect.objectContaining({ current: 'block_0.eligibilityAvails.current', previous: 'block_0.eligibilityAvails.previous' }),
+    ]);
+  });
 });

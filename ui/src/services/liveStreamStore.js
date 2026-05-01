@@ -307,7 +307,7 @@ function findAssistantExecutionRowIndex(rows, turnId, assistantMessageId) {
     const groups = Array.isArray(row?.executionGroups) ? row.executionGroups : [];
     const isStandaloneAssistantBubble = groups.length === 0 && Number(row?.interim ?? 0) === 0;
     if (isStandaloneAssistantBubble) {
-      return -1;
+      continue;
     }
     if (groups.length > 0) {
       return index;

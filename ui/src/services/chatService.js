@@ -312,7 +312,7 @@ export async function submitMessage({ context, message, model, agent }) {
   if (rawQuery && rawQuery.includes('@{')) {
     try {
       const registry = await listLookupRegistry('chat-composer', effectiveAgentForLookup);
-      query = flattenStored(rawQuery, registry).trim();
+      query = flattenStored(rawQuery, registry, { allowUnresolvedRequired: true }).trim();
     } catch (err) {
       showToast(String(err?.message || err || 'Resolve required lookups before sending.'), { intent: 'warning' });
       return;
