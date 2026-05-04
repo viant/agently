@@ -1291,8 +1291,16 @@ export function applyAssistantMessageAddEvent(chatState = {}, payload = {}) {
   const messageId = String(payload?.messageId || payload?.id || patch?.id || '').trim();
   const turnId = String(patch?.turnId || payload?.turnId || '').trim();
   const role = String(patch?.role || '').trim().toLowerCase();
+  const mode = String(patch?.mode || payload?.mode || '').trim().toLowerCase();
+  const phase = String(patch?.phase || payload?.phase || '').trim().toLowerCase();
   const content = normalizeStreamingMarkdown(String(patch?.rawContent || payload?.content || patch?.content || '').trim()).content;
   if (!messageId || !turnId || role !== 'assistant' || !content) {
+    return Array.isArray(chatState.liveRows) ? chatState.liveRows : [];
+  }
+  // Intake/router assistant payloads belong in execution details, not as
+  // standalone chat bubbles. Live model/model_completed events already own the
+  // visible intake execution row for the turn.
+  if (mode === 'router' || phase === 'intake') {
     return Array.isArray(chatState.liveRows) ? chatState.liveRows : [];
   }
   const rows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];

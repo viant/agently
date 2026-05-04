@@ -1170,6 +1170,41 @@ describe('applyExecutionStreamEvent', () => {
     });
   });
 
+  it('suppresses router/intake message_add payloads as standalone bubbles while keeping the live execution row', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      type: 'model_started',
+      assistantMessageId: 'msg-intake',
+      modelCallId: 'mc-intake',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      phase: 'intake',
+      mode: 'router',
+      status: 'running',
+      createdAt: '2026-03-16T10:00:01Z',
+      model: { provider: 'openai', model: 'gpt-5-mini' }
+    }, 'conv-1');
+
+    applyAssistantMessageAddEvent(chatState, {
+      id: 'router-json',
+      op: 'message_add',
+      patch: {
+        role: 'assistant',
+        turnId: 'turn-1',
+        mode: 'router',
+        phase: 'intake',
+        content: '{"appendToolBundles":["analyst-performance-tools"],"clarificationNeeded":false}',
+        interim: 0,
+        createdAt: '2026-03-16T10:00:02Z'
+      }
+    });
+
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0]?.executionGroups?.[0]?.phase).toBe('intake');
+    expect(chatState.liveRows.some((row) => String(row?.content || '').includes('appendToolBundles'))).toBe(false);
+  });
+
   it('keeps the standalone message_add note and appends later same-turn narration as a new execution group', () => {
     const chatState = { liveRows: [] };
 
