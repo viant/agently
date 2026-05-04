@@ -102,6 +102,71 @@ function displayableElicitationMessage(rawMessage = '', embedded = null) {
   return explicit;
 }
 
+function isHiddenCanonicalAssistantMessage(message = {}) {
+  const role = String(message?.role || '').trim().toLowerCase();
+  if (role !== 'assistant') return false;
+  const mode = String(message?.mode || '').trim().toLowerCase();
+  const status = String(message?.status || '').trim().toLowerCase();
+  if (mode !== 'router') return false;
+  return status !== 'intake.answer' && status !== 'intake.clarify';
+}
+
+function normalizeExecutionStatus(value = '', fallback = 'completed') {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return fallback;
+  if (raw === 'success' || raw === 'succeeded' || raw === 'done') return 'completed';
+  if (raw === 'cancelled') return 'canceled';
+  return raw;
+}
+
+function buildSyntheticRouterExecutionPages(turn = {}) {
+  const messages = Array.isArray(turn?.messages) ? turn.messages : [];
+  if (messages.length === 0) return [];
+  const realPages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
+  const claimedAssistantIds = new Set(
+    realPages.flatMap((page) => [
+      String(page?.assistantMessageId || '').trim(),
+      String(page?.pageId || '').trim()
+    ]).filter(Boolean)
+  );
+  const userMessageId = String(turn?.user?.messageId || '').trim();
+  return messages
+    .filter((message) => isHiddenCanonicalAssistantMessage(message))
+    .filter((message) => {
+      const messageId = String(message?.messageId || '').trim();
+      return !messageId || !claimedAssistantIds.has(messageId);
+    })
+    .map((message, index) => {
+      const messageId = String(message?.messageId || '').trim() || `router:${index}`;
+      const createdAt = String(message?.createdAt || turn?.createdAt || '').trim();
+      const status = normalizeExecutionStatus(message?.status || turn?.status || '', 'completed');
+      return {
+        pageId: `router:${messageId}`,
+        assistantMessageId: messageId,
+        parentMessageId: userMessageId,
+        iteration: 0,
+        phase: 'intake',
+        status,
+        narration: '',
+        content: '',
+        finalResponse: false,
+        modelSteps: [{
+          id: `router-model:${messageId}`,
+          assistantMessageId: messageId,
+          executionRole: 'intake',
+          phase: 'intake',
+          provider: '',
+          model: 'router',
+          status,
+          startedAt: createdAt,
+          completedAt: status === 'running' || status === 'thinking' || status === 'processing' ? '' : createdAt,
+          responsePayload: String(message?.content || '').trim() || null
+        }],
+        toolSteps: []
+      };
+    });
+}
+
 function pageOwnedAssistantMessageIds(turn = {}) {
   const ids = new Set();
   const pages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
@@ -186,7 +251,11 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
       continue;
     }
 
-    const executionPages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
+    const persistedExecutionPages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
+    const executionPages = [
+      ...buildSyntheticRouterExecutionPages(turn),
+      ...persistedExecutionPages
+    ];
     const summaryPages = executionPages.filter((page) => String(page?.phase || '').trim().toLowerCase() === 'summary');
     const visiblePages = executionPages.filter((page) => String(page?.phase || '').trim().toLowerCase() !== 'summary' && isVisibleExecutionPage(page));
     const normalizedExecutionPages = [
@@ -226,6 +295,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
 
     const assistantOwnedIds = pageOwnedAssistantMessageIds(turn);
     const extraMessages = (Array.isArray(turn?.messages) ? turn.messages : []).filter((message) => {
+      if (isHiddenCanonicalAssistantMessage(message)) return false;
       const role = String(message?.role || '').trim().toLowerCase();
       if (role !== 'assistant') return true;
       if (Number(message?.interim || 0) > 0) return false;

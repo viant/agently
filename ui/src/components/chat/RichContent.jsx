@@ -270,6 +270,32 @@ export function normalizeDashboardPayload(payload) {
     const keyBase = `block_${index}`;
 
     if (block?.kind === 'dashboard.summary' && Array.isArray(block.metrics) && collection.length) {
+      if (block.metrics.some((metric) => typeof metric === 'object' && metric !== null)) {
+        const target = {};
+        const normalizedMetrics = [];
+        for (const metric of block.metrics) {
+          if (!metric || typeof metric !== 'object') continue;
+          const id = String(metric.id || metric.metricKey || metric.label || '').trim();
+          if (!id) continue;
+          const selector = String(metric.selector || '').trim();
+          const rawValue = selector ? resolveDashboardSelector(collection, selector) : undefined;
+          target[id] = normalizeMetricValue(rawValue ?? null);
+          normalizedMetrics.push({
+            ...metric,
+            id,
+            selector: `${keyBase}.${id}`,
+            label: String(metric.label || '').trim() || titleizeDashboardKey(id),
+            format: metric.format || inferMetricFormat(id, target[id]),
+          });
+        }
+        if (normalizedMetrics.length > 0) {
+          metrics[keyBase] = target;
+          return {
+            ...block,
+            metrics: normalizedMetrics,
+          };
+        }
+      }
       const target = {};
       for (const metric of block.metrics) {
         if (typeof metric !== 'string') continue;
