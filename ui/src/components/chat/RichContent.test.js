@@ -670,4 +670,46 @@ describe('RichContent fence parsing', () => {
       expect.objectContaining({ current: 'block_0.eligibilityAvails.current', previous: 'block_0.eligibilityAvails.previous' }),
     ]);
   });
+
+  it('normalizes summary metric objects with selector paths into metric values', () => {
+    const normalized = normalizeDashboardPayload({
+      type: 'forge_dashboard',
+      title: 'Forecast',
+      dataSources: [
+        {
+          id: 'forecast_summary',
+          collection: [
+            {
+              overall_avails: 800,
+              overall_uniques: 36400,
+              overall_ipu: 0.02,
+            },
+          ],
+        },
+      ],
+      blocks: [
+        {
+          kind: 'dashboard.summary',
+          title: 'Forecast posture',
+          dataSourceRef: 'forecast_summary',
+          metrics: [
+            { id: 'overallAvails', label: 'Latest-day avails', selector: '0.overall_avails', format: 'compactNumber' },
+            { id: 'overallUniques', label: 'Latest-day device uniques', selector: '0.overall_uniques', format: 'compactNumber' },
+            { id: 'overallIpu', label: 'Avails / unique', selector: '0.overall_ipu', format: 'number' },
+          ],
+        },
+      ],
+    });
+
+    expect(normalized.metrics.block_0).toEqual({
+      overallAvails: 800,
+      overallUniques: 36400,
+      overallIpu: 0.02,
+    });
+    expect(normalized.blocks[0].metrics).toEqual([
+      expect.objectContaining({ id: 'overallAvails', selector: 'block_0.overallAvails' }),
+      expect.objectContaining({ id: 'overallUniques', selector: 'block_0.overallUniques' }),
+      expect.objectContaining({ id: 'overallIpu', selector: 'block_0.overallIpu' }),
+    ]);
+  });
 });

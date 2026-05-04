@@ -33,8 +33,20 @@ const SYNTHETIC_RENDER_TYPES = new Set(['iteration', 'queue']);
 function isHiddenInternalMessage(item = {}) {
   const role = String(item?.role || '').trim().toLowerCase();
   const mode = String(item?.mode || '').trim().toLowerCase();
-  if (role !== 'user') return false;
-  return mode === 'chain';
+  const status = String(item?.status || '').trim().toLowerCase();
+  if (role === 'user') {
+    return mode === 'chain';
+  }
+  if (role === 'assistant' && mode === 'router') {
+    const phase = String(item?.phase || '').trim().toLowerCase();
+    const hasExecutionGroups = Array.isArray(item?.executionGroups) && item.executionGroups.length > 0;
+    const isInterim = Number(item?.interim || 0) > 0;
+    if (phase === 'intake' || hasExecutionGroups || isInterim) {
+      return false;
+    }
+    return status !== 'intake.answer' && status !== 'intake.clarify';
+  }
+  return false;
 }
 
 function mergeGeneratedFiles(...lists) {

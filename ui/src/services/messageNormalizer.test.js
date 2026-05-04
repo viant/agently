@@ -76,6 +76,40 @@ describe('normalizeMessages', () => {
     expect(normalized.some((entry) => String(entry?.content || '').includes('Ad order 2639076 is behind pace'))).toBe(true);
   });
 
+  it('hides persisted router assistant JSON while preserving real assistant output', () => {
+    const messages = [
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:00Z',
+        content: 'forecast line 7281841'
+      },
+      {
+        id: 'router-json',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:01Z',
+        mode: 'router',
+        status: '',
+        content: '{"appendToolBundles":["analyst-forecasting-tools"],"clarificationNeeded":false,"clarificationQuestion":""}'
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:02Z',
+        content: 'I’m pulling the active setup now.'
+      }
+    ];
+
+    const normalized = normalizeMessages(messages, { visibleCount: 3 });
+
+    expect(normalized.some((entry) => String(entry?.id || '') === 'router-json')).toBe(false);
+    expect(normalized.some((entry) => String(entry?.content || '').includes('appendToolBundles'))).toBe(false);
+    expect(normalized.some((entry) => String(entry?.content || '').includes('I’m pulling the active setup now.'))).toBe(true);
+  });
+
   it('drops assistant summary artifacts from rendered chat rows', () => {
     const messages = [
       {

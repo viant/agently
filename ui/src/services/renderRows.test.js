@@ -134,6 +134,51 @@ describe('buildCanonicalTranscriptRows', () => {
     });
   });
 
+  it('moves persisted router assistant JSON into intake execution details instead of a bubble', () => {
+    const turn = {
+      turnId: 'turn-router',
+      createdAt: '2026-05-04T06:23:29Z',
+      status: 'succeeded',
+      user: {
+        messageId: 'user-router',
+        content: 'forecast line 7281841'
+      },
+      messages: [
+        {
+          messageId: 'router-json',
+          role: 'assistant',
+          mode: 'router',
+          status: '',
+          content: '{"appendToolBundles":["analyst-forecasting-tools","analyst-baseline"],"clarificationNeeded":false}'
+        },
+        {
+          messageId: 'assistant-final',
+          role: 'assistant',
+          content: 'I’m pulling the active setup now.'
+        }
+      ],
+      execution: {
+        pages: []
+      }
+    };
+
+    const { rows } = buildCanonicalTranscriptRows([turn]);
+    const executionAssistant = rows.find((row) =>
+      String(row?.role || '').toLowerCase() === 'assistant'
+      && Array.isArray(row?.executionGroups)
+      && row.executionGroups.length > 0
+    );
+
+    expect(rows.some((row) => String(row?.content || '').includes('appendToolBundles'))).toBe(false);
+    expect(rows.some((row) => String(row?.content || '').includes('I’m pulling the active setup now.'))).toBe(true);
+    expect(executionAssistant?.executionGroups?.[0]).toMatchObject({
+      phase: 'intake',
+      assistantMessageId: 'router-json'
+    });
+    expect(executionAssistant?.executionGroups?.[0]?.modelSteps?.[0]?.responsePayload)
+      .toContain('appendToolBundles');
+  });
+
   it('preserves extra same-turn user and assistant messages as standalone rows', () => {
     const turn = {
       turnId: 'turn-extra',
