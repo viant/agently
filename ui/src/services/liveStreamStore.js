@@ -1189,7 +1189,7 @@ export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConvers
   }
   const turnId = String(payload?.turnId || '').trim();
   const assistantMessageId = canonicalPayloadMessageId(payload);
-  const narration = String(payload?.content || payload?.narration || '').trim();
+  const narration = String(payload?.narration || payload?.content || '').trim();
   if (!narration) return chatState.liveRows || [];
 
   const rows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];

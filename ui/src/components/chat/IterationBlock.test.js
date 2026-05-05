@@ -442,6 +442,26 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(anchor).toBe(Date.parse('2026-04-14T12:05:00Z'));
   });
 
+  it('preserves canonical turnStartedAt instead of re-anchoring to a later rendered row createdAt', () => {
+    const data = buildIterationDataFromCanonicalRow(
+      {
+        kind: 'iteration',
+        turnId: 'turn-1',
+        lifecycle: 'running',
+        createdAt: '2026-04-14T12:20:00Z',
+        turnStartedAt: '2026-04-14T12:00:00Z',
+        rounds: []
+      },
+      {
+        _iterationData: {
+          turnStartedAt: '2026-04-14T12:00:00Z'
+        }
+      }
+    );
+
+    expect(data.turnStartedAt).toBe('2026-04-14T12:00:00Z');
+  });
+
   it('summarizes linked child transcript into compact preview groups', () => {
     const summary = summarizeLinkedConversationTranscript({
       turns: [

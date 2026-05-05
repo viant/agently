@@ -2329,6 +2329,41 @@ describe('applyPreambleEvent', () => {
     expect(chatState.liveRows[0].executionGroups[0].narration).toBe('Let me analyze the code...');
   });
 
+  it('prefers the dedicated narration field over payload.content for narration events', () => {
+    const chatState = {
+      liveRows: [{
+        id: 'assistant:turn-1:1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        conversationId: 'conv-1',
+        status: 'running',
+        turnStatus: 'running',
+        interim: 1,
+        content: '',
+        narration: '',
+        executionGroups: [{
+          assistantMessageId: 'msg-1',
+          narration: '',
+          iteration: 1,
+          modelSteps: []
+        }]
+      }]
+    };
+
+    applyPreambleEvent(chatState, {
+      type: 'narration',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      messageId: 'msg-1',
+      content: 'Analyze 553065 campaign performance for pacing, spend, delivery, and KPI health, and recommend the top next actions.',
+      narration: 'Reviewing Hierarchy, Targeting profile, Pacing ad order.'
+    });
+
+    expect(chatState.liveRows[0].narration).toBe('Reviewing Hierarchy, Targeting profile, Pacing ad order.');
+    expect(chatState.liveRows[0].content).toBe('Reviewing Hierarchy, Targeting profile, Pacing ad order.');
+    expect(chatState.liveRows[0].executionGroups[0].narration).toBe('Reviewing Hierarchy, Targeting profile, Pacing ad order.');
+  });
+
   it('creates a new row when no assistant row exists', () => {
     const chatState = { liveRows: [] };
 

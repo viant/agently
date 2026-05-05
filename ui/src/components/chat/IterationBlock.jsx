@@ -1240,7 +1240,11 @@ export function buildIterationDataFromCanonicalRow(canonicalRow = null, message 
     ...(message?._iterationData || {}),
     turnId: canonicalRow?.turnId || message?._iterationData?.turnId || '',
     status: canonicalRow?.lifecycle || message?._iterationData?.status || '',
-    turnStartedAt: canonicalRow?.createdAt || message?._iterationData?.turnStartedAt || '',
+    turnStartedAt: canonicalRow?.turnStartedAt
+      || message?._iterationData?.turnStartedAt
+      || canonicalRow?.startedAt
+      || canonicalRow?.createdAt
+      || '',
     narration: firstNarration ? { content: firstNarration } : (message?._iterationData?.narration || null),
     elicitation: canonicalElicitation || message?._iterationData?.elicitation || null,
     elicitationId: canonicalElicitation?.elicitationId || message?._iterationData?.elicitationId || '',
