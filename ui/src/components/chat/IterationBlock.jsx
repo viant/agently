@@ -1175,7 +1175,6 @@ export function isIterationActive(data = {}, groups = [], linkedStatuses = []) {
 
 export function resolveIterationElapsedAnchor(data = {}, groups = [], linkedConversationStates = [], message = {}, isActive = false) {
   const turnStartedAt = parseTimestamp(data?.turnStartedAt || '');
-  const turnCompletedAt = parseTimestamp(data?.turnCompletedAt || '');
   const allSteps = (Array.isArray(groups) ? groups : []).flatMap((group) => [
     ...(group?.modelStep ? [group.modelStep] : []),
     ...(Array.isArray(group?.toolSteps) ? group.toolSteps : [])
@@ -1196,25 +1195,13 @@ export function resolveIterationElapsedAnchor(data = {}, groups = [], linkedConv
       || parseTimestamp(message?.createdAt)
       || 0;
   }
-  const activeGroups = (Array.isArray(groups) ? groups : []).filter((group) => {
-    if (isActiveStatus(group?.status)) return true;
-    if (isActiveStatus(group?.modelStep?.status)) return true;
-    return (Array.isArray(group?.toolSteps) ? group.toolSteps : []).some((step) => isActiveStatus(step?.status));
-  });
-  const activeSteps = activeGroups.flatMap((group) => [
-    ...(group?.modelStep ? [group.modelStep] : []),
-    ...(Array.isArray(group?.toolSteps) ? group.toolSteps : []).filter((step) => isActiveStatus(step?.status))
-  ]);
-  const activeLinked = (Array.isArray(linkedConversationStates) ? linkedConversationStates : []).filter((entry) => isLinkedConversationActive(entry?.status));
   return turnStartedAt
-    || latestStartedAt(activeSteps)
-    || latestStartedAt(activeLinked)
-    || streamStartedAt
-    || latestPreambleStartedAt
     || parseTimestamp(data?.startedAt || data?.StartedAt || '')
+    || streamStartedAt
     || parseTimestamp(message?.createdAt)
     || earliestStartedAt(allSteps)
     || earliestStartedAt(linkedConversationStates)
+    || latestPreambleStartedAt
     || 0;
 }
 

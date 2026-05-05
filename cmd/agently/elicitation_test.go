@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	coreplan "github.com/viant/agently-core/protocol/agent/plan"
+	coreplan "github.com/viant/agently-core/protocol/agent/execution"
 	mcpproto "github.com/viant/mcp-protocol/schema"
 )
 

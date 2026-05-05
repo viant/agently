@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	coreplan "github.com/viant/agently-core/protocol/agent/plan"
+	coreplan "github.com/viant/agently-core/protocol/agent/execution"
 	streamingrt "github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/sdk"
 	agentsvc "github.com/viant/agently-core/service/agent"

@@ -411,7 +411,16 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
   const createdAt = String(payload?.createdAt || '').trim();
   const finalResponse = !!payload?.finalResponse;
   const normalizedPayloadContent = normalizeStreamingMarkdown(String(payload?.content || '').trim()).content;
-  const normalizedVisibleContent = normalizeStreamingMarkdown(String(payload?.narration || payload?.content || '').trim()).content;
+  const normalizedMode = String(payload?.mode || '').trim().toLowerCase();
+  const normalizedPhase = String(payload?.phase || '').trim().toLowerCase();
+  const hidesInterimModelContent = !finalResponse && (normalizedMode === 'router' || normalizedPhase === 'intake');
+  // Intake/router model-start events may carry raw internal JSON in `content`.
+  // That payload belongs to execution internals, not the visible assistant
+  // surface. Only real narration should be user-visible before the final
+  // assistant response arrives.
+  const normalizedVisibleContent = hidesInterimModelContent
+    ? normalizeStreamingMarkdown(String(payload?.narration || '').trim()).content
+    : normalizeStreamingMarkdown(String(payload?.narration || payload?.content || '').trim()).content;
   const errorMessage = String(payload?.error || payload?.errorMessage || '').trim();
   const startedAt = String(payload?.startedAt || payload?.createdAt || '').trim() || undefined;
   const normalizedStatus = normalizedExecutionPayloadStatus(payload);
@@ -465,7 +474,7 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
     agentIdUsed: String(payload?.agentIdUsed || '').trim(),
     agentName: String(payload?.agentName || '').trim(),
     role: 'assistant',
-    mode: String(payload?.mode || '').trim().toLowerCase(),
+    mode: normalizedMode,
     type: 'text',
     createdAt,
     startedAt,
@@ -1341,8 +1350,14 @@ export function applyExecutionStreamEvent(chatState = {}, payload = {}, fallback
   }
   const nextRows = applyExecutionStreamEventToRows(chatState.liveRows, payload, fallbackConversationID);
   const targetTurnId = String(payload?.turnId || '').trim();
-  const row = (Array.isArray(nextRows) ? nextRows : []).find((entry) => String(entry?.turnId || '').trim() === targetTurnId)
-    || (Array.isArray(nextRows) ? nextRows[nextRows.length - 1] : null);
+  const rows = Array.isArray(nextRows) ? nextRows : [];
+  const assistantMessageId = canonicalPayloadMessageId(payload);
+  const rowIndex = findAssistantExecutionRowIndex(rows, targetTurnId, assistantMessageId);
+  const row = rowIndex !== -1
+    ? rows[rowIndex]
+    : rows.find((entry) => String(entry?.turnId || '').trim() === targetTurnId)
+      || rows[rows.length - 1]
+      || null;
   const groups = Array.isArray(row?.executionGroups) ? row.executionGroups : [];
   logLiveStoreDebug('execution_stream_applied', {
     type: String(payload?.type || '').trim().toLowerCase(),
