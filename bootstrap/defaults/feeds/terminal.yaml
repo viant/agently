@@ -8,11 +8,19 @@ activation:
 
 
 dataSource:
+  output:
+    source: output
+    merge: merge_object
+    exposeAs: output
   commands:
+    root: true
+    merge: append
     uniqueKey:
       - field: input
       - field: output
     source: output.commands
+
+countSource: commands
 
 
 ui:
