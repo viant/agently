@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	coreplan "github.com/viant/agently-core/protocol/agent/plan"
+	coreplan "github.com/viant/agently-core/protocol/agent/execution"
 )
 
 // readPromptLine reads one trimmed line from the reader, honouring ctx. If

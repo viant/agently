@@ -133,6 +133,57 @@ describe('applyStreamChunk', () => {
 });
 
 describe('applyExecutionStreamEvent', () => {
+  it('does not surface intake/router model_started JSON as visible assistant content', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      type: 'model_started',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      assistantMessageId: 'msg-intake',
+      modelCallId: 'mc-intake',
+      phase: 'intake',
+      mode: 'router',
+      content: '{"clarificationNeeded":true}',
+      status: 'running'
+    }, 'conv-1');
+
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0]).toMatchObject({
+      id: 'msg-intake',
+      content: '',
+      mode: 'router'
+    });
+    expect(chatState.liveRows[0].executionGroups[0]).toMatchObject({
+      phase: 'intake',
+      content: '',
+      finalResponse: false
+    });
+  });
+
+  it('still surfaces task narration/content for non-intake model_started rows', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      type: 'model_started',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      assistantMessageId: 'msg-task',
+      modelCallId: 'mc-task',
+      phase: 'main',
+      mode: 'task',
+      content: 'Checking active targeting first.',
+      status: 'running'
+    }, 'conv-1');
+
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0]).toMatchObject({
+      id: 'msg-task',
+      content: 'Checking active targeting first.',
+      mode: 'task'
+    });
+  });
+
   it('keeps modelCallId distinct from assistantMessageId on model lifecycle rows', () => {
     const chatState = { liveRows: [] };
 

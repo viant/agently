@@ -510,6 +510,53 @@ describe('T3 intake phase visible inside execution details', () => {
         expect(html).toContain('Execution details');
         expect(html).toContain('model');
     });
+
+    it('does not let intake/router SSE JSON pollute the visible narration bubble', () => {
+        onSSE(CONV, {
+            type: 'turn_started', conversationId: CONV, turnId: 'tn_T3_json',
+            createdAt: '2025-01-01T00:00:00Z',
+        });
+        onSSE(CONV, {
+            type: 'model_started',
+            conversationId: CONV,
+            turnId: 'tn_T3_json',
+            messageId: 'msg_intake_json',
+            assistantMessageId: 'msg_intake_json',
+            modelCallId: 'mc_intake_json',
+            phase: 'intake',
+            mode: 'router',
+            iteration: 0,
+            status: 'thinking',
+            createdAt: '2025-01-01T00:00:01Z',
+        });
+        onSSE(CONV, {
+            type: 'model_completed',
+            conversationId: CONV,
+            turnId: 'tn_T3_json',
+            messageId: 'msg_intake_json',
+            assistantMessageId: 'msg_intake_json',
+            modelCallId: 'mc_intake_json',
+            phase: 'intake',
+            mode: 'router',
+            content: '{"appendToolBundles":["analyst-forecasting-tools"],"clarificationNeeded":false}',
+            status: 'completed',
+            iteration: 0,
+            createdAt: '2025-01-01T00:00:02Z',
+        });
+        onSSE(CONV, {
+            type: 'narration',
+            conversationId: CONV,
+            turnId: 'tn_T3_json',
+            content: 'Checking the active setup now.',
+            createdAt: '2025-01-01T00:00:03Z',
+        });
+
+        const html = render();
+        expect(html).toContain('Execution details');
+        expect(html).not.toContain('appendToolBundles');
+        expect(html).not.toContain('clarificationNeeded');
+        expect(html).not.toContain('{"appendToolBundles"');
+    });
 });
 
 // ─── T4: no mid-turn terminal flip ────────────────────────────────────────────

@@ -331,7 +331,7 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(statusTone(status)).toBe('success');
   });
 
-  it('anchors active elapsed time to the latest active execution frontier instead of the oldest completed step', () => {
+  it('anchors active elapsed time to the turn start instead of the latest active execution frontier', () => {
     const anchor = resolveIterationElapsedAnchor(
       { status: 'running', startedAt: '2026-04-14T12:00:00Z' },
       [
@@ -351,10 +351,10 @@ describe('mapCanonicalExecutionGroups', () => {
       true
     );
 
-    expect(anchor).toBe(Date.parse('2026-04-14T12:10:00Z'));
+    expect(anchor).toBe(Date.parse('2026-04-14T12:00:00Z'));
   });
 
-  it('falls back to the latest active narration timestamp when active groups are all historical', () => {
+  it('does not re-anchor active elapsed time to a later narration timestamp when historical execution already defines the turn start', () => {
     const anchor = resolveIterationElapsedAnchor(
       {
         status: 'running',
@@ -373,7 +373,7 @@ describe('mapCanonicalExecutionGroups', () => {
       true
     );
 
-    expect(anchor).toBe(Date.parse('2026-04-14T12:20:00Z'));
+    expect(anchor).toBe(Date.parse('2026-04-14T01:00:00Z'));
   });
 
   it('uses streamCreatedAt as the active elapsed anchor when the live frontier is a separate stream-owned bubble', () => {
@@ -418,6 +418,28 @@ describe('mapCanonicalExecutionGroups', () => {
     );
 
     expect(anchor).toBe(Date.parse('2026-04-14T12:40:00Z'));
+  });
+
+  it('falls back to the earliest step timestamp when the active turn has no stable turn-level anchor yet', () => {
+    const anchor = resolveIterationElapsedAnchor(
+      {
+        status: 'running'
+      },
+      [
+        {
+          status: 'thinking',
+          modelStep: { status: 'thinking', startedAt: '2026-04-14T12:10:00Z' },
+          toolSteps: [
+            { status: 'running', startedAt: '2026-04-14T12:05:00Z' }
+          ]
+        }
+      ],
+      [],
+      {},
+      true
+    );
+
+    expect(anchor).toBe(Date.parse('2026-04-14T12:05:00Z'));
   });
 
   it('summarizes linked child transcript into compact preview groups', () => {
