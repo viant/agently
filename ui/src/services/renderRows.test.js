@@ -134,6 +134,42 @@ describe('buildCanonicalTranscriptRows', () => {
     });
   });
 
+  it('carries explicit turnStartedAt on assistant execution rows from transcript turns', () => {
+    const turn = {
+      turnId: 'turn-anchor',
+      createdAt: '2026-05-05T16:23:21Z',
+      status: 'running',
+      user: {
+        messageId: 'user-anchor',
+        content: 'Analyze 553065 campaign performance'
+      },
+      execution: {
+        pages: [
+          {
+            pageId: 'page-anchor',
+            assistantMessageId: 'page-anchor',
+            iteration: 1,
+            status: 'running',
+            narration: 'Reviewing Hierarchy, Targeting profile, Pacing ad order.',
+            content: '',
+            modelSteps: [{
+              assistantMessageId: 'page-anchor',
+              provider: 'openai',
+              model: 'gpt-5.4',
+              status: 'completed',
+              startedAt: '2026-05-05T16:23:38Z'
+            }],
+            toolSteps: []
+          }
+        ]
+      }
+    };
+
+    const { rows } = buildCanonicalTranscriptRows([turn]);
+    const assistant = rows.find((row) => String(row?.role || '').toLowerCase() === 'assistant');
+    expect(assistant?.turnStartedAt).toBe('2026-05-05T16:23:21Z');
+  });
+
   it('moves persisted router assistant JSON into intake execution details instead of a bubble', () => {
     const turn = {
       turnId: 'turn-router',

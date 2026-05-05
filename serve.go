@@ -22,6 +22,7 @@ import (
 	execconfig "github.com/viant/agently-core/app/executor/config"
 	appserver "github.com/viant/agently-core/app/server"
 	mcpexpose "github.com/viant/agently-core/protocol/mcp/expose"
+	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauthctx "github.com/viant/agently-core/service/auth"
 	svcscheduler "github.com/viant/agently-core/service/scheduler"
 	"github.com/viant/agently-core/workspace"
@@ -134,6 +135,8 @@ func Serve(options ServeOptions) error {
 		log.Printf("scheduler: max concurrent runs capped at %d", cap)
 	}
 	schedulerSvc := svcscheduler.New(scheduleStore, rt.Agent, schedulerSvcOpts...)
+	agentWatchdog := agentsvc.NewWatchdog(rt.Data, rt.Agent, agentsvc.WithWatchdogTokenProvider(rt.TokenProvider))
+	go agentWatchdog.Start(ctx)
 	schedulerOpts := agentlyrt.SchedulerOptionsFromEnv()
 	apiHandler, err := appserver.NewAPIHandler(ctx, appserver.APIOptions{
 		Version:          firstNonEmpty(strings.TrimSpace(Version), "agently-v1"),
