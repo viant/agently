@@ -38,12 +38,6 @@ function isHiddenInternalMessage(item = {}) {
     return mode === 'chain';
   }
   if (role === 'assistant' && mode === 'router') {
-    const phase = String(item?.phase || '').trim().toLowerCase();
-    const hasExecutionGroups = Array.isArray(item?.executionGroups) && item.executionGroups.length > 0;
-    const isInterim = Number(item?.interim || 0) > 0;
-    if (phase === 'intake' || hasExecutionGroups || isInterim) {
-      return false;
-    }
     return status !== 'intake.answer' && status !== 'intake.clarify';
   }
   return false;
@@ -97,13 +91,13 @@ export function normalizeMessages(raw = [], options = {}) {
         const kind = String(item?._type || '').toLowerCase();
         return !SYNTHETIC_RENDER_TYPES.has(kind) && !item?._iterationData;
       })
-      .filter((item) => !isHiddenInternalMessage(item))
       .map((item) => {
         return normalizeOne(item);
       })
       .sort(compareTemporalEntries);
     const synthesized = synthesizeIterationMessages(rebuiltBase, visibleCount);
     return [...synthesized, ...preservedQueueRows]
+      .filter((item) => !isHiddenInternalMessage(item))
       .sort(compareTemporalEntries);
   }
   const normalized = raw
@@ -112,13 +106,14 @@ export function normalizeMessages(raw = [], options = {}) {
       if (kind === 'paginator') return false;
       if (kind === 'iteration' && !item?._iterationData?.optimistic) return false;
       if (String(item?.role || '').trim().toLowerCase() === 'user' && String(item?.type || '').trim().toLowerCase() === 'elicitation_response') return false;
-      if (isHiddenInternalMessage(item)) return false;
       return true;
     })
     .filter((item) => String(item?.status || '').toLowerCase() !== 'summarized')
     .map((item) => normalizeOne(item))
     .sort(compareTemporalEntries);
-  return synthesizeIterationMessages(normalized, visibleCount);
+  return synthesizeIterationMessages(normalized, visibleCount)
+    .filter((item) => !isHiddenInternalMessage(item))
+    .sort(compareTemporalEntries);
 }
 
 export function normalizeOne(message = {}) {
@@ -751,6 +746,7 @@ export function groupIntoIterations(messages = []) {
       const streamOwnsBubble = String(message?._bubbleSource || '').trim() === 'stream';
       const bubbleSource = String(message?._bubbleSource || '').trim();
       const standaloneAssistantBubble = bubbleSource === 'message_add' || bubbleSource === 'turn_message';
+      const hiddenInternal = isHiddenInternalMessage(message);
       if (standaloneAssistantBubble) {
         flushCurrent();
         items.push({ type: 'response', message });
@@ -772,13 +768,18 @@ export function groupIntoIterations(messages = []) {
           ensureCurrent(message);
           attachAgent(message);
           attachLinkedConversations(message);
-          if (!streamOwnsBubble) {
+          if (!streamOwnsBubble && !hiddenInternal) {
             current.response = message;
+          }
+          if (hiddenInternal) {
+            current.content = '';
           }
           current.status = String(message.turnStatus || message.status || 'completed');
           current.errorMessage = chooseRichString(message?.errorMessage, current?.errorMessage);
           attachExecutionGroups(message);
-          flushCurrent();
+          if (!hiddenInternal) {
+            flushCurrent();
+          }
         } else {
           items.push({ type: 'response', message });
         }

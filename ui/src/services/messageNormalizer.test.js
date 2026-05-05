@@ -110,6 +110,58 @@ describe('normalizeMessages', () => {
     expect(normalized.some((entry) => String(entry?.content || '').includes('I’m pulling the active setup now.'))).toBe(true);
   });
 
+  it('hides raw router intake rows even when they carry executionGroups metadata', () => {
+    const messages = [
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:00Z',
+        content: 'Troubleshoot 2649235 order for delivery issues'
+      },
+      {
+        id: 'router-json-with-groups',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:01Z',
+        mode: 'router',
+        phase: 'intake',
+        content: '{"appendToolBundles":["analyst-baseline"],"suggestedProfileId":"diagnostic_baseline"}',
+        executionGroups: [
+          {
+            parentMessageId: 'router-json-with-groups',
+            phase: 'intake',
+            status: 'completed',
+            narration: '',
+            modelSteps: [
+              {
+                modelCallId: 'mc-router',
+                phase: 'intake',
+                provider: 'openai',
+                model: 'gpt-5-mini',
+                status: 'completed'
+              }
+            ],
+            toolSteps: []
+          }
+        ]
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:02Z',
+        content: 'I’m pulling the baseline delivery signals first.'
+      }
+    ];
+
+    const normalized = normalizeMessages(messages, { visibleCount: 3 });
+
+    expect(normalized.some((entry) => String(entry?.id || '') === 'router-json-with-groups')).toBe(false);
+    expect(normalized.some((entry) => String(entry?.content || '').includes('diagnostic_baseline'))).toBe(false);
+    expect(normalized.some((entry) => String(entry?.content || '').includes('I’m pulling the baseline delivery signals first.'))).toBe(true);
+  });
+
   it('drops assistant summary artifacts from rendered chat rows', () => {
     const messages = [
       {
