@@ -2,13 +2,19 @@ package runtime
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/viant/agently-core/app/executor"
 	"github.com/viant/agently-core/app/executor/config"
 	"github.com/viant/agently-core/genai/llm"
+	resourcesvc "github.com/viant/agently-core/protocol/tool/service/resources"
+	templatesvc "github.com/viant/agently-core/protocol/tool/service/template"
 	"github.com/viant/agently-core/service/agent"
+	"github.com/viant/agently-core/service/augmenter"
 	core2 "github.com/viant/agently-core/service/core"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
 )
@@ -82,6 +88,74 @@ func TestInternalServiceFactoryLLMAgentsCarriesPromptProfileWiring(t *testing.T)
 	modelFinder := elem.FieldByName("modelFinder")
 	if !modelFinder.IsValid() || modelFinder.IsNil() {
 		t.Fatalf("expected modelFinder to be wired")
+	}
+}
+
+func TestInternalServiceFactoryResourcesUsesRuntimeAugmenter(t *testing.T) {
+	tempDir := t.TempDir()
+	runtime := &executor.Runtime{
+		Defaults: &config.Defaults{
+			Model:    "openai_gpt4o_mini",
+			Embedder: "openai_text",
+		},
+		Store:     fsstore.New(tempDir),
+		Augmenter: augmenter.New(nil),
+	}
+
+	service := internalServiceFactory(runtime, tempDir, "resources")
+	if service == nil {
+		t.Fatalf("expected resources service")
+	}
+	exec, err := service.Method("match")
+	if err != nil {
+		t.Fatalf("Method(match) error = %v", err)
+	}
+	out := &resourcesvc.MatchOutput{}
+	err = exec(context.Background(), &resourcesvc.MatchInput{Query: "planner"}, out)
+	if err == nil {
+		return
+	}
+	if strings.Contains(err.Error(), "augmenter service is not configured") {
+		t.Fatalf("expected runtime resources service to use configured augmenter, got %v", err)
+	}
+}
+
+func TestInternalServiceFactoryTemplateUsesRuntimeStore(t *testing.T) {
+	tempDir := t.TempDir()
+	write := func(rel, body string) {
+		path := filepath.Join(tempDir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	write("templates/dashboard.yaml", "id: dashboard\nname: dashboard\ndescription: Dashboard template\n")
+	write("templates/bundles/steward-output.yaml", "id: steward-output\ntemplates:\n  - dashboard\n")
+
+	runtime := &executor.Runtime{
+		Defaults: &config.Defaults{
+			Model:    "openai_gpt4o_mini",
+			Embedder: "openai_text",
+		},
+		Store: fsstore.New(tempDir),
+	}
+
+	service := internalServiceFactory(runtime, tempDir, "template")
+	if service == nil {
+		t.Fatalf("expected template service")
+	}
+	exec, err := service.Method("list")
+	if err != nil {
+		t.Fatalf("Method(list) error = %v", err)
+	}
+	out := &templatesvc.ListOutput{}
+	if err := exec(context.Background(), &templatesvc.ListInput{}, out); err != nil {
+		t.Fatalf("template list error = %v", err)
+	}
+	if len(out.Items) != 1 || out.Items[0].Name != "dashboard" {
+		t.Fatalf("unexpected templates: %+v", out.Items)
 	}
 }
 
