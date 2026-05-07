@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/viant/afs"
 	"github.com/viant/agently-core/app/executor"
 	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
@@ -197,7 +196,7 @@ func internalServiceFactory(rt *executor.Runtime, workspaceRoot, name string) sv
 		if rt.Defaults != nil {
 			opts = append(opts, resourcesvc.WithDefaultEmbedder(rt.Defaults.Embedder))
 		}
-		return resourcesvc.New(nil, opts...)
+		return resourcesvc.New(rt.Augmenter, opts...)
 	case "system/platform":
 		return platformsvc.New()
 	case "internal/message", "message":
@@ -227,8 +226,8 @@ func internalServiceFactory(rt *executor.Runtime, workspaceRoot, name string) sv
 			finder = rt.Agent.Finder()
 		}
 		return templatesvc.New(
-			templaterepo.New(afs.New()),
-			templatebundlerepo.New(afs.New()),
+			templaterepo.NewWithStore(rt.Store),
+			templatebundlerepo.NewWithStore(rt.Store),
 			templatesvc.WithConversationClient(rt.Conversation),
 			templatesvc.WithAgentFinder(finder),
 		)
