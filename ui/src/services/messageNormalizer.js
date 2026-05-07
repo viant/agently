@@ -33,12 +33,11 @@ const SYNTHETIC_RENDER_TYPES = new Set(['iteration', 'queue']);
 function isHiddenInternalMessage(item = {}) {
   const role = String(item?.role || '').trim().toLowerCase();
   const mode = String(item?.mode || '').trim().toLowerCase();
-  const status = String(item?.status || '').trim().toLowerCase();
   if (role === 'user') {
     return mode === 'chain';
   }
   if (role === 'assistant' && mode === 'router') {
-    return status !== 'intake.answer' && status !== 'intake.clarify';
+    return true;
   }
   return false;
 }

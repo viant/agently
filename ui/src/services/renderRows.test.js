@@ -355,4 +355,57 @@ describe('buildCanonicalTranscriptRows', () => {
     const { rows } = buildCanonicalTranscriptRows([turn]);
     expect(rows.map((row) => row?.id)).toEqual(['user-1', 'assistant-note-1', 'page-final']);
   });
+
+  it('does not hold a later succeeded turn behind stale live ownership when that later turn already has persisted assistant content', () => {
+    const turns = [
+      {
+        turnId: 'turn-failed-live',
+        createdAt: '2026-05-06T17:05:45Z',
+        status: 'failed',
+        user: {
+          messageId: 'user-1',
+          content: 'Forecast viant.taxonomy 31312 and location US/CA'
+        },
+        execution: {
+          pages: [
+            {
+              pageId: 'page-live',
+              assistantMessageId: 'page-live',
+              iteration: 2,
+              status: 'failed',
+              content: 'failed forecast details',
+              modelSteps: [],
+              toolSteps: []
+            }
+          ]
+        }
+      },
+      {
+        turnId: 'turn-succeeded-final',
+        createdAt: '2026-05-06T17:09:26Z',
+        status: 'succeeded',
+        user: {
+          messageId: 'user-2',
+          content: ''
+        },
+        assistant: {
+          final: {
+            messageId: 'assistant-final',
+            content: '```forge-data\\n{"version":1}\\n```'
+          }
+        },
+        execution: {
+          pages: []
+        }
+      }
+    ];
+
+    const { rows, queuedTurns } = buildCanonicalTranscriptRows(turns, {
+      holdAfterTurnId: 'turn-failed-live',
+      pendingElicitations: []
+    });
+
+    expect(queuedTurns).toHaveLength(0);
+    expect(rows.some((row) => row?.turnId === 'turn-succeeded-final' && String(row?.content || '').includes('forge-data'))).toBe(true);
+  });
 });

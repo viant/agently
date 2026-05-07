@@ -137,6 +137,11 @@ func Serve(options ServeOptions) error {
 	schedulerSvc := svcscheduler.New(scheduleStore, rt.Agent, schedulerSvcOpts...)
 	agentWatchdog := agentsvc.NewWatchdog(rt.Data, rt.Agent, agentsvc.WithWatchdogTokenProvider(rt.TokenProvider))
 	go agentWatchdog.Start(ctx)
+	go func() {
+		if err := rt.Agent.ReconcileRunningConversationStatuses(ctx, 500); err != nil {
+			log.Printf("conversation status reconcile error: %v", err)
+		}
+	}()
 	schedulerOpts := agentlyrt.SchedulerOptionsFromEnv()
 	apiHandler, err := appserver.NewAPIHandler(ctx, appserver.APIOptions{
 		Version:          firstNonEmpty(strings.TrimSpace(Version), "agently-v1"),

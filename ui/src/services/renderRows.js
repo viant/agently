@@ -241,7 +241,8 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
       && turnIndex > runningTurnIndex
       && !hasPersistedAssistant(turn);
     const shouldHoldBehindLiveStream = holdAfterTurnIndex >= 0
-      && turnIndex > holdAfterTurnIndex;
+      && turnIndex > holdAfterTurnIndex
+      && !hasPersistedAssistant(turn);
 
     if (!runningTurnId && ['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress'].includes(turnStatus)) {
       runningTurnId = turnId;

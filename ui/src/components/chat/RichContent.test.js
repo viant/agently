@@ -387,6 +387,230 @@ describe('RichContent fence parsing', () => {
     expect(html).toContain('WIN_RATE');
   });
 
+  it('renders multiple forge-ui dashboards in one message', () => {
+    const content = [
+      '```forge-data',
+      JSON.stringify({
+        version: 1,
+        id: 'baseline_summary',
+        format: 'json',
+        mode: 'replace',
+        data: [
+          { spend: 6887, budget: 6912, pacing_ratio: 0.9965 },
+        ],
+      }, null, 2),
+      '```',
+      '',
+      '```forge-ui',
+      JSON.stringify({
+        version: 1,
+        scope: 'baseline',
+        title: 'Preliminary findings',
+        subtitle: 'Initial delivery posture',
+        blocks: [
+          {
+            id: 'summary',
+            kind: 'dashboard.summary',
+            dataSourceRef: 'baseline_summary',
+            metrics: [
+              { key: 'spend', label: 'Spend' },
+              { key: 'budget', label: 'Budget' },
+              { key: 'pacing_ratio', label: 'Pacing', format: 'percentFraction' },
+            ],
+          },
+        ],
+      }, null, 2),
+      '```',
+      '',
+      '```forge-data',
+      JSON.stringify({
+        version: 1,
+        id: 'followup_findings',
+        format: 'json',
+        mode: 'replace',
+        data: [
+          {
+            title: 'Why delivery softened',
+            narrative: 'PMP deal gating stayed dominant while supply narrowed day over day, so the deeper follow-up focuses on the highest-pressure deal and geo filters.',
+          },
+        ],
+      }, null, 2),
+      '```',
+      '',
+      '```forge-ui',
+      JSON.stringify({
+        version: 1,
+        scope: 'followup',
+        title: 'Deep follow-up',
+        subtitle: 'What to validate next',
+        blocks: [
+          {
+            id: 'narrative',
+            kind: 'dashboard.report',
+            title: 'Interpretation',
+            sections: [
+              {
+                id: 'followup-rationale',
+                title: 'Narrative',
+                body: [
+                  'PMP deal gating stayed dominant while supply narrowed day over day, so the deeper follow-up focuses on the highest-pressure deal and geo filters.',
+                ],
+              },
+            ],
+          },
+        ],
+      }, null, 2),
+      '```',
+    ].join('\n');
+
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, { content, messageId: 'msg-multi-dashboard' })
+    );
+
+    expect(html).toContain('Preliminary findings');
+    expect(html).toContain('Deep follow-up');
+    expect(html).toContain('Initial delivery posture');
+    expect(html).toContain('What to validate next');
+    expect(html).toContain('PMP deal gating stayed dominant');
+  });
+
+  it('renders dashboard report sections when body is a string', () => {
+    const content = [
+      '```forge-ui',
+      JSON.stringify({
+        version: 1,
+        title: 'Forecast review',
+        blocks: [
+          {
+            id: 'interpretation',
+            kind: 'dashboard.report',
+            title: 'Interpretation',
+            sections: [
+              {
+                title: 'Pacing interpretation',
+                body: 'A true pacing interpretation requires completed forecast reads before grouped cuts can be trusted.',
+              },
+            ],
+          },
+        ],
+      }, null, 2),
+      '```',
+    ].join('\n');
+
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, { content, messageId: 'msg-report-string-body' })
+    );
+
+    expect(html).toContain('Forecast review');
+    expect(html).toContain('Interpretation');
+    expect(html).toContain('Pacing interpretation');
+    expect(html).toContain('completed forecast reads before grouped cuts can be trusted');
+    expect(html).not.toContain('Failed to render dashboard block');
+  });
+
+  it('renders dashboard messages from datasource field mappings', () => {
+    const content = [
+      '```forge-data',
+      JSON.stringify({
+        version: 1,
+        id: 'forecast_findings',
+        format: 'json',
+        mode: 'replace',
+        data: [
+          {
+            severity: 'high',
+            finding: 'The active audience profile is concentrated in one PMP deal.',
+            recommendation: 'Validate the deal and test a bounded inventory expansion.',
+          },
+        ],
+      }, null, 2),
+      '```',
+      '',
+      '```forge-ui',
+      JSON.stringify({
+        version: 1,
+        title: 'Forecast review',
+        blocks: [
+          {
+            kind: 'dashboard.messages',
+            title: 'Next actions',
+            dataSourceRef: 'forecast_findings',
+            items: [
+              { title: 'Primary restriction', field: 'finding', severity: 'info' },
+              { title: 'Recommended next step', field: 'recommendation', severity: 'info' },
+            ],
+          },
+        ],
+      }, null, 2),
+      '```',
+    ].join('\n');
+
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, { content, messageId: 'msg-messages-field-map' })
+    );
+
+    expect(html).toContain('Primary restriction');
+    expect(html).toContain('The active audience profile is concentrated in one PMP deal');
+    expect(html).toContain('Recommended next step');
+    expect(html).toContain('Validate the deal and test a bounded inventory expansion');
+  });
+
+  it('renders dashboard tables when columns use field mappings', () => {
+    const content = [
+      '```forge-data',
+      JSON.stringify({
+        version: 1,
+        id: 'segment_competition_audiences',
+        format: 'json',
+        mode: 'replace',
+        data: [
+          {
+            audience_name: 'CTV_BAU_US_Personas - OM',
+            channel_name: 'CTV',
+            classification: 'GLOBALLY_RARE_AND_LOCALLY_RESTRICTIVE',
+            action: 'REVIEW',
+            confidence: 0.93,
+            rationale: 'Active taxonomy stack is globally scarce and locally restrictive.',
+          },
+        ],
+      }, null, 2),
+      '```',
+      '',
+      '```forge-ui',
+      JSON.stringify({
+        version: 1,
+        title: 'Segment Competition Analysis',
+        blocks: [
+          {
+            kind: 'dashboard.table',
+            title: 'Primary segment competition findings',
+            dataSourceRef: 'segment_competition_audiences',
+            columns: [
+              { field: 'audience_name', label: 'Audience' },
+              { field: 'channel_name', label: 'Channel' },
+              { field: 'classification', label: 'Classification' },
+              { field: 'action', label: 'Action' },
+              { field: 'confidence', label: 'Confidence', format: 'percentFraction' },
+              { field: 'rationale', label: 'Why it matters' },
+            ],
+          },
+        ],
+      }, null, 2),
+      '```',
+    ].join('\n');
+
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, { content, messageId: 'msg-table-field-map' })
+    );
+
+    expect(html).toContain('Primary segment competition findings');
+    expect(html).toContain('Audience');
+    expect(html).toContain('CTV_BAU_US_Personas - OM');
+    expect(html).toContain('GLOBALLY_RARE_AND_LOCALLY_RESTRICTIVE');
+    expect(html).toContain('93.0%');
+    expect(html).toContain('Active taxonomy stack is globally scarce and locally restrictive');
+  });
+
   it('defaults forge dashboard scope to message identity and namespaces datasource refs', () => {
     const { scopeKey, dashboardKey, scopedDataBlocks, scopedPayload } = scopeForgeDashboardPayload(
       {
@@ -497,6 +721,161 @@ describe('RichContent fence parsing', () => {
     ]);
     expect(normalized.blocks[2].chart.type).toBe('bar');
     expect(normalized.blocks[3].columns).toHaveLength(4);
+  });
+
+  it('normalizes dashboard summary metrics and table columns that use field keys', () => {
+    const normalized = normalizeDashboardPayload({
+      type: 'forge_dashboard',
+      title: 'Delivery posture',
+      dataSources: [
+        {
+          id: 'delivery_summary',
+          collection: [
+            {
+              td_spend: 6887.2879,
+              td_budget: 6911.5626,
+              td_pacing_rate: 0.9965,
+              td_imps: 337647,
+            },
+          ],
+        },
+      ],
+      blocks: [
+        {
+          id: 'summary',
+          kind: 'dashboard.summary',
+          dataSourceRef: 'delivery_summary',
+          metrics: [
+            { field: 'td_spend', label: 'Spend', format: 'currency' },
+            { field: 'td_budget', label: 'Budget', format: 'currency' },
+            { field: 'td_pacing_rate', label: 'Pacing rate', format: 'percent' },
+            { field: 'td_imps', label: 'Impressions', format: 'number' },
+          ],
+        },
+        {
+          id: 'table',
+          kind: 'dashboard.table',
+          dataSourceRef: 'delivery_summary',
+          columns: [
+            { field: 'td_spend', label: 'Spend' },
+            { field: 'td_budget', label: 'Budget' },
+          ],
+        },
+      ],
+    });
+
+    expect(normalized.metrics.block_0.td_spend).toBe(6887.2879);
+    expect(normalized.metrics.block_0.td_budget).toBe(6911.5626);
+    expect(normalized.blocks[0].metrics).toEqual([
+      expect.objectContaining({ id: 'td_spend', label: 'Spend', selector: 'block_0.td_spend' }),
+      expect.objectContaining({ id: 'td_budget', label: 'Budget', selector: 'block_0.td_budget' }),
+      expect.objectContaining({ id: 'td_pacing_rate', label: 'Pacing rate', selector: 'block_0.td_pacing_rate' }),
+      expect.objectContaining({ id: 'td_imps', label: 'Impressions', selector: 'block_0.td_imps' }),
+    ]);
+  });
+
+  it('preserves explicit formats on dashboard summary items', () => {
+    const normalized = normalizeDashboardPayload({
+      type: 'forge_dashboard',
+      title: 'Delivery posture',
+      blocks: [
+        {
+          id: 'summary',
+          kind: 'dashboard.summary',
+          items: [
+            { label: 'Pacing rate', value: 0.9965, format: 'percentFraction' },
+            { label: 'Impression win rate', value: 0.4526, format: 'percentFraction' },
+          ],
+        },
+      ],
+    });
+
+    expect(normalized.metrics.block_0['Pacing rate']).toBe(0.9965);
+    expect(normalized.blocks[0].metrics).toEqual([
+      expect.objectContaining({ id: 'Pacing rate', format: 'percentFraction', selector: 'block_0.Pacing rate' }),
+      expect.objectContaining({ id: 'Impression win rate', format: 'percentFraction', selector: 'block_0.Impression win rate' }),
+    ]);
+  });
+
+  it('normalizes dashboard dimensions blocks that use field-based dimension and metrics', () => {
+    const normalized = normalizeDashboardPayload({
+      type: 'forge_dashboard',
+      title: 'Restrictive signals',
+      dataSources: [
+        {
+          id: 'restrictive_signals',
+          collection: [
+            { feature: 'external.pmp.deal', reject_share: 0.1755, reject_count: 163633 },
+            { feature: 'ad.pmp.deal.id', reject_share: 0.135, reject_count: 125831 },
+          ],
+        },
+      ],
+      blocks: [
+        {
+          id: 'restrictive',
+          kind: 'dashboard.dimensions',
+          dataSourceRef: 'restrictive_signals',
+          dimension: { field: 'feature', label: 'Feature' },
+          metrics: [
+            { field: 'reject_share', label: 'Reject share', format: 'percent' },
+            { field: 'reject_count', label: 'Reject count', format: 'number' },
+          ],
+        },
+      ],
+    });
+
+    expect(normalized.blocks[0].dimension).toEqual(
+      expect.objectContaining({ key: 'feature', field: 'feature', label: 'Feature' }),
+    );
+    expect(normalized.blocks[0].metric).toEqual(
+      expect.objectContaining({ key: 'reject_share', label: 'Reject share', format: 'percent' }),
+    );
+    expect(normalized.blocks[0].metrics).toEqual([
+      expect.objectContaining({ key: 'reject_share', label: 'Reject share', format: 'percent' }),
+      expect.objectContaining({ key: 'reject_count', label: 'Reject count', format: 'number' }),
+    ]);
+  });
+
+  it('renders dashboard dimensions rows with varied palette colors', () => {
+    const content = [
+      '```forge-data',
+      JSON.stringify({
+        version: 1,
+        id: 'restrictive_signals',
+        format: 'json',
+        mode: 'replace',
+        data: [
+          { feature: 'external.pmp.deal', reject_share: 0.176 },
+          { feature: 'ad.pmp.deal.id', reject_share: 0.135 },
+          { feature: 'location', reject_share: 0.101 },
+        ],
+      }, null, 2),
+      '```',
+      '',
+      '```forge-ui',
+      JSON.stringify({
+        version: 1,
+        title: 'Restricting factors',
+        blocks: [
+          {
+            id: 'restrictive',
+            kind: 'dashboard.dimensions',
+            dataSourceRef: 'restrictive_signals',
+            dimension: { field: 'feature', label: 'Feature' },
+            metric: { key: 'reject_share', label: 'Reject share', format: 'percentFraction' },
+          },
+        ],
+      }, null, 2),
+      '```',
+    ].join('\n');
+
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, { content, messageId: 'msg-dimensions-palette' })
+    );
+
+    expect(html).toContain('#2f6de1');
+    expect(html).toContain('#7a46d8');
+    expect(html).toContain('#db2f7d');
   });
 
   it('renders compact streamed forge planner fences without extra normalization', () => {
@@ -630,6 +1009,101 @@ describe('RichContent fence parsing', () => {
     expect(timeline.chart.series).toMatchObject({
       nameKey: 'series',
       valueKey: 'value',
+    });
+  });
+
+  it('normalizes a dashboard timeline with chart.xField plus chart.series field entries', () => {
+    const normalized = normalizeDashboardPayload({
+      type: 'forge_dashboard',
+      title: 'Risk',
+      dataSources: [
+        {
+          id: 'delivery_timeline',
+          csv: [
+            'event_date,total_spend,daily_spend_shortfall,flight_spend_shortfall',
+            '2026-05-01,59.7723,5085.7378,2965.7805',
+            '2026-05-02,62.5744,4525.8595,5662.2959',
+          ].join('\n'),
+        },
+      ],
+      blocks: [
+        {
+          kind: 'dashboard.timeline',
+          title: 'Daily delivery vs shortfall',
+          dataSourceRef: 'delivery_timeline',
+          chart: {
+            xField: 'event_date',
+            series: [
+              { field: 'total_spend', label: 'Spend', format: 'currency' },
+              { field: 'daily_spend_shortfall', label: 'Daily spend shortfall', format: 'currency' },
+              { field: 'flight_spend_shortfall', label: 'Cumulative flight shortfall', format: 'currency' },
+            ],
+          },
+        },
+      ],
+    });
+
+    const timeline = normalized.blocks[0];
+    expect(timeline.__collection).toEqual([
+      { event_date: expect.any(Date), series: 'Spend', value: 59.7723 },
+      { event_date: expect.any(Date), series: 'Daily spend shortfall', value: 5085.7378 },
+      { event_date: expect.any(Date), series: 'Cumulative flight shortfall', value: 2965.7805 },
+      { event_date: expect.any(Date), series: 'Spend', value: 62.5744 },
+      { event_date: expect.any(Date), series: 'Daily spend shortfall', value: 4525.8595 },
+      { event_date: expect.any(Date), series: 'Cumulative flight shortfall', value: 5662.2959 },
+    ]);
+    expect(timeline.chart).toMatchObject({
+      xAxis: { dataKey: 'event_date' },
+      series: {
+        nameKey: 'series',
+        valueKey: 'value',
+      },
+    });
+  });
+
+  it('normalizes a categorical dashboard timeline with chart.xField/yField/seriesField', () => {
+    const normalized = normalizeDashboardPayload({
+      type: 'forge_dashboard',
+      title: 'Restriction pressure',
+      dataSources: [
+        {
+          id: 'restrictive_signals',
+          collection: [
+            { feature: 'external.pmp.deal', restricted_pct: 0.3159 },
+            { feature: 'ad.pmp.deal.id', restricted_pct: 0.2398 },
+            { feature: 'channelV2', restricted_pct: 0.1395 },
+          ],
+        },
+      ],
+      blocks: [
+        {
+          kind: 'dashboard.timeline',
+          title: 'Restriction pressure by blocker family',
+          dataSourceRef: 'restrictive_signals',
+          chart: {
+            xField: 'feature',
+            yField: 'restricted_pct',
+            seriesField: 'feature',
+            kind: 'bar',
+          },
+        },
+      ],
+    });
+
+    const timeline = normalized.blocks[0];
+    expect(timeline.__collection).toEqual([
+      { feature: 'external.pmp.deal', series: 'External.Pmp.Deal', value: 0.3159 },
+      { feature: 'ad.pmp.deal.id', series: 'Ad.Pmp.Deal.Id', value: 0.2398 },
+      { feature: 'channelV2', series: 'Channel V2', value: 0.1395 },
+    ]);
+    expect(timeline.chart).toMatchObject({
+      type: 'bar',
+      xAxis: { dataKey: 'feature' },
+      yAxis: { label: 'Restricted Pct' },
+      series: {
+        nameKey: 'series',
+        valueKey: 'value',
+      },
     });
   });
 

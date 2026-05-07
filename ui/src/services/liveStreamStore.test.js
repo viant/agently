@@ -834,6 +834,65 @@ describe('applyExecutionStreamEvent', () => {
     expect(allToolSteps[0].toolCallId).toBe('call-1');
   });
 
+  it('tool_call bootstrap events merge into the bootstrap execution group by pageId', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      type: 'model_started',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      pageId: 'turn-1:bootstrap',
+      mode: 'systemContext',
+      phase: 'bootstrap',
+      status: 'running',
+      createdAt: '2026-03-16T10:00:01Z'
+    }, 'conv-1');
+
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0].executionGroups[0]).toMatchObject({
+      pageId: 'turn-1:bootstrap'
+    });
+    applyToolStreamEvent(chatState, {
+      type: 'tool_call_started',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      pageId: 'turn-1:bootstrap',
+      toolCallId: 'bootstrap:agent_directory',
+      toolName: 'llm/agents:list',
+      mode: 'systemContext',
+      phase: 'bootstrap',
+      status: 'running',
+      createdAt: '2026-03-16T10:00:01Z'
+    }, 'conv-1');
+
+    expect(chatState.liveRows[0].executionGroups[0].toolSteps[0]).toMatchObject({
+      toolCallId: 'bootstrap:agent_directory',
+      toolName: 'llm/agents:list',
+      status: 'running'
+    });
+
+    applyToolStreamEvent(chatState, {
+      type: 'tool_call_completed',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      pageId: 'turn-1:bootstrap',
+      toolCallId: 'bootstrap:agent_directory',
+      toolName: 'llm/agents:list',
+      mode: 'systemContext',
+      phase: 'bootstrap',
+      status: 'completed',
+      createdAt: '2026-03-16T10:00:02Z'
+    }, 'conv-1');
+
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0].executionGroups[0].toolSteps).toHaveLength(1);
+    expect(chatState.liveRows[0].executionGroups[0].toolSteps[0]).toMatchObject({
+      toolCallId: 'bootstrap:agent_directory',
+      toolName: 'llm/agents:list',
+      status: 'completed'
+    });
+  });
+
   it('finalizeStreamTurn propagates _streamContent to content when payload has no content', () => {
     // When turn_completed arrives with no content, finalizeStreamTurn should
     // use the accumulated _streamContent from text_delta events.
@@ -1254,6 +1313,57 @@ describe('applyExecutionStreamEvent', () => {
     expect(chatState.liveRows).toHaveLength(1);
     expect(chatState.liveRows[0]?.executionGroups?.[0]?.phase).toBe('intake');
     expect(chatState.liveRows.some((row) => String(row?.content || '').includes('appendToolBundles'))).toBe(false);
+  });
+
+  it('suppresses router message_add payloads even when they carry intake.answer or intake.clarify status', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      type: 'model_started',
+      assistantMessageId: 'msg-intake',
+      modelCallId: 'mc-intake',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      phase: 'intake',
+      mode: 'router',
+      status: 'running',
+      createdAt: '2026-03-16T10:00:01Z',
+      model: { provider: 'openai', model: 'gpt-5-mini' }
+    }, 'conv-1');
+
+    applyAssistantMessageAddEvent(chatState, {
+      id: 'router-answer',
+      status: 'intake.answer',
+      op: 'message_add',
+      patch: {
+        role: 'assistant',
+        turnId: 'turn-1',
+        mode: 'router',
+        content: '{"appendToolBundles":[],"clarificationNeeded":false}',
+        interim: 0,
+        createdAt: '2026-03-16T10:00:02Z'
+      }
+    });
+
+    applyAssistantMessageAddEvent(chatState, {
+      id: 'router-clarify',
+      status: 'intake.clarify',
+      op: 'message_add',
+      patch: {
+        role: 'assistant',
+        turnId: 'turn-1',
+        mode: 'router',
+        content: '{"clarificationNeeded":true,"clarificationQuestion":"What would you like help with today?"}',
+        interim: 0,
+        createdAt: '2026-03-16T10:00:03Z'
+      }
+    });
+
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0]?.executionGroups?.[0]?.phase).toBe('intake');
+    expect(chatState.liveRows.some((row) => String(row?.content || '').includes('clarificationNeeded'))).toBe(false);
+    expect(chatState.liveRows.some((row) => String(row?.id || '') === 'router-answer')).toBe(false);
+    expect(chatState.liveRows.some((row) => String(row?.id || '') === 'router-clarify')).toBe(false);
   });
 
   it('keeps the standalone message_add note and appends later same-turn narration as a new execution group', () => {

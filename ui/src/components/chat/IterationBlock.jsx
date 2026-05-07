@@ -56,6 +56,28 @@ export function isActiveStatus(value) {
     || text === 'open';
 }
 
+function deriveToolOnlyGroupStatus(explicitStatus = '', toolSteps = []) {
+  const explicit = String(explicitStatus || '').trim();
+  const steps = Array.isArray(toolSteps) ? toolSteps : [];
+  const statuses = steps
+    .map((step) => String(step?.status || '').trim())
+    .filter(Boolean);
+  if (statuses.some((status) => isActiveStatus(status))) {
+    return explicit || 'running';
+  }
+  if (statuses.some((status) => isErrorStatus(status))) {
+    const canceled = statuses.find((status) => {
+      const text = String(status || '').trim().toLowerCase();
+      return text === 'canceled' || text === 'cancelled' || text === 'terminated';
+    });
+    return canceled || 'failed';
+  }
+  if (statuses.length > 0) {
+    return 'completed';
+  }
+  return explicit;
+}
+
 export function statusTone(value) {
   const text = String(value || '').trim().toLowerCase();
   if (!text
@@ -664,7 +686,10 @@ export function mapCanonicalExecutionGroups(groups = []) {
     ).trim().toLowerCase();
     const rawPreambleContent = String(group?.narration || group?.Narration || '').trim();
     const narrationContent = rawPreambleContent;
-    const status = String(group?.status || group?.Status || modelStep?.status || '').trim();
+    const rawGroupStatus = String(group?.status || group?.Status || '').trim();
+    const status = modelStep
+      ? String(modelStep?.status || rawGroupStatus).trim()
+      : deriveToolOnlyGroupStatus(rawGroupStatus, toolSteps);
     const errorMessage = String(group?.errorMessage || group?.ErrorMessage || modelStep0?.errorMessage || modelStep0?.ErrorMessage || '').trim();
     const modelStepWithError = modelStep ? {
       ...modelStep,
@@ -780,6 +805,23 @@ export function resolveVisibleBubbleContent(visibleGroups = []) {
     const preambleText = String(group?.narrationContent || '').trim();
     if (preambleText) {
       return preambleText;
+    }
+    const delegatedText = [...(Array.isArray(group?.toolSteps) ? group.toolSteps : [])]
+      .reverse()
+      .map((step) => delegatedAgentAssistantText(step))
+      .find(Boolean);
+    if (delegatedText) {
+      return truncate(delegatedText, 120);
+    }
+    const titleText = String(group?.title || '').trim();
+    const groupKind = String(group?.groupKind || '').trim().toLowerCase();
+    if (
+      titleText
+      && titleText.toLowerCase() !== 'execution step'
+      && groupKind !== 'intake'
+      && !!group?.modelStep
+    ) {
+      return titleText;
     }
   }
   return '';
@@ -1098,6 +1140,32 @@ function isErrorStatus(value = '') {
   return text === 'failed' || text === 'error' || text === 'terminated';
 }
 
+export function collectLinkedConversationStatuses(data = {}, groups = [], linkedStates = []) {
+  const statuses = [];
+  const seen = new Set();
+  const append = (conversationId, status) => {
+    const id = String(conversationId || '').trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    statuses.push(String(status || '').trim());
+  };
+  for (const entry of Array.isArray(data?.linkedConversations) ? data.linkedConversations : []) {
+    append(entry?.conversationId || entry?.ConversationId, entry?.status || entry?.Status);
+  }
+  for (const group of Array.isArray(groups) ? groups : []) {
+    for (const step of Array.isArray(group?.toolSteps) ? group.toolSteps : []) {
+      append(step?.linkedConversationId || step?.LinkedConversationId, step?.status || step?.Status);
+    }
+  }
+  for (const step of Array.isArray(data?.toolCalls) ? data.toolCalls : []) {
+    append(step?.linkedConversationId || step?.LinkedConversationId, step?.status || step?.Status);
+  }
+  for (const entry of Array.isArray(linkedStates) ? linkedStates : []) {
+    append(entry?.conversationId, entry?.status);
+  }
+  return statuses;
+}
+
 export function resolveIterationDisplayStatus(data = {}, groups = [], linkedStatuses = []) {
   const groupList = Array.isArray(groups) ? groups : [];
   const linkedList = Array.isArray(linkedStatuses) ? linkedStatuses : [];
@@ -1240,11 +1308,7 @@ export function buildIterationDataFromCanonicalRow(canonicalRow = null, message 
     ...(message?._iterationData || {}),
     turnId: canonicalRow?.turnId || message?._iterationData?.turnId || '',
     status: canonicalRow?.lifecycle || message?._iterationData?.status || '',
-    turnStartedAt: canonicalRow?.turnStartedAt
-      || message?._iterationData?.turnStartedAt
-      || canonicalRow?.startedAt
-      || canonicalRow?.createdAt
-      || '',
+    turnStartedAt: canonicalRow?.turnStartedAt || '',
     narration: firstNarration ? { content: firstNarration } : (message?._iterationData?.narration || null),
     elicitation: canonicalElicitation || message?._iterationData?.elicitation || null,
     elicitationId: canonicalElicitation?.elicitationId || message?._iterationData?.elicitationId || '',
@@ -1480,9 +1544,13 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
     () => linkedConversationIds.join('|'),
     [linkedConversationIds]
   );
-  const isActiveIteration = useMemo(
-    () => isIterationActive(data, allGroupEntries, linkedConversationStates.map((entry) => entry?.status || '')),
+  const linkedStatusValues = useMemo(
+    () => collectLinkedConversationStatuses(data, allGroupEntries, linkedConversationStates),
     [allGroupEntries, data, linkedConversationStates]
+  );
+  const isActiveIteration = useMemo(
+    () => isIterationActive(data, allGroupEntries, linkedStatusValues),
+    [allGroupEntries, data, linkedStatusValues]
   );
   const useLiveWallClock = isLatestIteration && isActiveIteration;
   const hasExecutionElicitation = useMemo(
@@ -1491,8 +1559,8 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
   );
 
   const iterationDisplayStatus = useMemo(
-    () => resolveIterationDisplayStatus(data, allGroupEntries, linkedConversationStates.map((entry) => entry?.status || '')),
-    [allGroupEntries, data, linkedConversationStates]
+    () => resolveIterationDisplayStatus(data, allGroupEntries, linkedStatusValues),
+    [allGroupEntries, data, linkedStatusValues]
   );
   const [collapsed, setCollapsed] = useState(() => !(isLatestIteration && isActiveIteration) && !hasExecutionElicitation);
   const prevLatestRef = useRef(isLatestIteration);
@@ -1570,10 +1638,10 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
       });
     }
     return [...seen.values()].filter((entry) => !isQueuedLinkedConversationPreview(entry));
-  }, [allGroupEntries, linkedConversationStates]);
+  }, [allGroupEntries, linkedConversationStates, data?.linkedConversations, data?.toolCalls]);
   const hasActiveLinkedConversation = useMemo(
-    () => linkedConversationStates.some((entry) => isLinkedConversationActive(entry?.status)),
-    [linkedConversationStates]
+    () => linkedStatusValues.some((status) => isLinkedConversationActive(status)),
+    [linkedStatusValues]
   );
 
   const iterationAgentLabel = useMemo(
@@ -1828,6 +1896,10 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
     const parentConversationID = currentConversationId();
     const parentTurnID = String(data?.turnId || '').trim();
     if (!parentConversationID || !parentTurnID || linkedConversationIds.length === 0) {
+      setLinkedConversationStates([]);
+      return undefined;
+    }
+    if (isLatestIteration && isActiveIteration) {
       setLinkedConversationStates([]);
       return undefined;
     }

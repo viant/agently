@@ -28,6 +28,26 @@ function formatThousands(n) {
   return String(Math.trunc(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 }
 
+function selectPrimaryUsageModel(models = []) {
+  const entries = Array.isArray(models) ? models : [];
+  if (!entries.length) return '';
+  const ranked = [...entries]
+    .map((entry, index) => ({
+      index,
+      model: String(entry?.Model ?? entry?.model ?? '').trim(),
+      cost: Number(entry?.Cost ?? entry?.cost ?? 0) || 0,
+      totalTokens: Number(entry?.TotalTokens ?? entry?.totalTokens ?? entry?.Total ?? 0) || 0,
+    }))
+    .filter((entry) => entry.model);
+  if (!ranked.length) return '';
+  ranked.sort((left, right) => {
+    if (right.cost !== left.cost) return right.cost - left.cost;
+    if (right.totalTokens !== left.totalTokens) return right.totalTokens - left.totalTokens;
+    return right.index - left.index;
+  });
+  return ranked[0].model;
+}
+
 /**
  * Extract and publish usage from a conversation object (from API).
  */
@@ -87,7 +107,7 @@ export function publishUsage(conversationId, conv) {
   let model = '';
   const rawModel = usage.Model ?? usage.model ?? conv?.DefaultModel ?? conv?.defaultModel ?? '';
   if (typeof rawModel === 'string') model = rawModel;
-  else if (Array.isArray(rawModel) && rawModel[0]) model = String(rawModel[0]?.Model || rawModel[0]?.model || '');
+  else if (Array.isArray(rawModel)) model = selectPrimaryUsageModel(rawModel);
   else if (rawModel && typeof rawModel === 'object') model = String(rawModel.Model || rawModel.model || '');
 
   currentUsage = {

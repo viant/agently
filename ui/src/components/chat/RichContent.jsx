@@ -189,7 +189,7 @@ function dashboardColumnKey(column) {
   if (typeof column === 'string') {
     return String(column).trim();
   }
-  return String(column?.key || column?.id || '').trim();
+  return String(column?.key || column?.field || column?.id || '').trim();
 }
 
 function dashboardSeriesKey(entry) {
@@ -275,10 +275,10 @@ export function normalizeDashboardPayload(payload) {
         const normalizedMetrics = [];
         for (const metric of block.metrics) {
           if (!metric || typeof metric !== 'object') continue;
-          const id = String(metric.id || metric.metricKey || metric.label || '').trim();
+          const id = String(metric.id || metric.field || metric.metricKey || metric.key || metric.label || '').trim();
           if (!id) continue;
           const selector = String(metric.selector || '').trim();
-          const rawValue = selector ? resolveDashboardSelector(collection, selector) : undefined;
+          const rawValue = selector ? resolveDashboardSelector(collection, selector) : aggregateDashboardMetric(collection, id);
           target[id] = normalizeMetricValue(rawValue ?? null);
           normalizedMetrics.push({
             ...metric,
@@ -316,12 +316,14 @@ export function normalizeDashboardPayload(payload) {
     if (block?.kind === 'dashboard.summary' && Array.isArray(block.items)) {
       const target = {};
       const itemLabels = {};
+      const itemFormats = {};
       for (const item of block.items) {
         const metricKey = String(item?.metricKey || item?.id || item?.label || '').trim();
         if (!metricKey) continue;
         target[metricKey] = normalizeMetricValue(item?.value ?? null);
         const label = String(item?.label || '').trim();
         if (label) itemLabels[metricKey] = label;
+        if (String(item?.format || '').trim()) itemFormats[metricKey] = String(item.format).trim();
       }
       metrics[keyBase] = target;
       return {
@@ -330,7 +332,7 @@ export function normalizeDashboardPayload(payload) {
           id: metric,
           label: itemLabels[metric] || titleizeDashboardKey(metric),
           selector: `${keyBase}.${metric}`,
-          format: inferMetricFormat(metric, target[metric]),
+          format: itemFormats[metric] || inferMetricFormat(metric, target[metric]),
         })),
       };
     }
@@ -427,6 +429,36 @@ export function normalizeDashboardPayload(payload) {
           items: compareItems,
         };
       }
+    }
+
+    if (block?.kind === 'dashboard.dimensions' && collection.length) {
+      const dimensionField = dashboardColumnKey(block.dimension || block.groupBy || block.seriesColumn || 'dimension');
+      const metricsSpec = (Array.isArray(block.metrics) ? block.metrics : [])
+        .map((metric) => {
+          if (typeof metric === 'string') {
+            return { key: metric, label: titleizeDashboardKey(metric), format: inferMetricFormat(metric, collection?.[0]?.[metric]) };
+          }
+          const key = String(metric?.key || metric?.field || metric?.id || metric?.metricKey || metric?.label || '').trim();
+          if (!key) return null;
+          return {
+            ...metric,
+            key,
+            label: String(metric?.label || '').trim() || titleizeDashboardKey(key),
+            format: metric?.format || inferMetricFormat(key, collection?.[0]?.[key]),
+          };
+        })
+        .filter(Boolean);
+      return {
+        ...block,
+        dimension: {
+          ...(block.dimension || {}),
+          key: dimensionField,
+          field: dimensionField,
+          label: String(block?.dimension?.label || '').trim() || titleizeDashboardKey(dimensionField),
+        },
+        metric: metricsSpec[0] || block.metric || {},
+        metrics: metricsSpec,
+      };
     }
 
     if (block?.kind === 'dashboard.timeline' && !block.chart && sourceID) {
@@ -569,6 +601,138 @@ export function normalizeDashboardPayload(payload) {
             valueKey: seriesValues[0] || 'value',
             values: seriesValues.map((entry) => ({ label: titleizeDashboardKey(entry), name: titleizeDashboardKey(entry), value: entry })),
             palette: DEFAULT_DASHBOARD_PALETTE,
+          },
+        },
+      };
+    }
+
+    if (block?.kind === 'dashboard.timeline' && block?.chart && Array.isArray(block.chart.series) && sourceID) {
+      const chartType = String(block.chart.type || block.chart.chartType || block.chartType || 'line').trim().toLowerCase() || 'line';
+      const dateKey = block.chart.xField || block.dateField || block.timeColumn || 'date';
+      const seriesDefs = block.chart.series
+        .map((entry) => {
+          const value = entry?.yField || entry?.field || entry?.value || entry?.key;
+          if (!value) return null;
+          return {
+            label: entry?.label || entry?.name || titleizeDashboardKey(value),
+            name: entry?.name || entry?.label || titleizeDashboardKey(value),
+            value,
+            type: entry?.kind || entry?.type || chartType,
+            format: entry?.format || inferMetricFormat(value, collection?.[0]?.[value]),
+            axis: entry?.axis || 'left',
+            color: entry?.color,
+          };
+        })
+        .filter(Boolean);
+      const transformedCollection = collection.flatMap((row) =>
+        seriesDefs.map((entry) => ({
+          [dateKey]: row?.[dateKey],
+          series: entry.label,
+          value: row?.[entry.value],
+        }))
+      );
+      return {
+        ...block,
+        dataSourceRef: sourceID,
+        __collection: transformedCollection,
+        chart: {
+          type: chartType,
+          xAxis: {
+            dataKey: dateKey,
+            label: titleizeDashboardKey(dateKey),
+            tickFormat: block.chart.tickFormat || 'MM/dd',
+          },
+          yAxis: {
+            label: titleizeDashboardKey(seriesDefs[0]?.value || 'value'),
+          },
+          cartesianGrid: {
+            strokeDasharray: '3 3',
+          },
+          series: {
+            nameKey: 'series',
+            valueKey: 'value',
+            values: seriesDefs,
+            palette: block.chart.palette || DEFAULT_DASHBOARD_PALETTE,
+          },
+        },
+      };
+    }
+
+    if (block?.kind === 'dashboard.timeline' && block?.chart && !Array.isArray(block.chart.series) && sourceID) {
+      const chartType = String(block.chart.type || block.chart.kind || block.chart.chartType || block.chartType || 'line').trim().toLowerCase() || 'line';
+      const xKey = block.chart.xField || block.dateField || block.timeColumn || 'date';
+      const yKey = block.chart.yField || block.chart.valueField || block.valueColumn || 'value';
+      const splitKey = block.chart.seriesField || block.groupBy || block.seriesColumn || '';
+      const hasSplitSeries = splitKey && collection.some((row) => row?.[splitKey] != null);
+
+      if (hasSplitSeries) {
+        const transformedCollection = collection.map((row) => ({
+          [xKey]: row?.[xKey],
+          series: titleizeDashboardKey(String(row?.[splitKey] ?? 'value')),
+          value: row?.[yKey],
+        }));
+        const values = Array.from(new Set(
+          transformedCollection
+            .map((row) => row?.series)
+            .filter(Boolean)
+        )).map((label) => ({
+          label,
+          name: label,
+          value: label,
+          format: block.chart.format || inferMetricFormat(yKey, collection?.[0]?.[yKey]),
+        }));
+        return {
+          ...block,
+          dataSourceRef: sourceID,
+          __collection: transformedCollection,
+          chart: {
+            type: chartType,
+            xAxis: {
+              dataKey: xKey,
+              label: titleizeDashboardKey(xKey),
+              tickFormat: block.chart.tickFormat,
+            },
+            yAxis: {
+              label: titleizeDashboardKey(yKey),
+            },
+            cartesianGrid: {
+              strokeDasharray: '3 3',
+            },
+            series: {
+              nameKey: 'series',
+              valueKey: 'value',
+              values,
+              palette: block.chart.palette || DEFAULT_DASHBOARD_PALETTE,
+            },
+          },
+        };
+      }
+
+      return {
+        ...block,
+        dataSourceRef: sourceID,
+        chart: {
+          type: chartType,
+          xAxis: {
+            dataKey: xKey,
+            label: titleizeDashboardKey(xKey),
+            tickFormat: block.chart.tickFormat,
+          },
+          yAxis: {
+            label: titleizeDashboardKey(yKey),
+          },
+          cartesianGrid: {
+            strokeDasharray: '3 3',
+          },
+          series: {
+            nameKey: xKey,
+            valueKey: yKey,
+            values: [{
+              label: block.chart.label || titleizeDashboardKey(yKey),
+              value: yKey,
+              format: block.chart.format || inferMetricFormat(yKey, collection?.[0]?.[yKey]),
+            }],
+            palette: block.chart.palette || DEFAULT_DASHBOARD_PALETTE,
           },
         },
       };

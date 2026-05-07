@@ -3,6 +3,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import IterationBlock, {
+  collectLinkedConversationStatuses,
   displayLinkedConversationIcon,
   displayLinkedConversationSubtitle,
   displayLinkedConversationTitle,
@@ -329,6 +330,28 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(status).toBe('completed');
     expect(isIterationActive({ status: 'completed' }, [{ status: 'completed', modelStep: { status: 'completed' }, toolSteps: [] }], ['running'])).toBe(false);
     expect(statusTone(status)).toBe('success');
+  });
+
+  it('derives active linked conversation status from canonical live row data without fetched linked-state polling', () => {
+    const linkedStatuses = collectLinkedConversationStatuses(
+      {
+        status: 'thinking',
+        linkedConversations: [{ conversationId: 'child-1', status: 'running' }]
+      },
+      [{ status: 'completed', modelStep: { status: 'completed' }, toolSteps: [] }],
+      []
+    );
+    expect(linkedStatuses).toEqual(['running']);
+    expect(resolveIterationDisplayStatus(
+      { status: '' },
+      [{ status: 'completed', modelStep: { status: 'completed' }, toolSteps: [] }],
+      linkedStatuses
+    )).toBe('running');
+    expect(isIterationActive(
+      { status: '' },
+      [{ status: 'completed', modelStep: { status: 'completed' }, toolSteps: [] }],
+      linkedStatuses
+    )).toBe(true);
   });
 
   it('anchors active elapsed time to the turn start instead of the latest active execution frontier', () => {
@@ -977,6 +1000,23 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(shouldShowNarrationBubble([], text)).toBe(true);
   });
 
+  it('falls back to delegated tool progress text when no explicit narration is present', () => {
+    const text = resolveVisibleBubbleContent([
+      {
+        finalResponse: false,
+        narrationContent: '',
+        title: 'Reading the remaining diagnostic payload so the blocker packet uses the complete snapshot.',
+        groupKind: 'model',
+        modelStep: {
+          kind: 'model',
+          status: 'completed'
+        }
+      }
+    ]);
+
+    expect(text).toBe('Reading the remaining diagnostic payload so the blocker packet uses the complete snapshot.');
+  });
+
   it('prefers streamed text over narration while execution groups are still live', () => {
     const text = resolveIterationBubbleContent({
       visibleGroups: [
@@ -1188,6 +1228,23 @@ describe('mapCanonicalExecutionGroups', () => {
         expect.objectContaining({ toolName: 'llm/skills:list', executionRole: 'bootstrap' })
       ])
     });
+  });
+
+  it('marks bootstrap tool-only groups completed when every bootstrap tool step is terminal', () => {
+    const groups = mapCanonicalExecutionGroups([{
+      pageId: 'turn-1:bootstrap',
+      phase: 'bootstrap',
+      executionRole: 'bootstrap',
+      status: 'running',
+      toolSteps: [
+        { kind: 'tool', executionRole: 'bootstrap', toolName: 'llm/agents:list', status: 'completed' },
+        { kind: 'tool', executionRole: 'bootstrap', toolName: 'llm/skills:list', status: 'completed' },
+        { kind: 'tool', executionRole: 'bootstrap', toolName: 'template:list', status: 'completed' }
+      ]
+    }]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.status).toBe('completed');
   });
 
   it('renders a visible header row for bootstrap tool-only groups', () => {
