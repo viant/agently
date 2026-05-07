@@ -5,6 +5,10 @@ import { client } from '../services/agentlyClient';
 const POLL_MS = 2000;
 const PAGE_SIZE = 8;
 
+export function shouldPollApprovalQueue(enabled = true, visibilityState = 'visible', hasWindowFocus = true) {
+  return Boolean(enabled) && visibilityState === 'visible' && Boolean(hasWindowFocus);
+}
+
 export function useApprovalQueue(enabled = true) {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
@@ -14,6 +18,39 @@ export function useApprovalQueue(enabled = true) {
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
+  const [visibilityState, setVisibilityState] = useState(() => {
+    if (typeof document === 'undefined') return 'visible';
+    return document.visibilityState === 'hidden' ? 'hidden' : 'visible';
+  });
+  const [hasWindowFocus, setHasWindowFocus] = useState(() => {
+    if (typeof document === 'undefined' || typeof document.hasFocus !== 'function') return true;
+    return document.hasFocus();
+  });
+
+  useEffect(() => {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return () => {};
+
+    const syncVisibility = () => {
+      setVisibilityState(document.visibilityState === 'hidden' ? 'hidden' : 'visible');
+    };
+    const onFocus = () => setHasWindowFocus(true);
+    const onBlur = () => setHasWindowFocus(false);
+
+    syncVisibility();
+    if (typeof document.hasFocus === 'function') {
+      setHasWindowFocus(document.hasFocus());
+    }
+
+    document.addEventListener('visibilitychange', syncVisibility);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('blur', onBlur);
+
+    return () => {
+      document.removeEventListener('visibilitychange', syncVisibility);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, []);
 
   useEffect(() => {
     if (!enabled) {
@@ -23,6 +60,9 @@ export function useApprovalQueue(enabled = true) {
       setPage(0);
       setTotal(0);
       setHasMore(false);
+      return () => {};
+    }
+    if (!shouldPollApprovalQueue(enabled, visibilityState, hasWindowFocus)) {
       return () => {};
     }
 
@@ -67,15 +107,17 @@ export function useApprovalQueue(enabled = true) {
           }
         }
       }
+      if (!canceled) {
+        timer = window.setTimeout(tick, POLL_MS);
+      }
     };
 
     tick();
-    timer = setInterval(tick, POLL_MS);
     return () => {
       canceled = true;
-      if (timer) clearInterval(timer);
+      if (timer) window.clearTimeout(timer);
     };
-  }, [enabled, page]);
+  }, [enabled, page, visibilityState, hasWindowFocus]);
 
   const pendingCount = useMemo(() => total, [total]);
   const pageCount = useMemo(() => Math.max(1, Math.ceil((Number(total) || 0) / PAGE_SIZE)), [total]);

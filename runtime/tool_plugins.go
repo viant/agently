@@ -209,7 +209,18 @@ func internalServiceFactory(rt *executor.Runtime, workspaceRoot, name string) sv
 			defaultModel = rt.Defaults.Model
 			embedModel = rt.Defaults.Embedder
 		}
-		return msgservice.NewWithDeps(rt.Conversation, rt.Core, nil, 0, 0, summaryModel, "", defaultModel, embedModel)
+		return msgservice.NewWithDeps(
+			rt.Conversation,
+			rt.Core,
+			nil,
+			0,
+			0,
+			summaryModel,
+			"",
+			defaultModel,
+			embedModel,
+			msgservice.WithElicitor(rt.Elicitation),
+		)
 	case "template":
 		var finder agentmdl.Finder
 		if rt.Agent != nil {

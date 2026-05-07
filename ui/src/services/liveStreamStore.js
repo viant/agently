@@ -88,6 +88,20 @@ function canonicalPayloadMessageId(payload = {}) {
   return '';
 }
 
+function canonicalExecutionGroupId(payload = {}) {
+  const patch = payload?.patch && typeof payload.patch === 'object' ? payload.patch : {};
+  const explicit = [
+    payload?.pageId,
+    patch?.pageId,
+    payload?.assistantMessageId,
+    patch?.assistantMessageId,
+    payload?.messageId,
+    patch?.messageId,
+  ].map((value) => String(value || '').trim()).find(Boolean);
+  if (explicit) return explicit;
+  return '';
+}
+
 function normalizedMode(payload = {}) {
   const patch = payload?.patch && typeof payload.patch === 'object' ? payload.patch : {};
   return String(payload?.mode || patch?.mode || '').trim().toLowerCase();
@@ -406,6 +420,7 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
   const conversationID = String(payload?.conversationId || fallbackConversationID || '').trim();
   const turnId = String(payload?.turnId || '').trim();
   const assistantMessageId = canonicalPayloadMessageId(payload);
+  const executionGroupId = canonicalExecutionGroupId(payload);
   const rowID = assistantMessageId || `assistant:${turnId || conversationID}:${Number(payload?.iteration || payload?.pageIndex || 1) || 1}`;
   if (!rowID) return null;
   const createdAt = String(payload?.createdAt || '').trim();
@@ -432,7 +447,7 @@ function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
     || ''
   ).trim() || undefined;
   const group = {
-    pageId: assistantMessageId || rowID,
+    pageId: executionGroupId || assistantMessageId || rowID,
     assistantMessageId,
     parentMessageId: String(payload?.parentMessageId || '').trim(),
     phase: String(payload?.phase || '').trim() || undefined,
@@ -695,18 +710,25 @@ function applyExecutionStreamEventToRows(rows = [], payload = {}, fallbackConver
 
 function applyToolStreamEventToRows(rows = [], payload = {}, fallbackConversationID = '') {
   const assistantMessageId = canonicalPayloadMessageId(payload);
-  if (!assistantMessageId) return Array.isArray(rows) ? rows : [];
+  const executionGroupId = canonicalExecutionGroupId(payload);
+  if (!assistantMessageId && !executionGroupId) return Array.isArray(rows) ? rows : [];
   const turnId = String(payload?.turnId || '').trim();
   const existing = Array.isArray(rows) ? [...rows] : [];
-  const index = findAssistantExecutionRowIndex(existing, turnId, assistantMessageId);
+  const index = findAssistantExecutionRowIndex(existing, turnId, assistantMessageId || executionGroupId);
   if (index === -1) return existing;
   const row = { ...existing[index] };
   const groups = Array.isArray(row.executionGroups) ? row.executionGroups : [];
-  // Find the execution group matching the assistantMessageId, or fall back to
-  // the last group (most recent iteration owns the tool call).
+  // Find the execution group by exact page/group identity first, then by the
+  // assistant message id. Bootstrap/systemContext tool events are grouped by
+  // pageId and do not carry assistant message ids.
   let groupIdx = groups.findIndex((g) =>
-    String(g?.assistantMessageId || '').trim() === assistantMessageId
+    String(g?.pageId || '').trim() === executionGroupId
   );
+  if (groupIdx === -1 && assistantMessageId) {
+    groupIdx = groups.findIndex((g) =>
+      String(g?.assistantMessageId || '').trim() === assistantMessageId
+    );
+  }
   if (groupIdx === -1) groupIdx = groups.length - 1;
   if (groupIdx < 0 || !groups[groupIdx]) return existing;
   const group = { ...groups[groupIdx] };

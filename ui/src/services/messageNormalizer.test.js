@@ -162,6 +162,50 @@ describe('normalizeMessages', () => {
     expect(normalized.some((entry) => String(entry?.content || '').includes('I’m pulling the baseline delivery signals first.'))).toBe(true);
   });
 
+  it('hides raw router rows even when they carry intake.answer or intake.clarify status', () => {
+    const messages = [
+      {
+        id: 'u1',
+        role: 'user',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:00Z',
+        content: 'hello'
+      },
+      {
+        id: 'router-answer',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:01Z',
+        mode: 'router',
+        status: 'intake.answer',
+        content: '{"appendToolBundles":[],"clarificationNeeded":false}'
+      },
+      {
+        id: 'router-clarify',
+        role: 'assistant',
+        turnId: 'turn-2',
+        createdAt: '2026-01-01T10:01:01Z',
+        mode: 'router',
+        status: 'intake.clarify',
+        content: '{"clarificationNeeded":true,"clarificationQuestion":"What would you like help with?"}'
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        turnId: 'turn-1',
+        createdAt: '2026-01-01T10:00:02Z',
+        content: 'Hi — what would you like help with today?'
+      }
+    ];
+
+    const normalized = normalizeMessages(messages, { visibleCount: 5 });
+
+    expect(normalized.some((entry) => String(entry?.id || '') === 'router-answer')).toBe(false);
+    expect(normalized.some((entry) => String(entry?.id || '') === 'router-clarify')).toBe(false);
+    expect(normalized.some((entry) => String(entry?.content || '').includes('clarificationNeeded'))).toBe(false);
+    expect(normalized.some((entry) => String(entry?.content || '').includes('Hi — what would you like help with today?'))).toBe(true);
+  });
+
   it('drops assistant summary artifacts from rendered chat rows', () => {
     const messages = [
       {

@@ -22,4 +22,27 @@ describe('usageBus', () => {
       totalTokens: 150,
     });
   });
+
+  it('chooses the primary billed model when usage contains multiple models', () => {
+    clearUsage();
+    publishUsage('conv-2', {
+      UsageInputTokens: 677625,
+      UsageOutputTokens: 7705,
+      UsageTotalTokens: 685330,
+      Usage: {
+        Cost: 0.07353625,
+        Model: [
+          { Model: 'gpt-5-mini', TotalTokens: 1718, Cost: 0 },
+          { Model: 'gpt-5.4', TotalTokens: 42344, Cost: 0.07353625 },
+        ],
+      },
+    });
+
+    expect(getUsage()).toMatchObject({
+      conversationId: 'conv-2',
+      model: 'gpt-5.4',
+      costText: '$0.074',
+      totalTokensText: '685 330',
+    });
+  });
 });

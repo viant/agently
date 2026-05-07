@@ -328,7 +328,7 @@ function lookupMenuLabel(entry = {}) {
 }
 
 function emitNamedLookupDebug(type, payload = {}) {
-  if (!import.meta.env?.DEV || typeof window === 'undefined') return;
+  if (!namedLookupDebugEnabled()) return;
   const event = {
     at: Date.now(),
     type,
@@ -341,6 +341,15 @@ function emitNamedLookupDebug(type, payload = {}) {
   }
   window.dispatchEvent(new CustomEvent('named-lookup:debug', { detail: event }));
   console.debug('[named-lookup]', event);
+}
+
+function namedLookupDebugEnabled() {
+  if (!import.meta.env?.DEV || typeof window === 'undefined') return false;
+  try {
+    return String(window.localStorage?.getItem('agently.debugLookups') || '').trim() === '1';
+  } catch (_) {
+    return false;
+  }
 }
 
 function tokenLabel(tokenText = '', fallback = '') {
@@ -499,7 +508,7 @@ export default function NamedLookupInput({
   }, [registry]);
 
   useEffect(() => {
-    if (!import.meta.env?.DEV || typeof window === 'undefined') return undefined;
+    if (!namedLookupDebugEnabled()) return undefined;
     const handleDebugEvent = (event) => {
       const detail = event?.detail;
       if (!detail) return;
@@ -1248,7 +1257,7 @@ export default function NamedLookupInput({
           )}
         </div>
       </Popover>
-      {import.meta.env?.DEV && debugEvents.length > 0 ? (
+      {namedLookupDebugEnabled() && debugEvents.length > 0 ? (
         <div
           data-testid="named-lookup-debug-events"
           style={{
