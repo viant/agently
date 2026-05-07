@@ -207,6 +207,5 @@ require (
 	modernc.org/sqlite v1.45.0 // indirect
 )
 
-replace github.com/viant/agently-core => ../agently-core
-
-replace github.com/viant/forge => ../forge
+//replace github.com/viant/agently-core => ../agently-core
+//replace github.com/viant/forge => ../forge
