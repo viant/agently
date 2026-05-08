@@ -18,7 +18,11 @@ DEPLOY="${ROOT}/deployment/ui"
 echo "[build-ui-embed] Building UI (${UI_DIR})..."
 if [ ! -d "${UI_DIR}/node_modules" ]; then
   echo "[build-ui-embed] Installing UI deps in ${UI_DIR}..."
-  (cd "${UI_DIR}" && npm ci || npm install)
+  if [ -f "${UI_DIR}/package-lock.json" ] || [ -f "${UI_DIR}/npm-shrinkwrap.json" ]; then
+    (cd "${UI_DIR}" && npm ci)
+  else
+    (cd "${UI_DIR}" && npm install)
+  fi
 fi
 
 (cd "${UI_DIR}" && npm run build)
@@ -37,6 +41,7 @@ find "${DEPLOY}" -maxdepth 1 \
   -not -path "${DEPLOY}" \
   -exec rm -rf {} +
 mkdir -p "${DEPLOY}/assets"
+find "${DEPLOY}/assets" -maxdepth 1 -mindepth 1 -exec rm -rf {} +
 find "$DIST" -maxdepth 1 -mindepth 1 ! -name 'assets' -exec cp -R {} "${DEPLOY}/" \;
 cp -R "$DIST"/assets/. "${DEPLOY}/assets/"
 
