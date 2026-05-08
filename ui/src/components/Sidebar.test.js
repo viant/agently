@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { applyConversationMetaPatchToRows } from './Sidebar';
+import {
+  applyConversationMetaPatchToRows,
+  normalizeSidebarPage,
+  sidebarPaginationRequest,
+  sidebarPageStatusLabel
+} from './Sidebar';
 
 describe('applyConversationMetaPatchToRows', () => {
   it('patches title and summary in memory and re-sorts by updated time', () => {
@@ -19,5 +24,78 @@ describe('applyConversationMetaPatchToRows', () => {
     expect(got[0].title).toBe('Campaign 4821 Underpacing');
     expect(got[0].Summary).toBe('Needs attention');
     expect(got[0].summary).toBe('Needs attention');
+  });
+});
+
+describe('sidebar conversation pagination', () => {
+  it('enables only older navigation on the newest cursor page', () => {
+    const got = normalizeSidebarPage({
+      data: [
+        { Id: 'newest', LastActivity: '2026-05-08T10:00:00Z' },
+        { Id: 'older', LastActivity: '2026-05-08T09:00:00Z' }
+      ],
+      page: {
+        prevCursor: 'newest',
+        cursor: 'older',
+        hasMore: true,
+        hasOlder: true,
+        hasNewer: false
+      }
+    }, 'latest');
+
+    expect(got.prevCursor).toBe('');
+    expect(got.nextCursor).toBe('older');
+    expect(sidebarPageStatusLabel(got)).toBe('Newest');
+  });
+
+  it('enables both directions on a middle cursor page', () => {
+    const got = normalizeSidebarPage({
+      data: [
+        { Id: 'middle-newer', LastActivity: '2026-05-08T08:00:00Z' },
+        { Id: 'middle-older', LastActivity: '2026-05-08T07:00:00Z' }
+      ],
+      page: {
+        prevCursor: 'middle-newer',
+        cursor: 'middle-older',
+        hasMore: true,
+        hasOlder: true,
+        hasNewer: true
+      }
+    }, 'after');
+
+    expect(got.prevCursor).toBe('middle-newer');
+    expect(got.nextCursor).toBe('middle-older');
+    expect(sidebarPageStatusLabel(got)).toBe('Middle');
+  });
+
+  it('enables only newer navigation on the oldest cursor page', () => {
+    const got = normalizeSidebarPage({
+      data: [
+        { Id: 'oldest-newer', LastActivity: '2026-05-05T10:00:00Z' },
+        { Id: 'oldest', LastActivity: '2026-05-05T09:00:00Z' }
+      ],
+      page: {
+        prevCursor: 'oldest-newer',
+        cursor: 'oldest',
+        hasMore: false,
+        hasOlder: false,
+        hasNewer: true
+      }
+    }, 'after');
+
+    expect(got.prevCursor).toBe('oldest-newer');
+    expect(got.nextCursor).toBe('');
+    expect(sidebarPageStatusLabel(got)).toBe('Oldest');
+  });
+
+  it('maps sidebar buttons to backend cursor directions', () => {
+    expect(sidebarPaginationRequest('older', 'old-edge')).toEqual({
+      direction: 'before',
+      cursor: 'old-edge'
+    });
+    expect(sidebarPaginationRequest('newer', 'new-edge')).toEqual({
+      direction: 'after',
+      cursor: 'new-edge'
+    });
   });
 });

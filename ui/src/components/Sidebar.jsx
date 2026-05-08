@@ -126,22 +126,48 @@ async function archiveConversation(id) {
   } catch (_) {}
 }
 
+export function normalizeSidebarPage(page = {}, direction = 'latest', requestedCursor = '') {
+  const rows = sortConversations(Array.isArray(page?.data) ? page.data : []);
+  const pageInfo = page?.page || {};
+  const hasRequestedCursor = String(requestedCursor || '').trim() !== '';
+  const hasMore = Boolean(pageInfo?.hasMore);
+  const hasOlder = typeof pageInfo?.hasOlder === 'boolean'
+    ? pageInfo.hasOlder
+    : (direction === 'after' ? hasRequestedCursor : hasMore);
+  const hasNewer = typeof pageInfo?.hasNewer === 'boolean'
+    ? pageInfo.hasNewer
+    : (direction === 'before' ? hasRequestedCursor : (direction === 'after' ? hasMore : false));
+  const prev = String(pageInfo?.prevCursor || '').trim();
+  const next = String(pageInfo?.cursor || '').trim();
+  const cursorsEqual = prev && next && prev === next;
+  return {
+    rows,
+    prevCursor: hasNewer && prev && !cursorsEqual ? prev : '',
+    nextCursor: hasOlder && next && !cursorsEqual ? next : ''
+  };
+}
+
+export function sidebarPageStatusLabel({ loading = false, prevCursor = '', nextCursor = '' } = {}) {
+  if (loading) return 'Loading...';
+  if (prevCursor && nextCursor) return 'Middle';
+  if (!prevCursor && nextCursor) return 'Newest';
+  if (prevCursor && !nextCursor) return 'Oldest';
+  return 'Single';
+}
+
+export function sidebarPaginationRequest(kind = '', cursor = '') {
+  if (kind === 'newer') return { direction: 'after', cursor };
+  if (kind === 'older') return { direction: 'before', cursor };
+  return { direction: 'latest', cursor: '' };
+}
+
 async function fetchPage({ query = '', direction = 'latest', cursor = '' }) {
   const page = await client.listConversations({
     excludeScheduled: true,
     query: query || undefined,
     page: { limit: PAGE_SIZE, direction, cursor: cursor || undefined },
   });
-  const rows = sortConversations(Array.isArray(page?.data) ? page.data : []);
-  const hasMore = Boolean(page?.page?.hasMore);
-  const prev = String(page?.page?.prevCursor || '').trim();
-  const next = String(page?.page?.cursor || '').trim();
-  const cursorsEqual = prev && next && prev === next;
-  return {
-    rows,
-    prevCursor: hasMore && !cursorsEqual ? prev : '',
-    nextCursor: hasMore && !cursorsEqual ? next : ''
-  };
+  return normalizeSidebarPage(page, direction, cursor);
 }
 
 export default function Sidebar({ collapsed = false }) {
@@ -160,11 +186,7 @@ export default function Sidebar({ collapsed = false }) {
   const activityReloadTimerRef = React.useRef(null);
 
   const pageStatusLabel = useMemo(() => {
-    if (loading) return 'Loading...';
-    if (prevCursor && nextCursor) return 'Middle';
-    if (prevCursor && !nextCursor) return 'Newest';
-    if (!prevCursor && nextCursor) return 'Oldest';
-    return 'Single';
+    return sidebarPageStatusLabel({ loading, prevCursor, nextCursor });
   }, [loading, prevCursor, nextCursor]);
   const showPagination = loading || !!prevCursor || !!nextCursor;
 
@@ -348,7 +370,10 @@ export default function Sidebar({ collapsed = false }) {
                 disabled={!prevCursor}
                 aria-label="Load newer conversations"
                 title="Load newer conversations"
-                onClick={() => void reload('before', prevCursor)}
+                onClick={() => {
+                  const request = sidebarPaginationRequest('newer', prevCursor);
+                  void reload(request.direction, request.cursor);
+                }}
               />
               <div className="app-sidebar-pagination-status">{pageStatusLabel}</div>
               <Button
@@ -359,7 +384,10 @@ export default function Sidebar({ collapsed = false }) {
                 disabled={!nextCursor}
                 aria-label="Load older conversations"
                 title="Load older conversations"
-                onClick={() => void reload('after', nextCursor)}
+                onClick={() => {
+                  const request = sidebarPaginationRequest('older', nextCursor);
+                  void reload(request.direction, request.cursor);
+                }}
               />
             </div>
           ) : null}
