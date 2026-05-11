@@ -26,7 +26,7 @@ describe('fetchTranscript', () => {
     mocks.isFeedInactive.mockReturnValue(false);
   });
 
-  it('rehydrates tool feeds from transcript data for history-mode chat activation', async () => {
+  it('requests transcript feeds for history-mode activation without replaying them directly', async () => {
     client.getTranscript.mockResolvedValue({
       feeds: [
         {
@@ -65,28 +65,7 @@ describe('fetchTranscript', () => {
       includeFeeds: true,
     }), undefined);
 
-    expect(mocks.applyFeedEvent).toHaveBeenCalledTimes(3);
-    expect(mocks.applyFeedEvent).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      type: 'tool_feed_active',
-      feedId: 'explorer',
-      feedTitle: 'Explorer',
-      feedItemCount: 3,
-      conversationId: 'conv-history-1',
-    }));
-    expect(mocks.applyFeedEvent).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      type: 'tool_feed_active',
-      feedId: 'terminal',
-      feedTitle: 'Terminal',
-      feedItemCount: 1,
-      conversationId: 'conv-history-1',
-    }));
-    expect(mocks.applyFeedEvent).toHaveBeenNthCalledWith(3, expect.objectContaining({
-      type: 'tool_feed_active',
-      feedId: 'changes',
-      feedTitle: 'Changes',
-      feedItemCount: 1,
-      conversationId: 'conv-history-1',
-    }));
+    expect(mocks.applyFeedEvent).not.toHaveBeenCalled();
   });
 
   it('does not resurrect an inactive feed from transcript hydration', async () => {
@@ -121,11 +100,37 @@ describe('fetchTranscript', () => {
 
     await fetchTranscript('conv-history-2');
 
-    expect(mocks.applyFeedEvent).toHaveBeenCalledTimes(1);
-    expect(mocks.applyFeedEvent).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'tool_feed_active',
-      feedId: 'terminal',
-      conversationId: 'conv-history-2',
-    }));
+    expect(mocks.applyFeedEvent).not.toHaveBeenCalled();
+  });
+
+  it('still requests feeds when execution details are disabled', async () => {
+    client.getTranscript.mockResolvedValue({
+      feeds: [
+        {
+          feedId: 'plan',
+          title: 'Plan',
+          itemCount: 1,
+          data: { output: { rows: [{ step: 'Inspect repo' }] } },
+        },
+      ],
+      turns: [
+        {
+          turnId: 'turn-3',
+          execution: {
+            pages: [],
+          },
+        },
+      ],
+    });
+
+    await fetchTranscript('conv-history-3', '', { includeExecutionDetails: false });
+
+    expect(client.getTranscript).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-history-3',
+      includeModelCalls: false,
+      includeToolCalls: false,
+      includeFeeds: true,
+    }), undefined);
+    expect(mocks.applyFeedEvent).not.toHaveBeenCalled();
   });
 });

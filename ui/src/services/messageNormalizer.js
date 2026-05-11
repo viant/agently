@@ -901,6 +901,7 @@ export function synthesizeIterationMessages(messages = [], visibleCount = Number
           _type: 'iteration',
           id: `iteration:${item.turnId || seenIterations}:${item.iteration ?? seenIterations}`,
           role: 'assistant',
+          turnId,
           createdAt,
           content: iterationContent,
           generatedFiles: mergeGeneratedFiles(

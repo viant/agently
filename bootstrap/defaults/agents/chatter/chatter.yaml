@@ -49,6 +49,7 @@ tool:
     - system/os
     - template
   items:
+    - name: message:add
     - name: llm/agents:list
     - name: llm/agents:start
     - name: llm/agents:status

@@ -24,6 +24,8 @@ describe('ToolFeedBar state helpers', () => {
     fetchFeedDataNowMock.mockReset();
     const mod = await import('./ToolFeedBar.jsx');
     mod.__resetToolFeedBarStateForTest();
+    const selection = await import('../services/toolFeedSelection');
+    selection.registerFeedDataLoader(fetchFeedDataNowMock);
   });
 
   it('expands and selects a feed without collapsing it on row selection', async () => {

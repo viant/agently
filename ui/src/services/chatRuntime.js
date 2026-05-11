@@ -19,7 +19,7 @@ export function installChatStoreMirror(chatStoreModule) {
 import { ConversationStreamTracker, hasLiveAssistantRowForTurn, latestEffectiveLiveAssistantRow } from 'agently-core-ui-sdk/internal';
 import { rememberConversationSeedTitle } from './conversationTitle';
 import { setPendingElicitation, clearPendingElicitation } from './elicitationBus';
-import { applyFeedEvent, clearFeedState, isFeedInactive } from './toolFeedBus';
+import { applyFeedEvent, clearFeedState, clearFeedStateForConversation, isFeedInactive } from './toolFeedBus';
 import { publishUsage } from './usageBus';
 import { request } from './httpClient';
 import {
@@ -1123,6 +1123,47 @@ function getCurrentConversationID(context) {
   return '';
 }
 
+function resolveFeedResetConversationId(chatState = {}, explicitConversationId = '') {
+  const direct = String(explicitConversationId || '').trim();
+  if (direct) return direct;
+  return String(
+    chatState?.activeConversationID
+    || chatState?.lastConversationID
+    || ''
+  ).trim();
+}
+
+function updateTranscriptFeedCache(chatState = {}, payload = {}, fallbackConversationID = '') {
+  const conversationID = String(payload?.conversationId || payload?.streamId || fallbackConversationID || '').trim();
+  const feedId = String(payload?.feedId || '').trim();
+  if (!conversationID || !feedId) return;
+  const current = chatState.lastTranscriptFeedsByConversation || {};
+  const existing = Array.isArray(current[conversationID]) ? current[conversationID] : [];
+  if (String(payload?.type || '').toLowerCase() === 'tool_feed_inactive') {
+    const next = existing.filter((feed) => String(feed?.feedId || '').trim() !== feedId);
+    chatState.lastTranscriptFeedsByConversation = {
+      ...current,
+      [conversationID]: next
+    };
+    return;
+  }
+  if (String(payload?.type || '').toLowerCase() !== 'tool_feed_active') return;
+  const nextFeed = {
+    feedId,
+    title: payload?.feedTitle || feedId,
+    itemCount: payload?.feedItemCount || 0,
+    data: payload?.feedData || null
+  };
+  const next = [
+    ...existing.filter((feed) => String(feed?.feedId || '').trim() !== feedId),
+    nextFeed
+  ];
+  chatState.lastTranscriptFeedsByConversation = {
+    ...current,
+    [conversationID]: next
+  };
+}
+
 function getContextWindowId(context) {
   return String(context?.identity?.windowId || '').trim() || MAIN_CHAT_WINDOW_ID;
 }
@@ -1178,11 +1219,12 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     }
   }
   const includeExecutionDetails = options?.includeExecutionDetails !== false;
+  const includeFeeds = options?.includeFeeds !== false;
   const transcriptInput = {
     conversationId: conversationID,
     includeModelCalls: includeExecutionDetails,
     includeToolCalls: includeExecutionDetails,
-    includeFeeds: includeExecutionDetails,
+    includeFeeds,
     since: since || undefined,
   };
   const transcriptOptions = options?.selectors
@@ -1213,21 +1255,6 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
   const resolvedFeeds = Array.isArray(data?.feeds)
     ? data.feeds
     : (Array.isArray(canonicalConversation?.feeds) ? canonicalConversation.feeds : []);
-  // Populate tool feed bar from transcript feeds (for page reload / conversation switch).
-  if (!latestTurnLiveOwned && Array.isArray(resolvedFeeds) && resolvedFeeds.length > 0) {
-    for (const feed of resolvedFeeds) {
-      if (feed?.feedId && !isFeedInactive(feed.feedId, conversationID)) {
-        applyFeedEvent({
-          type: 'tool_feed_active',
-          feedId: feed.feedId,
-          feedTitle: feed.title || feed.feedId,
-          feedItemCount: feed.itemCount || 0,
-          feedData: feed.data || null,
-          conversationId: conversationID,
-        });
-      }
-    }
-  }
   if (!latestTurnLiveOwned && activeChatState && conversationID) {
     const current = activeChatState.lastTranscriptFeedsByConversation || {};
     activeChatState.lastTranscriptFeedsByConversation = {
@@ -2094,6 +2121,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
 
     if (type === 'tool_feed_active' || type === 'tool_feed_inactive') {
       chatState.lastStreamEventAt = Date.now();
+      updateTranscriptFeedCache(chatState, payload, conversationID);
       applyFeedEvent(payload);
       return;
     }
@@ -2131,8 +2159,9 @@ export function shouldUseLiveStream(context, conversationID = '') {
   const formRunning = !!currentConversationForm?.running || isConversationLiveish(currentConversationForm);
   const trackerRunning = !!trackerActiveTurnId(chatState);
   const localRunning = !!String(chatState.runningTurnId || chatState.activeStreamTurnId || '').trim();
+  const conversationLiveish = formRunning || trackerRunning || localRunning;
   if (currentConversationID && currentConversationID === targetID) {
-    return true;
+    return conversationLiveish || ownedConversationID === targetID;
   }
   if (!ownedConversationID || ownedConversationID !== targetID) return false;
   return true;
@@ -2243,7 +2272,6 @@ export async function ensureConversation(context, options = {}) {
 export async function switchConversation(context, conversationID = '') {
   const targetID = String(conversationID || '').trim();
   if (!targetID) return;
-  clearFeedState();
   const chatState = ensureContextResources(context);
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const messagesDS = context?.Context?.('messages')?.handlers?.dataSource;
@@ -2251,6 +2279,7 @@ export async function switchConversation(context, conversationID = '') {
 
   const form = conversationsDS.peekFormData?.() || {};
   const currentID = String(form?.id || '').trim();
+  clearFeedStateForConversation(resolveFeedResetConversationId(chatState, currentID));
   if (currentID !== targetID) {
     chatState.switchingConversationID = targetID;
     if (chatState.stream) {
@@ -2400,11 +2429,12 @@ export function unbindConversationWindowEvents(context) {
 }
 
 export async function createNewConversation(context) {
-  clearFeedState();
   const chatState = ensureContextResources(context);
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
   if (!conversationsDS) return false;
+  const currentForm = conversationsDS.peekFormData?.() || {};
+  clearFeedStateForConversation(resolveFeedResetConversationId(chatState, String(currentForm?.id || '').trim()));
   if (chatState.pendingConversationPromise) {
     try {
       await chatState.pendingConversationPromise;

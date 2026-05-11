@@ -1,4 +1,5 @@
 import { mergeRowSnapshots } from './rowMerge';
+import { isFeedInactive as defaultIsFeedInactive } from './toolFeedBus';
 
 const RUNNING_TURN_STATUSES = new Set(['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress']);
 
@@ -70,6 +71,7 @@ export function syncTranscriptSnapshot({
   findLatestRunningTurnIdFromTurns,
   findLatestRunningTurnId,
   applyFeedEvent,
+  isFeedInactive = defaultIsFeedInactive,
   setStage,
   liveRows = []
 }) {
@@ -168,6 +170,7 @@ export function syncTranscriptSnapshot({
     for (const feed of transcriptFeeds) {
       const feedId = String(feed?.feedId || '').trim();
       if (!feedId) continue;
+      if (typeof isFeedInactive === 'function' && isFeedInactive(feedId, conversationID)) continue;
       applyFeedEvent({
         type: 'tool_feed_active',
         feedId,
@@ -275,6 +278,7 @@ export function resetTranscriptState({
   const chatState = ensureContextResources(context);
   chatState.lastSinceCursor = '';
   chatState.transcriptRows = [];
+  chatState.lastTranscriptFeedsByConversation = {};
   chatState.lastQueuedTurns = [];
   chatState.lastHasRunning = false;
   chatState.runningTurnId = '';

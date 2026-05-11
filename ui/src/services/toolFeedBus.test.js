@@ -145,4 +145,98 @@ describe('toolFeedBus conversation scoping', () => {
     expect(mod.getFeedData('plan', 'conv-plan')?.data?.output?.rows).toEqual([{ id: 2 }]);
     expect(mod.getActiveFeeds()).toHaveLength(1);
   });
+
+  it('clears shared feed selection when feed state is cleared', async () => {
+    const mod = await import('./toolFeedBus');
+    const selection = await import('./toolFeedSelection');
+
+    mod.applyFeedEvent({
+      type: 'tool_feed_active',
+      feedId: 'plan',
+      conversationId: 'conv-plan',
+      feedTitle: 'Plan',
+      feedItemCount: 1,
+      feedData: { output: { rows: [{ id: 1 }] } },
+    });
+    selection.activateExclusiveFeed('conv-plan::plan', 'conv-plan');
+
+    expect(selection.getSelectedFeedId('conv-plan')).toBe('conv-plan::plan');
+
+    mod.clearFeedState();
+
+    expect(selection.getSelectedFeedId('conv-plan')).toBe('');
+    expect(Array.from(selection.getExpandedFeedIds())).toEqual([]);
+  });
+
+  it('does not refetch feed spec when the scoped feed already has ui and dataSources', async () => {
+    const mod = await import('./toolFeedBus');
+    const { client } = await import('./agentlyClient');
+
+    client.getFeedData.mockReset();
+    client.getFeedData.mockResolvedValue({
+      data: { output: { queuedTurns: [{ id: 'turn-q1' }] } },
+      ui: { title: 'Queue' },
+      dataSources: { queueTurns: { source: 'output.queuedTurns' } },
+    });
+
+    mod.applyFeedEvent({
+      type: 'tool_feed_active',
+      feedId: 'queue',
+      conversationId: 'conv-q',
+      feedTitle: 'Queue',
+      feedItemCount: 1,
+      feedData: { output: { queuedTurns: [{ id: 'turn-q1' }] } },
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(client.getFeedData).toHaveBeenCalledTimes(1);
+
+    mod.applyFeedEvent({
+      type: 'tool_feed_active',
+      feedId: 'queue',
+      conversationId: 'conv-q',
+      feedTitle: 'Queue',
+      feedItemCount: 1,
+      feedData: { output: { queuedTurns: [{ id: 'turn-q1' }] } },
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(client.getFeedData).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears feed state only for the targeted conversation', async () => {
+    const mod = await import('./toolFeedBus');
+    const selection = await import('./toolFeedSelection');
+
+    mod.applyFeedEvent({
+      type: 'tool_feed_active',
+      feedId: 'plan',
+      conversationId: 'conv-a',
+      feedTitle: 'Plan',
+      feedItemCount: 1,
+      feedData: { output: { rows: [{ id: 1 }] } },
+    });
+    mod.applyFeedEvent({
+      type: 'tool_feed_active',
+      feedId: 'changes',
+      conversationId: 'conv-b',
+      feedTitle: 'Changes',
+      feedItemCount: 1,
+      feedData: { output: { changes: [{ path: 'b.go' }] } },
+    });
+    selection.activateExclusiveFeed('conv-a::plan', 'conv-a');
+    selection.activateExclusiveFeed('conv-b::changes', 'conv-b');
+
+    mod.clearFeedStateForConversation('conv-a');
+
+    expect(mod.getFeedData('plan', 'conv-a')).toBeNull();
+    expect(mod.getFeedData('changes', 'conv-b')?.data?.output?.changes).toEqual([{ path: 'b.go' }]);
+    expect(mod.getActiveFeeds().map((feed) => feed.feedId)).toEqual(['conv-b::changes']);
+    expect(selection.getSelectedFeedId('conv-a')).toBe('');
+    expect(selection.getSelectedFeedId('conv-b')).toBe('conv-b::changes');
+  });
 });

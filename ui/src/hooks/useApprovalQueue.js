@@ -3,10 +3,11 @@ import { isConnectivityError } from '../services/networkError';
 import { client } from '../services/agentlyClient';
 
 const POLL_MS = 2000;
+const IDLE_POLL_MS = 30000;
 const PAGE_SIZE = 8;
 
-export function shouldPollApprovalQueue(enabled = true, visibilityState = 'visible', hasWindowFocus = true) {
-  return Boolean(enabled) && visibilityState === 'visible' && Boolean(hasWindowFocus);
+export function shouldPollApprovalQueue(enabled = true, visibilityState = 'visible', hasWindowFocus = true, isOpen = false) {
+  return Boolean(enabled) && visibilityState === 'visible' && Boolean(hasWindowFocus) && Boolean(isOpen);
 }
 
 export function useApprovalQueue(enabled = true) {
@@ -62,7 +63,8 @@ export function useApprovalQueue(enabled = true) {
       setHasMore(false);
       return () => {};
     }
-    if (!shouldPollApprovalQueue(enabled, visibilityState, hasWindowFocus)) {
+    const pollEnabled = shouldPollApprovalQueue(enabled, visibilityState, hasWindowFocus, open);
+    if (!pollEnabled && visibilityState !== 'visible') {
       return () => {};
     }
 
@@ -108,7 +110,7 @@ export function useApprovalQueue(enabled = true) {
         }
       }
       if (!canceled) {
-        timer = window.setTimeout(tick, POLL_MS);
+        timer = window.setTimeout(tick, pollEnabled ? POLL_MS : IDLE_POLL_MS);
       }
     };
 
@@ -117,7 +119,7 @@ export function useApprovalQueue(enabled = true) {
       canceled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [enabled, page, visibilityState, hasWindowFocus]);
+  }, [enabled, open, page, visibilityState, hasWindowFocus]);
 
   const pendingCount = useMemo(() => total, [total]);
   const pageCount = useMemo(() => Math.max(1, Math.ceil((Number(total) || 0) / PAGE_SIZE)), [total]);

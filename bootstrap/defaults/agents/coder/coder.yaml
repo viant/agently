@@ -61,6 +61,8 @@ tool:
     - system/exec
     - system/os
     - llm/agents
+  items:
+    - name: message:add
 
 #systemKnowledge:
 #  - url: system_knowledge/

@@ -1000,6 +1000,21 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(shouldShowNarrationBubble([], text)).toBe(true);
   });
 
+  it('shows the narration bubble for active execution groups when live narration exists but no final response exists yet', () => {
+    const visibleGroups = [
+      {
+        finalResponse: false,
+        narrationContent: 'Checking the latest child-agent blocker summary now.'
+      }
+    ];
+
+    expect(shouldShowNarrationBubble(
+      visibleGroups,
+      'Checking the latest child-agent blocker summary now.',
+      ''
+    )).toBe(true);
+  });
+
   it('falls back to delegated tool progress text when no explicit narration is present', () => {
     const text = resolveVisibleBubbleContent([
       {

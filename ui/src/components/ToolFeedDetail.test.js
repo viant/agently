@@ -26,9 +26,11 @@ vi.mock('../services/toolFeedBus', () => ({
   onFeedChange: vi.fn(() => () => {}),
 }));
 
-vi.mock('./ToolFeedBar', () => ({
+vi.mock('../services/toolFeedSelection', () => ({
   isFeedExpanded: vi.fn((feedId) => feedId === 'conv-1::plan'),
+  getExpandedFeedIds: vi.fn(() => new Set(['conv-1::plan'])),
   getSelectedFeedId: vi.fn(() => 'conv-1::plan'),
+  onFeedExpansionChange: vi.fn(() => () => {}),
   onSelectedFeedChange: vi.fn(() => () => {}),
 }));
 
@@ -121,7 +123,7 @@ describe('ToolFeedDetail', () => {
   it('renders nothing when feeds exist but none are expanded', async () => {
     const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
     const toolFeedBus = await import('../services/toolFeedBus');
-    const toolFeedBar = await import('./ToolFeedBar');
+    const toolFeedBar = await import('../services/toolFeedSelection');
 
     toolFeedBus.getActiveFeeds.mockReturnValueOnce([
       {
@@ -138,6 +140,7 @@ describe('ToolFeedDetail', () => {
       _conversationId: 'conv-1',
     });
     toolFeedBar.isFeedExpanded.mockImplementation(() => false);
+    toolFeedBar.getExpandedFeedIds.mockImplementation(() => new Set());
     toolFeedBar.getSelectedFeedId.mockImplementation(() => '');
 
     const html = renderToStaticMarkup(React.createElement(ToolFeedDetail));
@@ -146,7 +149,7 @@ describe('ToolFeedDetail', () => {
 
   it('falls back to fetched plan feed payload when the plan bus is empty', async () => {
     const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
-    const toolFeedBar = await import('./ToolFeedBar');
+    const toolFeedBar = await import('../services/toolFeedSelection');
     getActiveFeedsMock.mockReturnValueOnce([
       {
         feedId: 'conv-1::plan',
@@ -197,6 +200,7 @@ describe('ToolFeedDetail', () => {
       },
     }));
     toolFeedBar.isFeedExpanded.mockImplementation((feedId) => feedId === 'conv-1::plan');
+    toolFeedBar.getExpandedFeedIds.mockImplementation(() => new Set(['conv-1::plan']));
     toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-1::plan');
 
     const html = renderToStaticMarkup(React.createElement(ToolFeedDetail));
@@ -209,7 +213,7 @@ describe('ToolFeedDetail', () => {
 
   it('renders inline fallback for data-only feeds instead of a loading placeholder', async () => {
     const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
-    const toolFeedBar = await import('./ToolFeedBar');
+    const toolFeedBar = await import('../services/toolFeedSelection');
 
     getActiveFeedsMock.mockReturnValueOnce([
       {
@@ -220,6 +224,7 @@ describe('ToolFeedDetail', () => {
       },
     ]);
     toolFeedBar.isFeedExpanded.mockImplementation((feedId) => feedId === 'conv-1::explorer');
+    toolFeedBar.getExpandedFeedIds.mockImplementation(() => new Set(['conv-1::explorer']));
     toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-1::explorer');
     getFeedDataMock.mockImplementation(() => ({
       data: {
@@ -240,7 +245,7 @@ describe('ToolFeedDetail', () => {
 
   it('renders nothing for feeds with no spec and no data instead of a loading placeholder', async () => {
     const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
-    const toolFeedBar = await import('./ToolFeedBar');
+    const toolFeedBar = await import('../services/toolFeedSelection');
 
     getActiveFeedsMock.mockReturnValueOnce([
       {
@@ -251,6 +256,7 @@ describe('ToolFeedDetail', () => {
       },
     ]);
     toolFeedBar.isFeedExpanded.mockImplementation((feedId) => feedId === 'conv-1::explorer');
+    toolFeedBar.getExpandedFeedIds.mockImplementation(() => new Set(['conv-1::explorer']));
     toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-1::explorer');
     getFeedDataMock.mockImplementation(() => ({
       data: {},
@@ -265,7 +271,7 @@ describe('ToolFeedDetail', () => {
   it('renders the queue feed detail when queue feed is expanded', async () => {
     const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
     const toolFeedBus = await import('../services/toolFeedBus');
-    const toolFeedBar = await import('./ToolFeedBar');
+    const toolFeedBar = await import('../services/toolFeedSelection');
 
     toolFeedBus.getActiveFeeds.mockReturnValueOnce([
       {
@@ -276,6 +282,7 @@ describe('ToolFeedDetail', () => {
       },
     ]);
     toolFeedBar.isFeedExpanded.mockImplementation((feedId) => feedId === 'conv-1::queue');
+    toolFeedBar.getExpandedFeedIds.mockImplementation(() => new Set(['conv-1::queue']));
     toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-1::queue');
     getFeedDataMock.mockImplementation((feedId, conversationId) => {
       if (feedId === 'conv-1::queue' && conversationId === 'conv-1') {
@@ -345,7 +352,7 @@ describe('ToolFeedDetail', () => {
   it('uses an already-scoped feed id without double-scoping generic feed lookups', async () => {
     const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
     const toolFeedBus = await import('../services/toolFeedBus');
-    const toolFeedBar = await import('./ToolFeedBar');
+    const toolFeedBar = await import('../services/toolFeedSelection');
     toolFeedBus.getActiveFeeds.mockReturnValueOnce([
       {
         feedId: 'conv-1::terminal',
@@ -355,6 +362,7 @@ describe('ToolFeedDetail', () => {
       },
     ]);
     toolFeedBar.isFeedExpanded.mockImplementation((feedId) => feedId === 'conv-1::terminal');
+    toolFeedBar.getExpandedFeedIds.mockImplementation(() => new Set(['conv-1::terminal']));
     toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-1::terminal');
     getFeedDataMock.mockImplementation((feedId, conversationId) => {
       if (feedId === 'conv-1::terminal' && conversationId === 'conv-1') {
@@ -401,7 +409,7 @@ describe('ToolFeedDetail', () => {
   it('renders the changes feed panel from transcript-backed feed data', async () => {
     const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
     const toolFeedBus = await import('../services/toolFeedBus');
-    const toolFeedBar = await import('./ToolFeedBar');
+    const toolFeedBar = await import('../services/toolFeedSelection');
 
     toolFeedBus.getActiveFeeds.mockReturnValueOnce([
       {
@@ -412,6 +420,7 @@ describe('ToolFeedDetail', () => {
       },
     ]);
     toolFeedBar.isFeedExpanded.mockImplementation((feedId) => feedId === 'conv-1::changes');
+    toolFeedBar.getExpandedFeedIds.mockImplementation(() => new Set(['conv-1::changes']));
     toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-1::changes');
     getFeedDataMock.mockImplementation((feedId, conversationId) => {
       if (feedId === 'conv-1::changes' && conversationId === 'conv-1') {
@@ -461,7 +470,7 @@ describe('ToolFeedDetail', () => {
 
   it('renders multiple expanded feeds together instead of tabbing them', async () => {
     const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
-    const toolFeedBar = await import('./ToolFeedBar');
+    const toolFeedBar = await import('../services/toolFeedSelection');
 
     getActiveFeedsMock.mockReturnValueOnce([
       {
@@ -480,6 +489,7 @@ describe('ToolFeedDetail', () => {
       },
     ]);
     toolFeedBar.isFeedExpanded.mockImplementation((feedId) => feedId === 'conv-1::plan' || feedId === 'conv-1::changes');
+    toolFeedBar.getExpandedFeedIds.mockImplementation(() => new Set(['conv-1::plan', 'conv-1::changes']));
     toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-1::changes');
     getFeedDataMock.mockImplementation((feedId) => {
       if (feedId === 'conv-1::plan') {
@@ -503,6 +513,52 @@ describe('ToolFeedDetail', () => {
     expect(html).toContain('Plan');
     expect(html).toContain('Changes');
     expect(html).not.toContain('tool-feed-tabs');
+  });
+
+  it('filters expanded feeds to the active conversation in the detail body', async () => {
+    const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
+    const toolFeedBar = await import('../services/toolFeedSelection');
+
+    getActiveFeedsMock.mockReturnValueOnce([
+      {
+        feedId: 'conv-1::plan',
+        rawFeedId: 'plan',
+        title: 'Plan',
+        conversationId: 'conv-1',
+      },
+      {
+        feedId: 'conv-2::changes',
+        rawFeedId: 'changes',
+        title: 'Changes',
+        conversationId: 'conv-2',
+      },
+    ]);
+    toolFeedBar.isFeedExpanded.mockImplementation((feedId) => feedId === 'conv-1::plan' || feedId === 'conv-2::changes');
+    toolFeedBar.getExpandedFeedIds.mockImplementation(() => new Set(['conv-1::plan', 'conv-2::changes']));
+    toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-2::changes');
+    getFeedDataMock.mockImplementation((feedId) => {
+      if (feedId === 'conv-1::plan') {
+        return {
+          data: { output: { plan: [{ step: 'Inspect package', status: 'completed' }] } },
+          _conversationId: 'conv-1',
+        };
+      }
+      if (feedId === 'conv-2::changes') {
+        return {
+          data: { output: { changes: [{ url: '/tmp/leak.go', kind: 'create' }] } },
+          _conversationId: 'conv-2',
+        };
+      }
+      return null;
+    });
+
+    const html = renderToStaticMarkup(React.createElement(ToolFeedDetail, {
+      conversationId: 'conv-1',
+    }));
+
+    expect(html).toContain('Inspect package');
+    expect(html).not.toContain('/tmp/leak.go');
+    expect(html).not.toContain('Changes');
   });
 
   it('keeps changes and explorer feeds visually compact at the spec level', () => {

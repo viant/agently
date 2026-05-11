@@ -1,6 +1,9 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@blueprintjs/core';
-import { summarizeLinkedConversationTranscript as sdkSummarizeLinkedConversationTranscript } from 'agently-core-ui-sdk';
+import {
+  summarizeLinkedConversationTranscript as sdkSummarizeLinkedConversationTranscript,
+  shouldShowNarrationBubble as sdkShouldShowNarrationBubble,
+} from 'agently-core-ui-sdk';
 import { DetailContext } from '../../context/DetailContext';
 import { ConversationViewContext } from '../../context/ConversationViewContext';
 import { openLinkedConversationWindow } from '../../services/conversationWindow';
@@ -921,16 +924,7 @@ export function resolveIterationBubbleContent({
 }
 
 export function shouldShowNarrationBubble(visibleGroups = [], visibleText = '', responseContent = '') {
-  const text = String(visibleText || '').trim();
-  if (!text) return false;
-  const groups = Array.isArray(visibleGroups) ? visibleGroups : [];
-  if (groups.length === 0) return true;
-  const hasFinalVisibleGroup = groups.some((group) => {
-    const finalText = String(group?.finalContent || '').trim();
-    return !!group?.finalResponse && finalText !== '';
-  });
-  if (hasFinalVisibleGroup) return true;
-  return String(responseContent || '').trim() !== '';
+  return sdkShouldShowNarrationBubble(visibleGroups, visibleText, responseContent);
 }
 
 export function hasPendingElicitationStep(visibleGroups = []) {
@@ -1406,7 +1400,7 @@ export function resolveCanonicalDetailStep(canonicalRow = null, step = {}) {
 
 export default function IterationBlock({ message, canonicalRow = null, context, showToolFeedDetail = true, suppressBubble = false }) {
   const { showDetail } = useContext(DetailContext);
-  const { showExecutionDetails = true } = useContext(ConversationViewContext);
+  const { showExecutionDetails = true, toolFeedDock = 'inline' } = useContext(ConversationViewContext);
   const data = buildIterationDataFromCanonicalRow(canonicalRow, message);
   const toolCalls = Array.isArray(data.toolCalls) ? data.toolCalls : [];
   const displayToolCalls = useMemo(
@@ -1982,7 +1976,12 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
               includeToolCalls: true
             }, {
               executionGroupLimit: 1,
-              executionGroupOffset: 0
+              executionGroupOffset: 0,
+              selectors: {
+                Transcript: { limit: 1, orderBy: 'created_at DESC,id DESC' },
+                Message: { limit: 8, orderBy: 'created_at DESC,id DESC' },
+                ToolMessage: { limit: 4, orderBy: 'created_at DESC,id DESC' }
+              }
             }).catch(() => null)
           ]);
           const preview = transcript ? sdkSummarizeLinkedConversationTranscript(transcript) : null;
@@ -2237,7 +2236,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
           ) : null}
         </section>
       ) : null}
-      {showExecutionDetails && showToolFeedDetail ? <ToolFeedDetail context={context} /> : null}
+      {showExecutionDetails && showToolFeedDetail && toolFeedDock !== 'right' ? <ToolFeedDetail context={context} /> : null}
       {!suppressBubble && !hasVisibleElicitation && !hasPendingExecutionElicitation && shouldShowNarrationBubble(visibleGroups, visibleRenderedText, data?.response?.content) ? (
         <BubbleMessage
           message={{
