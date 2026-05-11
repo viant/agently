@@ -18,6 +18,7 @@ vi.mock('./agentlyClient', () => ({
 
 vi.mock('./chatStore', () => ({
   submit: vi.fn(),
+  steer: vi.fn(),
 }));
 
 vi.mock('./chatRuntime', () => ({
@@ -74,7 +75,7 @@ vi.mock('../utils/dialogBus', () => ({
 }));
 
 import { client } from './agentlyClient';
-import { submit as submitToChatStore } from './chatStore';
+import { submit as submitToChatStore, steer as steerToChatStore } from './chatStore';
 import { onInit, submitMessage } from './chatService';
 import { listLookupRegistry } from '../components/lookups/client.js';
 import {
@@ -293,6 +294,73 @@ describe('submitMessage', () => {
         },
       },
     }));
+  });
+
+  it('steers into the active running turn instead of queueing a follow-up turn', async () => {
+    client.query.mockResolvedValue({});
+    client.steerTurn = vi.fn().mockResolvedValue({ status: 'accepted', turnId: 'turn-1' });
+    ensureConversation.mockResolvedValue('conv-steer');
+    resolveUserID.mockReturnValue('');
+    ensureContextResources.mockReturnValue({
+      runningTurnId: 'turn-1',
+      activeStreamTurnId: '',
+      lastHasRunning: true,
+      activeConversationID: '',
+      liveOwnedConversationID: '',
+      activeStreamPrompt: '',
+      activeStreamTurnId: '',
+      activeStreamStartedAt: 0,
+    });
+    dsTick.mockResolvedValue({
+      conversationID: 'conv-steer',
+      hasRunning: true,
+    });
+
+    const convForm = {};
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => convForm,
+                setFormData: vi.fn(({ values }) => Object.assign(convForm, values)),
+              },
+            },
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({
+                  defaults: { model: 'openai_gpt-5_4' },
+                }),
+              },
+            },
+          };
+        }
+        return null;
+      },
+    };
+
+    await submitMessage({
+      context,
+      message: 'Focus only on bid and floor evidence.',
+      model: 'openai_gpt-5_4',
+      agent: 'steward',
+    });
+
+    expect(steerToChatStore).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-steer',
+      content: 'Focus only on bid and floor evidence.',
+    }));
+    expect(client.steerTurn).toHaveBeenCalledWith('conv-steer', 'turn-1', {
+      content: 'Focus only on bid and floor evidence.',
+      role: 'user',
+    });
+    expect(client.query).not.toHaveBeenCalled();
+    expect(submitToChatStore).not.toHaveBeenCalled();
   });
 
   it('submits unresolved required starter lookups by preserving the /name token for the model', async () => {

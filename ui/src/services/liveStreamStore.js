@@ -416,6 +416,15 @@ function preserveModelStepStartedAt(previousGroups = [], mergedGroups = [], fall
   });
 }
 
+function latestExecutionGroupNarration(groups = [], fallback = '') {
+  const list = Array.isArray(groups) ? groups : [];
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const narration = String(list[index]?.narration || '').trim();
+    if (narration) return narration;
+  }
+  return String(fallback || '').trim();
+}
+
 function buildCanonicalExecutionRow(payload = {}, fallbackConversationID = '') {
   const conversationID = String(payload?.conversationId || fallbackConversationID || '').trim();
   const turnId = String(payload?.turnId || '').trim();
@@ -676,11 +685,27 @@ function applyExecutionStreamEventToRows(rows = [], payload = {}, fallbackConver
     }
     const eventType = String(payload?.type || '').trim().toLowerCase();
     const shouldAdvanceRowStatus = eventType === 'model_started' || eventType === 'text_delta' || eventType === 'tool_calls_planned';
-    // Update content/status when finalResponse arrives; otherwise keep existing
+    const updatedInterim = nextRow.interim === 0 ? 0 : prev.interim;
+    const mergedExecutionGroups = preserveModelStepStartedAt(
+      prev.executionGroups,
+      preserveExecutionGroupStartedAt(
+        mergeCanonicalExecutionGroups(prev.executionGroups, nextRow.executionGroups),
+        preservedStartedAt || nextRow.startedAt || prev.startedAt
+      ),
+      preservedStartedAt || nextRow.startedAt || prev.startedAt
+    );
+    const mergedNarration = latestExecutionGroupNarration(
+      mergedExecutionGroups,
+      nextRow.narration || prev.narration
+    );
+    const hasStreamContent = String(prev?._streamContent || '').trim() !== '';
+    // Interim execution-group narration owns the visible assistant bubble
+    // until real streamed/final content replaces it.
     const updatedContent = nextRow.interim === 0 && String(nextRow.content || '').trim()
       ? nextRow.content
-      : prev.content;
-    const updatedInterim = nextRow.interim === 0 ? 0 : prev.interim;
+      : (!hasStreamContent && updatedInterim !== 0 && mergedNarration
+        ? mergedNarration
+        : prev.content);
     existing[index] = {
       ...prev,
       agentIdUsed: String(nextRow.agentIdUsed || prev?.agentIdUsed || '').trim(),
@@ -693,15 +718,8 @@ function applyExecutionStreamEventToRows(rows = [], payload = {}, fallbackConver
       sequence: nextRow.sequence ?? null,
       interim: updatedInterim,
       content: updatedContent,
-      narration: nextRow.narration || prev.narration,
-      executionGroups: preserveModelStepStartedAt(
-        prev.executionGroups,
-        preserveExecutionGroupStartedAt(
-          mergeCanonicalExecutionGroups(prev.executionGroups, nextRow.executionGroups),
-          preservedStartedAt || nextRow.startedAt || prev.startedAt
-        ),
-        preservedStartedAt || nextRow.startedAt || prev.startedAt
-      )
+      narration: mergedNarration || prev.narration,
+      executionGroups: mergedExecutionGroups
     };
   }
   existing.sort(compareTemporalEntries);

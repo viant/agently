@@ -38,8 +38,14 @@ const pickEnv = (env, keys) => {
   return out;
 };
 
-const resolveProxyTarget = (env) => {
-  const candidates = [env.DATA_URL, env.APP_URL, LOCAL_APP_TARGET];
+export const resolveProxyTarget = (env) => {
+  const candidates = [
+    env.APPSERVER_URL,
+    env.DATA_URL,
+    env.AUTH_URL,
+    env.APP_URL,
+    LOCAL_APP_TARGET
+  ];
   for (const candidate of candidates) {
     const value = String(candidate || '').trim();
     if (!value) continue;

@@ -3,6 +3,7 @@ import { activeWindows } from 'forge/core';
 
 import { bootstrapConversationSelection, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, handleStreamEvent, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, normalizeMetaResponse, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot } from './chatRuntime';
 import { client } from './agentlyClient';
+import { applyFeedEvent, clearFeedState, getFeedData } from './toolFeedBus';
 
 vi.mock('./agentlyClient', () => ({
   client: {
@@ -10,6 +11,7 @@ vi.mock('./agentlyClient', () => ({
     createConversation: vi.fn(),
     getConversation: vi.fn(),
     getTranscript: vi.fn(),
+    getFeedData: vi.fn().mockResolvedValue(null),
     listGeneratedFiles: vi.fn().mockResolvedValue([]),
     listPendingElicitations: vi.fn().mockResolvedValue([])
   }
@@ -131,6 +133,66 @@ describe('handleStreamEvent', () => {
       ]
     });
     expect(chatState.runningTurnId).toBe('turn-1');
+  });
+
+  it('keeps transcript feed cache aligned with live feed active/inactive events', () => {
+    const chatState = ensureContextResources({ resources: {} });
+    chatState.lastTranscriptFeedsByConversation = {
+      'conv-1': [
+        { feedId: 'plan', title: 'Plan', itemCount: 1, data: { output: { rows: [{ step: 'old' }] } } }
+      ]
+    };
+    const context = {
+      resources: { chat: chatState },
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1' }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    handleStreamEvent(chatState, context, 'conv-1', {
+      type: 'tool_feed_active',
+      conversationId: 'conv-1',
+      feedId: 'changes',
+      feedTitle: 'Changes',
+      feedItemCount: 2,
+      feedData: { output: { changes: [{ path: 'a.go' }, { path: 'b.go' }] } }
+    });
+
+    expect(chatState.lastTranscriptFeedsByConversation['conv-1']).toEqual([
+      { feedId: 'plan', title: 'Plan', itemCount: 1, data: { output: { rows: [{ step: 'old' }] } } },
+      { feedId: 'changes', title: 'Changes', itemCount: 2, data: { output: { changes: [{ path: 'a.go' }, { path: 'b.go' }] } } }
+    ]);
+
+    handleStreamEvent(chatState, context, 'conv-1', {
+      type: 'tool_feed_inactive',
+      conversationId: 'conv-1',
+      feedId: 'plan'
+    });
+
+    expect(chatState.lastTranscriptFeedsByConversation['conv-1']).toEqual([
+      { feedId: 'changes', title: 'Changes', itemCount: 2, data: { output: { changes: [{ path: 'a.go' }, { path: 'b.go' }] } } }
+    ]);
   });
 
   it('syncs local turn state from tracker turn lifecycle events without message ids', () => {
@@ -2225,6 +2287,7 @@ describe('switchConversation', () => {
     client.getTranscript.mockReset();
     client.listGeneratedFiles.mockReset();
     client.listGeneratedFiles.mockResolvedValue([]);
+    clearFeedState();
   });
 
   it('resets stale transcript cursor when bootstrap already set the target conversation id', async () => {
@@ -2383,7 +2446,7 @@ describe('switchConversation', () => {
         conversationId: 'conv-live-target',
         includeModelCalls: false,
         includeToolCalls: false,
-        includeFeeds: false,
+        includeFeeds: true,
         since: undefined
       }),
       undefined
@@ -2391,7 +2454,7 @@ describe('switchConversation', () => {
     expect(messageState.collection).toEqual(expect.any(Array));
   });
 
-  it('connects stream immediately when switching to a visible idle conversation', async () => {
+  it('does not connect stream for a visible conversation that is already completed', async () => {
     const messageState = { collection: [] };
     const conversationState = { values: { id: 'conv-idle-target', queuedTurns: [] } };
     const context = {
@@ -2458,7 +2521,139 @@ describe('switchConversation', () => {
 
     await switchConversation(context, 'conv-idle-target');
 
-    expect(client.streamEvents).toHaveBeenCalledWith('conv-idle-target', expect.any(Object));
+    expect(client.streamEvents).not.toHaveBeenCalled();
+  });
+
+  it('uses live stream for the current conversation only when live state is present', () => {
+    const completedContext = {
+      resources: {
+        chat: {
+          activeConversationID: 'conv-done',
+          liveOwnedConversationID: '',
+          runningTurnId: '',
+          activeStreamTurnId: '',
+          liveOwnedTurnIds: [],
+        }
+      },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-done', running: false, status: 'succeeded' })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    const runningContext = {
+      resources: {
+        chat: {
+          activeConversationID: 'conv-live',
+          liveOwnedConversationID: '',
+          runningTurnId: 'turn-live',
+          activeStreamTurnId: '',
+          liveOwnedTurnIds: [],
+        }
+      },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-live', running: true, status: 'running' })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    expect(shouldUseLiveStream(completedContext, 'conv-done')).toBe(false);
+    expect(shouldUseLiveStream(runningContext, 'conv-live')).toBe(true);
+  });
+
+  it('clears feeds for the previously active conversation even when the form id is blank', async () => {
+    applyFeedEvent({
+      type: 'tool_feed_active',
+      feedId: 'plan',
+      conversationId: 'conv-old',
+      feedTitle: 'Plan',
+      feedItemCount: 1,
+      feedData: { output: { rows: [{ id: 1 }] } },
+    });
+    applyFeedEvent({
+      type: 'tool_feed_active',
+      feedId: 'changes',
+      conversationId: 'conv-keep',
+      feedTitle: 'Changes',
+      feedItemCount: 1,
+      feedData: { output: { changes: [{ path: 'keep.go' }] } },
+    });
+
+    const messageState = { collection: [] };
+    const conversationState = { values: { id: '', queuedTurns: [] } };
+    const context = {
+      resources: {
+        chat: {
+          lastSinceCursor: '',
+          lastConversationID: 'conv-old',
+          transcriptRows: [],
+          renderRows: [],
+          liveRows: [],
+          lastQueuedTurns: [],
+          lastHasRunning: false,
+          runningTurnId: '',
+          activeConversationID: 'conv-old',
+          liveOwnedConversationID: '',
+          liveOwnedTurnIds: []
+        }
+      },
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => conversationState.values,
+                setFormData: ({ values }) => { conversationState.values = values; }
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: {}, agentInfos: [] }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    client.createConversation.mockResolvedValueOnce({ id: 'conv-new', title: 'New chat' });
+
+    await createNewConversation(context);
+
+    expect(getFeedData('plan', 'conv-old')).toBeNull();
+    expect(getFeedData('changes', 'conv-keep')?.data?.output?.changes).toEqual([{ path: 'keep.go' }]);
   });
 });
 
@@ -3854,7 +4049,7 @@ describe('shouldUseLiveStream', () => {
     expect(shouldUseLiveStream(context, 'conv-transcript')).toBe(false);
   });
 
-  it('uses stream for the visible conversation even before it is marked running', () => {
+  it('does not use stream for the visible conversation before any live signal exists', () => {
     const context = {
       resources: {
         chat: {
@@ -3876,7 +4071,7 @@ describe('shouldUseLiveStream', () => {
       }
     };
 
-    expect(shouldUseLiveStream(context, 'conv-visible')).toBe(true);
+    expect(shouldUseLiveStream(context, 'conv-visible')).toBe(false);
     expect(shouldUseLiveStream(context, 'conv-other')).toBe(false);
   });
 
@@ -3956,7 +4151,7 @@ describe('shouldUseLiveStream', () => {
       }
     };
 
-    expect(shouldUseLiveStream(context, 'conv-finished')).toBe(true);
+    expect(shouldUseLiveStream(context, 'conv-finished')).toBe(false);
   });
 
   it('allows forced transcript refresh scheduling even while live owns the turn', () => {

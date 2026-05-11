@@ -1,7 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Container as ForgeContainer } from 'forge/components';
 import { getFeedData, onFeedDataChange, getActiveFeeds, onFeedChange, splitFeedKey } from '../services/toolFeedBus';
-import { getSelectedFeedId, isFeedExpanded, onSelectedFeedChange } from './ToolFeedBar';
+import {
+  getExpandedFeedIds,
+  getSelectedFeedId,
+  isFeedExpanded,
+  onFeedExpansionChange,
+  onSelectedFeedChange
+} from '../services/toolFeedSelection';
 import {
   wireFeedSignals,
   normalizeDataSources,
@@ -54,35 +60,55 @@ function hasRenderableFeedData(data = null) {
   return Object.keys(root).length > 0;
 }
 
+function resolveFeedDetailConversationId(explicitConversationId = '', context = null) {
+  const provided = String(explicitConversationId || '').trim();
+  if (provided) return provided;
+  const fromConversationDS = String(
+    context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.()?.id || ''
+  ).trim();
+  if (fromConversationDS) return fromConversationDS;
+  return '';
+}
+
 /**
  * Expanded feed detail panel rendered below execution details in IterationBlock.
  * Uses Forge Container to render feed UI specs from YAML.
  * Falls back to generic InlineRenderer when no UI spec is present.
  */
-export default function ToolFeedDetail({ context }) {
+export default function ToolFeedDetail({ context, variant = 'inline', conversationId = '' }) {
   const [feeds, setFeeds] = useState(getActiveFeeds);
   const [dataVersion, setDataVersion] = useState(0);
-  const [, setExpandVersion] = useState(0);
-  const [selectedFeedId, setSelectedFeedId] = useState(getSelectedFeedId);
+  const [expandedFeeds, setExpandedFeeds] = useState(() => getExpandedFeedIds());
+  const scopedConversationId = resolveFeedDetailConversationId(conversationId, context);
+  const [selectedFeedId, setSelectedFeedId] = useState(() => getSelectedFeedId(scopedConversationId));
   const [isOverflowing, setIsOverflowing] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const bodyRef = useRef(null);
-  const collapsedHeight = 180;
+  const collapsedHeight = variant === 'rail' ? 280 : 180;
+
+  useEffect(() => {
+    setSelectedFeedId(getSelectedFeedId(scopedConversationId));
+  }, [scopedConversationId]);
 
   useEffect(() => {
     const u1 = onFeedChange((next) => setFeeds(next));
     const u2 = onFeedDataChange(() => setDataVersion((n) => n + 1));
-    const u3 = onSelectedFeedChange((next) => setSelectedFeedId(next || ''));
-    // Poll expand state changes (shared global, no subscription).
-    const interval = setInterval(() => setExpandVersion((n) => n + 1), 300);
-    return () => { u1(); u2(); u3(); clearInterval(interval); };
-  }, []);
+    const u3 = onSelectedFeedChange(() => setSelectedFeedId(getSelectedFeedId(scopedConversationId)));
+    const u4 = onFeedExpansionChange((next) => setExpandedFeeds(new Set(next)));
+    return () => { u1(); u2(); u3(); u4(); };
+  }, [scopedConversationId]);
 
   // Collect expanded feeds that have data.
-  const candidateFeeds = dedupeFeeds((feeds || []).filter((f) => getFeedData(f.feedId, f.conversationId)));
-  const hasAnyExpandedFeed = candidateFeeds.some((feed) => isFeedExpanded(feed.feedId));
+  const candidateFeeds = dedupeFeeds((feeds || []).filter((feed) => {
+    const feedConversationId = String(feed?.conversationId || '').trim();
+    if (scopedConversationId && feedConversationId && feedConversationId !== scopedConversationId) {
+      return false;
+    }
+    return !!getFeedData(feed.feedId, feed.conversationId);
+  }));
+  const hasAnyExpandedFeed = candidateFeeds.some((feed) => expandedFeeds.has(feed.feedId));
   const visibleFeeds = hasAnyExpandedFeed
-    ? candidateFeeds.filter((feed) => isFeedExpanded(feed.feedId))
+    ? candidateFeeds.filter((feed) => expandedFeeds.has(feed.feedId))
     : [];
   const renderableFeeds = visibleFeeds.filter((feed) => {
     const data = getFeedData(feed.feedId, feed.conversationId);
@@ -127,7 +153,7 @@ export default function ToolFeedDetail({ context }) {
   if (renderableFeeds.length === 0) return null;
 
   return (
-    <div className={`app-tool-feed-detail${isOverflowing ? ' has-overflow' : ''}${isExpanded ? ' is-expanded' : ' is-collapsed'}`}>
+    <div className={`app-tool-feed-detail app-tool-feed-detail--${variant}${isOverflowing ? ' has-overflow' : ''}${isExpanded ? ' is-expanded' : ' is-collapsed'}`}>
       <div ref={bodyRef} className="app-tool-feed-detail-body">
         {renderableFeeds.map((feed) => (
           <section
@@ -145,11 +171,12 @@ export default function ToolFeedDetail({ context }) {
               feedId={feed.feedId}
               rawFeedId={feed.rawFeedId || splitFeedKey(feed.feedId).feedId}
               context={context}
+              variant={variant}
             />
           </section>
         ))}
       </div>
-      {isOverflowing ? (
+      {isOverflowing && variant !== 'rail' ? (
         <div className="app-tool-feed-detail-footer">
           <button
             type="button"
@@ -177,10 +204,11 @@ export function resolveRootFeedDataSourceName(dataSources = {}) {
  * Renders a single feed panel. Uses Forge Container when the feed spec
  * includes a `ui` definition; falls back to InlineRenderer otherwise.
  */
-function FeedPanel({ feedId, rawFeedId, context }) {
+function FeedPanel({ feedId, rawFeedId, context, variant = 'inline' }) {
   const scopedConversationId = String(splitFeedKey(feedId).conversationId || '').trim();
   const data = getFeedData(feedId, scopedConversationId);
-  const [forgeReady, setForgeReady] = useState(() => typeof window === 'undefined');
+  const isServerRender = typeof window === 'undefined';
+  const [forgeReadyKey, setForgeReadyKey] = useState(() => (isServerRender ? '__ssr__' : ''));
 
   // Build the execution shape that wireFeedSignals expects.
   const exe = useMemo(() => {
@@ -213,15 +241,29 @@ function FeedPanel({ feedId, rawFeedId, context }) {
 
   // Build Forge context for this feed.
   const conversationId = data?._conversationId || scopedConversationId || '';
-  const forgeContext = useMemo(
-    () => createFeedContext(feedId, exe?.dataSources || {}, conversationId),
-    [conversationId, exe?.dataSources, feedId]
-  );
+  const forgeRenderKey = useMemo(() => {
+    const dsNames = Object.keys(exe?.dataSources || {}).sort().join(',');
+    return `${feedId}::${conversationId}::${rawFeedId}::${dsNames}`;
+  }, [conversationId, exe?.dataSources, feedId, rawFeedId]);
+  const [forgeContext, setForgeContext] = useState(() => (
+    isServerRender ? createFeedContext(feedId, exe?.dataSources || {}, conversationId) : null
+  ));
+
+  useEffect(() => {
+    if (isServerRender) return;
+    if (!exe) {
+      setForgeContext(null);
+      return;
+    }
+    setForgeContext(createFeedContext(feedId, exe?.dataSources || {}, conversationId));
+  }, [conversationId, exe, feedId, isServerRender]);
 
   // Wire Forge signals whenever data changes.
   useEffect(() => {
-    setForgeReady(false);
-    if (!exe || !uiContainer) { return; }
+    if (!exe || !uiContainer || !forgeContext) {
+      setForgeReadyKey('');
+      return;
+    }
     const timer = setTimeout(() => {
       const windowId = conversationId ? `feed-${feedId}-${conversationId}` : `feed-${feedId}`;
       wireFeedSignals(exe, windowId);
@@ -231,13 +273,12 @@ function FeedPanel({ feedId, rawFeedId, context }) {
           forgeContext.Context(dsRef)?.handlers?.dataSource?.setCollection?.(Array.isArray(rows) ? rows : []);
         } catch (_) {}
       }
-      setForgeReady(true);
+      setForgeReadyKey(forgeRenderKey);
     }, 0);
     return () => {
       clearTimeout(timer);
-      setForgeReady(false);
     };
-  }, [exe, uiContainer, feedId, data, forgeContext]);
+  }, [conversationId, exe, feedId, forgeContext, forgeRenderKey, uiContainer]);
 
   if (!data) return null;
 
@@ -245,20 +286,28 @@ function FeedPanel({ feedId, rawFeedId, context }) {
 
   if (!hasFullFeedSpec) {
     if (!hasRenderableFeedData(data)) return null;
-    return <InlineRenderer data={data} />;
+    return <InlineRenderer data={data} variant={variant} />;
   }
 
   // No UI spec → fall back to generic InlineRenderer.
   if (!uiContainer) {
-    return <InlineRenderer data={data} />;
+    return <InlineRenderer data={data} variant={variant} />;
   }
 
-  if (!forgeReady) {
+  if (!forgeContext) {
     return <div style={{ padding: 8, color: 'var(--gray2)' }}>Preparing feed…</div>;
   }
 
+  if (!isServerRender && forgeReadyKey !== forgeRenderKey) {
+    return <div style={{ padding: 8, color: 'var(--gray2)' }}>Preparing feed…</div>;
+  }
+
+  const railStyle = variant === 'rail'
+    ? { height: '100%', minHeight: 0, overflowY: 'auto', paddingRight: 4 }
+    : { maxHeight: 'min(26vh, 220px)', overflowY: 'auto', paddingRight: 4 };
+
   return (
-    <div className="app-tool-feed-detail-list" style={{ maxHeight: 'min(26vh, 220px)', overflowY: 'auto', paddingRight: 4 }}>
+    <div className="app-tool-feed-detail-list" style={railStyle}>
       <ForgeContainer container={uiContainer} context={forgeContext} />
     </div>
   );
@@ -268,7 +317,7 @@ function FeedPanel({ feedId, rawFeedId, context }) {
  * Generic data-driven renderer — inspects the data shape and renders
  * accordingly. Used as fallback when no Forge UI spec is defined.
  */
-function InlineRenderer({ data }) {
+function InlineRenderer({ data, variant = 'inline' }) {
   if (!data) return null;
   const root = data?.data || {};
   // Flatten: if root has a single "output" key, use that as the display root.
@@ -276,8 +325,12 @@ function InlineRenderer({ data }) {
     ? root.output
     : root;
 
+  const railStyle = variant === 'rail'
+    ? { height: '100%', minHeight: 0, overflowY: 'auto' }
+    : { maxHeight: 'min(18vh, 140px)', overflowY: 'auto' };
+
   return (
-    <div className="app-tool-feed-detail-list" style={{ maxHeight: 'min(18vh, 140px)', overflowY: 'auto' }}>
+    <div className="app-tool-feed-detail-list" style={railStyle}>
       <AutoRender value={display} depth={0} />
     </div>
   );

@@ -374,6 +374,38 @@ describe('prepareChangeFiles', () => {
     expect(folderNode?.childNodes[0].name).toBe('beta_test.go');
     expect(folderNode?.childNodes[0].origUri).toBe('/repo/nested/beta_test.go');
   });
+
+  it('collapses single-child folder chains so the changed leaf stays visible', () => {
+    const context = {
+      handlers: { dataSource: { dataSourceRef: 'snapshot' } },
+      Context(name) {
+        if (name === 'snapshot') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ workdir: '/repo' }),
+                getFormData: () => ({ workdir: '/repo' }),
+              },
+            },
+          };
+        }
+        return null;
+      },
+    };
+
+    const tree = prepareChangeFiles({
+      context,
+      collection: [
+        { url: '/repo/deep/path/to/folder/PROOF_FEED_NOTE.md', diff: 'a', kind: 'modify' },
+      ],
+    });
+
+    expect(tree).toHaveLength(1);
+    expect(tree[0].name).toBe('deep/path/to/folder');
+    expect(tree[0].childNodes).toHaveLength(1);
+    expect(tree[0].childNodes[0].name).toBe('PROOF_FEED_NOTE.md');
+    expect(tree[0].childNodes[0].uri).toBe('/repo/deep/path/to/folder/PROOF_FEED_NOTE.md');
+  });
 });
 
 describe('onChangedFileSelect', () => {
@@ -404,6 +436,36 @@ describe('onChangedFileSelect', () => {
       current: 'current file body',
       prev: 'previous file body',
       diff: '--- before\n+++ after',
+      hasPrev: true,
+      loading: false,
+    }));
+  });
+
+  it('supports file-browser item payloads and derives the dialog title from the changed asset path', async () => {
+    client.downloadWorkspaceFile
+      .mockResolvedValueOnce('current asset body')
+      .mockResolvedValueOnce('previous asset body');
+
+    const ok = await onChangedFileSelect({
+      item: {
+        url: '/repo/nested/beta_test.go',
+        origUrl: '/repo/nested/beta_test.go',
+        diff: '@@ change @@',
+      },
+    });
+
+    expect(ok).toBe(true);
+    expect(openCodeDiffDialog).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'beta_test.go',
+      currentUri: '/repo/nested/beta_test.go',
+      prevUri: '/repo/nested/beta_test.go',
+      hasPrev: true,
+      loading: true,
+    }));
+    expect(updateCodeDiffDialog).toHaveBeenCalledWith(expect.objectContaining({
+      current: 'current asset body',
+      prev: 'previous asset body',
+      diff: '@@ change @@',
       hasPrev: true,
       loading: false,
     }));

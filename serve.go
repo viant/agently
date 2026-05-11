@@ -22,16 +22,22 @@ import (
 	execconfig "github.com/viant/agently-core/app/executor/config"
 	appserver "github.com/viant/agently-core/app/server"
 	mcpexpose "github.com/viant/agently-core/protocol/mcp/expose"
+	"github.com/viant/agently-core/protocol/tool"
+	uidatasource "github.com/viant/agently-core/protocol/tool/service/ui/datasource"
+	uiview "github.com/viant/agently-core/protocol/tool/service/ui/view"
+	uiwindow "github.com/viant/agently-core/protocol/tool/service/ui/window"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauthctx "github.com/viant/agently-core/service/auth"
 	svcscheduler "github.com/viant/agently-core/service/scheduler"
 	"github.com/viant/agently-core/workspace"
 	wscfg "github.com/viant/agently-core/workspace/config"
+	forgewindowrepo "github.com/viant/agently-core/workspace/repository/forgewindow"
 	"github.com/viant/agently/bootstrap"
 	deployui "github.com/viant/agently/deployment/ui"
 	coremeta "github.com/viant/agently/metadata"
 	agentlyrt "github.com/viant/agently/runtime"
 	"github.com/viant/agently/server"
+	forgeuisvc "github.com/viant/forge/backend/mcp/service"
 )
 
 // shutdownTimeout bounds how long Serve will wait for in-flight HTTP and MCP
@@ -135,6 +141,18 @@ func Serve(options ServeOptions) error {
 		log.Printf("scheduler: max concurrent runs capped at %d", cap)
 	}
 	schedulerSvc := svcscheduler.New(scheduleStore, rt.Agent, schedulerSvcOpts...)
+	uiBridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	if rt.Registry != nil {
+		if err := tool.AddInternalService(rt.Registry, uiview.New(forgewindowrepo.NewWithStore(rt.Store), uiBridge)); err != nil {
+			log.Printf("agently-app: failed to register internal UI view service: %v", err)
+		}
+		if err := tool.AddInternalService(rt.Registry, uiwindow.New(uiBridge)); err != nil {
+			log.Printf("agently-app: failed to register internal UI window service: %v", err)
+		}
+		if err := tool.AddInternalService(rt.Registry, uidatasource.New(uiBridge)); err != nil {
+			log.Printf("agently-app: failed to register internal UI datasource service: %v", err)
+		}
+	}
 	agentWatchdog := agentsvc.NewWatchdog(rt.Data, rt.Agent, agentsvc.WithWatchdogTokenProvider(rt.TokenProvider))
 	go agentWatchdog.Start(ctx)
 	go func() {
@@ -152,6 +170,7 @@ func Serve(options ServeOptions) error {
 		AuthRuntime:      authRuntime,
 		SchedulerService: schedulerSvc,
 		SchedulerOptions: schedulerOpts,
+		UIBridgeHandler:  http.HandlerFunc(uiBridge.Hub().ServeHTTPRPC),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create api handler: %w", err)
@@ -161,7 +180,16 @@ func Serve(options ServeOptions) error {
 	uiBundle := servedUIBundle{Name: "v1", FS: deployui.FS, Index: deployui.Index}
 
 	h := newRouter(apiHandler, metaHandler, speechHandler, uiDist, uiBundle)
-	srv := &http.Server{Addr: addr, Handler: h}
+	// Bound header-read and idle keep-alive so half-open / slow-loris
+	// connections cannot accumulate goroutines+threads. Body read/write
+	// timeouts are intentionally left zero because SSE handlers are
+	// long-lived by design.
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: 30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 
 	// Expose MCP server when explicitly requested or when workspace config
 	// declares an MCP server port. Build before the shutdown goroutine starts

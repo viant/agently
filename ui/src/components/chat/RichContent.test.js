@@ -968,6 +968,78 @@ describe('RichContent fence parsing', () => {
     });
   });
 
+  it('normalizes a dashboard timeline when the payload uses timeKey alias', () => {
+    const normalized = normalizeDashboardPayload({
+      type: 'forge_dashboard',
+      title: 'Chart test',
+      dataSources: [
+        {
+          id: 'delivery_trend',
+          collection: [
+            { event_date: '2026-05-05', total_spend: 1550.659, bids: 1935643, impressions: 53471 },
+            { event_date: '2026-05-06', total_spend: 1674.373, bids: 1443330, impressions: 57737 },
+          ],
+        },
+      ],
+      blocks: [
+        {
+          kind: 'dashboard.timeline',
+          title: 'Recent delivery trend',
+          dataSourceRef: 'delivery_trend',
+          timeKey: 'event_date',
+          series: [
+            { key: 'total_spend', label: 'Spend' },
+            { key: 'bids', label: 'Bids' },
+            { key: 'impressions', label: 'Impressions' },
+          ],
+        },
+      ],
+    });
+
+    const timeline = normalized.blocks[0];
+    expect(timeline.chart.xAxis.dataKey).toBe('event_date');
+    expect(timeline.__collection).toEqual([
+      { event_date: '2026-05-05', series: 'Total Spend', value: 1550.659 },
+      { event_date: '2026-05-05', series: 'Bids', value: 1935643 },
+      { event_date: '2026-05-05', series: 'Impressions', value: 53471 },
+      { event_date: '2026-05-06', series: 'Total Spend', value: 1674.373 },
+      { event_date: '2026-05-06', series: 'Bids', value: 1443330 },
+      { event_date: '2026-05-06', series: 'Impressions', value: 57737 },
+    ]);
+  });
+
+  it('normalizes a dashboard kpiTable from datasource rows when columns are omitted', () => {
+    const normalized = normalizeDashboardPayload({
+      type: 'forge_dashboard',
+      title: 'Recommendation review',
+      dataSources: [
+        {
+          id: 'summary_metrics',
+          collection: [
+            { label: 'Primary blocker', value: 'Supply / competitiveness' },
+            { label: 'Setup state', value: 'Live and setup-ready' },
+            { label: 'Observed symptom', value: 'Behind pace' },
+          ],
+        },
+      ],
+      blocks: [
+        {
+          kind: 'dashboard.kpiTable',
+          title: 'Key metrics',
+          dataSourceRef: 'summary_metrics',
+        },
+      ],
+    });
+
+    const table = normalized.blocks[0];
+    expect(table.columns).toEqual(['label', 'value']);
+    expect(table.rows).toEqual([
+      ['Primary blocker', 'Supply / competitiveness'],
+      ['Setup state', 'Live and setup-ready'],
+      ['Observed symptom', 'Behind pace'],
+    ]);
+  });
+
   it('normalizes a long-form split timeline into chart rows', () => {
     const normalized = normalizeDashboardPayload({
       type: 'forge_dashboard',

@@ -11,7 +11,7 @@ import CodeDiffDialog from './CodeDiffDialog';
 import ConfirmDialog from './ConfirmDialog';
 import FileViewDialog from './FileViewDialog';
 import MenuBar, { refreshWindowDataSources } from './MenuBar';
-import ToolFeedBar from './ToolFeedBar';
+import ToolFeedWorkspace from './ToolFeedWorkspace';
 import UsageBar from './UsageBar';
 import StatusBar from './StatusBar';
 import Sidebar from './Sidebar';
@@ -163,6 +163,10 @@ export default function Root() {
   const linkedChildWindow = isLinkedChildWindow(selectedWindow) ? selectedWindow : null;
   const showChatChrome = shouldShowChatChrome(selectedWindow);
   const activeWindowTitle = resolveMainWindowHeaderTitle(selectedWindow);
+  const activeConversationId = String(
+    getScopedConversationSelection(String(selectedWindow?.windowId || '').trim())
+    || ''
+  ).trim();
 
   const setMode = (mode) => {
     const next = mode === 'left' || mode === 'window' ? mode : 'right';
@@ -351,7 +355,7 @@ export default function Root() {
 
   return (
     <DetailContext.Provider value={value}>
-      <ConversationViewContext.Provider value={{ showExecutionDetails, setShowExecutionDetails }}>
+      <ConversationViewContext.Provider value={{ showExecutionDetails, setShowExecutionDetails, toolFeedDock: showChatChrome ? 'right' : 'inline' }}>
         <div
           className="app-shell"
           style={{
@@ -384,7 +388,8 @@ export default function Root() {
             />
           ) : null}
           <main className={`app-chat-pane${showChatChrome ? ' is-chat-main-window' : ''}`}>
-            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div className={`app-chat-layout${showChatChrome ? ' has-tool-workspace' : ''}`}>
+            <div className="app-chat-content-column" style={{ flex: 1, minHeight: 0, overflow: 'visible', display: 'flex', flexDirection: 'column' }}>
               {linkedChildWindow ? (
                 <div className="app-linked-child-banner">
                   <div className="app-linked-child-dots">
@@ -437,12 +442,9 @@ export default function Root() {
               ) : null}
               <WindowManager />
             </div>
-            {showChatChrome ? (
-              <>
-                <ToolFeedBar />
-                <UsageBar />
-              </>
-            ) : null}
+            {showChatChrome ? <ToolFeedWorkspace conversationId={activeConversationId} /> : null}
+            </div>
+            {showChatChrome ? <UsageBar /> : null}
           </main>
         </div>
 

@@ -60,7 +60,7 @@ import { composerPresentation } from './composerPresentation';
 import { connectForgeUIActionsToChat } from './forgeUIActions';
 import { openCodeDiffDialog, openFileViewDialog, updateCodeDiffDialog, updateFileViewDialog } from '../utils/dialogBus';
 import ChatFeedFromChatStore from '../components/chat/ChatFeedFromChatStore.jsx';
-import { submit as submitToChatStore } from './chatStore.js';
+import { submit as submitToChatStore, steer as steerToChatStore } from './chatStore.js';
 import { conversationIDFromPath } from './chatRuntime';
 import { getScopedConversationSelection, MAIN_CHAT_WINDOW_ID } from './conversationWindow';
 
@@ -378,7 +378,9 @@ export async function submitMessage({ context, message, model, agent }) {
   }
 
   const chatState = ensureContextResources(context);
-  const queueingDuringActiveTurn = !!chatState?.runningTurnId || !!chatState?.lastHasRunning;
+  const activeTurnID = String(chatState?.runningTurnId || chatState?.activeStreamTurnId || '').trim();
+  const steeringDuringActiveTurn = !!activeTurnID;
+  const queueingDuringActiveTurn = !steeringDuringActiveTurn && !!chatState?.lastHasRunning;
   const submittedAt = Date.now();
   chatState.activeConversationID = conversationID;
   chatState.liveOwnedConversationID = conversationID;
@@ -388,10 +390,21 @@ export async function submitMessage({ context, message, model, agent }) {
     agentId: String(payload.agentId || '').trim(),
     model: String(payload.model || '').trim(),
     queueingDuringActiveTurn,
+    steeringDuringActiveTurn,
     attachmentCount: Array.isArray(payload.attachments) ? payload.attachments.length : 0,
     queryChars: query.length
   });
-  if (!queueingDuringActiveTurn) {
+  if (steeringDuringActiveTurn) {
+    steerToChatStore({
+      conversationId: conversationID,
+      clientRequestId,
+      content: query,
+      createdAt: new Date(submittedAt).toISOString(),
+      attachments: mergedAttachments.length > 0 ? mergedAttachments : undefined,
+    });
+    setStage({ phase: 'executing', text: 'Steering…', startedAt: submittedAt, completedAt: 0 });
+    await client.steerTurn(conversationID, activeTurnID, { content: query, role: 'user' });
+  } else if (!queueingDuringActiveTurn) {
     submitToChatStore({
       conversationId: conversationID,
       clientRequestId,
@@ -414,28 +427,28 @@ export async function submitMessage({ context, message, model, agent }) {
   } else {
     setStage({ phase: 'waiting', text: 'Queued follow-up…' });
   }
-  if (!queueingDuringActiveTurn) {
+  if (!queueingDuringActiveTurn && !steeringDuringActiveTurn) {
     syncConversationTransport(context, conversationID);
     logStreamDebug(chatState, 'submit-stream-sync', {
       conversationId: conversationID,
       strategy: 'immediate-after-query-start'
     });
   }
-  const queryPromise = client.query(payload);
-  const queryResult = await queryPromise;
+  const queryResult = steeringDuringActiveTurn ? {} : await client.query(payload);
   logStreamDebug(chatState, 'submit-query-response', {
     conversationId: conversationID,
     hasInlineContent: String(queryResult?.content || '').trim() !== '',
     resultKeys: queryResult && typeof queryResult === 'object' ? Object.keys(queryResult).length : 0
   });
   pendingUploads.length = 0;
-  if (queueingDuringActiveTurn) {
+  if (queueingDuringActiveTurn || steeringDuringActiveTurn) {
     await new Promise((resolve) => setTimeout(resolve, 140));
     await dsTick(context, { conversationID });
   }
   logStreamDebug(chatState, 'submit-post-dstick', {
     conversationId: conversationID,
-    queueingDuringActiveTurn
+    queueingDuringActiveTurn,
+    steeringDuringActiveTurn
   });
 }
 
@@ -1152,10 +1165,27 @@ export function prepareChangeFiles(props = {}) {
     if (!!left.isFolder !== !!right.isFolder) return left.isFolder ? -1 : 1;
     return String(left.name || '').localeCompare(String(right.name || ''));
   });
+  const compactFolderChain = (node) => {
+    if (!node || !node.isFolder) return node;
+    let current = node;
+    while (
+      current?.isFolder
+      && Array.isArray(current.childNodes)
+      && current.childNodes.length === 1
+      && current.childNodes[0]?.isFolder
+    ) {
+      const child = current.childNodes[0];
+      current.name = `${String(current.name || '').trim()}/${String(child.name || '').trim()}`.replace(/^\/+/, '');
+      current.uri = child.uri;
+      current.childNodes = Array.isArray(child.childNodes) ? child.childNodes : [];
+    }
+    current.childNodes = (Array.isArray(current.childNodes) ? current.childNodes : []).map((child) => compactFolderChain(child));
+    return current;
+  };
   for (const node of nodesByPath.values()) {
     if (Array.isArray(node.childNodes) && node.childNodes.length) sortChildren(node.childNodes);
   }
-  const roots = Array.from(nodesByPath.values()).filter((node) => !node.parentPath);
+  const roots = Array.from(nodesByPath.values()).filter((node) => !node.parentPath).map((node) => compactFolderChain(node));
   sortChildren(roots);
   return roots;
 }

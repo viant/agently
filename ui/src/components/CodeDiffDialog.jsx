@@ -2,6 +2,32 @@ import React from 'react';
 import { Dialog, Classes, Button, ButtonGroup, Tooltip } from '@blueprintjs/core';
 import { closeCodeDiffDialog, useCodeDiffDialogState } from '../utils/dialogBus';
 
+export function hasPreviousDiffVersion(state = {}) {
+  return !!(state?.hasPrev && (state?.prevUri || (state?.prev && String(state.prev).length > 0)));
+}
+
+export function resolveCodeDiffContent(state = {}, mode = 'current') {
+  if (mode === 'diff') return state?.diff || '';
+  if (mode === 'prev') return state?.prev || '';
+  return state?.current || '';
+}
+
+export function normalizeCodeDiffMode(mode = 'current', state = {}) {
+  if (mode === 'prev' && !hasPreviousDiffVersion(state)) {
+    return 'current';
+  }
+  return mode;
+}
+
+export function resolveCodeDiffTabs(state = {}) {
+  const tabs = ['current'];
+  if (hasPreviousDiffVersion(state)) {
+    tabs.push('prev');
+  }
+  tabs.push('diff');
+  return tabs;
+}
+
 function PlainCode({ text = '' }) {
   return (
     <pre
@@ -49,12 +75,13 @@ export default function CodeDiffDialog() {
     if (state.open) setMode('current');
   }, [state.open]);
 
-  const content = mode === 'current' ? state.current : (mode === 'prev' ? state.prev : state.diff);
-  const showPrev = !!(state.hasPrev && (state.prevUri || (state.prev && String(state.prev).length > 0)));
+  const showPrev = hasPreviousDiffVersion(state);
+  const resolvedMode = normalizeCodeDiffMode(mode, state);
+  const content = resolveCodeDiffContent(state, resolvedMode);
 
   React.useEffect(() => {
-    if (!showPrev && mode === 'prev') setMode('current');
-  }, [mode, showPrev]);
+    if (resolvedMode !== mode) setMode(resolvedMode);
+  }, [mode, resolvedMode]);
 
   return (
     <Dialog isOpen={state.open} onClose={closeCodeDiffDialog} title={state.title} style={{ width: '90vw', height: '85vh', maxWidth: '95vw', maxHeight: '95vh' }}>
@@ -74,15 +101,15 @@ export default function CodeDiffDialog() {
             ) : null}
           </div>
           <ButtonGroup minimal>
-            <Button icon="document" active={mode === 'current'} onClick={() => setMode('current')}>Current</Button>
-            {showPrev ? <Button icon="history" active={mode === 'prev'} onClick={() => setMode('prev')}>Prev</Button> : null}
-            <Button icon="changes" active={mode === 'diff'} onClick={() => setMode('diff')}>Diff</Button>
+            <Button icon="document" active={resolvedMode === 'current'} onClick={() => setMode('current')}>Current</Button>
+            {showPrev ? <Button icon="history" active={resolvedMode === 'prev'} onClick={() => setMode('prev')}>Prev</Button> : null}
+            <Button icon="changes" active={resolvedMode === 'diff'} onClick={() => setMode('diff')}>Diff</Button>
           </ButtonGroup>
         </div>
         <div style={{ flex: 1, minHeight: 0 }}>
           {state.loading ? (
             <div style={{ padding: 8, color: 'var(--gray2)' }}>Loading…</div>
-          ) : mode === 'diff' ? (
+          ) : resolvedMode === 'diff' ? (
             <DiffView text={content} />
           ) : (
             <PlainCode text={content} />

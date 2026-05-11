@@ -2544,6 +2544,45 @@ describe('applyPreambleEvent', () => {
     expect(chatState.liveRows[0].narration).toBe('Second iteration thinking...');
   });
 
+  it('lets later interim execution-group narration retake bubble ownership before final content arrives', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'msg-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 1,
+      status: 'thinking',
+      createdAt: '2026-03-17T10:00:01Z',
+      model: { provider: 'openai', model: 'gpt-5.4' }
+    }, 'conv-1');
+
+    applyPreambleEvent(chatState, {
+      turnId: 'turn-1',
+      assistantMessageId: 'msg-1',
+      narration: 'I’m pulling the live setup baseline first.'
+    }, 'conv-1');
+
+    applyExecutionStreamEvent(chatState, {
+      type: 'model_started',
+      assistantMessageId: 'msg-2',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 2,
+      status: 'running',
+      narration: 'I’ve confirmed the baseline and I’m validating the remaining supply blockers now.',
+      createdAt: '2026-03-17T10:00:05Z',
+      model: { provider: 'openai', model: 'gpt-5.4' }
+    }, 'conv-1');
+
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0].content).toBe('I’ve confirmed the baseline and I’m validating the remaining supply blockers now.');
+    expect(chatState.liveRows[0].narration).toBe('I’ve confirmed the baseline and I’m validating the remaining supply blockers now.');
+    expect(chatState.liveRows[0].executionGroups).toHaveLength(2);
+    expect(chatState.liveRows[0].executionGroups[0].narration).toBe('I’m pulling the live setup baseline first.');
+    expect(chatState.liveRows[0].executionGroups[1].narration).toBe('I’ve confirmed the baseline and I’m validating the remaining supply blockers now.');
+  });
+
   it('creates a synthetic narrator model step so execution details can render the narration as its own llm entry', () => {
     const chatState = { liveRows: [] };
 

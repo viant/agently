@@ -361,6 +361,31 @@ export function normalizeDashboardPayload(payload) {
       };
     }
 
+    if (block?.kind === 'dashboard.kpiTable' && !Array.isArray(block.columns)) {
+      const inferredColumns = Array.isArray(block.rows) && block.rows.length > 0
+        ? Object.keys(block.rows[0] || {})
+        : collection.length > 0
+          ? (() => {
+              if (collection.every((row) => row && typeof row === 'object' && ('label' in row) && ('value' in row))) {
+                return ['label', 'value'];
+              }
+              return Object.keys(collection[0] || {});
+            })()
+          : [];
+      const columnKeys = inferredColumns.filter(Boolean);
+      if (!columnKeys.length) {
+        return block;
+      }
+      const sourceRows = Array.isArray(block.rows) && block.rows.length > 0 ? block.rows : collection;
+      return {
+        ...block,
+        columns: columnKeys,
+        rows: sourceRows.map((row) =>
+          Array.isArray(row) ? row : columnKeys.map((column) => row?.[column])
+        ),
+      };
+    }
+
     if (block?.kind === 'dashboard.compare' && Array.isArray(block.metrics) && collection.length) {
       const compareMetrics = {};
       const compareItems = [];
@@ -497,11 +522,11 @@ export function normalizeDashboardPayload(payload) {
       const seriesValues = (Array.isArray(block.series) ? block.series : (block.valueColumn ? [block.valueColumn] : ['value']))
         .map(dashboardSeriesKey)
         .filter(Boolean);
-      const dateKey = block.dateField || block.timeColumn || 'date';
+      const dateKey = block.dateField || block.timeColumn || block.timeKey || 'date';
       const splitKey = block.groupBy || block.seriesColumn || 'split';
       const valueKey = block.valueColumn || 'avails';
       const isLongFormSplitSeries = collection.length > 0
-        && (block.dateField || block.timeColumn)
+        && (block.dateField || block.timeColumn || block.timeKey)
         && !block.groupBy
         && !block.seriesColumn
         && seriesValues.length > 0
@@ -542,7 +567,7 @@ export function normalizeDashboardPayload(payload) {
           },
         };
       }
-      if ((block.dateField || block.timeColumn) && seriesValues.length > 0 && !block.groupBy && !block.seriesColumn) {
+      if ((block.dateField || block.timeColumn || block.timeKey) && seriesValues.length > 0 && !block.groupBy && !block.seriesColumn) {
         const transformedCollection = collection.flatMap((row) =>
           seriesValues.map((entry) => ({
             [dateKey]: row?.[dateKey],
@@ -580,14 +605,14 @@ export function normalizeDashboardPayload(payload) {
         ...block,
         dataSourceRef: sourceID,
         mapping: {
-          dateColumn: block.dateField || block.timeColumn || 'date',
+          dateColumn: block.dateField || block.timeColumn || block.timeKey || 'date',
           seriesColumns: [block.groupBy || block.seriesColumn || 'order', ...seriesValues],
         },
         chart: {
           type: chartType,
           xAxis: {
-            dataKey: block.dateField || block.timeColumn || 'date',
-            label: titleizeDashboardKey(block.dateField || block.timeColumn || 'date'),
+            dataKey: block.dateField || block.timeColumn || block.timeKey || 'date',
+            label: titleizeDashboardKey(block.dateField || block.timeColumn || block.timeKey || 'date'),
             tickFormat: 'MM/dd',
           },
           yAxis: {
@@ -608,7 +633,7 @@ export function normalizeDashboardPayload(payload) {
 
     if (block?.kind === 'dashboard.timeline' && block?.chart && Array.isArray(block.chart.series) && sourceID) {
       const chartType = String(block.chart.type || block.chart.chartType || block.chartType || 'line').trim().toLowerCase() || 'line';
-      const dateKey = block.chart.xField || block.dateField || block.timeColumn || 'date';
+      const dateKey = block.chart.xField || block.dateField || block.timeColumn || block.timeKey || 'date';
       const seriesDefs = block.chart.series
         .map((entry) => {
           const value = entry?.yField || entry?.field || entry?.value || entry?.key;
@@ -660,7 +685,7 @@ export function normalizeDashboardPayload(payload) {
 
     if (block?.kind === 'dashboard.timeline' && block?.chart && !Array.isArray(block.chart.series) && sourceID) {
       const chartType = String(block.chart.type || block.chart.kind || block.chart.chartType || block.chartType || 'line').trim().toLowerCase() || 'line';
-      const xKey = block.chart.xField || block.dateField || block.timeColumn || 'date';
+      const xKey = block.chart.xField || block.dateField || block.timeColumn || block.timeKey || 'date';
       const yKey = block.chart.yField || block.chart.valueField || block.valueColumn || 'value';
       const splitKey = block.chart.seriesField || block.groupBy || block.seriesColumn || '';
       const hasSplitSeries = splitKey && collection.some((row) => row?.[splitKey] != null);

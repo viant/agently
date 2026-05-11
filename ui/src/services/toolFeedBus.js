@@ -9,6 +9,7 @@
 import { FeedTracker } from 'agently-core-ui-sdk';
 import { client } from './agentlyClient';
 import { cleanupFeedSignals } from './feedForgeWiring';
+import { clearFeedSelection, clearFeedSelectionForConversation, registerFeedDataLoader } from './toolFeedSelection';
 
 export const feedTracker = new FeedTracker();
 
@@ -125,6 +126,8 @@ export function fetchFeedDataNow(feedId, conversationId) {
   });
 }
 
+registerFeedDataLoader(fetchFeedDataNow);
+
 /**
  * Clear all feed state (cache + tracker). Call on conversation switch.
  */
@@ -136,7 +139,32 @@ export function clearFeedState() {
   }
   feedDataCache = {};
   inactiveFeedKeys = new Set();
+  clearFeedSelection();
   feedTracker.clear();
+  notifyDataChange();
+}
+
+export function clearFeedStateForConversation(conversationId = '') {
+  const normalizedConversationId = String(conversationId || '').trim();
+  if (!normalizedConversationId) return;
+  for (const [id, cached] of Object.entries(feedDataCache)) {
+    if (String(cached?._conversationId || '').trim() !== normalizedConversationId) continue;
+    if (cached?.dataSources) {
+      cleanupFeedSignals(id, Object.keys(cached.dataSources), normalizedConversationId);
+    }
+    delete feedDataCache[id];
+  }
+  inactiveFeedKeys = new Set(
+    Array.from(inactiveFeedKeys).filter((feedKey) => {
+      const { conversationId: scopedConversationId } = splitFeedKey(feedKey);
+      return scopedConversationId !== normalizedConversationId;
+    })
+  );
+  clearFeedSelectionForConversation(normalizedConversationId);
+  for (const feed of feedTracker.feeds) {
+    if (String(feed?.conversationId || '').trim() !== normalizedConversationId) continue;
+    feedTracker.setInactive(String(feed?.feedId || '').trim());
+  }
   notifyDataChange();
 }
 
@@ -159,6 +187,7 @@ export function applyFeedEvent(payload) {
 
   if (payload?.type === 'tool_feed_active') {
     inactiveFeedKeys.delete(scopedKey);
+    const existing = feedDataCache[scopedKey] || null;
     // Set inline data immediately for fast rendering.
     if (payload.feedData) {
       feedDataCache[scopedKey] = {
@@ -170,15 +199,18 @@ export function applyFeedEvent(payload) {
       };
       notifyDataChange();
     }
-    // Always fetch from API to get the full spec (dataSources + ui from YAML).
-    if (conversationId) {
-      const existing = feedDataCache[scopedKey] || null;
+    // Fetch from API only when the scoped feed does not already have the
+    // feed spec (dataSources + ui). This avoids repeated spec fetches for
+    // queue/local feeds and transcript/live replays of the same feed.
+    const needsSpecFetch = !existing?.ui || !existing?.dataSources;
+    if (conversationId && needsSpecFetch) {
       client.getFeedData(feedId, conversationId).then((data) => {
         if (data) {
+          const latest = feedDataCache[scopedKey] || existing || {};
           feedDataCache[scopedKey] = {
-            ...(existing || {}),
+            ...latest,
             ...data,
-            data: data?.data != null ? data.data : (existing?.data ?? null),
+            data: data?.data != null ? data.data : (latest?.data ?? null),
             feedKey: scopedKey,
             feedId,
             _conversationId: conversationId
