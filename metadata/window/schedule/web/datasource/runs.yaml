@@ -11,15 +11,11 @@ paging:
     totalCount: totalCount
 
 parameters:
-  - from: schedules:selection
-    to: :query
-    name: scheduleId
-    kind: query
-    location: id
-  - from: const
-    to: :query
-    name: requireScheduleId
-    kind: query
+  - name: scheduleId
+    in: selection
+    location: schedules.id
+  - name: requireScheduleId
+    in: const
     location: "true"
 
 selectors:

@@ -16,3 +16,7 @@ mkdir -p "${deploy_dir}"
 
 # Keep Go embed sources in deployment/ui while refreshing the built bundle.
 rsync -a --delete --exclude 'init.go' "${dist_dir}/" "${deploy_dir}/"
+
+# Invalidate the Go package that embeds deployment/ui so the next `go build`
+# cannot reuse a stale cached embed action after the bundle content changes.
+touch "${deploy_dir}/init.go"

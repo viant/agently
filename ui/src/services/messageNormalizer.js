@@ -73,6 +73,37 @@ function debugIterationTimeline(stage, payload = {}) {
   console.log(`[iteration:${stage}]`, { time: stamp, ...payload });
 }
 
+function parseRoleTextPromptArray(content = '') {
+  const raw = String(content || '').trim();
+  if (!raw.startsWith('[')) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    const ok = parsed.every((item) => item && typeof item === 'object'
+      && typeof item.role === 'string'
+      && typeof item.text === 'string');
+    return ok ? parsed : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function logSuspiciousPromptArrayLeak(message = {}, parsed = null) {
+  if (!import.meta.env.DEV || !parsed) return;
+  // eslint-disable-next-line no-console
+  console.warn('[agently][prompt-array-leak]', {
+    messageId: message.messageId || message.id || '',
+    turnId: message.turnId || '',
+    role: message.role || '',
+    interim: Number(message.interim ?? 0) || 0,
+    mode: message.mode || '',
+    status: message.status || '',
+    itemCount: parsed.length,
+    firstRole: parsed[0]?.role || '',
+    firstTextPreview: String(parsed[0]?.text || '').slice(0, 160)
+  });
+}
+
 export function normalizeMessages(raw = [], options = {}) {
   if (!Array.isArray(raw)) return [];
   const visibleCount = Number(options?.visibleCount || Number.MAX_SAFE_INTEGER);
@@ -151,6 +182,13 @@ export function normalizeOne(message = {}) {
   const toolMessage = Array.isArray(message.toolMessage || message.ToolMessage)
     ? (message.toolMessage || message.ToolMessage)
     : [];
+
+  if (role === 'assistant') {
+    const promptArray = parseRoleTextPromptArray(rawVisibleContent);
+    if (promptArray) {
+      logSuspiciousPromptArrayLeak(message, promptArray);
+    }
+  }
 
   return {
     ...message,

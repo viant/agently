@@ -1,4 +1,5 @@
 import React from 'react';
+import { publishUIBridgeSnapshotNow } from 'forge/core';
 import {
   normalizeString,
   normalizeBool,
@@ -358,6 +359,9 @@ export async function submitMessage({ context, message, model, agent }) {
     }
   });
   publishActiveConversation(conversationID, context);
+  try {
+    await publishUIBridgeSnapshotNow();
+  } catch (_) {}
 
   const messageAttachments = normalizeUploadItems(message?.attachments || message?.files || []);
   const mergedAttachments = mergeAttachments(messageAttachments, pendingUploads);
@@ -469,7 +473,7 @@ function resolveFeedConversationId(context, conversationId = '') {
   return String(getScopedConversationSelection(windowId) || '').trim();
 }
 
-export function resolveComposerProps({ context, container } = {}) {
+export function resolveComposerProps({ context, container, metaCtx: providedMetaCtx, conversationsCtx: providedConversationsCtx } = {}) {
   const chatCfg = container?.chat || {};
   if (!chatCfg?.commandCenter) return {};
 
@@ -477,10 +481,11 @@ export function resolveComposerProps({ context, container } = {}) {
   const metaRef = (typeof commandCenterCfg === 'object' && commandCenterCfg.dataSourceRef)
     ? commandCenterCfg.dataSourceRef
     : 'meta';
-  const metaCtx = context?.Context?.(metaRef);
+  const metaCtx = providedMetaCtx || context?.Context?.(metaRef);
   const metaDS = metaCtx?.handlers?.dataSource;
   const metaForm = metaDS?.peekFormData?.() || {};
-  const convForm = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
+  const conversationsCtx = providedConversationsCtx || context?.Context?.('conversations');
+  const convForm = conversationsCtx?.handlers?.dataSource?.peekFormData?.() || {};
   const defaults = metaForm?.defaults || {};
   const currentAgent = normalizeString(metaForm?.agent);
   const persistedAgent = sanitizeAutoSelection(getPersistedSelectedAgent());

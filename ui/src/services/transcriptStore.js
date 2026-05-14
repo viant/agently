@@ -1,7 +1,22 @@
 import { mergeRowSnapshots } from './rowMerge';
 import { isFeedInactive as defaultIsFeedInactive } from './toolFeedBus';
+import { isStreamDebugEnabled } from './debugFlags';
 
 const RUNNING_TURN_STATUSES = new Set(['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress']);
+
+function transcriptDebugEnabled() {
+  return isStreamDebugEnabled();
+}
+
+function logTranscriptDebug(event, detail = {}) {
+  if (!transcriptDebugEnabled()) return;
+  // eslint-disable-next-line no-console
+  console.log('[agently-transcript-store]', {
+    event,
+    ts: new Date().toISOString(),
+    ...detail
+  });
+}
 
 function parseStageTimestamp(value) {
   const text = String(value || '').trim();
@@ -32,6 +47,12 @@ function filterOwnedTurnRows(rows = [], conversationID = '', ownedConversationID
   return (Array.isArray(rows) ? rows : []).filter((row) => !owned.has(String(row?.turnId || '').trim()));
 }
 
+function filterSingleTurnRows(rows = [], turnID = '') {
+  const targetTurnID = String(turnID || '').trim();
+  if (!targetTurnID) return Array.isArray(rows) ? rows : [];
+  return (Array.isArray(rows) ? rows : []).filter((row) => String(row?.turnId || '').trim() !== targetTurnID);
+}
+
 function latestTranscriptTurnId(turns = []) {
   for (let index = (Array.isArray(turns) ? turns.length : 0) - 1; index >= 0; index -= 1) {
     const turn = turns[index] || {};
@@ -39,6 +60,22 @@ function latestTranscriptTurnId(turns = []) {
     if (turnId) return turnId;
   }
   return '';
+}
+
+function transcriptHasSettledAssistantRow(rows = [], turnId = '') {
+  const targetTurnId = String(turnId || '').trim();
+  if (!targetTurnId) return false;
+  return (Array.isArray(rows) ? rows : []).some((row) => {
+    if (String(row?.turnId || '').trim() !== targetTurnId) return false;
+    if (String(row?.role || '').trim().toLowerCase() !== 'assistant') return false;
+    if (Number(row?.interim ?? row?.Interim ?? 0) !== 0) return false;
+    if (String(row?.content || '').trim() !== '') return true;
+    const executionGroups = Array.isArray(row?.executionGroups) ? row.executionGroups : [];
+    return executionGroups.some((group) => {
+      if (!group?.finalResponse) return false;
+      return String(group?.content || '').trim() !== '' || (Array.isArray(group?.toolSteps) && group.toolSteps.length > 0);
+    });
+  });
 }
 
 function shouldRecoverWithFullTranscript(chatState = {}) {
@@ -121,6 +158,43 @@ export function syncTranscriptSnapshot({
   chatState.activeConversationID = conversationID;
   const pendingLocalLiveBootstrap = sameLiveConversation
     && String(chatState.activeStreamPrompt || '').trim() !== '';
+  const originalOwnedTurnIds = Array.isArray(chatState.liveOwnedTurnIds)
+    ? chatState.liveOwnedTurnIds.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+  const hasRunning = turns.some((turn) => {
+    const status = String(turn?.status || turn?.Status || '').trim().toLowerCase();
+    return RUNNING_TURN_STATUSES.has(status);
+  });
+  const effectiveHasRunning = hasRunning;
+  const latestTurnId = latestTranscriptTurnId(turns);
+  const latestRunningTurnIdFromTranscript = effectiveHasRunning ? latestTurnId : '';
+  const latestTurnStatus = String(
+    [...(Array.isArray(turns) ? turns : [])]
+      .reverse()
+      .find((turn) => String(turn?.turnId || turn?.id || turn?.TurnID || '').trim() === latestTurnId)
+      ?.status || ''
+  ).trim().toLowerCase();
+  const shouldReleaseLatestOwnedTurn = sameLiveConversation
+    && latestTurnId !== ''
+    && originalOwnedTurnIds.includes(latestTurnId)
+    && !RUNNING_TURN_STATUSES.has(latestTurnStatus)
+    && !activeStreamRow
+    && transcriptHasSettledAssistantRow(rows, latestTurnId)
+    && !pendingLocalLiveBootstrap;
+  const effectiveOwnedTurnIds = shouldReleaseLatestOwnedTurn
+    ? originalOwnedTurnIds.filter((turnId) => turnId !== latestTurnId)
+    : originalOwnedTurnIds;
+  if (shouldReleaseLatestOwnedTurn) {
+    chatState.liveOwnedTurnIds = effectiveOwnedTurnIds;
+    if (effectiveOwnedTurnIds.length === 0) {
+      chatState.liveOwnedConversationID = '';
+    }
+    logTranscriptDebug('release_live_owned_turn', {
+      conversationID,
+      releasedTurnId: latestTurnId,
+      remainingOwnedTurnIds: effectiveOwnedTurnIds
+    });
+  }
   let filteredRows = filterOwnedTurnRows(rows, conversationID, chatState.liveOwnedConversationID, chatState.liveOwnedTurnIds);
   const sameConversation = String(chatState.lastConversationID || '').trim() === conversationID;
   let previousTranscriptRows = filterOwnedTurnRows(
@@ -133,8 +207,34 @@ export function syncTranscriptSnapshot({
     runningTurnId
     || findLatestRunningTurnId(filteredRows)
     || findLatestRunningTurnId(previousTranscriptRows)
+    || latestRunningTurnIdFromTranscript
     || ''
   ).trim();
+  if (effectiveHasRunning && conversationID && effectiveRunningTurnId) {
+    chatState.liveOwnedConversationID = conversationID;
+    const existingOwned = new Set(
+      (Array.isArray(chatState.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [])
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+    );
+    existingOwned.add(effectiveRunningTurnId);
+    chatState.liveOwnedTurnIds = Array.from(existingOwned);
+    logTranscriptDebug('claim_live_owned_turn', {
+      conversationID,
+      runningTurnId: effectiveRunningTurnId,
+      liveOwnedTurnIds: chatState.liveOwnedTurnIds
+    });
+  }
+  if (effectiveHasRunning && conversationID && effectiveRunningTurnId) {
+    logTranscriptDebug('filter_running_turn_from_transcript', {
+      conversationID,
+      runningTurnId: effectiveRunningTurnId,
+      transcriptRowsBefore: filteredRows.length,
+      previousRowsBefore: previousTranscriptRows.length
+    });
+    filteredRows = filterSingleTurnRows(filteredRows, effectiveRunningTurnId);
+    previousTranscriptRows = filterSingleTurnRows(previousTranscriptRows, effectiveRunningTurnId);
+  }
   if (pendingLocalLiveBootstrap && effectiveRunningTurnId) {
     filteredRows = filteredRows.filter((row) => String(row?.turnId || '').trim() !== effectiveRunningTurnId);
     previousTranscriptRows = previousTranscriptRows.filter((row) => String(row?.turnId || '').trim() !== effectiveRunningTurnId);
@@ -142,18 +242,24 @@ export function syncTranscriptSnapshot({
   const finalMergedRows = reason === 'poll' && sameConversation && previousTranscriptRows.length > 0
     ? mergeRowSnapshots(previousTranscriptRows, filteredRows)
     : filteredRows;
-
-  const hasRunning = turns.some((turn) => {
-    const status = String(turn?.status || turn?.Status || '').trim().toLowerCase();
-    return RUNNING_TURN_STATUSES.has(status);
+  logTranscriptDebug('sync_complete', {
+    conversationID,
+    reason,
+    transcriptTurnCount: Array.isArray(turns) ? turns.length : 0,
+    transcriptRowCount: rows.length,
+    filteredRowCount: filteredRows.length,
+    finalRowCount: finalMergedRows.length,
+    hasRunning: effectiveHasRunning,
+    runningTurnId: effectiveRunningTurnId,
+    liveOwnedConversationID: chatState.liveOwnedConversationID,
+    liveOwnedTurnIds: chatState.liveOwnedTurnIds
   });
+
   const ownedTurnIds = new Set((Array.isArray(chatState.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : []).map((item) => String(item || '').trim()).filter(Boolean));
-  const latestTurnId = latestTranscriptTurnId(turns);
   const liveOwnsLatestTurn = sameLiveConversation
     && ownedTurnIds.size > 0
     && latestTurnId !== ''
     && ownedTurnIds.has(latestTurnId);
-  const effectiveHasRunning = hasRunning;
 
   conversationsDS.setFormData?.({
     values: {
@@ -293,14 +399,23 @@ export function queueTranscriptRefresh({
   tickTranscript: doTick
 }) {
   const chatState = ensureContextResources(context);
+  const schedule = typeof window !== 'undefined' && typeof window.setTimeout === 'function'
+    ? window.setTimeout.bind(window)
+    : (typeof globalThis.setTimeout === 'function' ? globalThis.setTimeout.bind(globalThis) : null);
+  const clearSchedule = typeof window !== 'undefined' && typeof window.clearTimeout === 'function'
+    ? window.clearTimeout.bind(window)
+    : (typeof globalThis.clearTimeout === 'function' ? globalThis.clearTimeout.bind(globalThis) : null);
+  if (!schedule || !clearSchedule) {
+    return null;
+  }
   if (resetSince) {
     doReset({ context });
   }
   if (chatState.refreshTimer) {
-    clearTimeout(chatState.refreshTimer);
+    clearSchedule(chatState.refreshTimer);
     chatState.refreshTimer = null;
   }
-  chatState.refreshTimer = window.setTimeout(async () => {
+  chatState.refreshTimer = schedule(async () => {
     chatState.refreshTimer = null;
     if (chatState.refreshInFlight) return;
     chatState.refreshInFlight = true;

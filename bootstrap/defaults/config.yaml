@@ -1,6 +1,7 @@
 
 
 default:
+  appName: Agently
   agent: chatter
   model: openai_gpt-5.4
   summaryModel: openai_gpt-5-mini

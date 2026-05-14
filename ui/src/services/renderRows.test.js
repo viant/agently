@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildCanonicalTranscriptRows } from './renderRows';
+import { buildCanonicalTranscriptRows, buildConversationRenderRows } from './renderRows';
 
 describe('buildCanonicalTranscriptRows', () => {
   it('keeps intake pages visible in execution groups even when iteration is 0', () => {
@@ -407,5 +407,38 @@ describe('buildCanonicalTranscriptRows', () => {
 
     expect(queuedTurns).toHaveLength(0);
     expect(rows.some((row) => row?.turnId === 'turn-succeeded-final' && String(row?.content || '').includes('forge-data'))).toBe(true);
+  });
+});
+
+describe('buildConversationRenderRows', () => {
+  it('drops empty interim assistant placeholders that only carry internal model steps', () => {
+    const { mergedRows } = buildConversationRenderRows({
+      transcriptRows: [],
+      liveRows: [{
+        id: 'assistant-empty',
+        role: 'assistant',
+        turnId: 'turn-1',
+        interim: 1,
+        content: '',
+        narration: '',
+        executionGroups: [{
+          assistantMessageId: 'assistant-empty',
+          status: 'completed',
+          narration: '',
+          content: '',
+          finalResponse: false,
+          modelSteps: [{
+            modelCallId: 'mc-1',
+            provider: 'openai',
+            model: 'gpt-5.4',
+            status: 'completed'
+          }],
+          toolSteps: [],
+          toolCallsPlanned: []
+        }]
+      }]
+    });
+
+    expect(mergedRows).toEqual([]);
   });
 });

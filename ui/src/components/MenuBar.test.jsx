@@ -29,6 +29,7 @@ vi.mock('../services/agentlyClient', () => ({
   client: {
     getAuthMe: vi.fn().mockResolvedValue(null),
     getAuthProviders: vi.fn().mockResolvedValue([]),
+    getWorkspaceMetadata: vi.fn().mockResolvedValue({ appName: 'Agently' }),
     localLogin: vi.fn().mockResolvedValue(undefined),
     logout: vi.fn().mockResolvedValue(undefined)
   }
