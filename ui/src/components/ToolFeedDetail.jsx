@@ -26,28 +26,6 @@ function dedupeFeeds(feeds = []) {
   return Array.from(seen.values());
 }
 
-function isPlanExplanationContainer(container = {}) {
-  const items = Array.isArray(container?.items) ? container.items : [];
-  if (items.length === 0) return false;
-  return items.every((item) => {
-    const type = String(item?.type || '').trim().toLowerCase();
-    const bind = String(item?.dataBind || '').trim().toLowerCase();
-    const id = String(item?.id || '').trim().toLowerCase();
-    return type === 'label' && (bind === 'explanation' || id === 'explanation');
-  });
-}
-
-function normalizePlanFeedUI(ui = null, rawFeedId = '') {
-  if (!ui || typeof ui !== 'object') return ui;
-  if (String(rawFeedId || '').trim().toLowerCase() !== 'plan') return ui;
-  const clone = JSON.parse(JSON.stringify(ui));
-  delete clone.title;
-  if (Array.isArray(clone.containers)) {
-    clone.containers = clone.containers.filter((container) => !isPlanExplanationContainer(container));
-  }
-  return clone;
-}
-
 function hasRenderableFeedData(data = null) {
   if (!data || typeof data !== 'object') return false;
   const root = data?.data;
@@ -232,12 +210,12 @@ function FeedPanel({ feedId, rawFeedId, context, variant = 'inline' }) {
   // Prepare UI container with auto-columns and data source defs merged.
   const uiContainer = useMemo(() => {
     if (!exe || !exe.ui || typeof exe.ui !== 'object') return null;
-    const uiClone = normalizePlanFeedUI(exe.ui, rawFeedId);
+    const uiClone = JSON.parse(JSON.stringify(exe.ui));
     uiClone.dataSources = exe.dataSources;
     const dataMap = computeDataMap(exe);
     applyAutoTableColumns(uiClone, dataMap);
     return uiClone;
-  }, [exe, rawFeedId]);
+  }, [exe]);
 
   // Build Forge context for this feed.
   const conversationId = data?._conversationId || scopedConversationId || '';
@@ -285,6 +263,11 @@ function FeedPanel({ feedId, rawFeedId, context, variant = 'inline' }) {
   const hasFullFeedSpec = !!(data?.ui && exe?.dataSources && Object.keys(exe.dataSources).length > 0);
 
   if (!hasFullFeedSpec) {
+    if (!hasRenderableFeedData(data)) return null;
+    return <InlineRenderer data={data} variant={variant} />;
+  }
+
+  if (variant === 'rail') {
     if (!hasRenderableFeedData(data)) return null;
     return <InlineRenderer data={data} variant={variant} />;
   }

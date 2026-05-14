@@ -6,7 +6,7 @@ service:
 parameters:
   - name: convID
     kind: path
-    in: dataSource
+    in: form
     location: conversations.id
 
 selectors:

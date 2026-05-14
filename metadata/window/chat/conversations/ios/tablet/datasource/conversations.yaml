@@ -16,5 +16,5 @@ uniqueKey:
 parameters:
   - name: id
     kind: path
-    in: dataSource
+    in: form
     location: conversations
