@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { resolveRootFeedDataSourceName } from './ToolFeedDetail.jsx';
 
 const { getFeedDataMock, makeFeedKeyMock } = vi.hoisted(() => ({
   getFeedDataMock: vi.fn(() => null)
@@ -34,29 +33,27 @@ vi.mock('../services/toolFeedSelection', () => ({
   onSelectedFeedChange: vi.fn(() => () => {}),
 }));
 
+vi.mock('../services/chatService', () => ({
+  openResourceFeedPath: vi.fn(),
+}));
+
 vi.mock('forge/components', () => ({
+  CompactFeedList: ({ data }) => React.createElement(
+    'div',
+    { 'data-testid': 'compact-feed-list' },
+    JSON.stringify(data || {})
+  ),
+  Terminal: ({ entries }) => React.createElement(
+    'div',
+    { 'data-testid': 'forge-terminal' },
+    JSON.stringify(entries || [])
+  ),
   Container: ({ container }) => React.createElement(
     'div',
     { 'data-testid': 'forge-container' },
     JSON.stringify(container || {})
   ),
 }));
-
-describe('resolveRootFeedDataSourceName', () => {
-  it('prefers an explicit output source over object key order', () => {
-    const name = resolveRootFeedDataSourceName({
-      planDetail: {
-        dataSourceRef: 'planInfo',
-        selectors: { data: 'plan' }
-      },
-      planInfo: {
-        source: 'output'
-      }
-    });
-
-    expect(name).toBe('planInfo');
-  });
-});
 
 describe('ToolFeedDetail', () => {
   it('renders the plan feed as a visible detail panel', async () => {
@@ -112,11 +109,9 @@ describe('ToolFeedDetail', () => {
     }));
     const html = renderToStaticMarkup(React.createElement(ToolFeedDetail));
 
-    expect(html).toContain('data-testid="forge-container"');
-    expect(html).toContain('planInfo');
-    expect(html).toContain('planDetail');
-    expect(html).toContain('planTable');
-    expect(html).toContain('explanation');
+    expect(html).toContain('data-testid="compact-feed-list"');
+    expect(html).toContain('Inspect package');
+    expect(html).toContain('Add test');
   });
 
   it('uses the compact generic renderer for rail feeds even when a Forge ui spec exists', async () => {
@@ -176,6 +171,50 @@ describe('ToolFeedDetail', () => {
     expect(html).not.toContain('data-testid="forge-container"');
     expect(html).toContain('Inspect package');
     expect(html).toContain('Add test');
+  });
+
+  it('renders terminal feeds with the Forge terminal component when terminal ui metadata exists', async () => {
+    const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
+    const toolFeedBar = await import('../services/toolFeedSelection');
+    getActiveFeedsMock.mockReturnValueOnce([
+      {
+        feedId: 'conv-1::terminal',
+        rawFeedId: 'terminal',
+        title: 'Terminal',
+        conversationId: 'conv-1',
+      },
+    ]);
+    toolFeedBar.getExpandedFeedIds.mockImplementation(() => new Set(['conv-1::terminal']));
+    toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-1::terminal');
+    getFeedDataMock.mockImplementation(() => ({
+      data: {
+        output: {
+          commands: [
+            { input: 'pwd', output: '/tmp', status: 0 },
+            { input: 'ls', output: 'a\nb', status: 0 },
+          ],
+        },
+      },
+      ui: {
+        terminal: {
+          dataSourceRef: 'commands',
+          height: '240px',
+          autoScroll: true,
+          showDividers: true,
+        },
+      },
+      dataSources: {
+        output: { source: 'output', exposeAs: 'output' },
+        commands: { source: 'output.commands', merge: 'append', root: true },
+      },
+    }));
+
+    const html = renderToStaticMarkup(React.createElement(ToolFeedDetail, { variant: 'rail' }));
+
+    expect(html).toContain('data-testid="forge-terminal"');
+    expect(html).toContain('pwd');
+    expect(html).toContain('ls');
+    expect(html).not.toContain('data-testid="compact-feed-list"');
   });
 
   it('renders nothing when feeds exist but none are expanded', async () => {
@@ -263,10 +302,9 @@ describe('ToolFeedDetail', () => {
 
     const html = renderToStaticMarkup(React.createElement(ToolFeedDetail));
 
-    expect(html).toContain('data-testid="forge-container"');
-    expect(html).toContain('planInfo');
-    expect(html).toContain('planDetail');
-    expect(html).toContain('planTable');
+    expect(html).toContain('data-testid="compact-feed-list"');
+    expect(html).toContain('Resolve canonical hierarchy');
+    expect(html).toContain('Pull campaign-level pacing metrics');
   });
 
   it('renders inline fallback for data-only feeds instead of a loading placeholder', async () => {
@@ -401,10 +439,9 @@ describe('ToolFeedDetail', () => {
       },
     }));
 
-    expect(html).toContain('data-testid="forge-container"');
-    expect(html).toContain('queueTable');
-    expect(html).toContain('queueTurns');
-    expect(html).toContain('Save edit');
+    expect(html).toContain('data-testid="compact-feed-list"');
+    expect(html).toContain('queued follow-up one');
+    expect(html).toContain('queued follow-up two');
   });
 
   it('uses an already-scoped feed id without double-scoping generic feed lookups', async () => {

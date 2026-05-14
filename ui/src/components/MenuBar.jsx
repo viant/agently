@@ -85,7 +85,9 @@ export default function MenuBar({
   showExecutionDetails = true,
   onToggleExecutionDetails,
   showWorkspaceWindow = true,
-  onToggleWorkspaceWindow
+  onToggleWorkspaceWindow,
+  showToolFeeds = true,
+  onToggleToolFeeds
 }) {
   const {
     items = [],
@@ -228,7 +230,8 @@ export default function MenuBar({
           <div className="app-topbar-settings-wrap">
             <Button
               minimal
-              icon="cog"
+              icon="eye-open"
+              text="View settings"
               className="app-topbar-nav-btn app-topbar-settings-btn"
               data-testid="view-settings-btn"
               onClick={() => {
@@ -238,15 +241,20 @@ export default function MenuBar({
             />
             {settingsOpen ? (
               <div className="app-topbar-settings-menu" data-testid="view-settings-menu">
-                <div className="app-topbar-settings-title">Conversation view</div>
+                <div className="app-topbar-settings-title">View settings</div>
                 <Switch
                   checked={!!showExecutionDetails}
                   label="Show execution details"
                   onChange={() => onToggleExecutionDetails?.()}
                 />
                 <Switch
+                  checked={!!showToolFeeds}
+                  label="Show tool feeds"
+                  onChange={() => onToggleToolFeeds?.()}
+                />
+                <Switch
                   checked={!!showWorkspaceWindow}
-                  label="Show workspace window"
+                  label="Show workspace view"
                   onChange={() => onToggleWorkspaceWindow?.()}
                 />
               </div>

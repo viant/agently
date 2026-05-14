@@ -42,6 +42,14 @@ delegation:
 
 intake:
   enabled: true
+  prompt: |
+    For direct local file review / inspect / summarize / explain requests where the next step is fully specified by a concrete local path, emit a directAction.
+    Use ONLY the canonical tool name `resources/read`.
+    Do not invent alias tool names such as `repo_read_file`.
+    For that directAction:
+    - toolName: `resources/read`
+    - inputJson: JSON object with the exact local `path` and `rootId: "local"`
+    - assistantText: one short sentence saying you are opening the requested file for review
   scope:
     - title
     - context
