@@ -18,7 +18,11 @@ if (import.meta.env.DEV) {
       return res;
     } catch (err) {
       const ms = (performance.now() - t0).toFixed(0);
-      console.error(`← ERROR (${ms}ms)`, err);
+      if (err?.name === 'AbortError') {
+        console.log(`← ABORTED (${ms}ms)`);
+      } else {
+        console.error(`← ERROR (${ms}ms)`, err);
+      }
       console.groupEnd();
       throw err;
     }

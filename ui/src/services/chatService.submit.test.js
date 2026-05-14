@@ -150,7 +150,8 @@ describe('submitMessage', () => {
       agent: 'steward',
     });
 
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(ensureConversation).toHaveBeenCalled();
     expect(submitToChatStore).toHaveBeenCalledWith(expect.objectContaining({
       conversationId: 'conv-1',
@@ -242,7 +243,7 @@ describe('submitMessage', () => {
     });
 
     const previousWindow = global.window;
-    global.window = { innerWidth: 640 };
+    global.window = { innerWidth: 640, __forgeUIBridgeClientId: 'client-web-123' };
 
     const convForm = {};
     const context = {
@@ -292,6 +293,7 @@ describe('submitMessage', () => {
           surface: 'browser',
           capabilities: ['markdown', 'chart', 'upload', 'code', 'diff'],
         },
+        uiClientId: 'client-web-123',
       },
     }));
   });

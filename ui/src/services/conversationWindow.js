@@ -9,6 +9,8 @@ import {
 export const CHAT_WINDOW_KEY = 'chat/new';
 export const MAIN_CHAT_WINDOW_ID = CHAT_WINDOW_KEY;
 const LEGACY_SELECTED_CONVERSATION_KEY = 'agently.selectedConversationId';
+const WORKSPACE_SELECTION_KEY = 'agently.selectedWorkspaceWindowId';
+const WORKSPACE_STATE_KEY = 'agently.workspaceState';
 
 function conversationPathForID(conversationId = '') {
   const id = String(conversationId || '').trim();
@@ -44,6 +46,16 @@ function syncMainConversationPath(conversationId = '') {
 function scopedSelectionKey(windowId = '') {
   const id = String(windowId || '').trim();
   return id ? `${LEGACY_SELECTED_CONVERSATION_KEY}:${id}` : LEGACY_SELECTED_CONVERSATION_KEY;
+}
+
+function workspaceSelectionKey(conversationId = '') {
+  const id = String(conversationId || '').trim();
+  return id ? `${WORKSPACE_SELECTION_KEY}:${id}` : WORKSPACE_SELECTION_KEY;
+}
+
+function workspaceStateKey(conversationId = '') {
+  const id = String(conversationId || '').trim();
+  return id ? `${WORKSPACE_STATE_KEY}:${id}` : WORKSPACE_STATE_KEY;
 }
 
 export function isMainChatWindowId(windowId = '') {
@@ -93,6 +105,29 @@ export function getScopedConversationSelection(windowId = '') {
   return '';
 }
 
+export function currentConversationIdFromPath(pathname = '') {
+  const raw = String(pathname || '').trim();
+  if (!raw) return '';
+  const prefixes = ['/v1/conversation/', '/conversation/', '/ui/conversation/'];
+  for (const prefix of prefixes) {
+    if (!raw.startsWith(prefix)) continue;
+    const rest = raw.slice(prefix.length);
+    const id = String(rest.split(/[/?#]/)[0] || '').trim();
+    if (id) return decodeURIComponent(id);
+  }
+  return '';
+}
+
+export function resolveConversationSelection(windowId = '') {
+  const scoped = getScopedConversationSelection(windowId);
+  if (scoped) return scoped;
+  if (typeof window === 'undefined') return '';
+  if (isMainChatWindowId(windowId)) {
+    return currentConversationIdFromPath(window.location?.pathname);
+  }
+  return '';
+}
+
 export function setScopedConversationSelection(windowId = '', conversationId = '') {
   if (typeof window === 'undefined') return;
   const id = String(conversationId || '').trim();
@@ -108,6 +143,95 @@ export function setScopedConversationSelection(windowId = '', conversationId = '
       else window.localStorage?.removeItem(LEGACY_SELECTED_CONVERSATION_KEY);
     }
   } catch (_) {}
+}
+
+export function getScopedWorkspaceSelection(conversationId = '') {
+  if (typeof window === 'undefined') return '';
+  const id = String(conversationId || '').trim();
+  if (!id) return '';
+  return String(window.localStorage?.getItem(workspaceSelectionKey(id)) || '').trim();
+}
+
+export function setScopedWorkspaceSelection(conversationId = '', windowId = '') {
+  if (typeof window === 'undefined') return;
+  const convID = String(conversationId || '').trim();
+  if (!convID) return;
+  const targetWindowId = String(windowId || '').trim();
+  try {
+    if (targetWindowId) {
+      window.localStorage?.setItem(workspaceSelectionKey(convID), targetWindowId);
+    } else {
+      window.localStorage?.removeItem(workspaceSelectionKey(convID));
+    }
+  } catch (_) {}
+}
+
+export function getScopedWorkspaceState(conversationId = '') {
+  if (typeof window === 'undefined') return null;
+  const id = String(conversationId || '').trim();
+  if (!id) return null;
+  try {
+    const raw = String(window.localStorage?.getItem(workspaceStateKey(id)) || '').trim();
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch (_) {
+    return null;
+  }
+}
+
+export function setScopedWorkspaceState(conversationId = '', win = null) {
+  if (typeof window === 'undefined') return;
+  const convID = String(conversationId || '').trim();
+  if (!convID) return;
+  try {
+    if (!win || typeof win !== 'object') {
+      window.localStorage?.removeItem(workspaceStateKey(convID));
+      return;
+    }
+    const payload = {
+      windowId: String(win.windowId || '').trim(),
+      windowKey: String(win.windowKey || '').trim(),
+      windowTitle: String(win.windowTitle || win.windowKey || '').trim(),
+      parentKey: String(win.parentKey || '').trim() || null,
+      inTab: win.inTab !== false,
+      parameters: win.parameters || {},
+    };
+    window.localStorage?.setItem(workspaceStateKey(convID), JSON.stringify(payload));
+  } catch (_) {}
+}
+
+export function resolveWorkspaceWindowForConversation(conversationId = '') {
+  const convID = String(conversationId || '').trim();
+  if (!convID) return null;
+  const storedWindowId = getScopedWorkspaceSelection(convID);
+  if (!storedWindowId) return null;
+  const win = getWindowById(storedWindowId);
+  if (!win) return null;
+  if (String(win?.windowKey || '').trim() === CHAT_WINDOW_KEY) return null;
+  return win;
+}
+
+export function reopenWorkspaceForConversation(conversationId = '') {
+  const convID = String(conversationId || '').trim();
+  if (!convID) return null;
+  const live = resolveWorkspaceWindowForConversation(convID);
+  if (live) return focusWindow(live);
+  const saved = getScopedWorkspaceState(convID);
+  if (!saved) return null;
+  const windowKey = String(saved.windowKey || '').trim();
+  if (!windowKey || windowKey === CHAT_WINDOW_KEY) return null;
+  const win = addWindow(
+    String(saved.windowTitle || windowKey).trim() || windowKey,
+    saved.parentKey || MAIN_CHAT_WINDOW_ID,
+    windowKey,
+    null,
+    saved.inTab !== false,
+    saved.parameters || {},
+    { autoIndexTitle: false }
+  );
+  return focusWindow(win);
 }
 
 export function ensureMainChatWindow() {
@@ -177,6 +301,10 @@ export function openConversationInMainWindow(conversationId = '') {
     syncPath: true,
     eventType: 'agently:conversation-select'
   });
+  const workspaceWindow = reopenWorkspaceForConversation(targetID);
+  if (workspaceWindow) {
+    return workspaceWindow;
+  }
   return mainWindow;
 }
 

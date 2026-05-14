@@ -498,7 +498,6 @@ function isLatePostTerminalExecutionEvent(type = '', payload = {}) {
     || eventType === 'model_completed'
     || eventType === 'tool_calls_planned'
     || eventType === 'tool_call_started'
-    || eventType === 'tool_call_completed'
     || eventType === 'narration'
     || eventType === 'elicitation_requested'
     || eventType === 'linked_conversation_attached'
@@ -1363,7 +1362,7 @@ export function syncMessagesSnapshot(context, turns, reason = 'poll', pendingEli
     });
     return renderMergedRowsForContext(context);
   }
-  if (chatState.streamTracker && Array.isArray(turns)) {
+  if (chatState.streamTracker && typeof chatState.streamTracker.applyTranscript === 'function' && Array.isArray(turns)) {
     chatState.streamTracker.applyTranscript(turns);
     syncTrackerDerivedTurnState(chatState);
   }
@@ -1971,6 +1970,9 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       } else {
         setStage({ phase: 'done', text: 'Done', completedAt: stageCompletedAtValue(payload) });
       }
+      // Once the live turn is terminal, force a transcript refresh so the
+      // settled persisted execution pages replace any stale live placeholders.
+      queueTranscriptRefresh(context, { delay: 0, force: true });
       // Don't clear feeds on turn end — they persist until a tool_feed_inactive
       // SSE event arrives (e.g., after revert/commit removes the feed's data).
       scheduleTimeout(() => setStage({ phase: 'ready', text: 'Ready' }), 1100);

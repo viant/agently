@@ -42,6 +42,15 @@ describe('Root window selection helpers', () => {
   it('shows the main window header only for non-chat windows with a title', () => {
     expect(resolveMainWindowHeaderTitle({ windowTitle: 'Runs', windowKey: 'schedule/history' })).toBe('Runs');
     expect(resolveMainWindowHeaderTitle({ windowKey: 'schedule' })).toBe('schedule');
+    expect(resolveMainWindowHeaderTitle({
+      windowKey: 'orderPerformance',
+      parameters: { AdOrderId: [2637048] },
+      resolvedMetrics: { name: 'Delaware_SB_display_Bally', orderId: 2637048 }
+    })).toBe('Delaware_SB_display_Bally (2637048)');
+    expect(resolveMainWindowHeaderTitle({
+      windowKey: 'orderPerformance',
+      parameters: { AdOrderId: [2637048] }
+    })).toBe('Order 2637048');
     expect(shouldShowMainWindowHeader({ windowTitle: 'Runs', windowKey: 'schedule/history' })).toBe(false);
     expect(shouldShowMainWindowHeader({ windowTitle: 'Automation', windowKey: 'schedule' })).toBe(false);
     expect(shouldShowMainWindowHeader({ windowTitle: 'Runs', windowKey: 'schedule/history', inTab: false })).toBe(false);

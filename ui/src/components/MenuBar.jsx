@@ -79,7 +79,14 @@ export function paginateApprovalItems(items = [], page = 0, pageSize = APPROVALS
   };
 }
 
-export default function MenuBar({ approvals, onToggleSidebar, showExecutionDetails = true, onToggleExecutionDetails }) {
+export default function MenuBar({
+  approvals,
+  onToggleSidebar,
+  showExecutionDetails = true,
+  onToggleExecutionDetails,
+  showWorkspaceWindow = true,
+  onToggleWorkspaceWindow
+}) {
   const {
     items = [],
     pendingCount = 0,
@@ -97,6 +104,7 @@ export default function MenuBar({ approvals, onToggleSidebar, showExecutionDetai
     decide
   } = approvals || {};
   const [user, setUser] = useState(null);
+  const [appName, setAppName] = useState('Agently');
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [approvalPage, setApprovalPage] = useState(0);
@@ -107,6 +115,11 @@ export default function MenuBar({ approvals, onToggleSidebar, showExecutionDetai
       try {
         const me = await getAuthMeSilently();
         if (mounted) setUser(me || null);
+        try {
+          const workspace = await client.getWorkspaceMetadata();
+          const nextAppName = String(workspace?.appName || workspace?.defaults?.appName || '').trim();
+          if (mounted && nextAppName) setAppName(nextAppName);
+        } catch (_) {}
         if (me) return;
         const providers = await client.getAuthProviders();
         const action = resolveStartupAuthAction(providers);
@@ -183,7 +196,7 @@ export default function MenuBar({ approvals, onToggleSidebar, showExecutionDetai
       <div className="app-topbar-left">
         <div className="app-brand">
           <img src={logo} alt="Viant" className="app-brand-logo" />
-          <span className="app-brand-name">Agently</span>
+          <span className="app-brand-name">{appName}</span>
         </div>
         <div className="app-topbar-divider" />
         <div className="app-topbar-actions">
@@ -195,6 +208,22 @@ export default function MenuBar({ approvals, onToggleSidebar, showExecutionDetai
             className="app-topbar-nav-btn"
             data-testid="automation-nav"
             onClick={() => openWindow('schedule', 'Automation', ['schedules'], { replaceTabbedWindows: true })}
+          />
+          <Button
+            minimal
+            icon="history"
+            text="Runs"
+            className="app-topbar-nav-btn"
+            data-testid="runs-nav"
+            onClick={() => openWindow('schedule/history', 'Runs', ['runs'], { replaceTabbedWindows: true })}
+          />
+          <Button
+            minimal
+            icon="notifications"
+            intent={pendingCount > 0 ? 'warning' : 'none'}
+            className={pendingCount > 0 ? 'app-approval-bell is-pending' : 'app-approval-bell'}
+            data-testid="approval-bell"
+            onClick={() => setOpen?.(!open)}
           />
           <div className="app-topbar-settings-wrap">
             <Button
@@ -215,25 +244,14 @@ export default function MenuBar({ approvals, onToggleSidebar, showExecutionDetai
                   label="Show execution details"
                   onChange={() => onToggleExecutionDetails?.()}
                 />
+                <Switch
+                  checked={!!showWorkspaceWindow}
+                  label="Show workspace window"
+                  onChange={() => onToggleWorkspaceWindow?.()}
+                />
               </div>
             ) : null}
           </div>
-          <Button
-            minimal
-            icon="history"
-            text="Runs"
-            className="app-topbar-nav-btn"
-            data-testid="runs-nav"
-            onClick={() => openWindow('schedule/history', 'Runs', ['runs'], { replaceTabbedWindows: true })}
-          />
-          <Button
-            minimal
-            icon="notifications"
-            intent={pendingCount > 0 ? 'warning' : 'none'}
-            className={pendingCount > 0 ? 'app-approval-bell is-pending' : 'app-approval-bell'}
-            data-testid="approval-bell"
-            onClick={() => setOpen?.(!open)}
-          />
         </div>
       </div>
       <div className="app-topbar-right" style={{ position: 'relative' }}>

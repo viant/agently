@@ -796,7 +796,7 @@ export function resolveVisibleBubbleContent(visibleGroups = []) {
   const groups = Array.isArray(visibleGroups) ? visibleGroups : [];
   for (let index = groups.length - 1; index >= 0; index -= 1) {
     const group = groups[index] || {};
-    const finalText = String(group?.finalContent || '').trim();
+    const finalText = stripLeadingStructuredEnvelope(String(group?.finalContent || '').trim());
     if (group?.finalResponse && finalText) {
       const embedded = extractEmbeddedElicitationPayload(finalText);
       if (embedded?.message) return String(embedded.message).trim();
@@ -840,6 +840,67 @@ function looksLikeStructuredJSON(text = '') {
   } catch (_) {
     return false;
   }
+}
+
+function splitLeadingJSONObject(text = '') {
+  const raw = String(text || '').trim();
+  if (!raw.startsWith('{')) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') depth += 1;
+    if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return {
+          prefix: raw.slice(0, i + 1),
+          suffix: raw.slice(i + 1).trim(),
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function looksLikeRoutingEnvelope(value = null) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return (
+    (value.classification && typeof value.classification === 'object')
+    || (value.prompting && typeof value.prompting === 'object')
+    || (value.scope && typeof value.scope === 'object')
+  );
+}
+
+function stripLeadingStructuredEnvelope(text = '') {
+  const raw = String(text || '').trim();
+  if (!raw.startsWith('{')) return raw;
+  const parts = splitLeadingJSONObject(raw);
+  if (!parts || !parts.suffix) return raw;
+  try {
+    const parsed = JSON.parse(parts.prefix);
+    if (looksLikeRoutingEnvelope(parsed)) {
+      return parts.suffix;
+    }
+  } catch (_) {
+    return raw;
+  }
+  return raw;
 }
 
 function isStructuredAssistantArtifact(text = '') {

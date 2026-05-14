@@ -111,6 +111,26 @@ function isHiddenCanonicalAssistantMessage(message = {}) {
   return status !== 'intake.answer' && status !== 'intake.clarify';
 }
 
+function isNonRenderableAssistantPlaceholder(row = {}) {
+  if (String(row?.role || '').trim().toLowerCase() !== 'assistant') return false;
+  if (Number(row?.interim ?? 0) === 0) return false;
+  if (String(row?.content || '').trim() !== '') return false;
+  if (String(row?.narration || '').trim() !== '') return false;
+  if (row?.elicitation || row?.linkedConversationId) return false;
+  const groups = Array.isArray(row?.executionGroups) ? row.executionGroups : [];
+  if (groups.length === 0) return true;
+  return groups.every((group) => {
+    if (!group || typeof group !== 'object') return true;
+    if (String(group?.content || '').trim() !== '') return false;
+    if (String(group?.narration || '').trim() !== '') return false;
+    if (String(group?.errorMessage || '').trim() !== '') return false;
+    if (group?.finalResponse) return false;
+    if (Array.isArray(group?.toolSteps) && group.toolSteps.length > 0) return false;
+    if (Array.isArray(group?.toolCallsPlanned) && group.toolCallsPlanned.length > 0) return false;
+    return true;
+  });
+}
+
 function normalizeExecutionStatus(value = '', fallback = 'completed') {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return fallback;
@@ -581,6 +601,6 @@ export function buildConversationRenderRows({
   });
   return {
     effectiveLiveRows,
-    mergedRows
+    mergedRows: (Array.isArray(mergedRows) ? mergedRows : []).filter((row) => !isNonRenderableAssistantPlaceholder(row))
   };
 }

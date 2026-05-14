@@ -1796,7 +1796,87 @@ describe('handleStreamEvent', () => {
     }
   });
 
-  it('preserves the active conversation render after terminal events without requiring a transcript refetch', async () => {
+  it('applies late tool_call_completed events after turn_completed', () => {
+    const setCollection = vi.fn();
+    const chatState = ensureContextResources({ resources: {} });
+    const context = {
+      resources: { chat: chatState },
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1', running: true }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection,
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    handleStreamEvent(chatState, context, 'conv-1', {
+      type: 'turn_started',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      status: 'running',
+      createdAt: '2026-03-16T10:00:00Z'
+    });
+
+    handleStreamEvent(chatState, context, 'conv-1', {
+      type: 'tool_call_started',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      assistantMessageId: 'assistant-1',
+      parentMessageId: 'user-1',
+      toolCallId: 'call-1',
+      toolMessageId: 'tool-msg-1',
+      toolName: 'ui/view/showOrderPerformance',
+      status: 'running',
+      createdAt: '2026-03-16T10:00:01Z'
+    });
+
+    handleStreamEvent(chatState, context, 'conv-1', {
+      type: 'turn_completed',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      status: 'succeeded',
+      createdAt: '2026-03-16T10:00:02Z'
+    });
+
+    handleStreamEvent(chatState, context, 'conv-1', {
+      type: 'tool_call_completed',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      assistantMessageId: 'assistant-1',
+      parentMessageId: 'user-1',
+      toolCallId: 'call-1',
+      toolMessageId: 'tool-msg-1',
+      toolName: 'ui/view/showOrderPerformance',
+      status: 'completed',
+      createdAt: '2026-03-16T10:00:03Z'
+    });
+
+    const row = latestAssistantRowForTurn(chatState, 'conv-1', 'turn-1');
+    const toolSteps = (Array.isArray(row?.executionGroups) ? row.executionGroups : [])
+      .flatMap((group) => Array.isArray(group?.toolSteps) ? group.toolSteps : []);
+    const toolStep = toolSteps.find((step) => step?.toolCallId === 'call-1');
+    expect(toolStep?.status).toBe('completed');
+  });
+
+  it('preserves the active conversation render after terminal events and then forces a settling transcript refetch', async () => {
     vi.useFakeTimers();
     client.getConversation.mockReset();
     client.getTranscript.mockReset();
@@ -1903,7 +1983,7 @@ describe('handleStreamEvent', () => {
       );
       expect(conversationState.values.running).toBe(false);
       expect(client.getConversation).not.toHaveBeenCalled();
-      expect(client.getTranscript).not.toHaveBeenCalled();
+      expect(client.getTranscript).toHaveBeenCalled();
     } finally {
       globalThis.window = originalWindow;
       globalThis.CustomEvent = originalCustomEvent;

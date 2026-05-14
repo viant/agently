@@ -5,11 +5,16 @@ import { activeWindows, selectedTabId, selectedWindowId } from 'forge/core';
 import {
   CHAT_WINDOW_KEY,
   MAIN_CHAT_WINDOW_ID,
+  resolveConversationSelection,
+  getScopedWorkspaceSelection,
+  getScopedWorkspaceState,
   isLinkedChildWindow,
   openConversationInMainWindow,
   openLinkedConversationWindow,
   publishConversationSelection,
   requestNewConversationInMainWindow,
+  setScopedWorkspaceState,
+  setScopedWorkspaceSelection,
   returnToParentConversation
 } from './conversationWindow';
 
@@ -92,6 +97,66 @@ describe('conversationWindow', () => {
     expect(activeWindows.value[0]?.parameters?.messages?.input?.parameters?.convID).toBe('conv-123');
   });
 
+  it('restores a mapped workspace window when reopening a conversation in the main window', () => {
+    activeWindows.value = [
+      {
+        windowId: MAIN_CHAT_WINDOW_ID,
+        windowKey: CHAT_WINDOW_KEY,
+        parameters: {}
+      },
+      {
+        windowId: 'orderPerformance_1',
+        windowKey: 'orderPerformance',
+        parentKey: MAIN_CHAT_WINDOW_ID,
+        inTab: true,
+        parameters: {}
+      }
+    ];
+    selectedTabId.value = MAIN_CHAT_WINDOW_ID;
+    selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
+    setScopedWorkspaceSelection('conv-123', 'orderPerformance_1');
+
+    const selected = openConversationInMainWindow('conv-123');
+
+    expect(getScopedWorkspaceSelection('conv-123')).toBe('orderPerformance_1');
+    expect(selected?.windowId).toBe('orderPerformance_1');
+    expect(selectedWindowId.value).toBe('orderPerformance_1');
+    expect(selectedTabId.value).toBe('orderPerformance_1');
+  });
+
+  it('reopens a stored workspace descriptor when the live workspace window no longer exists', () => {
+    activeWindows.value = [{
+      windowId: MAIN_CHAT_WINDOW_ID,
+      windowKey: CHAT_WINDOW_KEY,
+      parameters: {}
+    }];
+    selectedTabId.value = MAIN_CHAT_WINDOW_ID;
+    selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
+
+    setScopedWorkspaceSelection('conv-456', 'missing-window');
+    setScopedWorkspaceState('conv-456', {
+      windowId: 'missing-window',
+      windowKey: 'orderPerformance',
+      windowTitle: 'Order Summary',
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      inTab: true,
+      parameters: {
+        order_performance_profile: {
+          parameters: {
+            AdOrderId: [2637048]
+          }
+        }
+      }
+    });
+
+    const selected = openConversationInMainWindow('conv-456');
+
+    expect(getScopedWorkspaceState('conv-456')?.windowKey).toBe('orderPerformance');
+    expect(selected?.windowKey).toBe('orderPerformance');
+    expect(selectedWindowId.value).toBe(selected?.windowId);
+    expect(selectedTabId.value).toBe(selected?.windowId);
+  });
+
   it('uses /conversation on localhost and 127.0.0.1 hosts', () => {
     activeWindows.value = [{
       windowId: MAIN_CHAT_WINDOW_ID,
@@ -163,6 +228,12 @@ describe('conversationWindow', () => {
     expect(String(window.localStorage.getItem('agently.selectedConversationId'))).toBe('conv-main');
     expect(replaceState).toHaveBeenCalledWith(null, '', '/conversation/conv-main');
     expect(dispatchEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to the browser path for the main chat window when scoped selection is empty', () => {
+    window.location.pathname = '/conversation/conv-from-path';
+
+    expect(resolveConversationSelection(MAIN_CHAT_WINDOW_ID)).toBe('conv-from-path');
   });
 
   it('returns to the parent conversation and focuses the main chat window', () => {
