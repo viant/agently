@@ -43,9 +43,15 @@ import {
   taskStatusIcon,
   prepareChangeFiles,
   onChangedFileSelect,
+  onFetchMeta,
+  onFetchMessages,
+  onFetchQueuedTurns,
+  openResourceFeedPath,
 } from './chatService';
 import {
+  openFileViewDialog,
   openCodeDiffDialog,
+  updateFileViewDialog,
   updateCodeDiffDialog,
 } from '../utils/dialogBus';
 
@@ -226,6 +232,126 @@ describe('resolveComposerProps', () => {
     expect(state.modelOptions).toEqual(
       expect.arrayContaining([{ value: 'openai_gpt-5-mini', label: 'GPT-5 Mini' }])
     );
+  });
+});
+
+describe('fetch handlers', () => {
+  it('onFetchMeta normalizes Forge payload-shaped results', async () => {
+    const metaDS = {
+      state: {},
+      setFormData: ({ values }) => { metaDS.state = values; },
+    };
+    const convDS = {
+      state: {},
+      peekFormData: () => convDS.state,
+      setFormData: ({ values }) => { convDS.state = values; },
+    };
+    const context = {
+      Context(name) {
+        if (name === 'meta') return { handlers: { dataSource: metaDS } };
+        if (name === 'conversations') return { handlers: { dataSource: convDS } };
+        if (name === 'messages') return { handlers: { dataSource: { setCollection: vi.fn(), setError: vi.fn() } } };
+        return null;
+      },
+    };
+
+    await onFetchMeta({
+      context,
+      payload: {
+        appName: 'Agently',
+        defaultAgent: 'coder',
+        defaultModel: 'openai_gpt-5.4',
+        agents: ['coder', 'chatter'],
+        models: ['openai_gpt-5.4'],
+        capabilities: { agentAutoSelection: true },
+      },
+    });
+
+    expect(metaDS.state.defaults.agent).toBe('coder');
+    expect(Array.isArray(metaDS.state.agentOptions)).toBe(true);
+    expect(metaDS.state.agentOptions.length).toBeGreaterThan(0);
+    expect(convDS.state.agent).toBe('coder');
+    expect(convDS.state.model).toBe('openai_gpt-5.4');
+  });
+
+  it('onFetchMeta unwraps singleton collection payloads from datasource extract', async () => {
+    const metaDS = {
+      state: {},
+      setFormData({ values }) {
+        this.state = values;
+      },
+      peekFormData: () => metaDS.state,
+    };
+    const convDS = {
+      state: {},
+      setFormData({ values }) {
+        this.state = values;
+      },
+      peekFormData: () => convDS.state,
+    };
+    const context = {
+      Context(name) {
+        if (name === 'meta') return { handlers: { dataSource: metaDS } };
+        if (name === 'conversations') return { handlers: { dataSource: convDS } };
+        return null;
+      }
+    };
+    await onFetchMeta({
+      context,
+      collection: [{
+        workspaceRoot: '/tmp/ws',
+        defaults: { agent: 'coder', model: 'openai_gpt-5.4', embedder: 'openai_text' },
+        capabilities: { agentAutoSelection: true, compactConversation: true },
+        agentInfos: [{ id: 'coder', name: 'Coder', modelRef: 'openai_gpt-5.4' }],
+        modelInfos: [{ id: 'openai_gpt-5.4', name: 'GPT-5.4' }],
+      }],
+    });
+    expect(metaDS.state.defaults).toEqual(expect.objectContaining({ agent: 'coder', model: 'openai_gpt-5.4' }));
+    expect(metaDS.state.capabilities).toEqual(expect.objectContaining({ agentAutoSelection: true, compactConversation: true }));
+    expect(metaDS.state.agentOptions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ value: 'coder', label: 'Coder' })])
+    );
+    expect(metaDS.state.modelOptions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ value: 'openai_gpt-5.4' })])
+    );
+    expect(convDS.state).toEqual(expect.objectContaining({ agent: 'coder', model: 'openai_gpt-5.4', embedder: 'openai_text' }));
+  });
+
+  it('onFetchMessages accepts collection-shaped rows from Forge', async () => {
+    const syncSpy = vi.spyOn(await import('./chatRuntime'), 'syncMessagesSnapshot').mockResolvedValue([]);
+    const fetchPendingSpy = vi.spyOn(await import('./chatRuntime'), 'fetchPendingElicitations').mockResolvedValue([]);
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return { handlers: { dataSource: { peekFormData: () => ({ id: 'conv-1' }) } } };
+        }
+        return null;
+      },
+    };
+
+    const turns = [{ id: 'turn-1' }];
+    await onFetchMessages({ context, collection: turns });
+
+    expect(fetchPendingSpy).toHaveBeenCalledWith('conv-1');
+    expect(syncSpy).toHaveBeenCalledWith(context, turns, 'fetch', []);
+    syncSpy.mockRestore();
+    fetchPendingSpy.mockRestore();
+  });
+
+  it('onFetchQueuedTurns accepts collection-shaped transcript rows', () => {
+    const queueDS = { setCollection: vi.fn() };
+    const context = {
+      Context(name) {
+        if (name === 'queueTurns') return { handlers: { dataSource: queueDS } };
+        return null;
+      },
+    };
+
+    const turns = [{ id: 'msg-1', role: 'assistant', content: 'hello' }];
+    const queued = onFetchQueuedTurns({ context, collection: turns });
+
+    expect(Array.isArray(queued)).toBe(true);
+    expect(queueDS.setCollection).toHaveBeenCalledWith(queued);
   });
 });
 
@@ -468,6 +594,41 @@ describe('onChangedFileSelect', () => {
       diff: '@@ change @@',
       hasPrev: true,
       loading: false,
+    }));
+  });
+});
+
+describe('openResourceFeedPath', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('opens a file-view dialog for resource feed rows using path/rootId', async () => {
+    client.executeTool.mockResolvedValueOnce({ content: 'resource body' });
+
+    const ok = await openResourceFeedPath({
+      row: {
+        path: '/Users/awitas/go/src/github.com/viant/agently-core/recovery.md',
+        rootId: 'local',
+      },
+    });
+
+    expect(ok).toBe(true);
+    expect(openFileViewDialog).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'recovery.md',
+      uri: '/Users/awitas/go/src/github.com/viant/agently-core/recovery.md',
+      loading: true,
+    }));
+    expect(client.executeTool).toHaveBeenCalledWith('resources-read', expect.objectContaining({
+      path: '/Users/awitas/go/src/github.com/viant/agently-core/recovery.md',
+      rootId: 'local',
+      maxBytes: 200000,
+    }));
+    expect(updateFileViewDialog).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'recovery.md',
+      uri: '/Users/awitas/go/src/github.com/viant/agently-core/recovery.md',
+      loading: false,
+      content: 'resource body',
     }));
   });
 });

@@ -20,12 +20,27 @@ view:
         chat:
           dataSourceRef: messages
           showSettings: false
+          showTools: false
+          showMic: true
+          commandCenter: true
           abortVisible:
             dataSourceRef: conversations
             selector: running
+          showUpload: true
+          upload:
+            endpoint: agentlyAPI
+            path: upload
+          uploadField: files
           on:
             - event: onSubmit
               handler: chat.submitMessage
+              parameters:
+                - name: model
+                  in: form
+                  location: conversations.model
+                - name: agent
+                  in: form
+                  location: conversations.agent
             - event: onModelSelect
               handler: chat.selectModel
             - event: onAgentSelect

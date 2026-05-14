@@ -28,6 +28,7 @@ const SIDEBAR_MIN_WIDTH = 220;
 const SIDEBAR_MAX_WIDTH = 520;
 const SHOW_EXECUTION_DETAILS_KEY = 'agently.showExecutionDetails';
 const SHOW_WORKSPACE_WINDOW_KEY = 'agently.showWorkspaceWindow';
+const SHOW_TOOL_FEEDS_KEY = 'agently.showToolFeeds';
 
 function clampSidebarWidth(value) {
   const next = Number(value || 0);
@@ -175,6 +176,14 @@ export default function Root() {
     } catch (_) {}
     return true;
   });
+  const [showToolFeeds, setShowToolFeeds] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const stored = String(window.localStorage?.getItem(SHOW_TOOL_FEEDS_KEY) || '').trim().toLowerCase();
+      if (stored === 'false') return false;
+    } catch (_) {}
+    return true;
+  });
   const resizeStateRef = useRef(null);
   const approvals = useApprovalQueue(authState === 'ready');
   const selectedWindow = resolveSelectedMainWindow(
@@ -304,6 +313,12 @@ export default function Root() {
       window.localStorage?.setItem(SHOW_WORKSPACE_WINDOW_KEY, showWorkspaceWindow ? 'true' : 'false');
     } catch (_) {}
   }, [showWorkspaceWindow]);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage?.setItem(SHOW_TOOL_FEEDS_KEY, showToolFeeds ? 'true' : 'false');
+    } catch (_) {}
+  }, [showToolFeeds]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
@@ -438,6 +453,8 @@ export default function Root() {
             onToggleExecutionDetails={() => setShowExecutionDetails((value) => !value)}
             showWorkspaceWindow={showWorkspaceWindow}
             onToggleWorkspaceWindow={() => setShowWorkspaceWindow((value) => !value)}
+            showToolFeeds={showToolFeeds}
+            onToggleToolFeeds={() => setShowToolFeeds((value) => !value)}
           />
 
         <div className="app-main">
@@ -550,7 +567,7 @@ export default function Root() {
                 <WindowManager />
               )}
             </div>
-            {showChatChrome ? <ToolFeedWorkspace conversationId={activeConversationId} /> : null}
+            {showChatChrome && showToolFeeds ? <ToolFeedWorkspace conversationId={activeConversationId} /> : null}
             </div>
             {showChatChrome ? <UsageBar /> : null}
           </main>

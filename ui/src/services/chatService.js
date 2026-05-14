@@ -249,33 +249,46 @@ export function onDestroy({ context }) {
   setStage({ phase: 'ready', text: 'Ready' });
 }
 
-export async function onFetchMeta({ context, data, result }) {
-  const payload = normalizeMetaResponse(data || result || {});
+export async function onFetchMeta({ context, data, result, payload, collection }) {
+  const singletonCollectionPayload = Array.isArray(collection)
+    && collection.length === 1
+    && collection[0]
+    && typeof collection[0] === 'object'
+      ? collection[0]
+      : null;
+  const source = payload ?? result ?? data ?? singletonCollectionPayload ?? collection ?? {};
+  const normalized = normalizeMetaResponse(source);
   const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
   if (metaDS) {
-    metaDS.setFormData?.({ values: payload });
+    metaDS.setFormData?.({ values: normalized });
   }
   const convDS = context?.Context?.('conversations')?.handlers?.dataSource;
   if (convDS) {
     const form = convDS.peekFormData?.() || {};
     const next = { ...form };
     if (!String(next.id || '').trim()) {
-      next.agent = payload?.defaults?.agent || '';
-      next.model = payload?.defaults?.model || '';
-      next.embedder = payload?.defaults?.embedder || '';
+      next.agent = normalized?.defaults?.agent || '';
+      next.model = normalized?.defaults?.model || '';
+      next.embedder = normalized?.defaults?.embedder || '';
     } else {
-      if (!next.agent && payload?.defaults?.agent) next.agent = payload.defaults.agent;
-      if (!next.model && payload?.defaults?.model) next.model = payload.defaults.model;
-      if (!next.embedder && payload?.defaults?.embedder) next.embedder = payload.defaults.embedder;
+      if (!next.agent && normalized?.defaults?.agent) next.agent = normalized.defaults.agent;
+      if (!next.model && normalized?.defaults?.model) next.model = normalized.defaults.model;
+      if (!next.embedder && normalized?.defaults?.embedder) next.embedder = normalized.defaults.embedder;
     }
     convDS.setFormData?.({ values: next });
   }
   renderMergedRowsForContext(context);
-  return [payload];
+  return [normalized];
 }
 
-export async function onFetchMessages({ context, data, result }) {
-  const turns = Array.isArray(data) ? data : [];
+export async function onFetchMessages({ context, data, result, payload, collection }) {
+  const turns = Array.isArray(collection)
+    ? collection
+    : (Array.isArray(data)
+      ? data
+      : (Array.isArray(result)
+        ? result
+        : (Array.isArray(payload) ? payload : [])));
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const conversationID = String(conversationsDS?.peekFormData?.()?.id || '').trim();
   const pendingElicitations = conversationID ? await fetchPendingElicitations(conversationID) : [];
@@ -292,8 +305,14 @@ export async function loadOlderExecutions({ context, all = false, reset = false 
   return true;
 }
 
-export function onFetchQueuedTurns({ context, data }) {
-  const turns = Array.isArray(data) ? data : [];
+export function onFetchQueuedTurns({ context, data, payload, collection, result }) {
+  const turns = Array.isArray(collection)
+    ? collection
+    : (Array.isArray(data)
+      ? data
+      : (Array.isArray(result)
+        ? result
+        : (Array.isArray(payload) ? payload : [])));
   const queuedTurns = mapTranscriptToRows(turns).queuedTurns;
   const queueDS = context?.Context?.('queueTurns')?.handlers?.dataSource;
   queueDS?.setCollection?.(queuedTurns);
@@ -954,23 +973,32 @@ export async function explorerOpen(props = {}) {
 }
 
 export async function explorerRead(props = {}) {
-  const uri = String(props?.uri || '').trim()
+  const row = props?.row || props?.item || props?.node || {};
+  const uri = String(props?.uri || row?.uri || row?.URI || '').trim()
     || String(readSelection(props?.context, 'results')?.uri || readSelection(props?.context, 'results')?.URI || '').trim();
-  if (!uri) {
+  const path = String(props?.path || row?.path || row?.Path || '').trim();
+  const rootId = String(props?.rootId || row?.rootId || row?.rootID || 'local').trim();
+  const target = uri || path;
+  if (!target) {
     showToast('Select a file to read.', { intent: 'warning' });
     return false;
   }
-  const title = uri.split('/').pop() || uri;
-  openFileViewDialog({ title, uri, loading: true, content: '' });
+  const title = target.split('/').pop() || target;
+  openFileViewDialog({ title, uri: target, loading: true, content: '' });
   try {
-    const result = normalizeToolResult(await client.executeTool('resources-read', { uri, maxBytes: 200000 }));
+    const args = path ? { path, rootId, maxBytes: 200000 } : { uri, maxBytes: 200000 };
+    const result = normalizeToolResult(await client.executeTool('resources-read', args));
     const content = String(result?.content ?? result?.Content ?? result ?? '');
-    updateFileViewDialog({ title, uri, loading: false, content });
+    updateFileViewDialog({ title, uri: target, loading: false, content });
     return true;
   } catch (err) {
     updateFileViewDialog({ loading: false, content: String(err?.message || err || 'Failed to read file') });
     return false;
   }
+}
+
+export async function openResourceFeedPath(props = {}) {
+  return explorerRead(props);
 }
 
 export async function explorerSearch(props = {}) {
@@ -1275,6 +1303,7 @@ export const chatService = {
   explorerOpenIcon,
   explorerOpen,
   explorerRead,
+  openResourceFeedPath,
   explorerSearch,
   explorerSearchInputChanged
 };

@@ -1,20 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Container as ForgeContainer } from 'forge/components';
+import React, { useEffect, useRef, useState } from 'react';
+import { CompactFeedList, Terminal } from 'forge/components';
 import { getFeedData, onFeedDataChange, getActiveFeeds, onFeedChange, splitFeedKey } from '../services/toolFeedBus';
+import { openResourceFeedPath } from '../services/chatService';
 import {
   getExpandedFeedIds,
   getSelectedFeedId,
-  isFeedExpanded,
   onFeedExpansionChange,
   onSelectedFeedChange
 } from '../services/toolFeedSelection';
-import {
-  wireFeedSignals,
-  normalizeDataSources,
-  computeDataMap,
-  applyAutoTableColumns,
-} from '../services/feedForgeWiring';
-import { createFeedContext } from '../services/feedForgeContext';
+import { asArray, selectPath } from '../services/feedForgeWiring';
 
 function dedupeFeeds(feeds = []) {
   const seen = new Map();
@@ -169,259 +163,59 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
   );
 }
 
-export function resolveRootFeedDataSourceName(dataSources = {}) {
-  const dsNames = Object.keys(dataSources || {});
-  return dsNames.find((name) => {
-    const ds = dataSources[name] || {};
-    const source = String(ds?.source || '').trim().toLowerCase();
-    return !String(ds?.dataSourceRef || '').trim() && (source === 'output' || source === 'input');
-  }) || dsNames.find((name) => !String(dataSources[name]?.dataSourceRef || '').trim()) || dsNames[0] || '';
-}
-
-/**
- * Renders a single feed panel. Uses Forge Container when the feed spec
- * includes a `ui` definition; falls back to InlineRenderer otherwise.
- */
-function FeedPanel({ feedId, rawFeedId, context, variant = 'inline' }) {
+function FeedPanel({ feedId, context, variant = 'inline' }) {
   const scopedConversationId = String(splitFeedKey(feedId).conversationId || '').trim();
+  const rawFeedId = String(splitFeedKey(feedId).feedId || '').trim();
   const data = getFeedData(feedId, scopedConversationId);
-  const isServerRender = typeof window === 'undefined';
-  const [forgeReadyKey, setForgeReadyKey] = useState(() => (isServerRender ? '__ssr__' : ''));
-
-  // Build the execution shape that wireFeedSignals expects.
-  const exe = useMemo(() => {
-    if (!data) return null;
-    const rawDS = data.ui && typeof data.ui === 'object'
-      ? (data.ui.dataSources || data.dataSources || {})
-      : (data.dataSources || {});
-    const dsNormalized = normalizeDataSources(rawDS);
-
-    // Determine the root data source name and its data.
-    const rootName = resolveRootFeedDataSourceName(dsNormalized);
-
-    return {
-      id: feedId,
-      dataSources: dsNormalized,
-      dataFeed: { name: rootName, data: data.data },
-      ui: data.ui,
-    };
-  }, [data, feedId]);
-
-  // Prepare UI container with auto-columns and data source defs merged.
-  const uiContainer = useMemo(() => {
-    if (!exe || !exe.ui || typeof exe.ui !== 'object') return null;
-    const uiClone = JSON.parse(JSON.stringify(exe.ui));
-    uiClone.dataSources = exe.dataSources;
-    const dataMap = computeDataMap(exe);
-    applyAutoTableColumns(uiClone, dataMap);
-    return uiClone;
-  }, [exe]);
-
-  // Build Forge context for this feed.
-  const conversationId = data?._conversationId || scopedConversationId || '';
-  const forgeRenderKey = useMemo(() => {
-    const dsNames = Object.keys(exe?.dataSources || {}).sort().join(',');
-    return `${feedId}::${conversationId}::${rawFeedId}::${dsNames}`;
-  }, [conversationId, exe?.dataSources, feedId, rawFeedId]);
-  const [forgeContext, setForgeContext] = useState(() => (
-    isServerRender ? createFeedContext(feedId, exe?.dataSources || {}, conversationId) : null
-  ));
-
-  useEffect(() => {
-    if (isServerRender) return;
-    if (!exe) {
-      setForgeContext(null);
-      return;
-    }
-    setForgeContext(createFeedContext(feedId, exe?.dataSources || {}, conversationId));
-  }, [conversationId, exe, feedId, isServerRender]);
-
-  // Wire Forge signals whenever data changes.
-  useEffect(() => {
-    if (!exe || !uiContainer || !forgeContext) {
-      setForgeReadyKey('');
-      return;
-    }
-    const timer = setTimeout(() => {
-      const windowId = conversationId ? `feed-${feedId}-${conversationId}` : `feed-${feedId}`;
-      wireFeedSignals(exe, windowId);
-      const dataMap = computeDataMap(exe);
-      for (const [dsRef, rows] of Object.entries(dataMap || {})) {
-        try {
-          forgeContext.Context(dsRef)?.handlers?.dataSource?.setCollection?.(Array.isArray(rows) ? rows : []);
-        } catch (_) {}
-      }
-      setForgeReadyKey(forgeRenderKey);
-    }, 0);
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [conversationId, exe, feedId, forgeContext, forgeRenderKey, uiContainer]);
-
   if (!data) return null;
-
-  const hasFullFeedSpec = !!(data?.ui && exe?.dataSources && Object.keys(exe.dataSources).length > 0);
-
-  if (!hasFullFeedSpec) {
-    if (!hasRenderableFeedData(data)) return null;
-    return <InlineRenderer data={data} variant={variant} />;
-  }
-
-  if (variant === 'rail') {
-    if (!hasRenderableFeedData(data)) return null;
-    return <InlineRenderer data={data} variant={variant} />;
-  }
-
-  // No UI spec → fall back to generic InlineRenderer.
-  if (!uiContainer) {
-    return <InlineRenderer data={data} variant={variant} />;
-  }
-
-  if (!forgeContext) {
-    return <div style={{ padding: 8, color: 'var(--gray2)' }}>Preparing feed…</div>;
-  }
-
-  if (!isServerRender && forgeReadyKey !== forgeRenderKey) {
-    return <div style={{ padding: 8, color: 'var(--gray2)' }}>Preparing feed…</div>;
-  }
-
-  const railStyle = variant === 'rail'
-    ? { height: '100%', minHeight: 0, overflowY: 'auto', paddingRight: 4 }
-    : { maxHeight: 'min(26vh, 220px)', overflowY: 'auto', paddingRight: 4 };
-
-  return (
-    <div className="app-tool-feed-detail-list" style={railStyle}>
-      <ForgeContainer container={uiContainer} context={forgeContext} />
-    </div>
-  );
+  if (!hasRenderableFeedData(data)) return null;
+  const onPathActivate = rawFeedId === 'resources'
+    ? (row) => openResourceFeedPath({ row, context })
+    : null;
+  return <InlineRenderer data={data} variant={variant} onPathActivate={onPathActivate} />;
 }
 
 /**
  * Generic data-driven renderer — inspects the data shape and renders
  * accordingly. Used as fallback when no Forge UI spec is defined.
  */
-function InlineRenderer({ data, variant = 'inline' }) {
+function InlineRenderer({ data, variant = 'inline', onPathActivate = null }) {
   if (!data) return null;
-  const root = data?.data || {};
-  // Flatten: if root has a single "output" key, use that as the display root.
-  const display = (root.output && typeof root.output === 'object' && !Array.isArray(root.output))
-    ? root.output
-    : root;
-
   const railStyle = variant === 'rail'
     ? { height: '100%', minHeight: 0, overflowY: 'auto' }
     : { maxHeight: 'min(18vh, 140px)', overflowY: 'auto' };
+  const terminalUI = data?.ui?.terminal && typeof data.ui.terminal === 'object'
+    ? data.ui.terminal
+    : null;
+  const dataSources = (data?.dataSources && typeof data.dataSources === 'object')
+    ? data.dataSources
+    : ((data?.ui?.dataSources && typeof data.ui.dataSources === 'object') ? data.ui.dataSources : {});
 
-  return (
-    <div className="app-tool-feed-detail-list" style={railStyle}>
-      <AutoRender value={display} depth={0} />
-    </div>
-  );
-}
-
-/** Recursively renders any JSON value — auto-paginates large arrays. */
-function AutoRender({ value, depth = 0, label }) {
-  if (value == null) return null;
-
-  // Array → paginated list.
-  if (Array.isArray(value)) {
-    if (value.length === 0) return null;
-    return <PaginatedList items={value} depth={depth} label={label} />;
-  }
-
-  // Object with identifiable row shape → render as a row.
-  if (typeof value === 'object') {
-    const keys = Object.keys(value);
-    const statusField = value.status || value.Status;
-    const titleField = value.step || value.title || value.name || value.Name
-      || value.path || value.Path || value.uri || value.URI;
-    if (titleField) {
-      const status = String(statusField || '').trim().toLowerCase();
-      const icon = status === 'completed' || status === 'done' ? '✓'
-        : status === 'in_progress' || status === 'running' ? '▶'
-        : status ? '○' : '';
-      const secondary = value.Matches || value.matches || value.hits || value.size || value.count;
-      return (
-        <div className="app-tool-feed-detail-step">
-          {icon ? <span className={`app-tool-feed-detail-status status-${status || 'pending'}`}>{icon}</span> : null}
-          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {String(titleField)}
-          </span>
-          {secondary != null ? <span style={{ color: '#6b7280', fontSize: 11, flexShrink: 0 }}>{secondary}</span> : null}
-        </div>
-      );
-    }
-    // Nested arrays → render only the arrays, skip scalar metadata.
-    const arrayKeys = keys.filter((k) => Array.isArray(value[k]) && value[k].length > 0);
-    if (arrayKeys.length > 0 && depth < 2) {
-      return (
-        <>
-          {arrayKeys.map((k) => (
-            <AutoRender key={k} value={value[k]} depth={depth + 1} label={arrayKeys.length > 1 ? k : undefined} />
-          ))}
-        </>
-      );
-    }
-    // Flat object summary.
+  if (terminalUI && Object.keys(dataSources).length > 0) {
+    const dsRef = String(terminalUI.dataSourceRef || '').trim();
+    const dsConfig = dsRef ? (dataSources?.[dsRef] || {}) : {};
+    const source = String(dsConfig?.source || '').trim();
+    const entries = source ? asArray(selectPath(source, data?.data || {})) : [];
     return (
-      <div className="app-tool-feed-detail-step">
-        <span style={{ color: '#6b7280', fontSize: 11 }}>
-          {keys.slice(0, 8).map((k) => {
-            const v = value[k];
-            const d = Array.isArray(v) ? `${v.length} items` : typeof v === 'object' ? '{…}' : String(v).slice(0, 50);
-            return `${k}: ${d}`;
-          }).join(' · ')}
-        </span>
+      <div className="app-tool-feed-detail-list" style={railStyle}>
+        <Terminal
+          entries={entries}
+          height={terminalUI.height || '100%'}
+          prompt={terminalUI.prompt || '$'}
+          autoScroll={terminalUI.autoScroll !== false}
+          showDividers={!!terminalUI.showDividers}
+          truncateLongOutput={terminalUI.truncateLongOutput}
+          truncateLength={terminalUI.truncateLength}
+          className={terminalUI.className || ''}
+          style={terminalUI.style || {}}
+        />
       </div>
     );
   }
 
-  // Scalar.
   return (
-    <div className="app-tool-feed-detail-step">
-      {label ? <span style={{ fontWeight: 500 }}>{label}: </span> : null}
-      <span>{String(value).slice(0, 200)}</span>
-    </div>
-  );
-}
-
-const PAGE_SIZE = 10;
-
-/** Renders an array with automatic pagination when > PAGE_SIZE items. */
-function PaginatedList({ items, depth, label }) {
-  const [page, setPage] = useState(0);
-  const total = items.length;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const needsPagination = total > PAGE_SIZE;
-  const start = page * PAGE_SIZE;
-  const slice = needsPagination ? items.slice(start, start + PAGE_SIZE) : items;
-
-  return (
-    <div>
-      {label ? (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 0', marginBottom: 2 }}>
-          <span style={{ fontWeight: 600, fontSize: 12, color: '#4a5568' }}>{label} ({total})</span>
-          {needsPagination ? (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#6b7280' }}>
-              <button className="app-tool-feed-page-btn" disabled={page <= 0} onClick={() => setPage(page - 1)}>‹</button>
-              {page + 1}/{totalPages}
-              <button className="app-tool-feed-page-btn" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>›</button>
-            </span>
-          ) : null}
-        </div>
-      ) : needsPagination ? (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '2px 0', marginBottom: 2 }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#6b7280' }}>
-            {total} items
-            <button className="app-tool-feed-page-btn" disabled={page <= 0} onClick={() => setPage(page - 1)}>‹</button>
-            {page + 1}/{totalPages}
-            <button className="app-tool-feed-page-btn" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>›</button>
-          </span>
-        </div>
-      ) : null}
-      {slice.map((item, i) => (
-        <AutoRender key={start + i} value={item} depth={depth + 1} />
-      ))}
+    <div className="app-tool-feed-detail-list" style={railStyle}>
+      <CompactFeedList data={data} classNamePrefix="app-tool-feed-detail" onPathActivate={onPathActivate} />
     </div>
   );
 }
