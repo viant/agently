@@ -1,21 +1,22 @@
-id: openai_gpt-5.4
-name: gpt-5.4
-description: OpenAI GPT-5.4 model
-intelligence: 0.96
+id: openai_gpt-5.5
+name: gpt-5.5
+description: OpenAI GPT-5.5 model
+intelligence: 0.98
 speed: 0.9
 options:
   provider: openai
-  model: gpt-5.4
+  model: gpt-5.5
   envKey: OPENAI_API_KEY
   maxTokens: 100000
-  inputTokenPrice: 0.0025   # $2.50 per 1M tokens
-  outputTokenPrice: 0.015   # $15 per 1M tokens
+  inputTokenPrice: 0.005   # $5 per 1M tokens
+  outputTokenPrice: 0.03   # $30 per 1M tokens
   contextContinuation: true
   enableContinuationFormat: false
 
-# Pricing reference for gpt-5.4, checked against OpenAI docs on 2026-05-13:
-# - Standard: input $2.50 / 1M, cached input $0.25 / 1M, output $15.00 / 1M.
+# Pricing reference for gpt-5.5, checked against OpenAI docs on 2026-05-13:
+# - Standard: input $5.00 / 1M, cached input $0.50 / 1M, output $30.00 / 1M.
 # - Batch/Flex processing: typically 50% of standard token rates when available.
+# - Priority processing/Fast mode: 2.5x standard rate.
 # - Data residency/regional processing: +10% uplift.
 # - Long context: prompts above 272K input tokens are priced at 2x input and 1.5x output
 #   for the full session for standard, batch, and flex.

@@ -8,5 +8,13 @@ options:
   model: gpt-5-mini
   envKey: OPENAI_API_KEY
   maxTokens: 100000
+  inputTokenPrice: 0.00025   # $0.25 per 1M tokens
+  outputTokenPrice: 0.002    # $2 per 1M tokens
   contextContinuation: true
   enableContinuationFormat: false
+
+# Pricing reference for gpt-5-mini, checked against OpenAI docs on 2026-05-13:
+# - Standard: input $0.25 / 1M, cached input $0.025 / 1M, output $2.00 / 1M.
+# - Batch API: typically 50% of standard token rates when available.
+# - OpenAI currently recommends GPT-5.4 mini for most new low-latency,
+#   high-volume workloads, but this config still targets gpt-5-mini.
