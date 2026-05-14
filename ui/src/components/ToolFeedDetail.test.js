@@ -116,8 +116,66 @@ describe('ToolFeedDetail', () => {
     expect(html).toContain('planInfo');
     expect(html).toContain('planDetail');
     expect(html).toContain('planTable');
-    expect(html).not.toContain('explanation');
-    expect(html).not.toContain('"title":"Plan"');
+    expect(html).toContain('explanation');
+  });
+
+  it('uses the compact generic renderer for rail feeds even when a Forge ui spec exists', async () => {
+    const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
+    getActiveFeedsMock.mockReturnValueOnce([
+      {
+        feedId: 'conv-1::plan',
+        rawFeedId: 'plan',
+        title: 'Plan',
+        conversationId: 'conv-1',
+      },
+    ]);
+    getFeedDataMock.mockImplementation(() => ({
+      data: {
+        output: {
+          explanation: 'Inspect package and add a focused test.',
+          plan: [
+            { id: 's1', step: 'Inspect package', status: 'completed' },
+            { id: 's2', step: 'Add test', status: 'in_progress' },
+          ],
+        },
+      },
+      ui: {
+        dataSources: {
+          planInfo: { source: 'output' },
+          planDetail: { dataSourceRef: 'planInfo', selectors: { data: 'plan' } },
+        },
+        containers: [
+          {
+            id: 'header',
+            dataSourceRef: 'planInfo',
+            items: [
+              { id: 'explanation', type: 'label', dataBind: 'explanation' },
+            ],
+          },
+          {
+            id: 'planTable',
+            type: 'table',
+            dataSourceRef: 'planDetail',
+            table: {
+              columns: [
+                { id: 'status', name: 'Status', width: 30 },
+                { id: 'step', name: 'Step', width: 200 },
+              ],
+            },
+          },
+        ],
+      },
+      dataSources: {
+        planInfo: { source: 'output' },
+        planDetail: { dataSourceRef: 'planInfo', selectors: { data: 'plan' } },
+      },
+    }));
+
+    const html = renderToStaticMarkup(React.createElement(ToolFeedDetail, { variant: 'rail' }));
+
+    expect(html).not.toContain('data-testid="forge-container"');
+    expect(html).toContain('Inspect package');
+    expect(html).toContain('Add test');
   });
 
   it('renders nothing when feeds exist but none are expanded', async () => {
