@@ -12,3 +12,8 @@ options:
   outputTokenPrice: 0.014    # $14 per 1M tokens
   contextContinuation: true
   enableContinuationFormat: false
+
+# Pricing reference for gpt-5.3-codex, checked against OpenAI docs on 2026-05-13:
+# - Standard: input $1.75 / 1M, cached input $0.175 / 1M, output $14.00 / 1M.
+# - Batch API: typically 50% of standard token rates when available.
+# - No long-context surcharge was listed for GPT-5.3-Codex in the checked docs.
