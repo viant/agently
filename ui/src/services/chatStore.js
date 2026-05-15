@@ -233,6 +233,8 @@ if (typeof window !== 'undefined') {
                 getProjection,
                 isRunning,
                 isQueued,
+                onTranscript,
+                reset,
             },
         });
     } catch (_) { /* ignore */ }

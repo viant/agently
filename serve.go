@@ -23,6 +23,7 @@ import (
 	appserver "github.com/viant/agently-core/app/server"
 	mcpexpose "github.com/viant/agently-core/protocol/mcp/expose"
 	"github.com/viant/agently-core/protocol/tool"
+	uicontrol "github.com/viant/agently-core/protocol/tool/service/ui/control"
 	uidatasource "github.com/viant/agently-core/protocol/tool/service/ui/datasource"
 	uiview "github.com/viant/agently-core/protocol/tool/service/ui/view"
 	uiwindow "github.com/viant/agently-core/protocol/tool/service/ui/window"
@@ -142,12 +143,17 @@ func Serve(options ServeOptions) error {
 	}
 	schedulerSvc := svcscheduler.New(scheduleStore, rt.Agent, schedulerSvcOpts...)
 	uiBridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	forgeWindowRepo := forgewindowrepo.NewWithStore(rt.Store)
+	logLoadedForgeWindows(ctx, forgeWindowRepo)
 	if rt.Registry != nil {
-		if err := tool.AddInternalService(rt.Registry, uiview.New(forgewindowrepo.NewWithStore(rt.Store), uiBridge)); err != nil {
+		if err := tool.AddInternalService(rt.Registry, uiview.New(forgeWindowRepo, uiBridge)); err != nil {
 			log.Printf("agently-app: failed to register internal UI view service: %v", err)
 		}
 		if err := tool.AddInternalService(rt.Registry, uiwindow.New(uiBridge)); err != nil {
 			log.Printf("agently-app: failed to register internal UI window service: %v", err)
+		}
+		if err := tool.AddInternalService(rt.Registry, uicontrol.New(uiBridge)); err != nil {
+			log.Printf("agently-app: failed to register internal UI control service: %v", err)
 		}
 		if err := tool.AddInternalService(rt.Registry, uidatasource.New(uiBridge)); err != nil {
 			log.Printf("agently-app: failed to register internal UI datasource service: %v", err)
@@ -246,6 +252,37 @@ func Serve(options ServeOptions) error {
 	log.Printf("agently serve listening on %s (workspace=%s ui=%s)", addr, workspace.Root(), uiBundle.Name)
 	serveErr := srv.ListenAndServe()
 	return finalizeServeResult(cancel, &shutdownWG, serveErr, mcpSrv)
+}
+
+func logLoadedForgeWindows(ctx context.Context, repository *forgewindowrepo.Repository) {
+	if repository == nil {
+		return
+	}
+	items, err := repository.LoadAll(ctx)
+	if err != nil {
+		log.Printf("agently-app: failed to load workspace Forge windows: %v", err)
+		return
+	}
+	if len(items) == 0 {
+		log.Printf("agently-app: workspace Forge windows: none loaded")
+		return
+	}
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		log.Printf("agently-app: workspace Forge windows: none loaded")
+		return
+	}
+	log.Printf("agently-app: workspace Forge windows loaded: %s", strings.Join(ids, ", "))
 }
 
 func finalizeServeResult(cancel context.CancelFunc, shutdownWG *sync.WaitGroup, serveErr error, mcpSrv *http.Server) error {

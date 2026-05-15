@@ -1,7 +1,7 @@
 import { client } from './agentlyClient';
 import { getLogger } from 'forge/utils/logger';
 import { registerDynamicEvaluator } from 'forge/runtime/binding';
-import { getBusSignal } from 'forge/core';
+import { sendBusMessage } from 'forge/core';
 import { openConfirmDialog } from '../utils/dialogBus';
 import {
   filterLookupCollection,
@@ -1537,8 +1537,7 @@ export const scheduleService = {
       // Switch to Editor tab via bus message
       const windowId = context?.identity?.windowId;
       if (windowId) {
-        const bus = getBusSignal(windowId);
-        bus.value = [...(bus.peek() || []), { type: 'selectTab', tabId: 'scheduleEditor' }];
+        sendBusMessage(windowId, { type: 'selectTab', tabId: 'scheduleEditor' });
       }
     } catch (e) {
       log.warn('schedule.addNewSchedule error', e);

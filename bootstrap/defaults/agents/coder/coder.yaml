@@ -50,6 +50,9 @@ intake:
     - toolName: `resources/read`
     - inputJson: JSON object with the exact local `path` and `rootId: "local"`
     - assistantText: one short sentence saying you are opening the requested file for review
+  tool:
+    bundles:
+      - resources
   scope:
     - title
     - context

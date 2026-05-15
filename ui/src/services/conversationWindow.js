@@ -1,16 +1,24 @@
 import {
   addWindow,
   activeWindows,
+  publishUIBridgeSnapshotNow,
   removeWindow,
   selectedTabId,
   selectedWindowId
 } from 'forge/core';
+import { generateIntHash } from '../../../../forge/src/utils/hash.js';
 
 export const CHAT_WINDOW_KEY = 'chat/new';
 export const MAIN_CHAT_WINDOW_ID = CHAT_WINDOW_KEY;
 const LEGACY_SELECTED_CONVERSATION_KEY = 'agently.selectedConversationId';
 const WORKSPACE_SELECTION_KEY = 'agently.selectedWorkspaceWindowId';
 const WORKSPACE_STATE_KEY = 'agently.workspaceState';
+const WORKSPACE_PRESENTATION_MODE_KEY = 'agently.workspacePresentationMode';
+
+function uiStateStorage() {
+  if (typeof window === 'undefined') return null;
+  return window.sessionStorage || null;
+}
 
 function conversationPathForID(conversationId = '') {
   const id = String(conversationId || '').trim();
@@ -58,6 +66,11 @@ function workspaceStateKey(conversationId = '') {
   return id ? `${WORKSPACE_STATE_KEY}:${id}` : WORKSPACE_STATE_KEY;
 }
 
+function workspacePresentationModeKey(conversationId = '') {
+  const id = String(conversationId || '').trim();
+  return id ? `${WORKSPACE_PRESENTATION_MODE_KEY}:${id}` : WORKSPACE_PRESENTATION_MODE_KEY;
+}
+
 export function isMainChatWindowId(windowId = '') {
   return String(windowId || '').trim() === MAIN_CHAT_WINDOW_ID;
 }
@@ -74,6 +87,15 @@ export function getWindowById(windowId = '') {
   if (!id) return null;
   const windows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
   return windows.find((entry) => String(entry?.windowId || '').trim() === id) || null;
+}
+
+function computeWorkspaceWindowId(windowKey = '', parameters = {}) {
+  const key = String(windowKey || '').trim();
+  if (!key) return '';
+  const hash = parameters && typeof parameters === 'object' && Object.keys(parameters).length > 0
+    ? generateIntHash(parameters)
+    : '';
+  return hash ? `${key}_${hash}` : key;
 }
 
 export function getSelectedWindow() {
@@ -96,11 +118,12 @@ export function linkedParentWindowId(win = null) {
 }
 
 export function getScopedConversationSelection(windowId = '') {
-  if (typeof window === 'undefined') return '';
-  const scoped = String(window.localStorage?.getItem(scopedSelectionKey(windowId)) || '').trim();
+  const storage = uiStateStorage();
+  if (!storage) return '';
+  const scoped = String(storage.getItem(scopedSelectionKey(windowId)) || '').trim();
   if (scoped) return scoped;
   if (isMainChatWindowId(windowId)) {
-    return String(window.localStorage?.getItem(LEGACY_SELECTED_CONVERSATION_KEY) || '').trim();
+    return String(storage.getItem(LEGACY_SELECTED_CONVERSATION_KEY) || '').trim();
   }
   return '';
 }
@@ -129,49 +152,53 @@ export function resolveConversationSelection(windowId = '') {
 }
 
 export function setScopedConversationSelection(windowId = '', conversationId = '') {
-  if (typeof window === 'undefined') return;
+  const storage = uiStateStorage();
+  if (!storage) return;
   const id = String(conversationId || '').trim();
   const targetWindowId = String(windowId || '').trim();
   try {
     if (id) {
-      window.localStorage?.setItem(scopedSelectionKey(targetWindowId), id);
+      storage.setItem(scopedSelectionKey(targetWindowId), id);
     } else {
-      window.localStorage?.removeItem(scopedSelectionKey(targetWindowId));
+      storage.removeItem(scopedSelectionKey(targetWindowId));
     }
     if (isMainChatWindowId(targetWindowId)) {
-      if (id) window.localStorage?.setItem(LEGACY_SELECTED_CONVERSATION_KEY, id);
-      else window.localStorage?.removeItem(LEGACY_SELECTED_CONVERSATION_KEY);
+      if (id) storage.setItem(LEGACY_SELECTED_CONVERSATION_KEY, id);
+      else storage.removeItem(LEGACY_SELECTED_CONVERSATION_KEY);
     }
   } catch (_) {}
 }
 
 export function getScopedWorkspaceSelection(conversationId = '') {
-  if (typeof window === 'undefined') return '';
+  const storage = uiStateStorage();
+  if (!storage) return '';
   const id = String(conversationId || '').trim();
   if (!id) return '';
-  return String(window.localStorage?.getItem(workspaceSelectionKey(id)) || '').trim();
+  return String(storage.getItem(workspaceSelectionKey(id)) || '').trim();
 }
 
 export function setScopedWorkspaceSelection(conversationId = '', windowId = '') {
-  if (typeof window === 'undefined') return;
+  const storage = uiStateStorage();
+  if (!storage) return;
   const convID = String(conversationId || '').trim();
   if (!convID) return;
   const targetWindowId = String(windowId || '').trim();
   try {
     if (targetWindowId) {
-      window.localStorage?.setItem(workspaceSelectionKey(convID), targetWindowId);
+      storage.setItem(workspaceSelectionKey(convID), targetWindowId);
     } else {
-      window.localStorage?.removeItem(workspaceSelectionKey(convID));
+      storage.removeItem(workspaceSelectionKey(convID));
     }
   } catch (_) {}
 }
 
 export function getScopedWorkspaceState(conversationId = '') {
-  if (typeof window === 'undefined') return null;
+  const storage = uiStateStorage();
+  if (!storage) return null;
   const id = String(conversationId || '').trim();
   if (!id) return null;
   try {
-    const raw = String(window.localStorage?.getItem(workspaceStateKey(id)) || '').trim();
+    const raw = String(storage.getItem(workspaceStateKey(id)) || '').trim();
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return null;
@@ -181,47 +208,97 @@ export function getScopedWorkspaceState(conversationId = '') {
   }
 }
 
+export function getScopedWorkspacePresentationMode(conversationId = '') {
+  const storage = uiStateStorage();
+  if (!storage) return 'split';
+  const id = String(conversationId || '').trim();
+  if (!id) return 'split';
+  const raw = String(storage.getItem(workspacePresentationModeKey(id)) || '').trim().toLowerCase();
+  return raw === 'full' ? 'full' : 'split';
+}
+
+export function setScopedWorkspacePresentationMode(conversationId = '', mode = 'split') {
+  const storage = uiStateStorage();
+  if (!storage) return;
+  const id = String(conversationId || '').trim();
+  if (!id) return;
+  const next = String(mode || '').trim().toLowerCase() === 'full' ? 'full' : 'split';
+  try {
+    storage.setItem(workspacePresentationModeKey(id), next);
+  } catch (_) {}
+}
+
+export function hasScopedWorkspaceState(conversationId = '') {
+  return !!getScopedWorkspaceState(conversationId);
+}
+
 export function setScopedWorkspaceState(conversationId = '', win = null) {
-  if (typeof window === 'undefined') return;
+  const storage = uiStateStorage();
+  if (!storage) return;
   const convID = String(conversationId || '').trim();
   if (!convID) return;
   try {
     if (!win || typeof win !== 'object') {
-      window.localStorage?.removeItem(workspaceStateKey(convID));
+      storage.removeItem(workspaceStateKey(convID));
       return;
     }
     const payload = {
       windowId: String(win.windowId || '').trim(),
+      conversationId: String(win.conversationId || '').trim() || null,
       windowKey: String(win.windowKey || '').trim(),
+      presentation: String(win.presentation || '').trim() || null,
+      region: String(win.region || '').trim() || null,
       windowTitle: String(win.windowTitle || win.windowKey || '').trim(),
       parentKey: String(win.parentKey || '').trim() || null,
       inTab: win.inTab !== false,
       parameters: win.parameters || {},
     };
-    window.localStorage?.setItem(workspaceStateKey(convID), JSON.stringify(payload));
+    storage.setItem(workspaceStateKey(convID), JSON.stringify(payload));
   } catch (_) {}
 }
 
 export function resolveWorkspaceWindowForConversation(conversationId = '') {
   const convID = String(conversationId || '').trim();
   if (!convID) return null;
+  const windows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
+  const liveOwnedWindow = windows.find((entry) => {
+    if (String(entry?.windowKey || '').trim() === CHAT_WINDOW_KEY) return false;
+    if (String(entry?.presentation || '').trim().toLowerCase() !== 'hosted') return false;
+    if (String(entry?.region || '').trim().toLowerCase() !== 'chat.top') return false;
+    return String(entry?.conversationId || '').trim() === convID;
+  });
+  if (liveOwnedWindow) {
+    return liveOwnedWindow;
+  }
   const storedWindowId = getScopedWorkspaceSelection(convID);
-  if (!storedWindowId) return null;
-  const win = getWindowById(storedWindowId);
+  if (storedWindowId) {
+    const win = getWindowById(storedWindowId);
+    if (win && String(win?.windowKey || '').trim() !== CHAT_WINDOW_KEY) {
+      return win;
+    }
+  }
+  const saved = getScopedWorkspaceState(convID);
+  if (!saved) return null;
+  const expectedWindowId = String(saved.windowId || '').trim()
+    || computeWorkspaceWindowId(saved.windowKey, saved.parameters || {});
+  if (!expectedWindowId) return null;
+  const win = getWindowById(expectedWindowId);
   if (!win) return null;
   if (String(win?.windowKey || '').trim() === CHAT_WINDOW_KEY) return null;
   return win;
 }
 
-export function reopenWorkspaceForConversation(conversationId = '') {
+function restoreWorkspaceWindowForConversation(conversationId = '', { focus = true } = {}) {
   const convID = String(conversationId || '').trim();
   if (!convID) return null;
   const live = resolveWorkspaceWindowForConversation(convID);
-  if (live) return focusWindow(live);
+  if (live) return focus ? focusWindow(live) : live;
   const saved = getScopedWorkspaceState(convID);
   if (!saved) return null;
   const windowKey = String(saved.windowKey || '').trim();
   if (!windowKey || windowKey === CHAT_WINDOW_KEY) return null;
+  const previousSelectedWindowId = String(selectedWindowId.peek?.() || selectedWindowId.value || '').trim();
+  const previousSelectedTabId = String(selectedTabId.peek?.() || selectedTabId.value || '').trim();
   const win = addWindow(
     String(saved.windowTitle || windowKey).trim() || windowKey,
     saved.parentKey || MAIN_CHAT_WINDOW_ID,
@@ -229,9 +306,136 @@ export function reopenWorkspaceForConversation(conversationId = '') {
     null,
     saved.inTab !== false,
     saved.parameters || {},
-    { autoIndexTitle: false }
+    {
+      autoIndexTitle: false,
+      conversationId: convID,
+      presentation: String(saved.presentation || '').trim() || undefined,
+      region: String(saved.region || '').trim() || undefined
+    }
   );
-  return focusWindow(win);
+  if (!focus) {
+    selectedWindowId.value = previousSelectedWindowId || null;
+    selectedTabId.value = previousSelectedTabId || null;
+  }
+  void publishUIBridgeSnapshotNow();
+  return focus ? focusWindow(win) : win;
+}
+
+export function reopenWorkspaceForConversation(conversationId = '') {
+  return restoreWorkspaceWindowForConversation(conversationId, { focus: true });
+}
+
+export function ensureWorkspaceWindowForConversation(conversationId = '') {
+  return restoreWorkspaceWindowForConversation(conversationId, { focus: false });
+}
+
+export function seedScopedWorkspaceState(conversationId = '', snapshot = null) {
+  const convID = String(conversationId || '').trim();
+  if (!convID || !snapshot || typeof snapshot !== 'object') return null;
+  if (getScopedWorkspaceState(convID)) return getScopedWorkspaceState(convID);
+  setScopedWorkspaceState(convID, snapshot);
+  return getScopedWorkspaceState(convID);
+}
+
+function normalizeWorkspaceStateSnapshot(raw = null) {
+  if (!raw || typeof raw !== 'object') return null;
+  const windowKey = String(raw.windowKey || '').trim();
+  if (!windowKey || windowKey === CHAT_WINDOW_KEY) return null;
+  const parameters = raw.parameters && typeof raw.parameters === 'object' ? raw.parameters : {};
+  const computedWindowId = computeWorkspaceWindowId(windowKey, parameters);
+  const windowId = String(raw.windowId || computedWindowId || '').trim();
+  return {
+    windowId,
+    conversationId: String(raw.conversationId || '').trim() || null,
+    windowKey,
+    windowTitle: String(raw.windowTitle || raw.windowKey || '').trim() || windowKey,
+    presentation: String(raw.presentation || '').trim() || null,
+    parentKey: String(raw.parentKey || MAIN_CHAT_WINDOW_ID).trim() || MAIN_CHAT_WINDOW_ID,
+    inTab: raw.inTab !== false,
+    parameters,
+  };
+}
+
+export function deriveWorkspaceStateFromConversation(conversation = null) {
+  if (!conversation || typeof conversation !== 'object') return null;
+  const metadataRaw = conversation?.metadata ?? conversation?.Metadata;
+  let metadata = metadataRaw;
+  if (typeof metadataRaw === 'string') {
+    try {
+      metadata = JSON.parse(metadataRaw);
+    } catch (_) {
+      metadata = null;
+    }
+  }
+  const workspace = metadata?.workspace;
+  return normalizeWorkspaceStateSnapshot(workspace);
+}
+
+export function syncWorkspaceStateFromConversation(conversation = null) {
+  const conversationId = String(conversation?.id || conversation?.Id || '').trim();
+  if (!conversationId) return null;
+  const derived = deriveWorkspaceStateFromConversation(conversation);
+  if (!derived) return null;
+  return seedScopedWorkspaceState(conversationId, derived);
+}
+
+function parseToolPayload(raw = null) {
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+  if (typeof raw === 'object') {
+    if (raw.inlineBody && typeof raw.inlineBody === 'string') {
+      try {
+        return JSON.parse(raw.inlineBody);
+      } catch (_) {}
+    }
+    return raw;
+  }
+  return null;
+}
+
+function normalizeToolName(raw = '') {
+  const value = String(raw || '').trim().toLowerCase();
+  if (!value) return '';
+  return value.replace(/:/g, '/');
+}
+
+export function deriveWorkspaceStateFromTranscriptTurns(turns = []) {
+  const list = Array.isArray(turns) ? turns : [];
+  for (let turnIndex = list.length - 1; turnIndex >= 0; turnIndex -= 1) {
+    const turn = list[turnIndex] || {};
+    const pages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
+    for (let pageIndex = pages.length - 1; pageIndex >= 0; pageIndex -= 1) {
+      const page = pages[pageIndex] || {};
+      const toolSteps = Array.isArray(page?.toolSteps) ? page.toolSteps : [];
+      for (let stepIndex = toolSteps.length - 1; stepIndex >= 0; stepIndex -= 1) {
+        const step = toolSteps[stepIndex] || {};
+        if (normalizeToolName(step?.toolName) !== 'ui/view/open') continue;
+        if (String(step?.status || '').trim().toLowerCase() !== 'completed') continue;
+        const requestPayload = parseToolPayload(step?.requestPayload);
+        const responsePayload = parseToolPayload(step?.responsePayload);
+        const windowKey = String(requestPayload?.id || responsePayload?.windowKey || '').trim();
+        if (windowKey !== 'order') continue;
+        const parameters = requestPayload?.parameters;
+        const adOrderId = parameters?.AdOrderId;
+        if (!Array.isArray(adOrderId) || adOrderId.length === 0) continue;
+        return normalizeWorkspaceStateSnapshot({
+          windowId: String(responsePayload?.windowId || '').trim(),
+          windowKey,
+          windowTitle: String(responsePayload?.windowTitle || 'Order Summary').trim(),
+          parentKey: MAIN_CHAT_WINDOW_ID,
+          inTab: true,
+          parameters,
+        });
+      }
+    }
+  }
+  return null;
 }
 
 export function ensureMainChatWindow() {

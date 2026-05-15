@@ -1461,7 +1461,7 @@ export function resolveCanonicalDetailStep(canonicalRow = null, step = {}) {
 
 export default function IterationBlock({ message, canonicalRow = null, context, showToolFeedDetail = true, suppressBubble = false }) {
   const { showDetail } = useContext(DetailContext);
-  const { showExecutionDetails = true, toolFeedDock = 'inline' } = useContext(ConversationViewContext);
+  const { showExecutionDetails = true, showIntakeDetails = false, toolFeedDock = 'inline' } = useContext(ConversationViewContext);
   const data = buildIterationDataFromCanonicalRow(canonicalRow, message);
   const toolCalls = Array.isArray(data.toolCalls) ? data.toolCalls : [];
   const displayToolCalls = useMemo(
@@ -1558,22 +1558,28 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
     }
     return groups;
   }, [data, message?.elicitation, message?.elicitationId, message?.status, message?.createdAt, data?.elicitation, data?.elicitationId, data?.response?.elicitation, data?.response?.elicitationId, data?.response?.status]);
+  const includeExecutionGroup = (group) => {
+    const groupKind = String(group?.groupKind || '').trim().toLowerCase();
+    if (groupKind === 'intake' && !showIntakeDetails) return false;
+    return isPresentableGroup(group);
+  };
+
   const visiblePreambleText = useMemo(() => resolveIterationBubbleContent({
-    visibleGroups: allGroupEntries.filter((group) => isPresentableGroup(group)),
+    visibleGroups: allGroupEntries.filter((group) => includeExecutionGroup(group)),
     iterationContent: message?.content,
     responseContent: data?.response?.content,
     narrationContent: data?.narration?.content,
     streamContent: data?.streamContent,
     errorMessage: data?.errorMessage
-  }), [allGroupEntries, data?.errorMessage, data?.narration?.content, data?.response?.content, data?.streamContent, message?.content]);
+  }), [allGroupEntries, data?.errorMessage, data?.narration?.content, data?.response?.content, data?.streamContent, includeExecutionGroup, message?.content]);
   const displayGroupEntries = useMemo(
     () => {
-      const presentable = allGroupEntries.filter((group) => isPresentableGroup(group));
+      const presentable = allGroupEntries.filter((group) => includeExecutionGroup(group));
       if (presentable.length > 0) return presentable;
       const synthetic = buildSyntheticModelGroup({ data, message, context, visibleText: visiblePreambleText });
       return synthetic ? [synthetic] : [];
     },
-    [allGroupEntries, context, data, message, visiblePreambleText]
+    [allGroupEntries, context, data, message, visiblePreambleText, includeExecutionGroup]
   );
 
   const linkedConversationIds = useMemo(() => {
