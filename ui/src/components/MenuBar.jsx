@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Dialog, Switch } from '@blueprintjs/core';
 import { addWindow, activeWindows, getWindowContext, selectedTabId, selectedWindowId } from 'forge/core';
 import { client, getAuthMeSilently } from '../services/agentlyClient';
+import { MAIN_CHAT_WINDOW_ID, resolveConversationSelection } from '../services/conversationWindow';
 import logo from '../viant-logo.png';
 
 export function resolveStartupAuthAction(providers) {
@@ -35,19 +36,52 @@ export function refreshWindowDataSources(windowId, dataSourceRefs = []) {
 export function openWindow(windowKey, windowTitle, refreshDataSources = [], options = {}) {
   const windows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
   const replaceTabbedWindows = options?.replaceTabbedWindows === true;
+  const desiredConversationId = String(options?.conversationId || '').trim() || null;
+  const desiredParentKey = options?.parentKey ?? null;
+  const desiredPresentation = String(options?.presentation || '').trim() || null;
+  const desiredRegion = String(options?.region || '').trim() || null;
   let existing = windows.find((entry) => entry?.windowKey === windowKey);
   if (replaceTabbedWindows) {
     const keepWindowId = String(existing?.windowId || '').trim();
     activeWindows.value = windows.filter((entry) => {
       if (entry?.inTab === false) return true;
-      if (keepWindowId && String(entry?.windowId || '').trim() === keepWindowId) return true;
+      const windowId = String(entry?.windowId || '').trim();
+      if (keepWindowId && windowId === keepWindowId) return true;
+      if (desiredRegion) {
+        const entryRegion = String(entry?.region || '').trim() || null;
+        return entryRegion !== desiredRegion;
+      }
       return false;
     });
   }
   const currentWindows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
   existing = currentWindows.find((entry) => entry?.windowKey === windowKey);
+  if (existing) {
+    const currentParentKey = existing?.parentKey ?? null;
+    const currentConversationId = String(existing?.conversationId || '').trim() || null;
+    const currentPresentation = String(existing?.presentation || '').trim() || null;
+    const currentRegion = String(existing?.region || '').trim() || null;
+    if (currentParentKey !== desiredParentKey || currentConversationId !== desiredConversationId || currentPresentation !== desiredPresentation || currentRegion !== desiredRegion) {
+      activeWindows.value = currentWindows.map((entry) => {
+        if (entry?.windowId !== existing.windowId) return entry;
+        return {
+          ...entry,
+          conversationId: desiredConversationId || undefined,
+          parentKey: desiredParentKey,
+          presentation: desiredPresentation || undefined,
+          region: desiredRegion || undefined,
+        };
+      });
+      existing = activeWindows.peek().find((entry) => entry?.windowId === existing.windowId) || existing;
+    }
+  }
   if (!existing) {
-    existing = addWindow(windowTitle, null, windowKey, null, true, {}, { autoIndexTitle: false });
+    existing = addWindow(windowTitle, desiredParentKey, windowKey, null, true, {}, {
+      autoIndexTitle: false,
+      conversationId: desiredConversationId || undefined,
+      presentation: desiredPresentation || undefined,
+      region: desiredRegion || undefined,
+    });
   }
   if (existing?.windowId) {
     selectedTabId.value = existing.windowId;
@@ -84,6 +118,8 @@ export default function MenuBar({
   onToggleSidebar,
   showExecutionDetails = true,
   onToggleExecutionDetails,
+  showIntakeDetails = false,
+  onToggleIntakeDetails,
   showWorkspaceWindow = true,
   onToggleWorkspaceWindow,
   showToolFeeds = true,
@@ -148,6 +184,7 @@ export default function MenuBar({
   }, []);
 
   const displayName = user?.displayName || user?.username || user?.email || user?.subject || '';
+  const currentConversationId = resolveConversationSelection(MAIN_CHAT_WINDOW_ID);
 
   const approvalPageData = useMemo(() => {
     if (typeof setPage === 'function') {
@@ -209,7 +246,13 @@ export default function MenuBar({
             text="Automation"
             className="app-topbar-nav-btn"
             data-testid="automation-nav"
-            onClick={() => openWindow('schedule', 'Automation', ['schedules'], { replaceTabbedWindows: true })}
+            onClick={() => openWindow('schedule', 'Automation', ['schedules'], {
+              replaceTabbedWindows: true,
+              conversationId: currentConversationId || undefined,
+              parentKey: 'chat/new',
+              presentation: 'hosted',
+              region: 'chat.bottom',
+            })}
           />
           <Button
             minimal
@@ -217,7 +260,13 @@ export default function MenuBar({
             text="Runs"
             className="app-topbar-nav-btn"
             data-testid="runs-nav"
-            onClick={() => openWindow('schedule/history', 'Runs', ['runs'], { replaceTabbedWindows: true })}
+            onClick={() => openWindow('schedule/history', 'Runs', ['runs'], {
+              replaceTabbedWindows: true,
+              conversationId: currentConversationId || undefined,
+              parentKey: 'chat/new',
+              presentation: 'hosted',
+              region: 'chat.bottom',
+            })}
           />
           <Button
             minimal
@@ -246,6 +295,11 @@ export default function MenuBar({
                   checked={!!showExecutionDetails}
                   label="Show execution details"
                   onChange={() => onToggleExecutionDetails?.()}
+                />
+                <Switch
+                  checked={!!showIntakeDetails}
+                  label="Show intake details"
+                  onChange={() => onToggleIntakeDetails?.()}
                 />
                 <Switch
                   checked={!!showToolFeeds}

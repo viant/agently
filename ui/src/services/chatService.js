@@ -21,10 +21,14 @@ import { client } from './agentlyClient';
 import { showToast } from './httpClient';
 import { getFeedData, updateFeedData } from './toolFeedBus';
 import { buildWebQueryContext } from './clientContext';
+import { resetLiveStreamState } from './liveStreamStore';
 import {
   applyIterationVisibility,
   bindConversationWindowEvents,
+  cacheSettledConversationBootstrapSnapshot,
   bootstrapConversationSelection,
+  clearPendingConversationBootstrap,
+  clearSettledConversationBootstrapSnapshot,
   createNewConversation,
   dsTick,
   disconnectStream,
@@ -32,9 +36,14 @@ import {
   ensureConversation,
   fetchConversation,
   fetchPendingElicitations,
+  getSettledConversationBootstrapSnapshot,
   getVisibleIterations,
+  hasPendingConversationBootstrap,
   hydrateMeta,
+  hydrateConversationFromBootstrapSnapshot,
   isConversationLiveish,
+  logExecutorDebug,
+  markPendingConversationBootstrap,
   logStreamDebug,
   mapTranscriptToRows,
   normalizeMetaResponse,
@@ -61,9 +70,9 @@ import { composerPresentation } from './composerPresentation';
 import { connectForgeUIActionsToChat } from './forgeUIActions';
 import { openCodeDiffDialog, openFileViewDialog, updateCodeDiffDialog, updateFileViewDialog } from '../utils/dialogBus';
 import ChatFeedFromChatStore from '../components/chat/ChatFeedFromChatStore.jsx';
-import { submit as submitToChatStore, steer as steerToChatStore } from './chatStore.js';
+import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore } from './chatStore.js';
 import { conversationIDFromPath } from './chatRuntime';
-import { getScopedConversationSelection, MAIN_CHAT_WINDOW_ID } from './conversationWindow';
+import { getScopedConversationSelection, MAIN_CHAT_WINDOW_ID, openConversationInMainWindow } from './conversationWindow';
 
 const DEFAULT_VISIBLE_ITERATIONS = Number.MAX_SAFE_INTEGER;
 const ITERATION_STEP = 1;
@@ -179,6 +188,10 @@ function matchesAgentIdentity(entry, selectedAgent) {
 }
 
 export async function onInit({ context }) {
+  logExecutorDebug('chat-service-init', {
+    windowId: String(context?.identity?.windowId || '').trim(),
+    conversationId: String(context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.()?.id || '').trim()
+  });
   setStage({ phase: 'waiting', text: 'Initializing…' });
   try {
     const resources = ensureContextResources(context);
@@ -194,6 +207,31 @@ export async function onInit({ context }) {
     const messagesDS = context?.Context?.('messages')?.handlers?.dataSource;
     const conversationID = String(conversationsDS?.peekFormData?.()?.id || '').trim();
     if (conversationID) {
+      if (hasPendingConversationBootstrap(conversationID)) {
+        const currentForm = conversationsDS?.peekFormData?.() || {};
+        conversationsDS?.setFormData?.({
+          values: {
+            ...currentForm,
+            id: conversationID,
+            running: true
+          }
+        });
+        syncConversationTransport(context, conversationID);
+        publishActiveConversation(conversationID, context);
+        renderMergedRowsForContext(context);
+        return;
+      }
+      const cachedSnapshot = getSettledConversationBootstrapSnapshot(conversationID);
+      logStreamDebug(ensureContextResources(context), 'chat-init-bootstrap-snapshot', {
+        conversationId: conversationID,
+        hasCachedSnapshot: !!cachedSnapshot,
+        cachedTurnCount: Array.isArray(cachedSnapshot?.turns) ? cachedSnapshot.turns.length : 0
+      });
+      if (cachedSnapshot && hydrateConversationFromBootstrapSnapshot(context, cachedSnapshot)) {
+        publishActiveConversation(conversationID, context);
+        renderMergedRowsForContext(context);
+        return;
+      }
       const existing = await fetchConversation(conversationID);
       if (!existing) {
         const metaDefaults = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.()?.defaults || {};
@@ -241,6 +279,10 @@ export async function onInit({ context }) {
 }
 
 export function onDestroy({ context }) {
+  logExecutorDebug('chat-service-destroy', {
+    windowId: String(context?.identity?.windowId || '').trim(),
+    conversationId: String(context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.()?.id || '').trim()
+  });
   const resources = ensureContextResources(context);
   try { resources.forgeUIActionUnsub?.(); } catch (_) {}
   resources.forgeUIActionUnsub = null;
@@ -368,7 +410,11 @@ export async function submitMessage({ context, message, model, agent }) {
     }
     return selectedModel;
   })();
-  const conversationID = await ensureConversation(context, { agent: selectedAgent, model: effectiveModel || selectedModel });
+  const conversationID = await ensureConversation(context, {
+    agent: selectedAgent,
+    model: effectiveModel || selectedModel,
+    immediateSubmit: true
+  });
   const clientRequestId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
   rememberSeedTitle(conversationID, query);
   convDS?.setFormData?.({
@@ -377,7 +423,13 @@ export async function submitMessage({ context, message, model, agent }) {
       id: conversationID
     }
   });
-  publishActiveConversation(conversationID, context);
+  if (String(context?.identity?.windowId || '').trim() === MAIN_CHAT_WINDOW_ID) {
+    markPendingConversationBootstrap(conversationID);
+    openConversationInMainWindow(conversationID);
+  } else {
+    markPendingConversationBootstrap(conversationID);
+    publishActiveConversation(conversationID, context);
+  }
   try {
     await publishUIBridgeSnapshotNow();
   } catch (_) {}
@@ -401,6 +453,7 @@ export async function submitMessage({ context, message, model, agent }) {
   }
 
   const chatState = ensureContextResources(context);
+  clearSettledConversationBootstrapSnapshot(conversationID);
   const activeTurnID = String(chatState?.runningTurnId || chatState?.activeStreamTurnId || '').trim();
   const steeringDuringActiveTurn = !!activeTurnID;
   const queueingDuringActiveTurn = !steeringDuringActiveTurn && !!chatState?.lastHasRunning;
@@ -457,21 +510,119 @@ export async function submitMessage({ context, message, model, agent }) {
       strategy: 'immediate-after-query-start'
     });
   }
-  const queryResult = steeringDuringActiveTurn ? {} : await client.query(payload);
+  let queryResult = {};
+  try {
+    queryResult = steeringDuringActiveTurn ? {} : await client.query(payload);
+  } finally {
+    if (String(chatState.pendingInitialSubmitConversationID || '').trim() === conversationID) {
+      chatState.pendingInitialSubmitConversationID = '';
+    }
+  }
   logStreamDebug(chatState, 'submit-query-response', {
     conversationId: conversationID,
     hasInlineContent: String(queryResult?.content || '').trim() !== '',
     resultKeys: queryResult && typeof queryResult === 'object' ? Object.keys(queryResult).length : 0
   });
   pendingUploads.length = 0;
-  if (queueingDuringActiveTurn || steeringDuringActiveTurn) {
+  const fastCompletedInlineResult = !queueingDuringActiveTurn
+    && !steeringDuringActiveTurn
+    && String(queryResult?.content || '').trim() !== '';
+  let fetchedConversation = null;
+  let prefetchedTranscriptTurns = [];
+  let prefetchedPendingElicitations = [];
+  if (fastCompletedInlineResult) {
+    chatState.pendingTerminalHydrationConversationID = conversationID;
+    const terminalTurnIdFromQueryResult = String(
+      queryResult?.turnId
+      || queryResult?.messageId
+      || ''
+    ).trim();
+    if (terminalTurnIdFromQueryResult) {
+      chatState.prefetchedTerminalConversationID = conversationID;
+      chatState.prefetchedTerminalTurnID = terminalTurnIdFromQueryResult;
+      chatState.pendingTerminalRefreshSuppressionConversationID = conversationID;
+      chatState.pendingTerminalRefreshSuppressionTurnID = terminalTurnIdFromQueryResult;
+    }
+    resetChatStoreConversation(conversationID);
+    resetLiveStreamState(chatState);
+    chatState.runningTurnId = '';
+    chatState.lastHasRunning = false;
+    disconnectStream(context);
+    fetchedConversation = await fetchConversation(conversationID);
+    try {
+      const transcriptPayload = await client.getTranscript({
+        conversationId: conversationID,
+        includeModelCalls: true,
+        includeToolCalls: true,
+        includeFeeds: true,
+      });
+      const canonicalConversation = transcriptPayload?.conversation && typeof transcriptPayload.conversation === 'object'
+        ? transcriptPayload.conversation
+        : null;
+      if (canonicalConversation?.conversationId) {
+        applyTranscriptToChatStore(canonicalConversation.conversationId, canonicalConversation);
+        prefetchedTranscriptTurns = Array.isArray(canonicalConversation?.turns) ? canonicalConversation.turns : [];
+        const latestPrefetchedTurn = prefetchedTranscriptTurns[prefetchedTranscriptTurns.length - 1] || null;
+        const latestPrefetchedTurnID = String(
+          latestPrefetchedTurn?.turnId
+          || latestPrefetchedTurn?.id
+          || ''
+        ).trim();
+        if (latestPrefetchedTurnID) {
+          chatState.prefetchedTerminalConversationID = conversationID;
+          chatState.prefetchedTerminalTurnID = latestPrefetchedTurnID;
+        }
+      }
+    } catch (_) {
+      // dsTick below still performs the canonical fetch/render path.
+    }
+    try {
+      prefetchedPendingElicitations = await fetchPendingElicitations(conversationID);
+    } catch (_) {
+      prefetchedPendingElicitations = [];
+    }
+    if (fetchedConversation) {
+      const nextConvForm = convDS?.peekFormData?.() || {};
+      convDS?.setFormData?.({
+        values: {
+          ...nextConvForm,
+          id: conversationID,
+          title: fetchedConversation?.title || fetchedConversation?.Title || nextConvForm?.title || '',
+          stage: String(fetchedConversation?.stage || fetchedConversation?.Stage || '').trim() || 'done',
+          status: String(fetchedConversation?.status || fetchedConversation?.Status || '').trim() || 'succeeded',
+          running: false,
+        }
+      });
+    }
+    cacheSettledConversationBootstrapSnapshot(conversationID, {
+      conversation: fetchedConversation,
+      turns: prefetchedTranscriptTurns,
+      pendingElicitations: prefetchedPendingElicitations,
+      generatedFiles: []
+    });
+  }
+  if (queueingDuringActiveTurn || steeringDuringActiveTurn || fastCompletedInlineResult) {
     await new Promise((resolve) => setTimeout(resolve, 140));
-    await dsTick(context, { conversationID });
+    try {
+      await dsTick(context, {
+        conversationID,
+        prefetchedTranscriptTurns: fastCompletedInlineResult ? prefetchedTranscriptTurns : undefined,
+        prefetchedPendingElicitations: fastCompletedInlineResult ? prefetchedPendingElicitations : undefined,
+      });
+    } finally {
+      if (fastCompletedInlineResult) {
+        clearPendingConversationBootstrap(conversationID);
+      }
+      if (String(chatState.pendingTerminalHydrationConversationID || '').trim() === conversationID) {
+        chatState.pendingTerminalHydrationConversationID = '';
+      }
+    }
   }
   logStreamDebug(chatState, 'submit-post-dstick', {
     conversationId: conversationID,
     queueingDuringActiveTurn,
-    steeringDuringActiveTurn
+    steeringDuringActiveTurn,
+    fastCompletedInlineResult
   });
 }
 
@@ -977,7 +1128,6 @@ export async function explorerRead(props = {}) {
   const uri = String(props?.uri || row?.uri || row?.URI || '').trim()
     || String(readSelection(props?.context, 'results')?.uri || readSelection(props?.context, 'results')?.URI || '').trim();
   const path = String(props?.path || row?.path || row?.Path || '').trim();
-  const rootId = String(props?.rootId || row?.rootId || row?.rootID || 'local').trim();
   const target = uri || path;
   if (!target) {
     showToast('Select a file to read.', { intent: 'warning' });
@@ -986,9 +1136,9 @@ export async function explorerRead(props = {}) {
   const title = target.split('/').pop() || target;
   openFileViewDialog({ title, uri: target, loading: true, content: '' });
   try {
-    const args = path ? { path, rootId, maxBytes: 200000 } : { uri, maxBytes: 200000 };
-    const result = normalizeToolResult(await client.executeTool('resources-read', args));
-    const content = String(result?.content ?? result?.Content ?? result ?? '');
+    const content = path
+      ? String(await client.downloadWorkspaceFile(path))
+      : String((normalizeToolResult(await client.executeTool('resources-read', { uri, maxBytes: 200000 }))?.content) ?? '');
     updateFileViewDialog({ title, uri: target, loading: false, content });
     return true;
   } catch (err) {

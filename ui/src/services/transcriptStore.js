@@ -1,6 +1,7 @@
 import { mergeRowSnapshots } from './rowMerge';
 import { isFeedInactive as defaultIsFeedInactive } from './toolFeedBus';
 import { isStreamDebugEnabled } from './debugFlags';
+import { deriveWorkspaceStateFromTranscriptTurns, ensureWorkspaceWindowForConversation, hasScopedWorkspaceState, seedScopedWorkspaceState } from './conversationWindow';
 
 const RUNNING_TURN_STATUSES = new Set(['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress']);
 
@@ -293,6 +294,13 @@ export function syncTranscriptSnapshot({
   chatState.lastQueuedTurns = queuedTurns;
   chatState.lastHasRunning = effectiveHasRunning;
   chatState.lastConversationID = conversationID;
+  if (conversationID && !hasScopedWorkspaceState(conversationID)) {
+    const derivedWorkspaceState = deriveWorkspaceStateFromTranscriptTurns(turns);
+    if (derivedWorkspaceState) {
+      seedScopedWorkspaceState(conversationID, derivedWorkspaceState);
+      ensureWorkspaceWindowForConversation(conversationID);
+    }
+  }
   chatState.runningTurnId = effectiveHasRunning
     ? (runningTurnId || findLatestRunningTurnId(finalMergedRows) || chatState.runningTurnId || '')
     : (runningTurnId || findLatestRunningTurnId(finalMergedRows));
@@ -352,12 +360,15 @@ export async function tickTranscript({
   const transcriptOptions = options?.transcript && typeof options.transcript === 'object'
     ? options.transcript
     : {};
-  let turns = await fetchTranscript(conversationID, since, transcriptOptions);
+  const hasPrefetchedTurns = Array.isArray(options?.prefetchedTranscriptTurns);
+  let turns = hasPrefetchedTurns
+    ? options.prefetchedTranscriptTurns
+    : await fetchTranscript(conversationID, since, transcriptOptions);
   const currentID = String(conversationsDS?.peekFormData?.()?.id || '').trim();
   if (currentID && currentID !== conversationID) {
     return;
   }
-  if (since && turns.length === 0) {
+  if (!hasPrefetchedTurns && since && turns.length === 0) {
     if (!shouldRecoverWithFullTranscript(chatState)) {
       return;
     }
@@ -372,7 +383,9 @@ export async function tickTranscript({
   if (turns.length > 0) {
     chatState.lastSinceCursor = resolveLastTranscriptCursor(turns);
   }
-  const pendingElicitations = await fetchPendingElicitations(conversationID);
+  const pendingElicitations = Array.isArray(options?.prefetchedPendingElicitations)
+    ? options.prefetchedPendingElicitations
+    : await fetchPendingElicitations(conversationID);
   return doSync({ context, turns, pendingElicitations, reason: 'poll' });
 }
 

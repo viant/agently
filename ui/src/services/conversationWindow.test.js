@@ -4,8 +4,11 @@ import { activeWindows, selectedTabId, selectedWindowId } from 'forge/core';
 
 import {
   CHAT_WINDOW_KEY,
+  ensureWorkspaceWindowForConversation,
   MAIN_CHAT_WINDOW_ID,
+  deriveWorkspaceStateFromConversation,
   resolveConversationSelection,
+  resolveWorkspaceWindowForConversation,
   getScopedWorkspaceSelection,
   getScopedWorkspaceState,
   isLinkedChildWindow,
@@ -45,6 +48,7 @@ describe('conversationWindow', () => {
       location: { pathname: '/', port: '5176', hostname: '127.0.0.1' },
       history: { state: null, replaceState: () => {} },
       localStorage: createStorage(),
+      sessionStorage: createStorage(),
       dispatchEvent: () => {}
     };
     global.CustomEvent = class CustomEvent {
@@ -63,7 +67,7 @@ describe('conversationWindow', () => {
     }];
     selectedTabId.value = MAIN_CHAT_WINDOW_ID;
     selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
-    window.localStorage.setItem('agently.selectedConversationId', 'parent-123');
+    window.sessionStorage.setItem('agently.selectedConversationId', 'parent-123');
 
     const linked = openLinkedConversationWindow('child-456');
 
@@ -74,7 +78,7 @@ describe('conversationWindow', () => {
       windowId: MAIN_CHAT_WINDOW_ID,
       conversationId: 'parent-123'
     });
-    expect(String(window.localStorage.getItem(`agently.selectedConversationId:${linked.windowId}`))).toBe('child-456');
+    expect(String(window.sessionStorage.getItem(`agently.selectedConversationId:${linked.windowId}`))).toBe('child-456');
     expect(selectedWindowId.value).toBe(linked.windowId);
   });
 
@@ -92,7 +96,7 @@ describe('conversationWindow', () => {
     openConversationInMainWindow('conv-123');
 
     expect(replaceState).toHaveBeenCalledWith(null, '', '/conversation/conv-123');
-    expect(String(window.localStorage.getItem('agently.selectedConversationId'))).toBe('conv-123');
+    expect(String(window.sessionStorage.getItem('agently.selectedConversationId'))).toBe('conv-123');
     expect(activeWindows.value[0]?.parameters?.conversations?.form?.id).toBe('conv-123');
     expect(activeWindows.value[0]?.parameters?.messages?.input?.parameters?.convID).toBe('conv-123');
   });
@@ -122,6 +126,28 @@ describe('conversationWindow', () => {
     expect(selected?.windowId).toBe('orderPerformance_1');
     expect(selectedWindowId.value).toBe('orderPerformance_1');
     expect(selectedTabId.value).toBe('orderPerformance_1');
+  });
+
+  it('resolves a live hosted workspace window for the current conversation before consulting saved browser state', () => {
+    activeWindows.value = [
+      {
+        windowId: MAIN_CHAT_WINDOW_ID,
+        windowKey: CHAT_WINDOW_KEY,
+        parameters: {}
+      },
+      {
+        windowId: 'order_1527048368',
+        windowKey: 'order',
+        conversationId: 'conv-live',
+        presentation: 'hosted',
+        region: 'chat.top',
+        parentKey: MAIN_CHAT_WINDOW_ID,
+        inTab: true,
+        parameters: { AdOrderId: [2656980] }
+      }
+    ];
+
+    expect(resolveWorkspaceWindowForConversation('conv-live')?.windowId).toBe('order_1527048368');
   });
 
   it('reopens a stored workspace descriptor when the live workspace window no longer exists', () => {
@@ -155,6 +181,34 @@ describe('conversationWindow', () => {
     expect(selected?.windowKey).toBe('orderPerformance');
     expect(selectedWindowId.value).toBe(selected?.windowId);
     expect(selectedTabId.value).toBe(selected?.windowId);
+  });
+
+  it('restores a stored workspace descriptor without stealing focus when only the main chat window is live', () => {
+    activeWindows.value = [{
+      windowId: MAIN_CHAT_WINDOW_ID,
+      windowKey: CHAT_WINDOW_KEY,
+      parameters: {}
+    }];
+    selectedTabId.value = MAIN_CHAT_WINDOW_ID;
+    selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
+
+    setScopedWorkspaceState('conv-789', {
+      windowId: 'order_1',
+      windowKey: 'order',
+      windowTitle: 'Order Summary',
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      inTab: true,
+      parameters: {
+        AdOrderId: [2609393]
+      }
+    });
+
+    const restored = ensureWorkspaceWindowForConversation('conv-789');
+
+    expect(restored?.windowKey).toBe('order');
+    expect(activeWindows.value.some((entry) => entry.windowKey === 'order')).toBe(true);
+    expect(selectedWindowId.value).toBe(MAIN_CHAT_WINDOW_ID);
+    expect(selectedTabId.value).toBe(MAIN_CHAT_WINDOW_ID);
   });
 
   it('uses /conversation on localhost and 127.0.0.1 hosts', () => {
@@ -193,7 +247,7 @@ describe('conversationWindow', () => {
     requestNewConversationInMainWindow();
 
     expect(replaceState).toHaveBeenCalledWith(null, '', '/');
-    expect(String(window.localStorage.getItem('agently.selectedConversationId') || '')).toBe('');
+    expect(String(window.sessionStorage.getItem('agently.selectedConversationId') || '')).toBe('');
     expect(String(activeWindows.value[0]?.parameters?.conversations?.form?.id || '')).toBe('');
     expect(String(activeWindows.value[0]?.parameters?.messages?.input?.parameters?.convID || '')).toBe('');
   });
@@ -209,7 +263,7 @@ describe('conversationWindow', () => {
       eventType: 'forge:conversation-active'
     });
 
-    expect(String(window.localStorage.getItem('agently.selectedConversationId:workspace-window'))).toBe('conv-xyz');
+    expect(String(window.sessionStorage.getItem('agently.selectedConversationId:workspace-window'))).toBe('conv-xyz');
     expect(replaceState).not.toHaveBeenCalled();
     expect(dispatchEvent).toHaveBeenCalledTimes(1);
   });
@@ -225,7 +279,7 @@ describe('conversationWindow', () => {
       eventType: 'forge:conversation-active'
     });
 
-    expect(String(window.localStorage.getItem('agently.selectedConversationId'))).toBe('conv-main');
+    expect(String(window.sessionStorage.getItem('agently.selectedConversationId'))).toBe('conv-main');
     expect(replaceState).toHaveBeenCalledWith(null, '', '/conversation/conv-main');
     expect(dispatchEvent).toHaveBeenCalledTimes(1);
   });
@@ -257,14 +311,14 @@ describe('conversationWindow', () => {
     ];
     selectedTabId.value = 'child-window';
     selectedWindowId.value = 'child-window';
-    window.localStorage.setItem('agently.selectedConversationId', 'parent-123');
-    window.localStorage.setItem('agently.selectedConversationId:child-window', 'child-456');
+    window.sessionStorage.setItem('agently.selectedConversationId', 'parent-123');
+    window.sessionStorage.setItem('agently.selectedConversationId:child-window', 'child-456');
 
     returnToParentConversation(activeWindows.value[1]);
 
     expect(selectedWindowId.value).toBe(MAIN_CHAT_WINDOW_ID);
     expect(selectedTabId.value).toBe(MAIN_CHAT_WINDOW_ID);
-    expect(String(window.localStorage.getItem('agently.selectedConversationId'))).toBe('parent-123');
+    expect(String(window.sessionStorage.getItem('agently.selectedConversationId'))).toBe('parent-123');
   });
 
   it('does not treat a standalone chat window as a linked child without linkedParent metadata', () => {
@@ -281,5 +335,34 @@ describe('conversationWindow', () => {
         }
       }
     })).toBe(false);
+  });
+
+  it('derives order workspace state from conversation metadata', () => {
+    expect(deriveWorkspaceStateFromConversation({
+      id: 'conv-1',
+      metadata: JSON.stringify({
+        workspace: {
+          windowId: 'order_1527048368',
+          windowKey: 'order',
+          windowTitle: 'Order Summary',
+          parentKey: MAIN_CHAT_WINDOW_ID,
+          inTab: true,
+          parameters: {
+            AdOrderId: [2656980],
+          },
+        },
+      }),
+    })).toEqual({
+      windowId: 'order_1527048368',
+      conversationId: null,
+      windowKey: 'order',
+      windowTitle: 'Order Summary',
+      presentation: null,
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      inTab: true,
+      parameters: {
+        AdOrderId: [2656980],
+      },
+    });
   });
 });

@@ -5,6 +5,7 @@ import { isConnectivityError } from '../services/networkError';
 import { client } from '../services/agentlyClient';
 import {
   getWindowById,
+  getScopedConversationSelection,
   MAIN_CHAT_WINDOW_ID,
   isLinkedChildWindow,
   openConversationInMainWindow,
@@ -176,7 +177,7 @@ export default function Sidebar({ collapsed = false }) {
   const [seedVersion, setSeedVersion] = useState(0);
   const [selectedID, setSelectedID] = useState(() => {
     if (typeof window === 'undefined') return '';
-    return String(window.localStorage?.getItem('agently.selectedConversationId') || '').trim();
+    return getScopedConversationSelection(MAIN_CHAT_WINDOW_ID);
   });
   const [prevCursor, setPrevCursor] = useState('');
   const [nextCursor, setNextCursor] = useState('');

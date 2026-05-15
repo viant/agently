@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { activeWindows } from 'forge/core';
 
-import { bootstrapConversationSelection, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, handleStreamEvent, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, normalizeMetaResponse, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot } from './chatRuntime';
+import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, handleStreamEvent, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
 import { client } from './agentlyClient';
 import { applyFeedEvent, clearFeedState, getFeedData } from './toolFeedBus';
 
@@ -251,6 +251,221 @@ describe('handleStreamEvent', () => {
       expect(chatState.runningTurnId).toBe('');
     } finally {
       globalThis.window = originalWindow;
+    }
+  });
+
+  it('does not force transcript refresh on terminal SSE when the same turn was already prefetched terminal state', async () => {
+    vi.useFakeTimers();
+    const chatState = ensureContextResources({ resources: {} });
+    chatState.prefetchedTerminalConversationID = 'conv-1';
+    chatState.prefetchedTerminalTurnID = 'turn-1';
+    const context = {
+      resources: { chat: chatState },
+      identity: { windowId: 'chat/new' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1', running: true }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    try {
+      handleStreamEvent(chatState, context, 'conv-1', {
+        type: 'turn_completed',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        status: 'completed',
+        content: 'done'
+      });
+      expect(chatState.refreshTimer).toBeFalsy();
+      expect(chatState.prefetchedTerminalConversationID).toBe('');
+      expect(chatState.prefetchedTerminalTurnID).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not force transcript refresh on terminal SSE while terminal hydration is already in progress for the conversation', async () => {
+    vi.useFakeTimers();
+    const chatState = ensureContextResources({ resources: {} });
+    chatState.pendingTerminalHydrationConversationID = 'conv-1';
+    const context = {
+      resources: { chat: chatState },
+      identity: { windowId: 'chat/new' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1', running: true }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    try {
+      handleStreamEvent(chatState, context, 'conv-1', {
+        type: 'turn_completed',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        status: 'completed',
+        content: 'done'
+      });
+      expect(chatState.refreshTimer).toBeFalsy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not force transcript refresh on terminal SSE when a fresh pending bootstrap already has a live final assistant row', async () => {
+    vi.useFakeTimers();
+    client.getConversation.mockReset();
+    client.getTranscript.mockReset();
+
+    const messageState = { collection: [] };
+    const conversationState = { values: { id: 'conv-1', title: 'Show ad order 2656980', queuedTurns: [], running: true } };
+    const eventTarget = new EventTarget();
+    const originalWindow = globalThis.window;
+    const originalCustomEvent = globalThis.CustomEvent;
+    const mockWindow = {
+      location: { pathname: '/v1/conversation/conv-1' },
+      history: { state: null, replaceState: vi.fn() },
+      localStorage: createStorage(),
+      sessionStorage: createStorage(),
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      addEventListener: eventTarget.addEventListener.bind(eventTarget),
+      removeEventListener: eventTarget.removeEventListener.bind(eventTarget),
+      dispatchEvent: eventTarget.dispatchEvent.bind(eventTarget),
+      CustomEvent: class extends Event {
+        constructor(name, init = {}) {
+          super(name);
+          this.detail = init.detail;
+        }
+      }
+    };
+    globalThis.window = mockWindow;
+    globalThis.CustomEvent = mockWindow.CustomEvent;
+
+    const chatState = ensureContextResources({ resources: {} });
+    const context = {
+      identity: { windowId: 'chat/main' },
+      resources: { chat: chatState },
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => conversationState.values,
+                setFormData: ({ values }) => { conversationState.values = values; }
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: {}, agentInfos: [] })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    markPendingConversationBootstrap('conv-1');
+    chatState.activeConversationID = 'conv-1';
+    chatState.liveOwnedConversationID = 'conv-1';
+    chatState.liveOwnedTurnIds = ['turn-1'];
+    chatState.runningTurnId = 'turn-1';
+    chatState.activeStreamTurnId = 'turn-1';
+    chatState.lastHasRunning = true;
+
+    try {
+      handleStreamEvent(chatState, context, 'conv-1', {
+        type: 'assistant',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        messageId: 'assistant-final',
+        content: 'Your order summary is now open for ad order 2656980.',
+        mode: 'task',
+        patch: {
+          role: 'assistant',
+          status: 'intake.direct_action',
+          createdAt: '2026-03-16T10:00:02Z'
+        }
+      });
+
+      handleStreamEvent(chatState, context, 'conv-1', {
+        type: 'turn_completed',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        status: 'succeeded',
+        createdAt: '2026-03-16T10:00:03Z'
+      });
+
+      await vi.runAllTimersAsync();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(client.getConversation).not.toHaveBeenCalled();
+      expect(messageState.collection).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: 'assistant',
+            content: 'Your order summary is now open for ad order 2656980.'
+          })
+        ])
+      );
+      expect(conversationState.values.running).toBe(false);
+    } finally {
+      globalThis.window = originalWindow;
+      globalThis.CustomEvent = originalCustomEvent;
+      vi.useRealTimers();
     }
   });
 
@@ -1559,11 +1774,9 @@ describe('handleStreamEvent', () => {
 
     const row = latestAssistantRowForTurn(chatState, 'conv-1', 'turn-1');
     expect(row).toMatchObject({
-      id: 'msg-tracker',
-      content: 'Tracker canonical row'
+      id: 'assistant-newer',
+      _streamContent: 'newer transient stream'
     });
-    expect(row?._streamContent).toBeUndefined();
-    expect(row?.isStreaming).toBeUndefined();
   });
 
   it('renders linked conversation metadata from tracker-backed execution groups without requiring a live row patch', () => {
@@ -1780,6 +1993,7 @@ describe('handleStreamEvent', () => {
     };
 
     try {
+      client.getTranscript.mockClear();
       handleStreamEvent(chatState, context, 'conv-1', {
         type: 'turn_completed',
         conversationId: 'conv-1',
@@ -2735,6 +2949,170 @@ describe('switchConversation', () => {
     expect(getFeedData('plan', 'conv-old')).toBeNull();
     expect(getFeedData('changes', 'conv-keep')?.data?.output?.changes).toEqual([{ path: 'keep.go' }]);
   });
+
+  it('skips redundant settled self-switch for the already active hydrated conversation', async () => {
+    client.getConversation.mockClear();
+    client.getTranscript.mockClear();
+    const setFormData = vi.fn();
+    const context = {
+      resources: {
+        chat: {
+          transcriptRows: [{ id: 'row-1', role: 'user', turnId: 'turn-1', content: 'show order 2656980' }],
+          lastHasRunning: false,
+          lastConversationID: 'conv-1',
+          switchingConversationID: '',
+        }
+      },
+      identity: { windowId: 'chat/new' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1', status: 'succeeded', running: false, title: 'Show ad order 2656980' }),
+                setFormData
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    await switchConversation(context, 'conv-1');
+
+    expect(client.getConversation).not.toHaveBeenCalled();
+    expect(client.getTranscript).not.toHaveBeenCalled();
+    expect(setFormData).not.toHaveBeenCalled();
+  });
+
+  it('hydrates from settled bootstrap cache on conversation switch without refetching conversation or transcript', async () => {
+    client.getConversation.mockClear();
+    client.getTranscript.mockClear();
+    const setFormData = vi.fn();
+    const context = {
+      resources: {
+        chat: {
+          transcriptRows: [],
+          renderRows: [],
+          liveRows: [],
+          generatedFiles: [],
+          lastHasRunning: false,
+          lastConversationID: '',
+          switchingConversationID: '',
+        }
+      },
+      identity: { windowId: 'chat/new' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1', status: 'succeeded', running: false, title: 'Show ad order 2656980' }),
+                setFormData
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    cacheSettledConversationBootstrapSnapshot('conv-1', {
+      conversation: { id: 'conv-1', title: 'Show ad order 2656980', status: 'succeeded' },
+      turns: [
+        {
+          turnId: 'turn-1',
+          status: 'completed',
+          user: { messageId: 'user-1', content: 'show order 2656980' },
+          assistant: { final: { messageId: 'assistant-1', content: 'done' } },
+          messages: [{ messageId: 'assistant-1', role: 'assistant', content: 'done', status: 'completed' }]
+        }
+      ],
+      pendingElicitations: [],
+      generatedFiles: []
+    });
+
+    await switchConversation(context, 'conv-1');
+
+    expect(client.getConversation).not.toHaveBeenCalled();
+    expect(client.getTranscript).not.toHaveBeenCalled();
+    expect(setFormData).toHaveBeenCalled();
+  });
+});
+
+describe('bindConversationWindowEvents', () => {
+  it('skips redundant self-switch bootstrap for a freshly created conversation awaiting its first submit', async () => {
+    const originalWindow = globalThis.window;
+    const stubWindow = new EventTarget();
+    stubWindow.location = { pathname: '/conversation/conv-1' };
+    globalThis.window = stubWindow;
+    client.getConversation.mockClear();
+    const convForm = { id: 'conv-1' };
+    const context = {
+      identity: { windowId: 'chat/new' },
+      resources: {
+        chat: {
+          pendingInitialSubmitConversationID: 'conv-1'
+        }
+      },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => convForm,
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    try {
+      bindConversationWindowEvents(context);
+      globalThis.window.dispatchEvent(new CustomEvent('agently:conversation-select', {
+        detail: { id: 'conv-1', windowId: 'chat/new' }
+      }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(client.getConversation).not.toHaveBeenCalled();
+    } finally {
+      unbindConversationWindowEvents(context);
+      globalThis.window = originalWindow;
+    }
+  });
 });
 
 describe('bootstrapConversationSelection', () => {
@@ -2785,6 +3163,127 @@ describe('bootstrapConversationSelection', () => {
 });
 
 describe('renderMergedRowsForContext', () => {
+  it('publishes a canonical window debug snapshot alongside merged render rows', () => {
+    const messageState = { collection: [] };
+    const originalWindow = global.window;
+    const chatState = {
+      transcriptRows: [{ id: 'u1', role: 'user', turnId: 'turn-1', content: 'hi' }],
+      liveRows: [],
+      renderRows: [],
+      liveOwnedConversationID: '',
+      liveOwnedTurnIds: [],
+      runningTurnId: '',
+      activeStreamTurnId: '',
+      lastHasRunning: false,
+    };
+    global.window = { __agentlyActiveChatState: chatState };
+    const context = {
+      resources: { chat: chatState },
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-debug', agent: 'steward', queuedTurns: [] })
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ agent: 'steward', defaults: { agent: 'steward' } })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    try {
+      renderMergedRowsForContext(context);
+      expect(global.window.__agentlyConversationDebug).toMatchObject({
+        conversationId: 'conv-debug',
+        transcriptRows: [{ id: 'u1', role: 'user', turnId: 'turn-1', content: 'hi' }],
+      });
+      expect(Array.isArray(global.window.__agentlyConversationDebug.renderRows)).toBe(true);
+      expect(Array.isArray(global.window.__agentlyConversationDebug.normalizedRows)).toBe(true);
+    } finally {
+      global.window = originalWindow;
+    }
+  });
+
+  it('publishes canonical window debug snapshot even when the active chat pointer differs', () => {
+    const messageState = { collection: [] };
+    const originalWindow = global.window;
+    const chatState = {
+      transcriptRows: [{ id: 'u1', role: 'user', turnId: 'turn-1', content: 'hi' }],
+      liveRows: [],
+      renderRows: [],
+      liveOwnedConversationID: '',
+      liveOwnedTurnIds: [],
+      runningTurnId: '',
+      activeStreamTurnId: '',
+      lastHasRunning: false,
+    };
+    global.window = { __agentlyActiveChatState: { different: true } };
+    const context = {
+      resources: { chat: chatState },
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-debug-2', agent: 'steward', queuedTurns: [] })
+              }
+            }
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ agent: 'steward', defaults: { agent: 'steward' } })
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    try {
+      renderMergedRowsForContext(context);
+      expect(global.window.__agentlyConversationDebug).toMatchObject({
+        conversationId: 'conv-debug-2',
+      });
+    } finally {
+      global.window = originalWindow;
+    }
+  });
+
   it('renders a starter row on empty chat and merges all agent tasks for auto-select', () => {
     const messageState = { collection: [] };
     const context = {
@@ -3633,6 +4132,53 @@ describe('startPolling', () => {
     stopPolling(context);
     vi.useRealTimers();
   });
+
+  it('does not poll while terminal hydration is still in progress for the active conversation', async () => {
+    vi.useFakeTimers();
+    const context = {
+      resources: {
+        chat: {
+          transcriptRows: [],
+          lastHasRunning: false,
+          pendingTerminalHydrationConversationID: 'conv-1'
+        }
+      },
+      identity: { windowId: 'chat/new' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1' }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    try {
+      client.getTranscript.mockClear();
+      startPolling(context);
+      await vi.advanceTimersByTimeAsync(4500);
+      expect(client.getTranscript).not.toHaveBeenCalled();
+    } finally {
+      stopPolling(context);
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('createNewConversation', () => {
@@ -4304,6 +4850,45 @@ describe('shouldUseLiveStream', () => {
       expect(turns).toHaveLength(1);
       expect(onTranscript).not.toHaveBeenCalled();
       expect(global.window.__agentlyActiveChatState.lastTranscriptFeedsByConversation).toBeUndefined();
+    } finally {
+      installChatStoreMirror(null);
+      global.window = originalWindow;
+    }
+  });
+
+  it('forwards terminal transcript into chatStore even when pre-fetch state still looks live-owned', async () => {
+    const onTranscript = vi.fn();
+    const reset = vi.fn();
+    installChatStoreMirror({ onTranscript, reset });
+    const originalWindow = global.window;
+    global.window = {
+      __agentlyActiveChatState: {
+        liveOwnedConversationID: 'conv-live',
+        liveOwnedTurnIds: ['turn-1'],
+        runningTurnId: 'turn-1',
+        activeStreamTurnId: '',
+        lastHasRunning: true,
+      }
+    };
+    client.getTranscript.mockResolvedValueOnce({
+      conversation: {
+        conversationId: 'conv-live',
+        turns: [{ turnId: 'turn-1', status: 'completed' }],
+        feeds: [{ feedId: 'plan', title: 'Plan', itemCount: 1, data: { note: 'terminal' } }],
+      }
+    });
+
+    try {
+      const turns = await fetchTranscript('conv-live');
+      expect(turns).toHaveLength(1);
+      expect(reset).toHaveBeenCalledWith('conv-live');
+      expect(onTranscript).toHaveBeenCalledTimes(1);
+      expect(onTranscript).toHaveBeenCalledWith('conv-live', expect.objectContaining({
+        conversationId: 'conv-live',
+      }));
+      expect(global.window.__agentlyActiveChatState.lastTranscriptFeedsByConversation?.['conv-live']).toEqual([
+        expect.objectContaining({ feedId: 'plan' })
+      ]);
     } finally {
       installChatStoreMirror(null);
       global.window = originalWindow;

@@ -3,6 +3,7 @@ import { Button, Dialog, Classes, Spinner } from '@blueprintjs/core';
 import SchemaBasedForm from 'forge/widgets/SchemaBasedForm.jsx';
 import { client } from '../../services/agentlyClient';
 import { dsTick } from '../../services/chatRuntime';
+import { getScopedConversationSelection, MAIN_CHAT_WINDOW_ID } from '../../services/conversationWindow';
 import {
   collectElicitationFormValues,
   elicitationDataBindingKey,
@@ -27,7 +28,7 @@ export function parseConversationAndElicitation(message = {}) {
   ).trim();
   const match = callbackURL.match(/\/v1\/(?:api\/)?(?:conversations\/([^/]+)\/elicitation\/([^/?#]+)|elicitations\/([^/]+)\/([^/?#]+)\/resolve)/i);
   const persistedConversationId = typeof window !== 'undefined'
-    ? String(window?.localStorage?.getItem('agently.selectedConversationId') || '').trim()
+    ? getScopedConversationSelection(MAIN_CHAT_WINDOW_ID)
     : '';
   const conversationId = directConversationId
     || persistedConversationId

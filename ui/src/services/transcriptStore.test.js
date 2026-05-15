@@ -858,4 +858,62 @@ describe('tickTranscript', () => {
     expect(fetchTranscript).toHaveBeenNthCalledWith(1, 'conv-1', 'msg-user-1', { includeExecutionDetails: false });
     expect(fetchTranscript).toHaveBeenNthCalledWith(2, 'conv-1', '', { includeExecutionDetails: false });
   });
+
+  it('uses prefetched terminal transcript input without refetching transcript or elicitations', async () => {
+    const chatState = {
+      lastSinceCursor: '',
+      transcriptRows: [],
+      lastHasRunning: false
+    };
+    const conversationsDS = {
+      peekFormData: () => ({ id: 'conv-1' })
+    };
+    const context = {
+      Context: (name) => {
+        if (name === 'conversations') {
+          return { handlers: { dataSource: conversationsDS } };
+        }
+        return null;
+      }
+    };
+    const prefetchedTurns = [
+      {
+        turnId: 'turn-1',
+        status: 'completed',
+        user: { messageId: 'msg-user-1', content: 'show order 2656980' },
+        assistant: { final: { messageId: 'msg-assistant-1', content: 'done' } },
+        messages: [{ messageId: 'msg-assistant-1', role: 'assistant', content: 'done', status: 'completed' }]
+      }
+    ];
+    const prefetchedPendingElicitations = [];
+    const fetchTranscript = vi.fn();
+    const fetchPendingElicitations = vi.fn();
+    const resolveLastTranscriptCursor = vi.fn(() => 'msg-assistant-1');
+    const syncTranscriptSnapshot = vi.fn(() => ({ hasRunning: false, conversationID: 'conv-1' }));
+
+    const result = await tickTranscript({
+      context,
+      options: {
+        prefetchedTranscriptTurns: prefetchedTurns,
+        prefetchedPendingElicitations
+      },
+      ensureContextResources: () => chatState,
+      fetchTranscript,
+      fetchPendingElicitations,
+      resolveLastTranscriptCursor,
+      syncTranscriptSnapshot
+    });
+
+    expect(fetchTranscript).not.toHaveBeenCalled();
+    expect(fetchPendingElicitations).not.toHaveBeenCalled();
+    expect(resolveLastTranscriptCursor).toHaveBeenCalledWith(prefetchedTurns);
+    expect(syncTranscriptSnapshot).toHaveBeenCalledWith({
+      context,
+      turns: prefetchedTurns,
+      pendingElicitations: prefetchedPendingElicitations,
+      reason: 'poll'
+    });
+    expect(chatState.lastSinceCursor).toBe('msg-assistant-1');
+    expect(result).toEqual({ hasRunning: false, conversationID: 'conv-1' });
+  });
 });

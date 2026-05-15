@@ -12,11 +12,14 @@ const queryDeferred = () => {
 
 vi.mock('./agentlyClient', () => ({
   client: {
+    getTranscript: vi.fn(),
     query: vi.fn(),
   },
 }));
 
 vi.mock('./chatStore', () => ({
+  onTranscript: vi.fn(),
+  reset: vi.fn(),
   submit: vi.fn(),
   steer: vi.fn(),
 }));
@@ -25,17 +28,25 @@ vi.mock('./chatRuntime', () => ({
   applyIterationVisibility: vi.fn(),
   bindConversationWindowEvents: vi.fn(),
   bootstrapConversationSelection: vi.fn(),
+  cacheSettledConversationBootstrapSnapshot: vi.fn(),
+  clearPendingConversationBootstrap: vi.fn(),
   createNewConversation: vi.fn(),
   dsTick: vi.fn(),
   disconnectStream: vi.fn(),
   ensureContextResources: vi.fn(),
   ensureConversation: vi.fn(),
+  clearSettledConversationBootstrapSnapshot: vi.fn(),
   fetchConversation: vi.fn(),
   fetchPendingElicitations: vi.fn(),
+  getSettledConversationBootstrapSnapshot: vi.fn(() => null),
   getVisibleIterations: vi.fn(),
+  hasPendingConversationBootstrap: vi.fn(() => false),
   hydrateMeta: vi.fn(),
+  hydrateConversationFromBootstrapSnapshot: vi.fn(() => false),
   isConversationLiveish: vi.fn(),
+  logExecutorDebug: vi.fn(),
   logStreamDebug: vi.fn(),
+  markPendingConversationBootstrap: vi.fn(),
   mapTranscriptToRows: vi.fn(() => ({ queuedTurns: [] })),
   normalizeMetaResponse: vi.fn(),
   publishActiveConversation: vi.fn(),
@@ -75,15 +86,22 @@ vi.mock('../utils/dialogBus', () => ({
 }));
 
 import { client } from './agentlyClient';
-import { submit as submitToChatStore, steer as steerToChatStore } from './chatStore';
+import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore } from './chatStore';
 import { onInit, submitMessage } from './chatService';
 import { listLookupRegistry } from '../components/lookups/client.js';
 import {
   dsTick,
   ensureContextResources,
   ensureConversation,
+  clearPendingConversationBootstrap,
+  clearSettledConversationBootstrapSnapshot,
   fetchConversation,
+  fetchPendingElicitations,
+  getSettledConversationBootstrapSnapshot,
+  hasPendingConversationBootstrap,
   isConversationLiveish,
+  hydrateConversationFromBootstrapSnapshot,
+  markPendingConversationBootstrap,
   publishActiveConversation,
   rememberSeedTitle,
   resolveUserID,
@@ -94,6 +112,8 @@ import {
 describe('submitMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getSettledConversationBootstrapSnapshot.mockReturnValue(null);
+    hydrateConversationFromBootstrapSnapshot.mockReturnValue(false);
   });
 
   it('attaches SSE before the query promise resolves for a new active turn', async () => {
@@ -163,6 +183,82 @@ describe('submitMessage', () => {
 
     deferred.resolve({});
     await submitPromise;
+  });
+
+  it('resets canonical chatStore state before transcript hydration on a fast completed query', async () => {
+    client.query.mockResolvedValue({ content: 'done', turnId: 'turn-fast', messageId: 'assistant-final' });
+    client.getTranscript.mockResolvedValue({
+      conversation: {
+        conversationId: 'conv-1',
+        turns: [{ turnId: 'turn-1', status: 'completed' }],
+      },
+    });
+    ensureConversation.mockResolvedValue('conv-1');
+    resolveUserID.mockReturnValue('');
+    const chatState = {
+      runningTurnId: '',
+      lastHasRunning: false,
+      activeConversationID: '',
+      liveOwnedConversationID: '',
+      activeStreamPrompt: '',
+      activeStreamTurnId: '',
+      activeStreamStartedAt: 0,
+      stream: { close: vi.fn() },
+    };
+    ensureContextResources.mockReturnValue(chatState);
+    fetchConversation.mockResolvedValue({ id: 'conv-1', status: 'succeeded' });
+    fetchPendingElicitations.mockResolvedValue([]);
+    isConversationLiveish.mockReturnValue(false);
+    dsTick.mockResolvedValue({ conversationID: 'conv-1', hasRunning: false });
+
+    const convForm = {};
+    const context = {
+      identity: { windowId: 'chat/new' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => convForm,
+                setFormData: vi.fn(({ values }) => Object.assign(convForm, values)),
+              },
+            },
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({
+                  defaults: { model: 'openai_gpt-5_4' },
+                }),
+              },
+            },
+          };
+        }
+        return null;
+      },
+    };
+
+    await submitMessage({
+      context,
+      message: 'show order 2656980',
+      model: 'openai_gpt-5_4',
+      agent: 'steward',
+    });
+
+    expect(resetChatStoreConversation).toHaveBeenCalledWith('conv-1');
+    expect(applyTranscriptToChatStore).toHaveBeenCalledWith('conv-1', expect.objectContaining({
+      conversationId: 'conv-1',
+    }));
+    expect(fetchPendingElicitations).toHaveBeenCalledWith('conv-1');
+    expect(dsTick).toHaveBeenCalledWith(context, {
+      conversationID: 'conv-1',
+      prefetchedTranscriptTurns: [{ turnId: 'turn-1', status: 'completed' }],
+      prefetchedPendingElicitations: [],
+    });
+    expect(chatState.pendingTerminalRefreshSuppressionTurnID).toBe('turn-fast');
+    expect(chatState.prefetchedTerminalTurnID).toBe('turn-1');
   });
 
   it('does not run transcript dstick after submit when a fresh live stream owns the turn', async () => {
@@ -432,6 +528,70 @@ describe('submitMessage', () => {
     expect(client.query).toHaveBeenCalledWith(expect.objectContaining({
       query: 'Troubleshoot /order order for delivery issues.',
     }));
+  });
+
+  it('reconciles transcript immediately when query returns inline content for a fast completed turn', async () => {
+    client.query.mockResolvedValue({
+      conversationId: 'conv-fast',
+      content: 'Your order summary is now open for ad order 2656980.',
+    });
+    ensureConversation.mockResolvedValue('conv-fast');
+    resolveUserID.mockReturnValue('');
+    ensureContextResources.mockReturnValue({
+      runningTurnId: '',
+      lastHasRunning: false,
+      activeConversationID: '',
+      liveOwnedConversationID: '',
+      activeStreamPrompt: '',
+      activeStreamTurnId: '',
+      activeStreamStartedAt: 0,
+    });
+    dsTick.mockResolvedValue({
+      conversationID: 'conv-fast',
+      hasRunning: false,
+    });
+
+    const convForm = {};
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => convForm,
+                setFormData: vi.fn(({ values }) => Object.assign(convForm, values)),
+              },
+            },
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({
+                  defaults: { model: 'openai_gpt-5_4' },
+                }),
+              },
+            },
+          };
+        }
+        return null;
+      },
+    };
+
+    await submitMessage({
+      context,
+      message: 'show order 2656980',
+      model: 'openai_gpt-5_4',
+      agent: 'steward',
+    });
+
+    expect(fetchConversation).toHaveBeenCalledWith('conv-fast');
+    expect(dsTick).toHaveBeenCalledWith(context, {
+      conversationID: 'conv-fast',
+      prefetchedTranscriptTurns: [{ turnId: 'turn-1', status: 'completed' }],
+      prefetchedPendingElicitations: [],
+    });
   });
 
   it('attaches SSE on init when conversation metadata says the conversation is still live', async () => {

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Dialog } from '@blueprintjs/core';
 import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
-import { openLinkedConversationWindow } from '../services/conversationWindow';
+import { getScopedConversationSelection, MAIN_CHAT_WINDOW_ID, openLinkedConversationWindow } from '../services/conversationWindow';
 import { displayStepIcon, displayStepTitle, isAgentRunTool } from '../services/toolPresentation';
 import { resolvePayload } from '../services/payloads';
 import { flattenCanonicalTranscriptSteps, transcriptConversationTurns } from '../services/canonicalTranscript';
@@ -293,7 +293,7 @@ function currentConversationId() {
   if (typeof window === 'undefined') return '';
   const match = String(window.location?.pathname || '').match(/\/conversation\/([^/?#]+)/);
   if (match) return decodeURIComponent(match[1]);
-  return String(window.localStorage?.getItem('agently.selectedConversationId') || '').trim();
+  return getScopedConversationSelection(MAIN_CHAT_WINDOW_ID);
 }
 
 export async function hydrateToolCallFromTranscript(toolCall = {}) {

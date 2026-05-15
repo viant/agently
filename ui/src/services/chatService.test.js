@@ -604,7 +604,7 @@ describe('openResourceFeedPath', () => {
   });
 
   it('opens a file-view dialog for resource feed rows using path/rootId', async () => {
-    client.executeTool.mockResolvedValueOnce({ content: 'resource body' });
+    client.downloadWorkspaceFile.mockResolvedValueOnce('resource body');
 
     const ok = await openResourceFeedPath({
       row: {
@@ -619,11 +619,7 @@ describe('openResourceFeedPath', () => {
       uri: '/Users/awitas/go/src/github.com/viant/agently-core/recovery.md',
       loading: true,
     }));
-    expect(client.executeTool).toHaveBeenCalledWith('resources-read', expect.objectContaining({
-      path: '/Users/awitas/go/src/github.com/viant/agently-core/recovery.md',
-      rootId: 'local',
-      maxBytes: 200000,
-    }));
+    expect(client.downloadWorkspaceFile).toHaveBeenCalledWith('/Users/awitas/go/src/github.com/viant/agently-core/recovery.md');
     expect(updateFileViewDialog).toHaveBeenCalledWith(expect.objectContaining({
       title: 'recovery.md',
       uri: '/Users/awitas/go/src/github.com/viant/agently-core/recovery.md',

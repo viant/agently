@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  resolveHostedBottomWindow,
   resolveRouteBootstrapAction,
   resolveMainWindowCloseConversationId,
   resolveMainWindowHeaderTitle,
@@ -33,6 +34,13 @@ describe('Root window selection helpers', () => {
     expect(shouldShowChatChrome(null)).toBe(false);
   });
 
+  it('routes chat.bottom windows into the hosted lower region', () => {
+    const bottom = { windowId: 'schedule', windowKey: 'schedule', presentation: 'hosted', region: 'chat.bottom', conversationId: 'conv-1' };
+    const chat = { windowId: 'chat/new', windowKey: 'chat/new' };
+    expect(resolveHostedBottomWindow(bottom, chat, [bottom], 'conv-1')).toBe(bottom);
+    expect(resolveHostedBottomWindow(chat, chat, [], 'conv-1')).toBe(chat);
+  });
+
   it('normalizes the conversation id restored when closing a non-chat main window', () => {
     expect(resolveMainWindowCloseConversationId(' conv-123 ')).toBe('conv-123');
     expect(resolveMainWindowCloseConversationId('')).toBe('');
@@ -51,6 +59,11 @@ describe('Root window selection helpers', () => {
       windowKey: 'orderPerformance',
       parameters: { AdOrderId: [2637048] }
     })).toBe('Order 2637048');
+    expect(resolveMainWindowHeaderTitle({
+      windowKey: 'orderPerformance',
+      parameters: { AdOrderId: [2609393] },
+      resolvedMetrics: { name: 'Stale Previous Order', orderId: 2656980 }
+    })).toBe('Order 2609393');
     expect(shouldShowMainWindowHeader({ windowTitle: 'Runs', windowKey: 'schedule/history' })).toBe(false);
     expect(shouldShowMainWindowHeader({ windowTitle: 'Automation', windowKey: 'schedule' })).toBe(false);
     expect(shouldShowMainWindowHeader({ windowTitle: 'Runs', windowKey: 'schedule/history', inTab: false })).toBe(false);

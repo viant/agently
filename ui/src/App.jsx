@@ -56,11 +56,7 @@ export const routes = [
   { path: '/v1/api/auth/oauth/callback', element: <OAuthCallback /> },
   { path: '/lookup-chip-preview', element: <LookupChipPreview /> },
   { path: '/ui/lookup-chip-preview', element: <LookupChipPreview /> },
-  { path: '/', element: <Root /> },
-  { path: '/ui', element: <Root /> },
-  { path: '/v1/conversation/:id', element: <Root /> },
-  { path: '/conversation/:id', element: <Root /> },
-  { path: '/ui/conversation/:id', element: <Root /> }
+  { path: '*', element: <Root /> }
 ];
 
 if (JSON.stringify(routes.map((entry) => entry.path)) !== JSON.stringify(appRoutePaths)) {

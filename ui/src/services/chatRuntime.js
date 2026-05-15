@@ -43,11 +43,13 @@ import {
 } from './liveStreamStore';
 import { buildCanonicalTranscriptRows, buildConversationRenderRows, isCanonicalTranscriptTurn } from './renderRows';
 import {
+  ensureWorkspaceWindowForConversation,
   getWindowById,
   MAIN_CHAT_WINDOW_ID,
   getScopedConversationSelection,
   isMainChatWindowId,
-  publishConversationSelection
+  publishConversationSelection,
+  syncWorkspaceStateFromConversation
 } from './conversationWindow';
 import { setStage } from './stageBus';
 import { client } from './agentlyClient';
@@ -185,7 +187,7 @@ function attachGeneratedFilesToRows(rows = [], files = []) {
   });
 }
 
-function logExecutorDebug(event, detail = {}) {
+export function logExecutorDebug(event, detail = {}) {
   if (!isExecutorDebugEnabled()) return;
   try {
     console.log(EXECUTOR_DEBUG_PREFIX, {
@@ -834,6 +836,64 @@ function findLatestRunningTurnId(messages = []) {
   return '';
 }
 
+const settledConversationBootstrapCache = new Map();
+const pendingConversationBootstrapIds = new Set();
+
+export function cacheSettledConversationBootstrapSnapshot(conversationID = '', snapshot = null) {
+  const id = String(conversationID || '').trim();
+  if (!id || !snapshot || typeof snapshot !== 'object') return;
+  settledConversationBootstrapCache.set(id, {
+    conversation: snapshot.conversation && typeof snapshot.conversation === 'object' ? snapshot.conversation : null,
+    turns: Array.isArray(snapshot.turns) ? snapshot.turns : [],
+    pendingElicitations: Array.isArray(snapshot.pendingElicitations) ? snapshot.pendingElicitations : [],
+    generatedFiles: Array.isArray(snapshot.generatedFiles) ? snapshot.generatedFiles : []
+  });
+  logExecutorDebug('settled-bootstrap-cache-set', {
+    conversationId: id,
+    turnCount: Array.isArray(snapshot.turns) ? snapshot.turns.length : 0,
+    elicitationCount: Array.isArray(snapshot.pendingElicitations) ? snapshot.pendingElicitations.length : 0,
+    generatedFileCount: Array.isArray(snapshot.generatedFiles) ? snapshot.generatedFiles.length : 0
+  });
+}
+
+export function getSettledConversationBootstrapSnapshot(conversationID = '') {
+  const id = String(conversationID || '').trim();
+  if (!id) return null;
+  return settledConversationBootstrapCache.get(id) || null;
+}
+
+export function clearSettledConversationBootstrapSnapshot(conversationID = '') {
+  const id = String(conversationID || '').trim();
+  if (!id) return;
+  settledConversationBootstrapCache.delete(id);
+  logExecutorDebug('settled-bootstrap-cache-clear', {
+    conversationId: id
+  });
+}
+
+export function markPendingConversationBootstrap(conversationID = '') {
+  const id = String(conversationID || '').trim();
+  if (!id) return;
+  pendingConversationBootstrapIds.add(id);
+  logExecutorDebug('pending-conversation-bootstrap-set', {
+    conversationId: id
+  });
+}
+
+export function hasPendingConversationBootstrap(conversationID = '') {
+  const id = String(conversationID || '').trim();
+  return !!id && pendingConversationBootstrapIds.has(id);
+}
+
+export function clearPendingConversationBootstrap(conversationID = '') {
+  const id = String(conversationID || '').trim();
+  if (!id) return;
+  pendingConversationBootstrapIds.delete(id);
+  logExecutorDebug('pending-conversation-bootstrap-clear', {
+    conversationId: id
+  });
+}
+
 export function ensureContextResources(context) {
   context.resources = context.resources || {};
   context.resources.chat = context.resources.chat || {};
@@ -920,6 +980,30 @@ export function normalizeForContext(context, rows = []) {
   return normalizeMessages(rows, { visibleCount: getVisibleIterations(context) });
 }
 
+function syncWindowConversationDebugState({
+  chatState,
+  conversationID = '',
+  mergedRows = [],
+  normalizedRows = [],
+} = {}) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.__agentlyConversationDebug = {
+      conversationId: String(conversationID || '').trim(),
+      transcriptRows: Array.isArray(chatState?.transcriptRows) ? chatState.transcriptRows : [],
+      renderRows: Array.isArray(mergedRows) ? mergedRows : [],
+      normalizedRows: Array.isArray(normalizedRows) ? normalizedRows : [],
+      liveRows: Array.isArray(chatState?.liveRows) ? chatState.liveRows : [],
+      liveOwnedConversationID: String(chatState?.liveOwnedConversationID || '').trim(),
+      liveOwnedTurnIds: Array.isArray(chatState?.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [],
+      runningTurnId: String(chatState?.runningTurnId || '').trim(),
+      activeStreamTurnId: String(chatState?.activeStreamTurnId || '').trim(),
+      trackerActiveTurnId: trackerActiveTurnId(chatState),
+      lastHasRunning: !!chatState?.lastHasRunning,
+    };
+  } catch (_) {}
+}
+
 export function renderMergedRowsForContext(context) {
   const messagesDS = context?.Context?.('messages')?.handlers?.dataSource;
   if (!messagesDS) return [];
@@ -951,6 +1035,12 @@ export function renderMergedRowsForContext(context) {
     window.__agentlyActiveChatState.renderRows = mergedRows;
     window.__agentlyActiveChatState.normalizedRows = normalizedRows;
   }
+  syncWindowConversationDebugState({
+    chatState,
+    conversationID: currentConversationID,
+    mergedRows,
+    normalizedRows,
+  });
   if (isStreamDebugEnabled()) {
     console.log('[render]', {
       ts: new Date().toISOString(),
@@ -1169,9 +1259,13 @@ function getContextWindowId(context) {
 
 export function publishActiveConversation(conversationID = '', context = null) {
   const id = String(conversationID || '').trim();
-  const windowId = getContextWindowId(context);
-  publishConversationSelection(windowId, id, {
-    syncPath: isMainChatWindowId(windowId),
+  const contextWindowId = getContextWindowId(context);
+  const contextWindow = getWindowById(contextWindowId);
+  const targetWindowId = String(contextWindow?.windowKey || '').trim() === 'chat/new'
+    ? contextWindowId
+    : MAIN_CHAT_WINDOW_ID;
+  publishConversationSelection(targetWindowId, id, {
+    syncPath: isMainChatWindowId(targetWindowId),
     eventType: 'forge:conversation-active'
   });
 }
@@ -1235,6 +1329,11 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     ? data.conversation
     : null;
   const canonicalTurns = Array.isArray(canonicalConversation?.turns) ? canonicalConversation.turns : null;
+  const canonicalHasRunning = Array.isArray(canonicalTurns)
+    && canonicalTurns.some((turn) => {
+      const status = String(turn?.status || '').trim().toLowerCase();
+      return ['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress'].includes(status);
+    });
   const liveOwnedTurnIds = Array.isArray(activeChatState?.liveOwnedTurnIds)
     ? activeChatState.liveOwnedTurnIds.map((value) => String(value || '').trim()).filter(Boolean)
     : [];
@@ -1244,9 +1343,12 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
   // forward any transcript fragment for that turn into the canonical client
   // store.
   try {
-    if (canonicalConversation && canonicalConversation.conversationId && !latestTurnLiveOwned) {
+    if (canonicalConversation && canonicalConversation.conversationId && (!latestTurnLiveOwned || !canonicalHasRunning)) {
       const store = _chatStoreRef();
       if (store) {
+        if (!canonicalHasRunning && typeof store.reset === 'function') {
+          store.reset(canonicalConversation.conversationId);
+        }
         store.onTranscript(canonicalConversation.conversationId, canonicalConversation);
       }
     }
@@ -1254,7 +1356,7 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
   const resolvedFeeds = Array.isArray(data?.feeds)
     ? data.feeds
     : (Array.isArray(canonicalConversation?.feeds) ? canonicalConversation.feeds : []);
-  if (!latestTurnLiveOwned && activeChatState && conversationID) {
+  if ((!latestTurnLiveOwned || !canonicalHasRunning) && activeChatState && conversationID) {
     const current = activeChatState.lastTranscriptFeedsByConversation || {};
     activeChatState.lastTranscriptFeedsByConversation = {
       ...current,
@@ -1281,6 +1383,8 @@ export async function fetchConversation(conversationID = '') {
     if (!data || typeof data !== 'object') return null;
     const resolvedID = String(data?.id || data?.Id || '').trim();
     if (resolvedID) {
+      syncWorkspaceStateFromConversation(data);
+      ensureWorkspaceWindowForConversation(resolvedID);
       // Update usage display from conversation data.
       publishUsage(resolvedID, data);
       return data;
@@ -1289,6 +1393,27 @@ export async function fetchConversation(conversationID = '') {
   } catch (_) {
     return null;
   }
+}
+
+export function hydrateConversationFromBootstrapSnapshot(context, snapshot = null) {
+  if (!snapshot || typeof snapshot !== 'object') return false;
+  const conversation = snapshot.conversation && typeof snapshot.conversation === 'object' ? snapshot.conversation : null;
+  const conversationID = String(conversation?.id || conversation?.Id || '').trim();
+  if (!conversationID) return false;
+  const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
+  if (!conversationsDS) return false;
+  const currentForm = conversationsDS.peekFormData?.() || {};
+  conversationsDS.setFormData?.({
+    values: applyConversationFormSnapshot(currentForm, conversation)
+  });
+  syncWorkspaceStateFromConversation(conversation);
+  ensureWorkspaceWindowForConversation(conversationID);
+  publishUsage(conversationID, conversation);
+  const chatState = ensureContextResources(context);
+  chatState.generatedFiles = Array.isArray(snapshot.generatedFiles) ? snapshot.generatedFiles : [];
+  syncMessagesSnapshot(context, Array.isArray(snapshot.turns) ? snapshot.turns : [], 'bootstrap-cache', Array.isArray(snapshot.pendingElicitations) ? snapshot.pendingElicitations : []);
+  renderMergedRowsForContext(context);
+  return true;
 }
 
 function applyConversationFormSnapshot(base = {}, conversation = null) {
@@ -1495,6 +1620,10 @@ export function resetConversationSnapshotState(context) {
   }
   chatState.renderRows = [];
   chatState.generatedFiles = [];
+  chatState.prefetchedTerminalConversationID = '';
+  chatState.prefetchedTerminalTurnID = '';
+  chatState.pendingTerminalRefreshSuppressionConversationID = '';
+  chatState.pendingTerminalRefreshSuppressionTurnID = '';
 }
 
 export function queueTranscriptRefresh(context, { delay = 120, resetSince = false, force = false } = {}) {
@@ -1919,6 +2048,10 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         activeStreamTurnId: String(chatState.activeStreamTurnId || '').trim(),
         status: String(payload?.status || type).trim(),
         hasFinalContent: finalContent !== '',
+        finalRowId: String(finalRow?.id || '').trim(),
+        finalRowContentLen: String(finalRow?.content || '').trim().length,
+        liveRowCount: Array.isArray(chatState?.liveRows) ? chatState.liveRows.length : 0,
+        trackerHasAssistantRow: trackerHasAssistantRowForTurn(chatState, resolvedConversationID, completedTurnID),
         linkedConversationCount: Array.isArray(finalRow?.executionGroups)
           ? finalRow.executionGroups.flatMap((group) => group?.toolSteps || []).filter((step) => String(step?.linkedConversationId || '').trim()).length
           : 0
@@ -1970,9 +2103,59 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       } else {
         setStage({ phase: 'done', text: 'Done', completedAt: stageCompletedAtValue(payload) });
       }
+      const prefetchedTerminalConversationID = String(chatState.prefetchedTerminalConversationID || '').trim();
+      const prefetchedTerminalTurnID = String(chatState.prefetchedTerminalTurnID || '').trim();
+      const pendingTerminalHydrationConversationID = String(chatState.pendingTerminalHydrationConversationID || '').trim();
+      const pendingTerminalRefreshSuppressionConversationID = String(chatState.pendingTerminalRefreshSuppressionConversationID || '').trim();
+      const pendingTerminalRefreshSuppressionTurnID = String(chatState.pendingTerminalRefreshSuppressionTurnID || '').trim();
+      const pendingConversationBootstrap = hasPendingConversationBootstrap(resolvedConversationID);
+      const skipForcedTranscriptRefresh = !!(
+        (
+          pendingTerminalRefreshSuppressionConversationID
+          && pendingTerminalRefreshSuppressionConversationID === resolvedConversationID
+          && pendingTerminalRefreshSuppressionTurnID
+          && pendingTerminalRefreshSuppressionTurnID === completedTurnID
+        )
+        ||
+        (
+          pendingConversationBootstrap
+          && finalContent !== ''
+        )
+        ||
+        (pendingTerminalHydrationConversationID && pendingTerminalHydrationConversationID === resolvedConversationID)
+        || (
+          completedTurnID
+          && prefetchedTerminalTurnID
+          && prefetchedTerminalTurnID === completedTurnID
+          && prefetchedTerminalConversationID
+          && prefetchedTerminalConversationID === resolvedConversationID
+        )
+      );
+      logExecutorDebug('turn-terminal-refresh-decision', {
+        conversationId: resolvedConversationID,
+        turnId: completedTurnID,
+        skipForcedTranscriptRefresh,
+        pendingConversationBootstrap,
+        pendingTerminalRefreshSuppressionConversationID,
+        pendingTerminalRefreshSuppressionTurnID,
+        pendingTerminalHydrationConversationID,
+        prefetchedTerminalConversationID,
+        prefetchedTerminalTurnID
+      });
       // Once the live turn is terminal, force a transcript refresh so the
       // settled persisted execution pages replace any stale live placeholders.
-      queueTranscriptRefresh(context, { delay: 0, force: true });
+      if (!skipForcedTranscriptRefresh) {
+        queueTranscriptRefresh(context, { delay: 0, force: true });
+      }
+      if (skipForcedTranscriptRefresh) {
+        chatState.prefetchedTerminalConversationID = '';
+        chatState.prefetchedTerminalTurnID = '';
+        chatState.pendingTerminalRefreshSuppressionConversationID = '';
+        chatState.pendingTerminalRefreshSuppressionTurnID = '';
+      }
+      if (resolvedConversationID) {
+        clearPendingConversationBootstrap(resolvedConversationID);
+      }
       // Don't clear feeds on turn end — they persist until a tool_feed_inactive
       // SSE event arrives (e.g., after revert/commit removes the feed's data).
       scheduleTimeout(() => setStage({ phase: 'ready', text: 'Ready' }), 1100);
@@ -2229,6 +2412,7 @@ export async function ensureConversation(context, options = {}) {
   }
   const preferredAgent = sanitizeAutoSelection(options?.agent || '');
   const preferredModel = sanitizeAutoSelection(options?.model || '');
+  const immediateSubmit = !!options?.immediateSubmit;
   const persistedAgent = resolveVisibleSelectedAgent(metaForm, getPersistedSelectedAgent());
   const agentID = resolveVisibleSelectedAgent(
     metaForm,
@@ -2254,6 +2438,9 @@ export async function ensureConversation(context, options = {}) {
     });
     publishActiveConversation(id, context);
     chatState.activeConversationID = id;
+    if (immediateSubmit) {
+      chatState.pendingInitialSubmitConversationID = id;
+    }
     chatState.explicitNewConversationRequested = false;
     // Notify sidebar to refresh the conversation list immediately.
     try {
@@ -2281,6 +2468,51 @@ export async function switchConversation(context, conversationID = '') {
 
   const form = conversationsDS.peekFormData?.() || {};
   const currentID = String(form?.id || '').trim();
+  const lastConversationID = String(chatState.lastConversationID || '').trim();
+  const terminalHydrationPending = String(chatState.pendingTerminalHydrationConversationID || '').trim();
+  const initialSubmitPending = String(chatState.pendingInitialSubmitConversationID || '').trim();
+  const hasSettledTranscript = Array.isArray(chatState.transcriptRows) && chatState.transcriptRows.length > 0 && !chatState.lastHasRunning;
+  if (
+    currentID === targetID
+    && lastConversationID === targetID
+    && !chatState.switchingConversationID
+    && !terminalHydrationPending
+    && !initialSubmitPending
+    && !isConversationLiveish(form)
+    && hasSettledTranscript
+  ) {
+    logExecutorDebug('switch-conversation-skip-settled-self', {
+      conversationId: targetID,
+      lastConversationId: lastConversationID,
+      transcriptRowCount: Array.isArray(chatState.transcriptRows) ? chatState.transcriptRows.length : 0
+    });
+    publishActiveConversation(targetID, context);
+    return;
+  }
+  const cachedSettledSnapshot = getSettledConversationBootstrapSnapshot(targetID);
+  if (
+    cachedSettledSnapshot
+    && !terminalHydrationPending
+    && !initialSubmitPending
+    && !isConversationLiveish(form)
+    && hydrateConversationFromBootstrapSnapshot(context, cachedSettledSnapshot)
+  ) {
+    logExecutorDebug('switch-conversation-hydrate-settled-cache', {
+      conversationId: targetID,
+      cachedTurnCount: Array.isArray(cachedSettledSnapshot?.turns) ? cachedSettledSnapshot.turns.length : 0
+    });
+    publishActiveConversation(targetID, context);
+    return;
+  }
+  logExecutorDebug('switch-conversation-run', {
+    conversationId: targetID,
+    currentId: currentID,
+    lastConversationId: lastConversationID,
+    hasSettledTranscript,
+    terminalHydrationPending,
+    initialSubmitPending,
+    switchingConversationId: String(chatState.switchingConversationID || '').trim()
+  });
   clearFeedStateForConversation(resolveFeedResetConversationId(chatState, currentID));
   if (currentID !== targetID) {
     chatState.switchingConversationID = targetID;
@@ -2403,6 +2635,11 @@ export function bindConversationWindowEvents(context) {
     if (targetWindowId && targetWindowId !== currentWindowId) return;
     const id = String(event?.detail?.id || '').trim();
     if (!id) return;
+    const currentConversationID = String(getCurrentConversationID(context) || '').trim();
+    const pendingInitialSubmitConversationID = String(chatState.pendingInitialSubmitConversationID || '').trim();
+    if (currentConversationID && currentConversationID === id && pendingInitialSubmitConversationID === id) {
+      return;
+    }
     void enqueueConversationSwitch(context, id);
   };
   chatState.onNewConversation = (event) => {
@@ -2539,6 +2776,8 @@ export function startPolling(context) {
       && (Date.now() - Number(chatState.lastStreamEventAt || 0) < 6000);
     if (streamIsHot) return;
     if (shouldDeferTranscriptToLiveStream(context, getCurrentConversationID(context))) return;
+    const pendingTerminalHydrationConversationID = String(chatState.pendingTerminalHydrationConversationID || '').trim();
+    if (pendingTerminalHydrationConversationID && pendingTerminalHydrationConversationID === currentID) return;
     const transcriptRows = Array.isArray(chatState.transcriptRows) ? chatState.transcriptRows : [];
     const hasFinishedSnapshot = transcriptRows.length > 0 && !chatState.lastHasRunning;
     if (hasFinishedSnapshot) return;
