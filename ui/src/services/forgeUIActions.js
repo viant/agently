@@ -150,8 +150,14 @@ function buildPlannerLLMSubmit(detail = {}) {
   const plannerSubmit = detail?.plannerSubmit && typeof detail.plannerSubmit === 'object' ? detail.plannerSubmit : null;
   const guidedTool = String(plannerSubmit?.toolGuidance?.tool || '').trim();
   const guidedToolBundle = String(plannerSubmit?.toolGuidance?.toolBundle || '').trim();
+  const firstSelectedRow = Array.isArray(detail?.selectedRows) && detail.selectedRows.length > 0 ? detail.selectedRows[0] : null;
+  const audienceId = String(firstSelectedRow?.audience_id || firstSelectedRow?.audienceId || '').trim();
+  const domain = String(plannerSubmit?.domain || '').trim().toLowerCase();
+  const content = domain === 'site_list' && audienceId
+    ? `Submit selected site recommendations for audience ${audienceId}. Use the structured plannerSubmitEvent context and attempt ${guidedTool || 'the guided recommendation patch tool'} before answering. If selected rows span both target and exclusion, emit separate ${guidedTool || 'reviewed patch'} tool calls per relationship group.`
+    : 'Execute the planner submit event using the structured plannerSubmitEvent context. If plannerSubmitEvent.plannerSubmit.toolGuidance.tool is present, attempt that guided tool or its review flow before answering. Do not summarize selected rows in prose unless execution is blocked after attempting the guided path.';
   return {
-    content: 'Execute the planner submit event using the structured plannerSubmitEvent context. If plannerSubmitEvent.plannerSubmit.toolGuidance.tool is present, attempt that guided tool or its review flow before answering. Do not summarize selected rows in prose unless execution is blocked after attempting the guided path.',
+    content,
     displayQuery: String(detail?.callbackContext?.displayQuery || detail?.context?.displayQuery || 'Submitted planner changes.').trim(),
     tools: guidedTool ? [guidedTool] : undefined,
     toolBundles: guidedToolBundle ? [guidedToolBundle] : undefined,
