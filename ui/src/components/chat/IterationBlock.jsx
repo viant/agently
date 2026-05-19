@@ -7,6 +7,7 @@ import {
 import { DetailContext } from '../../context/DetailContext';
 import { ConversationViewContext } from '../../context/ConversationViewContext';
 import { openLinkedConversationWindow } from '../../services/conversationWindow';
+import { openElicitationDialog } from '../../services/elicitationBus';
 import { client } from '../../services/agentlyClient';
 import { isStreamDebugEnabled } from '../../services/debugFlags';
 import { displayStepIcon, displayStepTitle, executionRoleLabel, isAgentRunTool, humanizeAgentId } from '../../services/toolPresentation';
@@ -1050,6 +1051,21 @@ function openLinkedConversation(step = {}) {
   openLinkedConversationWindow(id);
 }
 
+function openElicitationReview(step = {}) {
+  const conversationId = currentConversationId();
+  openElicitationDialog({
+    elicitationId: step?.elicitationId,
+    requestedSchema: step?.requestedSchema,
+    message: step?.message,
+    callbackURL: step?.callbackURL,
+    conversationId,
+    turnId: step?.turnId,
+    status: step?.status,
+    url: step?.url,
+    mode: step?.mode
+  }, conversationId);
+}
+
 function paginate(total, visible, offset) {
   const effectiveVisible = visible === 'all' ? total : visible;
   if (total <= effectiveVisible) {
@@ -1539,6 +1555,9 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
           completedAt: '',
           latencyMs: null,
           requestedSchema: elic?.requestedSchema || null,
+          callbackURL: elic?.callbackUrl || elic?.callbackURL || '',
+          conversationId: String(message?.conversationId || data?.conversationId || '').trim(),
+          turnId: String(message?.turnId || data?.turnId || '').trim(),
           url: elic?.url || '',
           mode: elic?.mode || ''
         };
@@ -1790,6 +1809,9 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
               {latencyLabel(toolStep, now, turnStartedAt, useLiveWallClock) ? (
                 <span className="app-iteration-group-time">{latencyLabel(toolStep, now, turnStartedAt, useLiveWallClock)}</span>
               ) : null}
+              {String(toolStep?.kind || '').toLowerCase() === 'elicitation' ? (
+                <Button minimal small className="app-iteration-link" onClick={() => openElicitationReview(toolStep)}>Open review</Button>
+              ) : null}
               <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, toolStep))}>Details</Button>
             </div>
           </div>
@@ -1871,6 +1893,9 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
                   <span className={`app-iteration-status tone-${statusTone(toolStep?.status)}`}>{statusLabel(toolStep?.status)}</span>
                   {latencyLabel(toolStep, now, turnStartedAt, useLiveWallClock) ? (
                     <span className="app-iteration-group-time">{latencyLabel(toolStep, now, turnStartedAt, useLiveWallClock)}</span>
+                  ) : null}
+                  {String(toolStep?.kind || '').toLowerCase() === 'elicitation' ? (
+                    <Button minimal small className="app-iteration-link" onClick={() => openElicitationReview(toolStep)}>Open review</Button>
                   ) : null}
                   <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, toolStep))}>Details</Button>
                 </div>

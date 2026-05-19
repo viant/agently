@@ -47,6 +47,8 @@ export default function ElicitationOverlay({ context }) {
   const mode = pending?.mode || '';
   const conversationId = pending?.conversationId || '';
   const elicitationId = pending?.elicitationId || '';
+  const resolvedStatus = String(pending?.status || '').trim().toLowerCase();
+  const isResolvedHistory = !!resolvedStatus && !['pending', 'open', 'waiting_for_user', 'running'].includes(resolvedStatus);
   const plannerMeta = useMemo(() => extractPlannerElicitationMeta(schema), [schema]);
 
   const isOOB = !!url || mode === 'oob' || mode === 'webonly' || mode === 'url';
@@ -173,7 +175,7 @@ export default function ElicitationOverlay({ context }) {
       isOpen={true}
       canEscapeKeyClose={!submitting}
       canOutsideClickClose={!submitting}
-      onClose={() => resolve('cancel')}
+      onClose={() => (isResolvedHistory ? clearPendingElicitation() : resolve('cancel'))}
       hasBackdrop={false}
       enforceFocus={false}
       autoFocus={false}
@@ -224,6 +226,7 @@ export default function ElicitationOverlay({ context }) {
                             type="checkbox"
                             checked={Boolean(row?.[plannerMeta.selectionField])}
                             onChange={() => togglePlannerRow(rowIndex)}
+                            disabled={isResolvedHistory}
                           />
                           <span>{row?.[plannerMeta.selectionField] ? 'Keep' : 'Drop'}</span>
                         </label>
@@ -257,44 +260,55 @@ export default function ElicitationOverlay({ context }) {
                 const values = payload?.values || payload?.data || payload || {};
                 resolve(submitAction, values);
               }}
-              disabled={submitting}
+              disabled={submitting || isResolvedHistory}
             />
           </div>
+        ) : null}
+        {isResolvedHistory ? (
+          <p style={{ color: '#5f6b7c', marginTop: 8 }}>
+            Historical review state: {resolvedStatus}.
+          </p>
         ) : null}
         {error ? <p style={{ color: '#ef4444', marginTop: 8 }}>{error}</p> : null}
       </div>
       <div className={Classes.DIALOG_FOOTER}>
         <div className={Classes.DIALOG_FOOTER_ACTIONS}>
           {submitting ? <Spinner size={16} /> : null}
-          <Button minimal onClick={() => resolve('decline')} disabled={submitting}>
-            {approvalMeta?.rejectLabel || 'Decline'}
-          </Button>
-          {!isOOB ? (
-            <Button onClick={() => resolve('cancel')} disabled={submitting}>
-              {approvalMeta?.cancelLabel || 'Cancel'}
-            </Button>
-          ) : null}
-          {isOOB ? (
-            <Button
-              intent="primary"
-              disabled={submitting}
-              onClick={() => {
-                if (url) window.open(url, '_blank', 'noopener,noreferrer');
-                resolve('accept', {});
-              }}
-            >
-              Open
-            </Button>
+          {isResolvedHistory ? (
+            <Button onClick={() => clearPendingElicitation()}>Close</Button>
           ) : (
-            <Button intent="primary" disabled={submitting} onClick={() => {
-              // Try to trigger SchemaBasedForm's internal submit first (sends schema-keyed values).
-              // If that fails, collect values ourselves.
-              if (!triggerFormSubmit()) {
-                resolve(submitAction);
-              }
-            }}>
-              {approvalMeta?.acceptLabel || 'Submit'}
-            </Button>
+            <>
+              <Button minimal onClick={() => resolve('decline')} disabled={submitting}>
+                {approvalMeta?.rejectLabel || 'Decline'}
+              </Button>
+              {!isOOB ? (
+                <Button onClick={() => resolve('cancel')} disabled={submitting}>
+                  {approvalMeta?.cancelLabel || 'Cancel'}
+                </Button>
+              ) : null}
+              {isOOB ? (
+                <Button
+                  intent="primary"
+                  disabled={submitting}
+                  onClick={() => {
+                    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                    resolve('accept', {});
+                  }}
+                >
+                  Open
+                </Button>
+              ) : (
+                <Button intent="primary" disabled={submitting} onClick={() => {
+                  // Try to trigger SchemaBasedForm's internal submit first (sends schema-keyed values).
+                  // If that fails, collect values ourselves.
+                  if (!triggerFormSubmit()) {
+                    resolve(submitAction);
+                  }
+                }}>
+                  {approvalMeta?.acceptLabel || 'Submit'}
+                </Button>
+              )}
+            </>
           )}
         </div>
       </div>

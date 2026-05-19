@@ -7,6 +7,7 @@ import { displayStepIcon, displayStepTitle, isAgentRunTool } from '../services/t
 import { resolvePayload } from '../services/payloads';
 import { flattenCanonicalTranscriptSteps, transcriptConversationTurns } from '../services/canonicalTranscript';
 import { client } from '../services/agentlyClient';
+import { openElicitationDialog } from '../services/elicitationBus';
 
 const payloadCache = new Map();
 const MODEL_PRICING_USD_PER_MILLION = {
@@ -121,6 +122,22 @@ function openLinkedConversation(id = '', onClose) {
   if (!conversationID) return;
   openLinkedConversationWindow(conversationID);
   if (typeof onClose === 'function') onClose();
+}
+
+function openElicitationFromDetail(step = {}, onClose) {
+  const conversationId = currentConversationId();
+  const opened = openElicitationDialog({
+    elicitationId: step?.elicitationId,
+    requestedSchema: step?.requestedSchema,
+    message: step?.message || step?.content,
+    callbackURL: step?.callbackURL,
+    conversationId,
+    turnId: step?.turnId,
+    status: step?.status,
+    url: step?.url,
+    mode: step?.mode
+  }, conversationId);
+  if (opened && typeof onClose === 'function') onClose();
 }
 
 function stringifyPayload(payload) {
@@ -387,6 +404,10 @@ export default function DetailPanel({ toolCall, onClose }) {
     || effectiveToolCall?.ErrorMessage
     || ''
   ).trim();
+  const canOpenElicitation = Boolean(
+    String(effectiveToolCall?.elicitationId || '').trim()
+    && effectiveToolCall?.requestedSchema
+  );
   const canOpenLinkedConversation = Boolean(linkedConversationId)
     && (isAgentRunTool(effectiveToolCall || {}) || kind === 'link');
   const payloadCapable = kind === 'tool_call' || kind === 'thinking';
@@ -485,6 +506,12 @@ export default function DetailPanel({ toolCall, onClose }) {
           <div className="app-detail-thread-link">
             <strong>Linked conversation:</strong>
             <Button small className="app-detail-pill app-detail-thread-open" onClick={() => openLinkedConversation(linkedConversationId, onClose)}>Open Thread →</Button>
+          </div>
+        ) : null}
+        {canOpenElicitation ? (
+          <div className="app-detail-thread-link">
+            <strong>Review dialog:</strong>
+            <Button small className="app-detail-pill app-detail-thread-open" onClick={() => openElicitationFromDetail(effectiveToolCall, onClose)}>Open Review →</Button>
           </div>
         ) : null}
       </div>

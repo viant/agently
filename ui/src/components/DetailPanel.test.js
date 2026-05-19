@@ -1,3 +1,5 @@
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../services/agentlyClient', () => ({
@@ -15,6 +17,7 @@ vi.mock('../services/canonicalTranscript', () => ({
 import { estimateTokenUsageCost, formatUsdEstimate, hydrateToolCallFromTranscript } from './DetailPanel';
 import { client } from '../services/agentlyClient';
 import { flattenCanonicalTranscriptSteps, transcriptConversationTurns } from '../services/canonicalTranscript';
+import DetailPanel from './DetailPanel';
 
 describe('DetailPanel pricing helpers', () => {
   beforeEach(() => {
@@ -381,5 +384,26 @@ describe('DetailPanel pricing helpers', () => {
 
     expect(hydrated.requestPayloadId).toBe('req-2');
     expect(hydrated.requestPayload).toEqual({ path: '/tmp/two' });
+  });
+
+  it('renders an Open Review action for elicitation-backed detail rows', () => {
+    const html = renderToStaticMarkup(React.createElement(DetailPanel, {
+      toolCall: {
+        kind: 'elicitation',
+        toolName: 'Needs input',
+        status: 'rejected',
+        elicitationId: 'elic-review-1',
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            rows: { type: 'array' }
+          }
+        },
+        message: 'Review the selected site recommendation changes before patching.'
+      },
+      onClose: () => {}
+    }));
+
+    expect(html).toContain('Open Review');
   });
 });
