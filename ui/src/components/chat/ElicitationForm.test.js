@@ -5,6 +5,7 @@ import {
   buildApprovalEditorState,
   collectElicitationFormValues,
   elicitationDataBindingKey,
+  extractPlannerElicitationMeta,
   extractToolApprovalMeta,
   prepareRequestedSchema,
   resolveElicitationSubmitAction,
@@ -155,5 +156,50 @@ describe('ElicitationForm utilities', () => {
       schema: { properties: { color: { type: 'string' } } },
       trackedValues: { color: 'blue' }
     })).toEqual({ color: 'blue' });
+  });
+
+  it('extracts planner-style elicitation metadata from requested schema', () => {
+    expect(extractPlannerElicitationMeta({
+      type: 'object',
+      properties: {
+        intent: {
+          type: 'string',
+          enum: ['submit_selected', 'preview_selected'],
+          default: 'submit_selected',
+        },
+        rows: {
+          type: 'array',
+          title: 'Selected recommendations',
+          'x-ui-widget': 'planner.table',
+          'x-ui-columns': [
+            { key: 'site_id', label: 'Site ID' },
+            { key: 'recommendation', label: 'Recommendation' },
+          ],
+          default: [
+            { publisher_id: 37, site_id: 3945613211, recommendation: 'ADD', selected: true },
+          ],
+          items: {
+            type: 'object',
+            properties: {
+              publisher_id: { type: 'integer' },
+              site_id: { type: 'integer' },
+              recommendation: { type: 'string' },
+              selected: { type: 'boolean', default: true },
+            },
+          },
+        },
+      },
+    })).toEqual({
+      field: 'rows',
+      title: 'Selected recommendations',
+      selectionField: 'selected',
+      columns: [
+        { key: 'site_id', label: 'Site ID' },
+        { key: 'recommendation', label: 'Recommendation' },
+      ],
+      defaultRows: [
+        { publisher_id: 37, site_id: 3945613211, recommendation: 'ADD', selected: true },
+      ],
+    });
   });
 });

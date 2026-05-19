@@ -720,7 +720,7 @@ export function mapCanonicalExecutionGroups(groups = []) {
       || (groupPhase === 'bootstrap'
         ? 'Bootstrap'
         : (groupPhase === 'sidecar'
-          ? 'Sidecar'
+          ? 'Run Sidecar'
           : (groupPhase === 'summary'
             ? 'Summary'
             : title)));

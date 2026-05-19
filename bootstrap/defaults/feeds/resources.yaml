@@ -1,0 +1,22 @@
+id: resources
+match:
+  service: resources
+  method: read
+
+activation:
+  kind: history
+  scope: all
+
+countSource: reads
+
+dataSource:
+  reads:
+    source: input
+    merge: append
+    root: true
+    exposeAs: output
+    uniqueKey:
+      - field: path
+
+ui:
+  title: Resources

@@ -34,6 +34,57 @@ export function prepareRequestedSchema(requestedSchema = null) {
   }
 }
 
+function humanizeFieldLabel(key = '') {
+  const text = String(key || '').trim();
+  if (!text) return '';
+  return text
+    .replace(/[_\-]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/^./, (c) => c.toUpperCase());
+}
+
+export function extractPlannerElicitationMeta(requestedSchema = null) {
+  if (!requestedSchema || typeof requestedSchema !== 'object') return null;
+  const properties = requestedSchema.properties || {};
+  const rowsField = properties.rows;
+  if (!rowsField || typeof rowsField !== 'object') return null;
+  const widget = String(rowsField['x-ui-widget'] || rowsField.widget || '').trim().toLowerCase();
+  if (!['planner.table', 'planner-table', 'planner'].includes(widget)) {
+    return null;
+  }
+  const items = rowsField.items && typeof rowsField.items === 'object' ? rowsField.items : null;
+  const itemProps = items?.properties && typeof items.properties === 'object' ? items.properties : {};
+  const selectionField = String(rowsField['x-ui-selection-field'] || rowsField.selectionField || (itemProps.selected ? 'selected' : 'selected')).trim() || 'selected';
+  const explicitColumns = Array.isArray(rowsField['x-ui-columns']) ? rowsField['x-ui-columns'] : [];
+  const columns = explicitColumns.length > 0
+    ? explicitColumns
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') return null;
+          const key = String(entry.key || '').trim();
+          if (!key || key === selectionField) return null;
+          return {
+            key,
+            label: String(entry.label || key).trim() || humanizeFieldLabel(key),
+          };
+        })
+        .filter(Boolean)
+    : Object.keys(itemProps)
+        .filter((key) => key !== selectionField && !String(key || '').startsWith('_'))
+        .map((key) => ({
+          key,
+          label: String(itemProps[key]?.title || '').trim() || humanizeFieldLabel(key),
+        }));
+  return {
+    field: 'rows',
+    title: String(rowsField.title || rowsField.label || 'Rows').trim() || 'Rows',
+    selectionField,
+    columns,
+    defaultRows: Array.isArray(rowsField.default)
+      ? JSON.parse(JSON.stringify(rowsField.default))
+      : [],
+  };
+}
+
 function readSchemaConst(properties = {}, key = '') {
   const field = properties?.[key];
   if (!field || typeof field !== 'object') return '';

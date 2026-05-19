@@ -148,13 +148,19 @@ function summarizeLifecycleTransition(lifecycle = null, mode = 'success', reason
 
 function buildPlannerLLMSubmit(detail = {}) {
   const plannerSubmit = detail?.plannerSubmit && typeof detail.plannerSubmit === 'object' ? detail.plannerSubmit : null;
+  const guidedTool = String(plannerSubmit?.toolGuidance?.tool || '').trim();
+  const guidedToolBundle = String(plannerSubmit?.toolGuidance?.toolBundle || '').trim();
   return {
-    content: 'Handle the planner submit event using the structured plannerSubmitEvent context.',
+    content: 'Execute the planner submit event using the structured plannerSubmitEvent context. If plannerSubmitEvent.plannerSubmit.toolGuidance.tool is present, attempt that guided tool or its review flow before answering. Do not summarize selected rows in prose unless execution is blocked after attempting the guided path.',
     displayQuery: String(detail?.callbackContext?.displayQuery || detail?.context?.displayQuery || 'Submitted planner changes.').trim(),
+    tools: guidedTool ? [guidedTool] : undefined,
+    toolBundles: guidedToolBundle ? [guidedToolBundle] : undefined,
     context: {
       plannerSubmitEvent: {
         eventName: String(detail?.eventName || detail?.callback?.eventName || '').trim(),
         tableId: String(detail?.tableId || '').trim() || undefined,
+        selectionField: String(detail?.selectionField || '').trim() || undefined,
+        columns: Array.isArray(detail?.columns) ? detail.columns : undefined,
         plannerSubmit: plannerSubmit || undefined,
         selectedRows: Array.isArray(detail?.selectedRows) ? detail.selectedRows : [],
       },

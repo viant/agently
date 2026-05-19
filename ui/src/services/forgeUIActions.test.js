@@ -159,6 +159,11 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
       dispatchForgeUIAction({
         eventName: 'site_list_planner_submit',
         tableId: 'site-review',
+        selectionField: 'selected',
+        columns: [
+          { key: 'site_id', label: 'Site ID' },
+          { key: 'recommendation', label: 'Recommendation' },
+        ],
         selectedRows: [{ publisher_id: 37, site_id: 3945613211, audience_id: 7301206, relationship: 'target', recommendation: 'ADD' }],
         plannerSubmit: {
           domain: 'site_list',
@@ -166,6 +171,7 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
           selectedKeys: ['publisher_id', 'site_id', 'audience_id', 'relationship', 'recommendation'],
           toolGuidance: {
             tool: 'steward-RecommendationPatch',
+            toolBundle: 'analyst-sitelist-tools',
             useSelectedRowsOnly: true,
           },
         },
@@ -183,18 +189,26 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
       const call = submitMessage.mock.calls[0][0];
       expect(call.context).toBe(context);
       expect(call.message).toEqual({
-        content: 'Handle the planner submit event using the structured plannerSubmitEvent context.',
+        content: 'Execute the planner submit event using the structured plannerSubmitEvent context. If plannerSubmitEvent.plannerSubmit.toolGuidance.tool is present, attempt that guided tool or its review flow before answering. Do not summarize selected rows in prose unless execution is blocked after attempting the guided path.',
         displayQuery: 'Submit selected site recommendations.',
+        tools: ['steward-RecommendationPatch'],
+        toolBundles: ['analyst-sitelist-tools'],
         context: {
           plannerSubmitEvent: {
             eventName: 'site_list_planner_submit',
             tableId: 'site-review',
+            selectionField: 'selected',
+            columns: [
+              { key: 'site_id', label: 'Site ID' },
+              { key: 'recommendation', label: 'Recommendation' },
+            ],
             plannerSubmit: {
               domain: 'site_list',
               submitIntent: 'submit_selected',
               selectedKeys: ['publisher_id', 'site_id', 'audience_id', 'relationship', 'recommendation'],
               toolGuidance: {
                 tool: 'steward-RecommendationPatch',
+                toolBundle: 'analyst-sitelist-tools',
                 useSelectedRowsOnly: true,
               },
             },
