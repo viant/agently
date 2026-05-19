@@ -216,6 +216,20 @@ export function createPlannerTableSubmitPayload(ui, block, currentRows = [], ori
   };
 }
 
+export function createPlannerTableActionPayload(ui, block, action, currentRows = [], originalRows = []) {
+  const base = createPlannerTableSubmitPayload(ui, block, currentRows, originalRows);
+  const callback = action?.callback || null;
+  const eventName = String(callback?.eventName || action?.id || base.eventName || 'planner_table_submit').trim();
+  return {
+    ...base,
+    eventName,
+    callback,
+    actionId: String(action?.id || '').trim(),
+    actionKind: String(action?.kind || '').trim(),
+    actionLabel: String(action?.label || '').trim(),
+  };
+}
+
 export const forgeFenceSample = {
   ui: {
     version: 1,

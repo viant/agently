@@ -23,8 +23,10 @@ import (
 	appserver "github.com/viant/agently-core/app/server"
 	mcpexpose "github.com/viant/agently-core/protocol/mcp/expose"
 	"github.com/viant/agently-core/protocol/tool"
+	uicontext "github.com/viant/agently-core/protocol/tool/service/ui/context"
 	uicontrol "github.com/viant/agently-core/protocol/tool/service/ui/control"
 	uidatasource "github.com/viant/agently-core/protocol/tool/service/ui/datasource"
+	uievents "github.com/viant/agently-core/protocol/tool/service/ui/events"
 	uiview "github.com/viant/agently-core/protocol/tool/service/ui/view"
 	uiwindow "github.com/viant/agently-core/protocol/tool/service/ui/window"
 	agentsvc "github.com/viant/agently-core/service/agent"
@@ -158,6 +160,15 @@ func Serve(options ServeOptions) error {
 		if err := tool.AddInternalService(rt.Registry, uidatasource.New(uiBridge)); err != nil {
 			log.Printf("agently-app: failed to register internal UI datasource service: %v", err)
 		}
+		if err := tool.AddInternalService(rt.Registry, uicontext.New(uiBridge)); err != nil {
+			log.Printf("agently-app: failed to register internal UI context service: %v", err)
+		}
+		if err := tool.AddInternalService(rt.Registry, uievents.New(uiBridge)); err != nil {
+			log.Printf("agently-app: failed to register internal UI events service: %v", err)
+		}
+	}
+	if rt.Agent != nil {
+		rt.Agent.SetUIBridge(uiBridge)
 	}
 	agentWatchdog := agentsvc.NewWatchdog(rt.Data, rt.Agent, agentsvc.WithWatchdogTokenProvider(rt.TokenProvider))
 	go agentWatchdog.Start(ctx)

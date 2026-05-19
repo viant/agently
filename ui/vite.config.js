@@ -5,7 +5,6 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
 const NET_LOG = '/tmp/browser-network.log';
-const LOCAL_APP_TARGET = 'http://localhost:8383';
 const LOCAL_DEV_HOST = 'localhost';
 const LOCAL_DEV_PORT = 5173;
 
@@ -38,13 +37,13 @@ const pickEnv = (env, keys) => {
   return out;
 };
 
-export const resolveProxyTarget = (env) => {
+export const resolveProxyTarget = (env, options = {}) => {
+  const requireExplicit = options?.requireExplicit === true;
   const candidates = [
     env.APPSERVER_URL,
     env.DATA_URL,
     env.AUTH_URL,
-    env.APP_URL,
-    LOCAL_APP_TARGET
+    env.APP_URL
   ];
   for (const candidate of candidates) {
     const value = String(candidate || '').trim();
@@ -53,14 +52,23 @@ export const resolveProxyTarget = (env) => {
       return value.replace(/\/+$/, '');
     }
   }
-  return LOCAL_APP_TARGET;
+  if (requireExplicit) {
+    throw new Error(
+      'Missing backend proxy target for Vite dev server. ' +
+      'Set APPSERVER_URL (recommended) or DATA_URL/AUTH_URL/APP_URL to the live Agently backend, ' +
+      'for example APPSERVER_URL=http://127.0.0.1:9191 npm run dev -- --host 127.0.0.1 --port 5173'
+    );
+  }
+  return '';
 };
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const safeEnv = pickEnv(env, ['AUTH_URL', 'DATA_URL', 'APP_URL', 'APPSERVER_URL', 'VITE_FORGE_LOG_LEVEL']);
   const prodEnv = { AUTH_URL: '/', DATA_URL: '/', APPSERVER_URL: '/', ...safeEnv };
-  const proxyTarget = resolveProxyTarget(env);
+  const proxyTarget = command === 'serve'
+    ? resolveProxyTarget(env, { requireExplicit: true })
+    : resolveProxyTarget(env);
   const devHost = String(env.VITE_HOST || LOCAL_DEV_HOST).trim() || LOCAL_DEV_HOST;
   const devPort = Number(env.VITE_PORT || env.PORT || LOCAL_DEV_PORT) || LOCAL_DEV_PORT;
   const uiRoot = __dirname;

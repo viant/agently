@@ -16,8 +16,11 @@ const {
   disconnectStreamMock,
   logExecutorDebugMock,
   publishActiveConversationMock,
+  publishConversationMetaUpdatedMock,
+  fetchPendingElicitationsMock,
   hasPendingConversationBootstrapMock,
   startPollingMock,
+  connectForgeUIActionsToCallbacksOrChatMock,
 } = vi.hoisted(() => ({
   setStageMock: vi.fn(),
   bindConversationWindowEventsMock: vi.fn(),
@@ -34,8 +37,11 @@ const {
   disconnectStreamMock: vi.fn(),
   logExecutorDebugMock: vi.fn(),
   publishActiveConversationMock: vi.fn(),
+  publishConversationMetaUpdatedMock: vi.fn(),
+  fetchPendingElicitationsMock: vi.fn(),
   hasPendingConversationBootstrapMock: vi.fn(() => false),
   startPollingMock: vi.fn(),
+  connectForgeUIActionsToCallbacksOrChatMock: vi.fn(() => () => {}),
 }));
 
 vi.mock('./stageBus', () => ({
@@ -53,7 +59,7 @@ vi.mock('./chatRuntime', () => ({
   ensureContextResources: ensureContextResourcesMock,
   ensureConversation: vi.fn(),
   fetchConversation: fetchConversationMock,
-  fetchPendingElicitations: vi.fn(),
+  fetchPendingElicitations: fetchPendingElicitationsMock,
   getSettledConversationBootstrapSnapshot: getSettledConversationBootstrapSnapshotMock,
   getVisibleIterations: vi.fn(),
   hasPendingConversationBootstrap: hasPendingConversationBootstrapMock,
@@ -65,6 +71,7 @@ vi.mock('./chatRuntime', () => ({
   mapTranscriptToRows: vi.fn(),
   normalizeMetaResponse: vi.fn(),
   publishActiveConversation: publishActiveConversationMock,
+  publishConversationMetaUpdated: publishConversationMetaUpdatedMock,
   renderMergedRowsForContext: renderMergedRowsForContextMock,
   rememberSeedTitle: vi.fn(),
   resolveUserID: vi.fn(),
@@ -82,6 +89,10 @@ vi.mock('./agentlyClient', () => ({
 
 vi.mock('./httpClient', () => ({
   showToast: vi.fn(),
+}));
+
+vi.mock('./forgeUIActions', () => ({
+  connectForgeUIActionsToCallbacksOrChat: connectForgeUIActionsToCallbacksOrChatMock,
 }));
 
 vi.mock('./toolFeedBus', () => ({
@@ -106,6 +117,7 @@ describe('onInit', () => {
     getSettledConversationBootstrapSnapshotMock.mockReturnValue(null);
     hasPendingConversationBootstrapMock.mockReturnValue(false);
     fetchConversationMock.mockImplementation(() => new Promise(() => {}));
+    fetchPendingElicitationsMock.mockResolvedValue([]);
     dsTickMock.mockResolvedValue({ hasRunning: false });
   });
 
@@ -131,6 +143,7 @@ describe('onInit', () => {
     await Promise.resolve();
     await Promise.resolve();
 
+    expect(connectForgeUIActionsToCallbacksOrChatMock).toHaveBeenCalledTimes(1);
     expect(setStageMock).toHaveBeenNthCalledWith(1, { phase: 'waiting', text: 'Initializing…' });
     expect(setStageMock).toHaveBeenCalledWith({ phase: 'ready', text: 'Ready' });
     expect(renderMergedRowsForContextMock).toHaveBeenCalled();
@@ -171,5 +184,42 @@ describe('onInit', () => {
     expect(fetchConversationMock).not.toHaveBeenCalled();
     expect(dsTickMock).not.toHaveBeenCalled();
     expect(publishActiveConversationMock).toHaveBeenCalledWith('conv-1', context);
+  });
+
+  it('publishes terminal conversation meta when init fetches a settled conversation', async () => {
+    const convForm = { id: 'conv-1', title: 'Old title', stage: 'executing', status: 'running', running: true };
+    const conversationsDS = {
+      peekFormData: () => convForm,
+      setFormData: vi.fn(({ values }) => Object.assign(convForm, values)),
+    };
+    const messagesDS = {
+      setCollection: vi.fn(),
+      setError: vi.fn(),
+    };
+    const context = {
+      Context(name) {
+        if (name === 'conversations') return { handlers: { dataSource: conversationsDS } };
+        if (name === 'messages') return { handlers: { dataSource: messagesDS } };
+        if (name === 'meta') return { handlers: { dataSource: { peekFormData: () => ({ defaults: {} }) } } };
+        return null;
+      },
+    };
+
+    fetchConversationMock.mockResolvedValue({
+      id: 'conv-1',
+      title: 'Creative rendering test request',
+      stage: 'done',
+      status: 'succeeded',
+    });
+    dsTickMock.mockResolvedValue({ conversationID: 'conv-1', hasRunning: false });
+
+    await onInit({ context });
+
+    expect(publishConversationMetaUpdatedMock).toHaveBeenCalledWith('conv-1', {
+      title: 'Creative rendering test request',
+      stage: 'done',
+      status: 'succeeded',
+      running: false,
+    });
   });
 });

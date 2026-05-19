@@ -12,12 +12,33 @@ import { showToast, redirectToLogin } from './httpClient';
 
 let authRecoveryInFlight = null;
 let oauthConfigInFlight = null;
+let authMeInFlight = null;
+let authMeCacheReady = false;
+let authMeCacheValue = null;
+const workspaceMetadataInFlight = new Map();
+const workspaceMetadataCache = new Map();
+
+function workspaceMetadataCacheKey(targetContext = null) {
+  const platform = String(targetContext?.platform || '').trim();
+  const formFactor = String(targetContext?.formFactor || '').trim();
+  const surface = String(targetContext?.surface || '').trim();
+  const capabilities = Array.isArray(targetContext?.capabilities)
+    ? targetContext.capabilities.map((entry) => String(entry || '').trim()).filter(Boolean).sort()
+    : [];
+  return JSON.stringify({ platform, formFactor, surface, capabilities });
+}
 
 function dispatchAuthRecovered() {
   if (typeof window === 'undefined') return;
   try {
     window.dispatchEvent(new CustomEvent('agently:authorized'));
   } catch (_) {}
+}
+
+function clearAuthMeCache() {
+  authMeInFlight = null;
+  authMeCacheReady = false;
+  authMeCacheValue = null;
 }
 
 async function probeAuthMe() {
@@ -34,22 +55,41 @@ async function probeAuthMe() {
 }
 
 export async function getAuthMeSilently() {
-  const response = await fetch(`${sdkBaseURL}/api/auth/me`, {
-    method: 'GET',
-    credentials: 'include',
-    headers: {
-      Accept: 'application/json'
+  if (authMeCacheReady) {
+    return authMeCacheValue;
+  }
+  if (authMeInFlight) {
+    return authMeInFlight;
+  }
+  authMeInFlight = (async () => {
+    const response = await fetch(`${sdkBaseURL}/api/auth/me`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json'
+      }
+    });
+    if (response.status === 200) {
+      try {
+        authMeCacheValue = await response.json();
+      } catch (_) {
+        authMeCacheValue = null;
+      }
+      authMeCacheReady = true;
+      return authMeCacheValue;
     }
-  });
-  if (response.status === 200) {
-    try {
-      return await response.json();
-    } catch (_) {
+    if (response.status === 401 || response.status === 403) {
+      authMeCacheValue = null;
+      authMeCacheReady = true;
       return null;
     }
-  }
-  if (response.status === 401 || response.status === 403) return null;
-  return null;
+    authMeCacheValue = null;
+    authMeCacheReady = true;
+    return null;
+  })().finally(() => {
+    authMeInFlight = null;
+  });
+  return authMeInFlight;
 }
 
 export async function recoverSessionSilently() {
@@ -57,11 +97,13 @@ export async function recoverSessionSilently() {
   authRecoveryInFlight = (async () => {
     try {
       if (await probeAuthMe()) {
+        clearAuthMeCache();
         dispatchAuthRecovered();
         return true;
       }
       await new Promise((resolve) => setTimeout(resolve, 250));
       if (await probeAuthMe()) {
+        clearAuthMeCache();
         dispatchAuthRecovered();
         return true;
       }
@@ -87,6 +129,7 @@ async function getOAuthConfigCached() {
 
 export async function beginLogin() {
   if (typeof window === 'undefined') return false;
+  clearAuthMeCache();
   const oauthConfig = await getOAuthConfigCached();
   if (oauthConfig?.usePopupLogin === true) {
     return client.loginWithPopup({
@@ -106,6 +149,7 @@ export const client = new AgentlyClient({
   retryStatuses: [408, 425, 429, 500, 502, 503, 504],
   timeoutMs: 0, // No timeout — agent queries can take minutes (tool elicitations, long chains)
   onUnauthorized: async () => {
+    clearAuthMeCache();
     const recovered = await recoverSessionSilently();
     if (!recovered) {
       redirectToLogin();
@@ -124,3 +168,24 @@ export const client = new AgentlyClient({
     );
   },
 });
+
+const rawGetWorkspaceMetadata = client.getWorkspaceMetadata.bind(client);
+client.getWorkspaceMetadata = async function getWorkspaceMetadataCached(targetContext) {
+  const key = workspaceMetadataCacheKey(targetContext);
+  if (workspaceMetadataCache.has(key)) {
+    return workspaceMetadataCache.get(key);
+  }
+  if (workspaceMetadataInFlight.has(key)) {
+    return workspaceMetadataInFlight.get(key);
+  }
+  const request = rawGetWorkspaceMetadata(targetContext)
+    .then((payload) => {
+      workspaceMetadataCache.set(key, payload);
+      return payload;
+    })
+    .finally(() => {
+      workspaceMetadataInFlight.delete(key);
+    });
+  workspaceMetadataInFlight.set(key, request);
+  return request;
+};

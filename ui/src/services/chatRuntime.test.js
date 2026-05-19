@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { activeWindows } from 'forge/core';
 
-import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, handleStreamEvent, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
+import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, handleStreamEvent, hydrateMeta, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
 import { client } from './agentlyClient';
 import { applyFeedEvent, clearFeedState, getFeedData } from './toolFeedBus';
 
@@ -31,6 +31,59 @@ function createStorage() {
     }
   };
 }
+
+describe('publishActiveConversation', () => {
+  it('does not overwrite a different explicit route with stale async conversation completion', () => {
+    const replaceState = vi.fn();
+    global.window = {
+      location: { pathname: '/conversation/conv-route', port: '5176', hostname: '127.0.0.1' },
+      history: { state: null, replaceState },
+      localStorage: createStorage(),
+      sessionStorage: createStorage(),
+      dispatchEvent: () => {}
+    };
+    global.CustomEvent = class CustomEvent extends Event {
+      constructor(type, init = {}) {
+        super(type);
+        this.detail = init.detail;
+      }
+    };
+
+    publishActiveConversation('conv-stale', { identity: { windowId: 'chat/new' } });
+
+    expect(replaceState).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe('/conversation/conv-route');
+  });
+});
+
+describe('hydrateMeta', () => {
+  it('lets the meta datasource own metadata loading without forcing a second bootstrap fetch', async () => {
+    const fetchCollection = vi.fn();
+    const metaDS = {
+      peekFormData: () => ({ agentOptions: [], modelOptions: [] }),
+      fetchCollection,
+    };
+    const context = {
+      Context(name) {
+        if (name === 'meta') {
+          return {
+            handlers: { dataSource: metaDS },
+            signals: {
+              control: { value: { loading: false } },
+              input: { value: { fetch: false } },
+            },
+          };
+        }
+        return null;
+      },
+    };
+
+    await hydrateMeta(context);
+
+    expect(fetchCollection).not.toHaveBeenCalled();
+    expect(client.getWorkspaceMetadata).not.toHaveBeenCalled();
+  });
+});
 
 describe('normalizeMetaResponse', () => {
   it('uses backend capabilities to decide auto-select options', () => {
@@ -1108,6 +1161,82 @@ describe('handleStreamEvent', () => {
     expect(received[0]).toEqual({
       id: 'conv-1',
       patch: { title: 'Campaign 4821 Underpacing', summary: 'underpacing' }
+    });
+  });
+
+  it('publishes normalized conversation meta updates from terminal SSE events', () => {
+    const chatState = { liveRows: [], lastHasRunning: true, streamTracker: { applyEvent: vi.fn(), reset: vi.fn() } };
+    const received = [];
+    const eventTarget = new EventTarget();
+    const mockWindow = {
+      addEventListener: eventTarget.addEventListener.bind(eventTarget),
+      removeEventListener: eventTarget.removeEventListener.bind(eventTarget),
+      dispatchEvent: eventTarget.dispatchEvent.bind(eventTarget),
+      CustomEvent: class extends Event {
+        constructor(name, init = {}) {
+          super(name);
+          this.detail = init.detail;
+        }
+      }
+    };
+    const originalWindow = globalThis.window;
+    const originalCustomEvent = globalThis.CustomEvent;
+    globalThis.window = mockWindow;
+    globalThis.CustomEvent = mockWindow.CustomEvent;
+    const handler = (event) => received.push(event?.detail || {});
+    mockWindow.addEventListener('agently:conversation-meta-updated', handler);
+    try {
+      const conversationState = { values: { id: 'conv-1', running: true, stage: 'executing', status: 'running' } };
+      const setFormData = vi.fn((next) => {
+        conversationState.values = next.values;
+      });
+      const context = {
+        identity: { windowId: 'chat/main' },
+        Context(name) {
+          if (name === 'conversations') {
+            return {
+              handlers: {
+                dataSource: {
+                  peekFormData: () => conversationState.values,
+                  setFormData
+                }
+              }
+            };
+          }
+          if (name === 'messages') {
+            return {
+              handlers: {
+                dataSource: {
+                  setCollection: vi.fn(),
+                  setError: vi.fn()
+                }
+              }
+            };
+          }
+          return null;
+        }
+      };
+
+      handleStreamEvent(chatState, context, 'conv-1', {
+        type: 'turn_completed',
+        conversationId: 'conv-1',
+        turnId: 'turn-1',
+        status: 'succeeded'
+      });
+    } finally {
+      mockWindow.removeEventListener('agently:conversation-meta-updated', handler);
+      globalThis.window = originalWindow;
+      globalThis.CustomEvent = originalCustomEvent;
+    }
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toEqual({
+      id: 'conv-1',
+      patch: {
+        running: false,
+        stage: 'done',
+        status: 'succeeded'
+      }
     });
   });
 
@@ -3159,6 +3288,93 @@ describe('bootstrapConversationSelection', () => {
     });
 
     expect(conversationState.values.id).toBe('conv-from-run');
+  });
+
+  it('prefers the route conversation for the main chat window over stale window parameters', () => {
+    const conversationState = { values: {} };
+    activeWindows.value = [{
+      windowId: 'chat/new',
+      windowKey: 'chat/new',
+      parameters: {
+        conversations: {
+          form: {
+            id: 'conv-stale-window'
+          }
+        },
+        messages: {
+          input: {
+            parameters: {
+              convID: 'conv-stale-window'
+            }
+          }
+        }
+      }
+    }];
+    global.window = {
+      location: { pathname: '/conversation/conv-from-route' },
+      localStorage: createStorage(),
+      sessionStorage: createStorage()
+    };
+    global.window.sessionStorage.setItem('agently.selectedConversationId', 'conv-stale-storage');
+
+    bootstrapConversationSelection({
+      identity: { windowId: 'chat/new' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => conversationState.values,
+                setFormData: ({ values }) => { conversationState.values = values; }
+              }
+            }
+          };
+        }
+        return null;
+      }
+    });
+
+    expect(conversationState.values.id).toBe('conv-from-route');
+  });
+});
+
+describe('fetchConversation', () => {
+  it('does not restore workspace windows from conversation metadata before transcript hydration', async () => {
+    const originalWindow = global.window;
+    activeWindows.value = [];
+    global.window = {
+      sessionStorage: createStorage(),
+      localStorage: createStorage(),
+      location: { pathname: '/conversation/conv-meta' }
+    };
+    client.getConversation.mockResolvedValueOnce({
+      id: 'conv-meta',
+      metadata: {
+        workspaceState: {
+          selectedWindowId: 'order_2609393__conv-meta',
+          windows: [{
+            windowId: 'order_2609393__conv-meta',
+            windowKey: 'order',
+            windowTitle: 'Order Summary',
+            presentation: 'hosted',
+            region: 'chat.top',
+            parentKey: 'chat/new',
+            inTab: true,
+            parameters: { AdOrderId: [2609393] }
+          }]
+        }
+      }
+    });
+
+    try {
+      const got = await fetchConversation('conv-meta');
+
+      expect(got?.id).toBe('conv-meta');
+      expect(global.window.sessionStorage.getItem('agently.workspaceState:conv-meta')).toBeNull();
+      expect(activeWindows.value).toEqual([]);
+    } finally {
+      global.window = originalWindow;
+    }
   });
 });
 

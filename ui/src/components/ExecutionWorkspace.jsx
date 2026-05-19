@@ -10,6 +10,7 @@ import {
   plannedExecutionToolCalls,
 } from 'agently-core-ui-sdk';
 import { DetailContext } from '../context/DetailContext';
+import RichContent from './chat/RichContent';
 import { client } from '../services/agentlyClient';
 import { setStage } from '../services/stageBus';
 import { publishActiveConversation } from '../services/chatRuntime';
@@ -827,7 +828,11 @@ export default function ExecutionWorkspace() {
                   </div>
                 );})}
                 {group.narration ? <div className="app-execution-response narration">{group.narration}</div> : null}
-                {group.content ? <div className="app-execution-response final">{group.content}</div> : null}
+                {group.content ? (
+                  <div className="app-execution-response final">
+                    <RichContent content={group.content} />
+                  </div>
+                ) : null}
                     </>
                   );
                 })()}

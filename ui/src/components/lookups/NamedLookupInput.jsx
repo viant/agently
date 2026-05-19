@@ -358,6 +358,11 @@ function tokenLabel(tokenText = '', fallback = '') {
 }
 
 function unwrapSelection(record) {
+  if (Array.isArray(record)) {
+    if (record.length === 0) return null;
+    const first = record[0];
+    return first?.selected || first;
+  }
   if (!record || typeof record !== 'object') return record;
   if (record.selected) return record.selected;
   if (Array.isArray(record.selection) && record.selection.length > 0) {

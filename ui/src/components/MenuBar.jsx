@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Dialog, Switch } from '@blueprintjs/core';
-import { addWindow, activeWindows, getWindowContext, selectedTabId, selectedWindowId } from 'forge/core';
+import { addWindow, activeWindows, getWindowContext, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
 import { client, getAuthMeSilently } from '../services/agentlyClient';
 import { MAIN_CHAT_WINDOW_ID, resolveConversationSelection } from '../services/conversationWindow';
+import { getWorkspaceMetadataSnapshot, resolveWorkspaceAppName, subscribeWorkspaceMetadata } from '../services/workspaceMetadata';
 import logo from '../viant-logo.png';
 
 export function resolveStartupAuthAction(providers) {
@@ -36,14 +37,27 @@ export function refreshWindowDataSources(windowId, dataSourceRefs = []) {
 export function openWindow(windowKey, windowTitle, refreshDataSources = [], options = {}) {
   const windows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
   const replaceTabbedWindows = options?.replaceTabbedWindows === true;
+  const replaceMainChatTree = options?.replaceMainChatTree === true;
   const desiredConversationId = String(options?.conversationId || '').trim() || null;
   const desiredParentKey = options?.parentKey ?? null;
   const desiredPresentation = String(options?.presentation || '').trim() || null;
   const desiredRegion = String(options?.region || '').trim() || null;
   let existing = windows.find((entry) => entry?.windowKey === windowKey);
+  if (replaceMainChatTree) {
+    const subtreeIds = windows
+      .filter((entry) => {
+        const windowId = String(entry?.windowId || '').trim();
+        const parentKey = String(entry?.parentKey || '').trim();
+        return windowId === MAIN_CHAT_WINDOW_ID || parentKey === MAIN_CHAT_WINDOW_ID;
+      })
+      .map((entry) => String(entry?.windowId || '').trim())
+      .filter(Boolean);
+    subtreeIds.forEach((windowId) => removeWindow(windowId));
+  }
   if (replaceTabbedWindows) {
     const keepWindowId = String(existing?.windowId || '').trim();
-    activeWindows.value = windows.filter((entry) => {
+    const currentWindows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
+    activeWindows.value = currentWindows.filter((entry) => {
       if (entry?.inTab === false) return true;
       const windowId = String(entry?.windowId || '').trim();
       if (keepWindowId && windowId === keepWindowId) return true;
@@ -142,7 +156,7 @@ export default function MenuBar({
     decide
   } = approvals || {};
   const [user, setUser] = useState(null);
-  const [appName, setAppName] = useState('Agently');
+  const [appName, setAppName] = useState(() => resolveWorkspaceAppName(getWorkspaceMetadataSnapshot(), 'Agently'));
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [approvalPage, setApprovalPage] = useState(0);
@@ -153,11 +167,6 @@ export default function MenuBar({
       try {
         const me = await getAuthMeSilently();
         if (mounted) setUser(me || null);
-        try {
-          const workspace = await client.getWorkspaceMetadata();
-          const nextAppName = String(workspace?.appName || workspace?.defaults?.appName || '').trim();
-          if (mounted && nextAppName) setAppName(nextAppName);
-        } catch (_) {}
         if (me) return;
         const providers = await client.getAuthProviders();
         const action = resolveStartupAuthAction(providers);
@@ -171,12 +180,17 @@ export default function MenuBar({
       } catch (_) {}
     };
     const onAuthorized = () => { void loadUser(); };
+    const unsubscribeWorkspaceMetadata = subscribeWorkspaceMetadata((payload) => {
+      if (!mounted) return;
+      setAppName(resolveWorkspaceAppName(payload, 'Agently'));
+    });
     void loadUser();
     if (typeof window !== 'undefined') {
       window.addEventListener('agently:authorized', onAuthorized);
     }
     return () => {
       mounted = false;
+      unsubscribeWorkspaceMetadata();
       if (typeof window !== 'undefined') {
         window.removeEventListener('agently:authorized', onAuthorized);
       }
@@ -248,10 +262,7 @@ export default function MenuBar({
             data-testid="automation-nav"
             onClick={() => openWindow('schedule', 'Automation', ['schedules'], {
               replaceTabbedWindows: true,
-              conversationId: currentConversationId || undefined,
-              parentKey: 'chat/new',
-              presentation: 'hosted',
-              region: 'chat.bottom',
+              replaceMainChatTree: true,
             })}
           />
           <Button
@@ -262,10 +273,7 @@ export default function MenuBar({
             data-testid="runs-nav"
             onClick={() => openWindow('schedule/history', 'Runs', ['runs'], {
               replaceTabbedWindows: true,
-              conversationId: currentConversationId || undefined,
-              parentKey: 'chat/new',
-              presentation: 'hosted',
-              region: 'chat.bottom',
+              replaceMainChatTree: true,
             })}
           />
           <Button

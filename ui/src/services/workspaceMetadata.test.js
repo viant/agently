@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  getWorkspaceMetadataSnapshot,
   normalizeWorkspaceAgentInfos,
   normalizeWorkspaceAgentOptions,
   normalizeWorkspaceModelInfos,
-  normalizeWorkspaceModelOptions
+  normalizeWorkspaceModelOptions,
+  publishWorkspaceMetadataSnapshot,
+  resolveWorkspaceAppName,
+  subscribeWorkspaceMetadata,
 } from './workspaceMetadata'
 
 describe('workspaceMetadata', () => {
@@ -50,5 +54,27 @@ describe('workspaceMetadata', () => {
     ], '')).toEqual([
       { value: 'public-agent', label: 'Public Agent', modelRef: '', default: false, id: 'public-agent', name: 'Public Agent' }
     ])
+  })
+
+  it('publishes and subscribes workspace metadata snapshots', () => {
+    const seen = []
+    const unsubscribe = subscribeWorkspaceMetadata((payload) => {
+      seen.push(payload)
+    })
+
+    publishWorkspaceMetadataSnapshot({ appName: 'Steward' })
+
+    expect(getWorkspaceMetadataSnapshot()).toEqual({ appName: 'Steward' })
+    expect(seen).toEqual([{ appName: 'Steward' }])
+
+    unsubscribe()
+    publishWorkspaceMetadataSnapshot({ appName: 'Agently' })
+    expect(seen).toEqual([{ appName: 'Steward' }])
+  })
+
+  it('resolves workspace app name from normalized metadata', () => {
+    expect(resolveWorkspaceAppName({ appName: 'Steward' }, 'Agently')).toBe('Steward')
+    expect(resolveWorkspaceAppName({ defaults: { appName: 'Workspace' } }, 'Agently')).toBe('Workspace')
+    expect(resolveWorkspaceAppName({}, 'Agently')).toBe('Agently')
   })
 })

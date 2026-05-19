@@ -70,14 +70,22 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
       const dispatchCallback = vi.fn(async () => ({ ok: true, tool: 'steward-SaveRecommendation' }));
       const context = {
         conversationId: 'conv-42',
-        agencyId: 5337,
-        adOrderId: 987654,
       };
       const disconnect = connectForgeUIActionsToCallbacksOrChat(submitMessage, () => context, dispatchCallback);
 
       dispatchForgeUIAction({
         eventName: 'spo_planner_submit',
         selectedRows: [{ site_id: 101, action: 'CUT' }],
+        callbackContext: {
+          agencyId: 5337,
+          adOrderId: 987654,
+          stageLifecycle: {
+            currentStage: 'validate',
+            validationStage: 'validate',
+            successStage: 'execute',
+            followUpStage: 'follow_up',
+          },
+        },
         callback: { type: 'custom_callback', eventName: 'spo_planner_submit', target: 'foreground' },
       });
 
@@ -90,12 +98,23 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
       expect(input.eventName).toBe('spo_planner_submit');
       expect(input.conversationId).toBe('conv-42');
       expect(input.payload.selectedRows).toEqual([{ site_id: 101, action: 'CUT' }]);
-      expect(input.context).toEqual({ agencyId: 5337, adOrderId: 987654 });
+      expect(input.context).toEqual({
+        agencyId: 5337,
+        adOrderId: 987654,
+        stageLifecycle: {
+          currentStage: 'validate',
+          validationStage: 'validate',
+          successStage: 'execute',
+          followUpStage: 'follow_up',
+        },
+      });
 
       expect(submitMessage).toHaveBeenCalledTimes(1);
       const msg = String(submitMessage.mock.calls[0][0].message || '');
       expect(msg).toContain('Forge UI callback dispatched: spo_planner_submit');
       expect(msg).toContain('steward-SaveRecommendation');
+      expect(msg).toContain('Recommendation lifecycle advanced: Validate -> Execute.');
+      expect(msg).toContain('Next stage: Follow Up.');
 
       disconnect();
     });
@@ -148,6 +167,104 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
 
       expect(submitMessage).toHaveBeenCalledTimes(1);
       expect(console.error).toHaveBeenCalled();
+
+      disconnect();
+    });
+  });
+
+  it('posts a blocked confirmation instead of falling back to legacy chat summary', async () => {
+    await withFakeWindow(async () => {
+      const submitMessage = vi.fn(async () => {});
+      const dispatchCallback = vi.fn(async () => ({ ok: false, blocked: true, error: 'blocked by evaluator verdict' }));
+      const context = { conversationId: 'conv-1' };
+      const disconnect = connectForgeUIActionsToCallbacksOrChat(submitMessage, () => context, dispatchCallback);
+
+      dispatchForgeUIAction({
+        eventName: 'freq_cap_planner_submit',
+        selectedRows: [{ ad_order_id: 2661447, action: 'KEEP' }],
+        callbackContext: {
+          stageLifecycle: {
+            currentStage: 'validate',
+            validationStage: 'validate',
+            successStage: 'execute',
+            followUpStage: 'follow_up',
+          },
+        },
+        callback: { type: 'custom_callback', eventName: 'freq_cap_planner_submit', target: 'foreground' },
+      });
+
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(dispatchCallback).toHaveBeenCalledTimes(1);
+      expect(submitMessage).toHaveBeenCalledTimes(1);
+      const msg = String(submitMessage.mock.calls[0][0].message || '');
+      expect(msg).toContain('Forge UI callback blocked');
+      expect(msg).toContain('blocked by evaluator verdict');
+      expect(msg).toContain('Recommendation lifecycle blocked at Validate');
+
+      disconnect();
+    });
+  });
+
+  it('preserves alternate preview actions and callback event names', async () => {
+    await withFakeWindow(async () => {
+      const submitMessage = vi.fn(async () => {});
+      const dispatchCallback = vi.fn(async () => ({ ok: true, tool: 'preview-only' }));
+      const context = { conversationId: 'conv-preview' };
+      const disconnect = connectForgeUIActionsToCallbacksOrChat(submitMessage, () => context, dispatchCallback);
+
+      dispatchForgeUIAction({
+        eventName: 'freq_cap_planner_preview',
+        actionId: 'preview-frequency-cap',
+        selectedRows: [{ ad_order_id: 2661447, action: 'KEEP' }],
+        callbackContext: {
+          stageLifecycle: {
+            currentStage: 'review',
+            validationStage: 'validate',
+            successStage: 'execute',
+            followUpStage: 'follow_up',
+          },
+        },
+        callback: { type: 'custom_callback', eventName: 'freq_cap_planner_preview', target: 'foreground' },
+      });
+
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(dispatchCallback).toHaveBeenCalledTimes(1);
+      expect(dispatchCallback.mock.calls[0][0].eventName).toBe('freq_cap_planner_preview');
+      const msg = String(submitMessage.mock.calls[0][0].message || '');
+      expect(msg).toContain('Forge UI callback dispatched: freq_cap_planner_preview');
+      disconnect();
+    });
+  });
+
+  it('does not invent callback context from ambient forge state when none is provided', async () => {
+    await withFakeWindow(async () => {
+      const submitMessage = vi.fn(async () => {});
+      const dispatchCallback = vi.fn(async () => ({ ok: true, tool: 'x' }));
+      const context = {
+        conversationId: 'conv-42',
+        agencyId: 5337,
+        adOrderId: 987654,
+      };
+      const disconnect = connectForgeUIActionsToCallbacksOrChat(submitMessage, () => context, dispatchCallback);
+
+      dispatchForgeUIAction({
+        eventName: 'spo_planner_submit',
+        selectedRows: [{ site_id: 101 }],
+        callback: { type: 'custom_callback', eventName: 'spo_planner_submit', target: 'foreground' },
+      });
+
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(dispatchCallback).toHaveBeenCalledTimes(1);
+      expect(dispatchCallback.mock.calls[0][0].context).toBeUndefined();
 
       disconnect();
     });

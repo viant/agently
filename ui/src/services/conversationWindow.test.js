@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { activeWindows, selectedTabId, selectedWindowId } from 'forge/core';
+import { activeWindows, getFormSignal, selectedTabId, selectedWindowId } from 'forge/core';
 
 import {
   CHAT_WINDOW_KEY,
+  deriveWorkspaceStateFromTranscriptTurns,
   ensureWorkspaceWindowForConversation,
   MAIN_CHAT_WINDOW_ID,
-  deriveWorkspaceStateFromConversation,
+  getScopedWorkspaceWindowsState,
   resolveConversationSelection,
   resolveWorkspaceWindowForConversation,
+  resolveWorkspaceWindowsForConversation,
   getScopedWorkspaceSelection,
   getScopedWorkspaceState,
   isLinkedChildWindow,
@@ -128,6 +130,41 @@ describe('conversationWindow', () => {
     expect(selectedTabId.value).toBe('orderPerformance_1');
   });
 
+  it('removes top-level non-chat windows when returning to the main chat conversation', () => {
+    activeWindows.value = [
+      {
+        windowId: 'schedule/history',
+        windowKey: 'schedule/history',
+        inTab: true
+      },
+      {
+        windowId: MAIN_CHAT_WINDOW_ID,
+        windowKey: CHAT_WINDOW_KEY,
+        parameters: {}
+      },
+      {
+        windowId: 'order_1527048368',
+        windowKey: 'order',
+        conversationId: 'conv-123',
+        presentation: 'hosted',
+        region: 'chat.top',
+        parentKey: MAIN_CHAT_WINDOW_ID,
+        inTab: true,
+        parameters: { AdOrderId: [2656980] }
+      }
+    ];
+    selectedTabId.value = 'schedule/history';
+    selectedWindowId.value = 'schedule/history';
+    setScopedWorkspaceSelection('conv-123', 'order_1527048368');
+
+    const selected = openConversationInMainWindow('conv-123');
+
+    expect(activeWindows.value.some((entry) => entry.windowKey === 'schedule/history')).toBe(false);
+    expect(selected?.windowId).toBe('order_1527048368');
+    expect(selectedWindowId.value).toBe('order_1527048368');
+    expect(selectedTabId.value).toBe('order_1527048368');
+  });
+
   it('resolves a live hosted workspace window for the current conversation before consulting saved browser state', () => {
     activeWindows.value = [
       {
@@ -148,6 +185,43 @@ describe('conversationWindow', () => {
     ];
 
     expect(resolveWorkspaceWindowForConversation('conv-live')?.windowId).toBe('order_1527048368');
+  });
+
+  it('resolves all hosted workspace windows for the current conversation and prefers the scoped active one', () => {
+    activeWindows.value = [
+      {
+        windowId: MAIN_CHAT_WINDOW_ID,
+        windowKey: CHAT_WINDOW_KEY,
+        parameters: {}
+      },
+      {
+        windowId: 'order_2656980',
+        windowKey: 'order',
+        conversationId: 'conv-compare',
+        presentation: 'hosted',
+        region: 'chat.top',
+        parentKey: MAIN_CHAT_WINDOW_ID,
+        inTab: true,
+        parameters: { AdOrderId: [2656980] }
+      },
+      {
+        windowId: 'order_2609393',
+        windowKey: 'order',
+        conversationId: 'conv-compare',
+        presentation: 'hosted',
+        region: 'chat.top',
+        parentKey: MAIN_CHAT_WINDOW_ID,
+        inTab: true,
+        parameters: { AdOrderId: [2609393] }
+      }
+    ];
+    setScopedWorkspaceSelection('conv-compare', 'order_2656980');
+
+    expect(resolveWorkspaceWindowsForConversation('conv-compare').map((entry) => entry.windowId)).toEqual([
+      'order_2656980',
+      'order_2609393'
+    ]);
+    expect(resolveWorkspaceWindowForConversation('conv-compare')?.windowId).toBe('order_2656980');
   });
 
   it('reopens a stored workspace descriptor when the live workspace window no longer exists', () => {
@@ -211,6 +285,398 @@ describe('conversationWindow', () => {
     expect(selectedTabId.value).toBe(MAIN_CHAT_WINDOW_ID);
   });
 
+  it('restores persisted hosted workspace windowForm state', () => {
+    activeWindows.value = [{
+      windowId: MAIN_CHAT_WINDOW_ID,
+      windowKey: CHAT_WINDOW_KEY,
+      parameters: {}
+    }];
+    selectedTabId.value = MAIN_CHAT_WINDOW_ID;
+    selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
+
+    setScopedWorkspaceState('conv-window-form', {
+      windowId: 'metricReportBuilder__conv-window-form',
+      windowKey: 'metricReportBuilder',
+      windowTitle: 'Performance Metrics',
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      presentation: 'hosted',
+      region: 'chat.top',
+      inTab: true,
+      parameters: {},
+      windowForm: {
+        metricsCubeBuilder: {
+          selectedMeasures: ['totalSpend'],
+          dynamicGroups: {
+            scope: [
+              {
+                id: 'row_1',
+                filterId: 'orderIds',
+                selections: [{ value: 2609393, label: 'Order 2609393' }]
+              }
+            ]
+          }
+        }
+      }
+    });
+
+    const restored = ensureWorkspaceWindowForConversation('conv-window-form');
+
+    expect(restored?.windowId).toBe('metricReportBuilder__conv-window-form');
+    expect(getFormSignal('metricReportBuilder__conv-window-form:windowForm').peek()).toEqual({
+      metricsCubeBuilder: {
+        selectedMeasures: ['totalSpend'],
+        dynamicGroups: {
+          scope: [
+            {
+              id: 'row_1',
+              filterId: 'orderIds',
+              selections: [{ value: 2609393, label: 'Order 2609393' }]
+            }
+          ]
+        }
+      }
+    });
+  });
+
+  it('captures live hosted workspace windowForm state into scoped workspace storage', () => {
+    activeWindows.value = [{
+      windowId: MAIN_CHAT_WINDOW_ID,
+      windowKey: CHAT_WINDOW_KEY,
+      parameters: {}
+    }, {
+      windowId: 'metricReportBuilder__conv-live',
+      windowKey: 'metricReportBuilder',
+      windowTitle: 'Performance Metrics',
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      presentation: 'hosted',
+      region: 'chat.top',
+      inTab: true,
+      parameters: {}
+    }];
+
+    getFormSignal('metricReportBuilder__conv-live:windowForm').value = {
+      metricsCubeBuilder: {
+        dynamicGroups: {
+          scope: [
+            {
+              id: 'row_1',
+              filterId: 'orderIds',
+              selections: [{ value: 2609393, label: 'Order 2609393' }]
+            }
+          ]
+        }
+      }
+    };
+
+    setScopedWorkspaceState('conv-live', activeWindows.value[1]);
+
+    expect(getScopedWorkspaceState('conv-live')).toMatchObject({
+      windowId: 'metricReportBuilder__conv-live',
+      windowForm: {
+        metricsCubeBuilder: {
+          dynamicGroups: {
+            scope: [
+              {
+                id: 'row_1',
+                filterId: 'orderIds',
+                selections: [{ value: 2609393, label: 'Order 2609393' }]
+              }
+            ]
+          }
+        }
+      }
+    });
+  });
+
+  it('rehydrates a live hosted workspace windowForm from scoped workspace state when the live signal is empty', () => {
+    activeWindows.value = [{
+      windowId: MAIN_CHAT_WINDOW_ID,
+      windowKey: CHAT_WINDOW_KEY,
+      parameters: {}
+    }, {
+      windowId: 'metricReportBuilder__conv-hydrate',
+      windowKey: 'metricReportBuilder',
+      windowTitle: 'Performance Metrics',
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      presentation: 'hosted',
+      region: 'chat.top',
+      inTab: true,
+      conversationId: 'conv-hydrate',
+      parameters: {}
+    }];
+
+    setScopedWorkspaceState('conv-hydrate', {
+      windowId: 'metricReportBuilder__conv-hydrate',
+      windowKey: 'metricReportBuilder',
+      windowTitle: 'Performance Metrics',
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      presentation: 'hosted',
+      region: 'chat.top',
+      inTab: true,
+      parameters: {},
+      windowForm: {
+        metricsCubeBuilder: {
+          dynamicGroups: {
+            scope: [
+              {
+                id: 'row_1',
+                filterId: 'orderIds',
+                selections: [{ value: 2609393, label: 'Order 2609393' }]
+              }
+            ]
+          }
+        }
+      }
+    });
+
+    const restored = ensureWorkspaceWindowForConversation('conv-hydrate');
+
+    expect(restored?.windowId).toBe('metricReportBuilder__conv-hydrate');
+    expect(getFormSignal('metricReportBuilder__conv-hydrate:windowForm').peek()).toEqual({
+      metricsCubeBuilder: {
+        dynamicGroups: {
+          scope: [
+            {
+              id: 'row_1',
+              filterId: 'orderIds',
+              selections: [{ value: 2609393, label: 'Order 2609393' }]
+            }
+          ]
+        }
+      }
+    });
+  });
+
+  it('prefers scoped workspace windowForm over default-seeded live builder state on restore', () => {
+    activeWindows.value = [{
+      windowId: MAIN_CHAT_WINDOW_ID,
+      windowKey: CHAT_WINDOW_KEY,
+      parameters: {}
+    }, {
+      windowId: 'metricReportBuilder__conv-defaults',
+      windowKey: 'metricReportBuilder',
+      windowTitle: 'Performance Metrics',
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      presentation: 'hosted',
+      region: 'chat.top',
+      inTab: true,
+      conversationId: 'conv-defaults',
+      parameters: {}
+    }];
+
+    getFormSignal('metricReportBuilder__conv-defaults:windowForm').value = {
+      metricsCubeBuilder: {
+        selectedMeasures: ['totalSpend', 'impressions'],
+        staticFilters: {
+          channelIds: [],
+          dateRange: { start: '2026-05-10', end: '2026-05-16' }
+        },
+        dynamicGroups: {
+          scope: [],
+          inventory: [],
+          targeting: []
+        }
+      }
+    };
+
+    window.sessionStorage.setItem('agently.workspaceState:conv-defaults', JSON.stringify({
+      windowId: 'metricReportBuilder__conv-defaults',
+      windowKey: 'metricReportBuilder',
+      windowTitle: 'Performance Metrics',
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      presentation: 'hosted',
+      region: 'chat.top',
+      inTab: true,
+      parameters: {},
+      windowForm: {
+        metricsCubeBuilder: {
+          selectedMeasures: ['totalSpend', 'impressions'],
+          staticFilters: {
+            channelIds: [],
+            dateRange: { start: '2026-05-10', end: '2026-05-16' }
+          },
+          dynamicGroups: {
+            scope: [
+              {
+                id: 'row_1',
+                filterId: 'orderIds',
+                selections: [{ value: 2609393, label: 'Order 2609393' }]
+              }
+            ],
+            inventory: [],
+            targeting: []
+          }
+        }
+      }
+    }));
+
+    ensureWorkspaceWindowForConversation('conv-defaults');
+
+    expect(getFormSignal('metricReportBuilder__conv-defaults:windowForm').peek()).toEqual({
+      metricsCubeBuilder: {
+        selectedMeasures: ['totalSpend', 'impressions'],
+        staticFilters: {
+          channelIds: [],
+          dateRange: { start: '2026-05-10', end: '2026-05-16' }
+        },
+        dynamicGroups: {
+          scope: [
+            {
+              id: 'row_1',
+              filterId: 'orderIds',
+              selections: [{ value: 2609393, label: 'Order 2609393' }]
+            }
+          ],
+          inventory: [],
+          targeting: []
+        }
+      }
+    });
+  });
+
+  it('prefers live hosted workspace windowForm over truncated raw snapshot state', () => {
+    activeWindows.value = [{
+      windowId: MAIN_CHAT_WINDOW_ID,
+      windowKey: CHAT_WINDOW_KEY,
+      parameters: {}
+    }, {
+      windowId: 'metricReportBuilder__conv-live',
+      windowKey: 'metricReportBuilder',
+      windowTitle: 'Performance Metrics',
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      presentation: 'hosted',
+      region: 'chat.top',
+      inTab: true,
+      parameters: {},
+      windowForm: {
+        metricsCubeBuilder: {
+          dynamicGroups: {
+            scope: [
+              {
+                id: 'row_1',
+                filterId: 'orderIds',
+                selections: [{ value: '[MaxDepth]', label: '[MaxDepth]' }]
+              }
+            ]
+          }
+        }
+      }
+    }];
+
+    getFormSignal('metricReportBuilder__conv-live:windowForm').value = {
+      metricsCubeBuilder: {
+        dynamicGroups: {
+          scope: [
+            {
+              id: 'row_1',
+              filterId: 'orderIds',
+              selections: [{ value: 2609393, label: 'CTV_Chicago_Weekdays' }]
+            }
+          ]
+        }
+      }
+    };
+
+    setScopedWorkspaceState('conv-live', activeWindows.value[1]);
+
+    expect(getScopedWorkspaceState('conv-live')).toMatchObject({
+      windowId: 'metricReportBuilder__conv-live',
+      windowForm: {
+        metricsCubeBuilder: {
+          dynamicGroups: {
+            scope: [
+              {
+                id: 'row_1',
+                filterId: 'orderIds',
+                selections: [{ value: 2609393, label: 'CTV_Chicago_Weekdays' }]
+              }
+            ]
+          }
+        }
+      }
+    });
+  });
+
+  it('stores and restores multiple hosted workspace descriptors for one conversation without persisting inline metadata', () => {
+    activeWindows.value = [{
+      windowId: MAIN_CHAT_WINDOW_ID,
+      windowKey: CHAT_WINDOW_KEY,
+      parameters: {}
+    }, {
+      windowId: 'order_2656980',
+      windowKey: 'order',
+      windowTitle: 'Order 2656980',
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      presentation: 'hosted',
+      region: 'chat.top',
+      inTab: true,
+      parameters: {
+        AdOrderId: [2656980]
+      },
+    }, {
+      windowId: 'order_2609393',
+      windowKey: 'order',
+      windowTitle: 'Order 2609393',
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      presentation: 'hosted',
+      region: 'chat.top',
+      inTab: true,
+      parameters: {
+        AdOrderId: [2609393]
+      },
+    }];
+    selectedTabId.value = MAIN_CHAT_WINDOW_ID;
+    selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
+
+    setScopedWorkspaceSelection('conv-compare', 'order_2609393');
+    setScopedWorkspaceState('conv-compare', [
+      {
+        windowId: 'order_2656980',
+        windowKey: 'order',
+        windowTitle: 'Order 2656980',
+        parentKey: MAIN_CHAT_WINDOW_ID,
+        presentation: 'hosted',
+        region: 'chat.top',
+        inTab: true,
+        parameters: {
+          AdOrderId: [2656980]
+        }
+      },
+      {
+        windowId: 'order_2609393',
+        windowKey: 'order',
+        windowTitle: 'Order 2609393',
+        parentKey: MAIN_CHAT_WINDOW_ID,
+        presentation: 'hosted',
+        region: 'chat.top',
+        inTab: true,
+        parameters: {
+          AdOrderId: [2609393]
+        }
+      }
+    ]);
+
+    expect(getScopedWorkspaceWindowsState('conv-compare').map((entry) => entry.windowId)).toEqual([
+      'order_2656980',
+      'order_2609393'
+    ]);
+    expect(getScopedWorkspaceWindowsState('conv-compare').every((entry) => entry.inlineMetadata == null)).toBe(true);
+
+    const restored = openConversationInMainWindow('conv-compare');
+
+    const restoredOrders = activeWindows.value.filter((entry) => entry.windowKey === 'order');
+    expect(restoredOrders.map((entry) => entry.windowId)).toEqual([
+      'order_2656980',
+      'order_2609393'
+    ]);
+    expect(restoredOrders.every((entry) => entry.inlineMetadata == null)).toBe(true);
+    expect(restoredOrders.map((entry) => entry.region)).toEqual(['chat.top', 'chat.top']);
+    expect(restoredOrders.map((entry) => entry.parameters?.AdOrderId?.[0])).toEqual([2656980, 2609393]);
+    expect(restored?.parameters?.AdOrderId?.[0]).toBe(2609393);
+    expect(selectedWindowId.value).toBe(restored?.windowId);
+    expect(selectedTabId.value).toBe(restored?.windowId);
+  });
+
   it('uses /conversation on localhost and 127.0.0.1 hosts', () => {
     activeWindows.value = [{
       windowId: MAIN_CHAT_WINDOW_ID,
@@ -252,6 +718,38 @@ describe('conversationWindow', () => {
     expect(String(activeWindows.value[0]?.parameters?.messages?.input?.parameters?.convID || '')).toBe('');
   });
 
+  it('removes top-level non-chat windows when opening a new main chat conversation', () => {
+    activeWindows.value = [
+      {
+        windowId: 'schedule',
+        windowKey: 'schedule',
+        inTab: true
+      },
+      {
+        windowId: MAIN_CHAT_WINDOW_ID,
+        windowKey: CHAT_WINDOW_KEY,
+        parameters: {}
+      },
+      {
+        windowId: 'order_1527048368',
+        windowKey: 'order',
+        conversationId: 'conv-123',
+        presentation: 'hosted',
+        region: 'chat.top',
+        parentKey: MAIN_CHAT_WINDOW_ID,
+        inTab: true,
+        parameters: { AdOrderId: [2656980] }
+      }
+    ];
+    selectedTabId.value = 'schedule';
+    selectedWindowId.value = 'schedule';
+
+    requestNewConversationInMainWindow();
+
+    expect(activeWindows.value.some((entry) => entry.windowKey === 'schedule')).toBe(false);
+    expect(activeWindows.value.some((entry) => entry.windowId === MAIN_CHAT_WINDOW_ID)).toBe(true);
+  });
+
   it('publishes scoped selection without changing the browser path for non-main windows', () => {
     const replaceState = vi.fn();
     const dispatchEvent = vi.fn();
@@ -285,6 +783,13 @@ describe('conversationWindow', () => {
   });
 
   it('falls back to the browser path for the main chat window when scoped selection is empty', () => {
+    window.location.pathname = '/conversation/conv-from-path';
+
+    expect(resolveConversationSelection(MAIN_CHAT_WINDOW_ID)).toBe('conv-from-path');
+  });
+
+  it('prefers the browser path over stored scoped selection for the main chat window', () => {
+    window.sessionStorage.setItem('agently.selectedConversationId', 'conv-stored');
     window.location.pathname = '/conversation/conv-from-path';
 
     expect(resolveConversationSelection(MAIN_CHAT_WINDOW_ID)).toBe('conv-from-path');
@@ -337,32 +842,330 @@ describe('conversationWindow', () => {
     })).toBe(false);
   });
 
-  it('derives order workspace state from conversation metadata', () => {
-    expect(deriveWorkspaceStateFromConversation({
-      id: 'conv-1',
-      metadata: JSON.stringify({
-        workspace: {
-          windowId: 'order_1527048368',
+  it('derives hosted workspace state from the last turn window list/show tool calls', () => {
+    expect(deriveWorkspaceStateFromTranscriptTurns([
+      {
+        turnId: 'turn-1',
+        execution: {
+          pages: [
+            {
+              toolSteps: [
+                {
+                  toolName: 'ui/window/list',
+                  status: 'completed',
+                  responsePayload: {
+                    focusedWindowId: 'order_2609393',
+                    items: [
+                      {
+                        windowId: 'chat/new',
+                        windowKey: 'chat/new',
+                        windowTitle: 'Chat',
+                        inTab: true,
+                      },
+                      {
+                        windowId: 'order_2656980',
+                        windowKey: 'order',
+                        windowTitle: 'Order Summary',
+                        conversationId: 'conv-compare',
+                        presentation: 'hosted',
+                        region: 'chat.top',
+                        parentKey: MAIN_CHAT_WINDOW_ID,
+                        inTab: true,
+                        parameters: {
+                          AdOrderId: [2656980],
+                        },
+                      },
+                      {
+                        windowId: 'order_2609393',
+                        windowKey: 'order',
+                        windowTitle: 'Order Summary',
+                        conversationId: 'conv-compare',
+                        presentation: 'hosted',
+                        region: 'chat.top',
+                        parentKey: MAIN_CHAT_WINDOW_ID,
+                        inTab: true,
+                        parameters: {
+                          AdOrderId: [2609393],
+                        },
+                      }
+                    ]
+                  }
+                },
+                {
+                  toolName: 'ui/window/show',
+                  status: 'completed',
+                  requestPayload: {
+                    windowId: 'order_2656980'
+                  },
+                  responsePayload: {
+                    ok: true
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ])).toEqual({
+      windows: [
+        {
+          windowId: 'order_2656980',
+          conversationId: 'conv-compare',
           windowKey: 'order',
           windowTitle: 'Order Summary',
+          presentation: 'hosted',
           parentKey: MAIN_CHAT_WINDOW_ID,
           inTab: true,
           parameters: {
             AdOrderId: [2656980],
           },
+          region: 'chat.top',
         },
-      }),
-    })).toEqual({
-      windowId: 'order_1527048368',
-      conversationId: null,
-      windowKey: 'order',
-      windowTitle: 'Order Summary',
-      presentation: null,
-      parentKey: MAIN_CHAT_WINDOW_ID,
-      inTab: true,
-      parameters: {
-        AdOrderId: [2656980],
+        {
+          windowId: 'order_2609393',
+          conversationId: 'conv-compare',
+          windowKey: 'order',
+          windowTitle: 'Order Summary',
+          presentation: 'hosted',
+          parentKey: MAIN_CHAT_WINDOW_ID,
+          inTab: true,
+          parameters: {
+            AdOrderId: [2609393],
+          },
+          region: 'chat.top',
+        }
+      ],
+      selectedWindowId: 'order_2656980',
+    });
+  });
+
+  it('uses the latest turn with a usable hosted workspace state when deriving transcript-backed workspace state', () => {
+    expect(deriveWorkspaceStateFromTranscriptTurns([
+      {
+        turnId: 'turn-1',
+        execution: {
+          pages: [
+            {
+              toolSteps: [
+                {
+                  toolName: 'ui/window/list',
+                  status: 'completed',
+                  responsePayload: {
+                    items: [
+                      {
+                        windowId: 'order_legacy',
+                        windowKey: 'order',
+                        windowTitle: 'Order Summary',
+                        conversationId: 'conv-compare',
+                        presentation: 'hosted',
+                        region: 'chat.top',
+                        parentKey: MAIN_CHAT_WINDOW_ID,
+                        inTab: true,
+                        parameters: { AdOrderId: [111] },
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
       },
+      {
+        turnId: 'turn-2',
+        execution: {
+          pages: [
+            {
+              toolSteps: [
+                {
+                  toolName: 'ui/window/list',
+                  status: 'completed',
+                  responsePayload: {
+                    items: []
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ])).toEqual({
+      windows: [
+        {
+          windowId: 'order_legacy',
+          conversationId: 'conv-compare',
+          windowKey: 'order',
+          windowTitle: 'Order Summary',
+          presentation: 'hosted',
+          region: 'chat.top',
+          parentKey: MAIN_CHAT_WINDOW_ID,
+          inTab: true,
+          parameters: { AdOrderId: [111] }
+        }
+      ],
+      selectedWindowId: null
+    });
+  });
+
+  it('derives workspace state from tool content when response payload is only an envelope', () => {
+    expect(deriveWorkspaceStateFromTranscriptTurns([
+      {
+        turnId: 'turn-1',
+        execution: {
+          pages: [
+            {
+              toolSteps: [
+                {
+                  toolName: 'ui/window/list',
+                  status: 'completed',
+                  responsePayload: {
+                    inlineBody: '\u0001\u0002garbled',
+                    compression: 'gzip'
+                  },
+                  content: JSON.stringify({
+                    focusedWindowId: 'order_2609393__conv-1',
+                    items: [
+                      {
+                        windowId: 'order_2656980__conv-1',
+                        conversationId: 'conv-1',
+                        windowKey: 'order',
+                        windowTitle: 'Order Summary',
+                        presentation: 'hosted',
+                        region: 'chat.top',
+                        parentKey: 'chat/new',
+                        inTab: true,
+                        parameters: { AdOrderId: [2656980] }
+                      },
+                      {
+                        windowId: 'order_2609393__conv-1',
+                        conversationId: 'conv-1',
+                        windowKey: 'order',
+                        windowTitle: 'Order Summary',
+                        presentation: 'hosted',
+                        region: 'chat.top',
+                        parentKey: 'chat/new',
+                        inTab: true,
+                        parameters: { AdOrderId: [2609393] }
+                      }
+                    ]
+                  })
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ])).toEqual({
+      windows: [
+        {
+          windowId: 'order_2656980__conv-1',
+          conversationId: 'conv-1',
+          windowKey: 'order',
+          windowTitle: 'Order Summary',
+          presentation: 'hosted',
+          parentKey: MAIN_CHAT_WINDOW_ID,
+          inTab: true,
+          parameters: { AdOrderId: [2656980] },
+          region: 'chat.top'
+        },
+        {
+          windowId: 'order_2609393__conv-1',
+          conversationId: 'conv-1',
+          windowKey: 'order',
+          windowTitle: 'Order Summary',
+          presentation: 'hosted',
+          parentKey: MAIN_CHAT_WINDOW_ID,
+          inTab: true,
+          parameters: { AdOrderId: [2609393] },
+          region: 'chat.top'
+        }
+      ],
+      selectedWindowId: 'order_2609393__conv-1'
+    });
+  });
+
+  it('prefers the final ui/window/show InlineBody payload over the prior window list focus', () => {
+    expect(deriveWorkspaceStateFromTranscriptTurns([
+      {
+        turnId: 'turn-1',
+        execution: {
+          pages: [
+            {
+              toolSteps: [
+                {
+                  toolName: 'ui/window/list',
+                  status: 'completed',
+                  responsePayload: {
+                    InlineBody: JSON.stringify({
+                      focusedWindowId: 'order_2609393__conv-1',
+                      items: [
+                        {
+                          windowId: 'order_2656980__conv-1',
+                          conversationId: 'conv-1',
+                          windowKey: 'order',
+                          windowTitle: 'Order Summary',
+                          presentation: 'hosted',
+                          region: 'chat.top',
+                          parentKey: 'chat/new',
+                          inTab: true,
+                          parameters: { AdOrderId: [2656980] }
+                        },
+                        {
+                          windowId: 'order_2609393__conv-1',
+                          conversationId: 'conv-1',
+                          windowKey: 'order',
+                          windowTitle: 'Order Summary',
+                          presentation: 'hosted',
+                          region: 'chat.top',
+                          parentKey: 'chat/new',
+                          inTab: true,
+                          parameters: { AdOrderId: [2609393] }
+                        }
+                      ]
+                    }),
+                    Compression: 'none'
+                  }
+                },
+                {
+                  toolName: 'ui/window/show',
+                  status: 'completed',
+                  requestPayload: {
+                    InlineBody: JSON.stringify({ windowId: 'order_2656980__conv-1' }),
+                    Compression: 'none'
+                  },
+                  responsePayload: { ok: true }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ])).toEqual({
+      windows: [
+        {
+          windowId: 'order_2656980__conv-1',
+          conversationId: 'conv-1',
+          windowKey: 'order',
+          windowTitle: 'Order Summary',
+          presentation: 'hosted',
+          region: 'chat.top',
+          parentKey: 'chat/new',
+          inTab: true,
+          parameters: { AdOrderId: [2656980] }
+        },
+        {
+          windowId: 'order_2609393__conv-1',
+          conversationId: 'conv-1',
+          windowKey: 'order',
+          windowTitle: 'Order Summary',
+          presentation: 'hosted',
+          region: 'chat.top',
+          parentKey: 'chat/new',
+          inTab: true,
+          parameters: { AdOrderId: [2609393] }
+        }
+      ],
+      selectedWindowId: 'order_2656980__conv-1'
     });
   });
 });

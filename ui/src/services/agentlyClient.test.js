@@ -6,6 +6,16 @@ vi.mock('agently-core-ui-sdk', () => ({
       this.options = options;
     }
 
+    getWorkspaceMetadata() {
+      if (!globalThis.__workspaceMetadataResolvers) {
+        return Promise.resolve({ appName: 'Agently' });
+      }
+      globalThis.__workspaceMetadataCalls = Number(globalThis.__workspaceMetadataCalls || 0) + 1;
+      return new Promise((resolve) => {
+        globalThis.__workspaceMetadataResolvers.push(resolve);
+      });
+    }
+
     getOAuthConfig() {
       return Promise.resolve({});
     }
@@ -103,6 +113,54 @@ describe('recoverSessionSilently', () => {
   });
 });
 
+describe('getAuthMeSilently', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.restoreAllMocks();
+    globalThis.window = {
+      dispatchEvent: vi.fn(),
+      CustomEvent: class extends Event {
+        constructor(name, init = {}) {
+          super(name);
+          this.detail = init.detail;
+        }
+      }
+    };
+    globalThis.CustomEvent = globalThis.window.CustomEvent;
+  });
+
+  it('reuses a single in-flight auth/me probe for concurrent callers', async () => {
+    let resolveFetch;
+    globalThis.fetch = vi.fn().mockImplementation(() => new Promise((resolve) => {
+      resolveFetch = resolve;
+    }));
+
+    const { getAuthMeSilently } = await import('./agentlyClient.js');
+    const first = getAuthMeSilently();
+    const second = getAuthMeSilently();
+    resolveFetch({
+      status: 200,
+      json: async () => ({ username: 'awitas' }),
+    });
+
+    expect(await first).toEqual({ username: 'awitas' });
+    expect(await second).toEqual({ username: 'awitas' });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns cached auth/me data after the first successful probe', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      status: 200,
+      json: async () => ({ username: 'awitas' }),
+    });
+
+    const { getAuthMeSilently } = await import('./agentlyClient.js');
+    expect(await getAuthMeSilently()).toEqual({ username: 'awitas' });
+    expect(await getAuthMeSilently()).toEqual({ username: 'awitas' });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('beginLogin', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -153,5 +211,28 @@ describe('beginLogin', () => {
     expect(ok).toBe(true);
     expect(client.loginWithPopup).toHaveBeenCalledTimes(1);
     expect(client.loginWithRedirect).not.toHaveBeenCalled();
+  });
+});
+
+describe('getWorkspaceMetadata cache', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.restoreAllMocks();
+    globalThis.window = {};
+    globalThis.__workspaceMetadataCalls = 0;
+    globalThis.__workspaceMetadataResolvers = [];
+  });
+
+  it('reuses a single in-flight workspace metadata request for concurrent callers', async () => {
+    const { client } = await import('./agentlyClient.js');
+
+    const first = client.getWorkspaceMetadata();
+    const second = client.getWorkspaceMetadata();
+    const [resolveMetadata] = globalThis.__workspaceMetadataResolvers;
+    resolveMetadata({ appName: 'Agently' });
+
+    expect(await first).toEqual({ appName: 'Agently' });
+    expect(await second).toEqual({ appName: 'Agently' });
+    expect(globalThis.__workspaceMetadataCalls).toBe(1);
   });
 });

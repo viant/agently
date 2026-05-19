@@ -25,6 +25,25 @@ describe('applyConversationMetaPatchToRows', () => {
     expect(got[0].Summary).toBe('Needs attention');
     expect(got[0].summary).toBe('Needs attention');
   });
+
+  it('patches stage, status, and running flags for immediate sidebar tone updates', () => {
+    const rows = [
+      { Id: 'conv-1', Title: 'Compare run', Status: 'running', Stage: 'executing', running: true, UpdatedAt: '2026-04-15T00:00:00Z' }
+    ];
+
+    const got = applyConversationMetaPatchToRows(rows, 'conv-1', {
+      status: 'succeeded',
+      stage: 'done',
+      running: false
+    });
+
+    expect(got[0].Status).toBe('succeeded');
+    expect(got[0].status).toBe('succeeded');
+    expect(got[0].Stage).toBe('done');
+    expect(got[0].stage).toBe('done');
+    expect(got[0].Running).toBe(false);
+    expect(got[0].running).toBe(false);
+  });
 });
 
 describe('sidebar conversation pagination', () => {

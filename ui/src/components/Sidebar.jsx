@@ -102,6 +102,14 @@ export function applyConversationMetaPatchToRows(rows = [], conversationID = '',
       updated.Status = patch.status;
       updated.status = patch.status;
     }
+    if (Object.prototype.hasOwnProperty.call(patch, 'stage')) {
+      updated.Stage = patch.stage;
+      updated.stage = patch.stage;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'running')) {
+      updated.Running = patch.running;
+      updated.running = !!patch.running;
+    }
     updated.UpdatedAt = new Date().toISOString();
     updated.updatedAt = updated.UpdatedAt;
     return updated;
@@ -185,6 +193,10 @@ export default function Sidebar({ collapsed = false }) {
   const [error, setError] = useState('');
   const rowsRef = React.useRef([]);
   const activityReloadTimerRef = React.useRef(null);
+  const queryReloadTimerRef = React.useRef(null);
+  const inFlightReloadRef = React.useRef({ key: '', promise: null });
+  const reloadSeqRef = React.useRef(0);
+  const lastResolvedReloadKeyRef = React.useRef('');
 
   const pageStatusLabel = useMemo(() => {
     return sidebarPageStatusLabel({ loading, prevCursor, nextCursor });
@@ -192,22 +204,47 @@ export default function Sidebar({ collapsed = false }) {
   const showPagination = loading || !!prevCursor || !!nextCursor;
 
   const reload = async (direction = 'latest', cursor = '') => {
-    setLoading(true);
-    try {
-      const page = await fetchPage({ query: query.trim(), direction, cursor });
-      setRows(Array.isArray(page.rows) ? page.rows : []);
-      setPrevCursor(page.prevCursor);
-      setNextCursor(page.nextCursor);
-      setError('');
-    } catch (err) {
-      if (isConnectivityError(err)) {
-        setError('');
-      } else {
-        setError(String(err?.message || err));
-      }
-    } finally {
-      setLoading(false);
+    const requestKey = JSON.stringify({
+      query: query.trim(),
+      direction: String(direction || 'latest'),
+      cursor: String(cursor || ''),
+    });
+    if (inFlightReloadRef.current.promise && inFlightReloadRef.current.key === requestKey) {
+      return inFlightReloadRef.current.promise;
     }
+    const requestSeq = reloadSeqRef.current + 1;
+    reloadSeqRef.current = requestSeq;
+    setLoading(true);
+    const request = (async () => {
+      try {
+        const page = await fetchPage({ query: query.trim(), direction, cursor });
+        if (reloadSeqRef.current !== requestSeq) return page;
+        lastResolvedReloadKeyRef.current = requestKey;
+        setRows(Array.isArray(page.rows) ? page.rows : []);
+        setPrevCursor(page.prevCursor);
+        setNextCursor(page.nextCursor);
+        setError('');
+        return page;
+      } catch (err) {
+        if (reloadSeqRef.current === requestSeq) {
+          if (isConnectivityError(err)) {
+            setError('');
+          } else {
+            setError(String(err?.message || err));
+          }
+        }
+        throw err;
+      } finally {
+        if (inFlightReloadRef.current.key === requestKey) {
+          inFlightReloadRef.current = { key: '', promise: null };
+        }
+        if (reloadSeqRef.current === requestSeq) {
+          setLoading(false);
+        }
+      }
+    })();
+    inFlightReloadRef.current = { key: requestKey, promise: request };
+    return request;
   };
 
   useEffect(() => {
@@ -215,10 +252,19 @@ export default function Sidebar({ collapsed = false }) {
   }, [rows]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
+    if (queryReloadTimerRef.current) {
+      clearTimeout(queryReloadTimerRef.current);
+      queryReloadTimerRef.current = null;
+    }
+    queryReloadTimerRef.current = setTimeout(() => {
       void reload('latest', '');
     }, 200);
-    return () => clearTimeout(timer);
+    return () => {
+      if (queryReloadTimerRef.current) {
+        clearTimeout(queryReloadTimerRef.current);
+        queryReloadTimerRef.current = null;
+      }
+    };
   }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const content = useMemo(() => {
@@ -284,13 +330,31 @@ export default function Sidebar({ collapsed = false }) {
       if (windowId && isLinkedChildWindow(getWindowById(windowId))) return;
       const id = String(event?.detail?.id || '').trim();
       setSelectedID(id);
+      if (queryReloadTimerRef.current) {
+        clearTimeout(queryReloadTimerRef.current);
+        queryReloadTimerRef.current = null;
+      }
+      const latestRequestKey = JSON.stringify({
+        query: query.trim(),
+        direction: 'latest',
+        cursor: '',
+      });
+      if (lastResolvedReloadKeyRef.current === latestRequestKey) {
+        return;
+      }
+      if (inFlightReloadRef.current.key === latestRequestKey) {
+        return;
+      }
       const hasRows = rowsRef.current.length > 0;
-      const hasSelectedRow = id && rowsRef.current.some((row) => String(row?.Id || row?.id || '').trim() === id);
-      if (!hasRows || !hasSelectedRow) {
+      if (!hasRows) {
         void reload('latest', '');
       }
     };
     const onConversationNew = () => {
+      if (queryReloadTimerRef.current) {
+        clearTimeout(queryReloadTimerRef.current);
+        queryReloadTimerRef.current = null;
+      }
       // Small delay to allow the backend to commit the new conversation
       // before the sidebar queries the list.
       setTimeout(() => void reload('latest', ''), 300);
@@ -318,6 +382,10 @@ export default function Sidebar({ collapsed = false }) {
     window.addEventListener('agently:conversation-activity', onConversationActivity);
     window.addEventListener('agently:conversation-meta-updated', onConversationMetaUpdated);
     return () => {
+      if (queryReloadTimerRef.current) {
+        clearTimeout(queryReloadTimerRef.current);
+        queryReloadTimerRef.current = null;
+      }
       if (activityReloadTimerRef.current) {
         clearTimeout(activityReloadTimerRef.current);
         activityReloadTimerRef.current = null;

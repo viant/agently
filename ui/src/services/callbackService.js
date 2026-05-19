@@ -20,12 +20,14 @@ const DISPATCH_PATH = '/api/callbacks/dispatch';
  * @property {string} [conversationId] surfaced to the payload template as `.conversationId`
  * @property {string} [turnId]         surfaced to the payload template as `.turnId`
  * @property {Object} [payload]        forge submit body (selectedRows, changedRows, tableId, …)
- * @property {Object} [context]        free-form keys flattened into the template root
- *                                     (e.g. agencyId, advertiserId, campaignId, adOrderId)
+ * @property {Object} [context]        explicit producer-owned context flattened into
+ *                                     the template root. The UI does not invent or
+ *                                     infer these keys from ambient Forge state.
  *
  * @typedef {Object} DispatchResult
  * @property {boolean} ok       true when dispatch + tool invocation succeeded
  * @property {boolean} notFound true when no callback was registered for eventName
+ * @property {boolean} blocked  true when the callback was intentionally blocked by callbackGate
  * @property {string}  [tool]   tool that was invoked (echoed from server)
  * @property {string}  [result] tool's textual return value (verbatim)
  * @property {string}  [error]  dispatch/tool error when ok===false && notFound===false
@@ -76,8 +78,11 @@ export async function dispatchCallback(input = {}) {
 
   if (!response.ok) {
     let message = '';
+    let parsed = null;
     try {
-      message = (await response.text()) || '';
+      const text = (await response.text()) || '';
+      message = text;
+      try { parsed = JSON.parse(text); } catch (_) { parsed = null; }
     } catch (_) {
       message = '';
     }
@@ -85,10 +90,12 @@ export async function dispatchCallback(input = {}) {
     // so callers can fall back cleanly. The server returns a clean text body.
     const body = String(message || '');
     const isNotFound = /no callback registered/i.test(body);
+    const isBlocked = response.status === 409 || Boolean(parsed?.blocked);
     return {
       ok: false,
       notFound: isNotFound,
-      error: body || `dispatch failed (HTTP ${response.status})`,
+      blocked: isBlocked,
+      error: String(parsed?.error || body || `dispatch failed (HTTP ${response.status})`),
       status: response.status,
     };
   }

@@ -1,7 +1,7 @@
 import { mergeRowSnapshots } from './rowMerge';
 import { isFeedInactive as defaultIsFeedInactive } from './toolFeedBus';
 import { isStreamDebugEnabled } from './debugFlags';
-import { deriveWorkspaceStateFromTranscriptTurns, ensureWorkspaceWindowForConversation, hasScopedWorkspaceState, seedScopedWorkspaceState } from './conversationWindow';
+import { deriveWorkspaceStateFromTranscriptTurns, setScopedWorkspaceSelection, setScopedWorkspaceState } from './conversationWindow';
 
 const RUNNING_TURN_STATUSES = new Set(['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress']);
 
@@ -17,6 +17,15 @@ function logTranscriptDebug(event, detail = {}) {
     ts: new Date().toISOString(),
     ...detail
   });
+}
+
+function publishWorkspaceStateReady(conversationID = '') {
+  if (typeof window === 'undefined') return;
+  const id = String(conversationID || '').trim();
+  if (!id) return;
+  try {
+    window.dispatchEvent(new CustomEvent('agently:workspace-state', { detail: { conversationId: id } }));
+  } catch (_) {}
 }
 
 function parseStageTimestamp(value) {
@@ -294,11 +303,12 @@ export function syncTranscriptSnapshot({
   chatState.lastQueuedTurns = queuedTurns;
   chatState.lastHasRunning = effectiveHasRunning;
   chatState.lastConversationID = conversationID;
-  if (conversationID && !hasScopedWorkspaceState(conversationID)) {
+  if (conversationID && !effectiveHasRunning) {
     const derivedWorkspaceState = deriveWorkspaceStateFromTranscriptTurns(turns);
-    if (derivedWorkspaceState) {
-      seedScopedWorkspaceState(conversationID, derivedWorkspaceState);
-      ensureWorkspaceWindowForConversation(conversationID);
+    if (derivedWorkspaceState?.windows?.length > 0) {
+      setScopedWorkspaceState(conversationID, derivedWorkspaceState.windows);
+      setScopedWorkspaceSelection(conversationID, String(derivedWorkspaceState.selectedWindowId || '').trim());
+      publishWorkspaceStateReady(conversationID);
     }
   }
   chatState.runningTurnId = effectiveHasRunning
