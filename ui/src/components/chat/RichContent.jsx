@@ -1088,15 +1088,14 @@ function PlannerTableBlock({ ui, block, dataStore }) {
                   onClick={handlePreview}
                   id={`preview-${String(block?.id || '').trim() || 'planner-table'}`}
                   data-forge-preview={String(block?.id || '').trim() || 'planner-table'}
-                  disabled={changedCount === 0}
                   style={{
                     border: '1px solid #d8e1ee',
                     borderRadius: 999,
                     padding: '12px 18px',
                     fontSize: 14,
                     fontWeight: 700,
-                    cursor: changedCount === 0 ? 'not-allowed' : 'pointer',
-                    opacity: changedCount === 0 ? 0.5 : 1,
+                    cursor: 'pointer',
+                    opacity: 1,
                     background: '#ffffff',
                     color: '#2d67c7',
                   }}
@@ -1109,18 +1108,17 @@ function PlannerTableBlock({ ui, block, dataStore }) {
                 onClick={handleSubmit}
                 id={`submit-${String(block?.id || '').trim() || 'planner-table'}`}
                 data-forge-submit={String(block?.id || '').trim() || 'planner-table'}
-                disabled={changedCount === 0}
                 style={{
                   border: 'none',
                   borderRadius: 999,
                   padding: '12px 18px',
                   fontSize: 14,
                   fontWeight: 700,
-                  cursor: changedCount === 0 ? 'not-allowed' : 'pointer',
-                  opacity: changedCount === 0 ? 0.5 : 1,
+                  cursor: 'pointer',
+                  opacity: 1,
                   background: '#2d67c7',
                   color: '#ffffff',
-                  boxShadow: changedCount === 0 ? 'none' : '0 8px 18px rgba(45, 103, 199, 0.24)',
+                  boxShadow: '0 8px 18px rgba(45, 103, 199, 0.24)',
                 }}
               >
                 {block.actions[0]?.label || 'Submit'}

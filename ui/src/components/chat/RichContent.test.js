@@ -345,6 +345,110 @@ describe('RichContent fence parsing', () => {
     expect(html).toContain('Submit changes');
   });
 
+  it('keeps planner submit enabled when rows are initially selected', () => {
+    const content = [
+      '```forge-data',
+      JSON.stringify({
+        version: 1,
+        id: 'recommended_sites',
+        format: 'json',
+        mode: 'replace',
+        data: [
+          { site_id: 101, site_name: 'example.com', reason: 'Strong overlap', selected: true },
+        ],
+      }, null, 2),
+      '```',
+      '',
+      '```forge-ui',
+      JSON.stringify({
+        version: 1,
+        title: 'Recommended sites',
+        blocks: [
+          {
+            id: 'site-review',
+            kind: 'planner.table',
+            title: 'Site review',
+            dataSourceRef: 'recommended_sites',
+            selection: { mode: 'checkbox', field: 'selected' },
+            columns: [
+              { key: 'site_id', label: 'Site ID' },
+              { key: 'site_name', label: 'Site name' },
+              { key: 'reason', label: 'Why recommended' },
+            ],
+            actions: [
+              {
+                id: 'submit-sites',
+                kind: 'submit',
+                label: 'Submit changes',
+                callback: { type: 'llm_event', eventName: 'planner_table_submit' },
+              },
+            ],
+          },
+        ],
+      }, null, 2),
+      '```',
+    ].join('\n');
+
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, { content })
+    );
+
+    expect(html).toContain('data-forge-submit="site-review"');
+    expect(html).not.toContain('data-forge-submit="site-review" disabled=""');
+  });
+
+  it('keeps planner submit enabled when no rows are selected', () => {
+    const content = [
+      '```forge-data',
+      JSON.stringify({
+        version: 1,
+        id: 'recommended_sites',
+        format: 'json',
+        mode: 'replace',
+        data: [
+          { site_id: 101, site_name: 'example.com', reason: 'Strong overlap', selected: false },
+        ],
+      }, null, 2),
+      '```',
+      '',
+      '```forge-ui',
+      JSON.stringify({
+        version: 1,
+        title: 'Recommended sites',
+        blocks: [
+          {
+            id: 'site-review',
+            kind: 'planner.table',
+            title: 'Site review',
+            dataSourceRef: 'recommended_sites',
+            selection: { mode: 'checkbox', field: 'selected' },
+            columns: [
+              { key: 'site_id', label: 'Site ID' },
+              { key: 'site_name', label: 'Site name' },
+              { key: 'reason', label: 'Why recommended' },
+            ],
+            actions: [
+              {
+                id: 'submit-sites',
+                kind: 'submit',
+                label: 'Submit changes',
+                callback: { type: 'llm_event', eventName: 'planner_table_submit' },
+              },
+            ],
+          },
+        ],
+      }, null, 2),
+      '```',
+    ].join('\n');
+
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, { content })
+    );
+
+    expect(html).toContain('data-forge-submit="site-review"');
+    expect(html).not.toContain('data-forge-submit="site-review" disabled=""');
+  });
+
   it('renders forge-ui dashboard blocks from forge-data references', () => {
     const content = [
       '```forge-data',

@@ -149,7 +149,7 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
     });
   });
 
-  it('sends workspace planner submit metadata and filtered selected rows when declared', async () => {
+  it('routes llm_event planner submits directly back to chat with masked display text and structured payload', async () => {
     await withFakeWindow(async () => {
       const submitMessage = vi.fn(async () => {});
       const dispatchCallback = vi.fn(async () => ({ ok: true, tool: 'steward-RecommendationPatch' }));
@@ -158,36 +158,48 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
 
       dispatchForgeUIAction({
         eventName: 'site_list_planner_submit',
-        selectedRows: [{ site_id: 101, recommendation_patch: { op: 'add' } }],
-        selectedRowsRaw: [{ site_id: 101, recommendation_patch: { op: 'add' }, rationale: 'keep', selected: true }],
+        tableId: 'site-review',
+        selectedRows: [{ publisher_id: 37, site_id: 3945613211, audience_id: 7301206, relationship: 'target', recommendation: 'ADD' }],
         plannerSubmit: {
           domain: 'site_list',
           submitIntent: 'submit_selected',
-          selectedKeys: ['site_id', 'recommendation_patch'],
+          selectedKeys: ['publisher_id', 'site_id', 'audience_id', 'relationship', 'recommendation'],
           toolGuidance: {
             tool: 'steward-RecommendationPatch',
             useSelectedRowsOnly: true,
           },
+        },
+        callbackContext: {
+          displayQuery: 'Submit selected site recommendations.',
         },
         callback: { type: 'llm_event', eventName: 'site_list_planner_submit', target: 'foreground' },
       });
 
       await Promise.resolve();
       await Promise.resolve();
-      await Promise.resolve();
 
-      expect(dispatchCallback).toHaveBeenCalledTimes(1);
-      const input = dispatchCallback.mock.calls[0][0];
-      expect(input.payload.selectedRows).toEqual([{ site_id: 101, recommendation_patch: { op: 'add' } }]);
-      expect(input.payload.unselectedRows).toBeUndefined();
-      expect(input.payload.changedRows).toBeUndefined();
-      expect(input.payload.plannerSubmit).toEqual({
-        domain: 'site_list',
-        submitIntent: 'submit_selected',
-        selectedKeys: ['site_id', 'recommendation_patch'],
-        toolGuidance: {
-          tool: 'steward-RecommendationPatch',
-          useSelectedRowsOnly: true,
+      expect(dispatchCallback).not.toHaveBeenCalled();
+      expect(submitMessage).toHaveBeenCalledTimes(1);
+      const call = submitMessage.mock.calls[0][0];
+      expect(call.context).toBe(context);
+      expect(call.message).toEqual({
+        content: 'Handle the planner submit event using the structured plannerSubmitEvent context.',
+        displayQuery: 'Submit selected site recommendations.',
+        context: {
+          plannerSubmitEvent: {
+            eventName: 'site_list_planner_submit',
+            tableId: 'site-review',
+            plannerSubmit: {
+              domain: 'site_list',
+              submitIntent: 'submit_selected',
+              selectedKeys: ['publisher_id', 'site_id', 'audience_id', 'relationship', 'recommendation'],
+              toolGuidance: {
+                tool: 'steward-RecommendationPatch',
+                useSelectedRowsOnly: true,
+              },
+            },
+            selectedRows: [{ publisher_id: 37, site_id: 3945613211, audience_id: 7301206, relationship: 'target', recommendation: 'ADD' }],
+          },
         },
       });
 

@@ -23,7 +23,23 @@ function summarizeForgeUIAction(detail = {}) {
   const selectedCount = Array.isArray(detail?.selectedRows) ? detail.selectedRows.length : 0;
   const unselectedCount = Array.isArray(detail?.unselectedRows) ? detail.unselectedRows.length : 0;
   const changedCount = Array.isArray(detail?.changedRows) ? detail.changedRows.length : 0;
+  const callbackType = String(detail?.callback?.type || '').trim().toLowerCase();
   const plannerSubmit = detail?.plannerSubmit && typeof detail.plannerSubmit === 'object' ? detail.plannerSubmit : null;
+  if (callbackType === 'llm_event' && plannerSubmit) {
+    return [
+      `Planner submit event: ${eventName}`,
+      tableId ? `tableId=${tableId}` : '',
+      plannerSubmit?.domain ? `domain=${plannerSubmit.domain}` : '',
+      plannerSubmit?.submitIntent ? `submitIntent=${plannerSubmit.submitIntent}` : '',
+      '',
+      JSON.stringify({
+        eventName,
+        tableId,
+        plannerSubmit,
+        selectedRows: detail?.selectedRows || [],
+      }, null, 2),
+    ].filter(Boolean).join('\n');
+  }
   const summaryPayload = plannerSubmit
     ? {
         eventName,
@@ -130,6 +146,22 @@ function summarizeLifecycleTransition(lifecycle = null, mode = 'success', reason
   return summary;
 }
 
+function buildPlannerLLMSubmit(detail = {}) {
+  const plannerSubmit = detail?.plannerSubmit && typeof detail.plannerSubmit === 'object' ? detail.plannerSubmit : null;
+  return {
+    content: 'Handle the planner submit event using the structured plannerSubmitEvent context.',
+    displayQuery: String(detail?.callbackContext?.displayQuery || detail?.context?.displayQuery || 'Submitted planner changes.').trim(),
+    context: {
+      plannerSubmitEvent: {
+        eventName: String(detail?.eventName || detail?.callback?.eventName || '').trim(),
+        tableId: String(detail?.tableId || '').trim() || undefined,
+        plannerSubmit: plannerSubmit || undefined,
+        selectedRows: Array.isArray(detail?.selectedRows) ? detail.selectedRows : [],
+      },
+    },
+  };
+}
+
 /**
  * Wires forge UI submit events to the workspace-declared callback router
  * with a conversational fallback.
@@ -160,6 +192,17 @@ export function connectForgeUIActionsToCallbacksOrChat(submitMessage, contextPro
     if (!context) return;
 
     const eventName = String(detail?.eventName || detail?.callback?.eventName || '').trim();
+    const callbackType = String(detail?.callback?.type || '').trim().toLowerCase();
+
+    if (callbackType === 'llm_event') {
+      const message = buildPlannerLLMSubmit(detail);
+      try {
+        await submitMessage({ context, message });
+      } catch (err) {
+        console.error('forge-ui-action llm_event submit failed', err);
+      }
+      return;
+    }
 
     const dispatch = await resolveDispatch();
     if (eventName && typeof dispatch === 'function') {
