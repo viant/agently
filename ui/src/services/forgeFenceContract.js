@@ -256,6 +256,10 @@ export function createPlannerTableSubmitPayload(ui, block, currentRows = [], ori
     tableId: String(block?.id || '').trim(),
     dataSourceRef: String(block?.dataSourceRef || '').trim(),
     selectionField,
+    columns: (Array.isArray(block?.columns) ? block.columns : []).map((column) => ({
+      key: String(column?.key || '').trim(),
+      label: String(column?.label || column?.key || '').trim(),
+    })).filter((column) => column.key),
     selectedRows,
     selectedRowsRaw,
     unselectedRows,

@@ -223,6 +223,7 @@ describe('submitMessage', () => {
               dataSource: {
                 peekFormData: () => ({
                   defaults: { model: 'openai_gpt-5_4' },
+                  tool: ['llm/agents:list'],
                 }),
               },
             },
@@ -247,6 +248,7 @@ describe('submitMessage', () => {
               selectedKeys: ['publisher_id', 'site_id'],
               toolGuidance: {
                 tool: 'steward-RecommendationPatch',
+                toolBundle: 'analyst-sitelist-tools',
                 useSelectedRowsOnly: true,
               },
             },
@@ -270,18 +272,21 @@ describe('submitMessage', () => {
         plannerSubmitEvent: {
           eventName: 'site_list_planner_submit',
           tableId: 'site-review',
-          plannerSubmit: {
-            domain: 'site_list',
-            submitIntent: 'submit_selected',
-            selectedKeys: ['publisher_id', 'site_id'],
-            toolGuidance: {
-              tool: 'steward-RecommendationPatch',
-              useSelectedRowsOnly: true,
+            plannerSubmit: {
+              domain: 'site_list',
+              submitIntent: 'submit_selected',
+              selectedKeys: ['publisher_id', 'site_id'],
+              toolGuidance: {
+                tool: 'steward-RecommendationPatch',
+                toolBundle: 'analyst-sitelist-tools',
+                useSelectedRowsOnly: true,
+              },
             },
-          },
           selectedRows: [{ publisher_id: 37, site_id: 3945613211 }],
         },
       }),
+      tools: ['llm/agents:list', 'steward-RecommendationPatch'],
+      toolBundles: ['analyst-sitelist-tools'],
     }));
   });
 

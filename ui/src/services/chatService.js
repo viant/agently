@@ -138,6 +138,58 @@ export function resolveSubmitAgent({ selectedAgent = '', persistedAgent = '', me
   );
 }
 
+function mergeToolAllowList(baseTools = [], extraContext = null) {
+  const out = [];
+  const seen = new Set();
+  for (const toolName of Array.isArray(baseTools) ? baseTools : []) {
+    const normalized = String(toolName || '').trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  const guidedTool = String(
+    extraContext?.plannerSubmitEvent?.plannerSubmit?.toolGuidance?.tool
+    || ''
+  ).trim();
+  if (guidedTool && !seen.has(guidedTool)) {
+    seen.add(guidedTool);
+    out.push(guidedTool);
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+function mergeToolBundles(baseBundles = [], extraContext = null) {
+  const out = [];
+  const seen = new Set();
+  for (const bundleId of Array.isArray(baseBundles) ? baseBundles : []) {
+    const normalized = String(bundleId || '').trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  const guidedBundle = String(
+    extraContext?.plannerSubmitEvent?.plannerSubmit?.toolGuidance?.toolBundle
+    || ''
+  ).trim();
+  if (guidedBundle && !seen.has(guidedBundle)) {
+    seen.add(guidedBundle);
+    out.push(guidedBundle);
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+function normalizeToolList(raw = null) {
+  const out = [];
+  const seen = new Set();
+  for (const value of Array.isArray(raw) ? raw : []) {
+    const normalized = String(value || '').trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
 function mergeAttachments(primary = [], secondary = []) {
   const out = [];
   const seen = new Set();
@@ -375,6 +427,12 @@ export async function submitMessage({ context, message, model, agent }) {
   const displayQuery = typeof message === 'object' && message
     ? String(message?.displayQuery || '').trim()
     : '';
+  const explicitTools = typeof message === 'object' && message
+    ? normalizeToolList(message?.tools)
+    : [];
+  const explicitToolBundles = typeof message === 'object' && message
+    ? normalizeToolList(message?.toolBundles)
+    : [];
   const extraContext = typeof message === 'object' && message && message.context && typeof message.context === 'object' && !Array.isArray(message.context)
     ? message.context
     : null;
@@ -459,7 +517,11 @@ export async function submitMessage({ context, message, model, agent }) {
     displayQuery: displayQuery || undefined,
     agentId: resolveSubmitAgent({ selectedAgent, persistedAgent, metaForm, convForm }),
     model: effectiveModel || sanitizeAutoSelection(convForm?.model || ''),
-    tools: Array.isArray(metaForm?.tool) ? metaForm.tool : undefined,
+    tools: mergeToolAllowList([
+      ...explicitTools,
+      ...(Array.isArray(metaForm?.tool) ? metaForm.tool : []),
+    ], extraContext),
+    toolBundles: mergeToolBundles(explicitToolBundles, extraContext),
     reasoningEffort: metaForm?.reasoningEffort || undefined,
     context: {
       ...buildWebQueryContext(),
