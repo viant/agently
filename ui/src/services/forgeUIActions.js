@@ -23,14 +23,25 @@ function summarizeForgeUIAction(detail = {}) {
   const selectedCount = Array.isArray(detail?.selectedRows) ? detail.selectedRows.length : 0;
   const unselectedCount = Array.isArray(detail?.unselectedRows) ? detail.unselectedRows.length : 0;
   const changedCount = Array.isArray(detail?.changedRows) ? detail.changedRows.length : 0;
+  const plannerSubmit = detail?.plannerSubmit && typeof detail.plannerSubmit === 'object' ? detail.plannerSubmit : null;
+  const summaryPayload = plannerSubmit
+    ? {
+        eventName,
+        tableId,
+        plannerSubmit,
+        selectedRows: detail?.selectedRows || [],
+      }
+    : detail;
   return [
     `Forge UI callback: ${eventName}`,
     tableId ? `tableId=${tableId}` : '',
+    plannerSubmit?.domain ? `domain=${plannerSubmit.domain}` : '',
+    plannerSubmit?.submitIntent ? `submitIntent=${plannerSubmit.submitIntent}` : '',
     `selected=${selectedCount}`,
     `unselected=${unselectedCount}`,
     `changed=${changedCount}`,
     '',
-    JSON.stringify(detail, null, 2),
+    JSON.stringify(summaryPayload, null, 2),
   ].filter(Boolean).join('\n');
 }
 
@@ -158,9 +169,12 @@ export function connectForgeUIActionsToCallbacksOrChat(submitMessage, contextPro
         turnId: String(detail?.turnId || '').trim() || undefined,
         payload: {
           selectedRows: detail?.selectedRows,
-          unselectedRows: detail?.unselectedRows,
-          changedRows: detail?.changedRows,
+          ...(detail?.plannerSubmit ? {} : {
+            unselectedRows: detail?.unselectedRows,
+            changedRows: detail?.changedRows,
+          }),
           tableId: detail?.tableId,
+          plannerSubmit: detail?.plannerSubmit || undefined,
         },
         context: extractCallbackContext(detail),
       };

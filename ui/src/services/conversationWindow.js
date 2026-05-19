@@ -396,6 +396,7 @@ function restoreWorkspaceWindowForConversation(conversationId = '', { focus = tr
         region: String(saved.region || '').trim() || undefined,
         workspaceSharePct: saved.workspaceSharePct ?? undefined,
         workspaceMinHeight: saved.workspaceMinHeight ?? undefined,
+        workspaceCollapsed: saved.workspaceCollapsed === true,
       }
     );
     if (restored?.windowId && saved?.windowForm && typeof saved.windowForm === 'object') {
@@ -452,6 +453,7 @@ function normalizeWorkspaceStateSnapshot(raw = null, { preferLiveSignals = true 
     inTab: raw.inTab !== false,
     workspaceSharePct: Number.isFinite(Number(raw.workspaceSharePct)) ? Number(raw.workspaceSharePct) : null,
     workspaceMinHeight: Number.isFinite(Number(raw.workspaceMinHeight)) ? Number(raw.workspaceMinHeight) : null,
+    workspaceCollapsed: raw.workspaceCollapsed === true,
     windowForm: resolvedWindowForm,
     viewState: resolvedViewState,
     parameters,
@@ -530,6 +532,7 @@ export function openConversationInMainWindow(conversationId = '') {
   const targetID = String(conversationId || '').trim();
   removeNonChatTopLevelWindows();
   const mainWindow = ensureMainChatWindow();
+  focusWindow(mainWindow);
   updateMainChatWindowParameters(targetID);
   publishConversationSelection(mainWindow?.windowId || MAIN_CHAT_WINDOW_ID, targetID, {
     syncPath: true,
@@ -597,11 +600,12 @@ export function openLinkedConversationWindow(conversationId = '') {
 export function returnToParentConversation(win = null, { closeCurrent = false } = {}) {
   const target = win || getSelectedWindow();
   const parentConversationId = linkedParentConversationId(target);
-  openConversationInMainWindow(parentConversationId);
   if (closeCurrent && target?.windowId && !isMainChatWindowId(target.windowId)) {
     removeWindow(target.windowId);
-  } else {
-    const parentWindow = getWindowById(linkedParentWindowId(target)) || getWindowById(MAIN_CHAT_WINDOW_ID);
-    focusWindow(parentWindow);
+    openConversationInMainWindow(parentConversationId);
+    return;
   }
+  openConversationInMainWindow(parentConversationId);
+  const parentWindow = getWindowById(linkedParentWindowId(target)) || getWindowById(MAIN_CHAT_WINDOW_ID);
+  focusWindow(parentWindow);
 }

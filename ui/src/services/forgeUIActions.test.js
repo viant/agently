@@ -98,6 +98,7 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
       expect(input.eventName).toBe('spo_planner_submit');
       expect(input.conversationId).toBe('conv-42');
       expect(input.payload.selectedRows).toEqual([{ site_id: 101, action: 'CUT' }]);
+      expect(input.payload.plannerSubmit).toBeUndefined();
       expect(input.context).toEqual({
         agencyId: 5337,
         adOrderId: 987654,
@@ -143,6 +144,52 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
       // Legacy fallback uses the summariser — NOT the "dispatched:" confirmation.
       expect(msg).toContain('Forge UI callback: planner_table_submit');
       expect(msg).toContain('selected=1');
+
+      disconnect();
+    });
+  });
+
+  it('sends workspace planner submit metadata and filtered selected rows when declared', async () => {
+    await withFakeWindow(async () => {
+      const submitMessage = vi.fn(async () => {});
+      const dispatchCallback = vi.fn(async () => ({ ok: true, tool: 'steward-RecommendationPatch' }));
+      const context = { conversationId: 'conv-site' };
+      const disconnect = connectForgeUIActionsToCallbacksOrChat(submitMessage, () => context, dispatchCallback);
+
+      dispatchForgeUIAction({
+        eventName: 'site_list_planner_submit',
+        selectedRows: [{ site_id: 101, recommendation_patch: { op: 'add' } }],
+        selectedRowsRaw: [{ site_id: 101, recommendation_patch: { op: 'add' }, rationale: 'keep', selected: true }],
+        plannerSubmit: {
+          domain: 'site_list',
+          submitIntent: 'submit_selected',
+          selectedKeys: ['site_id', 'recommendation_patch'],
+          toolGuidance: {
+            tool: 'steward-RecommendationPatch',
+            useSelectedRowsOnly: true,
+          },
+        },
+        callback: { type: 'llm_event', eventName: 'site_list_planner_submit', target: 'foreground' },
+      });
+
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(dispatchCallback).toHaveBeenCalledTimes(1);
+      const input = dispatchCallback.mock.calls[0][0];
+      expect(input.payload.selectedRows).toEqual([{ site_id: 101, recommendation_patch: { op: 'add' } }]);
+      expect(input.payload.unselectedRows).toBeUndefined();
+      expect(input.payload.changedRows).toBeUndefined();
+      expect(input.payload.plannerSubmit).toEqual({
+        domain: 'site_list',
+        submitIntent: 'submit_selected',
+        selectedKeys: ['site_id', 'recommendation_patch'],
+        toolGuidance: {
+          tool: 'steward-RecommendationPatch',
+          useSelectedRowsOnly: true,
+        },
+      });
 
       disconnect();
     });

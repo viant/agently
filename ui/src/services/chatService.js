@@ -555,6 +555,9 @@ export async function submitMessage({ context, message, model, agent }) {
     }
     resetChatStoreConversation(conversationID);
     resetLiveStreamState(chatState);
+    try {
+      chatState?.streamTracker?.reset?.();
+    } catch (_) {}
     chatState.runningTurnId = '';
     chatState.lastHasRunning = false;
     disconnectStream(context);

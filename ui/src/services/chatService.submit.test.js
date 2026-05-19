@@ -50,6 +50,7 @@ vi.mock('./chatRuntime', () => ({
   mapTranscriptToRows: vi.fn(() => ({ queuedTurns: [] })),
   normalizeMetaResponse: vi.fn(),
   publishActiveConversation: vi.fn(),
+  publishConversationMetaUpdated: vi.fn(),
   renderMergedRowsForContext: vi.fn(),
   rememberSeedTitle: vi.fn(),
   resolveUserID: vi.fn(),
@@ -204,6 +205,7 @@ describe('submitMessage', () => {
       activeStreamTurnId: '',
       activeStreamStartedAt: 0,
       stream: { close: vi.fn() },
+      streamTracker: { reset: vi.fn(), canonicalState: { activeTurnId: 'turn-fast' } },
     };
     ensureContextResources.mockReturnValue(chatState);
     fetchConversation.mockResolvedValue({ id: 'conv-1', status: 'succeeded' });
@@ -248,6 +250,7 @@ describe('submitMessage', () => {
     });
 
     expect(resetChatStoreConversation).toHaveBeenCalledWith('conv-1');
+    expect(chatState.streamTracker.reset).toHaveBeenCalledTimes(1);
     expect(applyTranscriptToChatStore).toHaveBeenCalledWith('conv-1', expect.objectContaining({
       conversationId: 'conv-1',
     }));

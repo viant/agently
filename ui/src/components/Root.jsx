@@ -127,6 +127,9 @@ function windowBelongsToConversation(windowEntry = null, conversationId = '') {
 }
 
 export function resolveHostedBottomWindow(selectedWindow = null, mainChatWindow = null, windows = [], conversationId = '') {
+  if (selectedWindow && isLinkedChildWindow(selectedWindow)) {
+    return selectedWindow;
+  }
   if (selectedWindow && isChatBottomRegionWindow(selectedWindow) && windowBelongsToConversation(selectedWindow, conversationId)) {
     return selectedWindow;
   }
@@ -144,6 +147,14 @@ export function resolveMainWindowCloseConversationId(mainWindowConversationId = 
 
 function resolveWindowOrderId(windowEntry = null) {
   return String(windowEntry?.parameters?.AdOrderId?.[0] ?? '').trim();
+}
+
+function resolveWindowCampaignId(windowEntry = null) {
+  return String(
+    windowEntry?.parameters?.CampaignId?.[0]
+    ?? windowEntry?.parameters?.campaignId?.[0]
+    ?? ''
+  ).trim();
 }
 
 export function resolveHostedWorkspaceTabLabel(windowEntry = null) {
@@ -169,10 +180,25 @@ export function resolveMainWindowHeaderTitle(windowEntry = null) {
     const metricsOrderId = String(metrics?.orderId ?? metrics?.orderID ?? '').trim();
     const name = String(metrics?.name || '').trim();
     const orderId = parameterOrderId || metricsOrderId;
-    if (name && orderId && (!parameterOrderId || metricsOrderId === parameterOrderId)) return `${name} (${orderId})`;
     if (parameterOrderId && metricsOrderId && metricsOrderId !== parameterOrderId) return `Order ${parameterOrderId}`;
     if (name) return name;
     if (orderId) return `Order ${orderId}`;
+  }
+  if (windowKey === 'campaign' || windowKey === 'campaignPerformance') {
+    const metrics = windowEntry?.resolvedMetrics || {};
+    const parameterCampaignId = resolveWindowCampaignId(windowEntry);
+    const metricsCampaignId = String(metrics?.campaignId ?? metrics?.campaignID ?? '').trim();
+    const name = String(metrics?.campaignName || metrics?.name || '').trim();
+    if (name) return name;
+    const campaignId = parameterCampaignId || metricsCampaignId;
+    const title = String(windowEntry?.windowTitle || '').trim();
+    if (title && parameterCampaignId) {
+      const suffix = ` (${parameterCampaignId})`;
+      if (title.endsWith(suffix)) {
+        return title.slice(0, -suffix.length).trim();
+      }
+    }
+    if (campaignId) return `Campaign ${campaignId}`;
   }
   const title = String(windowEntry?.windowTitle || windowEntry?.windowKey || '').trim();
   return title;
@@ -182,6 +208,9 @@ export function shouldShowMainWindowHeader(windowEntry = null) {
   const windowKey = String(windowEntry?.windowKey || '').trim();
   if (windowKey === 'schedule' || windowKey === 'schedule/history') {
     return false;
+  }
+  if (isLinkedChildWindow(windowEntry)) {
+    return true;
   }
   return !shouldShowChatChrome(windowEntry)
     && windowEntry?.inTab !== false
@@ -339,6 +368,7 @@ export default function Root() {
   );
   const showWorkspacePane = !!(workspaceWindows.length > 0 && activeWorkspaceWindow && showWorkspaceWindow);
   const isWorkspaceFull = workspacePresentationMode === 'full';
+  const isWorkspaceCollapsed = activeWorkspaceWindow?.workspaceCollapsed === true;
 
   const setWorkspacePresentationMode = (mode) => {
     const next = String(mode || '').trim().toLowerCase() === 'full' ? 'full' : 'split';
@@ -346,6 +376,17 @@ export default function Root() {
     if (mainConversationId) {
       setScopedWorkspacePresentationMode(mainConversationId, next);
     }
+  };
+
+  const setActiveWorkspaceCollapsed = (collapsed) => {
+    const targetWindowId = String(activeWorkspaceWindow?.windowId || '').trim();
+    if (!targetWindowId) return;
+    const nextCollapsed = collapsed === true;
+    activeWindows.value = (Array.isArray(activeWindows.value) ? activeWindows.value : []).map((entry) => (
+      String(entry?.windowId || '').trim() === targetWindowId
+        ? { ...entry, workspaceCollapsed: nextCollapsed }
+        : entry
+    ));
   };
 
   const focusWorkspaceWindow = (windowId = '') => {
@@ -703,43 +744,18 @@ export default function Root() {
           <main className={`app-chat-pane${showChatChrome ? ' is-chat-main-window' : ''}`}>
             <div className={`app-chat-layout${showChatChrome ? ' has-tool-workspace' : ''}`}>
             <div className="app-chat-content-column" style={{ flex: 1, minHeight: 0, overflow: 'visible', display: 'flex', flexDirection: 'column' }}>
-              {linkedChildWindow ? (
-                <div className="app-linked-child-banner">
-                  <div className="app-linked-child-dots">
-                    <button
-                      type="button"
-                      className="app-linked-child-dot app-linked-child-dot-close"
-                      aria-label="Close linked conversation"
-                      title="Close linked conversation"
-                      onClick={() => removeWindow(linkedChildWindow.windowId)}
-                    >
-                      <span className="app-linked-child-dot-icon">×</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="app-linked-child-dot app-linked-child-dot-back"
-                      aria-label="Return to parent conversation"
-                      title="Return to parent conversation"
-                      onClick={() => returnToParentConversation(linkedChildWindow)}
-                    >
-                      <span className="app-linked-child-dot-icon">←</span>
-                    </button>
-                    <span className="app-linked-child-dot app-linked-child-dot-inert" aria-hidden="true">
-                      <span className="app-linked-child-dot-icon">•</span>
-                    </span>
-                  </div>
-                  <div className="app-linked-child-title">Linked conversation</div>
-                </div>
-              ) : null}
               {shouldShowMainWindowHeader(selectedWindow) && !activeWorkspaceWindow ? (
                 <div className="app-main-window-header">
-                  <div className="app-main-window-header-title">{activeWindowTitle}</div>
                   <button
                     type="button"
                     className="app-main-window-header-close"
-                    aria-label={`Close ${activeWindowTitle}`}
-                    title={`Close ${activeWindowTitle}`}
+                    aria-label={linkedChildWindow ? 'Close linked conversation' : `Close ${activeWindowTitle}`}
+                    title={linkedChildWindow ? 'Close linked conversation' : `Close ${activeWindowTitle}`}
                     onClick={() => {
+                      if (linkedChildWindow?.windowId) {
+                        returnToParentConversation(linkedChildWindow, { closeCurrent: true });
+                        return;
+                      }
                       const restoreConversationId = resolveMainWindowCloseConversationId(
                         getScopedConversationSelection(MAIN_CHAT_WINDOW_ID)
                       );
@@ -749,14 +765,15 @@ export default function Root() {
                       openConversationInMainWindow(restoreConversationId);
                     }}
                   >
-                    ×
+                    <span aria-hidden="true" className="app-main-window-header-close-dot" />
                   </button>
+                  <div className="app-main-window-header-title">{linkedChildWindow ? 'Linked conversation' : activeWindowTitle}</div>
                 </div>
               ) : null}
               {shouldRenderSplitShell ? (
-                <div className={`app-window-split-stack${isWorkspaceFull ? ' is-full' : ''}${!showWorkspacePane ? ' is-chat-only' : ''}`}>
+                <div className={`app-window-split-stack${isWorkspaceFull ? ' is-full' : ''}${isWorkspaceCollapsed ? ' is-collapsed' : ''}${!showWorkspacePane ? ' is-chat-only' : ''}`}>
                   <div
-                    className={`app-window-split-shell${isWorkspaceFull ? ' is-full' : ''}${!showWorkspacePane ? ' is-chat-only' : ''}`}
+                    className={`app-window-split-shell${isWorkspaceFull ? ' is-full' : ''}${isWorkspaceCollapsed ? ' is-collapsed' : ''}${!showWorkspacePane ? ' is-chat-only' : ''}`}
                     style={{
                       ...(workspaceSharePct > 0 ? { '--app-workspace-share': `${workspaceSharePct}%` } : {}),
                       ...(workspaceMinHeight > 0 ? { '--app-workspace-min-height': `${workspaceMinHeight}px` } : {}),
@@ -767,9 +784,11 @@ export default function Root() {
                       key="workspace"
                       className="app-window-split-workspace"
                       aria-label={`${activeWorkspaceTitle} workspace`}
+                      aria-expanded={!isWorkspaceCollapsed}
                       data-workspace-window-id={String(activeWorkspaceWindow?.windowId || '')}
                       data-workspace-window-key={String(activeWorkspaceWindow?.windowKey || '')}
                       data-workspace-region="chat.top"
+                      data-workspace-collapsed={isWorkspaceCollapsed ? 'true' : 'false'}
                     >
                       <div className="app-window-split-workspace-header">
                         <div className="app-window-split-workspace-dots" aria-label="Workspace window controls">
@@ -783,21 +802,24 @@ export default function Root() {
                           <button
                             type="button"
                             className="app-window-dot app-window-dot-collapse"
-                            aria-label={`Restore split view for ${activeWorkspaceTitle}`}
-                            title="Split workspace and conversation"
-                            onClick={() => setWorkspacePresentationMode('split')}
+                            aria-label={isWorkspaceCollapsed ? `Restore split view for ${activeWorkspaceTitle}` : `Collapse ${activeWorkspaceTitle}`}
+                            title={isWorkspaceCollapsed ? 'Restore split workspace' : 'Collapse workspace body'}
+                            onClick={() => setActiveWorkspaceCollapsed(!isWorkspaceCollapsed)}
                           />
                           <button
                             type="button"
                             className="app-window-dot app-window-dot-expand"
-                            aria-label={isWorkspaceFull ? `Keep ${activeWorkspaceTitle} full size` : `Expand ${activeWorkspaceTitle}`}
-                            title={isWorkspaceFull ? 'Workspace is full size' : 'Expand workspace'}
-                            onClick={() => setWorkspacePresentationMode(isWorkspaceFull ? 'split' : 'full')}
+                            aria-label={isWorkspaceFull ? `Restore split view for ${activeWorkspaceTitle}` : `Expand ${activeWorkspaceTitle}`}
+                            title={isWorkspaceFull ? 'Restore split workspace' : 'Expand workspace'}
+                            onClick={() => {
+                              setActiveWorkspaceCollapsed(false);
+                              setWorkspacePresentationMode(isWorkspaceFull ? 'split' : 'full');
+                            }}
                           />
                         </div>
                         <div className="app-window-split-workspace-title">{activeWorkspaceTitle}</div>
                       </div>
-                      {workspaceTabs.length > 1 ? (
+                      {!isWorkspaceCollapsed && workspaceTabs.length > 1 ? (
                         <div className="app-window-split-workspace-tabs" role="tablist" aria-label="Workspace compare tabs">
                           {workspaceTabs.map((tab) => (
                             <button
@@ -813,7 +835,7 @@ export default function Root() {
                           ))}
                         </div>
                       ) : null}
-                      <div className="app-window-split-workspace-body">
+                      <div className="app-window-split-workspace-body" hidden={isWorkspaceCollapsed}>
                         <WindowContent window={activeWorkspaceWindow} isInTab />
                       </div>
                     </section>
@@ -823,7 +845,7 @@ export default function Root() {
                     className="app-window-split-chat"
                     aria-label={shouldShowChatChrome(hostedBottomWindow) ? 'Conversation' : `${resolveMainWindowHeaderTitle(hostedBottomWindow)} panel`}
                   >
-                    <WindowContent window={hostedBottomWindow} isInTab />
+                    <WindowContent key={String(hostedBottomWindow?.windowId || 'chat')} window={hostedBottomWindow} isInTab />
                   </section>
                   </div>
                 </div>
