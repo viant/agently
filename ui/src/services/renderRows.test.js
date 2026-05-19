@@ -88,6 +88,42 @@ describe('buildCanonicalTranscriptRows', () => {
     expect(assistantRows[0]?.id).toBe('assistant-1');
   });
 
+  it('does not default historical transcript elicitation rows to pending when assistant status is rejected', () => {
+    const turn = {
+      turnId: 'turn-elic-rejected',
+      createdAt: '2026-05-19T21:16:21Z',
+      status: 'succeeded',
+      user: {
+        messageId: 'user-elic-rejected',
+        content: 'recommend sites'
+      },
+      assistant: {
+        final: {
+          status: 'rejected',
+          content: ''
+        }
+      },
+      elicitation: {
+        elicitationId: 'elic-rejected-1',
+        message: 'Review the selected site recommendation changes before patching.',
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            rows: { type: 'array' }
+          }
+        }
+      },
+      execution: {
+        pages: []
+      }
+    };
+
+    const { rows } = buildCanonicalTranscriptRows([turn]);
+    const elicitationRow = rows.find((row) => row?.elicitationId === 'elic-rejected-1');
+
+    expect(elicitationRow?.status).toBe('rejected');
+  });
+
   it('preserves tool step content on canonical execution rows', () => {
     const turn = {
       turnId: 'turn-status',

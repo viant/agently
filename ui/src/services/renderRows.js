@@ -139,6 +139,16 @@ function normalizeExecutionStatus(value = '', fallback = 'completed') {
   return raw;
 }
 
+function normalizeHistoricalElicitationStatus(...values) {
+  for (const value of values) {
+    const raw = String(value || '').trim();
+    if (!raw) continue;
+    const normalized = normalizeExecutionStatus(raw, '');
+    if (normalized) return normalized;
+  }
+  return 'pending';
+}
+
 function buildSyntheticRouterExecutionPages(turn = {}) {
   const messages = Array.isArray(turn?.messages) ? turn.messages : [];
   if (messages.length === 0) return [];
@@ -461,6 +471,12 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
       const elic = turn.elicitation;
       const embeddedElicitation = extractEmbeddedElicitation(turn?.assistant?.final?.content || '');
       const elicitationMessage = displayableElicitationMessage(elic.message || '', embeddedElicitation);
+      const elicitationStatus = normalizeHistoricalElicitationStatus(
+        elic.status,
+        turn?.assistant?.final?.status,
+        turn?.assistant?.status,
+        turnStatus
+      );
       rows.push(normalizeOne({
         id: `elicitation:${elic.elicitationId || turnId}`,
         role: 'assistant',
@@ -468,7 +484,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
         content: elicitationMessage,
         turnId,
         turnStatus,
-        status: elic.status || 'pending',
+        status: elicitationStatus,
         elicitationId: elic.elicitationId || '',
         elicitation: {
           elicitationId: elic.elicitationId || '',
