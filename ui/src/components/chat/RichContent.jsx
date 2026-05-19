@@ -47,6 +47,7 @@ import {
   FORGE_UI_FENCE,
   FORGE_DATA_FENCE,
   applyForgeDataBlocks,
+  createPlannerTableActionPayload,
   createPlannerTableSubmitPayload,
   parseForgeFenceBody,
   rowsToCsv,
@@ -317,10 +318,13 @@ export function normalizeDashboardPayload(payload) {
       const target = {};
       const itemLabels = {};
       const itemFormats = {};
+      const sourceRow = collection[0] || null;
       for (const item of block.items) {
         const metricKey = String(item?.metricKey || item?.id || item?.label || '').trim();
         if (!metricKey) continue;
-        target[metricKey] = normalizeMetricValue(item?.value ?? null);
+        const valueField = String(item?.valueField || item?.field || '').trim();
+        const rawValue = valueField && sourceRow ? sourceRow?.[valueField] : item?.value;
+        target[metricKey] = normalizeMetricValue(rawValue ?? null);
         const label = String(item?.label || '').trim();
         if (label) itemLabels[metricKey] = label;
         if (String(item?.format || '').trim()) itemFormats[metricKey] = String(item.format).trim();
@@ -965,16 +969,20 @@ function PlannerTableBlock({ ui, block, dataStore }) {
     )));
   };
 
-  const handleSubmit = () => {
-    const callback = block?.actions?.[0]?.callback || {};
-    const eventName = String(callback?.eventName || 'planner_table_submit').trim() || 'planner_table_submit';
+  const dispatchAction = (action = null) => {
+    const actionPayload = createPlannerTableActionPayload(ui, block, action, rows, originalRows);
+    const callback = actionPayload.callback || {};
+    const eventName = String(actionPayload.eventName || callback?.eventName || 'planner_table_submit').trim() || 'planner_table_submit';
     const detail = {
-      ...payload,
+      ...actionPayload,
       callback,
       eventName,
     };
     dispatchForgeUIAction(detail);
   };
+
+  const handleSubmit = () => dispatchAction(block?.actions?.[0] || null);
+  const handlePreview = () => dispatchAction(block?.actions?.[1] || null);
 
   const downloadCsv = () => {
     if (typeof window === 'undefined') return;
@@ -1073,27 +1081,51 @@ function PlannerTableBlock({ ui, block, dataStore }) {
             Download CSV
           </button>
           {Array.isArray(block?.actions) && block.actions.length > 0 ? (
-            <button
-              type="button"
-              onClick={handleSubmit}
-              id={`submit-${String(block?.id || '').trim() || 'planner-table'}`}
-              data-forge-submit={String(block?.id || '').trim() || 'planner-table'}
-              disabled={changedCount === 0}
-              style={{
-                border: 'none',
-                borderRadius: 999,
-                padding: '12px 18px',
-                fontSize: 14,
-                fontWeight: 700,
-                cursor: changedCount === 0 ? 'not-allowed' : 'pointer',
-                opacity: changedCount === 0 ? 0.5 : 1,
-                background: '#2d67c7',
-                color: '#ffffff',
-                boxShadow: changedCount === 0 ? 'none' : '0 8px 18px rgba(45, 103, 199, 0.24)',
-              }}
-            >
-              {block.actions[0]?.label || 'Submit'}
-            </button>
+            <>
+              {block.actions[1] ? (
+                <button
+                  type="button"
+                  onClick={handlePreview}
+                  id={`preview-${String(block?.id || '').trim() || 'planner-table'}`}
+                  data-forge-preview={String(block?.id || '').trim() || 'planner-table'}
+                  disabled={changedCount === 0}
+                  style={{
+                    border: '1px solid #d8e1ee',
+                    borderRadius: 999,
+                    padding: '12px 18px',
+                    fontSize: 14,
+                    fontWeight: 700,
+                    cursor: changedCount === 0 ? 'not-allowed' : 'pointer',
+                    opacity: changedCount === 0 ? 0.5 : 1,
+                    background: '#ffffff',
+                    color: '#2d67c7',
+                  }}
+                >
+                  {block.actions[1]?.label || 'Preview'}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={handleSubmit}
+                id={`submit-${String(block?.id || '').trim() || 'planner-table'}`}
+                data-forge-submit={String(block?.id || '').trim() || 'planner-table'}
+                disabled={changedCount === 0}
+                style={{
+                  border: 'none',
+                  borderRadius: 999,
+                  padding: '12px 18px',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: changedCount === 0 ? 'not-allowed' : 'pointer',
+                  opacity: changedCount === 0 ? 0.5 : 1,
+                  background: '#2d67c7',
+                  color: '#ffffff',
+                  boxShadow: changedCount === 0 ? 'none' : '0 8px 18px rgba(45, 103, 199, 0.24)',
+                }}
+              >
+                {block.actions[0]?.label || 'Submit'}
+              </button>
+            </>
           ) : null}
         </div>
       </div>

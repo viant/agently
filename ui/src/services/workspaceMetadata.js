@@ -12,6 +12,35 @@ function normalizeEntry(entry) {
   return { id, name: id, modelRef: '' }
 }
 
+let workspaceMetadataSnapshot = null
+const workspaceMetadataListeners = new Set()
+
+export function publishWorkspaceMetadataSnapshot(payload = null) {
+  workspaceMetadataSnapshot = payload && typeof payload === 'object' ? payload : null
+  workspaceMetadataListeners.forEach((listener) => {
+    try {
+      listener(workspaceMetadataSnapshot)
+    } catch (_) {}
+  })
+}
+
+export function getWorkspaceMetadataSnapshot() {
+  return workspaceMetadataSnapshot
+}
+
+export function subscribeWorkspaceMetadata(listener) {
+  if (typeof listener !== 'function') return () => {}
+  workspaceMetadataListeners.add(listener)
+  return () => {
+    workspaceMetadataListeners.delete(listener)
+  }
+}
+
+export function resolveWorkspaceAppName(payload = null, fallback = 'Agently') {
+  const next = String(payload?.appName || payload?.defaults?.appName || '').trim()
+  return next || String(fallback || 'Agently').trim() || 'Agently'
+}
+
 function isInternalEntry(entry) {
   if (!entry || typeof entry !== 'object') return false
   return !!(entry.internal || entry.Internal)

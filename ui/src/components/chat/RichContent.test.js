@@ -797,6 +797,50 @@ describe('RichContent fence parsing', () => {
     ]);
   });
 
+  it('normalizes dashboard summary items that read values from valueField on the datasource row', () => {
+    const normalized = normalizeDashboardPayload({
+      type: 'forge_dashboard',
+      title: 'Inventory constraints',
+      dataSources: [
+        {
+          id: 'order2661308_summary',
+          collection: [
+            {
+              ad_order_name: 'ThomasJHenryLaw_CTVPilot_2026_CTV_Video_Dallas_General',
+              baseline_spend: 24082.989,
+              daily_budget: 25000,
+              pacing_rate: 0.9633,
+              bid_to_imp_win_rate: 0.1748,
+              primary_blocker: 'Single-deal supply constraint',
+            },
+          ],
+        },
+      ],
+      blocks: [
+        {
+          kind: 'dashboard.summary',
+          title: 'Delivery posture and blocker ranking',
+          dataSourceRef: 'order2661308_summary',
+          items: [
+            { label: 'Ad order', valueField: 'ad_order_name' },
+            { label: 'Baseline spend', valueField: 'baseline_spend', format: 'currency' },
+            { label: 'Daily budget', valueField: 'daily_budget', format: 'currency' },
+            { label: 'Pacing rate', valueField: 'pacing_rate', format: 'percentFraction' },
+            { label: 'Bid→imp win rate', valueField: 'bid_to_imp_win_rate', format: 'percentFraction' },
+            { label: 'Primary blocker', valueField: 'primary_blocker' },
+          ],
+        },
+      ],
+    });
+
+    expect(normalized.metrics.block_0['Ad order']).toBe('ThomasJHenryLaw_CTVPilot_2026_CTV_Video_Dallas_General');
+    expect(normalized.metrics.block_0['Baseline spend']).toBe(24082.989);
+    expect(normalized.metrics.block_0['Daily budget']).toBe(25000);
+    expect(normalized.metrics.block_0['Pacing rate']).toBe(0.9633);
+    expect(normalized.metrics.block_0['Bid→imp win rate']).toBe(0.1748);
+    expect(normalized.metrics.block_0['Primary blocker']).toBe('Single-deal supply constraint');
+  });
+
   it('normalizes dashboard dimensions blocks that use field-based dimension and metrics', () => {
     const normalized = normalizeDashboardPayload({
       type: 'forge_dashboard',

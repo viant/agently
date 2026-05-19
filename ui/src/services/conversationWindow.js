@@ -1,11 +1,14 @@
 import {
   addWindow,
   activeWindows,
+  getFormSignal,
+  getViewSignal,
   publishUIBridgeSnapshotNow,
   removeWindow,
   selectedTabId,
   selectedWindowId
 } from 'forge/core';
+import { deriveHostedWorkspaceRestoreStateFromTranscriptTurns } from 'agently-core-ui-sdk/workspaceRestore';
 import { generateIntHash } from '../../../../forge/src/utils/hash.js';
 
 export const CHAT_WINDOW_KEY = 'chat/new';
@@ -117,6 +120,26 @@ export function linkedParentWindowId(win = null) {
   return String(win?.parameters?.linkedParent?.windowId || '').trim();
 }
 
+function isChatOwnedWindow(win = null) {
+  if (!win || typeof win !== 'object') return false;
+  const windowId = String(win?.windowId || '').trim();
+  const windowKey = String(win?.windowKey || '').trim();
+  const parentKey = String(win?.parentKey || '').trim();
+  if (windowId === MAIN_CHAT_WINDOW_ID || windowKey === CHAT_WINDOW_KEY) return true;
+  if (parentKey === MAIN_CHAT_WINDOW_ID) return true;
+  return false;
+}
+
+function removeNonChatTopLevelWindows() {
+  const windows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
+  for (const win of windows) {
+    const windowId = String(win?.windowId || '').trim();
+    if (!windowId) continue;
+    if (isChatOwnedWindow(win)) continue;
+    removeWindow(windowId);
+  }
+}
+
 export function getScopedConversationSelection(windowId = '') {
   const storage = uiStateStorage();
   if (!storage) return '';
@@ -142,13 +165,14 @@ export function currentConversationIdFromPath(pathname = '') {
 }
 
 export function resolveConversationSelection(windowId = '') {
-  const scoped = getScopedConversationSelection(windowId);
-  if (scoped) return scoped;
-  if (typeof window === 'undefined') return '';
   if (isMainChatWindowId(windowId)) {
-    return currentConversationIdFromPath(window.location?.pathname);
+    if (typeof window !== 'undefined') {
+      const fromPath = currentConversationIdFromPath(window.location?.pathname);
+      if (fromPath) return fromPath;
+    }
+    return getScopedConversationSelection(windowId);
   }
-  return '';
+  return getScopedConversationSelection(windowId);
 }
 
 export function setScopedConversationSelection(windowId = '', conversationId = '') {
@@ -208,6 +232,15 @@ export function getScopedWorkspaceState(conversationId = '') {
   }
 }
 
+export function getScopedWorkspaceWindowsState(conversationId = '') {
+  const saved = getScopedWorkspaceState(conversationId);
+  if (!saved) return [];
+  const list = Array.isArray(saved?.windows) ? saved.windows : [saved];
+  return list
+    .map((entry) => normalizeWorkspaceStateSnapshot(entry, { preferLiveSignals: false }))
+    .filter(Boolean);
+}
+
 export function getScopedWorkspacePresentationMode(conversationId = '') {
   const storage = uiStateStorage();
   if (!storage) return 'split';
@@ -242,33 +275,51 @@ export function setScopedWorkspaceState(conversationId = '', win = null) {
       storage.removeItem(workspaceStateKey(convID));
       return;
     }
-    const payload = {
-      windowId: String(win.windowId || '').trim(),
-      conversationId: String(win.conversationId || '').trim() || null,
-      windowKey: String(win.windowKey || '').trim(),
-      presentation: String(win.presentation || '').trim() || null,
-      region: String(win.region || '').trim() || null,
-      windowTitle: String(win.windowTitle || win.windowKey || '').trim(),
-      parentKey: String(win.parentKey || '').trim() || null,
-      inTab: win.inTab !== false,
-      parameters: win.parameters || {},
-    };
+    const liveWindows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
+    const entries = Array.isArray(win) ? win : [win];
+    const payloads = entries
+      .map((entry) => normalizeWorkspaceStateSnapshot(entry, { preferLiveSignals: true }))
+      .filter(Boolean);
+    if (payloads.length === 0) {
+      storage.removeItem(workspaceStateKey(convID));
+      return;
+    }
+    const payload = payloads.length === 1
+      ? payloads[0]
+      : { windows: payloads };
     storage.setItem(workspaceStateKey(convID), JSON.stringify(payload));
   } catch (_) {}
 }
 
-export function resolveWorkspaceWindowForConversation(conversationId = '') {
+export function resolveWorkspaceWindowsForConversation(conversationId = '') {
   const convID = String(conversationId || '').trim();
-  if (!convID) return null;
+  if (!convID) return [];
   const windows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
-  const liveOwnedWindow = windows.find((entry) => {
+  return windows.filter((entry) => {
     if (String(entry?.windowKey || '').trim() === CHAT_WINDOW_KEY) return false;
     if (String(entry?.presentation || '').trim().toLowerCase() !== 'hosted') return false;
     if (String(entry?.region || '').trim().toLowerCase() !== 'chat.top') return false;
     return String(entry?.conversationId || '').trim() === convID;
   });
-  if (liveOwnedWindow) {
-    return liveOwnedWindow;
+}
+
+export function resolveWorkspaceWindowForConversation(conversationId = '') {
+  const convID = String(conversationId || '').trim();
+  if (!convID) return null;
+  const liveOwnedWindows = resolveWorkspaceWindowsForConversation(convID);
+  if (liveOwnedWindows.length > 0) {
+    const preferredIds = [
+      String(selectedWindowId.peek?.() || selectedWindowId.value || '').trim(),
+      String(selectedTabId.peek?.() || selectedTabId.value || '').trim(),
+      getScopedWorkspaceSelection(convID),
+    ].filter(Boolean);
+    for (const preferredId of preferredIds) {
+      const matched = liveOwnedWindows.find((entry) => String(entry?.windowId || '').trim() === preferredId);
+      if (matched) {
+        return matched;
+      }
+    }
+    return liveOwnedWindows[liveOwnedWindows.length - 1] || null;
   }
   const storedWindowId = getScopedWorkspaceSelection(convID);
   if (storedWindowId) {
@@ -277,14 +328,40 @@ export function resolveWorkspaceWindowForConversation(conversationId = '') {
       return win;
     }
   }
-  const saved = getScopedWorkspaceState(convID);
-  if (!saved) return null;
-  const expectedWindowId = String(saved.windowId || '').trim()
-    || computeWorkspaceWindowId(saved.windowKey, saved.parameters || {});
-  if (!expectedWindowId) return null;
-  const win = getWindowById(expectedWindowId);
-  if (!win) return null;
-  if (String(win?.windowKey || '').trim() === CHAT_WINDOW_KEY) return null;
+  const savedWindows = getScopedWorkspaceWindowsState(convID);
+  for (const saved of savedWindows) {
+    const expectedWindowId = String(saved.windowId || '').trim()
+      || computeWorkspaceWindowId(saved.windowKey, saved.parameters || {});
+    if (!expectedWindowId) continue;
+    const win = getWindowById(expectedWindowId);
+    if (!win) continue;
+    if (String(win?.windowKey || '').trim() === CHAT_WINDOW_KEY) continue;
+    return win;
+  }
+  return null;
+}
+
+function hydrateLiveWorkspaceWindowFromSavedState(conversationId = '', win = null) {
+  const convID = String(conversationId || '').trim();
+  const windowId = String(win?.windowId || '').trim();
+  if (!convID || !windowId) return win;
+  const savedWindows = getScopedWorkspaceWindowsState(convID);
+  const saved = savedWindows.find((entry) => String(entry?.windowId || '').trim() === windowId);
+  if (!saved) return win;
+  if (saved.windowForm && typeof saved.windowForm === 'object') {
+    const formSignal = getFormSignal(`${windowId}:windowForm`);
+    const currentForm = formSignal?.peek?.() || {};
+    if (JSON.stringify(currentForm) !== JSON.stringify(saved.windowForm)) {
+      formSignal.value = saved.windowForm;
+    }
+  }
+  if (saved.viewState && typeof saved.viewState === 'object') {
+    const viewSignal = getViewSignal(windowId);
+    const currentView = viewSignal?.peek?.() || {};
+    if (JSON.stringify(currentView) !== JSON.stringify(saved.viewState)) {
+      viewSignal.value = saved.viewState;
+    }
+  }
   return win;
 }
 
@@ -292,33 +369,51 @@ function restoreWorkspaceWindowForConversation(conversationId = '', { focus = tr
   const convID = String(conversationId || '').trim();
   if (!convID) return null;
   const live = resolveWorkspaceWindowForConversation(convID);
-  if (live) return focus ? focusWindow(live) : live;
-  const saved = getScopedWorkspaceState(convID);
-  if (!saved) return null;
-  const windowKey = String(saved.windowKey || '').trim();
-  if (!windowKey || windowKey === CHAT_WINDOW_KEY) return null;
+  if (live) {
+    hydrateLiveWorkspaceWindowFromSavedState(convID, live);
+    return focus ? focusWindow(live) : live;
+  }
+  const savedWindows = getScopedWorkspaceWindowsState(convID);
+  if (savedWindows.length === 0) return null;
   const previousSelectedWindowId = String(selectedWindowId.peek?.() || selectedWindowId.value || '').trim();
   const previousSelectedTabId = String(selectedTabId.peek?.() || selectedTabId.value || '').trim();
-  const win = addWindow(
-    String(saved.windowTitle || windowKey).trim() || windowKey,
-    saved.parentKey || MAIN_CHAT_WINDOW_ID,
-    windowKey,
-    null,
-    saved.inTab !== false,
-    saved.parameters || {},
-    {
-      autoIndexTitle: false,
-      conversationId: convID,
-      presentation: String(saved.presentation || '').trim() || undefined,
-      region: String(saved.region || '').trim() || undefined
+  let restored = null;
+  for (const saved of savedWindows) {
+    const windowKey = String(saved.windowKey || '').trim();
+    if (!windowKey || windowKey === CHAT_WINDOW_KEY) continue;
+    restored = addWindow(
+      String(saved.windowTitle || windowKey).trim() || windowKey,
+      saved.parentKey || MAIN_CHAT_WINDOW_ID,
+      windowKey,
+      null,
+      saved.inTab !== false,
+      saved.parameters || {},
+      {
+        autoIndexTitle: false,
+        windowId: String(saved.windowId || '').trim() || undefined,
+        conversationId: convID,
+        presentation: String(saved.presentation || '').trim() || undefined,
+        region: String(saved.region || '').trim() || undefined,
+        workspaceSharePct: saved.workspaceSharePct ?? undefined,
+        workspaceMinHeight: saved.workspaceMinHeight ?? undefined,
+      }
+    );
+    if (restored?.windowId && saved?.windowForm && typeof saved.windowForm === 'object') {
+      getFormSignal(`${restored.windowId}:windowForm`).value = saved.windowForm;
     }
-  );
+  }
+  if (!restored) return null;
+  const restoredWindows = resolveWorkspaceWindowsForConversation(convID);
+  const preferredWindowId = String(getScopedWorkspaceSelection(convID) || '').trim();
+  const targetWindow = restoredWindows.find((entry) => String(entry?.windowId || '').trim() === preferredWindowId)
+    || restoredWindows[restoredWindows.length - 1]
+    || restored;
   if (!focus) {
     selectedWindowId.value = previousSelectedWindowId || null;
     selectedTabId.value = previousSelectedTabId || null;
   }
   void publishUIBridgeSnapshotNow();
-  return focus ? focusWindow(win) : win;
+  return focus ? focusWindow(targetWindow) : targetWindow;
 }
 
 export function reopenWorkspaceForConversation(conversationId = '') {
@@ -329,113 +424,47 @@ export function ensureWorkspaceWindowForConversation(conversationId = '') {
   return restoreWorkspaceWindowForConversation(conversationId, { focus: false });
 }
 
-export function seedScopedWorkspaceState(conversationId = '', snapshot = null) {
-  const convID = String(conversationId || '').trim();
-  if (!convID || !snapshot || typeof snapshot !== 'object') return null;
-  if (getScopedWorkspaceState(convID)) return getScopedWorkspaceState(convID);
-  setScopedWorkspaceState(convID, snapshot);
-  return getScopedWorkspaceState(convID);
-}
-
-function normalizeWorkspaceStateSnapshot(raw = null) {
+function normalizeWorkspaceStateSnapshot(raw = null, { preferLiveSignals = true } = {}) {
   if (!raw || typeof raw !== 'object') return null;
   const windowKey = String(raw.windowKey || '').trim();
   if (!windowKey || windowKey === CHAT_WINDOW_KEY) return null;
   const parameters = raw.parameters && typeof raw.parameters === 'object' ? raw.parameters : {};
   const computedWindowId = computeWorkspaceWindowId(windowKey, parameters);
   const windowId = String(raw.windowId || computedWindowId || '').trim();
+  const liveWindowForm = preferLiveSignals && windowId ? (getFormSignal(`${windowId}:windowForm`)?.peek?.() || {}) : {};
+  const liveViewState = preferLiveSignals && windowId ? (getViewSignal(windowId)?.peek?.() || {}) : {};
+  const rawWindowForm = raw.windowForm && typeof raw.windowForm === 'object' ? raw.windowForm : undefined;
+  const rawViewState = raw.viewState && typeof raw.viewState === 'object' ? raw.viewState : undefined;
+  const resolvedWindowForm = Object.keys(liveWindowForm).length > 0
+    ? liveWindowForm
+    : rawWindowForm;
+  const resolvedViewState = Object.keys(liveViewState).length > 0
+    ? liveViewState
+    : rawViewState;
   return {
     windowId,
     conversationId: String(raw.conversationId || '').trim() || null,
     windowKey,
     windowTitle: String(raw.windowTitle || raw.windowKey || '').trim() || windowKey,
     presentation: String(raw.presentation || '').trim() || null,
+    region: String(raw.region || '').trim() || null,
     parentKey: String(raw.parentKey || MAIN_CHAT_WINDOW_ID).trim() || MAIN_CHAT_WINDOW_ID,
     inTab: raw.inTab !== false,
+    workspaceSharePct: Number.isFinite(Number(raw.workspaceSharePct)) ? Number(raw.workspaceSharePct) : null,
+    workspaceMinHeight: Number.isFinite(Number(raw.workspaceMinHeight)) ? Number(raw.workspaceMinHeight) : null,
+    windowForm: resolvedWindowForm,
+    viewState: resolvedViewState,
     parameters,
   };
 }
 
-export function deriveWorkspaceStateFromConversation(conversation = null) {
-  if (!conversation || typeof conversation !== 'object') return null;
-  const metadataRaw = conversation?.metadata ?? conversation?.Metadata;
-  let metadata = metadataRaw;
-  if (typeof metadataRaw === 'string') {
-    try {
-      metadata = JSON.parse(metadataRaw);
-    } catch (_) {
-      metadata = null;
-    }
-  }
-  const workspace = metadata?.workspace;
-  return normalizeWorkspaceStateSnapshot(workspace);
-}
-
-export function syncWorkspaceStateFromConversation(conversation = null) {
-  const conversationId = String(conversation?.id || conversation?.Id || '').trim();
-  if (!conversationId) return null;
-  const derived = deriveWorkspaceStateFromConversation(conversation);
-  if (!derived) return null;
-  return seedScopedWorkspaceState(conversationId, derived);
-}
-
-function parseToolPayload(raw = null) {
-  if (!raw) return null;
-  if (typeof raw === 'string') {
-    try {
-      return JSON.parse(raw);
-    } catch (_) {
-      return null;
-    }
-  }
-  if (typeof raw === 'object') {
-    if (raw.inlineBody && typeof raw.inlineBody === 'string') {
-      try {
-        return JSON.parse(raw.inlineBody);
-      } catch (_) {}
-    }
-    return raw;
-  }
-  return null;
-}
-
-function normalizeToolName(raw = '') {
-  const value = String(raw || '').trim().toLowerCase();
-  if (!value) return '';
-  return value.replace(/:/g, '/');
-}
-
 export function deriveWorkspaceStateFromTranscriptTurns(turns = []) {
-  const list = Array.isArray(turns) ? turns : [];
-  for (let turnIndex = list.length - 1; turnIndex >= 0; turnIndex -= 1) {
-    const turn = list[turnIndex] || {};
-    const pages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
-    for (let pageIndex = pages.length - 1; pageIndex >= 0; pageIndex -= 1) {
-      const page = pages[pageIndex] || {};
-      const toolSteps = Array.isArray(page?.toolSteps) ? page.toolSteps : [];
-      for (let stepIndex = toolSteps.length - 1; stepIndex >= 0; stepIndex -= 1) {
-        const step = toolSteps[stepIndex] || {};
-        if (normalizeToolName(step?.toolName) !== 'ui/view/open') continue;
-        if (String(step?.status || '').trim().toLowerCase() !== 'completed') continue;
-        const requestPayload = parseToolPayload(step?.requestPayload);
-        const responsePayload = parseToolPayload(step?.responsePayload);
-        const windowKey = String(requestPayload?.id || responsePayload?.windowKey || '').trim();
-        if (windowKey !== 'order') continue;
-        const parameters = requestPayload?.parameters;
-        const adOrderId = parameters?.AdOrderId;
-        if (!Array.isArray(adOrderId) || adOrderId.length === 0) continue;
-        return normalizeWorkspaceStateSnapshot({
-          windowId: String(responsePayload?.windowId || '').trim(),
-          windowKey,
-          windowTitle: String(responsePayload?.windowTitle || 'Order Summary').trim(),
-          parentKey: MAIN_CHAT_WINDOW_ID,
-          inTab: true,
-          parameters,
-        });
-      }
-    }
-  }
-  return null;
+  const derived = deriveHostedWorkspaceRestoreStateFromTranscriptTurns(Array.isArray(turns) ? turns : []);
+  if (!derived?.windows?.length) return null;
+  return {
+    windows: derived.windows,
+    selectedWindowId: String(derived.selectedWindowId || '').trim() || null,
+  };
 }
 
 export function ensureMainChatWindow() {
@@ -499,6 +528,7 @@ export function publishConversationSelection(windowId = '', conversationId = '',
 
 export function openConversationInMainWindow(conversationId = '') {
   const targetID = String(conversationId || '').trim();
+  removeNonChatTopLevelWindows();
   const mainWindow = ensureMainChatWindow();
   updateMainChatWindowParameters(targetID);
   publishConversationSelection(mainWindow?.windowId || MAIN_CHAT_WINDOW_ID, targetID, {
@@ -513,6 +543,7 @@ export function openConversationInMainWindow(conversationId = '') {
 }
 
 export function requestNewConversationInMainWindow() {
+  removeNonChatTopLevelWindows();
   const mainWindow = ensureMainChatWindow();
   updateMainChatWindowParameters('');
   publishConversationSelection(mainWindow?.windowId || MAIN_CHAT_WINDOW_ID, '', {

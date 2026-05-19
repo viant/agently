@@ -1,8 +1,140 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { activeWindows, selectedTabId, selectedWindowId } from 'forge/core';
+import { getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, MAIN_CHAT_WINDOW_ID } from './conversationWindow';
 
 import { resetTranscriptState, syncTranscriptSnapshot, tickTranscript } from './transcriptStore';
 
+function createStorage() {
+  const store = new Map();
+  return {
+    getItem(key) {
+      return store.has(key) ? store.get(key) : null;
+    },
+    setItem(key, value) {
+      store.set(String(key), String(value));
+    },
+    removeItem(key) {
+      store.delete(String(key));
+    },
+    clear() {
+      store.clear();
+    }
+  };
+}
+
 describe('syncTranscriptSnapshot', () => {
+  beforeEach(() => {
+    activeWindows.value = [{
+      windowId: MAIN_CHAT_WINDOW_ID,
+      windowKey: MAIN_CHAT_WINDOW_ID,
+      parameters: {}
+    }];
+    selectedTabId.value = MAIN_CHAT_WINDOW_ID;
+    selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
+    global.window = {
+      sessionStorage: createStorage(),
+      location: { pathname: '/conversation/conv-1', port: '5173', hostname: '127.0.0.1' },
+      history: { state: null, replaceState: () => {} },
+      dispatchEvent: () => {}
+    };
+  });
+
+  it('restores hosted workspace state from the last settled transcript turn', () => {
+    const chatState = {
+      transcriptRows: [],
+      liveRows: [],
+      liveOwnedConversationID: '',
+      liveOwnedTurnIds: [],
+      lastConversationID: 'conv-1',
+      lastQueuedTurns: [],
+      lastHasRunning: false,
+      runningTurnId: ''
+    };
+    const conversationsDS = {
+      peekFormData: () => ({ id: 'conv-1' }),
+      setFormData: vi.fn()
+    };
+    const context = {
+      Context: (name) => {
+        if (name === 'conversations') {
+          return { handlers: { dataSource: conversationsDS } };
+        }
+        return null;
+      }
+    };
+
+    syncTranscriptSnapshot({
+      context,
+      turns: [
+        {
+          turnId: 'turn-1',
+          status: 'completed',
+          execution: {
+            pages: [
+              {
+                toolSteps: [
+                  {
+                    toolName: 'ui/window/list',
+                    status: 'completed',
+                    responsePayload: {
+                      items: [
+                        {
+                          windowId: 'order_2656980',
+                          conversationId: 'conv-1',
+                          windowKey: 'order',
+                          windowTitle: 'Order Summary',
+                          presentation: 'hosted',
+                          region: 'chat.top',
+                          parentKey: MAIN_CHAT_WINDOW_ID,
+                          inTab: true,
+                          parameters: { AdOrderId: [2656980] }
+                        },
+                        {
+                          windowId: 'order_2609393',
+                          conversationId: 'conv-1',
+                          windowKey: 'order',
+                          windowTitle: 'Order Summary',
+                          presentation: 'hosted',
+                          region: 'chat.top',
+                          parentKey: MAIN_CHAT_WINDOW_ID,
+                          inTab: true,
+                          parameters: { AdOrderId: [2609393] }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    toolName: 'ui/window/show',
+                    status: 'completed',
+                    requestPayload: { windowId: 'order_2656980' },
+                    responsePayload: { ok: true }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      ensureContextResources: () => chatState,
+      resolveActiveStreamTurnId: () => '',
+      mapTranscriptToRows: () => ({
+        rows: [],
+        queuedTurns: [],
+        runningTurnId: ''
+      }),
+      findLatestRunningTurnIdFromTurns: () => '',
+      findLatestRunningTurnId: () => '',
+      setStage: vi.fn(),
+      liveRows: []
+    });
+
+    expect(getScopedWorkspaceSelection('conv-1')).toBe('order_2656980');
+    expect(getScopedWorkspaceWindowsState('conv-1').map((entry) => entry.windowId)).toEqual([
+      'order_2656980',
+      'order_2609393'
+    ]);
+  });
+
   it('keeps latest turn live-owned after transcript confirms it is finished', () => {
     const chatState = {
       transcriptRows: [],

@@ -73,22 +73,50 @@ function extractConversationId(context) {
   return '';
 }
 
-/**
- * Reads an optional scope map (agencyId / advertiserId / campaignId /
- * adOrderId / audienceId) from the forge context so callbacks can carry
- * taxonomy identifiers into the payload template.
- */
-function extractScope(context) {
-  const out = {};
-  if (!context) return out;
-  const keys = ['agencyId', 'advertiserId', 'campaignId', 'adOrderId', 'audienceId'];
-  for (const k of keys) {
-    const v = context?.[k] ?? context?.windowState?.[k];
-    if (v !== undefined && v !== null && String(v).trim() !== '') {
-      out[k] = v;
-    }
+function extractCallbackContext(detail = {}) {
+  const explicit = detail?.callbackContext ?? detail?.context ?? detail?.callback?.context;
+  if (!explicit || typeof explicit !== 'object' || Array.isArray(explicit)) {
+    return undefined;
   }
-  return out;
+  const cleaned = {};
+  Object.entries(explicit).forEach(([key, value]) => {
+    const normalizedKey = String(key || '').trim();
+    if (!normalizedKey) return;
+    if (value === undefined) return;
+    cleaned[normalizedKey] = value;
+  });
+  return Object.keys(cleaned).length > 0 ? cleaned : undefined;
+}
+
+function normalizeStageName(value = '') {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return raw.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function summarizeLifecycleTransition(lifecycle = null, mode = 'success', reason = '') {
+  if (!lifecycle || typeof lifecycle !== 'object' || Array.isArray(lifecycle)) {
+    return '';
+  }
+  const current = normalizeStageName(lifecycle.currentStage || '');
+  const validation = normalizeStageName(lifecycle.validationStage || '');
+  const success = normalizeStageName(lifecycle.successStage || '');
+  const followUp = normalizeStageName(lifecycle.followUpStage || '');
+  if (mode === 'blocked') {
+    const stage = validation || current || 'Validate';
+    const suffix = String(reason || '').trim();
+    return suffix
+      ? `Recommendation lifecycle blocked at ${stage}: ${suffix}`
+      : `Recommendation lifecycle blocked at ${stage}.`;
+  }
+  if (!current && !success && !followUp) {
+    return '';
+  }
+  let summary = `Recommendation lifecycle advanced: ${current || 'Review'} -> ${success || 'Execute'}.`;
+  if (followUp) {
+    summary += ` Next stage: ${followUp}.`;
+  }
+  return summary;
 }
 
 /**
@@ -134,7 +162,7 @@ export function connectForgeUIActionsToCallbacksOrChat(submitMessage, contextPro
           changedRows: detail?.changedRows,
           tableId: detail?.tableId,
         },
-        context: extractScope(context),
+        context: extractCallbackContext(detail),
       };
 
       let result;
@@ -147,11 +175,29 @@ export function connectForgeUIActionsToCallbacksOrChat(submitMessage, contextPro
 
       if (result?.ok) {
         // Preserve audit trail — post a one-line confirmation.
-        const message = `Forge UI callback dispatched: ${eventName}${result?.tool ? ` → ${result.tool}` : ''}`;
+        const stageMessage = summarizeLifecycleTransition(input.context?.stageLifecycle, 'success');
+        const message = [
+          `Forge UI callback dispatched: ${eventName}${result?.tool ? ` → ${result.tool}` : ''}`,
+          stageMessage,
+        ].filter(Boolean).join(' ');
         try {
           await submitMessage({ context, message });
         } catch (err) {
           console.error('forge-ui-action confirmation submit failed', err);
+        }
+        return;
+      }
+
+      if (result?.blocked) {
+        const stageMessage = summarizeLifecycleTransition(input.context?.stageLifecycle, 'blocked', result?.error || '');
+        const message = [
+          `Forge UI callback blocked: ${result?.error || eventName}`,
+          stageMessage,
+        ].filter(Boolean).join(' ');
+        try {
+          await submitMessage({ context, message });
+        } catch (err) {
+          console.error('forge-ui-action blocked confirmation submit failed', err);
         }
         return;
       }

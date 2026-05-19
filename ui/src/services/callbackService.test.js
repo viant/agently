@@ -70,6 +70,22 @@ describe('callbackService.dispatchCallback', () => {
     expect(out.error).toContain('rendered payload is not valid JSON');
   });
 
+  it('reports blocked when the server returns 409 callbackGate rejection', async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
+      ok: false,
+      blocked: true,
+      error: 'blocked by evaluator verdict',
+    }), {
+      status: 409,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    const out = await dispatchCallback({ eventName: 'freq_cap_planner_submit' });
+    expect(out.ok).toBe(false);
+    expect(out.blocked).toBe(true);
+    expect(out.notFound).toBe(false);
+    expect(out.error).toContain('blocked by evaluator verdict');
+  });
+
   it('rejects an empty eventName before making a network call', async () => {
     const fetchMock = vi.fn();
     globalThis.fetch = fetchMock;

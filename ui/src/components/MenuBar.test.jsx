@@ -10,11 +10,15 @@ const activeWindows = {
 const selectedTabId = { value: null };
 const selectedWindowId = { value: null };
 const addWindow = vi.fn();
+const removeWindow = vi.fn((windowId) => {
+  activeWindows.value = activeWindows.value.filter((entry) => entry.windowId !== windowId);
+});
 const getWindowContext = vi.fn();
 
 vi.mock('forge/core', () => ({
   activeWindows,
   addWindow,
+  removeWindow,
   getWindowContext,
   selectedTabId,
   selectedWindowId
@@ -29,10 +33,15 @@ vi.mock('../services/agentlyClient', () => ({
   client: {
     getAuthMe: vi.fn().mockResolvedValue(null),
     getAuthProviders: vi.fn().mockResolvedValue([]),
-    getWorkspaceMetadata: vi.fn().mockResolvedValue({ appName: 'Agently' }),
     localLogin: vi.fn().mockResolvedValue(undefined),
     logout: vi.fn().mockResolvedValue(undefined)
   }
+}));
+
+vi.mock('../services/workspaceMetadata', () => ({
+  getWorkspaceMetadataSnapshot: vi.fn().mockReturnValue(null),
+  resolveWorkspaceAppName: vi.fn((payload, fallback = 'Agently') => String(payload?.appName || payload?.defaults?.appName || '').trim() || fallback),
+  subscribeWorkspaceMetadata: vi.fn(() => () => {}),
 }));
 
 vi.mock('../viant-logo.png', () => ({
@@ -45,6 +54,7 @@ describe('MenuBar window reuse', () => {
     selectedTabId.value = null;
     selectedWindowId.value = null;
     addWindow.mockReset();
+    removeWindow.mockClear();
     getWindowContext.mockReset();
   });
 
@@ -95,6 +105,28 @@ describe('MenuBar window reuse', () => {
     expect(selectedTabId.value).toBe('schedule/history');
     expect(selectedWindowId.value).toBe('schedule/history');
     expect(addWindow).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes the chat subtree before opening a top-level replacement window', async () => {
+    activeWindows.value = [
+      { windowId: 'chat/new', windowKey: 'chat/new', inTab: true },
+      { windowId: 'order_1', windowKey: 'order', inTab: true, parentKey: 'chat/new', presentation: 'hosted', region: 'chat.top' },
+      { windowId: 'schedule', windowKey: 'schedule', inTab: true, parentKey: 'chat/new', presentation: 'hosted', region: 'chat.bottom' }
+    ];
+    addWindow.mockImplementation(() => {
+      const win = { windowId: 'schedule/history', windowKey: 'schedule/history', inTab: true };
+      activeWindows.value = [...activeWindows.value, win];
+      return win;
+    });
+
+    const { openWindow } = await import('./MenuBar.jsx');
+    openWindow('schedule/history', 'Runs', ['runs'], { replaceTabbedWindows: true, replaceMainChatTree: true });
+
+    expect(activeWindows.value).toEqual([
+      { windowId: 'schedule/history', windowKey: 'schedule/history', inTab: true }
+    ]);
+    expect(selectedTabId.value).toBe('schedule/history');
+    expect(selectedWindowId.value).toBe('schedule/history');
   });
 });
 

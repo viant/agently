@@ -20,6 +20,7 @@ import { useChatProjection } from '../../services/chatStore.js';
 import { isStreamDebugEnabled } from '../../services/debugFlags';
 import IterationRowBlock from './IterationRowBlock.jsx';
 import BubbleMessage from './BubbleMessage.jsx';
+import StarterTasks from './StarterTasks.jsx';
 
 function UserBubble({ row }) {
   return (
@@ -97,6 +98,10 @@ function latestTurnRowIndex(rows = []) {
 export default function ChatFeedFromChatStore({ conversationId, rowsOverride, context }) {
   const subscribed = useChatProjection(conversationId);
   const rows = rowsOverride !== undefined ? rowsOverride : subscribed;
+  const conversationForm = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
+  const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+  const starterTasks = Array.isArray(metaForm?.starterTasks) ? metaForm.starterTasks : [];
+  const showStarterTasks = !String(conversationForm?.id || conversationId || '').trim() && starterTasks.length > 0;
 
   React.useEffect(() => {
     if (!isStreamDebugEnabled()) return;
@@ -118,7 +123,21 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
     } catch (_) {}
   }, [conversationId, rows]);
 
-  if (!Array.isArray(rows) || rows.length === 0) return null;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    if (!showStarterTasks) return null;
+    return (
+      <div className="app-chat-feed" data-source="chatStore">
+        <StarterTasks
+          context={context}
+          message={{
+            _type: 'starter',
+            starterTasks,
+            title: 'Start with an agent prompt',
+          }}
+        />
+      </div>
+    );
+  }
   const lastIndexByTurn = latestTurnRowIndex(rows);
 
   return (

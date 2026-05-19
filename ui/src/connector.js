@@ -52,11 +52,14 @@ export const connectorConfig = {
   uiBridge: {
     url: '/v1/ui/rpc',
     transport: 'http',
+    startupReadyEvent: 'forge:conversation-active',
+    startupReadyTimeoutMs: 1200,
     snapshotOptions: {
       includeCollection: true,
+      includeInlineMetadata: true,
     },
     snapshotBuilder: () => {
-      const snapshot = buildUISnapshot({ includeCollection: true });
+      const snapshot = buildUISnapshot({ includeCollection: true, includeInlineMetadata: true });
       return {
         ...snapshot,
         clientId: uiBridgeClientId(),

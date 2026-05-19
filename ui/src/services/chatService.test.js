@@ -7,6 +7,14 @@ vi.mock('./agentlyClient', () => ({
   },
 }));
 
+vi.mock('./workspaceMetadata', async () => {
+  const actual = await vi.importActual('./workspaceMetadata')
+  return {
+    ...actual,
+    publishWorkspaceMetadataSnapshot: vi.fn(),
+  }
+})
+
 vi.mock('./toolFeedBus', () => ({
   getFeedData: vi.fn(() => ({
     data: {

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  isConversationOwnedWorkspaceWindow,
+  isConversationHostedWorkspaceChild,
+  isHostedWorkspaceChildOfMainChat,
+  resolveHostedWorkspaceTabLabel,
+  resolveHostedWorkspaceTabs,
   resolveHostedBottomWindow,
   resolveRouteBootstrapAction,
   resolveMainWindowCloseConversationId,
@@ -41,6 +46,50 @@ describe('Root window selection helpers', () => {
     expect(resolveHostedBottomWindow(chat, chat, [], 'conv-1')).toBe(chat);
   });
 
+  it('treats parented hosted chat.top windows as main-chat subwindows', () => {
+    expect(isHostedWorkspaceChildOfMainChat({
+      windowKey: 'order',
+      presentation: 'hosted',
+      region: 'chat.top',
+      parentKey: 'chat/new',
+      inTab: true
+    })).toBe(true);
+    expect(isHostedWorkspaceChildOfMainChat({
+      windowKey: 'order',
+      presentation: 'hosted',
+      region: 'chat.top',
+      parentKey: 'order_123',
+      inTab: true
+    })).toBe(false);
+  });
+
+  it('requires hosted workspace children to match the active conversation before treating them as active', () => {
+    const win = {
+      windowKey: 'order',
+      presentation: 'hosted',
+      region: 'chat.top',
+      parentKey: 'chat/new',
+      inTab: true,
+      conversationId: 'conv-a'
+    };
+    expect(isConversationHostedWorkspaceChild(win, 'conv-a')).toBe(true);
+    expect(isConversationHostedWorkspaceChild(win, 'conv-b')).toBe(false);
+  });
+
+  it('does not treat a mismatched hosted workspace as owned by the active conversation', () => {
+    const win = {
+      windowKey: 'metricReportBuilder',
+      presentation: 'hosted',
+      region: 'chat.top',
+      parentKey: 'chat/new',
+      inTab: true,
+      conversationId: 'conv-a'
+    };
+    expect(isConversationOwnedWorkspaceWindow(win, 'conv-a')).toBe(true);
+    expect(isConversationOwnedWorkspaceWindow(win, 'conv-b')).toBe(false);
+    expect(isConversationOwnedWorkspaceWindow({ ...win, region: 'chat.bottom' }, 'conv-a')).toBe(false);
+  });
+
   it('normalizes the conversation id restored when closing a non-chat main window', () => {
     expect(resolveMainWindowCloseConversationId(' conv-123 ')).toBe('conv-123');
     expect(resolveMainWindowCloseConversationId('')).toBe('');
@@ -69,6 +118,32 @@ describe('Root window selection helpers', () => {
     expect(shouldShowMainWindowHeader({ windowTitle: 'Runs', windowKey: 'schedule/history', inTab: false })).toBe(false);
     expect(shouldShowMainWindowHeader({ windowTitle: 'Chat', windowKey: 'chat/new' })).toBe(false);
     expect(shouldShowMainWindowHeader({ windowTitle: '', windowKey: '' })).toBe(false);
+  });
+
+  it('uses compact order ids for hosted workspace compare tabs', () => {
+    expect(resolveHostedWorkspaceTabLabel({
+      windowKey: 'order',
+      parameters: { AdOrderId: [2656980] },
+      windowTitle: 'Order 2656980'
+    })).toBe('2656980');
+
+    expect(resolveHostedWorkspaceTabs([
+      {
+        windowId: 'order_1',
+        windowKey: 'order',
+        parameters: { AdOrderId: [2656980] },
+        windowTitle: 'Order 2656980'
+      },
+      {
+        windowId: 'order_2',
+        windowKey: 'order',
+        parameters: { AdOrderId: [2609393] },
+        windowTitle: 'Order 2609393'
+      }
+    ], 'order_2')).toEqual([
+      { windowId: 'order_1', label: '2656980', isActive: false },
+      { windowId: 'order_2', label: '2609393', isActive: true }
+    ]);
   });
 
   it('does not bootstrap route selection until auth is ready', () => {

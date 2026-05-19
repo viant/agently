@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSignals } from '@preact/signals-react/runtime';
 import { Dialog } from '@blueprintjs/core';
-import { activeWindows, addWindow, getMetricsSignal, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
+import { activeWindows, addWindow, findFormSignal, findViewSignal, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
 import { WindowManager, WindowContent } from 'forge/components';
 import { DetailContext } from '../context/DetailContext';
 import { ConversationViewContext } from '../context/ConversationViewContext';
@@ -17,7 +17,7 @@ import StatusBar from './StatusBar';
 import Sidebar from './Sidebar';
 import ElicitationOverlay from './ElicitationOverlay';
 import { useApprovalQueue } from '../hooks/useApprovalQueue';
-import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, ensureWorkspaceWindowForConversation, getScopedConversationSelection, getScopedWorkspacePresentationMode, getSelectedWindow, isLinkedChildWindow, openConversationInMainWindow, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, returnToParentConversation, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
+import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, ensureWorkspaceWindowForConversation, getScopedConversationSelection, getScopedWorkspacePresentationMode, getSelectedWindow, isLinkedChildWindow, openConversationInMainWindow, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, returnToParentConversation, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
 import { conversationIDFromPath } from '../services/chatRuntime';
 import { beginLogin, client, getAuthMeSilently, recoverSessionSilently } from '../services/agentlyClient';
@@ -93,6 +93,23 @@ export function shouldShowChatChrome(windowEntry = null) {
   return String(windowEntry?.windowKey || '').trim() === CHAT_WINDOW_KEY;
 }
 
+export function isHostedWorkspaceChildOfMainChat(windowEntry = null) {
+  return String(windowEntry?.presentation || '').trim().toLowerCase() === 'hosted'
+    && String(windowEntry?.region || '').trim().toLowerCase() === 'chat.top'
+    && String(windowEntry?.parentKey || '').trim() === MAIN_CHAT_WINDOW_ID
+    && windowEntry?.inTab !== false;
+}
+
+export function isConversationHostedWorkspaceChild(windowEntry = null, conversationId = '') {
+  return isHostedWorkspaceChildOfMainChat(windowEntry)
+    && windowBelongsToConversation(windowEntry, conversationId);
+}
+
+export function isConversationOwnedWorkspaceWindow(windowEntry = null, conversationId = '') {
+  return isWorkspaceRegionWindow(windowEntry)
+    && windowBelongsToConversation(windowEntry, conversationId);
+}
+
 function isWorkspaceRegionWindow(windowEntry = null) {
   return String(windowEntry?.presentation || '').trim().toLowerCase() === 'hosted'
     && String(windowEntry?.region || '').trim().toLowerCase() === 'chat.top';
@@ -127,6 +144,21 @@ export function resolveMainWindowCloseConversationId(mainWindowConversationId = 
 
 function resolveWindowOrderId(windowEntry = null) {
   return String(windowEntry?.parameters?.AdOrderId?.[0] ?? '').trim();
+}
+
+export function resolveHostedWorkspaceTabLabel(windowEntry = null) {
+  const orderId = resolveWindowOrderId(windowEntry);
+  if (orderId) return orderId;
+  return resolveMainWindowHeaderTitle(windowEntry);
+}
+
+export function resolveHostedWorkspaceTabs(workspaceWindows = [], activeWindowId = '') {
+  const selectedId = String(activeWindowId || '').trim();
+  return (Array.isArray(workspaceWindows) ? workspaceWindows : []).map((entry) => ({
+    windowId: String(entry?.windowId || '').trim(),
+    label: resolveHostedWorkspaceTabLabel(entry),
+    isActive: String(entry?.windowId || '').trim() === selectedId,
+  }));
 }
 
 export function resolveMainWindowHeaderTitle(windowEntry = null) {
@@ -173,7 +205,7 @@ export default function Root() {
   void selectedTabId.value;
   void selectedWindowId.value;
   void activeWindows.value;
-  const [, setConversationSelectionEpoch] = useState(0);
+  const [conversationSelectionEpoch, setConversationSelectionEpoch] = useState(0);
   const [selectedTool, setSelectedTool] = useState(null);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [detailMode, setDetailMode] = useState(() => {
@@ -234,16 +266,7 @@ export default function Root() {
     selectedWindowId.value,
     getSelectedWindow()
   );
-  const selectedWindowMetrics = useMemo(() => {
-    const selectedKey = String(selectedWindow?.windowKey || '').trim();
-    if (!selectedWindow?.windowId || (selectedKey !== 'orderPerformance' && selectedKey !== 'order')) {
-      return null;
-    }
-    return getMetricsSignal(`${selectedWindow.windowId}DSorder_performance_period_today`).value || null;
-  }, [selectedWindow?.windowId, selectedWindow?.windowKey]);
-  const selectedWindowForTitle = useMemo(() => (
-    selectedWindow ? { ...selectedWindow, resolvedMetrics: selectedWindowMetrics || undefined } : null
-  ), [selectedWindow, selectedWindowMetrics]);
+  const selectedWindowForTitle = selectedWindow;
   const mainChatWindow = useMemo(
     () => (Array.isArray(activeWindows.value)
       ? activeWindows.value.find((entry) => String(entry?.windowId || '').trim() === MAIN_CHAT_WINDOW_ID) || null
@@ -264,30 +287,41 @@ export default function Root() {
     () => resolveWorkspaceWindowForConversation(mainConversationId),
     [mainConversationId, activeWindows.value]
   );
+  const workspaceWindows = useMemo(
+    () => resolveWorkspaceWindowsForConversation(mainConversationId),
+    [mainConversationId, activeWindows.value, selectedWindowId.value, selectedTabId.value]
+  );
+  const workspaceStatePersistenceSignature = workspaceWindows.map((entry) => {
+    const windowId = String(entry?.windowId || '').trim();
+    const hasInlineMetadata = entry?.inlineMetadata && typeof entry.inlineMetadata === 'object';
+    const inlineNamespace = hasInlineMetadata ? String(entry.inlineMetadata.namespace || '').trim() : '';
+    const windowFormState = windowId ? (findFormSignal(`${windowId}:windowForm`)?.value || {}) : {};
+    const viewState = windowId ? (findViewSignal(windowId)?.value || {}) : {};
+    return `${windowId}:${hasInlineMetadata ? 1 : 0}:${inlineNamespace}:${JSON.stringify(windowFormState)}:${JSON.stringify(viewState)}`;
+  }).join('|');
   const linkedChildWindow = isLinkedChildWindow(selectedWindow) ? selectedWindow : null;
   const showChatChrome = shouldShowChatChrome(selectedWindow);
   const activeWindowTitle = resolveMainWindowHeaderTitle(selectedWindowForTitle);
   const activeWorkspaceWindow = !linkedChildWindow
     ? (
         selectedWindow
-        && selectedWindow?.inTab !== false
-        && windowBelongsToConversation(selectedWindow, mainConversationId)
-        && isWorkspaceRegionWindow(selectedWindow)
+        && (
+          (selectedWindow?.inTab !== false
+            && windowBelongsToConversation(selectedWindow, mainConversationId)
+            && isWorkspaceRegionWindow(selectedWindow))
+          || isConversationHostedWorkspaceChild(selectedWindow, mainConversationId)
+        )
           ? selectedWindow
           : (isWorkspaceRegionWindow(resolvedConversationWorkspaceWindow) ? resolvedConversationWorkspaceWindow : null)
       )
     : null;
-  const activeWorkspaceWindowMetrics = useMemo(() => {
-    const activeKey = String(activeWorkspaceWindow?.windowKey || '').trim();
-    if (!activeWorkspaceWindow?.windowId || (activeKey !== 'orderPerformance' && activeKey !== 'order')) {
-      return null;
-    }
-    return getMetricsSignal(`${activeWorkspaceWindow.windowId}DSorder_performance_period_today`).value || null;
-  }, [activeWorkspaceWindow?.windowId, activeWorkspaceWindow?.windowKey]);
-  const activeWorkspaceWindowForTitle = useMemo(() => (
-    activeWorkspaceWindow ? { ...activeWorkspaceWindow, resolvedMetrics: activeWorkspaceWindowMetrics || undefined } : null
-  ), [activeWorkspaceWindow, activeWorkspaceWindowMetrics]);
-  const activeWorkspaceTitle = resolveMainWindowHeaderTitle(activeWorkspaceWindowForTitle);
+  const workspaceTabs = useMemo(
+    () => resolveHostedWorkspaceTabs(workspaceWindows, activeWorkspaceWindow?.windowId),
+    [workspaceWindows, activeWorkspaceWindow?.windowId]
+  );
+  const activeWorkspaceTitle = resolveMainWindowHeaderTitle(activeWorkspaceWindow);
+  const workspaceSharePct = Number(activeWorkspaceWindow?.workspaceSharePct || 0);
+  const workspaceMinHeight = Number(activeWorkspaceWindow?.workspaceMinHeight || 0);
   const activeConversationId = String(
     getScopedConversationSelection(String(selectedWindow?.windowId || '').trim())
     || ''
@@ -303,7 +337,7 @@ export default function Root() {
       || isChatBottomRegionWindow(selectedWindow)
     )
   );
-  const showWorkspacePane = !!(activeWorkspaceWindow && showWorkspaceWindow);
+  const showWorkspacePane = !!(workspaceWindows.length > 0 && activeWorkspaceWindow && showWorkspaceWindow);
   const isWorkspaceFull = workspacePresentationMode === 'full';
 
   const setWorkspacePresentationMode = (mode) => {
@@ -312,6 +346,47 @@ export default function Root() {
     if (mainConversationId) {
       setScopedWorkspacePresentationMode(mainConversationId, next);
     }
+  };
+
+  const focusWorkspaceWindow = (windowId = '') => {
+    const targetId = String(windowId || '').trim();
+    if (!targetId) return;
+    const target = workspaceWindows.find((entry) => String(entry?.windowId || '').trim() === targetId);
+    if (!target) return;
+    selectedWindowId.value = target.windowId;
+    selectedTabId.value = target.windowId;
+    if (mainConversationId) {
+      setScopedWorkspaceSelection(mainConversationId, target.windowId);
+      setScopedWorkspaceState(mainConversationId, workspaceWindows);
+    }
+  };
+
+  const closeActiveWorkspaceWindow = () => {
+    const restoreConversationId = resolveMainWindowCloseConversationId(
+      getScopedConversationSelection(MAIN_CHAT_WINDOW_ID)
+    );
+    const activeWindowId = String(activeWorkspaceWindow?.windowId || '').trim();
+    if (!activeWindowId) {
+      openConversationInMainWindow(restoreConversationId);
+      return;
+    }
+    const currentIndex = workspaceWindows.findIndex((entry) => String(entry?.windowId || '').trim() === activeWindowId);
+    const remaining = workspaceWindows.filter((entry) => String(entry?.windowId || '').trim() !== activeWindowId);
+    setWorkspacePresentationModeState('split');
+    setScopedWorkspacePresentationMode(restoreConversationId, 'split');
+    removeWindow(activeWindowId);
+    if (remaining.length > 0) {
+      const nextIndex = currentIndex <= 0 ? 0 : Math.min(currentIndex - 1, remaining.length - 1);
+      const nextWindow = remaining[nextIndex] || remaining[0];
+      setScopedWorkspaceSelection(restoreConversationId, nextWindow.windowId);
+      setScopedWorkspaceState(restoreConversationId, remaining);
+      selectedWindowId.value = nextWindow.windowId;
+      selectedTabId.value = nextWindow.windowId;
+      return;
+    }
+    setScopedWorkspaceSelection(restoreConversationId, '');
+    setScopedWorkspaceState(restoreConversationId, null);
+    openConversationInMainWindow(restoreConversationId);
   };
 
   const setMode = (mode) => {
@@ -445,7 +520,7 @@ export default function Root() {
   useEffect(() => {
     const windows = Array.isArray(activeWindows.value) ? activeWindows.value : [];
     const chatWindows = windows.filter((entry) => String(entry?.windowId || '').trim() === MAIN_CHAT_WINDOW_ID);
-    if (chatWindows.length === 0) {
+    if (chatWindows.length === 0 && windows.length === 0) {
       addWindow('Chat', null, CHAT_WINDOW_KEY, null, true, {}, { autoIndexTitle: true });
       return;
     }
@@ -492,30 +567,55 @@ export default function Root() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
-    const bump = () => setConversationSelectionEpoch((value) => value + 1);
-    window.addEventListener('forge:conversation-active', bump);
+    let active = true;
+    const bump = () => {
+      queueMicrotask(() => {
+        if (!active) return;
+        setConversationSelectionEpoch((value) => value + 1);
+      });
+    };
     window.addEventListener('agently:conversation-select', bump);
     window.addEventListener('agently:conversation-new', bump);
+    window.addEventListener('agently:workspace-state', bump);
     return () => {
-      window.removeEventListener('forge:conversation-active', bump);
+      active = false;
       window.removeEventListener('agently:conversation-select', bump);
       window.removeEventListener('agently:conversation-new', bump);
+      window.removeEventListener('agently:workspace-state', bump);
     };
   }, []);
 
   useEffect(() => {
+    const conversationId = String(mainConversationId || '').trim();
+    if (!conversationId) return;
+    if (linkedChildWindow?.windowId) return;
+    ensureWorkspaceWindowForConversation(conversationId);
+  }, [linkedChildWindow?.windowId, mainConversationId, conversationSelectionEpoch]);
+
+  useEffect(() => {
     const conversationId = mainConversationId;
     if (!conversationId) return;
-    if (activeWorkspaceWindow?.windowId) {
-      setScopedWorkspaceSelection(conversationId, activeWorkspaceWindow.windowId);
-      setScopedWorkspaceState(conversationId, activeWorkspaceWindow);
+    const ownedActiveWorkspaceWindow = isConversationOwnedWorkspaceWindow(activeWorkspaceWindow, conversationId)
+      ? activeWorkspaceWindow
+      : null;
+    if (workspaceWindows.length > 0) {
+      const scopedWindowId = ownedActiveWorkspaceWindow?.windowId || workspaceWindows[workspaceWindows.length - 1]?.windowId || '';
+      if (scopedWindowId) {
+        setScopedWorkspaceSelection(conversationId, scopedWindowId);
+      }
+      setScopedWorkspaceState(conversationId, workspaceWindows);
+      return;
+    }
+    if (ownedActiveWorkspaceWindow?.windowId) {
+      setScopedWorkspaceSelection(conversationId, ownedActiveWorkspaceWindow.windowId);
+      setScopedWorkspaceState(conversationId, [ownedActiveWorkspaceWindow]);
       return;
     }
     const selectedWindowIdValue = String(selectedWindow?.windowId || '').trim();
     if (selectedWindowIdValue === MAIN_CHAT_WINDOW_ID) {
       return;
     }
-  }, [activeWorkspaceWindow?.windowId, selectedWindow?.windowId, mainConversationId]);
+  }, [activeWorkspaceWindow?.windowId, workspaceWindows, selectedWindow?.windowId, mainConversationId, workspaceStatePersistenceSignature]);
 
   useEffect(() => {
     if (!activeWorkspaceWindow?.windowId) return;
@@ -531,14 +631,6 @@ export default function Root() {
     }
     setWorkspacePresentationModeState(getScopedWorkspacePresentationMode(conversationId));
   }, [mainConversationId]);
-
-  useEffect(() => {
-    const conversationId = String(mainConversationId || '').trim();
-    if (!conversationId) return;
-    if (linkedChildWindow?.windowId) return;
-    if (activeWorkspaceWindow?.windowId) return;
-    ensureWorkspaceWindowForConversation(conversationId);
-  }, [activeWorkspaceWindow?.windowId, linkedChildWindow?.windowId, mainConversationId]);
 
   if (authState === 'checking') {
     return (
@@ -663,9 +755,22 @@ export default function Root() {
               ) : null}
               {shouldRenderSplitShell ? (
                 <div className={`app-window-split-stack${isWorkspaceFull ? ' is-full' : ''}${!showWorkspacePane ? ' is-chat-only' : ''}`}>
-                  <div className={`app-window-split-shell${isWorkspaceFull ? ' is-full' : ''}${!showWorkspacePane ? ' is-chat-only' : ''}`}>
+                  <div
+                    className={`app-window-split-shell${isWorkspaceFull ? ' is-full' : ''}${!showWorkspacePane ? ' is-chat-only' : ''}`}
+                    style={{
+                      ...(workspaceSharePct > 0 ? { '--app-workspace-share': `${workspaceSharePct}%` } : {}),
+                      ...(workspaceMinHeight > 0 ? { '--app-workspace-min-height': `${workspaceMinHeight}px` } : {}),
+                    }}
+                  >
                   {showWorkspacePane ? (
-                    <section key="workspace" className="app-window-split-workspace" aria-label={`${activeWorkspaceTitle} workspace`}>
+                    <section
+                      key="workspace"
+                      className="app-window-split-workspace"
+                      aria-label={`${activeWorkspaceTitle} workspace`}
+                      data-workspace-window-id={String(activeWorkspaceWindow?.windowId || '')}
+                      data-workspace-window-key={String(activeWorkspaceWindow?.windowKey || '')}
+                      data-workspace-region="chat.top"
+                    >
                       <div className="app-window-split-workspace-header">
                         <div className="app-window-split-workspace-dots" aria-label="Workspace window controls">
                           <button
@@ -673,19 +778,7 @@ export default function Root() {
                             className="app-window-dot app-window-dot-close"
                             aria-label={`Close ${activeWorkspaceTitle}`}
                             title="Close workspace"
-                            onClick={() => {
-                              const restoreConversationId = resolveMainWindowCloseConversationId(
-                                getScopedConversationSelection(MAIN_CHAT_WINDOW_ID)
-                              );
-                              if (activeWorkspaceWindow?.windowId) {
-                                setWorkspacePresentationModeState('split');
-                                setScopedWorkspacePresentationMode(restoreConversationId, 'split');
-                                setScopedWorkspaceSelection(restoreConversationId, '');
-                                setScopedWorkspaceState(restoreConversationId, null);
-                                removeWindow(activeWorkspaceWindow.windowId);
-                              }
-                              openConversationInMainWindow(restoreConversationId);
-                            }}
+                            onClick={closeActiveWorkspaceWindow}
                           />
                           <button
                             type="button"
@@ -704,6 +797,22 @@ export default function Root() {
                         </div>
                         <div className="app-window-split-workspace-title">{activeWorkspaceTitle}</div>
                       </div>
+                      {workspaceTabs.length > 1 ? (
+                        <div className="app-window-split-workspace-tabs" role="tablist" aria-label="Workspace compare tabs">
+                          {workspaceTabs.map((tab) => (
+                            <button
+                              key={tab.windowId}
+                              type="button"
+                              role="tab"
+                              aria-selected={tab.isActive}
+                              className={`app-window-split-workspace-tab${tab.isActive ? ' is-active' : ''}`}
+                              onClick={() => focusWorkspaceWindow(tab.windowId)}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
                       <div className="app-window-split-workspace-body">
                         <WindowContent window={activeWorkspaceWindow} isInTab />
                       </div>

@@ -23,6 +23,32 @@ import ChatFeedFromChatStore from './ChatFeedFromChatStore.jsx';
 
 const h = React.createElement;
 
+function makeContext({ conversation = {}, meta = {} } = {}) {
+  return {
+    Context(name) {
+      if (name === 'conversations') {
+        return {
+          handlers: {
+            dataSource: {
+              peekFormData: () => conversation,
+            },
+          },
+        };
+      }
+      if (name === 'meta') {
+        return {
+          handlers: {
+            dataSource: {
+              peekFormData: () => meta,
+            },
+          },
+        };
+      }
+      return null;
+    },
+  };
+}
+
 describe('ChatFeedFromChatStore', () => {
   it('passes the canonical iteration row directly to IterationRowBlock', () => {
     iterationRowBlockSpy.mockClear();
@@ -66,9 +92,59 @@ describe('ChatFeedFromChatStore', () => {
     expect(iterationRowBlockSpy.mock.calls[0][0].message).toBeUndefined();
   });
 
-  it('renders nothing when the projection is empty', () => {
+  it('renders nothing when the projection is empty and there are no starter tasks', () => {
     const html = renderToStaticMarkup(
-      h(ChatFeedFromChatStore, { conversationId: 'c', rowsOverride: [] }),
+      h(ChatFeedFromChatStore, {
+        conversationId: 'c',
+        rowsOverride: [],
+        context: makeContext({ conversation: { id: 'c' }, meta: { starterTasks: [] } }),
+      }),
+    );
+    expect(html).toBe('');
+  });
+
+  it('renders starter tasks for a new conversation with an empty projection', () => {
+    const html = renderToStaticMarkup(
+      h(ChatFeedFromChatStore, {
+        conversationId: '',
+        rowsOverride: [],
+        context: makeContext({
+          conversation: { id: '' },
+          meta: {
+            starterTasks: [
+              {
+                id: 'analyze',
+                title: 'Analyze campaign performance',
+                prompt: 'Analyze campaign 12345 performance.',
+                description: 'Starter prompt',
+              },
+            ],
+          },
+        }),
+      }),
+    );
+    expect(html).toContain('Start with an agent prompt');
+    expect(html).toContain('Analyze campaign performance');
+  });
+
+  it('does not render starter tasks for an existing conversation with an empty projection', () => {
+    const html = renderToStaticMarkup(
+      h(ChatFeedFromChatStore, {
+        conversationId: 'conv-existing',
+        rowsOverride: [],
+        context: makeContext({
+          conversation: { id: 'conv-existing' },
+          meta: {
+            starterTasks: [
+              {
+                id: 'analyze',
+                title: 'Analyze campaign performance',
+                prompt: 'Analyze campaign 12345 performance.',
+              },
+            ],
+          },
+        }),
+      }),
     );
     expect(html).toBe('');
   });

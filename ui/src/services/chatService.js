@@ -48,6 +48,7 @@ import {
   mapTranscriptToRows,
   normalizeMetaResponse,
   publishActiveConversation,
+  publishConversationMetaUpdated,
   renderMergedRowsForContext,
   rememberSeedTitle,
   resolveUserID,
@@ -67,7 +68,8 @@ import NamedLookupInput from '../components/lookups/NamedLookupInput.jsx';
 import { flattenStored } from '../components/lookups/tokens.js';
 import { listLookupRegistry } from '../components/lookups/client.js';
 import { composerPresentation } from './composerPresentation';
-import { connectForgeUIActionsToChat } from './forgeUIActions';
+import { publishWorkspaceMetadataSnapshot } from './workspaceMetadata';
+import { connectForgeUIActionsToCallbacksOrChat } from './forgeUIActions';
 import { openCodeDiffDialog, openFileViewDialog, updateCodeDiffDialog, updateFileViewDialog } from '../utils/dialogBus';
 import ChatFeedFromChatStore from '../components/chat/ChatFeedFromChatStore.jsx';
 import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore } from './chatStore.js';
@@ -196,7 +198,7 @@ export async function onInit({ context }) {
   try {
     const resources = ensureContextResources(context);
     if (!resources.forgeUIActionUnsub) {
-      resources.forgeUIActionUnsub = connectForgeUIActionsToChat(submitMessage, () => context);
+      resources.forgeUIActionUnsub = connectForgeUIActionsToCallbacksOrChat(submitMessage, () => context);
     }
     bindConversationWindowEvents(context);
     await hydrateMeta(context);
@@ -249,8 +251,15 @@ export async function onInit({ context }) {
         messagesDS?.setError?.('');
         publishActiveConversation('', context);
       } else {
+        const mergedConversation = mergeConversationSnapshot(conversationsDS?.peekFormData?.() || {}, existing);
         conversationsDS?.setFormData?.({
-          values: mergeConversationSnapshot(conversationsDS?.peekFormData?.() || {}, existing)
+          values: mergedConversation
+        });
+        publishConversationMetaUpdated(conversationID, {
+          title: String(mergedConversation?.title || mergedConversation?.Title || '').trim(),
+          stage: String(mergedConversation?.stage || mergedConversation?.Stage || '').trim(),
+          status: String(mergedConversation?.status || mergedConversation?.Status || '').trim(),
+          running: !!mergedConversation?.running,
         });
         const conversationLiveish = isConversationLiveish(existing);
         const initialTransportActive = syncConversationTransport(context, conversationID);
@@ -300,6 +309,7 @@ export async function onFetchMeta({ context, data, result, payload, collection }
       : null;
   const source = payload ?? result ?? data ?? singletonCollectionPayload ?? collection ?? {};
   const normalized = normalizeMetaResponse(source);
+  publishWorkspaceMetadataSnapshot(normalized);
   const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
   if (metaDS) {
     metaDS.setFormData?.({ values: normalized });
@@ -583,15 +593,24 @@ export async function submitMessage({ context, message, model, agent }) {
     }
     if (fetchedConversation) {
       const nextConvForm = convDS?.peekFormData?.() || {};
+      const settledTitle = fetchedConversation?.title || fetchedConversation?.Title || nextConvForm?.title || '';
+      const settledStage = String(fetchedConversation?.stage || fetchedConversation?.Stage || '').trim() || 'done';
+      const settledStatus = String(fetchedConversation?.status || fetchedConversation?.Status || '').trim() || 'succeeded';
       convDS?.setFormData?.({
         values: {
           ...nextConvForm,
           id: conversationID,
-          title: fetchedConversation?.title || fetchedConversation?.Title || nextConvForm?.title || '',
-          stage: String(fetchedConversation?.stage || fetchedConversation?.Stage || '').trim() || 'done',
-          status: String(fetchedConversation?.status || fetchedConversation?.Status || '').trim() || 'succeeded',
+          title: settledTitle,
+          stage: settledStage,
+          status: settledStatus,
           running: false,
         }
+      });
+      publishConversationMetaUpdated(conversationID, {
+        title: settledTitle,
+        stage: settledStage,
+        status: settledStatus,
+        running: false,
       });
     }
     cacheSettledConversationBootstrapSnapshot(conversationID, {

@@ -1,5 +1,5 @@
 import { normalizeMessages, normalizeOne } from './messageNormalizer';
-import { compareTemporalEntries, isLiveConversationState } from 'agently-core-ui-sdk';
+import { compareTemporalEntries, conversationLifecyclePatchForStreamPhase, isLiveConversationState } from 'agently-core-ui-sdk';
 
 // App bootstrap installs the canonical chatStore mirror explicitly.
 // chatRuntime never resolves the store through module-system fallbacks.
@@ -43,13 +43,11 @@ import {
 } from './liveStreamStore';
 import { buildCanonicalTranscriptRows, buildConversationRenderRows, isCanonicalTranscriptTurn } from './renderRows';
 import {
-  ensureWorkspaceWindowForConversation,
   getWindowById,
   MAIN_CHAT_WINDOW_ID,
   getScopedConversationSelection,
   isMainChatWindowId,
-  publishConversationSelection,
-  syncWorkspaceStateFromConversation
+  publishConversationSelection
 } from './conversationWindow';
 import { setStage } from './stageBus';
 import { client } from './agentlyClient';
@@ -243,7 +241,7 @@ function publishConversationActivity(conversationID = '', detail = {}) {
   } catch (_) {}
 }
 
-function publishConversationMetaUpdated(conversationID = '', patch = {}) {
+export function publishConversationMetaUpdated(conversationID = '', patch = {}) {
   if (typeof window === 'undefined') return;
   const id = String(conversationID || '').trim();
   if (!id) return;
@@ -269,50 +267,10 @@ function updateConversationLiveState(context, patch = {}) {
   conversationsDS.setFormData?.({ values: next });
 }
 
-function liveStatusValue(payload = {}, fallback = 'running') {
-  return String(payload?.status || fallback).trim() || fallback;
-}
-
-function terminalStageForEvent(type = '') {
-  const normalized = String(type || '').trim().toLowerCase();
-  if (normalized === 'turn_failed') return 'error';
-  if (normalized === 'turn_canceled') return 'canceled';
-  return 'done';
-}
-
 function applyStreamConversationState(context, phase, payload = {}) {
-  switch (String(phase || '').trim().toLowerCase()) {
-    case 'thinking':
-      updateConversationLiveState(context, {
-        running: true,
-        stage: 'thinking',
-        status: liveStatusValue(payload, 'running')
-      });
-      return;
-    case 'executing':
-      updateConversationLiveState(context, {
-        running: true,
-        stage: 'executing',
-        status: liveStatusValue(payload, 'running')
-      });
-      return;
-    case 'eliciting':
-      updateConversationLiveState(context, {
-        running: true,
-        stage: 'eliciting',
-        status: liveStatusValue(payload, 'pending')
-      });
-      return;
-    case 'terminal':
-      updateConversationLiveState(context, {
-        running: false,
-        stage: terminalStageForEvent(payload?.type),
-        status: String(payload?.status || payload?.type || '').trim()
-      });
-      return;
-    default:
-      return;
-  }
+  const patch = conversationLifecyclePatchForStreamPhase(phase, payload);
+  if (!patch) return;
+  updateConversationLiveState(context, patch);
 }
 
 export function resolveStreamEventConversationID(payload = {}, subscribedConversationID = '') {
@@ -1264,8 +1222,12 @@ export function publishActiveConversation(conversationID = '', context = null) {
   const targetWindowId = String(contextWindow?.windowKey || '').trim() === 'chat/new'
     ? contextWindowId
     : MAIN_CHAT_WINDOW_ID;
+  const currentRouteConversationId = isMainChatWindowId(targetWindowId) && typeof window !== 'undefined'
+    ? conversationIDFromPath(window.location?.pathname)
+    : '';
   publishConversationSelection(targetWindowId, id, {
-    syncPath: isMainChatWindowId(targetWindowId),
+    syncPath: isMainChatWindowId(targetWindowId)
+      && (!currentRouteConversationId || currentRouteConversationId === id),
     eventType: 'forge:conversation-active'
   });
 }
@@ -1383,8 +1345,6 @@ export async function fetchConversation(conversationID = '') {
     if (!data || typeof data !== 'object') return null;
     const resolvedID = String(data?.id || data?.Id || '').trim();
     if (resolvedID) {
-      syncWorkspaceStateFromConversation(data);
-      ensureWorkspaceWindowForConversation(resolvedID);
       // Update usage display from conversation data.
       publishUsage(resolvedID, data);
       return data;
@@ -1406,8 +1366,6 @@ export function hydrateConversationFromBootstrapSnapshot(context, snapshot = nul
   conversationsDS.setFormData?.({
     values: applyConversationFormSnapshot(currentForm, conversation)
   });
-  syncWorkspaceStateFromConversation(conversation);
-  ensureWorkspaceWindowForConversation(conversationID);
   publishUsage(conversationID, conversation);
   const chatState = ensureContextResources(context);
   chatState.generatedFiles = Array.isArray(snapshot.generatedFiles) ? snapshot.generatedFiles : [];
@@ -1440,11 +1398,15 @@ function applyConversationFormSnapshot(base = {}, conversation = null) {
 }
 
 export async function hydrateMeta(context) {
-  const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
+  const metaContext = context?.Context?.('meta');
+  const metaDS = metaContext?.handlers?.dataSource;
   if (!metaDS) return;
   const current = metaDS.peekFormData?.() || {};
   if (Array.isArray(current?.agentOptions) && current.agentOptions.length > 0 &&
       Array.isArray(current?.modelOptions) && current.modelOptions.length > 0) {
+    return;
+  }
+  if (typeof metaDS.fetchCollection === 'function') {
     return;
   }
   try {
@@ -2096,6 +2058,9 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       // streaming events are now the sole source of truth for active turns,
       // we update the form data here.
       applyStreamConversationState(context, 'terminal', { ...payload, type, status: terminalStatus });
+      publishConversationMetaUpdated(resolvedConversationID, {
+        ...(conversationLifecyclePatchForStreamPhase('terminal', { ...payload, type, status: terminalStatus }) || {})
+      });
       if (type === 'turn_failed') {
         setStage({ phase: 'error', text: String(payload?.error || 'Turn failed'), completedAt: stageCompletedAtValue(payload) });
       } else if (type === 'turn_canceled') {
@@ -2606,8 +2571,13 @@ export function applyIterationVisibility(context) {
 export function bootstrapConversationSelection(context) {
   const windowId = getContextWindowId(context);
   const win = getWindowById(windowId);
+  const routeConversationID = typeof window !== 'undefined' && isMainChatWindowId(windowId)
+    ? conversationIDFromPath(window.location.pathname)
+    : '';
   const bootstrapID = typeof window !== 'undefined'
     ? (
+      routeConversationID
+      || 
       String(win?.parameters?.conversations?.form?.id || '').trim()
       || String(win?.parameters?.conversations?.input?.parameters?.id || '').trim()
       || String(win?.parameters?.conversations?.input?.path?.id || '').trim()
@@ -2616,7 +2586,6 @@ export function bootstrapConversationSelection(context) {
       || String(win?.parameters?.messages?.input?.parameters?.convID || '').trim()
       || String(win?.parameters?.messages?.input?.path?.convID || '').trim()
       || String(win?.parameters?.messages?.input?.convID || '').trim()
-      || (isMainChatWindowId(windowId) ? conversationIDFromPath(window.location.pathname) : '')
       || getScopedConversationSelection(windowId)
     )
     : '';

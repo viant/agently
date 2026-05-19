@@ -3,7 +3,6 @@ import { isConnectivityError } from '../services/networkError';
 import { client } from '../services/agentlyClient';
 
 const POLL_MS = 2000;
-const IDLE_POLL_MS = 30000;
 const PAGE_SIZE = 8;
 
 export function shouldPollApprovalQueue(enabled = true, visibilityState = 'visible', hasWindowFocus = true, isOpen = false) {
@@ -109,8 +108,8 @@ export function useApprovalQueue(enabled = true) {
           }
         }
       }
-      if (!canceled) {
-        timer = window.setTimeout(tick, pollEnabled ? POLL_MS : IDLE_POLL_MS);
+      if (!canceled && pollEnabled) {
+        timer = window.setTimeout(tick, POLL_MS);
       }
     };
 
