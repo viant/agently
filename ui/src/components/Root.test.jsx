@@ -46,6 +46,22 @@ describe('Root window selection helpers', () => {
     expect(resolveHostedBottomWindow(chat, chat, [], 'conv-1')).toBe(chat);
   });
 
+  it('prefers the selected linked child chat window over the main chat window', () => {
+    const linkedChild = {
+      windowId: 'chat/new__child',
+      windowKey: 'chat/new',
+      parameters: {
+        conversations: { form: { id: 'child-456' } },
+        linkedParent: {
+          windowId: 'chat/new',
+          conversationId: 'parent-123'
+        }
+      }
+    };
+    const mainChat = { windowId: 'chat/new', windowKey: 'chat/new' };
+    expect(resolveHostedBottomWindow(linkedChild, mainChat, [], 'parent-123')).toBe(linkedChild);
+  });
+
   it('treats parented hosted chat.top windows as main-chat subwindows', () => {
     expect(isHostedWorkspaceChildOfMainChat({
       windowKey: 'order',
@@ -103,7 +119,7 @@ describe('Root window selection helpers', () => {
       windowKey: 'orderPerformance',
       parameters: { AdOrderId: [2637048] },
       resolvedMetrics: { name: 'Delaware_SB_display_Bally', orderId: 2637048 }
-    })).toBe('Delaware_SB_display_Bally (2637048)');
+    })).toBe('Delaware_SB_display_Bally');
     expect(resolveMainWindowHeaderTitle({
       windowKey: 'orderPerformance',
       parameters: { AdOrderId: [2637048] }
@@ -113,10 +129,35 @@ describe('Root window selection helpers', () => {
       parameters: { AdOrderId: [2609393] },
       resolvedMetrics: { name: 'Stale Previous Order', orderId: 2656980 }
     })).toBe('Order 2609393');
+    expect(resolveMainWindowHeaderTitle({
+      windowKey: 'campaign',
+      parameters: { CampaignId: [551665] },
+      resolvedMetrics: { campaignName: '6TJH_ThomasJHenryLaw_CTVPilot_2026', campaignId: 551665 }
+    })).toBe('6TJH_ThomasJHenryLaw_CTVPilot_2026');
+    expect(resolveMainWindowHeaderTitle({
+      windowKey: 'campaign',
+      parameters: { CampaignId: [551665] },
+      windowTitle: '6TJH_ThomasJHenryLaw_CTVPilot_2026 (551665)'
+    })).toBe('6TJH_ThomasJHenryLaw_CTVPilot_2026');
+    expect(resolveMainWindowHeaderTitle({
+      windowKey: 'campaignPerformance',
+      parameters: { CampaignId: [551665] }
+    })).toBe('Campaign 551665');
     expect(shouldShowMainWindowHeader({ windowTitle: 'Runs', windowKey: 'schedule/history' })).toBe(false);
     expect(shouldShowMainWindowHeader({ windowTitle: 'Automation', windowKey: 'schedule' })).toBe(false);
     expect(shouldShowMainWindowHeader({ windowTitle: 'Runs', windowKey: 'schedule/history', inTab: false })).toBe(false);
     expect(shouldShowMainWindowHeader({ windowTitle: 'Chat', windowKey: 'chat/new' })).toBe(false);
+    expect(shouldShowMainWindowHeader({
+      windowTitle: 'Linked Chat',
+      windowId: 'chat/new__child',
+      windowKey: 'chat/new',
+      parameters: {
+        linkedParent: {
+          windowId: 'chat/new',
+          conversationId: 'parent-123'
+        }
+      }
+    })).toBe(true);
     expect(shouldShowMainWindowHeader({ windowTitle: '', windowKey: '' })).toBe(false);
   });
 

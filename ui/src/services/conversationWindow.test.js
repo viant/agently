@@ -350,6 +350,7 @@ describe('conversationWindow', () => {
       parentKey: MAIN_CHAT_WINDOW_ID,
       presentation: 'hosted',
       region: 'chat.top',
+      workspaceCollapsed: true,
       inTab: true,
       parameters: {}
     }];
@@ -372,6 +373,7 @@ describe('conversationWindow', () => {
 
     expect(getScopedWorkspaceState('conv-live')).toMatchObject({
       windowId: 'metricReportBuilder__conv-live',
+      workspaceCollapsed: true,
       windowForm: {
         metricsCubeBuilder: {
           dynamicGroups: {

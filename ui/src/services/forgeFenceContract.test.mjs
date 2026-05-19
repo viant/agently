@@ -54,6 +54,62 @@ test('planner submit payload reports selected and changed rows', () => {
   assert.equal(payload.changedRows[0].site_id, 202);
 });
 
+test('planner submit payload filters selected rows to workspace-declared keys', () => {
+  const ui = validateForgeUIBlock({
+    version: 1,
+    title: 'Planner',
+    blocks: [{
+      id: 'site-review',
+      kind: 'planner.table',
+      dataSourceRef: 'recommended_sites',
+      selection: { mode: 'checkbox', field: 'selected' },
+      actions: [{
+        id: 'submit-sites',
+        kind: 'submit',
+        label: 'Submit changes',
+        callback: {
+          type: 'llm_event',
+          eventName: 'planner_table_submit',
+          context: {
+            domain: 'site_list',
+            submitIntent: 'submit_selected',
+            allowedSubmitIntents: ['submit_selected', 'preview_selected'],
+            selectedKeys: ['site_id', 'recommendation_patch'],
+            toolGuidance: {
+              tool: 'steward-RecommendationPatch',
+              useSelectedRowsOnly: true,
+            },
+          },
+        },
+      }],
+    }],
+  });
+  const block = ui.blocks[0];
+  const originalRows = [
+    { site_id: 101, recommendation_patch: { op: 'add' }, rationale: 'keep', selected: true },
+    { site_id: 202, recommendation_patch: { op: 'cut' }, rationale: 'drop', selected: false },
+  ];
+
+  const payload = createPlannerTableSubmitPayload(ui, block, originalRows, originalRows);
+
+  assert.deepEqual(payload.plannerSubmit, {
+    domain: 'site_list',
+    submitIntent: 'submit_selected',
+    allowedSubmitIntents: ['submit_selected', 'preview_selected'],
+    selectedKeys: ['site_id', 'recommendation_patch'],
+    toolGuidance: {
+      tool: 'steward-RecommendationPatch',
+      useSelectedRowsOnly: true,
+    },
+  });
+  assert.deepEqual(payload.selectedRows, [
+    { site_id: 101, recommendation_patch: { op: 'add' } },
+  ]);
+  assert.deepEqual(payload.selectedRowsRaw, [
+    { site_id: 101, recommendation_patch: { op: 'add' }, rationale: 'keep', selected: true },
+  ]);
+});
+
 test('validateForgeUIBlock defaults missing version to 1', () => {
   const ui = validateForgeUIBlock({ title: 'My Dash', blocks: [] });
   assert.equal(ui.version, 1);

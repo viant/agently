@@ -194,9 +194,58 @@ export function validateForgeUIBlock(block = {}) {
   };
 }
 
+function normalizePlannerSubmitContract(block = {}) {
+  const callback = block?.actions?.[0]?.callback || null;
+  const context = callback?.context;
+  if (!context || typeof context !== 'object' || Array.isArray(context)) {
+    return null;
+  }
+  const domain = String(context.domain || '').trim();
+  const submitIntent = String(context.submitIntent || '').trim();
+  const selectedKeys = Array.isArray(context.selectedKeys)
+    ? context.selectedKeys.map((entry) => String(entry || '').trim()).filter(Boolean)
+    : [];
+  const toolGuidance = context.toolGuidance && typeof context.toolGuidance === 'object' && !Array.isArray(context.toolGuidance)
+    ? context.toolGuidance
+    : null;
+  const allowedSubmitIntents = Array.isArray(context.allowedSubmitIntents)
+    ? context.allowedSubmitIntents.map((entry) => String(entry || '').trim()).filter(Boolean)
+    : Array.isArray(context.submitIntentOptions)
+      ? context.submitIntentOptions.map((entry) => String(entry || '').trim()).filter(Boolean)
+    : [];
+  if (!domain && !submitIntent && selectedKeys.length === 0 && !toolGuidance && allowedSubmitIntents.length === 0) {
+    return null;
+  }
+  return {
+    domain: domain || undefined,
+    submitIntent: submitIntent || undefined,
+    allowedSubmitIntents: allowedSubmitIntents.length > 0 ? allowedSubmitIntents : undefined,
+    selectedKeys: selectedKeys.length > 0 ? selectedKeys : undefined,
+    toolGuidance: toolGuidance || undefined,
+  };
+}
+
+function filterPlannerRowsForSubmit(rows = [], selectedKeys = []) {
+  const keys = Array.isArray(selectedKeys) ? selectedKeys.map((entry) => String(entry || '').trim()).filter(Boolean) : [];
+  if (keys.length === 0) {
+    return Array.isArray(rows) ? rows : [];
+  }
+  return (Array.isArray(rows) ? rows : []).map((row) => {
+    const next = {};
+    keys.forEach((key) => {
+      if (row && Object.prototype.hasOwnProperty.call(row, key)) {
+        next[key] = row[key];
+      }
+    });
+    return next;
+  });
+}
+
 export function createPlannerTableSubmitPayload(ui, block, currentRows = [], originalRows = []) {
   const selectionField = String(block?.selection?.field || 'selected').trim();
-  const selectedRows = currentRows.filter((row) => !!row?.[selectionField]);
+  const plannerSubmit = normalizePlannerSubmitContract(block);
+  const selectedRowsRaw = currentRows.filter((row) => !!row?.[selectionField]);
+  const selectedRows = filterPlannerRowsForSubmit(selectedRowsRaw, plannerSubmit?.selectedKeys);
   const unselectedRows = currentRows.filter((row) => !row?.[selectionField]);
   const changedRows = currentRows.filter((row, index) => {
     const before = originalRows[index] || {};
@@ -208,10 +257,12 @@ export function createPlannerTableSubmitPayload(ui, block, currentRows = [], ori
     dataSourceRef: String(block?.dataSourceRef || '').trim(),
     selectionField,
     selectedRows,
+    selectedRowsRaw,
     unselectedRows,
     changedRows,
     finalDataSourceSnapshot: currentRows,
     callback: block?.actions?.[0]?.callback || null,
+    plannerSubmit,
     uiTitle: String(ui?.title || '').trim(),
   };
 }
