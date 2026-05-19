@@ -1,6 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { activeWindows } from 'forge/core';
 
+const {
+  setPendingElicitationMock,
+  clearPendingElicitationMock,
+} = vi.hoisted(() => ({
+  setPendingElicitationMock: vi.fn(),
+  clearPendingElicitationMock: vi.fn(),
+}));
+
+vi.mock('./elicitationBus', () => ({
+  setPendingElicitation: setPendingElicitationMock,
+  clearPendingElicitation: clearPendingElicitationMock,
+}));
+
 import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, handleStreamEvent, hydrateMeta, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
 import { client } from './agentlyClient';
 import { applyFeedEvent, clearFeedState, getFeedData } from './toolFeedBus';
@@ -53,6 +66,47 @@ describe('publishActiveConversation', () => {
 
     expect(replaceState).not.toHaveBeenCalled();
     expect(window.location.pathname).toBe('/conversation/conv-route');
+  });
+});
+
+describe('syncMessagesSnapshot pending elicitation overlay sync', () => {
+  it('hydrates the overlay bus from pendingElicitations returned by transcript/poll', () => {
+    setPendingElicitationMock.mockReset();
+    clearPendingElicitationMock.mockReset();
+    const context = {
+      resources: { chat: {} },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-1' }),
+              },
+            },
+          };
+        }
+        return null;
+      },
+    };
+
+    syncMessagesSnapshot(context, [], 'poll', [{
+      conversationId: 'conv-1',
+      elicitationId: 'elic-1',
+      content: 'Review the selected site recommendation changes before patching.',
+      elicitation: {
+        callbackURL: '/v1/api/conversations/conv-1/elicitation/elic-1',
+        message: 'Review the selected site recommendation changes before patching.',
+        requestedSchema: { type: 'object', properties: { rows: { type: 'array' } } },
+      },
+    }]);
+
+    expect(setPendingElicitationMock).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-1',
+      elicitationId: 'elic-1',
+      message: 'Review the selected site recommendation changes before patching.',
+      requestedSchema: { type: 'object', properties: { rows: { type: 'array' } } },
+    }));
+    expect(clearPendingElicitationMock).not.toHaveBeenCalled();
   });
 });
 

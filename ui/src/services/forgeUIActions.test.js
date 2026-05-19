@@ -189,7 +189,7 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
       const call = submitMessage.mock.calls[0][0];
       expect(call.context).toBe(context);
       expect(call.message).toEqual({
-        content: 'Execute the planner submit event using the structured plannerSubmitEvent context. If plannerSubmitEvent.plannerSubmit.toolGuidance.tool is present, attempt that guided tool or its review flow before answering. Do not summarize selected rows in prose unless execution is blocked after attempting the guided path.',
+        content: 'Submit selected site recommendations for audience 7301206. Use the structured plannerSubmitEvent context and attempt steward-RecommendationPatch before answering. If selected rows span both target and exclusion, emit separate steward-RecommendationPatch tool calls per relationship group.',
         displayQuery: 'Submit selected site recommendations.',
         tools: ['steward-RecommendationPatch'],
         toolBundles: ['analyst-sitelist-tools'],

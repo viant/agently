@@ -1337,6 +1337,28 @@ export async function fetchPendingElicitations(conversationID = '') {
   return client.listPendingElicitations(id);
 }
 
+function firstPendingElicitationForOverlay(conversationID = '', pendingElicitations = []) {
+  const targetConversationID = String(conversationID || '').trim();
+  const rows = Array.isArray(pendingElicitations) ? pendingElicitations : [];
+  if (!targetConversationID || rows.length === 0) return null;
+  const entry = rows.find((item) => String(item?.conversationId || '').trim() === targetConversationID) || rows[0];
+  if (!entry || typeof entry !== 'object') return null;
+  const elicitation = entry?.elicitation && typeof entry.elicitation === 'object' ? entry.elicitation : {};
+  const requestedSchema = elicitation?.requestedSchema || elicitation?.schema || null;
+  const elicitationId = String(entry?.elicitationId || elicitation?.elicitationId || '').trim();
+  if (!elicitationId) return null;
+  return {
+    elicitationId,
+    conversationId: targetConversationID,
+    turnId: String(entry?.turnId || '').trim(),
+    message: String(entry?.content || elicitation?.message || '').trim(),
+    requestedSchema,
+    callbackURL: String(elicitation?.callbackURL || '').trim(),
+    url: String(elicitation?.url || elicitation?.Url || '').trim(),
+    mode: String(elicitation?.mode || elicitation?.Mode || '').trim(),
+  };
+}
+
 export async function fetchConversation(conversationID = '') {
   const id = String(conversationID || '').trim();
   if (!id) return null;
@@ -1469,6 +1491,12 @@ export function syncMessagesSnapshot(context, turns, reason = 'poll', pendingEli
   });
   if (Array.isArray(snapshot?.liveRows)) {
     chatState.liveRows = snapshot.liveRows;
+  }
+  const pendingOverlay = firstPendingElicitationForOverlay(currentConversationID, pendingElicitations);
+  if (pendingOverlay) {
+    setPendingElicitation(pendingOverlay);
+  } else if (currentConversationID) {
+    clearPendingElicitation();
   }
   return renderMergedRowsForContext(context);
 }
