@@ -372,6 +372,12 @@ export function onFetchQueuedTurns({ context, data, payload, collection, result 
 }
 
 export async function submitMessage({ context, message, model, agent }) {
+  const displayQuery = typeof message === 'object' && message
+    ? String(message?.displayQuery || '').trim()
+    : '';
+  const extraContext = typeof message === 'object' && message && message.context && typeof message.context === 'object' && !Array.isArray(message.context)
+    ? message.context
+    : null;
   const rawQuery = typeof message === 'string'
     ? message.trim()
     : String(message?.content || message?.text || message?.value || '').trim();
@@ -450,11 +456,15 @@ export async function submitMessage({ context, message, model, agent }) {
     conversationId: conversationID,
     messageId: clientRequestId,
     query,
+    displayQuery: displayQuery || undefined,
     agentId: resolveSubmitAgent({ selectedAgent, persistedAgent, metaForm, convForm }),
     model: effectiveModel || sanitizeAutoSelection(convForm?.model || ''),
     tools: Array.isArray(metaForm?.tool) ? metaForm.tool : undefined,
     reasoningEffort: metaForm?.reasoningEffort || undefined,
-    context: buildWebQueryContext(),
+    context: {
+      ...buildWebQueryContext(),
+      ...(extraContext || {}),
+    },
     attachments: mergedAttachments.length > 0 ? mergedAttachments : undefined
   };
   const resolvedUserID = resolveUserID(context);
@@ -494,7 +504,7 @@ export async function submitMessage({ context, message, model, agent }) {
     submitToChatStore({
       conversationId: conversationID,
       clientRequestId,
-      content: query,
+      content: displayQuery || query,
       createdAt: new Date(submittedAt).toISOString(),
       attachments: mergedAttachments.length > 0 ? mergedAttachments : undefined,
     });

@@ -186,6 +186,105 @@ describe('submitMessage', () => {
     await submitPromise;
   });
 
+  it('persists displayQuery to transcript while sending structured planner context to the agent', async () => {
+    client.query.mockResolvedValue({});
+    ensureConversation.mockResolvedValue('conv-1');
+    resolveUserID.mockReturnValue('');
+    ensureContextResources.mockReturnValue({
+      runningTurnId: '',
+      lastHasRunning: false,
+      activeConversationID: '',
+      liveOwnedConversationID: '',
+      activeStreamPrompt: '',
+      activeStreamTurnId: '',
+      activeStreamStartedAt: 0,
+    });
+    dsTick.mockResolvedValue({
+      conversationID: 'conv-1',
+      hasRunning: true,
+    });
+
+    const convForm = {};
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => convForm,
+                setFormData: vi.fn(({ values }) => Object.assign(convForm, values)),
+              },
+            },
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({
+                  defaults: { model: 'openai_gpt-5_4' },
+                }),
+              },
+            },
+          };
+        }
+        return null;
+      },
+    };
+
+    await submitMessage({
+      context,
+      message: {
+        content: 'Handle the planner submit event using the structured plannerSubmitEvent context.',
+        displayQuery: 'Submit selected site recommendations.',
+        context: {
+          plannerSubmitEvent: {
+            eventName: 'site_list_planner_submit',
+            tableId: 'site-review',
+            plannerSubmit: {
+              domain: 'site_list',
+              submitIntent: 'submit_selected',
+              selectedKeys: ['publisher_id', 'site_id'],
+              toolGuidance: {
+                tool: 'steward-RecommendationPatch',
+                useSelectedRowsOnly: true,
+              },
+            },
+            selectedRows: [{ publisher_id: 37, site_id: 3945613211 }],
+          },
+        },
+      },
+      model: 'openai_gpt-5_4',
+      agent: 'steward',
+    });
+
+    expect(submitToChatStore).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-1',
+      content: 'Submit selected site recommendations.',
+    }));
+    expect(client.query).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-1',
+      query: 'Handle the planner submit event using the structured plannerSubmitEvent context.',
+      displayQuery: 'Submit selected site recommendations.',
+      context: expect.objectContaining({
+        plannerSubmitEvent: {
+          eventName: 'site_list_planner_submit',
+          tableId: 'site-review',
+          plannerSubmit: {
+            domain: 'site_list',
+            submitIntent: 'submit_selected',
+            selectedKeys: ['publisher_id', 'site_id'],
+            toolGuidance: {
+              tool: 'steward-RecommendationPatch',
+              useSelectedRowsOnly: true,
+            },
+          },
+          selectedRows: [{ publisher_id: 37, site_id: 3945613211 }],
+        },
+      }),
+    }));
+  });
+
   it('resets canonical chatStore state before transcript hydration on a fast completed query', async () => {
     client.query.mockResolvedValue({ content: 'done', turnId: 'turn-fast', messageId: 'assistant-final' });
     client.getTranscript.mockResolvedValue({
