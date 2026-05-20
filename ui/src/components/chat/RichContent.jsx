@@ -523,7 +523,22 @@ export function normalizeDashboardPayload(payload) {
           },
         };
       }
-      const seriesValues = (Array.isArray(block.series) ? block.series : (block.valueColumn ? [block.valueColumn] : ['value']))
+      const timelineMetricSeries = Array.isArray(block.metrics)
+        ? block.metrics
+            .map((metric) => {
+              if (typeof metric === 'string') return metric;
+              if (!metric || typeof metric !== 'object') return '';
+              return metric.key || metric.field || metric.value || '';
+            })
+            .map(dashboardSeriesKey)
+            .filter(Boolean)
+        : [];
+      const rawSeries = Array.isArray(block.series)
+        ? block.series
+        : (timelineMetricSeries.length > 0
+            ? timelineMetricSeries
+            : (block.valueColumn ? [block.valueColumn] : ['value']));
+      const seriesValues = rawSeries
         .map(dashboardSeriesKey)
         .filter(Boolean);
       const dateKey = block.dateField || block.timeColumn || block.timeKey || 'date';

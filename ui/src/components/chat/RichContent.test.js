@@ -1116,6 +1116,54 @@ describe('RichContent fence parsing', () => {
     });
   });
 
+  it('treats dashboard.timeline metrics as a backward-compatible alias for series', () => {
+    const normalized = normalizeDashboardPayload({
+      type: 'forge_dashboard',
+      title: 'Chart test',
+      dataSources: [
+        {
+          id: 'weekly_daily_trend',
+          collection: [
+            { event_date: '2026-05-13', total_spend: 4.4502, clicks: 5, conversions: 2 },
+            { event_date: '2026-05-14', total_spend: 5.8362, clicks: 18, conversions: 6 },
+          ],
+        },
+      ],
+      blocks: [
+        {
+          kind: 'dashboard.timeline',
+          title: 'Daily delivery trend',
+          dataSourceRef: 'weekly_daily_trend',
+          dateField: 'event_date',
+          metrics: [
+            { key: 'total_spend', label: 'Spend', format: 'currency' },
+            { key: 'clicks', label: 'Clicks', format: 'number' },
+            { key: 'conversions', label: 'Conversions', format: 'number' },
+          ],
+        },
+      ],
+    });
+
+    const timeline = normalized.blocks[0];
+    expect(timeline.__collection).toEqual([
+      { event_date: '2026-05-13', series: 'Total Spend', value: 4.4502 },
+      { event_date: '2026-05-13', series: 'Clicks', value: 5 },
+      { event_date: '2026-05-13', series: 'Conversions', value: 2 },
+      { event_date: '2026-05-14', series: 'Total Spend', value: 5.8362 },
+      { event_date: '2026-05-14', series: 'Clicks', value: 18 },
+      { event_date: '2026-05-14', series: 'Conversions', value: 6 },
+    ]);
+    expect(timeline.chart.series).toMatchObject({
+      nameKey: 'series',
+      valueKey: 'value',
+      values: [
+        { label: 'Total Spend', name: 'Total Spend', value: 'total_spend' },
+        { label: 'Clicks', name: 'Clicks', value: 'clicks' },
+        { label: 'Conversions', name: 'Conversions', value: 'conversions' },
+      ],
+    });
+  });
+
   it('normalizes a dashboard timeline when the payload uses timeKey alias', () => {
     const normalized = normalizeDashboardPayload({
       type: 'forge_dashboard',
