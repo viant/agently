@@ -202,4 +202,36 @@ describe('ElicitationForm utilities', () => {
       ],
     });
   });
+
+  it('extracts planner metadata from camel/snake UI key variants', () => {
+    expect(extractPlannerElicitationMeta({
+      type: 'object',
+      properties: {
+        rows: {
+          type: 'array',
+          title: 'Selected recommendations',
+          xUiWidget: 'planner.table',
+          xUiColumns: [
+            { key: 'site_id', label: 'Site ID' },
+          ],
+          xUiSelectionField: 'selected',
+          items: {
+            type: 'object',
+            properties: {
+              site_id: { type: 'integer' },
+              selected: { type: 'boolean', default: true },
+            },
+          },
+        },
+      },
+    })).toEqual({
+      field: 'rows',
+      title: 'Selected recommendations',
+      selectionField: 'selected',
+      columns: [
+        { key: 'site_id', label: 'Site ID' },
+      ],
+      defaultRows: [],
+    });
+  });
 });

@@ -3,6 +3,11 @@ import {
   normalizeApprovalMeta as sdkNormalizeApprovalMeta,
   serializeApprovalEditedFields as sdkSerializeApprovalEditedFields
 } from 'agently-core-ui-sdk';
+import {
+  translateSchema,
+  extractLookupBindings,
+  registerLookupDataSourceServices,
+} from './lookups/forgeBridge';
 
 export function prepareRequestedSchema(requestedSchema = null) {
   try {
@@ -34,6 +39,33 @@ export function prepareRequestedSchema(requestedSchema = null) {
   }
 }
 
+export function seedRequestedSchemaDefaults(requestedSchema = null, values = null) {
+  try {
+    if (!requestedSchema || typeof requestedSchema !== 'object') return requestedSchema;
+    const clone = JSON.parse(JSON.stringify(requestedSchema));
+    const props = clone.properties && typeof clone.properties === 'object' ? clone.properties : {};
+    const seededValues = values && typeof values === 'object' ? values : {};
+    Object.keys(seededValues).forEach((key) => {
+      if (!props[key] || typeof props[key] !== 'object') return;
+      props[key].default = JSON.parse(JSON.stringify(seededValues[key]));
+    });
+    return clone;
+  } catch (_) {
+    return requestedSchema;
+  }
+}
+
+export function prepareRenderableRequestedSchema(requestedSchema = null, values = null) {
+  const seeded = seedRequestedSchemaDefaults(requestedSchema, values);
+  const base = prepareRequestedSchema(seeded);
+  const translated = translateSchema(base);
+  const bindings = extractLookupBindings(translated);
+  if (bindings.length > 0) {
+    registerLookupDataSourceServices(bindings);
+  }
+  return translated;
+}
+
 function humanizeFieldLabel(key = '') {
   const text = String(key || '').trim();
   if (!text) return '';
@@ -43,19 +75,28 @@ function humanizeFieldLabel(key = '') {
     .replace(/^./, (c) => c.toUpperCase());
 }
 
+function readUIVariant(field = {}, keys = []) {
+  if (!field || typeof field !== 'object') return undefined;
+  for (const key of keys) {
+    if (field[key] !== undefined) return field[key];
+  }
+  return undefined;
+}
+
 export function extractPlannerElicitationMeta(requestedSchema = null) {
   if (!requestedSchema || typeof requestedSchema !== 'object') return null;
   const properties = requestedSchema.properties || {};
   const rowsField = properties.rows;
   if (!rowsField || typeof rowsField !== 'object') return null;
-  const widget = String(rowsField['x-ui-widget'] || rowsField.widget || '').trim().toLowerCase();
+  const widget = String(readUIVariant(rowsField, ['x-ui-widget', 'xUiWidget', 'x_ui_widget', 'widget']) || '').trim().toLowerCase();
   if (!['planner.table', 'planner-table', 'planner'].includes(widget)) {
     return null;
   }
   const items = rowsField.items && typeof rowsField.items === 'object' ? rowsField.items : null;
   const itemProps = items?.properties && typeof items.properties === 'object' ? items.properties : {};
-  const selectionField = String(rowsField['x-ui-selection-field'] || rowsField.selectionField || (itemProps.selected ? 'selected' : 'selected')).trim() || 'selected';
-  const explicitColumns = Array.isArray(rowsField['x-ui-columns']) ? rowsField['x-ui-columns'] : [];
+  const selectionField = String(readUIVariant(rowsField, ['x-ui-selection-field', 'xUiSelectionField', 'x_ui_selection_field', 'selectionField']) || (itemProps.selected ? 'selected' : 'selected')).trim() || 'selected';
+  const rawExplicitColumns = readUIVariant(rowsField, ['x-ui-columns', 'xUiColumns', 'x_ui_columns']);
+  const explicitColumns = Array.isArray(rawExplicitColumns) ? rawExplicitColumns : [];
   const columns = explicitColumns.length > 0
     ? explicitColumns
         .map((entry) => {

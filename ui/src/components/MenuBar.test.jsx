@@ -26,7 +26,13 @@ vi.mock('forge/core', () => ({
 
 vi.mock('@blueprintjs/core', () => ({
   Button: () => null,
-  Dialog: () => null
+  Dialog: () => null,
+  Spinner: () => null,
+  Switch: () => null
+}));
+
+vi.mock('forge/widgets/SchemaBasedForm.jsx', () => ({
+  default: () => null
 }));
 
 vi.mock('../services/agentlyClient', () => ({
@@ -197,5 +203,98 @@ describe('MenuBar approval pagination', () => {
     expect(page.start).toBe(2);
     expect(page.end).toBe(3);
     expect(page.items).toHaveLength(1);
+  });
+});
+
+describe('MenuBar queue approval dialog', () => {
+  it('normalizes queue approvals into renderable review schema seeded from queued arguments', async () => {
+    const { normalizeQueueApprovalDialog } = await import('./MenuBar.jsx');
+    const item = {
+      toolName: 'steward/RecommendationPatch',
+      arguments: {
+        Recommendation: { id: 7288305001 },
+        intent: 'target_add_sites',
+        rows: [
+          { publisher_id: 157, site_id: 3927679773, recommendation: 'ADD', selected: true },
+          { publisher_id: 157, site_id: 3932225519, recommendation: 'ADD', selected: true }
+        ]
+      },
+      metadata: {
+        approval: { toolName: 'steward/RecommendationPatch', title: 'Recommendation review' },
+        review: {
+          requestedSchema: {
+            type: 'object',
+            properties: {
+              intent: { type: 'string', readOnly: true },
+              rows: {
+                type: 'array',
+                title: 'Selected recommendations',
+                'x-ui-widget': 'planner.table',
+                items: {
+                  type: 'object',
+                  properties: {
+                    publisher_id: { type: 'integer' },
+                    site_id: { type: 'integer' },
+                    recommendation: { type: 'string' },
+                    selected: { type: 'boolean', default: true }
+                  }
+                }
+              }
+            },
+            required: ['rows']
+          }
+        }
+      }
+    };
+
+    const dialog = normalizeQueueApprovalDialog(item);
+    expect(dialog.approval.toolName).toBe('steward/RecommendationPatch');
+    expect(dialog.argumentsPayload.intent).toBe('target_add_sites');
+    expect(dialog.preparedSchema.properties.intent.default).toBe('target_add_sites');
+    expect(dialog.preparedSchema.properties.rows.default).toEqual(item.arguments.rows);
+    expect(dialog.plannerMeta?.defaultRows).toEqual(item.arguments.rows);
+    expect(dialog.preparedSchema.properties.rows['x-ui-widget']).toBe('planner.table');
+  });
+
+  it('parses stringified queue metadata and arguments', async () => {
+    const { normalizeQueueApprovalDialog } = await import('./MenuBar.jsx');
+    const metadata = {
+      approval: { toolName: 'steward/RecommendationPatch', title: 'Recommendation review' },
+      review: {
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            intent: { type: 'string', readOnly: true },
+            rows: {
+              type: 'array',
+              title: 'Selected recommendations',
+              xUiWidget: 'planner.table',
+              items: {
+                type: 'object',
+                properties: {
+                  site_id: { type: 'integer' },
+                  selected: { type: 'boolean', default: true }
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+    const argumentsPayload = {
+      intent: 'target_add_sites',
+      rows: [
+        { site_id: 101, selected: true },
+        { site_id: 202, selected: true }
+      ]
+    };
+    const dialog = normalizeQueueApprovalDialog({
+      metadata: JSON.stringify(metadata),
+      arguments: JSON.stringify(argumentsPayload),
+    });
+    expect(dialog.argumentsPayload).toEqual(argumentsPayload);
+    expect(dialog.preparedSchema.properties.rows.default).toEqual(argumentsPayload.rows);
+    expect(dialog.plannerMeta?.defaultRows).toEqual(argumentsPayload.rows);
+    expect(dialog.plannerMeta?.field).toBe('rows');
   });
 });
