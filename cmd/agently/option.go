@@ -8,6 +8,7 @@ type Options struct {
 	Scheduler     *SchedulerCmd     `command:"scheduler" description:"Scheduler runner and utilities"`
 	Query         *ChatCmd          `command:"query" description:"Query an agent (single turn or continuation)"`
 	Chat          *ChatCmd          `command:"chat"  description:"Deprecated alias of query"`
+	Transcript    *TranscriptCmd    `command:"transcript" description:"Fetch a conversation transcript"`
 	EvalWorkspace *EvalWorkspaceCmd `command:"eval-workspace" description:"Run generic workspace eval/contract checks"`
 	ListTools     *ListToolsCmd     `command:"list-tools" description:"List available tools"`
 	TemplateLoad  *TemplateLoadCmd  `command:"template-load" description:"Load and validate a template file or workspace template"`
@@ -27,6 +28,8 @@ func (o *Options) Init(firstArg string) {
 		o.Chat = &ChatCmd{}
 	case "query":
 		o.Query = &ChatCmd{}
+	case "transcript":
+		o.Transcript = &TranscriptCmd{}
 	case "eval-workspace":
 		o.EvalWorkspace = &EvalWorkspaceCmd{}
 	case "list-tools":
