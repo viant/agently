@@ -23,7 +23,7 @@ type TranscriptCmd struct {
 	Since            string `long:"since" description:"only include transcript data after the specified message ID"`
 	IncludeModelCall bool   `long:"include-model-calls" description:"include model call details"`
 	IncludeToolCall  bool   `long:"include-tool-calls" description:"include tool call details"`
-	Pretty           bool   `long:"pretty" description:"pretty-print JSON output" default:"true"`
+	Pretty           bool   `long:"pretty" description:"pretty-print JSON output"`
 }
 
 func (c *TranscriptCmd) Execute(_ []string) error {
