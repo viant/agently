@@ -3,7 +3,12 @@ import * as forgeCore from 'forge/core'
 import * as httpClient from './httpClient'
 import * as dialogBus from '../utils/dialogBus'
 
+vi.mock('./conversationWindow', () => ({
+  openConversationInMainWindow: vi.fn()
+}))
+
 import { client } from './agentlyClient'
+import { openConversationInMainWindow } from './conversationWindow'
 import { panelHasRenderableRows, scheduleService } from './scheduleService'
 
 function lookupContext(query = '') {
@@ -123,6 +128,7 @@ afterEach(() => {
   scheduleService._saveScheduleInFlight = false
   scheduleService._visibilityHookInstalled = false
   scheduleService._validationHookInstalled = false
+  scheduleService._automationStateByWindow = undefined
 })
 
 describe('scheduleService SDK lookups', () => {
@@ -288,6 +294,61 @@ describe('scheduleService SDK lookups', () => {
 
     expect(rows).toEqual([])
     expect(pushFormDependencies).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens run conversations through the main conversation navigation helper', () => {
+    const ok = scheduleService.openRunConversation({
+      row: {
+        id: 'run-1',
+        conversationId: 'conv-1'
+      }
+    })
+
+    expect(ok).toBe(true)
+    expect(openConversationInMainWindow).toHaveBeenCalledWith('conv-1')
+  })
+
+  it('clears stale focused run rows and refetches when selected schedule changes', () => {
+    const runsState = {
+      input: { parameters: { scheduleId: 'old-schedule' } },
+      collection: [{ id: 'old-run', conversationId: 'old-conv' }],
+      selection: { selected: { id: 'old-run' }, rowIndex: 0 },
+      fetches: 0
+    }
+    const runsDS = {
+      peekInput() {
+        return runsState.input
+      },
+      setInputParameters(parameters) {
+        runsState.input = { ...runsState.input, parameters }
+      },
+      setCollection(records) {
+        runsState.collection = records
+      },
+      setSelected(selection) {
+        runsState.selection = selection
+      },
+      fetchCollection() {
+        runsState.fetches += 1
+      }
+    }
+    const context = {
+      identity: { windowId: 'schedule-window-test' },
+      Context(name) {
+        if (name === 'runs') return { handlers: { dataSource: runsDS }, identity: { windowId: 'schedule-window-test' } }
+        return null
+      }
+    }
+
+    scheduleService.onSelectSchedule({
+      context,
+      selected: { id: 'test31', name: 'test31', agentRef: 'chatter', taskPrompt: 'hi' }
+    })
+
+    expect(runsState.input.parameters.scheduleId).toBe('test31')
+    expect(runsState.collection).toEqual([])
+    expect(runsState.selection).toEqual({ selected: null, rowIndex: -1 })
+    expect(runsState.fetches).toBe(1)
   })
 })
 

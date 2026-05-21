@@ -26,6 +26,7 @@ items:
   - id: pagination
     type: pagination
     align: center
+    placement: bottom
 
   - id: quickFilter
     placeholder: Filter schedules...

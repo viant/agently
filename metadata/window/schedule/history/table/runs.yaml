@@ -63,19 +63,7 @@ columns:
     tooltip: Open conversation
     on:
       - event: onClick
-        handler: window.openWindow
-        args:
-          - chat/new
-          - Run Chat
-        parameters:
-          - name: parameters.id
-            to: conversations:input
-            from: :form
-            location: conversationId
-          - name: parameters.convID
-            to: messages:input
-            from: :form
-            location: conversationId
+        handler: schedule.openRunConversation
 
 toolbar:
   items:
@@ -86,6 +74,7 @@ toolbar:
     - id: pagination
       type: pagination
       align: center
+      placement: bottom
     - id: quickFilter
       placeholder: Filter by status...
       align: right

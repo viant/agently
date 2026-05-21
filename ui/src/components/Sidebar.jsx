@@ -351,6 +351,7 @@ export default function Sidebar({ collapsed = false }) {
       }
     };
     const onConversationNew = () => {
+      setSelectedID('');
       if (queryReloadTimerRef.current) {
         clearTimeout(queryReloadTimerRef.current);
         queryReloadTimerRef.current = null;
@@ -378,6 +379,7 @@ export default function Sidebar({ collapsed = false }) {
       }
     };
     window.addEventListener('forge:conversation-active', onActive);
+    window.addEventListener('agently:conversation-select', onActive);
     window.addEventListener('agently:conversation-new', onConversationNew);
     window.addEventListener('agently:conversation-activity', onConversationActivity);
     window.addEventListener('agently:conversation-meta-updated', onConversationMetaUpdated);
@@ -391,6 +393,7 @@ export default function Sidebar({ collapsed = false }) {
         activityReloadTimerRef.current = null;
       }
       window.removeEventListener('forge:conversation-active', onActive);
+      window.removeEventListener('agently:conversation-select', onActive);
       window.removeEventListener('agently:conversation-new', onConversationNew);
       window.removeEventListener('agently:conversation-activity', onConversationActivity);
       window.removeEventListener('agently:conversation-meta-updated', onConversationMetaUpdated);

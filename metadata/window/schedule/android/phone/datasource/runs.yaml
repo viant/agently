@@ -1,6 +1,6 @@
 service:
   endpoint: agentlyAPI
-  uri: /v1/api/agently/scheduler/run
+  uri: /v1/api/agently/scheduler/run/{scheduleId}
   method: GET
 
 paging:
@@ -14,9 +14,6 @@ parameters:
   - name: scheduleId
     in: selection
     location: schedules.id
-  - name: requireScheduleId
-    in: const
-    location: "true"
 
 selectors:
   data: data

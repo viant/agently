@@ -8,6 +8,7 @@ import {
   normalizeWorkspaceAgentInfos,
   normalizeWorkspaceModelInfos
 } from './workspaceMetadata';
+import { openConversationInMainWindow } from './conversationWindow';
 
 const log = getLogger('agently');
 
@@ -196,6 +197,7 @@ function syncRunsToActiveSchedule(context, { fetch = false, clearCollection = fa
   const active = getActiveSchedule(context);
   const activeID = String(active?.id || '').trim();
   const currentParams = runsDS?.peekInput?.()?.parameters || {};
+  const currentID = String(currentParams?.scheduleId || '').trim();
   const nextParams = { ...currentParams };
   if (activeID) {
     nextParams.scheduleId = activeID;
@@ -203,10 +205,12 @@ function syncRunsToActiveSchedule(context, { fetch = false, clearCollection = fa
     delete nextParams.scheduleId;
   }
   runsDS?.setInputParameters?.(nextParams);
-  if (!activeID && clearCollection) {
+  const scheduleChanged = currentID !== activeID;
+  if (clearCollection || scheduleChanged) {
+    runsDS?.setSelected?.({ selected: null, rowIndex: -1 });
     runsDS?.setCollection?.([]);
   }
-  if (fetch && activeID) {
+  if (activeID && (fetch || scheduleChanged)) {
     runsDS?.fetchCollection?.();
   }
 }
@@ -1288,6 +1292,23 @@ function fmtDuration(row) {
   return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
 }
 
+function resolveRunConversationID(params = {}) {
+  const candidates = [
+    params?.row,
+    params?.item,
+    params?.selected,
+    params?.context?.handlers?.dataSource?.peekSelection?.()?.selected,
+    params?.context?.handlers?.dataSource?.getSelection?.()?.selected,
+    params?.context?.handlers?.dataSource?.peekFormData?.(),
+    params?.context?.handlers?.dataSource?.getFormData?.()
+  ];
+  for (const candidate of candidates) {
+    const id = String(firstDefined(candidate, ['conversationId', 'ConversationId', 'conversation_id']) || '').trim();
+    if (id) return id;
+  }
+  return '';
+}
+
 export const scheduleService = {
   onInit({ context }) {
     installScheduleEmptyStateObserver();
@@ -1364,6 +1385,12 @@ export const scheduleService = {
   },
   saveSchedule,
   deleteSchedule,
+  openRunConversation(params = {}) {
+    const conversationID = resolveRunConversationID(params);
+    if (!conversationID) return false;
+    openConversationInMainWindow(conversationID);
+    return true;
+  },
   async runSelected({ context }) {
     if (scheduleService._runSelectedInFlight) return true;
     const ctx = context?.Context('schedules');

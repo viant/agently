@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSignals } from '@preact/signals-react/runtime';
 import { Dialog } from '@blueprintjs/core';
-import { activeWindows, addWindow, findFormSignal, findViewSignal, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
+import { activeWindows, addWindow, getFormSignal, getViewSignal, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
 import { WindowManager, WindowContent } from 'forge/components';
 import { DetailContext } from '../context/DetailContext';
 import { ConversationViewContext } from '../context/ConversationViewContext';
@@ -324,8 +324,8 @@ export default function Root() {
     const windowId = String(entry?.windowId || '').trim();
     const hasInlineMetadata = entry?.inlineMetadata && typeof entry.inlineMetadata === 'object';
     const inlineNamespace = hasInlineMetadata ? String(entry.inlineMetadata.namespace || '').trim() : '';
-    const windowFormState = windowId ? (findFormSignal(`${windowId}:windowForm`)?.value || {}) : {};
-    const viewState = windowId ? (findViewSignal(windowId)?.value || {}) : {};
+    const windowFormState = windowId ? (getFormSignal(`${windowId}:windowForm`)?.value || {}) : {};
+    const viewState = windowId ? (getViewSignal(windowId)?.value || {}) : {};
     return `${windowId}:${hasInlineMetadata ? 1 : 0}:${inlineNamespace}:${JSON.stringify(windowFormState)}:${JSON.stringify(viewState)}`;
   }).join('|');
   const linkedChildWindow = isLinkedChildWindow(selectedWindow) ? selectedWindow : null;
