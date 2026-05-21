@@ -552,6 +552,7 @@ export default function MenuBar({
           setSelected?.(null);
         }}
         title={selected?.title || selected?.toolName || 'Approval detail'}
+        style={{ width: '70vw', minWidth: '70vw', maxWidth: '95vw' }}
       >
         <div className="app-approval-dialog">
           <div><strong>Tool:</strong> {selected?.toolName}</div>
