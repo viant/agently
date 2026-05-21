@@ -4,7 +4,7 @@ service:
   method: GET
 
 paging:
-  size: 25
+  size: 10
   enabled: true
   dataInfoSelectors:
     pageCount: pageCount
