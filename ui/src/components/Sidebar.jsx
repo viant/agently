@@ -3,6 +3,7 @@ import { Button, InputGroup, Spinner } from '@blueprintjs/core';
 import { resolveConversationSummary, resolveConversationTitle } from '../services/conversationTitle';
 import { isConnectivityError } from '../services/networkError';
 import { client } from '../services/agentlyClient';
+import { openConfirmDialog } from '../utils/dialogBus';
 import {
   getWindowById,
   getScopedConversationSelection,
@@ -128,11 +129,63 @@ function conversationStatusTone(row = {}) {
   return 'idle';
 }
 
-async function archiveConversation(id) {
-  if (!id) return;
-  try {
-    await client.updateConversation(id, { visibility: 'archived' });
-  } catch (_) {}
+export function removeConversationRow(rows = [], conversationID = '') {
+  const id = String(conversationID || '').trim();
+  if (!id || !Array.isArray(rows)) return rows;
+  return rows.filter((row) => String(row?.Id || row?.id || '').trim() !== id);
+}
+
+function conversationID(row = {}) {
+  return String(row?.Id || row?.id || '').trim();
+}
+
+export function fillDeletedSidebarPageFromOlder({
+  rows = [],
+  olderPage = null,
+  hadNewer = false,
+  hadOlder = false,
+  pageSize = PAGE_SIZE
+} = {}) {
+  const baseRows = sortConversations(Array.isArray(rows) ? rows : []);
+  const limit = Math.max(1, Number(pageSize || PAGE_SIZE));
+  const need = Math.max(0, limit - baseRows.length);
+  const seen = new Set(baseRows.map(conversationID).filter(Boolean));
+  const olderRows = sortConversations(Array.isArray(olderPage?.rows) ? olderPage.rows : []);
+  const candidates = [];
+
+  for (const row of olderRows) {
+    const id = conversationID(row);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    candidates.push(row);
+  }
+
+  const rowsToAppend = candidates.slice(0, need);
+  const mergedRows = sortConversations([...baseRows, ...rowsToAppend]).slice(0, limit);
+  const firstID = conversationID(mergedRows[0]);
+  const lastID = conversationID(mergedRows[mergedRows.length - 1]);
+  const hasMoreOlder = Boolean(hadOlder && lastID && (candidates.length > need || olderPage?.nextCursor));
+
+  return {
+    rows: mergedRows,
+    prevCursor: hadNewer && firstID ? firstID : '',
+    nextCursor: hasMoreOlder ? lastID : ''
+  };
+}
+
+export function conversationDeleteErrorMessage(err) {
+  const status = Number(err?.status || err?.statusCode || 0);
+  const message = String(err?.body || err?.message || err || '').trim();
+  if (status === 409 || /still in progress|in progress|active/i.test(message)) {
+    return 'Conversation is still in progress and cannot be deleted yet.';
+  }
+  if (status === 403 || /permission denied|forbidden/i.test(message)) {
+    return 'Only the conversation owner can delete this conversation.';
+  }
+  if (status === 404 || /not found/i.test(message)) {
+    return 'Conversation was already deleted or is no longer available.';
+  }
+  return message || 'Failed to delete conversation.';
 }
 
 export function normalizeSidebarPage(page = {}, direction = 'latest', requestedCursor = '') {
@@ -148,11 +201,10 @@ export function normalizeSidebarPage(page = {}, direction = 'latest', requestedC
     : (direction === 'before' ? hasRequestedCursor : (direction === 'after' ? hasMore : false));
   const prev = String(pageInfo?.prevCursor || '').trim();
   const next = String(pageInfo?.cursor || '').trim();
-  const cursorsEqual = prev && next && prev === next;
   return {
     rows,
-    prevCursor: hasNewer && prev && !cursorsEqual ? prev : '',
-    nextCursor: hasOlder && next && !cursorsEqual ? next : ''
+    prevCursor: hasNewer && prev ? prev : '',
+    nextCursor: hasOlder && next ? next : ''
   };
 }
 
@@ -165,8 +217,17 @@ export function sidebarPageStatusLabel({ loading = false, prevCursor = '', nextC
 }
 
 export function sidebarPaginationRequest(kind = '', cursor = '') {
-  if (kind === 'newer') return { direction: 'after', cursor };
-  if (kind === 'older') return { direction: 'before', cursor };
+  if (kind === 'newer') return normalizeSidebarPageRequest('after', cursor);
+  if (kind === 'older') return normalizeSidebarPageRequest('before', cursor);
+  return normalizeSidebarPageRequest('latest', '');
+}
+
+export function normalizeSidebarPageRequest(direction = 'latest', cursor = '') {
+  const nextDirection = String(direction || 'latest').trim();
+  const nextCursor = String(cursor || '').trim();
+  if ((nextDirection === 'before' || nextDirection === 'after') && nextCursor) {
+    return { direction: nextDirection, cursor: nextCursor };
+  }
   return { direction: 'latest', cursor: '' };
 }
 
@@ -191,7 +252,11 @@ export default function Sidebar({ collapsed = false }) {
   const [nextCursor, setNextCursor] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [deletingID, setDeletingID] = useState('');
   const rowsRef = React.useRef([]);
+  const prevCursorRef = React.useRef('');
+  const nextCursorRef = React.useRef('');
   const activityReloadTimerRef = React.useRef(null);
   const queryReloadTimerRef = React.useRef(null);
   const inFlightReloadRef = React.useRef({ key: '', promise: null });
@@ -203,13 +268,80 @@ export default function Sidebar({ collapsed = false }) {
   }, [loading, prevCursor, nextCursor]);
   const showPagination = loading || !!prevCursor || !!nextCursor;
 
-  const reload = async (direction = 'latest', cursor = '') => {
+  const requestDeleteConversation = (row) => {
+    const id = String(row?.Id || row?.id || '').trim();
+    if (!id || deletingID) return;
+    const title = resolveConversationTitle(row);
+    openConfirmDialog({
+      title: 'Delete conversation',
+      message: `Delete "${title}" and its conversation tree? Conversations still in progress cannot be deleted.`,
+      confirmText: 'Delete',
+      intent: 'danger',
+      onConfirm: async () => {
+        setDeletingID(id);
+        try {
+          await client.deleteConversation(id);
+          const beforeRows = rowsRef.current;
+          const remainingRows = removeConversationRow(beforeRows, id);
+          const hadNewer = !!prevCursorRef.current;
+          const hadOlder = !!nextCursorRef.current;
+          setRows(remainingRows);
+          setError('');
+          setDeleteError('');
+          if (selectedID === id) {
+            setSelectedID('');
+            requestNewConversationInMainWindow();
+          }
+          try {
+            if (remainingRows.length === 0) {
+              await reload('latest', '', { force: true });
+            } else if (remainingRows.length < PAGE_SIZE && hadOlder) {
+              const oldestRemainingID = conversationID(sortConversations(remainingRows)[remainingRows.length - 1]);
+              const olderPage = oldestRemainingID
+                ? await fetchPage({ query: query.trim(), direction: 'before', cursor: oldestRemainingID })
+                : null;
+              const filled = fillDeletedSidebarPageFromOlder({
+                rows: remainingRows,
+                olderPage,
+                hadNewer,
+                hadOlder,
+                pageSize: PAGE_SIZE
+              });
+              setRows(filled.rows);
+              setPrevCursor(filled.prevCursor);
+              setNextCursor(filled.nextCursor);
+            } else if (remainingRows.length < PAGE_SIZE) {
+              const filled = fillDeletedSidebarPageFromOlder({
+                rows: remainingRows,
+                hadNewer,
+                hadOlder: false,
+                pageSize: PAGE_SIZE
+              });
+              setRows(filled.rows);
+              setPrevCursor(filled.prevCursor);
+              setNextCursor(filled.nextCursor);
+            }
+          } catch (_) {
+            // The delete itself succeeded; keep the locally removed row state if refill fails.
+          }
+        } catch (err) {
+          setDeleteError(conversationDeleteErrorMessage(err));
+          throw err;
+        } finally {
+          setDeletingID('');
+        }
+      }
+    });
+  };
+
+  const reload = async (direction = 'latest', cursor = '', options = {}) => {
+    const pageRequest = normalizeSidebarPageRequest(direction, cursor);
     const requestKey = JSON.stringify({
       query: query.trim(),
-      direction: String(direction || 'latest'),
-      cursor: String(cursor || ''),
+      direction: pageRequest.direction,
+      cursor: pageRequest.cursor,
     });
-    if (inFlightReloadRef.current.promise && inFlightReloadRef.current.key === requestKey) {
+    if (!options?.force && inFlightReloadRef.current.promise && inFlightReloadRef.current.key === requestKey) {
       return inFlightReloadRef.current.promise;
     }
     const requestSeq = reloadSeqRef.current + 1;
@@ -217,13 +349,14 @@ export default function Sidebar({ collapsed = false }) {
     setLoading(true);
     const request = (async () => {
       try {
-        const page = await fetchPage({ query: query.trim(), direction, cursor });
+        const page = await fetchPage({ query: query.trim(), direction: pageRequest.direction, cursor: pageRequest.cursor });
         if (reloadSeqRef.current !== requestSeq) return page;
         lastResolvedReloadKeyRef.current = requestKey;
         setRows(Array.isArray(page.rows) ? page.rows : []);
         setPrevCursor(page.prevCursor);
         setNextCursor(page.nextCursor);
         setError('');
+        setDeleteError('');
         return page;
       } catch (err) {
         if (reloadSeqRef.current === requestSeq) {
@@ -252,6 +385,11 @@ export default function Sidebar({ collapsed = false }) {
   }, [rows]);
 
   useEffect(() => {
+    prevCursorRef.current = prevCursor;
+    nextCursorRef.current = nextCursor;
+  }, [prevCursor, nextCursor]);
+
+  useEffect(() => {
     if (queryReloadTimerRef.current) {
       clearTimeout(queryReloadTimerRef.current);
       queryReloadTimerRef.current = null;
@@ -273,55 +411,58 @@ export default function Sidebar({ collapsed = false }) {
     if (rows.length === 0) return <div className="app-sidebar-empty">No conversations</div>;
 
     return (
-      <div className="app-conversation-list">
-        {rows.map((row) => {
-          const id = String(row?.Id || row?.id || '').trim();
-          const title = resolveConversationTitle(row);
-          const summary = resolveConversationSummary(row);
-          const subtitle = String(row?.Agent || row?.agent || '').trim();
-          const relative = formatRelativeTime(conversationTimestamp(row));
-          const isSelected = id && id === selectedID;
-          const tone = conversationStatusTone(row);
-          const hoverText = summary || title;
-          return (
-            <div
-              key={id}
-              className={`app-conversation-row ${isSelected ? 'is-selected' : ''}`}
-            >
-              <span className={`app-conversation-status-dot tone-${tone}`} title={tone} />
-              <button
-                className="app-conversation-row-body"
-                title={hoverText}
-                aria-label={hoverText}
-                onClick={() => {
-                  setSelectedID(id);
-                  openConversationInMainWindow(id);
-                }}
+      <>
+        {deleteError ? <div className="app-sidebar-error">{deleteError}</div> : null}
+        <div className="app-conversation-list">
+          {rows.map((row) => {
+            const id = String(row?.Id || row?.id || '').trim();
+            const title = resolveConversationTitle(row);
+            const summary = resolveConversationSummary(row);
+            const subtitle = String(row?.Agent || row?.agent || '').trim();
+            const relative = formatRelativeTime(conversationTimestamp(row));
+            const isSelected = id && id === selectedID;
+            const tone = conversationStatusTone(row);
+            const hoverText = summary || title;
+            return (
+              <div
+                key={id}
+                className={`app-conversation-row ${isSelected ? 'is-selected' : ''}`}
               >
-                <div className="app-conversation-topline">
-                  <div className="app-conversation-title" title={title}>{title}</div>
-                  {relative ? <div className="app-conversation-meta">{relative}</div> : null}
-                </div>
-                {subtitle ? <div className="app-conversation-subtitle" title={subtitle}>{subtitle}</div> : null}
-              </button>
-              <button
-                className="app-conversation-trash"
-                title="Archive conversation"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  archiveConversation(id).then(() => {
-                    setRows((prev) => prev.filter((r) => String(r?.Id || r?.id || '').trim() !== id));
-                  });
-                }}
-              >
-                🗑
-              </button>
-            </div>
-          );
-        })}
-      </div>
+                <span className={`app-conversation-status-dot tone-${tone}`} title={tone} />
+                <button
+                  className="app-conversation-row-body"
+                  title={hoverText}
+                  aria-label={hoverText}
+                  onClick={() => {
+                    setSelectedID(id);
+                    openConversationInMainWindow(id);
+                  }}
+                >
+                  <div className="app-conversation-topline">
+                    <div className="app-conversation-title" title={title}>{title}</div>
+                    {relative ? <div className="app-conversation-meta">{relative}</div> : null}
+                  </div>
+                  {subtitle ? <div className="app-conversation-subtitle" title={subtitle}>{subtitle}</div> : null}
+                </button>
+                <button
+                  className="app-conversation-trash"
+                  title="Delete conversation"
+                  aria-label="Delete conversation"
+                  disabled={deletingID === id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    requestDeleteConversation(row);
+                  }}
+                >
+                  🗑
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </>
     );
-  }, [rows, loading, error, selectedID, seedVersion]);
+  }, [rows, loading, error, deleteError, selectedID, seedVersion, deletingID]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
