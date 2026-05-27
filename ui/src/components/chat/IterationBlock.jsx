@@ -651,6 +651,7 @@ export function mapCanonicalExecutionGroups(groups = []) {
         responsePayloadId: ts?.responsePayloadId || ts?.ResponsePayloadId || '',
         requestPayload: ts?.requestPayload || ts?.RequestPayload || null,
         responsePayload: ts?.responsePayload || ts?.ResponsePayload || null,
+        uiResourceUri: ts?.uiResourceUri || ts?.UIResourceURI || '',
         linkedConversationId: ts?.linkedConversationId || ts?.LinkedConversationId || toolMessage?.linkedConversationId || toolMessage?.LinkedConversationId || '',
         linkedConversationAgentId: ts?.linkedConversationAgentId || ts?.LinkedConversationAgentId || toolMessage?.linkedConversationAgentId || toolMessage?.LinkedConversationAgentId || '',
         linkedConversationTitle: ts?.linkedConversationTitle || ts?.LinkedConversationTitle || toolMessage?.linkedConversationTitle || toolMessage?.LinkedConversationTitle || ''

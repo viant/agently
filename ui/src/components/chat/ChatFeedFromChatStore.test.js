@@ -19,6 +19,20 @@ vi.mock('./IterationRowBlock.jsx', () => ({
   default: (props) => iterationRowBlockSpy(props),
 }));
 
+const mcpuiBubbleSpy = vi.fn(({ row }) => React.createElement(
+  'div',
+  {
+    'data-testid': 'mcpui-bubble-row',
+    'data-row-render-key': String(row?.renderKey || ''),
+    'data-uri': String(row?.uri || ''),
+  },
+  `MCPUI:${String(row?.toolName || '')}`,
+));
+
+vi.mock('./MCPUIBubble.jsx', () => ({
+  default: (props) => mcpuiBubbleSpy(props),
+}));
+
 import ChatFeedFromChatStore from './ChatFeedFromChatStore.jsx';
 
 const h = React.createElement;
@@ -52,6 +66,7 @@ function makeContext({ conversation = {}, meta = {} } = {}) {
 describe('ChatFeedFromChatStore', () => {
   it('passes the canonical iteration row directly to IterationRowBlock', () => {
     iterationRowBlockSpy.mockClear();
+    mcpuiBubbleSpy.mockClear();
     const rows = [
       {
         kind: 'iteration',
@@ -253,6 +268,43 @@ describe('ChatFeedFromChatStore', () => {
 
     expect(iterationRowBlockSpy).toHaveBeenCalledTimes(1);
     expect(iterationRowBlockSpy.mock.calls[0][0].suppressBubble).toBe(true);
+  });
+
+  it('renders MCP UI rows as separate chat bubbles outside execution details', () => {
+    iterationRowBlockSpy.mockClear();
+    mcpuiBubbleSpy.mockClear();
+    const rows = [
+      {
+        kind: 'iteration',
+        renderKey: 'rk_iter',
+        turnId: 'tn_1',
+        lifecycle: 'completed',
+        rounds: [],
+        elicitation: null,
+        linkedConversations: [],
+        header: { label: 'Execution details (1)', tone: 'success', count: 1 },
+        isStreaming: false,
+        createdAt: 't1',
+      },
+      {
+        kind: 'mcpui',
+        renderKey: 'rk_tool:mcpui',
+        turnId: 'tn_1',
+        toolCallId: 'tool-1',
+        toolName: 'mcpuiverify:show_widget',
+        uri: 'ui://mcpuiverify/demo/verify_widget',
+        createdAt: 't2',
+      },
+    ];
+
+    const html = renderToStaticMarkup(
+      h(ChatFeedFromChatStore, { conversationId: 'c', rowsOverride: rows }),
+    );
+
+    expect(iterationRowBlockSpy).toHaveBeenCalledTimes(1);
+    expect(mcpuiBubbleSpy).toHaveBeenCalledTimes(1);
+    expect(mcpuiBubbleSpy.mock.calls[0][0].row).toBe(rows[1]);
+    expect(html.indexOf('Execution details')).toBeLessThan(html.indexOf('MCPUI:mcpuiverify:show_widget'));
   });
 
   it('never produces "(0)" for lifecycle-only turn_started', () => {

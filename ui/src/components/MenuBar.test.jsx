@@ -298,3 +298,64 @@ describe('MenuBar queue approval dialog', () => {
     expect(dialog.plannerMeta?.field).toBe('rows');
   });
 });
+
+describe('MenuBar MCP UI approval routing', () => {
+  it('matches pending approvals by exact queue row id', async () => {
+    const { findApprovalItemById } = await import('./MenuBar.jsx');
+    const items = [
+      { id: 'approval-1', toolName: 'system/os:getEnv' },
+      { id: 'approval-2', toolName: 'system/os:getEnv' },
+    ];
+    expect(findApprovalItemById(items, 'approval-2')).toEqual(items[1]);
+    expect(findApprovalItemById(items, ' approval-2 ')).toEqual(items[1]);
+    expect(findApprovalItemById(items, 'approval-x')).toBe(null);
+  });
+
+  it('captures and restores a focusable return target exactly', async () => {
+    const { captureReturnFocusTarget, restoreReturnFocusTarget } = await import('./MenuBar.jsx');
+    const focus = vi.fn();
+    const target = { focus };
+    expect(captureReturnFocusTarget({ activeElement: target })).toBe(target);
+    expect(restoreReturnFocusTarget(target)).toBe(true);
+    expect(focus).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores non-focusable active elements when capturing return focus', async () => {
+    const { captureReturnFocusTarget, restoreReturnFocusTarget } = await import('./MenuBar.jsx');
+    expect(captureReturnFocusTarget({ activeElement: {} })).toBe(null);
+    expect(restoreReturnFocusTarget(null)).toBe(false);
+  });
+
+  it('preserves an existing widget return-focus target instead of overwriting it with a later host-side control', async () => {
+    const { resolveReturnFocusTarget } = await import('./MenuBar.jsx');
+    const iframeTarget = { focus: vi.fn() };
+    const hostButton = { focus: vi.fn() };
+    expect(resolveReturnFocusTarget(iframeTarget, { activeElement: hostButton })).toBe(iframeTarget);
+    expect(resolveReturnFocusTarget(null, { activeElement: hostButton })).toBe(hostButton);
+  });
+
+  it('restores focus only on the approval-dialog open->close transition with a captured target', async () => {
+    const { nextApprovalDialogFocusReturn } = await import('./MenuBar.jsx');
+    const target = { focus: vi.fn() };
+
+    // closed -> closed: nothing to restore, was-open flag stays false.
+    expect(nextApprovalDialogFocusReturn({ wasOpen: false, isOpen: false, target }))
+      .toEqual({ wasOpen: false, restoreTarget: null });
+
+    // closed -> open: mark dialog as having been open; no restore yet.
+    const opening = nextApprovalDialogFocusReturn({ wasOpen: false, isOpen: true, target });
+    expect(opening).toEqual({ wasOpen: true, restoreTarget: null });
+
+    // open -> open: still open, no restore.
+    expect(nextApprovalDialogFocusReturn({ wasOpen: true, isOpen: true, target }))
+      .toEqual({ wasOpen: true, restoreTarget: null });
+
+    // open -> close: emit the captured restore target exactly once.
+    expect(nextApprovalDialogFocusReturn({ wasOpen: true, isOpen: false, target }))
+      .toEqual({ wasOpen: false, restoreTarget: target });
+
+    // open -> close without a captured target: do not invent one.
+    expect(nextApprovalDialogFocusReturn({ wasOpen: true, isOpen: false, target: null }))
+      .toEqual({ wasOpen: false, restoreTarget: null });
+  });
+});

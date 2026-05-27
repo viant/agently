@@ -246,6 +246,43 @@ describe('T-note transcript standalone assistant note ordering', () => {
     });
 });
 
+describe('T-mcpui remote widget placement', () => {
+    it('renders the projected MCP UI row as a separate bubble after execution details', () => {
+        onTranscript(CONV, {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_mcpui',
+                status: 'completed',
+                user: {
+                    messageId: 'msg_user_mcpui',
+                    content: 'show the widget',
+                    sequence: 1,
+                },
+                execution: {
+                    pages: [{
+                        pageId: 'pg_mcpui',
+                        status: 'completed',
+                        sequence: 2,
+                        toolSteps: [{
+                            toolCallId: 'tool_mcpui',
+                            toolName: 'mcpuiverify:show_widget',
+                            status: 'completed',
+                            uiResourceUri: 'ui://mcpuiverify/demo/verify_widget',
+                            completedAt: '2025-01-01T00:00:03Z',
+                        }],
+                    }],
+                },
+            }],
+        });
+
+        const rows = getProjection(CONV);
+        expect(rows.map((row) => row.kind)).toEqual(['user', 'iteration', 'mcpui']);
+        const html = render();
+        expect(html).toContain('data-testid="mcpui-bubble-row"');
+        expect(html.indexOf('app-iteration-card')).toBeLessThan(html.indexOf('data-testid="mcpui-bubble-row"'));
+    });
+});
+
 describe('T-note-live control message_add ordering', () => {
     it('renders a live standalone assistant note before the later iteration content in the same turn', () => {
         onSSE(CONV, {

@@ -3,6 +3,7 @@ import { Button, Dialog, Spinner, Switch } from '@blueprintjs/core';
 import { addWindow, activeWindows, getWindowContext, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
 import SchemaBasedForm from 'forge/widgets/SchemaBasedForm.jsx';
 import { client, getAuthMeSilently } from '../services/agentlyClient';
+import { subscribeMCPUIApprovalRequests } from '../services/mcpApps/approvalEvents.js';
 import { MAIN_CHAT_WINDOW_ID, resolveConversationSelection } from '../services/conversationWindow';
 import { getWorkspaceMetadataSnapshot, resolveWorkspaceAppName, subscribeWorkspaceMetadata } from '../services/workspaceMetadata';
 import { extractPlannerElicitationMeta, prepareRenderableRequestedSchema } from './elicitationHelpers';
@@ -174,6 +175,47 @@ export function normalizeQueueApprovalDialog(item = null) {
   };
 }
 
+export function findApprovalItemById(items = [], approvalId = '') {
+  const wanted = String(approvalId || '').trim();
+  if (!wanted) return null;
+  return (Array.isArray(items) ? items : []).find((item) => String(item?.id || '').trim() === wanted) || null;
+}
+
+export function captureReturnFocusTarget(doc = typeof document !== 'undefined' ? document : null) {
+  const activeElement = doc && typeof doc === 'object' ? doc.activeElement : null;
+  if (activeElement && typeof activeElement.focus === 'function') {
+    return activeElement;
+  }
+  return null;
+}
+
+export function resolveReturnFocusTarget(existingTarget = null, doc = typeof document !== 'undefined' ? document : null) {
+  if (existingTarget && typeof existingTarget.focus === 'function') {
+    return existingTarget;
+  }
+  return captureReturnFocusTarget(doc);
+}
+
+export function restoreReturnFocusTarget(target = null) {
+  if (!target || typeof target.focus !== 'function') return false;
+  try {
+    target.focus();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+export function nextApprovalDialogFocusReturn({ wasOpen = false, isOpen = false, target = null } = {}) {
+  if (isOpen) {
+    return { wasOpen: true, restoreTarget: null };
+  }
+  if (!wasOpen) {
+    return { wasOpen: false, restoreTarget: null };
+  }
+  return { wasOpen: false, restoreTarget: target ?? null };
+}
+
 const plannerHeaderStyle = {
   textAlign: 'left',
   fontSize: 12,
@@ -227,8 +269,11 @@ export default function MenuBar({
   const [approvalPage, setApprovalPage] = useState(0);
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
   const [approvalError, setApprovalError] = useState('');
+  const [pendingExternalApprovalId, setPendingExternalApprovalId] = useState('');
   const [queuePlannerRows, setQueuePlannerRows] = useState([]);
   const queueFormValuesRef = useRef({});
+  const returnFocusRef = useRef(null);
+  const wasApprovalDialogOpenRef = useRef(false);
 
   const selectedQueueDialog = useMemo(() => normalizeQueueApprovalDialog(selected), [selected]);
   const selectedQueueSchema = selectedQueueDialog.preparedFormSchema;
@@ -311,6 +356,46 @@ export default function MenuBar({
       setOpen?.(false);
     }
   }, [selected?.id, setOpen]);
+
+  useEffect(() => {
+    return subscribeMCPUIApprovalRequests((request) => {
+      const approvalId = String(request?.approvalId || '').trim();
+      if (!approvalId) return;
+      returnFocusRef.current = resolveReturnFocusTarget(returnFocusRef.current);
+      const matched = findApprovalItemById(items, approvalId);
+      if (matched) {
+        setSelected?.(matched);
+        setOpen?.(false);
+        setPendingExternalApprovalId('');
+        return;
+      }
+      setPendingExternalApprovalId(approvalId);
+      setPage?.(0);
+      setApprovalPage(0);
+      setOpen?.(true);
+    });
+  }, [items, setOpen, setPage, setSelected]);
+
+  useEffect(() => {
+    const matched = findApprovalItemById(items, pendingExternalApprovalId);
+    if (!matched) return;
+    setSelected?.(matched);
+    setOpen?.(false);
+    setPendingExternalApprovalId('');
+  }, [items, pendingExternalApprovalId, setOpen, setSelected]);
+
+  useEffect(() => {
+    const transition = nextApprovalDialogFocusReturn({
+      wasOpen: wasApprovalDialogOpenRef.current,
+      isOpen: !!selected?.id,
+      target: returnFocusRef.current,
+    });
+    wasApprovalDialogOpenRef.current = transition.wasOpen;
+    if (transition.restoreTarget) {
+      returnFocusRef.current = null;
+      restoreReturnFocusTarget(transition.restoreTarget);
+    }
+  }, [selected?.id]);
 
   useEffect(() => {
     setApprovalSubmitting(false);

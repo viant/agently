@@ -44,6 +44,7 @@ describe('canonicalTranscript', () => {
             executionRole: 'worker',
             content: 'Checking blocker diagnostics now.',
             status: 'completed',
+            uiResourceUri: 'ui://mcpuiverify/demo/verify_widget',
             linkedConversationId: 'child-1',
             responsePayloadId: 'resp-1'
           }]
@@ -68,6 +69,7 @@ describe('canonicalTranscript', () => {
       executionRole: 'worker',
       toolName: 'llm/agents-run',
       content: 'Checking blocker diagnostics now.',
+      uiResourceUri: 'ui://mcpuiverify/demo/verify_widget',
       linkedConversationId: 'child-1',
       responsePayloadId: 'resp-1'
     });
