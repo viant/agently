@@ -1304,11 +1304,21 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
   // SSE-owned. Active-turn truth belongs entirely to SSE on the web UI; do not
   // forward any transcript fragment for that turn into the canonical client
   // store.
+  //
+  // Reset is destructive: it deletes the per-conversation entry, which forces
+  // applyTranscript to re-allocate a fresh renderKey for every entity. Any
+  // mounted MCP UI iframe bubble keyed by that renderKey unmounts and
+  // remounts, dropping its host bridge binding (windowId + bound source
+  // window) and visual state. Reset is therefore only safe when no live SSE
+  // ownership exists for this conversation. When SSE owns the conversation
+  // and canonical reports terminal, applyTranscript still settles lifecycle
+  // through field-level transcript refinement without disturbing entity
+  // identity.
   try {
     if (canonicalConversation && canonicalConversation.conversationId && (!latestTurnLiveOwned || !canonicalHasRunning)) {
       const store = _chatStoreRef();
       if (store) {
-        if (!canonicalHasRunning && typeof store.reset === 'function') {
+        if (!canonicalHasRunning && !latestTurnLiveOwned && typeof store.reset === 'function') {
           store.reset(canonicalConversation.conversationId);
         }
         store.onTranscript(canonicalConversation.conversationId, canonicalConversation);

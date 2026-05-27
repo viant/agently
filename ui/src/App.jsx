@@ -6,6 +6,7 @@ import 'forge/packs/blueprint/index.jsx';
 import Root from './components/Root';
 import OAuthCallback from './components/OAuthCallback';
 import LookupChipPreview from './lookupChipPreview.jsx';
+import MCPUIForgeWindowPage from './components/mcpApps/MCPUIForgeWindowPage.jsx';
 import { endpoints } from './endpoint';
 import { connectorConfig } from './connector';
 import { appRoutePaths } from './appRoutePaths.js';
@@ -56,6 +57,8 @@ export const routes = [
   { path: '/v1/api/auth/oauth/callback', element: <OAuthCallback /> },
   { path: '/lookup-chip-preview', element: <LookupChipPreview /> },
   { path: '/ui/lookup-chip-preview', element: <LookupChipPreview /> },
+  { path: '/mcp-ui/forge-window', element: <MCPUIForgeWindowPage /> },
+  { path: '/ui/mcp-ui/forge-window', element: <MCPUIForgeWindowPage /> },
   { path: '*', element: <Root /> }
 ];
 

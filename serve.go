@@ -66,6 +66,14 @@ type ServeOptions struct {
 const (
 	htmlCacheControl  = "no-cache, must-revalidate"
 	assetCacheControl = "public, max-age=31536000, immutable"
+
+	// frameAncestorsPolicy restricts the Agently host page to same-origin
+	// framing only. The MCP UI bubbles run as guest iframes nested *inside*
+	// the host page; they have their own srcdoc CSP. This directive applies
+	// to the host itself and protects the bridge surface from hostile
+	// outer-page framing (host-app XSS risk).
+	frameAncestorsPolicy = "frame-ancestors 'self'"
+	frameOptionsPolicy   = "SAMEORIGIN"
 )
 
 func Serve(options ServeOptions) error {
@@ -339,7 +347,7 @@ func newRouter(api http.Handler, meta http.Handler, speech http.Handler, uiDist 
 		localIndex = filepath.Join(uiDist, "index.html")
 	}
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return withFrameAncestorsPolicy(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if path == "/v1/api/auth/oauth/callback" && r.Method == http.MethodGet {
 			w.Header().Set("Cache-Control", htmlCacheControl)
@@ -377,6 +385,8 @@ func newRouter(api http.Handler, meta http.Handler, speech http.Handler, uiDist 
 		if path == "/" || path == "/ui" || path == "/ui/" ||
 			path == "/lookup-chip-preview" ||
 			path == "/ui/lookup-chip-preview" ||
+			path == "/mcp-ui/forge-window" ||
+			path == "/ui/mcp-ui/forge-window" ||
 			strings.HasPrefix(path, "/conversation/") ||
 			strings.HasPrefix(path, "/ui/conversation/") ||
 			strings.HasPrefix(path, "/v1/conversation/") {
@@ -395,6 +405,17 @@ func newRouter(api http.Handler, meta http.Handler, speech http.Handler, uiDist 
 			return
 		}
 		embeddedServer.ServeHTTP(w, r)
+	}))
+}
+
+// withFrameAncestorsPolicy stamps the host-page framing policy onto every
+// response before delegating to the next handler. Headers must be set before
+// the inner handler writes the status code, so this wrapper runs first.
+func withFrameAncestorsPolicy(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", frameAncestorsPolicy)
+		w.Header().Set("X-Frame-Options", frameOptionsPolicy)
+		next.ServeHTTP(w, r)
 	})
 }
 

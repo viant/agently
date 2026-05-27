@@ -20,6 +20,7 @@ import { useChatProjection } from '../../services/chatStore.js';
 import { isStreamDebugEnabled } from '../../services/debugFlags';
 import IterationRowBlock from './IterationRowBlock.jsx';
 import BubbleMessage from './BubbleMessage.jsx';
+import MCPUIBubble from './MCPUIBubble.jsx';
 import StarterTasks from './StarterTasks.jsx';
 
 function UserBubble({ row }) {
@@ -70,6 +71,8 @@ function renderRow(row, context) {
       return <UserBubble key={row.renderKey} row={row} />;
     case 'assistant':
       return <AssistantBubble key={row.renderKey} row={row} />;
+    case 'mcpui':
+      return <MCPUIBubble key={row.renderKey} row={row} />;
     case 'iteration':
       return <IterationRowBlock key={row.renderKey} iterationRow={row} context={context} />;
     default:

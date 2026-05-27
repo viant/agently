@@ -14,7 +14,7 @@ vi.mock('./elicitationBus', () => ({
   clearPendingElicitation: clearPendingElicitationMock,
 }));
 
-import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, handleStreamEvent, hydrateMeta, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
+import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, connectStream, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, handleStreamEvent, hydrateMeta, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
 import { client } from './agentlyClient';
 import { applyFeedEvent, clearFeedState, getFeedData } from './toolFeedBus';
 
@@ -5126,7 +5126,13 @@ describe('shouldUseLiveStream', () => {
     }
   });
 
-  it('forwards terminal transcript into chatStore even when pre-fetch state still looks live-owned', async () => {
+  it('forwards terminal transcript into chatStore but does not reset while pre-fetch state still looks live-owned', async () => {
+    // While SSE owns the conversation, the destructive `reset()` is unsafe:
+    // it wipes per-conversation entity identity (renderKey), which forces a
+    // mounted MCP UI iframe bubble to unmount and remount on every SSE
+    // reconnect/transcript-refresh. applyTranscript settles lifecycle via
+    // field-level refinement without needing reset, so reset must be skipped
+    // here.
     const onTranscript = vi.fn();
     const reset = vi.fn();
     installChatStoreMirror({ onTranscript, reset });
@@ -5151,7 +5157,7 @@ describe('shouldUseLiveStream', () => {
     try {
       const turns = await fetchTranscript('conv-live');
       expect(turns).toHaveLength(1);
-      expect(reset).toHaveBeenCalledWith('conv-live');
+      expect(reset).not.toHaveBeenCalled();
       expect(onTranscript).toHaveBeenCalledTimes(1);
       expect(onTranscript).toHaveBeenCalledWith('conv-live', expect.objectContaining({
         conversationId: 'conv-live',
@@ -5161,6 +5167,272 @@ describe('shouldUseLiveStream', () => {
       ]);
     } finally {
       installChatStoreMirror(null);
+      global.window = originalWindow;
+    }
+  });
+
+  it('preserves MCP UI row renderKey across a reconnect-style transcript refresh while live-owned', async () => {
+    // Defends iframe-mounted reconnect stability: when SSE owns the
+    // conversation and a transcript refresh races in reporting the turn as
+    // completed, the mcpui row's renderKey must survive so the mounted
+    // <AppFrame> iframe element is not unmounted/remounted by React. The
+    // renderKey is the only identity React uses for the MCPUIBubble key — a
+    // change destroys the iframe DOM node along with its host bridge binding
+    // (windowId + bound source window).
+    const chatStore = await import('./chatStore.js');
+    chatStore.__resetAll();
+    installChatStoreMirror(chatStore);
+    const originalWindow = global.window;
+
+    const CONV = 'conv-mcpui';
+    const TURN = 'turn-mcpui';
+    const TOOL = 'tool-mcpui';
+    const URI = 'ui://verifier.wk_0000000000000001/widget/show_widget';
+
+    // Seed the chatStore with an SSE-derived tool call that carries a UI
+    // resource URI, which is what mounts an MCP UI bubble on the chat surface.
+    chatStore.onSSE(CONV, {
+      type: 'turn_started',
+      conversationId: CONV,
+      turnId: TURN,
+      createdAt: '2026-05-27T10:00:00Z',
+    });
+    chatStore.onSSE(CONV, {
+      type: 'tool_call_completed',
+      conversationId: CONV,
+      turnId: TURN,
+      toolCallId: TOOL,
+      toolName: 'mcp-ui-verifier:show_widget',
+      pageId: 'page-1',
+      status: 'completed',
+      responsePayload: { _meta: { ui: { resourceUri: URI } } },
+      startedAt: '2026-05-27T10:00:01Z',
+      completedAt: '2026-05-27T10:00:02Z',
+    });
+
+    const rowsBefore = chatStore.getProjection(CONV);
+    const mcpuiBefore = rowsBefore.find((row) => row.kind === 'mcpui');
+    expect(mcpuiBefore, 'mcpui row should be projected after SSE tool_call_completed').toBeTruthy();
+    expect(mcpuiBefore.uri).toBe(URI);
+    const renderKeyBefore = mcpuiBefore.renderKey;
+
+    // Simulate the post-reconnect transcript refetch path: SSE state is still
+    // live-owned for this turn, but the canonical transcript API reports the
+    // turn as completed (the race window).
+    global.window = {
+      __agentlyActiveChatState: {
+        liveOwnedConversationID: CONV,
+        liveOwnedTurnIds: [TURN],
+        runningTurnId: TURN,
+        activeStreamTurnId: '',
+        lastHasRunning: true,
+      }
+    };
+    client.getTranscript.mockResolvedValueOnce({
+      conversation: {
+        conversationId: CONV,
+        turns: [{
+          turnId: TURN,
+          status: 'completed',
+          execution: {
+            pages: [{
+              pageId: 'page-1',
+              iteration: 0,
+              toolSteps: [{
+                toolCallId: TOOL,
+                toolName: 'mcp-ui-verifier:show_widget',
+                status: 'completed',
+                uiResourceUri: URI,
+              }],
+            }],
+          },
+        }],
+      }
+    });
+
+    try {
+      await fetchTranscript(CONV);
+
+      const rowsAfter = chatStore.getProjection(CONV);
+      const mcpuiAfter = rowsAfter.find((row) => row.kind === 'mcpui');
+      expect(mcpuiAfter, 'mcpui row should still be projected after transcript refresh').toBeTruthy();
+      expect(mcpuiAfter.uri).toBe(URI);
+      expect(mcpuiAfter.renderKey).toBe(renderKeyBefore);
+    } finally {
+      installChatStoreMirror(null);
+      chatStore.__resetAll();
+      global.window = originalWindow;
+    }
+  });
+
+  it('still resets when no live SSE ownership exists and canonical reports terminal', async () => {
+    // Reset is safe (and useful) when there is no live-owned turn: the
+    // not-yet-rebuilt state has no entities whose renderKey identity is at
+    // risk, and reset prevents stale local entities from outliving canonical
+    // truth.
+    const onTranscript = vi.fn();
+    const reset = vi.fn();
+    installChatStoreMirror({ onTranscript, reset });
+    const originalWindow = global.window;
+    global.window = {
+      __agentlyActiveChatState: {
+        liveOwnedConversationID: '',
+        liveOwnedTurnIds: [],
+        runningTurnId: '',
+        activeStreamTurnId: '',
+        lastHasRunning: false,
+      }
+    };
+    client.getTranscript.mockResolvedValueOnce({
+      conversation: {
+        conversationId: 'conv-idle',
+        turns: [{ turnId: 'turn-1', status: 'completed' }],
+      }
+    });
+
+    try {
+      await fetchTranscript('conv-idle');
+      expect(reset).toHaveBeenCalledWith('conv-idle');
+      expect(onTranscript).toHaveBeenCalledTimes(1);
+    } finally {
+      installChatStoreMirror(null);
+      global.window = originalWindow;
+    }
+  });
+});
+
+describe('iframe-mounted SSE reconnect stability', () => {
+  // Negative-path test from the MCP UI Verification Plan:
+  // "browser reconnect / SSE reconnect while iframe is mounted does not
+  // corrupt active-turn state". Closes the explicit blocker called out in
+  // mcp-ui.md ("browser reconnect / SSE reconnect while an iframe is mounted
+  // is still listed as a verification item but is not yet explicitly proven
+  // in the evidence trail").
+  //
+  // Invariants under reconnect, asserted by exact identity (no heuristics):
+  //   chatState.liveOwnedConversationID === CONV
+  //   chatState.liveOwnedTurnIds includes TURN
+  //   chatState.runningTurnId === TURN
+  //   chatState.lastHasRunning === true
+  //   chatStore mcpui row.renderKey unchanged
+  //   chatStore mcpui row.uri unchanged
+  //   derived AppRenderer windowId === `mcpui-preview:${uri}` unchanged
+  //   prior stream subscription closed exactly once
+  //   client.streamEvents invoked again for the same conversationId
+  it('preserves active-turn state and iframe identity across an onError-triggered SSE reconnect while an mcpui row is mounted', async () => {
+    const chatStore = await import('./chatStore.js');
+    chatStore.__resetAll();
+    installChatStoreMirror(chatStore);
+    const originalWindow = global.window;
+    vi.useFakeTimers();
+
+    const CONV = 'conv-reconnect-mcpui';
+    const TURN = 'turn-reconnect-mcpui';
+    const TOOL = 'tool-reconnect-mcpui';
+    const URI = 'ui://verifier.wk_0000000000000002/widget/show_widget';
+    const EXPECTED_WINDOW_ID = `mcpui-preview:${URI}`;
+
+    // Seed chatStore with an SSE-owned mcpui row, which is what mounts an
+    // MCP UI iframe bubble in ChatFeedFromChatStore.jsx.
+    chatStore.onSSE(CONV, {
+      type: 'turn_started',
+      conversationId: CONV,
+      turnId: TURN,
+      createdAt: '2026-05-27T11:00:00Z',
+    });
+    chatStore.onSSE(CONV, {
+      type: 'tool_call_completed',
+      conversationId: CONV,
+      turnId: TURN,
+      toolCallId: TOOL,
+      toolName: 'mcp-ui-verifier:show_widget',
+      pageId: 'page-r1',
+      status: 'completed',
+      responsePayload: { _meta: { ui: { resourceUri: URI } } },
+      startedAt: '2026-05-27T11:00:01Z',
+      completedAt: '2026-05-27T11:00:02Z',
+    });
+    const rowsBefore = chatStore.getProjection(CONV);
+    const mcpuiBefore = rowsBefore.find((row) => row.kind === 'mcpui');
+    expect(mcpuiBefore, 'mcpui row must be projected before reconnect').toBeTruthy();
+    expect(mcpuiBefore.uri).toBe(URI);
+    const renderKeyBefore = mcpuiBefore.renderKey;
+
+    // Live-owned context with the active turn. shouldUseLiveStream must
+    // return true for the reconnect path to re-open the subscription.
+    const conversationsForm = { id: CONV, running: true };
+    const context = {
+      resources: {
+        chat: {
+          activeConversationID: CONV,
+          liveOwnedConversationID: CONV,
+          liveOwnedTurnIds: [TURN],
+          runningTurnId: TURN,
+          activeStreamTurnId: TURN,
+          lastHasRunning: true,
+        }
+      },
+      Context(name) {
+        if (name === 'conversations') {
+          return { handlers: { dataSource: { peekFormData: () => conversationsForm } } };
+        }
+        return null;
+      }
+    };
+    global.window = {
+      setTimeout,
+      clearTimeout,
+      localStorage: createStorage(),
+      location: { pathname: `/conversation/${CONV}` },
+      __agentlyActiveChatState: context.resources.chat,
+    };
+
+    const closeSpy = vi.fn();
+    let capturedOnError = null;
+    client.streamEvents = vi.fn((_id, handlers) => {
+      capturedOnError = handlers?.onError || null;
+      return { close: closeSpy };
+    });
+
+    try {
+      // Initial subscribe (proxy for "iframe is mounted on a live stream").
+      connectStream(context, CONV);
+      expect(client.streamEvents).toHaveBeenCalledTimes(1);
+      expect(client.streamEvents).toHaveBeenLastCalledWith(CONV, expect.any(Object));
+      expect(typeof capturedOnError).toBe('function');
+
+      // Trigger SSE error → scheduleStreamReconnect with the 1s timer.
+      capturedOnError('network blip');
+      expect(context.resources.chat.pendingStreamReconnect).not.toBeNull();
+      // Advance just past the scheduled reconnect delay.
+      vi.advanceTimersByTime(1001);
+
+      // Reconnect happened: prior subscription closed, new one opened.
+      expect(closeSpy).toHaveBeenCalledTimes(1);
+      expect(client.streamEvents).toHaveBeenCalledTimes(2);
+      expect(client.streamEvents).toHaveBeenLastCalledWith(CONV, expect.any(Object));
+
+      // Active-turn state is NOT corrupted across reconnect.
+      expect(context.resources.chat.liveOwnedConversationID).toBe(CONV);
+      expect(context.resources.chat.liveOwnedTurnIds).toEqual([TURN]);
+      expect(context.resources.chat.runningTurnId).toBe(TURN);
+      expect(context.resources.chat.lastHasRunning).toBe(true);
+      expect(context.resources.chat.activeConversationID).toBe(CONV);
+
+      // Iframe identity is NOT corrupted across reconnect: same renderKey,
+      // same uri, same derived AppRenderer windowId. React therefore keeps
+      // the mounted <AppFrame> DOM node, and the host bridge binding
+      // (windowId + bound source window) is preserved.
+      const rowsAfter = chatStore.getProjection(CONV);
+      const mcpuiAfter = rowsAfter.find((row) => row.kind === 'mcpui');
+      expect(mcpuiAfter, 'mcpui row must still be projected after reconnect').toBeTruthy();
+      expect(mcpuiAfter.uri).toBe(URI);
+      expect(mcpuiAfter.renderKey).toBe(renderKeyBefore);
+      expect(`mcpui-preview:${mcpuiAfter.uri}`).toBe(EXPECTED_WINDOW_ID);
+    } finally {
+      vi.useRealTimers();
+      installChatStoreMirror(null);
+      chatStore.__resetAll();
       global.window = originalWindow;
     }
   });

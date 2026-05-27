@@ -72,6 +72,7 @@ export function normalizeCanonicalToolStep(step = {}, page = {}) {
     status: firstText(step?.status),
     latencyMs: 0,
     errorMessage: firstText(step?.errorMessage, page?.errorMessage),
+    uiResourceUri: firstText(step?.uiResourceUri),
     linkedConversationId: firstText(step?.linkedConversationId),
     requestPayloadId: firstText(step?.requestPayloadId),
     responsePayloadId: firstText(step?.responsePayloadId),

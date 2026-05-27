@@ -3593,6 +3593,22 @@ td[data-col="enabled"] {
   font-size: 14px;
 }
 
+.app-mcpui-bubble {
+  padding: 12px;
+}
+
+.app-mcpui-bubble-content {
+  white-space: normal;
+}
+
+.app-mcpui-bubble-label {
+  margin-bottom: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #4c5b72;
+}
+
 .app-stream-caret {
   display: inline-block;
   margin-left: 2px;
