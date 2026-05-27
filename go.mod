@@ -4,6 +4,8 @@ go 1.25.5
 
 exclude google.golang.org/grpc/stats/opentelemetry v0.0.0-20240907200651-3ffb98b2c93a
 
+replace github.com/viant/agently-core => ../agently-core
+
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.2 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.28.0 // indirect
