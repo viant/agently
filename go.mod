@@ -4,8 +4,6 @@ go 1.25.5
 
 exclude google.golang.org/grpc/stats/opentelemetry v0.0.0-20240907200651-3ffb98b2c93a
 
-replace github.com/viant/agently-core => ../agently-core
-
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.2 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.28.0 // indirect
@@ -15,15 +13,15 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.17.0
-	github.com/viant/agently-core v0.1.10-0.20260527184210-896a2ded2768
+	github.com/viant/agently-core v0.1.10-0.20260527195459-7a41dc661c03
 	github.com/viant/datly v0.37.1-0.20260409194131-e40dcc4467ab
 	github.com/viant/embedius v0.5.3 // indirect
 	github.com/viant/forge v0.3.2-0.20260527133706-154c9b1b0de7
-	github.com/viant/jsonrpc v0.20.0
+	github.com/viant/jsonrpc v0.20.0 // indirect
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
-	github.com/viant/mcp v0.16.0
+	github.com/viant/mcp v0.16.0 // indirect
 	github.com/viant/mcp-protocol v0.14.0
-	github.com/viant/mcp-ui v0.1.0
+	github.com/viant/mcp-ui v0.1.0 // indirect
 	github.com/viant/scy v0.30.0
 	github.com/viant/structology v0.9.0 // indirect
 	github.com/viant/velty v0.4.1-0.20260408224432-5a1c31e1bd87 // indirect
