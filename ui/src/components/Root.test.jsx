@@ -11,6 +11,7 @@ import {
   resolveMainWindowCloseConversationId,
   resolveMainWindowHeaderTitle,
   resolveSelectedMainWindow,
+  resolveWindowRefreshDataSources,
   shouldShowChatChrome,
   shouldShowMainWindowHeader
 } from './Root.jsx';
@@ -37,6 +38,15 @@ describe('Root window selection helpers', () => {
     expect(shouldShowChatChrome({ windowKey: 'chat/new' })).toBe(true);
     expect(shouldShowChatChrome({ windowKey: 'schedule' })).toBe(false);
     expect(shouldShowChatChrome(null)).toBe(false);
+  });
+
+  it('resolves datasource refresh refs for windows that need first-open data', () => {
+    expect(resolveWindowRefreshDataSources('schedule')).toEqual(['schedules']);
+    expect(resolveWindowRefreshDataSources('schedule/history')).toEqual(['runs']);
+    expect(resolveWindowRefreshDataSources('recommendationList')).toEqual(['recommendation_list']);
+    expect(resolveWindowRefreshDataSources('recommendation')).toEqual(['recommendation']);
+    expect(resolveWindowRefreshDataSources('recommendationReview')).toEqual(['recommendation']);
+    expect(resolveWindowRefreshDataSources('order')).toEqual([]);
   });
 
   it('routes chat.bottom windows into the hosted lower region', () => {
