@@ -217,6 +217,22 @@ export function shouldShowMainWindowHeader(windowEntry = null) {
     && resolveMainWindowHeaderTitle(windowEntry) !== '';
 }
 
+export function resolveWindowRefreshDataSources(windowKey = '') {
+  switch (String(windowKey || '').trim()) {
+    case 'schedule':
+      return ['schedules'];
+    case 'schedule/history':
+      return ['runs'];
+    case 'recommendationList':
+      return ['recommendation_list'];
+    case 'recommendation':
+    case 'recommendationReview':
+      return ['recommendation'];
+    default:
+      return [];
+  }
+}
+
 export function resolveRouteBootstrapAction(pathname = '', authState = '') {
   if (authState !== 'ready') return { type: 'none', conversationId: '' };
   const routeConversationId = conversationIDFromPath(pathname);
@@ -582,17 +598,25 @@ export default function Root() {
 
   useEffect(() => {
     const windowId = String(selectedWindow?.windowId || '').trim();
-    const windowKey = String(selectedWindow?.windowKey || '').trim();
-    if (!windowId || !windowKey) return;
-    const refreshRefs = windowKey === 'schedule'
-      ? ['schedules']
-      : (windowKey === 'schedule/history' ? ['runs'] : []);
+    if (!windowId) return;
+    const refreshRefs = resolveWindowRefreshDataSources(selectedWindow?.windowKey);
     if (refreshRefs.length === 0) return;
     const timer = window.setTimeout(() => {
       refreshWindowDataSources(windowId, refreshRefs);
     }, 0);
     return () => window.clearTimeout(timer);
   }, [selectedWindow?.windowId, selectedWindow?.windowKey]);
+
+  useEffect(() => {
+    const windowId = String(activeWorkspaceWindow?.windowId || '').trim();
+    if (!windowId || windowId === String(selectedWindow?.windowId || '').trim()) return;
+    const refreshRefs = resolveWindowRefreshDataSources(activeWorkspaceWindow?.windowKey);
+    if (refreshRefs.length === 0) return;
+    const timer = window.setTimeout(() => {
+      refreshWindowDataSources(windowId, refreshRefs);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [activeWorkspaceWindow?.windowId, activeWorkspaceWindow?.windowKey, selectedWindow?.windowId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
