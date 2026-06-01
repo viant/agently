@@ -109,15 +109,16 @@ This avoids racing with code that creates a payload row before attaching it to a
 
 Object-backed payload cleanup currently removes only the DB row when unreferenced. Physical object deletion is intentionally deferred until Agently-owned managed storage can be distinguished from workspace/user/external paths.
 
-## Schedule Deletion Follow-Up
+## Schedule Deletion Reuse
 
-Schedule deletion should later reuse `DeleteConversationTree`:
+Schedule deletion now reuses the same conversation-tree cleanup through the core schedule cascade delete:
 
 1. Verify schedule ownership.
-2. Collect conversations connected to the schedule.
-3. Call `DeleteConversationTree` for those conversations.
-4. Delete the schedule.
-5. Let remaining schedule/run FK behavior clean up schedule-owned rows.
+2. Collect conversations connected to the schedule from schedule annotations and schedule runs.
+3. Start root conversation deletion oldest-to-newest.
+4. Preserve child-before-parent deletion inside each conversation tree.
+5. Delete remaining schedule runs without conversations.
+6. Delete the schedule.
 
 ## Tests Added
 

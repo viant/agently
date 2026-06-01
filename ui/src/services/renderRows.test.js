@@ -122,6 +122,45 @@ describe('buildCanonicalTranscriptRows', () => {
     const elicitationRow = rows.find((row) => row?.elicitationId === 'elic-rejected-1');
 
     expect(elicitationRow?.status).toBe('rejected');
+    expect(elicitationRow?.elicitation?.status).toBe('rejected');
+  });
+
+  it('preserves failed historical transcript elicitation status', () => {
+    const turn = {
+      turnId: 'turn-elic-failed',
+      createdAt: '2026-05-29T15:27:06Z',
+      status: 'canceled',
+      user: {
+        messageId: 'user-elic-failed',
+        content: 'standby'
+      },
+      assistant: {
+        final: {
+          status: 'failed',
+          content: ''
+        }
+      },
+      elicitation: {
+        elicitationId: 'elic-failed-1',
+        status: 'failed',
+        message: 'Please provide missing inputs.',
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            input: { type: 'string' }
+          }
+        }
+      },
+      execution: {
+        pages: []
+      }
+    };
+
+    const { rows } = buildCanonicalTranscriptRows([turn]);
+    const elicitationRow = rows.find((row) => row?.elicitationId === 'elic-failed-1');
+
+    expect(elicitationRow?.status).toBe('failed');
+    expect(elicitationRow?.elicitation?.status).toBe('failed');
   });
 
   it('preserves tool step content on canonical execution rows', () => {

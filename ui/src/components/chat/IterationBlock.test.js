@@ -27,6 +27,7 @@ import IterationBlock, {
   shouldAutoScrollExecutionGroups,
   shouldShowNarrationBubble,
   hasPendingElicitationStep,
+  hasPendingVisibleElicitationPrompt,
   phaseBadgeLabel,
   toolStepSummaryText
 } from './IterationBlock';
@@ -1070,6 +1071,18 @@ describe('mapCanonicalExecutionGroups', () => {
         ]
       }
     ])).toBe(false);
+
+    expect(hasPendingElicitationStep([
+      {
+        toolSteps: [
+          {
+            kind: 'elicitation',
+            status: 'failed',
+            message: 'Please provide your favorite color.'
+          }
+        ]
+      }
+    ])).toBe(false);
   });
 
   it('preserves canonical elicitation payload when building iteration data from projector rows', () => {
@@ -1128,6 +1141,32 @@ describe('mapCanonicalExecutionGroups', () => {
     });
     expect(data.elicitationStatus).toBe('accepted');
     expect(data.response.elicitationStatus).toBe('accepted');
+  });
+
+  it('does not treat accepted schema elicitations as final-answer blockers', () => {
+    const data = {
+      response: {
+        content: 'Your favorite animal is a cat.',
+        elicitationStatus: 'accepted',
+        elicitation: {
+          elicitationId: 'elic-answer-1',
+          status: 'accepted',
+          message: 'Please provide your favorite animal.',
+          requestedSchema: {
+            type: 'object',
+            properties: { favoriteAnimal: { type: 'string' } },
+            required: ['favoriteAnimal']
+          }
+        }
+      }
+    };
+
+    expect(hasPendingVisibleElicitationPrompt(data)).toBe(false);
+    expect(shouldShowNarrationBubble(
+      [{ finalResponse: true, finalContent: 'Your favorite animal is a cat.' }],
+      'Your favorite animal is a cat.',
+      data.response.content
+    )).toBe(true);
   });
 
   it('does not advance a live wall-clock for transcript-owned running history rows', () => {

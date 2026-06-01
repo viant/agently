@@ -43,6 +43,7 @@ function elicitationStepLabel(status = '') {
   }
   if (normalized === 'declined') return 'Input declined';
   if (normalized === 'canceled') return 'Input canceled';
+  if (normalized === 'failed') return 'Input failed';
   return 'Needs input';
 }
 
@@ -994,9 +995,26 @@ export function hasPendingElicitationStep(visibleGroups = []) {
   return (Array.isArray(visibleGroups) ? visibleGroups : []).some((group) =>
     (Array.isArray(group?.toolSteps) ? group.toolSteps : []).some((step) => {
       if (String(step?.kind || '').trim().toLowerCase() !== 'elicitation') return false;
-      const status = String(step?.status || '').trim().toLowerCase();
-      return status === '' || status === 'pending' || status === 'open';
+      return isPendingElicitationStatus(step?.status);
     })
+  );
+}
+
+export function isPendingElicitationStatus(status = '') {
+  const normalized = normalizeElicitationStatus(status);
+  return normalized === '' || normalized === 'pending' || normalized === 'open';
+}
+
+export function hasPendingVisibleElicitationPrompt(data = {}) {
+  const elicitation = data?.response?.elicitation && typeof data.response.elicitation === 'object'
+    ? data.response.elicitation
+    : null;
+  if (!elicitation?.requestedSchema) return false;
+  return isPendingElicitationStatus(
+    elicitation?.status
+    || data?.response?.elicitationStatus
+    || data?.elicitationStatus
+    || ''
   );
 }
 
@@ -1783,12 +1801,11 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
       })),
     });
   }, [data, displayGroupEntries, iterationDisplayStatus, message?.id, visiblePreambleText, visibleRenderedText]);
-  const hasVisibleElicitation = !!data?.response?.elicitation?.requestedSchema;
+  const hasPendingVisibleElicitation = hasPendingVisibleElicitationPrompt(data);
   const hasPendingExecutionElicitation = useMemo(
     () => hasPendingElicitationStep(visibleGroups),
     [visibleGroups]
   );
-  const elicitationStatus = String(data?.response?.status || '').trim().toLowerCase();
   const summaryContent = String(summaryModeMessageContent(data?.summary)).trim();
   const generatedFiles = Array.isArray(message?.generatedFiles) ? message.generatedFiles : [];
 
@@ -2073,7 +2090,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
               selectors: {
                 Transcript: { limit: 1, orderBy: 'created_at DESC,id DESC' },
                 Message: { limit: 8, orderBy: 'created_at DESC,id DESC' },
-                ToolMessage: { limit: 4, orderBy: 'created_at DESC,id DESC' }
+                ToolMessage: { limit: 10 }
               }
             }).catch(() => null)
           ]);
@@ -2202,10 +2219,10 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
   }, [message?.id, data?.turnId]);
 
   useEffect(() => {
-    if (hasVisibleElicitation && (elicitationStatus === '' || elicitationStatus === 'pending' || elicitationStatus === 'open')) {
+    if (hasPendingVisibleElicitation) {
       setIsElicitationOpen(true);
     }
-  }, [hasVisibleElicitation, elicitationStatus, message?.id]);
+  }, [hasPendingVisibleElicitation, message?.id]);
 
   useEffect(() => {
     if (!shouldAutoScrollExecutionGroups({ collapsed, isActiveIteration, iterationDisplayStatus })) return;
@@ -2330,7 +2347,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
         </section>
       ) : null}
       {showExecutionDetails && showToolFeedDetail && toolFeedDock !== 'right' ? <ToolFeedDetail context={context} /> : null}
-      {!suppressBubble && !hasVisibleElicitation && !hasPendingExecutionElicitation && shouldShowNarrationBubble(visibleGroups, visibleRenderedText, data?.response?.content) ? (
+      {!suppressBubble && !hasPendingVisibleElicitation && !hasPendingExecutionElicitation && shouldShowNarrationBubble(visibleGroups, visibleRenderedText, data?.response?.content) ? (
         <BubbleMessage
           message={{
             id: `${message?.id || 'iteration'}:narration`,
