@@ -488,6 +488,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
         elicitationId: elic.elicitationId || '',
         elicitation: {
           elicitationId: elic.elicitationId || '',
+          status: elicitationStatus,
           message: elicitationMessage,
           requestedSchema: elic.requestedSchema || embeddedElicitation?.requestedSchema || null,
           callbackURL: elic.callbackUrl || elic.callbackURL || ''
