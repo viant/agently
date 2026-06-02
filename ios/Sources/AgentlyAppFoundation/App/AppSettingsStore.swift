@@ -5,6 +5,7 @@ public final class AppSettingsStore {
     private let apiBaseURLKey = "agently.ios.settings.apiBaseURL"
     private let preferredAgentIDKey = "agently.ios.settings.preferredAgentID"
     private let activeConversationIDKey = "agently.ios.settings.activeConversationID"
+    private let oobSecretReferenceKey = "agently.ios.settings.oobSecretReference"
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -29,6 +30,19 @@ public final class AppSettingsStore {
 
     public func savePreferredAgentID(_ value: String) {
         defaults.set(value, forKey: preferredAgentIDKey)
+    }
+
+    public func loadOOBSecretReference() -> String {
+        defaults.string(forKey: oobSecretReferenceKey) ?? ""
+    }
+
+    public func saveOOBSecretReference(_ value: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            defaults.removeObject(forKey: oobSecretReferenceKey)
+        } else {
+            defaults.set(trimmed, forKey: oobSecretReferenceKey)
+        }
     }
 
     public func loadActiveConversationID() -> String {

@@ -4,6 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 
 class MainActivityHelpersTest {
 
@@ -82,6 +84,17 @@ class MainActivityHelpersTest {
         assertEquals("512 B", formatSizeLabel(512))
         assertEquals("2.0 KB", formatSizeLabel(2_048))
         assertEquals("1.5 MB", formatSizeLabel(1_572_864))
+    }
+
+    @Test
+    fun `buildClientQueryContext includes ui client id when available`() {
+        val context = buildClientQueryContext(
+            formFactor = "phone",
+            uiClientId = "android-ui-123"
+        )
+
+        assertEquals("android-ui-123", (context["uiClientId"] as JsonPrimitive).content)
+        assertEquals("android", context.getValue("client").jsonObject["platform"]?.let { (it as JsonPrimitive).content })
     }
 
 }

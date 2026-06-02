@@ -68,6 +68,47 @@ public final class AuthRuntime: ObservableObject {
         }
     }
 
+    public func beginOOBLogin(secretsURL: String) async -> Bool {
+        let trimmedSecretsURL = secretsURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSecretsURL.isEmpty else {
+            lastError = "Add an OOB secret reference before starting out-of-band sign-in."
+            return false
+        }
+
+        isSubmittingOAuthLogin = true
+        defer { isSubmittingOAuthLogin = false }
+        do {
+            logger.info("Starting OOB sign-in flow")
+            _ = try await client.oobLogin(OOBLoginInput(secretsURL: trimmedSecretsURL))
+            lastError = nil
+            await refreshConnectionContext(expectSignedIn: true)
+            logger.info("OOB sign-in completed successfully")
+            return currentUser != nil
+        } catch {
+            logger.error("OOB sign-in failed: \(String(describing: error), privacy: .public)")
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    public func logoutCurrentSession() async -> Bool {
+        guard !isSubmittingOAuthLogin else { return false }
+        isSubmittingOAuthLogin = true
+        defer { isSubmittingOAuthLogin = false }
+        do {
+            logger.info("Logging out current session")
+            try await client.logout()
+            currentUser = nil
+            await refreshConnectionContext()
+            lastError = nil
+            return true
+        } catch {
+            logger.error("Logout failed: \(String(describing: error), privacy: .public)")
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
     public func handleOAuthCallback(_ url: URL) async -> Bool {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.scheme?.lowercased() == Self.oauthCallbackScheme,

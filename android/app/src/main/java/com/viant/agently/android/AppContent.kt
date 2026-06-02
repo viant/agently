@@ -43,6 +43,7 @@ internal fun AppBody(
     showSavedLoginSettings: Boolean,
     recentConversations: List<Conversation>,
     activeConversationId: String?,
+    conversationState: ConversationStateResponse?,
     streamSnapshot: ConversationStreamSnapshot?,
     transcript: List<ChatEntry>,
     pendingApprovals: List<PendingToolApproval>,
@@ -97,6 +98,7 @@ internal fun AppBody(
                 user = authUser,
                 savedLoginConfig = savedLoginConfig,
                 onSignIn = callbacks.onAuthSignIn,
+                onOobSignIn = callbacks.onAuthOobSignIn,
                 onManageSavedLogin = callbacks.onManageSavedLogin,
                 onOpenSettings = callbacks.onOpenSettings,
                 onRetry = callbacks.onAuthRetry
@@ -122,12 +124,18 @@ internal fun AppBody(
         }
         when (currentScreen) {
             AppScreen.Chat -> {
+                val workspaceTitle = resolveWorkspaceBrandTitle(
+                    workspaceRoot = metadata?.workspaceRoot,
+                    defaultAgent = metadata?.defaultAgent
+                )
                 if (isTablet) {
                     TabletChatScreen(
+                        workspaceTitle = workspaceTitle,
                         appApiBaseUrl = appApiBaseUrl,
                         loading = loading,
                         recentConversations = recentConversations,
                         activeConversationId = activeConversationId,
+                        conversationState = conversationState,
                         error = error,
                         streamSnapshot = streamSnapshot,
                         transcript = transcript,
@@ -158,9 +166,11 @@ internal fun AppBody(
                     )
                 } else {
                     PhoneChatScreen(
+                        workspaceTitle = workspaceTitle,
                         loading = loading,
                         recentConversations = recentConversations,
                         activeConversationId = activeConversationId,
+                        conversationState = conversationState,
                         error = error,
                         streamSnapshot = streamSnapshot,
                         transcript = transcript,
@@ -185,6 +195,10 @@ internal fun AppBody(
             }
             AppScreen.History -> {
                 ConversationHistoryScreen(
+                    workspaceTitle = resolveWorkspaceBrandTitle(
+                        workspaceRoot = metadata?.workspaceRoot,
+                        defaultAgent = metadata?.defaultAgent
+                    ),
                     conversations = recentConversations,
                     activeConversationId = activeConversationId,
                     loading = loading,

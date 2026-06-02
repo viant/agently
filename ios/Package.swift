@@ -32,7 +32,8 @@ let package = Package(
             name: "AgentlyAppFoundationTests",
             dependencies: [
                 "AgentlyAppFoundation",
-                .product(name: "AgentlySDK", package: "AgentlySDKPackage")
+                .product(name: "AgentlySDK", package: "AgentlySDKPackage"),
+                .product(name: "ForgeIOSRuntime", package: "ForgeIOSPackage")
             ],
             path: "Tests/AgentlyAppFoundationTests"
         )

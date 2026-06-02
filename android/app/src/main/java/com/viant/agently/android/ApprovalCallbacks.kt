@@ -51,8 +51,8 @@ private fun filterEnvNamesApprovalCallback(
         requested.filter { selected.contains(it) }
     }
     return com.viant.agentlysdk.ApprovalCallbackResult(
-        editedFields = JsonObject(
-            mapOf("names" to buildJsonArray { normalized.forEach { add(JsonPrimitive(it)) } })
+        payload = mapOf(
+            "names" to buildJsonArray { normalized.forEach { add(JsonPrimitive(it)) } }
         )
     )
 }
@@ -64,10 +64,12 @@ private fun mergeApprovalCallbackPayload(
     if (result == null) {
         return base
     }
-    val mergedEditedFields = mergeJsonObjects(base.editedFields, result.editedFields)
+    val mergedEditedFields = mergeJsonObjects(
+        base.editedFields,
+        result.payload.takeIf { it.isNotEmpty() }?.let(::JsonObject)
+    )
     return base.copy(
-        editedFields = mergedEditedFields,
-        action = result.action?.takeIf { it.isNotBlank() } ?: base.action
+        editedFields = mergedEditedFields
     )
 }
 

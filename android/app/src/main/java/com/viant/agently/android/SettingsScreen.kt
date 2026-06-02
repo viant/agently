@@ -45,10 +45,12 @@ internal fun SettingsScreen(
     onResetAppOverrides: () -> Unit,
     onClearAuthSecrets: () -> Unit
 ) {
+    val developerAuthEnabled = BuildConfig.DEBUG
     var endpointDraft by remember(currentAppApiBaseUrl) { mutableStateOf(currentAppApiBaseUrl) }
     var preferredAgentDraft by remember(currentPreferredAgentId) { mutableStateOf(currentPreferredAgentId) }
     var idpUsernameDraft by remember(savedLoginConfig) { mutableStateOf(savedLoginConfig.username) }
     var idpPasswordDraft by remember(savedLoginConfig) { mutableStateOf(savedLoginConfig.password) }
+    var oobSecretRefDraft by remember(savedLoginConfig) { mutableStateOf(savedLoginConfig.oobSecretRef) }
     val discoveredAgents = remember(metadata) { workspaceAgentChoices(metadata) }
     val saveSettings = {
         onSave(
@@ -56,7 +58,8 @@ internal fun SettingsScreen(
             preferredAgentDraft,
             SavedLoginConfig(
                 username = idpUsernameDraft.trim(),
-                password = idpPasswordDraft
+                password = idpPasswordDraft,
+                oobSecretRef = oobSecretRefDraft.trim()
             )
         )
     }
@@ -194,36 +197,45 @@ internal fun SettingsScreen(
             }
         }
 
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text("OAuth Sign-In Helper", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "These values are stored encrypted on-device and only help autofill the OAuth web login. Agently still authenticates through OAuth.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF667085)
-                )
-                OutlinedTextField(
-                    value = idpUsernameDraft,
-                    onValueChange = { idpUsernameDraft = it },
-                    label = { Text("IDP username") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    value = idpPasswordDraft,
-                    onValueChange = { idpPasswordDraft = it },
-                    label = { Text("IDP password") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                OutlinedButton(
-                    onClick = onClearAuthSecrets,
-                    modifier = Modifier.fillMaxWidth()
+        if (developerAuthEnabled) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text("Clear Saved Auth")
+                    Text("OAuth Sign-In Helper", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "These values are stored encrypted on-device for developer verification builds. Username/password help autofill the OAuth web login, and the OOB secret reference can be used for direct out-of-band sign-in when the workspace supports it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF667085)
+                    )
+                    OutlinedTextField(
+                        value = oobSecretRefDraft,
+                        onValueChange = { oobSecretRefDraft = it },
+                        label = { Text("OOB secret reference") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = idpUsernameDraft,
+                        onValueChange = { idpUsernameDraft = it },
+                        label = { Text("IDP username") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = idpPasswordDraft,
+                        onValueChange = { idpPasswordDraft = it },
+                        label = { Text("IDP password") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedButton(
+                        onClick = onClearAuthSecrets,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Clear Saved Auth")
+                    }
                 }
             }
         }

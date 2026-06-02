@@ -31,6 +31,7 @@ public struct SettingsScreen: View {
     }
 
     public var body: some View {
+        let developerAuthEnabled = developerAuthFeaturesEnabled()
         Form {
             Section("Connection") {
                 TextField("API Base URL", text: $runtime.apiBaseURL)
@@ -60,6 +61,15 @@ public struct SettingsScreen: View {
                         }
                         .buttonStyle(.bordered)
                     }
+                }
+            }
+            if developerAuthEnabled {
+                Section("Sign-In Helpers") {
+                    TextField("OOB Secret Reference", text: $runtime.oobSecretReference)
+                        .autocorrectionDisabled()
+                    Text("Example: `~/.secret/awitas_dsp_ui.enc|blowfish://default`. This helper is intended for developer verification builds only.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             }
             if hasWorkspaceMetadata {

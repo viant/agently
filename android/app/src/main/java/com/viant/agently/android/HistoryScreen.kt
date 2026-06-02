@@ -45,6 +45,7 @@ import java.nio.charset.StandardCharsets
 
 @Composable
 internal fun TabletConversationSidebar(
+    workspaceTitle: String,
     appApiBaseUrl: String,
     loading: Boolean,
     recentConversations: List<Conversation>,
@@ -95,7 +96,7 @@ internal fun TabletConversationSidebar(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    "Agently",
+                    workspaceTitle,
                     style = MaterialTheme.typography.titleMedium,
                     color = Color(0xFF101828)
                 )
@@ -258,6 +259,7 @@ internal fun TabletConversationSidebar(
 
 @Composable
 internal fun ConversationHistoryScreen(
+    workspaceTitle: String,
     conversations: List<Conversation>,
     activeConversationId: String?,
     loading: Boolean,
@@ -276,6 +278,11 @@ internal fun ConversationHistoryScreen(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                Text(
+                    workspaceTitle,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color(0xFF667085)
+                )
                 Text("Conversation History", style = MaterialTheme.typography.headlineSmall)
                 Text(
                     "Browse recent threads and jump back into an earlier conversation.",

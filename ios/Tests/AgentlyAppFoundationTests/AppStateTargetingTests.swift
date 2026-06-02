@@ -40,4 +40,40 @@ final class AppStateTargetingTests: XCTestCase {
         XCTAssertEqual(buildAppleTargetCapabilities(), ["markdown", "chart", "attachments", "camera", "voice"])
         XCTAssertTrue(["phone", "tablet"].contains(detectAppleFormFactor()))
     }
+
+    func testBuildAppleClientQueryContextIncludesUIClientID() {
+        let context = buildAppleClientQueryContext(
+            formFactor: "phone",
+            uiClientID: "ios-ui-123"
+        )
+
+        if case .string(let clientID)? = context["uiClientId"] {
+            XCTAssertEqual(clientID, "ios-ui-123")
+        } else {
+            XCTFail("Expected uiClientId string")
+        }
+        if case .object(let client)? = context["client"],
+           case .string(let platform)? = client["platform"] {
+            XCTAssertEqual(platform, "ios")
+        } else {
+            XCTFail("Expected client platform string")
+        }
+    }
+
+    func testResolvedBootstrapOOBSecretReferencePrefersStoredValueThenEnvironment() {
+        XCTAssertEqual(
+            resolvedBootstrapOOBSecretReference(
+                storedValue: "~/.secret/stored.enc|blowfish://default",
+                environmentValue: "~/.secret/env.enc|blowfish://default"
+            ),
+            "~/.secret/stored.enc|blowfish://default"
+        )
+        XCTAssertEqual(
+            resolvedBootstrapOOBSecretReference(
+                storedValue: "   ",
+                environmentValue: "~/.secret/env.enc|blowfish://default"
+            ),
+            "~/.secret/env.enc|blowfish://default"
+        )
+    }
 }

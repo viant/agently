@@ -6,10 +6,14 @@ import androidx.security.crypto.MasterKey
 
 data class SavedLoginConfig(
     val username: String = "",
-    val password: String = ""
+    val password: String = "",
+    val oobSecretRef: String = ""
 ) {
     val hasStoredIdpCredential: Boolean
         get() = username.isNotBlank() && password.isNotBlank()
+
+    val hasStoredOobSecretRef: Boolean
+        get() = oobSecretRef.isNotBlank()
 }
 
 internal interface SavedLoginStore {
@@ -31,13 +35,15 @@ class SavedLoginStoreImpl(context: Context) : SavedLoginStore {
 
     override fun load(): SavedLoginConfig = SavedLoginConfig(
         username = prefs.getString(KEY_USERNAME, "").orEmpty(),
-        password = prefs.getString(KEY_PASSWORD, "").orEmpty()
+        password = prefs.getString(KEY_PASSWORD, "").orEmpty(),
+        oobSecretRef = prefs.getString(KEY_OOB_SECRET_REF, "").orEmpty()
     )
 
     override fun save(config: SavedLoginConfig) {
         prefs.edit()
             .putString(KEY_USERNAME, config.username)
             .putString(KEY_PASSWORD, config.password)
+            .putString(KEY_OOB_SECRET_REF, config.oobSecretRef)
             .apply()
     }
 
@@ -49,5 +55,6 @@ class SavedLoginStoreImpl(context: Context) : SavedLoginStore {
         private const val PREFS_NAME = "agently.auth.credentials"
         private const val KEY_USERNAME = "username"
         private const val KEY_PASSWORD = "password"
+        private const val KEY_OOB_SECRET_REF = "oob_secret_ref"
     }
 }

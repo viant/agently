@@ -9,7 +9,10 @@ public struct WorkspaceScreen: View {
     let metadata: WorkspaceMetadata?
     let selectedAgentID: String?
     let availableAgents: [WorkspaceAgentOption]
+    let hostedWorkspaceRestoreState: HostedWorkspaceRestoreState?
+    let conversationState: ConversationStateResponse?
     let transcript: [ChatTranscriptEntry]
+    let client: AgentlyClient
     let artifacts: [ArtifactPreview]
     let composerRuntime: ComposerRuntime
     let isSending: Bool
@@ -40,7 +43,10 @@ public struct WorkspaceScreen: View {
         metadata: WorkspaceMetadata?,
         selectedAgentID: String? = nil,
         availableAgents: [WorkspaceAgentOption] = [],
+        hostedWorkspaceRestoreState: HostedWorkspaceRestoreState? = nil,
+        conversationState: ConversationStateResponse? = nil,
         transcript: [ChatTranscriptEntry],
+        client: AgentlyClient,
         artifacts: [ArtifactPreview] = [],
         composerRuntime: ComposerRuntime,
         isSending: Bool = false,
@@ -70,7 +76,10 @@ public struct WorkspaceScreen: View {
         self.metadata = metadata
         self.selectedAgentID = selectedAgentID
         self.availableAgents = availableAgents
+        self.hostedWorkspaceRestoreState = hostedWorkspaceRestoreState
+        self.conversationState = conversationState
         self.transcript = transcript
+        self.client = client
         self.artifacts = artifacts
         self.composerRuntime = composerRuntime
         self.isSending = isSending
@@ -147,6 +156,12 @@ public struct WorkspaceScreen: View {
 
     private var mainPane: some View {
         VStack(spacing: 16) {
+            HostedWorkspaceSection(
+                restoreState: hostedWorkspaceRestoreState,
+                conversationState: conversationState,
+                forgeRuntime: forgeRuntime,
+                client: client
+            )
             WorkspaceStatusSection(
                 isSending: isSending,
                 isLoadingArtifacts: isLoadingArtifacts,

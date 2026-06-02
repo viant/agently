@@ -13,12 +13,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
@@ -33,11 +38,18 @@ import com.viant.forgeandroid.runtime.ForgeRuntime
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 
+private enum class PhoneWorkspaceContentMode {
+    Workspace,
+    Conversation
+}
+
 @Composable
 internal fun PhoneWorkspacePane(
+    workspaceTitle: String,
     loading: Boolean,
     recentConversations: List<Conversation>,
     activeConversationId: String?,
+    conversationState: ConversationStateResponse?,
     error: String?,
     streamSnapshot: ConversationStreamSnapshot?,
     transcript: List<ChatEntry>,
@@ -58,6 +70,20 @@ internal fun PhoneWorkspacePane(
     onOpenFile: (GeneratedFileEntry) -> Unit,
     onClosePreview: () -> Unit
 ) {
+    val hostedWorkspaceState = remember(conversationState) {
+        conversationState?.let(::deriveHostedWorkspaceRestoreState)
+    }
+    val hasWorkspaceSurface = hostedWorkspaceState != null ||
+        pendingApprovals.isNotEmpty() ||
+        generatedFiles.isNotEmpty() ||
+        artifactPreview != null
+    var selectedMode by remember(hasWorkspaceSurface) {
+        mutableStateOf(
+            if (hasWorkspaceSurface) PhoneWorkspaceContentMode.Workspace
+            else PhoneWorkspaceContentMode.Conversation
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -83,7 +109,7 @@ internal fun PhoneWorkspacePane(
                             color = Color(0xFFDB1F2F)
                         )
                         Text(
-                            "Agently",
+                            workspaceTitle,
                             style = MaterialTheme.typography.titleSmall,
                             color = Color(0xFF182230),
                             maxLines = 1,
@@ -125,21 +151,6 @@ internal fun PhoneWorkspacePane(
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
         }
-        if (pendingApprovals.isNotEmpty()) {
-            PendingApprovalsSection(
-                approvals = pendingApprovals,
-                forgeRuntime = forgeRuntime,
-                approvalJson = approvalJson,
-                approvalEdits = approvalEdits,
-                onEditChange = onEditChange,
-                onDecision = onDecision
-            )
-        }
-        RecentConversationsSection(
-            conversations = recentConversations,
-            activeConversationId = activeConversationId,
-            onSelectConversation = onSelectConversation
-        )
         error?.let {
             Surface(
                 color = Color(0xFFFFF1F0),
@@ -158,6 +169,25 @@ internal fun PhoneWorkspacePane(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
+            }
+        }
+        if (hasWorkspaceSurface && transcript.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = selectedMode == PhoneWorkspaceContentMode.Workspace,
+                    onClick = { selectedMode = PhoneWorkspaceContentMode.Workspace },
+                    label = { Text("Workspace") }
+                )
+                FilterChip(
+                    selected = selectedMode == PhoneWorkspaceContentMode.Conversation,
+                    onClick = { selectedMode = PhoneWorkspaceContentMode.Conversation },
+                    label = { Text("Conversation") }
+                )
             }
         }
         if (!activeConversationId.isNullOrBlank() || streamSnapshot?.activeTurnId != null) {
@@ -199,31 +229,94 @@ internal fun PhoneWorkspacePane(
                 )
             }
         }
-        artifactPreview?.let { preview ->
-            if (generatedFiles.none { it.id == preview.artifactId }) {
-                ArtifactPreviewSection(
-                    preview = preview,
-                    onClose = onClosePreview
+        when {
+            hasWorkspaceSurface && selectedMode == PhoneWorkspaceContentMode.Workspace -> {
+                HostedWorkspaceSection(
+                    conversationState = conversationState,
+                    forgeRuntime = forgeRuntime
+                )
+                if (pendingApprovals.isNotEmpty()) {
+                    PendingApprovalsSection(
+                        approvals = pendingApprovals,
+                        forgeRuntime = forgeRuntime,
+                        approvalJson = approvalJson,
+                        approvalEdits = approvalEdits,
+                        onEditChange = onEditChange,
+                        onDecision = onDecision
+                    )
+                }
+                artifactPreview?.let { preview ->
+                    if (generatedFiles.none { it.id == preview.artifactId }) {
+                        ArtifactPreviewSection(
+                            preview = preview,
+                            onClose = onClosePreview
+                        )
+                    }
+                }
+                ConversationArtifactsSection(
+                    files = generatedFiles,
+                    onOpenFile = onOpenFile
+                )
+                if (hostedWorkspaceState == null &&
+                    pendingApprovals.isEmpty() &&
+                    generatedFiles.isEmpty() &&
+                    artifactPreview == null
+                ) {
+                    WorkspaceModePlaceholder()
+                }
+            }
+
+            else -> {
+                if (!activeConversationId.isNullOrBlank() || recentConversations.isNotEmpty()) {
+                    RecentConversationsSection(
+                        conversations = recentConversations,
+                        activeConversationId = activeConversationId,
+                        onSelectConversation = onSelectConversation
+                    )
+                }
+                RenderTranscript(
+                    items = transcript,
+                    pendingApprovals = pendingApprovals,
+                    generatedFiles = generatedFiles,
+                    forgeRuntime = forgeRuntime,
+                    approvalJson = approvalJson,
+                    approvalEdits = approvalEdits,
+                    onEditChange = onEditChange,
+                    onDecision = onDecision,
+                    artifactPreview = artifactPreview,
+                    onClosePreview = onClosePreview,
+                    onOpenFile = onOpenFile
                 )
             }
         }
-        ConversationArtifactsSection(
-            files = generatedFiles,
-            onOpenFile = onOpenFile
-        )
-        RenderTranscript(
-            items = transcript,
-            pendingApprovals = pendingApprovals,
-            generatedFiles = generatedFiles,
-            forgeRuntime = forgeRuntime,
-            approvalJson = approvalJson,
-            approvalEdits = approvalEdits,
-            onEditChange = onEditChange,
-            onDecision = onDecision,
-            artifactPreview = artifactPreview,
-            onClosePreview = onClosePreview,
-            onOpenFile = onOpenFile
-        )
         Spacer(modifier = Modifier.height(320.dp))
+    }
+}
+
+@Composable
+private fun WorkspaceModePlaceholder() {
+    Surface(
+        color = Color(0xFFF8FAFD),
+        border = BorderStroke(1.dp, Color(0xFFDDE4F1)),
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                "Workspace ready",
+                style = MaterialTheme.typography.titleSmall,
+                color = Color(0xFF182230)
+            )
+            Text(
+                "Recommendations, approvals, and generated outputs appear here when the conversation opens a hosted workspace.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF667085)
+            )
+        }
     }
 }

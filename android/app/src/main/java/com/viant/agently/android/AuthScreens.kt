@@ -57,10 +57,12 @@ internal fun AuthRequiredScreen(
     user: AuthUser?,
     savedLoginConfig: SavedLoginConfig,
     onSignIn: () -> Unit,
+    onOobSignIn: () -> Unit,
     onManageSavedLogin: () -> Unit,
     onOpenSettings: () -> Unit,
     onRetry: () -> Unit
 ) {
+    val developerAuthEnabled = BuildConfig.DEBUG
     val providerLabel = resolveProviderLabel(providers)
     val normalizedError = normalizeAuthError(error)
     val authMode = resolveAuthRequirementMode(normalizedError)
@@ -87,9 +89,16 @@ internal fun AuthRequiredScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFF667085)
                 )
-                if (savedLoginConfig.hasStoredIdpCredential) {
+                if (developerAuthEnabled && savedLoginConfig.hasStoredIdpCredential) {
                     Text(
                         "Saved sign-in helper credentials are available for $providerLabel. They can autofill the OAuth login page, but the sign-in flow still completes through OAuth.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF475467)
+                    )
+                }
+                if (developerAuthEnabled && savedLoginConfig.hasStoredOobSecretRef) {
+                    Text(
+                        "A saved OOB secret reference is available for direct workspace sign-in.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFF475467)
                     )
@@ -121,14 +130,21 @@ internal fun AuthRequiredScreen(
                         }
                     }
                 }
-                TextButton(onClick = onManageSavedLogin, enabled = !busy) {
-                    Text(
-                        if (savedLoginConfig.hasStoredIdpCredential) {
-                            "Manage saved sign-in helper"
-                        } else {
-                            "Set up saved sign-in helper"
-                        }
-                    )
+                if (developerAuthEnabled && !prefersRetry && savedLoginConfig.hasStoredOobSecretRef) {
+                    OutlinedButton(onClick = onOobSignIn, enabled = !busy) {
+                        Text(if (busy) "Starting OOB…" else "Use saved OOB sign-in")
+                    }
+                }
+                if (developerAuthEnabled) {
+                    TextButton(onClick = onManageSavedLogin, enabled = !busy) {
+                        Text(
+                            if (savedLoginConfig.hasStoredIdpCredential || savedLoginConfig.hasStoredOobSecretRef) {
+                                "Manage saved sign-in helper"
+                            } else {
+                                "Set up saved sign-in helper"
+                            }
+                        )
+                    }
                 }
                 TextButton(onClick = onOpenSettings, enabled = !busy) {
                     Text("Open client settings")
@@ -183,6 +199,7 @@ internal fun SavedLoginConfigDialog(
 ) {
     var username by remember(initial.username) { mutableStateOf(initial.username) }
     var password by remember(initial.password) { mutableStateOf(initial.password) }
+    var oobSecretRef by remember(initial.oobSecretRef) { mutableStateOf(initial.oobSecretRef) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -193,6 +210,12 @@ internal fun SavedLoginConfigDialog(
                     "Store optional username and password encrypted on-device so Agently can autofill the OAuth web login when the identity provider page appears.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF667085)
+                )
+                OutlinedTextField(
+                    value = oobSecretRef,
+                    onValueChange = { oobSecretRef = it },
+                    label = { Text("OOB secret reference") },
+                    modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = username,
@@ -214,6 +237,7 @@ internal fun SavedLoginConfigDialog(
                 onClick = {
                     onSave(
                         SavedLoginConfig(
+                            oobSecretRef = oobSecretRef.trim(),
                             username = username.trim(),
                             password = password
                         )
