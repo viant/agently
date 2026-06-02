@@ -136,16 +136,28 @@ private fun AgentlyApp() {
     }
     var preferredAgentId by remember { mutableStateOf(storedAppSettings.preferredAgentId) }
     val savedLoginStore = remember(context) { SavedLoginStoreImpl(context.applicationContext) }
-    val storedSavedLoginConfig = remember(savedLoginStore) { savedLoginStore.load() }
+    val storedSavedLoginConfig = remember(savedLoginStore) {
+        val stored = savedLoginStore.load()
+        if (BuildConfig.DEBUG) {
+            stored.withBootstrapDefaults(
+                username = BuildConfig.BOOTSTRAP_IDP_USERNAME,
+                password = BuildConfig.BOOTSTRAP_IDP_PASSWORD,
+                oobSecretRef = BuildConfig.BOOTSTRAP_OOB_SECRET_REF
+            )
+        } else {
+            stored
+        }
+    }
     var savedLoginConfig by remember { mutableStateOf(storedSavedLoginConfig) }
     var showSavedLoginSettings by remember { mutableStateOf(false) }
     val sessionCookieJar = remember { MemoryCookieJar() }
+    val appHttpClient = remember(sessionCookieJar) { sessionHttpClient(sessionCookieJar) }
     val forgeTargetContext = remember(formFactor) { buildForgeTargetContext(formFactor) }
     fun buildClient(baseUrl: String): AgentlyClient = AgentlyClient(
         endpoints = mapOf(
             "appAPI" to EndpointConfig(
                 baseUrl = baseUrl,
-                httpClient = sessionHttpClient(sessionCookieJar)
+                httpClient = appHttpClient
             )
         )
     )
@@ -169,6 +181,7 @@ private fun AgentlyApp() {
     var payloadPreviews by remember { mutableStateOf<Map<String, ArtifactPreview>>(emptyMap()) }
     var artifactPreview by remember { mutableStateOf<ArtifactPreview?>(null) }
     var streamJob by remember { mutableStateOf<Job?>(null) }
+    var postTurnRefreshJob by remember { mutableStateOf<Job?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var approvalEdits by remember { mutableStateOf<Map<String, Map<String, JsonElement>>>(emptyMap()) }
     val transcript = remember { mutableListOf<ChatEntry>().toMutableStateList() }
@@ -178,12 +191,32 @@ private fun AgentlyApp() {
             endpoints = mapOf(
                 "appAPI" to EndpointConfig(
                     baseUrl = appApiBaseUrl,
-                    httpClient = sessionHttpClient(sessionCookieJar)
+                    httpClient = appHttpClient
                 )
             ),
             scope = scope,
             targetContext = forgeTargetContext,
             windowMetadataBaseUri = "v1/api/agently/forge/window"
+        )
+    }
+    val uiBridge = remember(appApiBaseUrl, forgeRuntime) {
+        AndroidUIBridgeClient(
+            context = context.applicationContext,
+            client = client,
+            scope = scope,
+            snapshotProvider = {
+                buildAndroidUIBridgeSnapshot(
+                    activeConversationId = activeConversationId,
+                    forgeRuntime = forgeRuntime
+                )
+            },
+            commandHandler = { method, params ->
+                handleAndroidUIBridgeCommand(
+                    method = method,
+                    params = params,
+                    forgeRuntime = forgeRuntime
+                )
+            }
         )
     }
     var authState by remember { mutableStateOf(AuthState.Checking) }
@@ -194,6 +227,20 @@ private fun AgentlyApp() {
     var authError by remember { mutableStateOf<String?>(null) }
     var workspaceBootstrapRequested by remember { mutableStateOf(false) }
     val effectiveAgentId = resolvePreferredAgentId(preferredAgentId, metadata)
+
+    DisposableEffect(uiBridge) {
+        onDispose {
+            uiBridge.stop()
+        }
+    }
+
+    LaunchedEffect(authState, uiBridge) {
+        if (authState == AuthState.Ready) {
+            uiBridge.start()
+        } else {
+            uiBridge.stop()
+        }
+    }
 
     fun updateComposerAttachments(attachments: List<ComposerAttachmentDraft>) {
         composerAttachments = attachments
@@ -324,6 +371,8 @@ private fun AgentlyApp() {
     fun clearActiveStreamJob() {
         streamJob?.cancel()
         streamJob = null
+        postTurnRefreshJob?.cancel()
+        postTurnRefreshJob = null
     }
 
     fun applyAuthRequiredErrorState(err: Throwable?) {
@@ -451,6 +500,15 @@ private fun AgentlyApp() {
         return resolveOAuthInitiateUrl(resolveAuthClient().oauthInitiate())
     }
 
+    suspend fun runOobSignIn() {
+        val secretRef = savedLoginConfig.oobSecretRef.trim()
+        require(secretRef.isNotBlank()) { "Add an OOB secret reference in Settings before starting OOB sign-in." }
+        resolveAuthClient().oobLogin(
+            com.viant.agentlysdk.OOBLoginInput(secretsURL = secretRef)
+        )
+        refreshAuthAfterSuccessfulLogin()
+    }
+
     fun setSavedLoginConfig(next: SavedLoginConfig) {
         savedLoginConfig = next
     }
@@ -526,6 +584,15 @@ private fun AgentlyApp() {
         )
     }
 
+    fun startOobSignIn() {
+        launchAuthOperation(
+            scope = scope,
+            authBindings = authUiBindings(),
+            runOperation = ::runOobSignIn,
+            normalizeAuthError = ::normalizeAuthError
+        )
+    }
+
     fun handleOAuthCallback(code: String, state: String) {
         launchAuthOperation(
             scope = scope,
@@ -578,14 +645,44 @@ private fun AgentlyApp() {
         syncAssistantTranscript(transcript, snapshot)
     }
 
+    fun schedulePostTurnRefresh(conversationId: String) {
+        postTurnRefreshJob?.cancel()
+        postTurnRefreshJob = scope.launch {
+            delay(350)
+            if (activeConversationId != conversationId) {
+                return@launch
+            }
+            val resolvedClient = resolveClient()
+            val preparedBinding = prepareConversationBinding(
+                client = resolvedClient,
+                conversationId = conversationId,
+                replaceTranscript = true,
+                approvalEdits = approvalEdits,
+                transcriptBuilder = ::transcriptFromState
+            )
+            applyPreparedConversationBinding(preparedBinding)
+            refreshRecentConversations()
+        }
+    }
+
     fun handleConversationStreamError(err: Throwable) {
         applyVisibleAppError(err)
     }
 
     fun startConversationStream(client: AgentlyClient, conversationId: String) {
         streamJob = scope.launch {
+            var sawActiveTurn = false
             try {
-                client.trackConversation(conversationId).collect(::applyConversationSnapshot)
+                client.trackConversation(conversationId).collect { snapshot ->
+                    val previousActiveTurnId = streamSnapshot?.activeTurnId
+                    applyConversationSnapshot(snapshot)
+                    if (!snapshot.activeTurnId.isNullOrBlank()) {
+                        sawActiveTurn = true
+                    } else if (!previousActiveTurnId.isNullOrBlank() || sawActiveTurn) {
+                        sawActiveTurn = false
+                        schedulePostTurnRefresh(snapshot.conversationId.ifBlank { conversationId })
+                    }
+                }
             } catch (err: Throwable) {
                 handleConversationStreamError(err)
             }
@@ -743,7 +840,10 @@ private fun AgentlyApp() {
                     effectiveAgentId = effectiveAgentId,
                     prompt = preparedQuerySubmission.effectivePrompt,
                     attachments = currentDraft.attachments,
-                    queryContext = buildClientQueryContext(formFactor),
+                    queryContext = buildClientQueryContext(
+                        formFactor = formFactor,
+                        uiClientId = uiBridge.ensureConnected()
+                    ),
                     targetContext = buildMetadataTargetContext(formFactor)
                 )
                 val querySuccessState = buildQuerySuccessState(
@@ -901,6 +1001,7 @@ private fun AgentlyApp() {
         onResetAppOverrides = ::resetAppOverrides,
         onClearAuthSecrets = ::clearAuthSecrets,
         onAuthSignIn = ::startOAuthSignIn,
+        onAuthOobSignIn = ::startOobSignIn,
         onManageSavedLogin = ::openSavedLoginSettings,
         onAuthRetry = ::retryAuthConnection,
         onDismissAuthWeb = ::dismissAuthWeb,
@@ -929,6 +1030,7 @@ private fun AgentlyApp() {
         showSavedLoginSettings = showSavedLoginSettings,
         recentConversations = recentConversations,
         activeConversationId = activeConversationId,
+        conversationState = conversationState,
         streamSnapshot = streamSnapshot,
         transcript = transcript,
         pendingApprovals = pendingApprovals,
@@ -946,7 +1048,7 @@ private fun AgentlyApp() {
 }
 
 internal fun buildApiCandidates(configuredBaseUrl: String): List<String> {
-    val trimmed = configuredBaseUrl.trim().ifBlank { "http://10.0.2.2:9393" }
+    val trimmed = configuredBaseUrl.trim().ifBlank { "http://10.0.2.2:9191" }
     val parsed = runCatching { URI(trimmed) }.getOrNull()
     val scheme = parsed?.scheme?.takeIf { it.isNotBlank() } ?: "http"
     val host = parsed?.host?.trim().orEmpty()
@@ -975,6 +1077,18 @@ internal fun buildApiCandidates(configuredBaseUrl: String): List<String> {
     return candidates.distinct()
 }
 
+private fun SavedLoginConfig.withBootstrapDefaults(
+    username: String,
+    password: String,
+    oobSecretRef: String
+): SavedLoginConfig {
+    return copy(
+        username = this.username.ifBlank { username.trim() },
+        password = this.password.ifBlank { password },
+        oobSecretRef = this.oobSecretRef.ifBlank { oobSecretRef.trim() }
+    )
+}
+
 internal fun mergeApiCandidates(
     currentBaseUrl: String,
     configuredCandidates: List<String>
@@ -992,12 +1106,15 @@ internal enum class AppScreen {
     Settings
 }
 
-private fun buildClientQueryContext(formFactor: String): Map<String, JsonElement> {
+internal fun buildClientQueryContext(
+    formFactor: String,
+    uiClientId: String? = null
+): Map<String, JsonElement> {
     val clientKind = when (formFactor) {
         "tablet" -> "tablet"
         else -> "mobile"
     }
-    return mapOf(
+    val context = linkedMapOf<String, JsonElement>(
         "client" to buildJsonObject {
             put("kind", JsonPrimitive(clientKind))
             put("platform", JsonPrimitive("android"))
@@ -1015,6 +1132,10 @@ private fun buildClientQueryContext(formFactor: String): Map<String, JsonElement
             )
         }
     )
+    uiClientId?.trim()?.takeIf { it.isNotBlank() }?.let {
+        context["uiClientId"] = JsonPrimitive(it)
+    }
+    return context
 }
 
 internal fun buildAndroidTargetCapabilities(): List<String> {

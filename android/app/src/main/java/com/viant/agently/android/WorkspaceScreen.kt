@@ -41,6 +41,7 @@ import kotlinx.serialization.json.JsonElement
 internal fun TabletWorkspacePane(
     loading: Boolean,
     activeConversationId: String?,
+    conversationState: ConversationStateResponse?,
     error: String?,
     streamSnapshot: ConversationStreamSnapshot?,
     transcript: List<ChatEntry>,
@@ -143,6 +144,10 @@ internal fun TabletWorkspacePane(
                                 }
                             }
                         } else {
+                            HostedWorkspaceSection(
+                                conversationState = conversationState,
+                                forgeRuntime = forgeRuntime
+                            )
                             PendingApprovalsSection(
                                 approvals = pendingApprovals,
                                 forgeRuntime = forgeRuntime,

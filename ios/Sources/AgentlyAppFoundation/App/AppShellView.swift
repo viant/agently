@@ -7,6 +7,7 @@ public struct AppShellView: View {
     @State private var isShowingSettings = false
     @State private var conversationSearchText = ""
     @State private var compactNavigationPath: [String] = []
+    @State private var pendingConversationDeletion: Conversation?
 
     public init(runtime: AppRuntime) {
         self.runtime = runtime
@@ -42,6 +43,30 @@ public struct AppShellView: View {
             }
         }
         .settingsSheet(isPresented: $isShowingSettings, runtime: runtime)
+        .alert(
+            "Delete Conversation?",
+            isPresented: Binding(
+                get: { pendingConversationDeletion != nil },
+                set: { if !$0 { pendingConversationDeletion = nil } }
+            ),
+            presenting: pendingConversationDeletion
+        ) { conversation in
+            Button("Delete", role: .destructive) {
+                let conversationID = conversation.id
+                pendingConversationDeletion = nil
+                Task { await runtime.deleteConversation(conversationID: conversationID) }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingConversationDeletion = nil
+            }
+        } message: { conversation in
+            let title = conversation.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let title, !title.isEmpty {
+                Text("Delete \"\(title)\" and its conversation history? This action can’t be undone.")
+            } else {
+                Text("Delete this conversation and its history? This action can’t be undone.")
+            }
+        }
     }
 
     private var regularShell: some View {
@@ -53,11 +78,15 @@ public struct AppShellView: View {
                 usesNavigationDestination: false,
                 searchText: $conversationSearchText,
                 isRefreshing: runtime.state.isRefreshingConversations,
+                workspaceTitle: conversationsWorkspaceTitle,
                 onRefresh: {
                     await runtime.refreshConversationList()
                 },
                 onSelectConversation: { conversationID in
                     Task { await runtime.selectConversation(conversationID) }
+                },
+                onRequestDeleteConversation: { conversation in
+                    pendingConversationDeletion = conversation
                 }
             )
         } detail: {
@@ -87,11 +116,15 @@ public struct AppShellView: View {
                 usesNavigationDestination: true,
                 searchText: $conversationSearchText,
                 isRefreshing: runtime.state.isRefreshingConversations,
+                workspaceTitle: conversationsWorkspaceTitle,
                 onRefresh: {
                     await runtime.refreshConversationList()
                 },
                 onSelectConversation: { conversationID in
                     Task { await runtime.selectConversation(conversationID) }
+                },
+                onRequestDeleteConversation: { conversation in
+                    pendingConversationDeletion = conversation
                 }
             )
             .navigationDestination(for: String.self) { conversationID in
@@ -121,6 +154,11 @@ public struct AppShellView: View {
             compactNavigationPath = [activeConversationID]
         }
     }
+
+    private var conversationsWorkspaceTitle: String? {
+        runtime.state.workspaceMetadata?.workspaceRoot?.workspaceDisplayTitle
+            ?? runtime.state.workspaceMetadata?.defaultAgent?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 private extension ToolbarItemPlacement {
@@ -144,19 +182,22 @@ private extension SearchFieldPlacement {
 }
 
 private struct AppBrandView: View {
+    let workspaceTitle: String?
+
     var body: some View {
+        let displayTitle = resolveWorkspaceBrandTitle(workspaceTitle: workspaceTitle)
         HStack(spacing: 8) {
             Text("VIANT.")
                 .font(.caption.weight(.black))
                 .tracking(0.4)
                 .foregroundStyle(Color(red: 0.86, green: 0.12, blue: 0.17))
-            Text("Agently")
+            Text(displayTitle)
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(.primary)
         }
         .fixedSize(horizontal: true, vertical: false)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Viant Agently")
+        .accessibilityLabel("Viant \(displayTitle)")
     }
 }
 
@@ -167,8 +208,10 @@ private struct ConversationListView: View {
     let usesNavigationDestination: Bool
     @Binding var searchText: String
     let isRefreshing: Bool
+    let workspaceTitle: String?
     let onRefresh: () async -> Void
     let onSelectConversation: (String) -> Void
+    let onRequestDeleteConversation: (Conversation) -> Void
 
     private var trimmedSearchText: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -194,7 +237,7 @@ private struct ConversationListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            AppBrandView()
+            AppBrandView(workspaceTitle: workspaceTitle)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20)
                 .padding(.top, 10)
@@ -236,6 +279,13 @@ private struct ConversationListView: View {
                     .onTapGesture {
                         onSelectConversation(conversation.id)
                     }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            onRequestDeleteConversation(conversation)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
                 }
                 .id("selected-list-\(activeConversationID ?? "none")")
             } else if usesNavigationDestination {
@@ -249,6 +299,13 @@ private struct ConversationListView: View {
                     .simultaneousGesture(TapGesture().onEnded {
                         onSelectConversation(conversation.id)
                     })
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            onRequestDeleteConversation(conversation)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
                 }
                 .id("nav-list-\(activeConversationID ?? "none")")
             } else {
@@ -262,6 +319,13 @@ private struct ConversationListView: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            onRequestDeleteConversation(conversation)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
                 }
                 .id("plain-list-\(activeConversationID ?? "none")")
             }
@@ -497,6 +561,33 @@ private extension String {
         }
         return candidate
     }
+}
+
+internal func resolveWorkspaceBrandTitle(
+    workspaceTitle: String?,
+    fallbackTitle: String = "Agently"
+) -> String {
+    let trimmed = workspaceTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !trimmed.isEmpty else {
+        return fallbackTitle
+    }
+    let normalized = trimmed
+        .replacingOccurrences(of: "_", with: " ")
+        .replacingOccurrences(of: "-", with: " ")
+        .split(separator: " ")
+        .map { token in
+            let lower = token.lowercased()
+            return lower.prefix(1).uppercased() + lower.dropFirst()
+        }
+        .joined(separator: " ")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalized.isEmpty else {
+        return fallbackTitle
+    }
+    if normalized.lowercased().hasPrefix("viant ") || normalized.caseInsensitiveCompare("viant") == .orderedSame {
+        return normalized
+    }
+    return "Viant \(normalized)"
 }
 
 private extension View {

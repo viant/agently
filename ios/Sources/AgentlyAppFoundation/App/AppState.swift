@@ -11,6 +11,8 @@ public final class AppState: ObservableObject {
     @Published public var workspaceMetadata: WorkspaceMetadata?
     @Published public var conversations: [Conversation] = []
     @Published public var activeConversationID: String?
+    @Published public var activeConversationState: ConversationStateResponse?
+    @Published public var activeHostedWorkspace: HostedWorkspaceRestoreState?
     @Published public var activeTurnID: String?
     @Published public var artifacts: [ArtifactPreview] = []
     @Published public var selectedArtifact: ArtifactPreview?
@@ -49,13 +51,34 @@ public final class AppState: ObservableObject {
                 formFactor: formFactor,
                 capabilities: buildAppleTargetCapabilities()
             ),
-            windowMetadataBaseURL: metadataBaseURL
+            windowMetadataBaseURL: metadataBaseURL,
+            windowMetadataBasePath: "/v1/api/agently/forge/window"
         )
     }
 }
 
 internal func buildAppleTargetCapabilities() -> [String] {
     ["markdown", "chart", "attachments", "camera", "voice"]
+}
+
+internal func buildAppleClientQueryContext(
+    formFactor: String,
+    uiClientID: String? = nil
+) -> [String: AgentlySDK.JSONValue] {
+    let clientKind = formFactor == "tablet" ? "tablet" : "mobile"
+    var context: [String: AgentlySDK.JSONValue] = [
+        "client": .object([
+            "kind": .string(clientKind),
+            "platform": .string("ios"),
+            "formFactor": .string(formFactor),
+            "surface": .string("app"),
+            "capabilities": .array(buildAppleTargetCapabilities().map { AgentlySDK.JSONValue.string($0) })
+        ])
+    ]
+    if let uiClientID = uiClientID?.trimmingCharacters(in: .whitespacesAndNewlines), !uiClientID.isEmpty {
+        context["uiClientId"] = .string(uiClientID)
+    }
+    return context
 }
 
 internal func detectAppleFormFactor() -> String {

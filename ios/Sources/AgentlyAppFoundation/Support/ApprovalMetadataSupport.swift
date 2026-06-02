@@ -115,12 +115,12 @@ enum ApprovalMetadataSupport {
 
     private static func decodeApprovalCallbacks(_ candidate: AppJSONValue?) -> [ApprovalCallback] {
         guard case .array(let values)? = candidate else { return [] }
-        return values.compactMap { value in
+        return values.compactMap { value -> ApprovalCallback? in
             guard case .object(let object) = value else { return nil }
             return ApprovalCallback(
+                elementID: nonBlank(primitiveString(object["elementId"])),
                 event: nonBlank(primitiveString(object["event"])),
-                handler: nonBlank(primitiveString(object["handler"])),
-                args: objectValue(object["args"])
+                handler: nonBlank(primitiveString(object["handler"]))
             )
         }
     }

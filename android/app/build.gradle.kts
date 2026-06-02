@@ -7,7 +7,7 @@ val agentlyAndroidBaseUrlProvider = providers
     .gradleProperty("agently.android.baseUrl")
     .orElse(providers.environmentVariable("AGENTLY_ANDROID_BASE_URL"))
 val agentlyAndroidBaseUrl = agentlyAndroidBaseUrlProvider
-    .orElse("http://10.0.2.2:9393")
+    .orElse("http://10.0.2.2:9191")
     .get()
     .replace("\\", "\\\\")
     .replace("\"", "\\\"")

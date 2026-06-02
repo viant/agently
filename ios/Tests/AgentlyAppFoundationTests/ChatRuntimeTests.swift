@@ -186,4 +186,54 @@ final class ChatRuntimeTests: XCTestCase {
         XCTAssertEqual(chart.chart?.xKey, "channel")
         XCTAssertEqual(chart.chart?.series, ["spend"])
     }
+
+    func testDeriveHostedWorkspaceRestoreStateRestoresHostedWindowFromViewOpen() throws {
+        let json = """
+        {
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [
+              {
+                "turnId": "turn-1",
+                "execution": {
+                  "pages": [
+                    {
+                      "pageId": "page-1",
+                      "toolSteps": [
+                        {
+                          "toolCallId": "tool-1",
+                          "toolName": "ui/view:open",
+                          "status": "completed",
+                          "requestPayload": {
+                            "id": "recommendationList"
+                          },
+                          "responsePayload": {
+                            "windowId": "recommendationList__conv-1",
+                            "conversationId": "conv-1",
+                            "windowKey": "recommendationList",
+                            "windowTitle": "Recommendation Review",
+                            "presentation": "hosted",
+                            "region": "chat.top",
+                            "parentKey": "chat/new"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+        """
+        let response = try JSONDecoder.agently().decode(
+            ConversationStateResponse.self,
+            from: XCTUnwrap(json.data(using: .utf8))
+        )
+
+        let restore = deriveHostedWorkspaceRestoreState(from: response)
+
+        XCTAssertEqual(restore?.selectedWindowId, "recommendationList__conv-1")
+        XCTAssertEqual(restore?.windows.first?.windowKey, "recommendationList")
+    }
 }

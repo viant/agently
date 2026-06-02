@@ -3,6 +3,7 @@ import AgentlySDK
 
 public struct AuthRequiredScreen: View {
     @ObservedObject private var authRuntime: AuthRuntime
+    @ObservedObject private var settingsRuntime: SettingsRuntime
     private let baseURL: String
     private let statusMessage: String?
     private let onOpenSettings: () -> Void
@@ -10,12 +11,14 @@ public struct AuthRequiredScreen: View {
 
     public init(
         authRuntime: AuthRuntime,
+        settingsRuntime: SettingsRuntime,
         baseURL: String = "",
         statusMessage: String? = nil,
         onOpenSettings: @escaping () -> Void = {},
         onLoginSuccess: @escaping () -> Void = {}
     ) {
         self.authRuntime = authRuntime
+        self.settingsRuntime = settingsRuntime
         self.baseURL = baseURL
         self.statusMessage = statusMessage
         self.onOpenSettings = onOpenSettings
@@ -23,6 +26,7 @@ public struct AuthRequiredScreen: View {
     }
 
     public var body: some View {
+        let developerAuthEnabled = developerAuthFeaturesEnabled()
         VStack(alignment: .leading, spacing: 16) {
             Text("Sign In Required")
                 .font(.title2.weight(.semibold))
@@ -85,6 +89,29 @@ public struct AuthRequiredScreen: View {
             }
             .disabled(authRuntime.isSubmittingOAuthLogin)
             .buttonStyle(.borderedProminent)
+            if developerAuthEnabled,
+               !settingsRuntime.oobSecretReference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button("Use Saved OOB Sign-In") {
+                    Task {
+                        if await authRuntime.beginOOBLogin(secretsURL: settingsRuntime.oobSecretReference) {
+                            onLoginSuccess()
+                        }
+                    }
+                }
+                .disabled(authRuntime.isSubmittingOAuthLogin)
+                .buttonStyle(.bordered)
+            } else if developerAuthEnabled {
+                Text("Add an OOB secret reference in Settings to use out-of-band sign-in.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            if authRuntime.currentUser != nil {
+                Button("Sign Out") {
+                    Task { _ = await authRuntime.logoutCurrentSession() }
+                }
+                .disabled(authRuntime.isSubmittingOAuthLogin)
+                .buttonStyle(.bordered)
+            }
             Button("Refresh Auth Options") {
                 Task { await authRuntime.refreshConnectionContext() }
             }

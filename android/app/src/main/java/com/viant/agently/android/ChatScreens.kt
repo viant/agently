@@ -56,9 +56,11 @@ import kotlinx.serialization.json.JsonElement
 
 @Composable
 internal fun PhoneChatScreen(
+    workspaceTitle: String,
     loading: Boolean,
     recentConversations: List<Conversation>,
     activeConversationId: String?,
+    conversationState: ConversationStateResponse?,
     error: String?,
     streamSnapshot: ConversationStreamSnapshot?,
     transcript: List<ChatEntry>,
@@ -80,9 +82,11 @@ internal fun PhoneChatScreen(
     onClosePreview: () -> Unit
 ) {
     PhoneWorkspacePane(
+        workspaceTitle = workspaceTitle,
         loading = loading,
         recentConversations = recentConversations,
         activeConversationId = activeConversationId,
+        conversationState = conversationState,
         error = error,
         streamSnapshot = streamSnapshot,
         transcript = transcript,
@@ -108,10 +112,12 @@ internal fun PhoneChatScreen(
 
 @Composable
 internal fun TabletChatScreen(
+    workspaceTitle: String,
     appApiBaseUrl: String,
     loading: Boolean,
     recentConversations: List<Conversation>,
     activeConversationId: String?,
+    conversationState: ConversationStateResponse?,
     error: String?,
     streamSnapshot: ConversationStreamSnapshot?,
     transcript: List<ChatEntry>,
@@ -145,6 +151,7 @@ internal fun TabletChatScreen(
         horizontalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         TabletConversationSidebar(
+            workspaceTitle = workspaceTitle,
             appApiBaseUrl = appApiBaseUrl,
             loading = loading,
             recentConversations = recentConversations,
@@ -169,6 +176,7 @@ internal fun TabletChatScreen(
             TabletWorkspacePane(
                 loading = loading,
                 activeConversationId = activeConversationId,
+                conversationState = conversationState,
                 error = error,
                 streamSnapshot = streamSnapshot,
                 transcript = transcript,

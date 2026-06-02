@@ -18,8 +18,10 @@ public final class AppRuntime: ObservableObject {
 
     private let settingsStore: AppSettingsStore
     private let clientFactory: @Sendable (String) -> AgentlyClient
+    private let uiBridge: AppleUIBridgeController
     private let streamTracker = ConversationStreamTracker()
     private var streamTask: Task<Void, Never>?
+    private var postTurnRefreshTask: Task<Void, Never>?
     private var bootstrapTimeoutTask: Task<Void, Never>?
     private var observationCancellables: Set<AnyCancellable> = []
 
@@ -38,6 +40,34 @@ public final class AppRuntime: ObservableObject {
         self.queryRuntime = QueryRuntime(client: client)
         self.approvalRuntime = ApprovalRuntime(client: client)
         self.elicitationRuntime = ElicitationRuntime(client: client)
+        Task {
+            await state.forgeRuntime.registerDataSourceLoader(
+                makeForgeAgentlyDataSourceLoader(client: client)
+            )
+        }
+        self.uiBridge = AppleUIBridgeController(
+            client: client,
+            snapshotProvider: { _ in
+                await buildAppleUIBridgeSnapshot(
+                    activeConversationID: state.activeConversationID,
+                    forgeRuntime: state.forgeRuntime
+                )
+            },
+            commandHandler: { method, params in
+                let result = try await handleAppleUIBridgeCommand(
+                    method: method,
+                    params: params,
+                    forgeRuntime: state.forgeRuntime,
+                    baseURL: state.bootstrapBaseURL
+                )
+                if let restoreState = bridgeHostedWorkspaceRestoreState(from: result) {
+                    await MainActor.run {
+                        state.activeHostedWorkspace = restoreState
+                    }
+                }
+                return result
+            }
+        )
         bindChildObjectChanges()
     }
 
@@ -83,6 +113,7 @@ public final class AppRuntime: ObservableObject {
             logger.info("Bootstrap succeeded with \(self.state.conversations.count, privacy: .public) conversations")
             bootstrapTimeoutTask?.cancel()
             state.authState = .signedIn
+            uiBridge.start()
             await authRuntime.refreshConnectionContext(expectSignedIn: true)
             let restoredConversationID = settingsStore.loadActiveConversationID()
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -104,6 +135,8 @@ public final class AppRuntime: ObservableObject {
             state.workspaceMetadata = nil
             state.conversations = []
             state.activeConversationID = nil
+            state.activeConversationState = nil
+            state.activeHostedWorkspace = nil
             state.activeTurnID = nil
             state.artifacts = []
             state.selectedArtifact = nil
@@ -114,6 +147,7 @@ public final class AppRuntime: ObservableObject {
             state.bootstrapErrorMessage = bootstrapErrorMessage(for: error)
             let authRequired = isAuthenticationError(error)
             state.authState = authRequired ? .required : .connectionFailed
+            uiBridge.stop()
             if authRequired {
                 await authRuntime.refreshConnectionContext()
             }
@@ -124,11 +158,14 @@ public final class AppRuntime: ObservableObject {
     public func applySettingsAndReload() async {
         logger.info("Applying settings and rebuilding runtime client")
         settingsRuntime.save()
+        uiBridge.stop()
         rebuildClient()
         streamTask?.cancel()
         chatRuntime.transcript = []
         state.conversations = []
         state.activeConversationID = nil
+        state.activeConversationState = nil
+        state.activeHostedWorkspace = nil
         state.activeTurnID = nil
         state.artifacts = []
         state.selectedArtifact = nil
@@ -147,6 +184,8 @@ public final class AppRuntime: ObservableObject {
         logger.info("Selecting conversation \(conversationID, privacy: .public)")
         streamTask?.cancel()
         state.activeConversationID = conversationID
+        state.activeConversationState = nil
+        state.activeHostedWorkspace = nil
         state.activeTurnID = nil
         state.streamErrorMessage = nil
         state.isStoppingTurn = false
@@ -162,6 +201,8 @@ public final class AppRuntime: ObservableObject {
     public func startNewConversation() {
         streamTask?.cancel()
         state.activeConversationID = nil
+        state.activeConversationState = nil
+        state.activeHostedWorkspace = nil
         state.activeTurnID = nil
         state.selectedArtifact = nil
         state.artifacts = []
@@ -199,6 +240,26 @@ public final class AppRuntime: ObservableObject {
         state.isRefreshingConversations = false
     }
 
+    public func deleteConversation(conversationID: String) async {
+        let trimmedConversationID = conversationID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedConversationID.isEmpty else { return }
+
+        state.isRefreshingConversations = true
+        do {
+            logger.info("Deleting conversation \(trimmedConversationID, privacy: .public)")
+            try await state.client.deleteConversation(conversationID: trimmedConversationID)
+            if state.activeConversationID == trimmedConversationID {
+                startNewConversation()
+            }
+            state.conversations = try await state.client.listConversations().rows
+            state.bootstrapErrorMessage = nil
+        } catch {
+            logger.error("Conversation deletion failed: \(String(describing: error), privacy: .public)")
+            state.bootstrapErrorMessage = error.localizedDescription
+        }
+        state.isRefreshingConversations = false
+    }
+
     public func sendCurrentQuery() async {
         let text = composerRuntime.query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
@@ -207,12 +268,18 @@ public final class AppRuntime: ObservableObject {
         do {
             let conversationID = try await ensureConversationForOutgoingMessage()
             let attachments = try await uploadDraftAttachments(conversationID: conversationID)
+            let uiClientID = await uiBridge.ensureConnected()
+            let queryContext = buildAppleClientQueryContext(
+                formFactor: state.metadataTargetContext.formFactor ?? "phone",
+                uiClientID: uiClientID
+            )
             let optimisticTurn = chatRuntime.beginOptimisticTurn(query: text)
             if let response = await queryRuntime.send(
                 conversationID: conversationID,
                 agentID: selectedAgentID,
                 query: text,
-                attachments: attachments
+                attachments: attachments,
+                context: queryContext
             ) {
                 chatRuntime.markOptimisticTurnAccepted(optimisticTurn)
                 if let conversationID = response.conversationID, !conversationID.isEmpty {
@@ -324,10 +391,14 @@ public final class AppRuntime: ObservableObject {
                     includeFeeds: true
                 )
             )
+            state.activeConversationState = transcriptState
+            state.activeHostedWorkspace = deriveHostedWorkspaceRestoreState(from: transcriptState)
             chatRuntime.replaceTranscript(from: transcriptState)
             state.streamErrorMessage = nil
             logger.info("Loaded transcript state for conversation \(conversationID, privacy: .public)")
         } catch {
+            state.activeConversationState = nil
+            state.activeHostedWorkspace = nil
             logger.error("Transcript load failed for conversation \(conversationID, privacy: .public): \(String(describing: error), privacy: .public)")
             state.streamErrorMessage = "Failed to load conversation state. \(error.localizedDescription)"
         }
@@ -365,6 +436,7 @@ public final class AppRuntime: ObservableObject {
 
     private func startStreaming(conversationID: String) {
         streamTask?.cancel()
+        postTurnRefreshTask?.cancel()
         state.activeTurnID = nil
         state.streamErrorMessage = nil
         state.isStoppingTurn = false
@@ -372,16 +444,25 @@ public final class AppRuntime: ObservableObject {
             guard let self else { return }
             logger.info("Starting live stream for conversation \(conversationID, privacy: .public)")
             await streamTracker.reset(conversationID: conversationID)
+            var sawActiveTurn = false
             do {
                 for try await event in state.client.streamEvents(conversationID: conversationID) {
                     if Task.isCancelled { return }
+                    let previousActiveTurnID = state.activeTurnID?.trimmingCharacters(in: .whitespacesAndNewlines)
                     let snapshot = await streamTracker.apply(event)
                     guard state.activeConversationID == conversationID else {
                         continue
                     }
                     state.activeTurnID = snapshot.activeTurnID
-                    if snapshot.activeTurnID == nil {
+                    if let currentTurnID = snapshot.activeTurnID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !currentTurnID.isEmpty {
+                        sawActiveTurn = true
+                    } else {
                         state.isStoppingTurn = false
+                        if previousActiveTurnID?.isEmpty == false || sawActiveTurn {
+                            sawActiveTurn = false
+                            schedulePostTurnRefresh(conversationID: conversationID)
+                        }
                     }
                     chatRuntime.applyStreaming(snapshot: snapshot)
                     if let pending = snapshot.pendingElicitation {
@@ -405,6 +486,17 @@ public final class AppRuntime: ObservableObject {
 
     public var isQueryBusy: Bool {
         queryRuntime.isSending || state.activeTurnID != nil || state.isStoppingTurn
+    }
+
+    private func schedulePostTurnRefresh(conversationID: String) {
+        postTurnRefreshTask?.cancel()
+        postTurnRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            guard self.state.activeConversationID == conversationID else { return }
+            await self.loadConversationState(conversationID: conversationID)
+        }
     }
 
     public var availableAgentOptions: [WorkspaceAgentOption] {
@@ -471,8 +563,15 @@ public final class AppRuntime: ObservableObject {
         let client = clientFactory(configuredBaseURL)
         state.client = client
         state.bootstrapBaseURL = configuredBaseURL
+        uiBridge.updateClient(client)
         Task {
-            await state.forgeRuntime.configureWindowMetadata(baseURL: URL(string: configuredBaseURL))
+            await state.forgeRuntime.registerDataSourceLoader(
+                makeForgeAgentlyDataSourceLoader(client: client)
+            )
+            await state.forgeRuntime.configureWindowMetadata(
+                baseURL: URL(string: configuredBaseURL),
+                path: "/v1/api/agently/forge/window"
+            )
         }
         authRuntime = AuthRuntime(client: client)
         queryRuntime = QueryRuntime(client: client)
@@ -715,6 +814,7 @@ public final class AppRuntime: ObservableObject {
     deinit {
         bootstrapTimeoutTask?.cancel()
         streamTask?.cancel()
+        postTurnRefreshTask?.cancel()
     }
 }
 

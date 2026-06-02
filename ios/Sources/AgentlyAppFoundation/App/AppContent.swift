@@ -24,6 +24,7 @@ public struct AppContent: View {
             case .required:
                 AuthRequiredScreen(
                     authRuntime: runtime.authRuntime,
+                    settingsRuntime: runtime.settingsRuntime,
                     baseURL: runtime.state.bootstrapBaseURL,
                     statusMessage: runtime.state.bootstrapErrorMessage,
                     onOpenSettings: {
