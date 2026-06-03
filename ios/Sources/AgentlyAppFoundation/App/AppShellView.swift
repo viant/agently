@@ -218,7 +218,7 @@ private struct ConversationListView: View {
     }
 
     private var filteredConversations: [Conversation] {
-        let base = conversations.sorted(by: Self.isConversation(_:newerThan:))
+        let base = sortedRecentConversations(conversations)
         guard !trimmedSearchText.isEmpty else { return base }
         let query = trimmedSearchText.lowercased()
         return base.filter { conversation in
@@ -341,48 +341,6 @@ private struct ConversationListView: View {
         }
     }
 
-    private static func isConversation(_ lhs: Conversation, newerThan rhs: Conversation) -> Bool {
-        let lhsDate = parsedActivityDate(from: lhs.lastActivity)
-        let rhsDate = parsedActivityDate(from: rhs.lastActivity)
-
-        switch (lhsDate, rhsDate) {
-        case let (lhsDate?, rhsDate?):
-            if lhsDate != rhsDate {
-                return lhsDate > rhsDate
-            }
-        case (_?, nil):
-            return true
-        case (nil, _?):
-            return false
-        case (nil, nil):
-            break
-        }
-
-        let lhsTitle = lhs.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let rhsTitle = rhs.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if lhsTitle != rhsTitle {
-            return lhsTitle.localizedCaseInsensitiveCompare(rhsTitle) == .orderedAscending
-        }
-
-        return lhs.id < rhs.id
-    }
-
-    private static func parsedActivityDate(from rawValue: String?) -> Date? {
-        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !rawValue.isEmpty else {
-            return nil
-        }
-
-        let fractionalFormatter = ISO8601DateFormatter()
-        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractionalFormatter.date(from: rawValue) {
-            return date
-        }
-
-        let fallbackFormatter = ISO8601DateFormatter()
-        fallbackFormatter.formatOptions = [.withInternetDateTime]
-        return fallbackFormatter.date(from: rawValue)
-    }
 }
 
 private struct ConversationRowView: View {
@@ -480,20 +438,7 @@ private struct ConversationRowView: View {
     }
 
     private var parsedLastActivityDate: Date? {
-        guard let rawValue = conversation.lastActivity?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !rawValue.isEmpty else {
-            return nil
-        }
-
-        let fractionalFormatter = ISO8601DateFormatter()
-        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractionalFormatter.date(from: rawValue) {
-            return date
-        }
-
-        let fallbackFormatter = ISO8601DateFormatter()
-        fallbackFormatter.formatOptions = [.withInternetDateTime]
-        return fallbackFormatter.date(from: rawValue)
+        parseConversationActivityDate(conversation.lastActivity ?? conversation.createdAt)
     }
 
     private func stageTint(for rawStage: String) -> Color {

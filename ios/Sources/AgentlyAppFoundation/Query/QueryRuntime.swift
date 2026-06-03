@@ -9,6 +9,7 @@ public final class QueryRuntime: ObservableObject {
     @Published public var lastError: String?
 
     private let client: AgentlyClient
+    private var acceptedWhileSending = false
 
     public init(client: AgentlyClient) {
         self.client = client
@@ -22,7 +23,11 @@ public final class QueryRuntime: ObservableObject {
         context: [String: JSONValue] = [:]
     ) async -> QueryOutput? {
         isSending = true
-        defer { isSending = false }
+        acceptedWhileSending = false
+        defer {
+            isSending = false
+            acceptedWhileSending = false
+        }
         do {
             logger.info("Submitting query request")
             lastError = nil
@@ -36,9 +41,21 @@ public final class QueryRuntime: ObservableObject {
                 )
             )
         } catch {
+            if acceptedWhileSending {
+                logger.info("Ignoring query transport error after workspace acceptance: \(String(describing: error), privacy: .public)")
+                lastError = nil
+                return QueryOutput()
+            }
             logger.error("Query request failed: \(String(describing: error), privacy: .public)")
             lastError = error.localizedDescription
             return nil
         }
+    }
+
+    public func markAccepted() {
+        guard isSending else { return }
+        acceptedWhileSending = true
+        isSending = false
+        lastError = nil
     }
 }

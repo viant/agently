@@ -34,7 +34,8 @@ public struct TranscriptScreen: View {
                             .id(item.id)
                     }
                 }
-                .padding()
+                .padding(.horizontal, 10)
+                .padding(.vertical, 12)
             }
             .onChange(of: items.last?.id) { _, newValue in
                 guard let newValue else { return }

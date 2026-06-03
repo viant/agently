@@ -19,14 +19,28 @@ func makeForgeAgentlyDataSourceLoader(
 
         var inputs = request.input.parameters
         if !request.input.filter.isEmpty {
-            var inputObject = inputs["input"]?.objectValue ?? [:]
-            var queryObject = inputObject["query"]?.objectValue ?? [:]
-            queryObject.merge(request.input.filter) { _, new in new }
-            inputObject["query"] = .object(queryObject)
-            inputs["input"] = .object(inputObject)
+            if inputs["input"]?.objectValue != nil {
+                var inputObject = inputs["input"]?.objectValue ?? [:]
+                var queryObject = inputObject["query"]?.objectValue ?? [:]
+                queryObject.merge(request.input.filter) { _, new in new }
+                inputObject["query"] = .object(queryObject)
+                inputs["input"] = .object(inputObject)
+            } else {
+                inputs.merge(request.input.filter) { _, new in new }
+            }
         }
         if let page = request.input.page {
             inputs["page"] = .number(Double(page))
+        }
+        if let paging = request.dataSource.paging, paging.enabled != false {
+            let pageKey = paging.parameters["page"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let sizeKey = paging.parameters["size"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !pageKey.isEmpty, inputs[pageKey] == nil {
+                inputs[pageKey] = .number(Double(request.input.page ?? 1))
+            }
+            if !sizeKey.isEmpty, inputs[sizeKey] == nil, let size = paging.size, size > 0 {
+                inputs[sizeKey] = .number(Double(size))
+            }
         }
 
         let response = try await client.fetchDatasource(

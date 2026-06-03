@@ -6,9 +6,21 @@ import com.viant.agentlysdk.stream.BufferedMessage
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import kotlinx.coroutines.CancellationException
 import java.text.SimpleDateFormat
+import java.time.Instant
 import java.time.OffsetDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 import java.util.Date
 import java.util.Locale
+
+private val conversationActivityFormatters: List<DateTimeFormatter> = listOf(
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS Z z", Locale.US),
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS Z", Locale.US),
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS Z z", Locale.US),
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS Z", Locale.US),
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss Z z", Locale.US),
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss Z", Locale.US)
+)
 
 internal data class ChatEntry(
     val id: String,
@@ -202,22 +214,11 @@ internal fun formatTimestampLabel(value: Long?): String? {
 }
 
 internal fun formatTimestampLabel(value: String?): String? {
-    val raw = value?.trim().orEmpty()
-    if (raw.isBlank()) return null
-    raw.toLongOrNull()?.let { return formatTimestampLabel(it) }
-    return runCatching {
-        val instant = OffsetDateTime.parse(raw).toInstant()
-        formatTimestampLabel(instant.toEpochMilli())
-    }.getOrNull()
+    return formatTimestampLabel(parseConversationActivityInstantMillis(value))
 }
 
 internal fun formatConversationRecency(value: String?): String? {
-    val raw = value?.trim().orEmpty()
-    if (raw.isBlank()) return null
-    val instant = runCatching {
-        raw.toLongOrNull()?.let { return@runCatching it }
-        OffsetDateTime.parse(raw).toInstant().toEpochMilli()
-    }.getOrNull() ?: return formatTimestampLabel(raw)
+    val instant = parseConversationActivityInstantMillis(value) ?: return formatTimestampLabel(value)
     val diffMinutes = ((System.currentTimeMillis() - instant) / 60_000L).coerceAtLeast(0L)
     return when {
         diffMinutes < 1 -> "Now"
@@ -226,6 +227,22 @@ internal fun formatConversationRecency(value: String?): String? {
         diffMinutes < 7 * 24 * 60 -> "${diffMinutes / (24 * 60)}d"
         else -> formatTimestampLabel(instant)
     }
+}
+
+internal fun parseConversationActivityInstantMillis(value: String?): Long? {
+    val raw = value?.trim().orEmpty()
+    if (raw.isBlank()) return null
+    raw.toLongOrNull()?.let { return it }
+    val sanitized = raw.replace(Regex("\\s+m=\\+.*$"), "")
+    runCatching { OffsetDateTime.parse(sanitized).toInstant().toEpochMilli() }.getOrNull()?.let { return it }
+    runCatching { Instant.parse(sanitized).toEpochMilli() }.getOrNull()?.let { return it }
+    for (formatter in conversationActivityFormatters) {
+        try {
+            return OffsetDateTime.parse(sanitized, formatter).toInstant().toEpochMilli()
+        } catch (_: DateTimeParseException) {
+        }
+    }
+    return null
 }
 
 internal fun conversationToneColor(status: String?): Color {

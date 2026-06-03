@@ -188,16 +188,15 @@ private fun AgentlyApp() {
     val approvalJson = remember { Json { ignoreUnknownKeys = true } }
     val forgeRuntime = remember(scope, forgeTargetContext, appApiBaseUrl) {
         ForgeRuntime(
-            endpoints = mapOf(
-                "appAPI" to EndpointConfig(
-                    baseUrl = appApiBaseUrl,
-                    httpClient = appHttpClient
-                )
-            ),
+            endpoints = emptyMap(),
             scope = scope,
-            targetContext = forgeTargetContext,
-            windowMetadataBaseUri = "v1/api/agently/forge/window"
-        )
+            targetContext = forgeTargetContext
+        ).also { runtime ->
+            runtime.registerWindowMetadataLoader(
+                makeForgeAgentlyWindowMetadataLoader(client, forgeTargetContext)
+            )
+            runtime.registerDataSourceLoader(makeForgeAgentlyDataSourceLoader(client))
+        }
     }
     val uiBridge = remember(appApiBaseUrl, forgeRuntime) {
         AndroidUIBridgeClient(
@@ -698,6 +697,11 @@ private fun AgentlyApp() {
             replaceTranscript = replaceTranscript,
             approvalEdits = approvalEdits,
             transcriptBuilder = ::transcriptFromState
+        )
+        recentConversations = ensureConversationPresentInRecentList(
+            client = resolvedClient,
+            conversations = recentConversations,
+            conversationId = conversationId
         )
         applyPreparedConversationBinding(preparedBinding)
         startConversationStream(resolvedClient, conversationId)

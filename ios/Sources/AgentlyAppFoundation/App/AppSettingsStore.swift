@@ -1,4 +1,5 @@
 import Foundation
+import AgentlySDK
 
 public final class AppSettingsStore {
     private let defaults: UserDefaults
@@ -6,6 +7,7 @@ public final class AppSettingsStore {
     private let preferredAgentIDKey = "agently.ios.settings.preferredAgentID"
     private let activeConversationIDKey = "agently.ios.settings.activeConversationID"
     private let oobSecretReferenceKey = "agently.ios.settings.oobSecretReference"
+    private let hostedWorkspaceRestoreStatePrefix = "agently.ios.settings.hostedWorkspaceRestoreState."
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -56,6 +58,37 @@ public final class AppSettingsStore {
         } else {
             defaults.set(trimmed, forKey: activeConversationIDKey)
         }
+    }
+
+    public func loadHostedWorkspaceRestoreState(conversationID: String) -> HostedWorkspaceRestoreState? {
+        let key = hostedWorkspaceRestoreStateKey(conversationID: conversationID)
+        guard let data = defaults.data(forKey: key) else {
+            return nil
+        }
+        return try? JSONDecoder.agently().decode(HostedWorkspaceRestoreState.self, from: data)
+    }
+
+    public func saveHostedWorkspaceRestoreState(
+        _ value: HostedWorkspaceRestoreState?,
+        conversationID: String
+    ) {
+        let key = hostedWorkspaceRestoreStateKey(conversationID: conversationID)
+        let normalizedConversationID = conversationID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedConversationID.isEmpty else {
+            defaults.removeObject(forKey: key)
+            return
+        }
+        guard let value,
+              !value.windows.isEmpty,
+              let data = try? JSONEncoder.agently().encode(value) else {
+            defaults.removeObject(forKey: key)
+            return
+        }
+        defaults.set(data, forKey: key)
+    }
+
+    private func hostedWorkspaceRestoreStateKey(conversationID: String) -> String {
+        hostedWorkspaceRestoreStatePrefix + conversationID.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     public static func normalizeAPIBaseURL(_ value: String) -> String {

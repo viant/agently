@@ -49,8 +49,8 @@ enum AppBootstrap {
         )
         let baseURL = URL(string: baseURLString) ?? URL(string: defaultBaseURLString())!
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 8
-        configuration.timeoutIntervalForResource = 20
+        configuration.timeoutIntervalForRequest = 300
+        configuration.timeoutIntervalForResource = 300
         configuration.waitsForConnectivity = false
         return AgentlyClient(
             endpoints: [

@@ -44,15 +44,12 @@ public final class AppState: ObservableObject {
             surface: "app",
             capabilities: buildAppleTargetCapabilities()
         )
-        let metadataBaseURL = URL(string: bootstrapBaseURL)
         self.forgeRuntime = forgeRuntime ?? ForgeRuntime(
             targetContext: ForgeTargetContext(
                 platform: "ios",
                 formFactor: formFactor,
                 capabilities: buildAppleTargetCapabilities()
-            ),
-            windowMetadataBaseURL: metadataBaseURL,
-            windowMetadataBasePath: "/v1/api/agently/forge/window"
+            )
         )
     }
 }

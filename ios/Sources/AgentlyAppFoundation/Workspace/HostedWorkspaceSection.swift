@@ -9,18 +9,15 @@ struct HostedWorkspaceSection: View {
     let restoreState: HostedWorkspaceRestoreState?
     let conversationState: ConversationStateResponse?
     let forgeRuntime: ForgeRuntime?
-    let client: AgentlyClient?
 
     init(
         restoreState: HostedWorkspaceRestoreState? = nil,
         conversationState: ConversationStateResponse?,
-        forgeRuntime: ForgeRuntime?,
-        client: AgentlyClient? = nil
+        forgeRuntime: ForgeRuntime?
     ) {
         self.restoreState = restoreState
         self.conversationState = conversationState
         self.forgeRuntime = forgeRuntime
-        self.client = client
     }
 
     @ViewBuilder
@@ -30,8 +27,7 @@ struct HostedWorkspaceSection: View {
            let effectiveRestoreState {
             HostedWorkspaceWindowView(
                 restoreState: effectiveRestoreState,
-                forgeRuntime: forgeRuntime,
-                client: client
+                forgeRuntime: forgeRuntime
             )
             .padding(.horizontal, 4)
         }
@@ -43,17 +39,15 @@ private struct HostedWorkspaceWindowView: View {
 
     let restoreState: HostedWorkspaceRestoreState
     let forgeRuntime: ForgeRuntime
-    let client: AgentlyClient?
 
     @State private var selectedWindowID: String
     @State private var metadata: WindowMetadata?
     @State private var windowContext: WindowContext?
     @State private var errorMessage: String?
 
-    init(restoreState: HostedWorkspaceRestoreState, forgeRuntime: ForgeRuntime, client: AgentlyClient?) {
+    init(restoreState: HostedWorkspaceRestoreState, forgeRuntime: ForgeRuntime) {
         self.restoreState = restoreState
         self.forgeRuntime = forgeRuntime
-        self.client = client
         _selectedWindowID = State(
             initialValue: restoreState.selectedWindowId
                 ?? restoreState.windows.last?.windowId
@@ -71,9 +65,8 @@ private struct HostedWorkspaceWindowView: View {
             if let selectedWindow,
                let metadata,
                let windowContext,
-               let client,
-               shouldUseNativeRecommendationBrowser(selectedWindow: selectedWindow, metadata: metadata) {
-                RecommendationWorkspaceBrowser(
+               shouldUseNativeHostedBrowser(metadata: metadata) {
+                HostedWorkspaceBrowser(
                     snapshot: selectedWindow,
                     metadata: metadata,
                     forgeRuntime: forgeRuntime,
@@ -133,23 +126,22 @@ private struct HostedWorkspaceWindowView: View {
     }
 
     private var usesNativeRecommendationBrowser: Bool {
-        guard let selectedWindow, let metadata else {
+        guard let metadata else {
             return false
         }
-        return shouldUseNativeRecommendationBrowser(selectedWindow: selectedWindow, metadata: metadata)
+        return shouldUseNativeHostedBrowser(metadata: metadata)
     }
 
-    private func shouldUseNativeRecommendationBrowser(
-        selectedWindow: WorkspaceWindowSnapshot,
+    private func shouldUseNativeHostedBrowser(
         metadata: WindowMetadata
     ) -> Bool {
-        _ = metadata
-        let key = selectedWindow.windowKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return horizontalSizeClass != .regular
-            && (key == "recommendation"
-                || key == "recommendationlist"
-                || key == "recommendationreview"
-                || key.contains("recommendation"))
+        guard horizontalSizeClass != .regular else {
+            return false
+        }
+        let containers = metadata.view?.content?.containers ?? []
+        let hasTable = containers.contains { $0.table != nil }
+        let hasNestedDetail = containers.contains { !$0.containers.isEmpty }
+        return hasTable && hasNestedDetail
     }
 
     @MainActor
@@ -170,23 +162,18 @@ private struct HostedWorkspaceWindowView: View {
                 parentKey: selectedWindow.parentKey
             )
         }
+        if let windowForm = selectedWindow.windowForm?.mapValues(\.forgeValue), !windowForm.isEmpty {
+            await forgeRuntime.setWindowFormValue(
+                windowID: state.id,
+                values: windowForm,
+                replace: true
+            )
+        }
         windowContext = await forgeRuntime.windowContext(id: state.id)
         try? await Task.sleep(for: .milliseconds(150))
         let latest = await forgeRuntime.windows.first(where: { $0.id == state.id })
         metadata = latest?.metadata
-        _ = client
         errorMessage = metadata == nil ? "Workspace metadata did not load." : nil
-    }
-
-    private func shouldSelectFirstRow(
-        metadata: WindowMetadata,
-        dataSourceRef: String,
-        selectedWindow: WorkspaceWindowSnapshot
-    ) -> Bool {
-        let containers = metadata.view?.content?.containers ?? []
-        return containers.contains(where: { container in
-            container.dataSourceRef == dataSourceRef && container.selectFirst == true
-        })
     }
 
 }
@@ -289,7 +276,8 @@ private func normalizeHostedWorkspaceWindow(_ raw: [String: SDKJSONValue]?) -> W
         region: raw["region"]?.stringValue,
         parentKey: parentKey,
         inTab: true,
-        parameters: raw["parameters"]?.objectValue
+        parameters: raw["parameters"]?.objectValue,
+        windowForm: raw["windowForm"]?.objectValue
     )
 }
 

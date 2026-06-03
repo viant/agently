@@ -16,6 +16,7 @@ struct AppleUIBridgeWindow: Codable, Sendable {
     let workspaceSharePct: Int?
     let workspaceMinHeight: Int?
     let parameters: [String: BridgeJSONValue]
+    let windowForm: [String: BridgeJSONValue]
     let inTab: Bool
     let isModal: Bool
 
@@ -30,6 +31,7 @@ struct AppleUIBridgeWindow: Codable, Sendable {
         case workspaceSharePct
         case workspaceMinHeight
         case parameters
+        case windowForm
         case inTab
         case isModal
     }
@@ -273,6 +275,7 @@ func bridgeHostedWorkspaceRestoreState(from payload: [String: BridgeJSONValue]) 
 
 func buildAppleUIBridgeSnapshot(
     activeConversationID: String?,
+    selectedWindowID: String?,
     forgeRuntime: ForgeRuntime
 ) async -> AppleUIBridgeSnapshot {
     let conversationID = activeConversationID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -290,6 +293,7 @@ func buildAppleUIBridgeSnapshot(
                 workspaceSharePct: nil,
                 workspaceMinHeight: nil,
                 parameters: [:],
+                windowForm: [:],
                 inTab: true,
                 isModal: false
             )
@@ -313,6 +317,7 @@ func buildAppleUIBridgeSnapshot(
                 workspaceSharePct: window.workspaceSharePct,
                 workspaceMinHeight: window.workspaceMinHeight,
                 parameters: window.parameters.mapValues(\.appValue),
+                windowForm: await forgeRuntime.windowFormJSONValue(windowID: window.id).mapValues(\.appValue),
                 inTab: window.inTab,
                 isModal: window.isModal
             )
@@ -321,6 +326,41 @@ func buildAppleUIBridgeSnapshot(
     return AppleUIBridgeSnapshot(
         conversationID: conversationID.isEmpty ? nil : conversationID,
         windows: windows
+    )
+}
+
+func hostedWorkspaceRestoreState(
+    from snapshot: AppleUIBridgeSnapshot,
+    selectedWindowID: String?
+) -> HostedWorkspaceRestoreState? {
+    let windows = snapshot.windows.compactMap { window -> WorkspaceWindowSnapshot? in
+        let presentation = window.presentation?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        let region = window.region?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        let parentKey = window.parentKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard presentation == "hosted", region == "chat.top", parentKey == "chat/new" else {
+            return nil
+        }
+        return WorkspaceWindowSnapshot(
+            windowId: window.windowID,
+            conversationId: window.conversationID,
+            windowKey: window.windowKey,
+            windowTitle: window.windowTitle,
+            presentation: window.presentation,
+            region: window.region,
+            parentKey: window.parentKey,
+            inTab: window.inTab,
+            parameters: window.parameters,
+            windowForm: window.windowForm.isEmpty ? nil : window.windowForm
+        )
+    }
+    guard !windows.isEmpty else {
+        return nil
+    }
+    let selected = selectedWindowID?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let selectedWindowId = windows.contains(where: { $0.windowId == selected }) ? selected : windows.last?.windowId
+    return HostedWorkspaceRestoreState(
+        windows: windows,
+        selectedWindowId: selectedWindowId?.isEmpty == false ? selectedWindowId : nil
     )
 }
 
@@ -476,7 +516,8 @@ private func normalizeBridgeHostedWorkspaceWindow(_ raw: [String: BridgeJSONValu
         region: raw["region"]?.stringValue,
         parentKey: parentKey,
         inTab: true,
-        parameters: raw["parameters"]?.objectValue
+        parameters: raw["parameters"]?.objectValue,
+        windowForm: raw["windowForm"]?.objectValue
     )
 }
 
