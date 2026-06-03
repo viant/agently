@@ -1052,6 +1052,149 @@ function canOpenLinkedConversation(step = {}) {
   return isAgentRunTool(step);
 }
 
+export function linkedPreviewTargetIds(linkedConversations = [], linkedSectionExpanded = false, expandedLinkedIds = {}) {
+  const ids = [];
+  const seen = new Set();
+  for (const step of Array.isArray(linkedConversations) ? linkedConversations : []) {
+    const id = String(step?.conversationId || step?.linkedConversationId || '').trim();
+    if (!id || seen.has(id)) continue;
+    if (!linkedSectionExpanded && !expandedLinkedIds?.[id]) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+function previewGroupsKey(groups = []) {
+  try {
+    return JSON.stringify(Array.isArray(groups) ? groups : []);
+  } catch (_) {
+    return '';
+  }
+}
+
+function linkedPreviewFieldsEqual(left = {}, right = {}) {
+  return String(left?.title || '') === String(right?.title || '')
+    && String(left?.agentId || '') === String(right?.agentId || '')
+    && String(left?.status || '') === String(right?.status || '')
+    && String(left?.response || '') === String(right?.response || '')
+    && String(left?.updatedAt || '') === String(right?.updatedAt || '')
+    && previewGroupsKey(left?.previewGroups) === previewGroupsKey(right?.previewGroups);
+}
+
+export function mergeLinkedConversationPreviewStates(current = [], updates = []) {
+  const list = Array.isArray(current) ? current : [];
+  const updateMap = new Map((Array.isArray(updates) ? updates : [])
+    .filter(Boolean)
+    .map((entry) => [String(entry?.conversationId || '').trim(), entry])
+    .filter(([id]) => id));
+  if (updateMap.size === 0) return list;
+  let changed = false;
+  const next = list.map((entry) => {
+    const id = String(entry?.conversationId || '').trim();
+    const update = updateMap.get(id);
+    if (!update) return entry;
+    const merged = {
+      ...entry,
+      ...update,
+      title: String(update?.title || entry?.title || '').trim(),
+      agentId: String(update?.agentId || entry?.agentId || '').trim(),
+      status: String(update?.status || entry?.status || '').trim(),
+      response: String(update?.response || entry?.response || '').trim(),
+      updatedAt: String(update?.updatedAt || entry?.updatedAt || '').trim(),
+      previewGroups: Array.isArray(update?.previewGroups) && update.previewGroups.length > 0
+        ? update.previewGroups
+        : (Array.isArray(entry?.previewGroups) ? entry.previewGroups : [])
+    };
+    if (linkedPreviewFieldsEqual(entry, merged)) return entry;
+    changed = true;
+    return merged;
+  });
+  return changed ? next : list;
+}
+
+export function hasActiveLinkedPreviewUpdate(updates = [], current = []) {
+  const currentById = new Map((Array.isArray(current) ? current : []).map((entry) => [
+    String(entry?.conversationId || '').trim(),
+    entry
+  ]));
+  return (Array.isArray(updates) ? updates : []).filter(Boolean).some((entry) => {
+    const id = String(entry?.conversationId || '').trim();
+    const previous = id ? currentById.get(id) : null;
+    return isLinkedConversationActive(entry?.status || previous?.status || '');
+  });
+}
+
+export function mergeLinkedConversationSummaryRows(current = [], rows = []) {
+  const list = Array.isArray(current) ? current : [];
+  const previousById = new Map(list.map((entry) => [
+    String(entry?.conversationId || '').trim(),
+    entry
+  ]).filter(([id]) => id));
+  const next = (Array.isArray(rows) ? rows : []).map((entry) => {
+    const conversationId = String(entry?.conversationId || entry?.ConversationId || '').trim();
+    const previous = conversationId ? previousById.get(conversationId) : null;
+    return {
+      ...(previous || {}),
+      ...(entry || {}),
+      conversationId,
+      title: String(entry?.title || entry?.Title || previous?.title || '').trim(),
+      agentId: String(entry?.agentId || entry?.AgentId || previous?.agentId || '').trim(),
+      status: String(entry?.status || entry?.Status || previous?.status || '').trim(),
+      response: String(entry?.response || entry?.Response || previous?.response || '').trim(),
+      updatedAt: String(entry?.updatedAt || entry?.UpdatedAt || previous?.updatedAt || '').trim(),
+      previewGroups: Array.isArray(previous?.previewGroups) ? previous.previewGroups : []
+    };
+  });
+  if (next.length === list.length && next.every((entry, index) => {
+    const previous = list[index] || {};
+    return String(entry?.conversationId || '') === String(previous?.conversationId || '')
+      && linkedPreviewFieldsEqual(previous, entry);
+  })) {
+    return list;
+  }
+  return next;
+}
+
+export function shouldPollLinkedConversationSummaries(parentActive = false, linkedStates = []) {
+  return !!parentActive || (Array.isArray(linkedStates) ? linkedStates : [])
+    .some((entry) => isLinkedConversationActive(entry?.status || entry?.Status || ''));
+}
+
+export function mergeLinkedConversationDisplayStates(baseEntries = [], linkedStates = []) {
+  const seen = new Map();
+  for (const entry of Array.isArray(baseEntries) ? baseEntries : []) {
+    const id = String(entry?.conversationId || entry?.linkedConversationId || '').trim();
+    if (!id || seen.has(id)) continue;
+    seen.set(id, {
+      ...entry,
+      linkedConversationId: entry?.linkedConversationId || id,
+      conversationId: entry?.conversationId || id
+    });
+  }
+  for (const state of Array.isArray(linkedStates) ? linkedStates : []) {
+    const id = String(state?.conversationId || '').trim();
+    if (!id) continue;
+    const existing = seen.get(id) || {
+      linkedConversationId: id,
+      conversationId: id
+    };
+    seen.set(id, {
+      ...existing,
+      status: state?.status || existing?.status || '',
+      createdAt: state?.createdAt || existing?.createdAt || '',
+      updatedAt: state?.updatedAt || existing?.updatedAt || '',
+      agentId: state?.agentId || existing?.agentId || '',
+      title: state?.title || existing?.title || '',
+      response: state?.response || existing?.response || '',
+      previewGroups: Array.isArray(state?.previewGroups) && state.previewGroups.length > 0
+        ? state.previewGroups
+        : (Array.isArray(existing?.previewGroups) ? existing.previewGroups : [])
+    });
+  }
+  return [...seen.values()].filter((entry) => !isQueuedLinkedConversationPreview(entry));
+}
+
 function isTerminalTurnStatus(value) {
   const text = String(value || '').trim().toLowerCase();
   return text === 'completed'
@@ -1509,7 +1652,9 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
   const [linkedConversationStates, setLinkedConversationStates] = useState([]);
   const [expandedLinkedIds, setExpandedLinkedIds] = useState({});
   const [linkedSectionExpanded, setLinkedSectionExpanded] = useState(false);
+  const linkedConversationStatesRef = useRef([]);
   const groupsRef = useRef(null);
+  linkedConversationStatesRef.current = linkedConversationStates;
 
   const stepKey = (step) => {
     const explicitID = String(step?.id || '').trim();
@@ -1720,24 +1865,16 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
       if (!id || !canOpenLinkedConversation(step)) continue;
       if (!seen.has(id)) seen.set(id, step);
     }
-    for (const state of linkedConversationStates) {
-      const id = String(state?.conversationId || '').trim();
-      if (!id || !seen.has(id)) continue;
-      seen.set(id, {
-        ...seen.get(id),
-        status: state?.status || seen.get(id)?.status || '',
-        createdAt: state?.createdAt || seen.get(id)?.createdAt || '',
-        updatedAt: state?.updatedAt || seen.get(id)?.updatedAt || '',
-        agentId: state?.agentId || seen.get(id)?.agentId || '',
-        title: state?.title || seen.get(id)?.title || '',
-        response: state?.response || seen.get(id)?.response || '',
-        previewGroups: Array.isArray(state?.previewGroups) && state.previewGroups.length > 0
-          ? state.previewGroups
-          : (Array.isArray(seen.get(id)?.previewGroups) ? seen.get(id).previewGroups : [])
-      });
-    }
-    return [...seen.values()].filter((entry) => !isQueuedLinkedConversationPreview(entry));
+    return mergeLinkedConversationDisplayStates([...seen.values()], linkedConversationStates);
   }, [allGroupEntries, linkedConversationStates, data?.linkedConversations, data?.toolCalls]);
+  const linkedPreviewIds = useMemo(
+    () => linkedPreviewTargetIds(linkedConversations, linkedSectionExpanded, expandedLinkedIds),
+    [linkedConversations, linkedSectionExpanded, expandedLinkedIds]
+  );
+  const linkedPreviewIdsKey = useMemo(
+    () => linkedPreviewIds.join('|'),
+    [linkedPreviewIds]
+  );
   const hasActiveLinkedConversation = useMemo(
     () => linkedStatusValues.some((status) => isLinkedConversationActive(status)),
     [linkedStatusValues]
@@ -2003,13 +2140,10 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
       setLinkedConversationStates([]);
       return undefined;
     }
-    if (isLatestIteration && isActiveIteration) {
-      setLinkedConversationStates([]);
-      return undefined;
-    }
     let cancelled = false;
     let timer = null;
     const loadLinkedStatuses = async () => {
+      let latestRows = Array.isArray(linkedConversationStatesRef.current) ? linkedConversationStatesRef.current : [];
       try {
         const page = await client.listLinkedConversations({
           parentConversationId: parentConversationID,
@@ -2017,27 +2151,14 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
         });
         if (cancelled) return;
         const baseRows = Array.isArray(page?.data) ? page.data : [];
-        const previousById = new Map((Array.isArray(linkedConversationStates) ? linkedConversationStates : []).map((entry) => [
-          String(entry?.conversationId || '').trim(),
-          entry
-        ]));
-        const rows = baseRows.map((entry) => {
-          const conversationId = String(entry?.conversationId || '').trim();
-          const previous = conversationId ? previousById.get(conversationId) : null;
-          return {
-            ...(previous || {}),
-            ...(entry || {}),
-            conversationId,
-            title: String(entry?.title || previous?.title || '').trim(),
-            agentId: String(entry?.agentId || previous?.agentId || '').trim(),
-            status: String(entry?.status || previous?.status || '').trim(),
-            response: String(entry?.response || previous?.response || '').trim(),
-            updatedAt: String(entry?.updatedAt || previous?.updatedAt || '').trim(),
-            previewGroups: Array.isArray(previous?.previewGroups) ? previous.previewGroups : []
-          };
-        });
+        const currentRows = Array.isArray(linkedConversationStatesRef.current) ? linkedConversationStatesRef.current : [];
+        const rows = mergeLinkedConversationSummaryRows(currentRows, baseRows);
+        latestRows = rows;
         if (cancelled) return;
-        setLinkedConversationStates(rows);
+        if (rows !== currentRows) {
+          linkedConversationStatesRef.current = rows;
+          setLinkedConversationStates(rows);
+        }
         logIterationDebug('linked-status', {
           turnId: parentTurnID,
           messageId: message?.id || '',
@@ -2054,7 +2175,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
           error: String(err?.message || err || '')
         });
       }
-      if (!cancelled && isLatestIteration && isActiveIteration) {
+      if (!cancelled && shouldPollLinkedConversationSummaries(isLatestIteration && isActiveIteration, latestRows)) {
         timer = window.setTimeout(loadLinkedStatuses, 1500);
       }
     };
@@ -2069,12 +2190,10 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
     if (isLatestIteration && isActiveIteration) {
       return undefined;
     }
-    const idsToHydrate = linkedConversations
-      .map((step) => String(step?.conversationId || step?.linkedConversationId || '').trim())
-      .filter(Boolean)
-      .filter((id) => linkedSectionExpanded || expandedLinkedIds[id]);
+    const idsToHydrate = linkedPreviewIdsKey.split('|').map((id) => id.trim()).filter(Boolean);
     if (idsToHydrate.length === 0) return undefined;
     let cancelled = false;
+    let timer = null;
     const loadLinkedPreview = async () => {
       const rows = await Promise.all(idsToHydrate.map(async (conversationId) => {
         try {
@@ -2109,31 +2228,24 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
         }
       }));
       if (cancelled) return;
-      const updates = new Map(rows.filter(Boolean).map((entry) => [String(entry?.conversationId || '').trim(), entry]));
-      if (updates.size === 0) return;
-      setLinkedConversationStates((current) => (Array.isArray(current) ? current : []).map((entry) => {
-        const id = String(entry?.conversationId || '').trim();
-        const update = updates.get(id);
-        if (!update) return entry;
-        return {
-          ...entry,
-          ...update,
-          title: String(update?.title || entry?.title || '').trim(),
-          agentId: String(update?.agentId || entry?.agentId || '').trim(),
-          status: String(update?.status || entry?.status || '').trim(),
-          response: String(update?.response || entry?.response || '').trim(),
-          updatedAt: String(update?.updatedAt || entry?.updatedAt || '').trim(),
-          previewGroups: Array.isArray(update?.previewGroups) && update.previewGroups.length > 0
-            ? update.previewGroups
-            : (Array.isArray(entry?.previewGroups) ? entry.previewGroups : [])
-        };
-      }));
+      const updates = rows.filter(Boolean);
+      if (updates.length === 0) return;
+      const current = Array.isArray(linkedConversationStatesRef.current) ? linkedConversationStatesRef.current : [];
+      const next = mergeLinkedConversationPreviewStates(current, updates);
+      if (next !== current) {
+        linkedConversationStatesRef.current = next;
+        setLinkedConversationStates(next);
+      }
+      if (!cancelled && hasActiveLinkedPreviewUpdate(updates, next)) {
+        timer = window.setTimeout(loadLinkedPreview, 1500);
+      }
     };
     void loadLinkedPreview();
     return () => {
       cancelled = true;
+      if (timer) window.clearTimeout(timer);
     };
-  }, [linkedConversations, linkedSectionExpanded, expandedLinkedIds, isLatestIteration, isActiveIteration]);
+  }, [linkedPreviewIdsKey, isLatestIteration, isActiveIteration]);
 
   useEffect(() => {
     const turnTerminal = isTerminalTurnStatus(iterationDisplayStatus);
