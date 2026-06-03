@@ -17,7 +17,18 @@ func makeForgeAgentlyDataSourceLoader(
             return nil
         }
 
-        var inputs = request.input.parameters
+        var inputs = request.resolvedInputs
+        if let nestedInput = request.input.parameters["input"] {
+            inputs["input"] = nestedInput
+        }
+        if let page = request.input.parameters["page"] {
+            inputs["page"] = page
+        }
+        for (key, value) in request.input.parameters where key != "input" && key != "page" && key != "parameters" {
+            if inputs[key] == nil {
+                inputs[key] = value
+            }
+        }
         if !request.input.filter.isEmpty {
             if inputs["input"]?.objectValue != nil {
                 var inputObject = inputs["input"]?.objectValue ?? [:]

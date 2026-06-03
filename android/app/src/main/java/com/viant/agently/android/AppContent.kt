@@ -243,7 +243,8 @@ internal fun AppBody(
                 PhoneComposerDock(
                     loading = loading,
                     activeConversationId = activeConversationId,
-                    agentLabel = resolveSelectedAgentLabel(preferredAgentId, metadata),
+                    agentLabel = resolveSelectedAgentLabel(preferredAgentId, metadata)
+                        ?.takeIf { showWorkspaceAgentSelection(metadata) },
                     query = query,
                     onQueryChange = callbacks.onQueryChange,
                     composerAttachments = composerAttachments,

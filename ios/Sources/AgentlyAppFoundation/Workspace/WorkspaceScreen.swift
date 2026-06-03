@@ -114,7 +114,14 @@ public struct WorkspaceScreen: View {
                 metadata: metadata,
                 selectedAgentID: selectedAgentID,
                 availableAgents: availableAgents,
-                onSelectAgent: onSelectAgent
+                onSelectAgent: onSelectAgent,
+                showStarterTasks: transcript.isEmpty && !isLoadingConversation,
+                onSelectStarterTask: { task in
+                    let prompt = (task.prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !prompt.isEmpty {
+                        composerRuntime.query = prompt
+                    }
+                }
             )
             HStack(alignment: .top, spacing: 20) {
                 mainPane

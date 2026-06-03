@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -15,9 +16,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -32,6 +33,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
@@ -194,20 +197,23 @@ internal fun TabletWorkspacePane(
                                     showTitle = true,
                                     headerActions = {
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            FilterChip(
-                                                selected = workspacePanelMode == WorkspacePanelMode.Split,
-                                                onClick = { workspacePanelMode = WorkspacePanelMode.Split },
-                                                label = { Text("Minimize") }
-                                            )
-                                            FilterChip(
-                                                selected = workspacePanelMode == WorkspacePanelMode.Expanded,
-                                                onClick = { workspacePanelMode = WorkspacePanelMode.Expanded },
-                                                label = { Text("Expand") }
-                                            )
-                                            FilterChip(
+                                            WorkspaceHeaderDot(
+                                                color = Color(0xFFFF5F57),
+                                                description = "Close workspace",
                                                 selected = workspacePanelMode == WorkspacePanelMode.Hidden,
-                                                onClick = { workspacePanelMode = WorkspacePanelMode.Hidden },
-                                                label = { Text("Close") }
+                                                onClick = { workspacePanelMode = WorkspacePanelMode.Hidden }
+                                            )
+                                            WorkspaceHeaderDot(
+                                                color = Color(0xFFFEBB2E),
+                                                description = "Minimize workspace",
+                                                selected = workspacePanelMode == WorkspacePanelMode.Split,
+                                                onClick = { workspacePanelMode = WorkspacePanelMode.Split }
+                                            )
+                                            WorkspaceHeaderDot(
+                                                color = Color(0xFF28C840),
+                                                description = "Expand workspace",
+                                                selected = workspacePanelMode == WorkspacePanelMode.Expanded,
+                                                onClick = { workspacePanelMode = WorkspacePanelMode.Expanded }
                                             )
                                         }
                                     }
@@ -359,11 +365,20 @@ internal fun TabletWorkspacePane(
                                         attachments = composerAttachments,
                                         canCapturePhoto = canCapturePhoto,
                                         canUseVoiceInput = canUseVoiceInput,
-                                        agentLabel = resolveSelectedAgentLabel(preferredAgentId, metadata),
+                                        agentLabel = resolveSelectedAgentLabel(preferredAgentId, metadata)
+                                            ?.takeIf { showWorkspaceAgentSelection(metadata) },
                                         subtitle = if (!activeConversationId.isNullOrBlank()) {
-                                            "Replying as ${resolveSelectedAgentLabel(preferredAgentId, metadata) ?: "the selected agent"}"
+                                            if (showWorkspaceAgentSelection(metadata)) {
+                                                "Replying as ${resolveSelectedAgentLabel(preferredAgentId, metadata) ?: "the selected agent"}"
+                                            } else {
+                                                "Continue the conversation"
+                                            }
                                         } else {
-                                            "Start a task with ${resolveSelectedAgentLabel(preferredAgentId, metadata) ?: "the selected agent"}"
+                                            if (showWorkspaceAgentSelection(metadata)) {
+                                                "Start a task with ${resolveSelectedAgentLabel(preferredAgentId, metadata) ?: "the selected agent"}"
+                                            } else {
+                                                "Start a new task"
+                                            }
                                         },
                                         onAddPhoto = onAddPhoto,
                                         onTakePhoto = onTakePhoto,
@@ -398,5 +413,25 @@ internal fun TabletWorkspacePane(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun WorkspaceHeaderDot(
+    color: Color,
+    description: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = color.copy(alpha = if (selected) 1f else 0.9f),
+        border = if (selected) BorderStroke(2.dp, Color.White.copy(alpha = 0.9f)) else null,
+        modifier = Modifier
+            .semantics { contentDescription = description }
+            .size(14.dp)
+    ) {
+        Spacer(modifier = Modifier.fillMaxSize())
     }
 }

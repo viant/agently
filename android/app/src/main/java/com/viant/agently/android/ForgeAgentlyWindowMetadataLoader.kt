@@ -5,6 +5,7 @@ import com.viant.agentlysdk.fetchForgeWindowMetadata
 import com.viant.forgeandroid.runtime.ForgeTargetContext
 import com.viant.forgeandroid.runtime.MetadataResolver
 import com.viant.forgeandroid.runtime.WindowMetadata
+import com.viant.forgeandroid.runtime.normalizeWindowMetadataJson
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -20,7 +21,7 @@ internal fun makeForgeAgentlyWindowMetadataLoader(
     return { windowKey ->
         val raw = client.fetchForgeWindowMetadata(windowKey)
         val resolved = MetadataResolver.resolve(raw, targetContext) ?: raw
-        val normalized = normalizeWindowMetadataCollections(resolved)
+        val normalized = normalizeWindowMetadataJson(normalizeWindowMetadataCollections(resolved))
         json.decodeFromJsonElement<WindowMetadata>(normalized)
     }
 }

@@ -423,4 +423,124 @@ final class ChatRuntimeTests: XCTestCase {
         XCTAssertEqual(restore?.selectedWindowId, "recommendationList__conv-1")
         XCTAssertEqual(restore?.windows.first?.windowKey, "recommendationList")
     }
+
+    func testDeriveHostedWorkspaceRestoreStateUsesLastTurnOnly() throws {
+        let json = """
+        {
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [
+              {
+                "turnId": "turn-1",
+                "execution": {
+                  "pages": [
+                    {
+                      "pageId": "page-1",
+                      "toolSteps": [
+                        {
+                          "toolCallId": "tool-1",
+                          "toolName": "ui/window/list",
+                          "status": "completed",
+                          "responsePayload": {
+                            "items": [
+                              {
+                                "windowId": "order_legacy",
+                                "conversationId": "conv-1",
+                                "windowKey": "order",
+                                "windowTitle": "Order Summary",
+                                "presentation": "hosted",
+                                "region": "chat.top",
+                                "parentKey": "chat/new",
+                                "inTab": true,
+                                "parameters": {
+                                  "AdOrderId": [111]
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "turnId": "turn-2",
+                "execution": {
+                  "pages": [
+                    {
+                      "pageId": "page-2",
+                      "toolSteps": [
+                        {
+                          "toolCallId": "tool-2",
+                          "toolName": "message/reply",
+                          "status": "completed",
+                          "responsePayload": {
+                            "ok": true
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+        """
+        let response = try JSONDecoder.agently().decode(
+            ConversationStateResponse.self,
+            from: XCTUnwrap(json.data(using: .utf8))
+        )
+
+        XCTAssertNil(deriveHostedWorkspaceRestoreState(from: response))
+    }
+
+    func testDeriveHostedWorkspaceRestoreStateUsesToolContentWhenViewOpenPayloadIsGzipEnvelope() throws {
+        let json = """
+        {
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [
+              {
+                "turnId": "turn-1",
+                "execution": {
+                  "pages": [
+                    {
+                      "pageId": "page-1",
+                      "toolSteps": [
+                        {
+                          "toolCallId": "tool-1",
+                          "toolName": "ui/view/open",
+                          "status": "completed",
+                          "content": "{\\"conversationId\\":\\"conv-1\\",\\"items\\":[{\\"conversationId\\":\\"conv-1\\",\\"parameters\\":{\\"AdOrderId\\":[2673453]},\\"parentKey\\":\\"chat/new\\",\\"presentation\\":\\"hosted\\",\\"region\\":\\"chat.top\\",\\"windowId\\":\\"order_2345888602__conv-1\\",\\"windowKey\\":\\"order\\",\\"windowTitle\\":\\"Order Summary\\"}],\\"ok\\":true,\\"parentKey\\":\\"chat/new\\",\\"presentation\\":\\"hosted\\",\\"region\\":\\"chat.top\\",\\"selectedWindowId\\":\\"order_2345888602__conv-1\\",\\"windowId\\":\\"order_2345888602__conv-1\\",\\"windowKey\\":\\"order\\",\\"windowTitle\\":\\"Order Summary\\"}",
+                          "requestPayload": {
+                            "InlineBody": "{\\"id\\":\\"order\\",\\"parameters\\":{\\"AdOrderId\\":[2673453]}}",
+                            "Compression": "none"
+                          },
+                          "responsePayload": {
+                            "InlineBody": "\\u0001\\u0002garbled",
+                            "Compression": "gzip"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+        """
+        let response = try JSONDecoder.agently().decode(
+            ConversationStateResponse.self,
+            from: XCTUnwrap(json.data(using: .utf8))
+        )
+
+        let restore = deriveHostedWorkspaceRestoreState(from: response)
+
+        XCTAssertEqual(restore?.selectedWindowId, "order_2345888602__conv-1")
+        XCTAssertEqual(restore?.windows.first?.windowKey, "order")
+        XCTAssertEqual(restore?.windows.first?.parameters?["AdOrderId"], .array([.number(2673453)]))
+    }
 }

@@ -941,7 +941,7 @@ describe('conversationWindow', () => {
     });
   });
 
-  it('uses the latest turn with a usable hosted workspace state when deriving transcript-backed workspace state', () => {
+  it('restores transcript-backed workspace state from the last turn only', () => {
     expect(deriveWorkspaceStateFromTranscriptTurns([
       {
         turnId: 'turn-1',
@@ -991,22 +991,7 @@ describe('conversationWindow', () => {
           ]
         }
       }
-    ])).toEqual({
-      windows: [
-        {
-          windowId: 'order_legacy',
-          conversationId: 'conv-compare',
-          windowKey: 'order',
-          windowTitle: 'Order Summary',
-          presentation: 'hosted',
-          region: 'chat.top',
-          parentKey: MAIN_CHAT_WINDOW_ID,
-          inTab: true,
-          parameters: { AdOrderId: [111] }
-        }
-      ],
-      selectedWindowId: null
-    });
+    ])).toBeNull();
   });
 
   it('derives workspace state from tool content when response payload is only an envelope', () => {

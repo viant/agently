@@ -139,4 +139,66 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
 
         URLProtocolStub.requestHandler = nil
     }
+
+    @MainActor
+    func testDatasourceLoaderStartsFromResolvedInputsAndPreservesNestedInputShape() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+        let loader = makeForgeAgentlyDataSourceLoader(client: client)
+
+        URLProtocolStub.requestHandler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/v1/api/datasources/order_performance_period_today/fetch")
+            let body = try XCTUnwrap(request.httpBody)
+            let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+            let inputs = payload?["inputs"] as? [String: Any]
+            XCTAssertEqual(inputs?["order_id"] as? Double, 2673453)
+            XCTAssertEqual(inputs?["period"] as? String, "today")
+            XCTAssertEqual(inputs?["granularity"] as? String, "day")
+            let input = inputs?["input"] as? [String: Any]
+            let query = input?["query"] as? [String: Any]
+            XCTAssertEqual(query?["preserve"] as? String, "yes")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            let bodyData = #"{"rows":[],"dataInfo":{"recordCount":0,"pageCount":0}}"#.data(using: .utf8)!
+            return (response, bodyData)
+        }
+
+        _ = try await loader(
+            ForgeRuntime.DataSourceFetchRequest(
+                windowID: "w1",
+                dataSourceRef: "order_performance_period_today",
+                dataSource: DataSourceDef(
+                    service: DataSourceServiceDef(endpoint: "agentlyAPI", uri: "/v1/api/datasources/order_performance_period_today/fetch", method: "POST")
+                ),
+                input: InputState(
+                    filter: [:],
+                    parameters: [
+                        "input": .object([
+                            "query": .object([
+                                "preserve": .string("yes")
+                            ])
+                        ])
+                    ],
+                    page: nil,
+                    fetch: true,
+                    refresh: false
+                ),
+                resolvedInputs: [
+                    "order_id": .number(2673453),
+                    "period": .string("today"),
+                    "granularity": .string("day")
+                ]
+            )
+        )
+
+        URLProtocolStub.requestHandler = nil
+    }
 }
