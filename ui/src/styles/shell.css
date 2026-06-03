@@ -2795,7 +2795,7 @@ td[data-col="enabled"] {
 }
 
 .app-window-split-shell.is-collapsed {
-  grid-template-rows: min-content minmax(0, 1fr);
+  grid-template-rows: min-content 0 minmax(0, 1fr);
 }
 
 .app-window-split-shell.is-chat-only {
@@ -2834,6 +2834,7 @@ td[data-col="enabled"] {
   max-height: none;
   height: auto;
   flex: 0 0 auto;
+  align-self: start;
   border-bottom-color: rgba(148, 163, 184, 0.12);
 }
 
