@@ -1,0 +1,1 @@
+import{I as s}from"./index-D1FAID-A.js";import{I as r}from"./index-DNbDObF0.js";import{a as n,b as c}from"./index-D4Mj-UJx.js";function i(a,t){const o=n(a);return t===c.STANDARD?s[o]:r[o]}export{s as IconSvgPaths16,r as IconSvgPaths20,i as getIconPaths};
