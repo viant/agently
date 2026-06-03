@@ -28,6 +28,12 @@ import IterationBlock, {
   shouldShowNarrationBubble,
   hasPendingElicitationStep,
   hasPendingVisibleElicitationPrompt,
+  linkedPreviewTargetIds,
+  mergeLinkedConversationPreviewStates,
+  mergeLinkedConversationSummaryRows,
+  mergeLinkedConversationDisplayStates,
+  hasActiveLinkedPreviewUpdate,
+  shouldPollLinkedConversationSummaries,
   phaseBadgeLabel,
   toolStepSummaryText
 } from './IterationBlock';
@@ -353,6 +359,151 @@ describe('mapCanonicalExecutionGroups', () => {
       [{ status: 'completed', modelStep: { status: 'completed' }, toolSteps: [] }],
       linkedStatuses
     )).toBe(true);
+  });
+
+  it('derives linked preview targets from expansion state, not hydrated preview fields', () => {
+    const base = [
+      { conversationId: 'child-a', status: 'running' },
+      { linkedConversationId: 'child-b', status: 'completed' }
+    ];
+    const hydrated = [
+      { conversationId: 'child-a', status: 'completed', response: 'done', previewGroups: [{ title: 'Done' }] },
+      { linkedConversationId: 'child-b', status: 'completed', response: 'already done' }
+    ];
+
+    expect(linkedPreviewTargetIds(base, false, {})).toEqual([]);
+    expect(linkedPreviewTargetIds(base, false, { 'child-b': true })).toEqual(['child-b']);
+    expect(linkedPreviewTargetIds(base, true, {})).toEqual(['child-a', 'child-b']);
+    expect(linkedPreviewTargetIds(hydrated, true, {}).join('|')).toBe('child-a|child-b');
+  });
+
+  it('keeps linked preview state stable when fetched preview data is unchanged', () => {
+    const current = [{
+      conversationId: 'child-a',
+      title: 'Child A',
+      agentId: 'worker',
+      status: 'completed',
+      response: 'done',
+      updatedAt: '2026-06-01T12:00:00Z',
+      previewGroups: [{ title: 'Done', status: 'completed' }]
+    }];
+
+    expect(mergeLinkedConversationPreviewStates(current, [{
+      conversationId: 'child-a',
+      title: 'Child A',
+      agentId: 'worker',
+      status: 'completed',
+      response: 'done',
+      updatedAt: '2026-06-01T12:00:00Z',
+      previewGroups: [{ title: 'Done', status: 'completed' }]
+    }])).toBe(current);
+
+    const changed = mergeLinkedConversationPreviewStates(current, [{
+      conversationId: 'child-a',
+      status: 'running',
+      response: 'still working'
+    }]);
+    expect(changed).not.toBe(current);
+    expect(changed[0]).toMatchObject({ status: 'running', response: 'still working' });
+  });
+
+  it('merges linked summary rows while preserving hydrated preview groups', () => {
+    const current = [{
+      conversationId: 'child-a',
+      title: 'Old title',
+      agentId: 'worker',
+      status: 'running',
+      response: 'working',
+      previewGroups: [{ title: 'Expanded detail', status: 'completed' }]
+    }];
+
+    const merged = mergeLinkedConversationSummaryRows(current, [{
+      conversationId: 'child-a',
+      title: 'New title',
+      agentId: 'chatter',
+      status: 'succeeded',
+      response: 'done',
+      updatedAt: '2026-06-02T12:00:00Z'
+    }]);
+
+    expect(merged).not.toBe(current);
+    expect(merged[0]).toMatchObject({
+      conversationId: 'child-a',
+      title: 'New title',
+      agentId: 'chatter',
+      status: 'succeeded',
+      response: 'done',
+      previewGroups: [{ title: 'Expanded detail', status: 'completed' }]
+    });
+  });
+
+  it('keeps linked summary state stable when fetched summary rows are unchanged', () => {
+    const current = [{
+      conversationId: 'child-a',
+      title: 'Child A',
+      agentId: 'worker',
+      status: 'completed',
+      response: 'done',
+      updatedAt: '2026-06-02T12:00:00Z',
+      previewGroups: [{ title: 'Expanded detail', status: 'completed' }]
+    }];
+
+    const merged = mergeLinkedConversationSummaryRows(current, [{
+      conversationId: 'child-a',
+      title: 'Child A',
+      agentId: 'worker',
+      status: 'completed',
+      response: 'done',
+      updatedAt: '2026-06-02T12:00:00Z'
+    }]);
+
+    expect(merged).toBe(current);
+  });
+
+  it('renders fetched linked summary rows even when live projection has not seen every child id yet', () => {
+    const rows = mergeLinkedConversationDisplayStates([
+      { conversationId: 'child-a', title: 'Child A', status: 'running' }
+    ], [
+      { conversationId: 'child-a', title: 'Child A', status: 'succeeded', response: 'A done' },
+      { conversationId: 'child-b', title: 'Child B', status: 'running', response: 'waiting' },
+      { conversationId: 'child-c', title: 'Child C', status: 'succeeded', response: 'C done' }
+    ]);
+
+    expect(rows.map((entry) => entry.conversationId)).toEqual(['child-a', 'child-b', 'child-c']);
+    expect(rows.map((entry) => entry.status)).toEqual(['succeeded', 'running', 'succeeded']);
+    expect(rows[1]).toMatchObject({ title: 'Child B', response: 'waiting' });
+  });
+
+  it('polls linked previews only when hydrated child status is active', () => {
+    expect(hasActiveLinkedPreviewUpdate([
+      { conversationId: 'child-a', status: 'running' }
+    ], [])).toBe(true);
+
+    expect(hasActiveLinkedPreviewUpdate([
+      { conversationId: 'child-a', status: 'completed' },
+      { conversationId: 'child-b', status: 'failed' }
+    ], [])).toBe(false);
+
+    expect(hasActiveLinkedPreviewUpdate([
+      { conversationId: 'child-a', status: '' }
+    ], [{ conversationId: 'child-a', status: 'running' }])).toBe(true);
+  });
+
+  it('polls lightweight linked summaries while the parent or a child is active', () => {
+    expect(shouldPollLinkedConversationSummaries(true, [
+      { conversationId: 'child-a', status: 'succeeded' }
+    ])).toBe(true);
+
+    expect(shouldPollLinkedConversationSummaries(false, [
+      { conversationId: 'child-a', status: 'running' }
+    ])).toBe(true);
+
+    expect(shouldPollLinkedConversationSummaries(false, [
+      { conversationId: 'child-a', status: 'completed' },
+      { conversationId: 'child-b', status: 'failed' }
+    ])).toBe(false);
+
+    expect(shouldPollLinkedConversationSummaries(false, [])).toBe(false);
   });
 
   it('anchors active elapsed time to the turn start instead of the latest active execution frontier', () => {
