@@ -79,6 +79,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
 }
 
 dependencies {
@@ -102,6 +108,4 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     testImplementation("junit:junit:4.13.2")
-
-    debugImplementation("androidx.compose.ui:ui-tooling")
 }

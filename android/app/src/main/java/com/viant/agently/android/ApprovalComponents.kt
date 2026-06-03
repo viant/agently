@@ -25,6 +25,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.forgeandroid.runtime.ContentDef
@@ -347,6 +348,7 @@ internal fun ApprovalForgeEditors(
     onAvailabilityChange: (String?) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val formFactor = if (configuration.smallestScreenWidthDp >= 600) "tablet" else "phone"
     val localRuntime = remember(approvalId, formFactor) {
@@ -355,6 +357,9 @@ internal fun ApprovalForgeEditors(
             scope = scope,
             targetContext = buildForgeTargetContext(formFactor)
         )
+    }
+    LaunchedEffect(context) {
+        com.viant.forgeandroid.runtime.ActionHookRuntime.initialize(context.applicationContext)
     }
     val runtime = forgeRuntime ?: localRuntime
     var windowId by remember(approvalId) { mutableStateOf<String?>(null) }

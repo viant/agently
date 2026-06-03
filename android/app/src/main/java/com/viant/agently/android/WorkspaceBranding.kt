@@ -26,11 +26,10 @@ internal fun resolveWorkspaceBrandTitle(
     if (normalized.isEmpty()) {
         return fallbackTitle
     }
-    return if (normalized.equals("Viant", ignoreCase = true) || normalized.startsWith("Viant ", ignoreCase = true)) {
-        normalized
-    } else {
-        "Viant $normalized"
-    }
+    return normalized
+        .replace(Regex("^viant\\s+", RegexOption.IGNORE_CASE), "")
+        .trim()
+        .ifBlank { fallbackTitle }
 }
 
 internal fun String?.workspaceDisplayTitle(): String? {

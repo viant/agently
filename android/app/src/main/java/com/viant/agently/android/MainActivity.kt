@@ -60,6 +60,7 @@ import com.viant.agentlysdk.Conversation
 import com.viant.agentlysdk.CreateConversationInput
 import com.viant.agentlysdk.DecideToolApprovalInput
 import com.viant.agentlysdk.ConversationStateResponse
+import com.viant.agentlysdk.EndpointConfig
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.ListPendingToolApprovalsInput
 import com.viant.agentlysdk.MetadataTargetContext
@@ -71,19 +72,17 @@ import com.viant.agentlysdk.OAuthCallbackInput
 import com.viant.agentlysdk.UploadFileInput
 import com.viant.agentlysdk.WorkspaceMetadata
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
-import com.viant.forgeandroid.runtime.EndpointConfig
 import com.viant.forgeandroid.runtime.ContentDef
 import com.viant.forgeandroid.runtime.ContainerDef
 import com.viant.forgeandroid.runtime.DataSourceDef
+import com.viant.forgeandroid.runtime.ActionHookRuntime
 import com.viant.forgeandroid.runtime.ForgeTargetContext
-import com.viant.forgeandroid.runtime.MemoryCookieJar
 import com.viant.forgeandroid.runtime.SchemaBasedFormDef
 import com.viant.forgeandroid.runtime.ForgeRuntime
 import com.viant.forgeandroid.runtime.ItemDef
 import com.viant.forgeandroid.runtime.OptionDef
 import com.viant.forgeandroid.runtime.ViewDef
 import com.viant.forgeandroid.runtime.WindowMetadata
-import com.viant.forgeandroid.runtime.sessionHttpClient
 import com.viant.forgeandroid.ui.ContainerRenderer
 import com.viant.forgeandroid.ui.MarkdownRenderer
 import kotlinx.coroutines.Job
@@ -150,8 +149,8 @@ private fun AgentlyApp() {
     }
     var savedLoginConfig by remember { mutableStateOf(storedSavedLoginConfig) }
     var showSavedLoginSettings by remember { mutableStateOf(false) }
-    val sessionCookieJar = remember { MemoryCookieJar() }
-    val appHttpClient = remember(sessionCookieJar) { sessionHttpClient(sessionCookieJar) }
+    val sessionCookieJar = remember { AppSessionCookieJar() }
+    val appHttpClient = remember(sessionCookieJar) { appSessionHttpClient(sessionCookieJar) }
     val forgeTargetContext = remember(formFactor) { buildForgeTargetContext(formFactor) }
     fun buildClient(baseUrl: String): AgentlyClient = AgentlyClient(
         endpoints = mapOf(
@@ -186,6 +185,9 @@ private fun AgentlyApp() {
     var approvalEdits by remember { mutableStateOf<Map<String, Map<String, JsonElement>>>(emptyMap()) }
     val transcript = remember { mutableListOf<ChatEntry>().toMutableStateList() }
     val approvalJson = remember { Json { ignoreUnknownKeys = true } }
+    LaunchedEffect(context) {
+        ActionHookRuntime.initialize(context.applicationContext)
+    }
     val forgeRuntime = remember(scope, forgeTargetContext, appApiBaseUrl) {
         ForgeRuntime(
             endpoints = emptyMap(),
@@ -896,6 +898,16 @@ private fun AgentlyApp() {
         showChatScreen()
     }
 
+    fun selectPreferredAgent(agentId: String?) {
+        preferredAgentId = agentId?.trim().orEmpty()
+        persistAppSettings(
+            store = appSettingsStore,
+            configuredBaseUrl = configuredAppApiBaseUrl,
+            nextBaseUrl = appApiBaseUrl,
+            nextPreferredAgentId = preferredAgentId
+        )
+    }
+
     suspend fun bootstrapWorkspaceSession() {
         val workspaceResult = loadWorkspaceSession(::resolveClient, buildMetadataTargetContext(formFactor))
         applyWorkspaceLoadResult(workspaceResult)
@@ -993,6 +1005,7 @@ private fun AgentlyApp() {
         setCurrentScreen = ::setCurrentScreen,
         onRefreshWorkspace = ::loadWorkspace,
         onNewConversation = ::resetConversation,
+        onSelectAgent = ::selectPreferredAgent,
         onSelectConversation = ::selectConversation,
         onApprovalEditChange = ::handleApprovalEditChange,
         onApprovalDecision = ::handleApprovalDecision,

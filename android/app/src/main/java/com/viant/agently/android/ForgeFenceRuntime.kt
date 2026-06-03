@@ -24,9 +24,12 @@ import com.viant.forgeandroid.runtime.ChartSeriesDef
 import com.viant.forgeandroid.runtime.ChartValueOption
 import com.viant.forgeandroid.runtime.ColumnDef
 import com.viant.forgeandroid.runtime.ContainerDef
+import com.viant.forgeandroid.runtime.DashboardFieldDef
 import com.viant.forgeandroid.runtime.DashboardMetricDef
+import com.viant.forgeandroid.runtime.DashboardReportSectionDef
 import com.viant.forgeandroid.runtime.DataSourceDef
 import com.viant.forgeandroid.runtime.ForgeRuntime
+import com.viant.forgeandroid.runtime.ItemDef
 import com.viant.forgeandroid.runtime.JsonUtil
 import com.viant.forgeandroid.runtime.LinkDef
 import com.viant.forgeandroid.runtime.SelectorDef
@@ -42,6 +45,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 
 private const val FORGE_UI_FENCE = "forge-ui"
 private const val FORGE_DATA_FENCE = "forge-data"
@@ -656,7 +661,12 @@ private fun adaptDashboardTableBlock(block: JsonObject, index: Int): ContainerDe
         ColumnDef(
             id = key,
             name = key,
-            label = jsonString(value["label"]).ifBlank { titleizeKey(key) }
+            label = jsonString(value["label"]).ifBlank { titleizeKey(key) },
+            format = jsonString(value["format"]).takeIf { it.isNotBlank() },
+            type = jsonString(value["type"]).takeIf { it.isNotBlank() },
+            link = (value["link"] as? JsonObject)?.let { linkObject ->
+                LinkDef(href = jsonString(linkObject["href"]).takeIf { it.isNotBlank() })
+            }
         )
     }
     return ContainerDef(

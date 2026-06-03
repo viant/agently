@@ -3,6 +3,7 @@ package com.viant.agently.android
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -62,6 +63,7 @@ internal fun AppBody(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
             .padding(16.dp)
     ) {
         if (authState == AuthState.Checking) {
@@ -132,6 +134,8 @@ internal fun AppBody(
                     TabletChatScreen(
                         workspaceTitle = workspaceTitle,
                         appApiBaseUrl = appApiBaseUrl,
+                        metadata = metadata,
+                        preferredAgentId = preferredAgentId,
                         loading = loading,
                         recentConversations = recentConversations,
                         activeConversationId = activeConversationId,
@@ -148,6 +152,7 @@ internal fun AppBody(
                         approvalEdits = approvalEdits,
                         onRefresh = callbacks.onRefreshWorkspace,
                         onNewConversation = callbacks.onNewConversation,
+                        onSelectAgent = callbacks.onSelectAgent,
                         onSelectConversation = callbacks.onSelectConversation,
                         onEditChange = callbacks.onApprovalEditChange,
                         onDecision = callbacks.onApprovalDecision,
@@ -167,6 +172,8 @@ internal fun AppBody(
                 } else {
                     PhoneChatScreen(
                         workspaceTitle = workspaceTitle,
+                        metadata = metadata,
+                        preferredAgentId = preferredAgentId,
                         loading = loading,
                         recentConversations = recentConversations,
                         activeConversationId = activeConversationId,
@@ -183,13 +190,15 @@ internal fun AppBody(
                         approvalEdits = approvalEdits,
                         onRefresh = callbacks.onRefreshWorkspace,
                         onNewConversation = callbacks.onNewConversation,
+                        onSelectAgent = callbacks.onSelectAgent,
                         onOpenHistory = callbacks.onOpenHistory,
                         onOpenSettings = callbacks.onOpenSettings,
                         onSelectConversation = callbacks.onSelectConversation,
                         onEditChange = callbacks.onApprovalEditChange,
                         onDecision = callbacks.onApprovalDecision,
                         onOpenFile = callbacks.onOpenFile,
-                        onClosePreview = callbacks.onClosePreview
+                        onClosePreview = callbacks.onClosePreview,
+                        onStarterTaskSelected = callbacks.onQueryChange
                     )
                 }
             }
@@ -234,6 +243,7 @@ internal fun AppBody(
                 PhoneComposerDock(
                     loading = loading,
                     activeConversationId = activeConversationId,
+                    agentLabel = resolveSelectedAgentLabel(preferredAgentId, metadata),
                     query = query,
                     onQueryChange = callbacks.onQueryChange,
                     composerAttachments = composerAttachments,

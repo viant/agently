@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonElement
 internal data class AppUiCallbacks(
     val onRefreshWorkspace: () -> Unit,
     val onNewConversation: () -> Unit,
+    val onSelectAgent: (String?) -> Unit,
     val onOpenHistory: () -> Unit,
     val onOpenSettings: () -> Unit,
     val onSelectConversation: (String) -> Unit,
@@ -38,6 +39,7 @@ internal fun buildAppUiCallbacks(
     setCurrentScreen: (AppScreen) -> Unit,
     onRefreshWorkspace: () -> Unit,
     onNewConversation: () -> Unit,
+    onSelectAgent: (String?) -> Unit,
     onSelectConversation: (String, Boolean) -> Unit,
     onApprovalEditChange: (String, String, JsonElement) -> Unit,
     onApprovalDecision: (PendingToolApproval, String) -> Unit,
@@ -61,6 +63,7 @@ internal fun buildAppUiCallbacks(
 ): AppUiCallbacks = AppUiCallbacks(
     onRefreshWorkspace = onRefreshWorkspace,
     onNewConversation = onNewConversation,
+    onSelectAgent = onSelectAgent,
     onOpenHistory = { setCurrentScreen(AppScreen.History) },
     onOpenSettings = { setCurrentScreen(AppScreen.Settings) },
     onSelectConversation = {

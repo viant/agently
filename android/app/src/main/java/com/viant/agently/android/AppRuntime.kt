@@ -193,7 +193,7 @@ internal suspend fun loadRecentConversations(
         )
     ).rows
     return conversations.sortedWith(compareByDescending<Conversation> {
-        parseConversationActivityInstantMillis(it.lastActivity ?: it.updatedAt ?: it.createdAt)
+        parseConversationActivityInstantMillis(it.lastActivity ?: it.createdAt)
     }.thenBy { it.title?.lowercase().orEmpty() }.thenBy { it.id })
 }
 
