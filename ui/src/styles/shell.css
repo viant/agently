@@ -2872,12 +2872,12 @@ td[data-col="enabled"] {
 .app-window-split-workspace-header {
   position: relative;
   padding: 10px 16px;
+  min-height: 44px;
   border-bottom: 1px solid rgba(157, 177, 214, 0.2);
   background: #f8fbff;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
 }
 
 .app-window-split-shell.is-collapsed .app-window-split-workspace-header {
@@ -2885,8 +2885,10 @@ td[data-col="enabled"] {
 }
 
 .app-window-split-workspace-dots {
-  grid-column: 1;
-  justify-self: start;
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2899,7 +2901,7 @@ td[data-col="enabled"] {
   line-height: 1.15;
   letter-spacing: 0.01em;
   text-align: center;
-  grid-column: 2;
+  max-width: calc(100% - 132px);
 }
 
 .app-window-dot {

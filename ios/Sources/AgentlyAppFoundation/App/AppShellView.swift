@@ -79,11 +79,23 @@ public struct AppShellView: View {
                 searchText: $conversationSearchText,
                 isRefreshing: runtime.state.isRefreshingConversations,
                 workspaceTitle: conversationsWorkspaceTitle,
+                metadata: runtime.state.workspaceMetadata,
+                selectedAgentID: runtime.selectedAgentOption?.id,
+                availableAgents: runtime.availableAgentOptions,
                 onRefresh: {
                     await runtime.refreshConversationList()
                 },
                 onSelectConversation: { conversationID in
                     Task { await runtime.selectConversation(conversationID) }
+                },
+                onSelectAgent: { agentID in
+                    runtime.selectPreferredAgent(agentID)
+                },
+                onSelectStarterTask: { task in
+                    let prompt = (task.prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !prompt.isEmpty {
+                        runtime.composerRuntime.query = prompt
+                    }
                 },
                 onRequestDeleteConversation: { conversation in
                     pendingConversationDeletion = conversation
@@ -91,7 +103,19 @@ public struct AppShellView: View {
             )
         } detail: {
             if runtime.state.activeConversationID == nil {
-                EmptyConversationDetailView(workspaceTitle: runtime.state.workspaceMetadata?.workspaceRoot?.workspaceDisplayTitle)
+                EmptyConversationDetailView(
+                    workspaceTitle: runtime.state.workspaceMetadata?.workspaceRoot?.workspaceDisplayTitle,
+                    metadata: runtime.state.workspaceMetadata,
+                    selectedAgentID: runtime.selectedAgentOption?.id,
+                    availableAgents: runtime.availableAgentOptions,
+                    onSelectAgent: { runtime.selectPreferredAgent($0) },
+                    onSelectStarterTask: { task in
+                        let prompt = (task.prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !prompt.isEmpty {
+                            runtime.composerRuntime.query = prompt
+                        }
+                    }
+                )
             } else {
                 ChatScreens(runtime: runtime)
                     .id(runtime.state.activeConversationID ?? "chat-empty")
@@ -117,11 +141,23 @@ public struct AppShellView: View {
                 searchText: $conversationSearchText,
                 isRefreshing: runtime.state.isRefreshingConversations,
                 workspaceTitle: conversationsWorkspaceTitle,
+                metadata: runtime.state.workspaceMetadata,
+                selectedAgentID: runtime.selectedAgentOption?.id,
+                availableAgents: runtime.availableAgentOptions,
                 onRefresh: {
                     await runtime.refreshConversationList()
                 },
                 onSelectConversation: { conversationID in
                     Task { await runtime.selectConversation(conversationID) }
+                },
+                onSelectAgent: { agentID in
+                    runtime.selectPreferredAgent(agentID)
+                },
+                onSelectStarterTask: { task in
+                    let prompt = (task.prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !prompt.isEmpty {
+                        runtime.composerRuntime.query = prompt
+                    }
                 },
                 onRequestDeleteConversation: { conversation in
                     pendingConversationDeletion = conversation
@@ -209,8 +245,13 @@ private struct ConversationListView: View {
     @Binding var searchText: String
     let isRefreshing: Bool
     let workspaceTitle: String?
+    let metadata: WorkspaceMetadata?
+    let selectedAgentID: String?
+    let availableAgents: [WorkspaceAgentOption]
     let onRefresh: () async -> Void
     let onSelectConversation: (String) -> Void
+    let onSelectAgent: (String?) -> Void
+    let onSelectStarterTask: (StarterTask) -> Void
     let onRequestDeleteConversation: (Conversation) -> Void
 
     private var trimmedSearchText: String {
@@ -235,6 +276,12 @@ private struct ConversationListView: View {
         }
     }
 
+    private var showsCompactStarterTasks: Bool {
+        usesNavigationDestination
+            && (activeConversationID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            && trimmedSearchText.isEmpty
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             AppBrandView(workspaceTitle: workspaceTitle)
@@ -242,6 +289,18 @@ private struct ConversationListView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 10)
                 .padding(.bottom, 6)
+
+            if showsCompactStarterTasks {
+                ChatWorkspaceView(
+                    metadata: metadata,
+                    selectedAgentID: selectedAgentID,
+                    availableAgents: availableAgents,
+                    onSelectAgent: onSelectAgent,
+                    showStarterTasks: true,
+                    onSelectStarterTask: onSelectStarterTask
+                )
+                .padding(.bottom, 6)
+            }
 
             if conversations.isEmpty, isRefreshing {
                 ContentUnavailableView {
@@ -478,13 +537,29 @@ private struct ConversationMetadataChip: View {
 
 private struct EmptyConversationDetailView: View {
     let workspaceTitle: String?
+    let metadata: WorkspaceMetadata?
+    let selectedAgentID: String?
+    let availableAgents: [WorkspaceAgentOption]
+    let onSelectAgent: (String?) -> Void
+    let onSelectStarterTask: (StarterTask) -> Void
 
     var body: some View {
-        ContentUnavailableView(
-            workspaceTitle ?? "Workspace Ready",
-            systemImage: "text.bubble",
-            description: Text("Choose a conversation from the sidebar or create one by sending a query once the backend is connected.")
-        )
+        VStack(alignment: .leading, spacing: 20) {
+            ChatWorkspaceView(
+                metadata: metadata,
+                selectedAgentID: selectedAgentID,
+                availableAgents: availableAgents,
+                onSelectAgent: onSelectAgent,
+                showStarterTasks: true,
+                onSelectStarterTask: onSelectStarterTask
+            )
+            ContentUnavailableView(
+                workspaceTitle ?? "Workspace Ready",
+                systemImage: "text.bubble",
+                description: Text("Choose a conversation from the sidebar or create one by sending a query once the backend is connected.")
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
@@ -529,7 +604,12 @@ internal func resolveWorkspaceBrandTitle(
     guard !normalized.isEmpty else {
         return fallbackTitle
     }
-    return normalized
+    let stripped = normalized.replacingOccurrences(
+        of: #"^viant\s+"#,
+        with: "",
+        options: [.regularExpression, .caseInsensitive]
+    ).trimmingCharacters(in: .whitespacesAndNewlines)
+    return stripped.isEmpty ? fallbackTitle : stripped
 }
 
 private extension View {

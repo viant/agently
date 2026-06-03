@@ -1,13 +1,15 @@
 package com.viant.agently.android
-
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.Alignment
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -31,6 +33,7 @@ import com.viant.forgeandroid.runtime.ForgeRuntime
 import com.viant.forgeandroid.runtime.WindowContext
 import com.viant.forgeandroid.runtime.WindowMetadata
 import com.viant.forgeandroid.ui.ContainerRenderer
+import com.viant.forgeandroid.ui.WindowContentView
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -72,12 +75,14 @@ internal fun HostedWorkspaceSection(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (showTitle) {
-                Row(
+                Box(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    contentAlignment = Alignment.Center
                 ) {
+                    Box(modifier = Modifier.align(Alignment.CenterStart)) {
+                        headerActions?.invoke()
+                    }
                     Text("Workspace", style = MaterialTheme.typography.titleMedium)
-                    headerActions?.invoke()
                 }
             }
             if (windowState.windows.size > 1) {
@@ -111,16 +116,16 @@ internal fun HostedWorkspaceSection(
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF667085)
                 )
-                else -> Column(
+                else -> WindowContentView(
+                    runtime = forgeRuntime,
+                    windowId = windowState.windowContext.windowId,
+                    windowKey = windowState.windows.firstOrNull { it.windowId == windowState.selectedWindowId }?.windowKey
+                        ?: windowState.selectedWindowId,
+                    showWindowHeader = false,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = maxBodyHeight),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    windowState.metadata.view?.content?.containers?.forEach { container ->
-                        ContainerRenderer(forgeRuntime, windowState.windowContext, container)
-                    }
-                }
+                        .heightIn(max = maxBodyHeight)
+                )
             }
         }
     }
@@ -158,6 +163,9 @@ internal fun rememberHostedWorkspaceWindowUiState(
     LaunchedEffect(selected.windowId) {
         try {
             val state = openHostedWorkspaceWindow(forgeRuntime, selected)
+            selected.windowForm?.let(::jsonObjectToParameterMap)?.takeIf { it.isNotEmpty() }?.let { windowForm ->
+                forgeRuntime.setWindowFormValues(state.windowId, windowForm, replace = true)
+            }
             runtimeWindowId = state.windowId
             loadError = null
         } catch (err: Throwable) {
@@ -206,35 +214,34 @@ internal fun deriveHostedWorkspaceRestoreState(
     state: ConversationStateResponse
 ): HostedWorkspaceRestoreState? {
     val turns = state.conversation?.turns.orEmpty()
-    for (turn in turns.asReversed()) {
-        val toolSteps = turn.execution?.pages.orEmpty()
-            .flatMap { it.toolSteps }
-            .filter { it.status?.trim()?.lowercase() == "completed" }
-        for (step in toolSteps.asReversed()) {
-            when (normalizeToolName(step.toolName)) {
-                "ui/window/list" -> {
-                    val windows = hostedWorkspaceWindowsFromListPayload(
-                        firstParsedPayload(step.responsePayload, step.content)
+    val lastTurn = turns.lastOrNull() ?: return null
+    val toolSteps = lastTurn.execution?.pages.orEmpty()
+        .flatMap { it.toolSteps }
+        .filter { it.status?.trim()?.lowercase() == "completed" }
+    for (step in toolSteps.asReversed()) {
+        when (normalizeToolName(step.toolName)) {
+            "ui/window/list" -> {
+                val windows = hostedWorkspaceWindowsFromListPayload(
+                    firstParsedPayload(step.responsePayload, step.content)
+                )
+                if (windows.isNotEmpty()) {
+                    return HostedWorkspaceRestoreState(
+                        windows = windows,
+                        selectedWindowId = selectedWindowIdFromToolSteps(toolSteps, windows)
+                            .ifBlank { null }
                     )
-                    if (windows.isNotEmpty()) {
-                        return HostedWorkspaceRestoreState(
-                            windows = windows,
-                            selectedWindowId = selectedWindowIdFromToolSteps(toolSteps, windows)
-                                .ifBlank { null }
-                        )
-                    }
                 }
-                "ui/view/open" -> {
-                    val windows = hostedWorkspaceWindowsFromViewOpenStep(step)
-                    if (windows.isNotEmpty()) {
-                        val response = firstParsedPayload(step.responsePayload, step.content) as? JsonObject
-                        val selectedWindowId = jsonString(response?.get("selectedWindowId"))
-                            .ifBlank { windows.lastOrNull()?.windowId.orEmpty() }
-                        return HostedWorkspaceRestoreState(
-                            windows = windows,
-                            selectedWindowId = selectedWindowId.ifBlank { null }
-                        )
-                    }
+            }
+            "ui/view/open" -> {
+                val windows = hostedWorkspaceWindowsFromViewOpenStep(step)
+                if (windows.isNotEmpty()) {
+                    val response = firstParsedPayload(step.responsePayload, step.content) as? JsonObject
+                    val selectedWindowId = jsonString(response?.get("selectedWindowId"))
+                        .ifBlank { windows.lastOrNull()?.windowId.orEmpty() }
+                    return HostedWorkspaceRestoreState(
+                        windows = windows,
+                        selectedWindowId = selectedWindowId.ifBlank { null }
+                    )
                 }
             }
         }
@@ -315,6 +322,7 @@ private fun hostedWorkspaceWindowsFromViewOpenStep(
                 put("region", JsonPrimitive(jsonString(response["region"])))
                 put("parentKey", JsonPrimitive(jsonString(response["parentKey"])))
                 request?.get("parameters")?.let { put("parameters", it) }
+                response["windowForm"]?.let { put("windowForm", it) }
             }
         )
     )
@@ -341,7 +349,8 @@ private fun normalizeHostedWorkspaceWindow(raw: JsonObject?): WorkspaceWindowSna
         region = jsonString(raw["region"]).ifBlank { null },
         parentKey = parentKey,
         inTab = raw["inTab"]?.let(::jsonBoolean) ?: true,
-        parameters = raw["parameters"] as? JsonObject
+        parameters = raw["parameters"] as? JsonObject,
+        windowForm = raw["windowForm"] as? JsonObject
     )
 }
 

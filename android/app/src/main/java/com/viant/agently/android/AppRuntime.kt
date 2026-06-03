@@ -315,7 +315,13 @@ internal fun resolvePreferredAgentId(
 
 internal fun workspaceAgentChoices(metadata: WorkspaceMetadata?): List<WorkspaceAgentChoice> {
     if (metadata == null) return emptyList()
+    val internalAgentIds = metadata.agentInfos.mapNotNull { info ->
+        if (info.internalAgent == true) info.id?.trim()?.takeIf { it.isNotEmpty() } else null
+    }.toSet()
     val infoChoices = metadata.agentInfos.mapNotNull { info ->
+        if (info.internalAgent == true) {
+            return@mapNotNull null
+        }
         val id = info.id?.trim().orEmpty()
         if (id.isBlank()) {
             null
@@ -328,7 +334,7 @@ internal fun workspaceAgentChoices(metadata: WorkspaceMetadata?): List<Workspace
     }
     val fallbackChoices = metadata.agents
         .map { it.trim() }
-        .filter { it.isNotBlank() }
+        .filter { it.isNotBlank() && !internalAgentIds.contains(it) }
         .map { WorkspaceAgentChoice(id = it, label = it) }
     return (infoChoices + fallbackChoices).distinctBy { it.id }
 }

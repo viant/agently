@@ -45,6 +45,19 @@ internal fun resolveSelectedAgentLabel(
     metadata: WorkspaceMetadata?
 ): String? = resolveSelectedAgentChoice(preferredAgentId, metadata)?.label
 
+internal fun showWorkspaceAgentSelection(metadata: WorkspaceMetadata?): Boolean {
+    return workspaceAgentChoices(metadata).size > 1
+}
+
+internal fun countStarterTaskAgents(metadata: WorkspaceMetadata?): Int {
+    if (metadata == null) return 0
+    return metadata.agentInfos.count { info ->
+        info.internalAgent != true && info.starterTasks.any { task ->
+            task.title?.isNotBlank() == true && task.prompt?.isNotBlank() == true
+        }
+    }
+}
+
 internal fun workspaceStarterTasks(
     preferredAgentId: String?,
     metadata: WorkspaceMetadata?
@@ -77,6 +90,10 @@ internal fun WorkspaceTaskStartSection(
     val starterTasks = remember(preferredAgentId, metadata) {
         workspaceStarterTasks(preferredAgentId, metadata)
     }
+    val showAgentSelector = agentChoices.size > 1
+    val showAgentScopedCopy = remember(metadata) {
+        countStarterTaskAgents(metadata) > 1
+    }
     if (selectedAgentLabel.isNullOrBlank() && starterTasks.isEmpty()) {
         return
     }
@@ -93,18 +110,26 @@ internal fun WorkspaceTaskStartSection(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = selectedAgentLabel?.let { "Start with $it" } ?: "Start with the workspace default",
+                    text = if (showAgentScopedCopy) {
+                        selectedAgentLabel?.let { "Start with $it" } ?: "Choose an agent"
+                    } else {
+                        "Starter tasks"
+                    },
                     style = MaterialTheme.typography.titleMedium,
                     color = Color(0xFF101828)
                 )
                 Text(
-                    text = "Starter tasks come from the selected agent, matching the web start flow.",
+                    text = if (showAgentScopedCopy) {
+                        "Starter tasks follow the selected public agent, matching the web start flow."
+                    } else {
+                        "Start with one of the published workspace tasks."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF667085)
                 )
             }
 
-            if (agentChoices.isNotEmpty()) {
+            if (showAgentSelector) {
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)

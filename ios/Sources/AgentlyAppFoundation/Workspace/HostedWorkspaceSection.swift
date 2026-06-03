@@ -198,33 +198,34 @@ private struct HostedWorkspaceChromeModifier: ViewModifier {
 
 func deriveHostedWorkspaceRestoreState(from response: ConversationStateResponse) -> HostedWorkspaceRestoreState? {
     let turns = response.conversation?.turns ?? []
-    for turn in turns.reversed() {
-        let toolSteps = turn.execution?.pages.flatMap(\.toolSteps) ?? []
-        for step in toolSteps.reversed() where (step.status ?? "").lowercased() == "completed" {
-            let toolName = normalizeHostedWorkspaceToolName(step.toolName)
-            if toolName == "ui/window/list" {
-                let windows = hostedWorkspaceWindowsFromListPayload(
-                    firstParsedPayload(step.responsePayload, step.content)
+    guard let lastTurn = turns.last else {
+        return nil
+    }
+    let toolSteps = lastTurn.execution?.pages.flatMap(\.toolSteps) ?? []
+    for step in toolSteps.reversed() where (step.status ?? "").lowercased() == "completed" {
+        let toolName = normalizeHostedWorkspaceToolName(step.toolName)
+        if toolName == "ui/window/list" {
+            let windows = hostedWorkspaceWindowsFromListPayload(
+                firstParsedPayload(step.responsePayload, step.content)
+            )
+            if !windows.isEmpty {
+                let selectedWindowID = selectedWindowIDFromToolSteps(toolSteps, windows)
+                return HostedWorkspaceRestoreState(
+                    windows: windows,
+                    selectedWindowId: selectedWindowID.isEmpty ? nil : selectedWindowID
                 )
-                if !windows.isEmpty {
-                    let selectedWindowID = selectedWindowIDFromToolSteps(toolSteps, windows)
-                    return HostedWorkspaceRestoreState(
-                        windows: windows,
-                        selectedWindowId: selectedWindowID.isEmpty ? nil : selectedWindowID
-                    )
-                }
             }
-            if toolName == "ui/view/open" {
-                let windows = hostedWorkspaceWindowsFromViewOpenStep(step)
-                if !windows.isEmpty {
-                    let responsePayload = firstParsedPayload(step.responsePayload, step.content)
-                    let selectedWindowID = responsePayload?.objectValue?["selectedWindowId"]?.stringValue
-                        ?? windows.last?.windowId
-                    return HostedWorkspaceRestoreState(
-                        windows: windows,
-                        selectedWindowId: selectedWindowID?.isEmpty == false ? selectedWindowID : nil
-                    )
-                }
+        }
+        if toolName == "ui/view/open" {
+            let windows = hostedWorkspaceWindowsFromViewOpenStep(step)
+            if !windows.isEmpty {
+                let responsePayload = firstParsedPayload(step.responsePayload, step.content)
+                let selectedWindowID = responsePayload?.objectValue?["selectedWindowId"]?.stringValue
+                    ?? windows.last?.windowId
+                return HostedWorkspaceRestoreState(
+                    windows: windows,
+                    selectedWindowId: selectedWindowID?.isEmpty == false ? selectedWindowID : nil
+                )
             }
         }
     }
@@ -253,7 +254,8 @@ private func hostedWorkspaceWindowsFromViewOpenStep(_ step: ToolStepState) -> [W
         "presentation": responsePayload?.objectValue?["presentation"] ?? .string(""),
         "region": responsePayload?.objectValue?["region"] ?? .string(""),
         "parentKey": responsePayload?.objectValue?["parentKey"] ?? .string(""),
-        "parameters": requestPayload?.objectValue?["parameters"] ?? .object([:])
+        "parameters": requestPayload?.objectValue?["parameters"] ?? .object([:]),
+        "windowForm": responsePayload?.objectValue?["windowForm"] ?? .object([:])
     ]
     return [normalizeHostedWorkspaceWindow(merged)].compactMap { $0 }
 }
@@ -307,11 +309,22 @@ private func selectedWindowIDFromToolSteps(
 }
 
 private func firstParsedPayload(_ raw: SDKJSONValue?, _ rawText: String?) -> SDKJSONValue? {
+    var candidates: [SDKJSONValue] = []
     if let raw {
-        return parsePayload(raw)
+        candidates.append(raw)
     }
-    if let rawText {
-        return parsePayload(.string(rawText))
+    if let rawText,
+       !rawText.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty {
+        candidates.append(.string(rawText))
+    }
+    for candidate in candidates {
+        guard let parsed = parsePayload(candidate) else {
+            continue
+        }
+        if isPayloadEnvelope(parsed) {
+            continue
+        }
+        return parsed
     }
     return nil
 }
@@ -333,6 +346,16 @@ private func parsePayload(_ raw: SDKJSONValue) -> SDKJSONValue? {
     default:
         return raw
     }
+}
+
+private func isPayloadEnvelope(_ value: SDKJSONValue) -> Bool {
+    guard let object = value.objectValue else {
+        return false
+    }
+    let hasInlineBody = object["inlineBody"]?.stringValue != nil || object["InlineBody"]?.stringValue != nil
+    let hasCompression = object["compression"]?.stringValue != nil || object["Compression"]?.stringValue != nil
+    let hasDirectWorkspaceShape = object["items"] != nil || object["windowId"] != nil || object["focusedWindowId"] != nil
+    return (hasInlineBody || hasCompression) && !hasDirectWorkspaceShape
 }
 
 private func normalizeHostedWorkspaceToolName(_ raw: String?) -> String {

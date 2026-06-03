@@ -19,7 +19,20 @@ internal fun makeForgeAgentlyDataSourceLoader(
         }
         val datasourceId = extractDatasourceId(uri) ?: return@loader null
 
-        val inputs = request.input.parameters.toMutableMap()
+        val inputs = request.resolvedInputs.toMutableMap()
+        val rawParameters = request.input.parameters
+        val nestedInput = rawParameters["input"]
+        if (nestedInput != null) {
+            inputs["input"] = nestedInput
+        }
+        rawParameters["page"]?.let { inputs["page"] = it }
+        rawParameters
+            .filterKeys { it !in setOf("input", "page", "parameters") }
+            .forEach { (key, value) ->
+                if (inputs[key] == null) {
+                    inputs[key] = value
+                }
+            }
         if (request.input.filter.isNotEmpty()) {
             if (inputs["input"] is Map<*, *>) {
                 val inputObject = JsonUtil.asStringMap(inputs["input"]).toMutableMap()

@@ -625,8 +625,15 @@ public final class AppRuntime: ObservableObject {
 
     public var availableAgentOptions: [WorkspaceAgentOption] {
         guard let metadata = state.workspaceMetadata else { return [] }
+        let internalAgentIDs = Set<String>(
+            metadata.agentInfos.compactMap { info in
+                guard info.internalAgent == true else { return nil }
+                return (info.agentID ?? info.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+            }
+        )
 
         var options: [WorkspaceAgentOption] = metadata.agentInfos.compactMap { info in
+            guard info.internalAgent != true else { return nil }
             let id = (info.agentID ?? info.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !id.isEmpty else { return nil }
             let displayName = (info.name ?? info.agentID ?? id).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -637,6 +644,7 @@ public final class AppRuntime: ObservableObject {
         for rawAgent in metadata.agents {
             let trimmed = rawAgent.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
+            if internalAgentIDs.contains(trimmed) { continue }
             if options.contains(where: { $0.id == trimmed }) { continue }
             options.append(WorkspaceAgentOption(id: trimmed, displayName: trimmed, modelRef: nil))
         }
