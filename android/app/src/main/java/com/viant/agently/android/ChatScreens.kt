@@ -57,6 +57,8 @@ import kotlinx.serialization.json.JsonElement
 @Composable
 internal fun PhoneChatScreen(
     workspaceTitle: String,
+    metadata: WorkspaceMetadata?,
+    preferredAgentId: String,
     loading: Boolean,
     recentConversations: List<Conversation>,
     activeConversationId: String?,
@@ -73,16 +75,20 @@ internal fun PhoneChatScreen(
     approvalEdits: Map<String, Map<String, JsonElement>>,
     onRefresh: () -> Unit,
     onNewConversation: () -> Unit,
+    onSelectAgent: (String?) -> Unit,
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
     onSelectConversation: (String) -> Unit,
     onEditChange: (String, String, JsonElement) -> Unit,
     onDecision: (PendingToolApproval, String) -> Unit,
     onOpenFile: (GeneratedFileEntry) -> Unit,
-    onClosePreview: () -> Unit
+    onClosePreview: () -> Unit,
+    onStarterTaskSelected: (String) -> Unit
 ) {
     PhoneWorkspacePane(
         workspaceTitle = workspaceTitle,
+        metadata = metadata,
+        preferredAgentId = preferredAgentId,
         loading = loading,
         recentConversations = recentConversations,
         activeConversationId = activeConversationId,
@@ -99,13 +105,15 @@ internal fun PhoneChatScreen(
         approvalEdits = approvalEdits,
         onRefresh = onRefresh,
         onNewConversation = onNewConversation,
+        onSelectAgent = onSelectAgent,
         onOpenHistory = onOpenHistory,
         onOpenSettings = onOpenSettings,
         onSelectConversation = onSelectConversation,
         onEditChange = onEditChange,
         onDecision = onDecision,
         onOpenFile = onOpenFile,
-        onClosePreview = onClosePreview
+        onClosePreview = onClosePreview,
+        onStarterTaskSelected = onStarterTaskSelected
     )
 }
 
@@ -114,6 +122,8 @@ internal fun PhoneChatScreen(
 internal fun TabletChatScreen(
     workspaceTitle: String,
     appApiBaseUrl: String,
+    metadata: WorkspaceMetadata?,
+    preferredAgentId: String,
     loading: Boolean,
     recentConversations: List<Conversation>,
     activeConversationId: String?,
@@ -130,6 +140,7 @@ internal fun TabletChatScreen(
     approvalEdits: Map<String, Map<String, JsonElement>>,
     onRefresh: () -> Unit,
     onNewConversation: () -> Unit,
+    onSelectAgent: (String?) -> Unit,
     onSelectConversation: (String) -> Unit,
     onEditChange: (String, String, JsonElement) -> Unit,
     onDecision: (PendingToolApproval, String) -> Unit,
@@ -176,6 +187,8 @@ internal fun TabletChatScreen(
             TabletWorkspacePane(
                 loading = loading,
                 activeConversationId = activeConversationId,
+                metadata = metadata,
+                preferredAgentId = preferredAgentId,
                 conversationState = conversationState,
                 error = error,
                 streamSnapshot = streamSnapshot,
@@ -191,6 +204,7 @@ internal fun TabletChatScreen(
                 onDecision = onDecision,
                 onOpenFile = onOpenFile,
                 onClosePreview = onClosePreview,
+                onSelectAgent = onSelectAgent,
                 query = query,
                 onQueryChange = onQueryChange,
                 composerAttachments = composerAttachments,

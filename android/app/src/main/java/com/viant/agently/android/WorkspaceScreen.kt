@@ -1,6 +1,8 @@
 package com.viant.agently.android
 
+import android.content.Context
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,19 +17,25 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import com.viant.agentlysdk.AgentlyClient
-import com.viant.agentlysdk.Conversation
 import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.PendingToolApproval
@@ -37,10 +45,18 @@ import com.viant.forgeandroid.runtime.ForgeRuntime
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 
+private enum class WorkspacePanelMode {
+    Split,
+    Expanded,
+    Hidden
+}
+
 @Composable
 internal fun TabletWorkspacePane(
     loading: Boolean,
     activeConversationId: String?,
+    metadata: WorkspaceMetadata?,
+    preferredAgentId: String,
     conversationState: ConversationStateResponse?,
     error: String?,
     streamSnapshot: ConversationStreamSnapshot?,
@@ -56,6 +72,7 @@ internal fun TabletWorkspacePane(
     onDecision: (PendingToolApproval, String) -> Unit,
     onOpenFile: (GeneratedFileEntry) -> Unit,
     onClosePreview: () -> Unit,
+    onSelectAgent: (String?) -> Unit,
     query: String,
     onQueryChange: (String) -> Unit,
     composerAttachments: List<ComposerAttachmentDraft>,
@@ -67,7 +84,26 @@ internal fun TabletWorkspacePane(
     onRemoveAttachment: (String) -> Unit,
     onRunQuery: () -> Unit
 ) {
+    val context = LocalContext.current
     val hasMainContent = transcript.isNotEmpty() || pendingApprovals.isNotEmpty() || generatedFiles.isNotEmpty() || !activeConversationId.isNullOrBlank()
+    val hasHostedWorkspace = remember(conversationState) {
+        conversationState?.let(::deriveHostedWorkspaceRestoreState) != null
+    }
+    val prefs = remember(context) {
+        context.applicationContext.getSharedPreferences("agently.workspace.pane", Context.MODE_PRIVATE)
+    }
+    var workspaceBodyHeight by remember {
+        mutableStateOf(
+            prefs.getFloat("hosted_workspace_height_dp", 420f)
+                .coerceIn(280f, 1200f)
+        )
+    }
+    var workspacePanelMode by remember(hasHostedWorkspace) {
+        mutableStateOf(
+            if (hasHostedWorkspace) WorkspacePanelMode.Split
+            else WorkspacePanelMode.Hidden
+        )
+    }
 
     Surface(
         color = Color(0xFFFBFCFE),
@@ -143,124 +179,217 @@ internal fun TabletWorkspacePane(
                                     )
                                 }
                             }
+                            WorkspaceTaskStartSection(
+                                metadata = metadata,
+                                preferredAgentId = preferredAgentId,
+                                onSelectAgent = onSelectAgent,
+                                onSelectStarterTask = onQueryChange
+                            )
                         } else {
-                            HostedWorkspaceSection(
-                                conversationState = conversationState,
-                                forgeRuntime = forgeRuntime
-                            )
-                            PendingApprovalsSection(
-                                approvals = pendingApprovals,
-                                forgeRuntime = forgeRuntime,
-                                approvalJson = approvalJson,
-                                approvalEdits = approvalEdits,
-                                onEditChange = onEditChange,
-                                onDecision = onDecision
-                            )
-                            ConversationArtifactsSection(
-                                files = generatedFiles,
-                                onOpenFile = onOpenFile
-                            )
-                            artifactPreview?.let { preview ->
-                                if (generatedFiles.none { it.id == preview.artifactId }) {
-                                    ArtifactPreviewSection(
-                                        preview = preview,
-                                        onClose = onClosePreview
-                                    )
+                            if (hasHostedWorkspace && workspacePanelMode != WorkspacePanelMode.Hidden) {
+                                HostedWorkspaceSection(
+                                    conversationState = conversationState,
+                                    forgeRuntime = forgeRuntime,
+                                    maxBodyHeight = if (workspacePanelMode == WorkspacePanelMode.Expanded) 1100.dp else workspaceBodyHeight.dp,
+                                    showTitle = true,
+                                    headerActions = {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            FilterChip(
+                                                selected = workspacePanelMode == WorkspacePanelMode.Split,
+                                                onClick = { workspacePanelMode = WorkspacePanelMode.Split },
+                                                label = { Text("Minimize") }
+                                            )
+                                            FilterChip(
+                                                selected = workspacePanelMode == WorkspacePanelMode.Expanded,
+                                                onClick = { workspacePanelMode = WorkspacePanelMode.Expanded },
+                                                label = { Text("Expand") }
+                                            )
+                                            FilterChip(
+                                                selected = workspacePanelMode == WorkspacePanelMode.Hidden,
+                                                onClick = { workspacePanelMode = WorkspacePanelMode.Hidden },
+                                                label = { Text("Close") }
+                                            )
+                                        }
+                                    }
+                                )
+                                if (workspacePanelMode != WorkspacePanelMode.Expanded) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 4.dp, bottom = 10.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .widthIn(min = 96.dp)
+                                                .padding(horizontal = 12.dp)
+                                                .pointerInput(Unit) {
+                                                    detectVerticalDragGestures { _, dragAmount ->
+                                                        workspaceBodyHeight = (workspaceBodyHeight + dragAmount)
+                                                            .coerceIn(280f, 1200f)
+                                                        prefs.edit()
+                                                            .putFloat("hosted_workspace_height_dp", workspaceBodyHeight)
+                                                            .apply()
+                                                    }
+                                                }
+                                        ) {
+                                            Surface(
+                                                color = Color(0xFFD0D5DD),
+                                                shape = MaterialTheme.shapes.large,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 16.dp)
+                                            ) {
+                                                Spacer(modifier = Modifier.padding(vertical = 3.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if (workspacePanelMode == WorkspacePanelMode.Hidden && hasHostedWorkspace) {
+                                Surface(
+                                    color = Color(0xFFF8FAFD),
+                                    border = BorderStroke(1.dp, Color(0xFFDDE4F1)),
+                                    shape = MaterialTheme.shapes.large,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 18.dp, vertical = 14.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text("Workspace closed", style = MaterialTheme.typography.titleSmall)
+                                            Text(
+                                                "Reopen the hosted workspace when you want the full data-driven view back.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color(0xFF667085)
+                                            )
+                                        }
+                                        Button(onClick = { workspacePanelMode = WorkspacePanelMode.Split }) {
+                                            Text("Reopen")
+                                        }
+                                    }
                                 }
                             }
-                            RenderTranscript(
-                                items = transcript,
-                                pendingApprovals = pendingApprovals,
-                                generatedFiles = generatedFiles,
-                                forgeRuntime = forgeRuntime,
-                                approvalJson = approvalJson,
-                                approvalEdits = approvalEdits,
-                                onEditChange = onEditChange,
-                                onDecision = onDecision,
-                                artifactPreview = artifactPreview,
-                                onClosePreview = onClosePreview,
-                                onOpenFile = onOpenFile
-                            )
-                            Spacer(modifier = Modifier.padding(bottom = 24.dp))
+                            if (workspacePanelMode != WorkspacePanelMode.Expanded) {
+                                PendingApprovalsSection(
+                                    approvals = pendingApprovals,
+                                    forgeRuntime = forgeRuntime,
+                                    approvalJson = approvalJson,
+                                    approvalEdits = approvalEdits,
+                                    onEditChange = onEditChange,
+                                    onDecision = onDecision
+                                )
+                                ConversationArtifactsSection(
+                                    files = generatedFiles,
+                                    onOpenFile = onOpenFile
+                                )
+                                artifactPreview?.let { preview ->
+                                    if (generatedFiles.none { it.id == preview.artifactId }) {
+                                        ArtifactPreviewSection(
+                                            preview = preview,
+                                            onClose = onClosePreview
+                                        )
+                                    }
+                                }
+                                RenderTranscript(
+                                    items = transcript,
+                                    pendingApprovals = pendingApprovals,
+                                    generatedFiles = generatedFiles,
+                                    forgeRuntime = forgeRuntime,
+                                    approvalJson = approvalJson,
+                                    approvalEdits = approvalEdits,
+                                    onEditChange = onEditChange,
+                                    onDecision = onDecision,
+                                    artifactPreview = artifactPreview,
+                                    onClosePreview = onClosePreview,
+                                    onOpenFile = onOpenFile
+                                )
+                                Spacer(modifier = Modifier.padding(bottom = 24.dp))
+                            }
                         }
                     }
 
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth(0.74f)
-                            .widthIn(max = 900.dp)
-                            .align(Alignment.CenterHorizontally)
-                            .navigationBarsPadding(),
-                        color = Color(0xFFFDFDFE),
-                        border = BorderStroke(1.dp, Color(0xFFDDE4F1)),
-                        shape = MaterialTheme.shapes.large
-                    ) {
-                        val compactComposer = !activeConversationId.isNullOrBlank()
-                        Column(
-                            modifier = Modifier.padding(
-                                horizontal = if (compactComposer) 16.dp else 18.dp,
-                                vertical = if (compactComposer) 10.dp else 14.dp
-                            ),
-                            verticalArrangement = Arrangement.spacedBy(if (compactComposer) 8.dp else 12.dp)
+                    if (workspacePanelMode != WorkspacePanelMode.Expanded) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth(0.74f)
+                                .widthIn(max = 900.dp)
+                                .align(Alignment.CenterHorizontally)
+                                .navigationBarsPadding(),
+                            color = Color(0xFFFDFDFE),
+                            border = BorderStroke(1.dp, Color(0xFFDDE4F1)),
+                            shape = MaterialTheme.shapes.large
                         ) {
-                            if (compactComposer) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                            val compactComposer = !activeConversationId.isNullOrBlank()
+                            Column(
+                                modifier = Modifier.padding(
+                                    horizontal = if (compactComposer) 16.dp else 18.dp,
+                                    vertical = if (compactComposer) 10.dp else 14.dp
+                                ),
+                                verticalArrangement = Arrangement.spacedBy(if (compactComposer) 8.dp else 12.dp)
+                            ) {
+                                if (compactComposer) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        OutlinedTextField(
+                                            value = query,
+                                            onValueChange = onQueryChange,
+                                            label = { Text("Message") },
+                                            placeholder = { Text("Follow up") },
+                                            modifier = Modifier.weight(1f),
+                                            minLines = 1,
+                                            maxLines = 2
+                                        )
+                                        Button(
+                                            onClick = onRunQuery,
+                                            enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty())
+                                        ) {
+                                            Text("Send")
+                                        }
+                                    }
+                                } else {
+                                    ComposerHeader(
+                                        title = null,
+                                        attachments = composerAttachments,
+                                        canCapturePhoto = canCapturePhoto,
+                                        canUseVoiceInput = canUseVoiceInput,
+                                        agentLabel = resolveSelectedAgentLabel(preferredAgentId, metadata),
+                                        subtitle = if (!activeConversationId.isNullOrBlank()) {
+                                            "Replying as ${resolveSelectedAgentLabel(preferredAgentId, metadata) ?: "the selected agent"}"
+                                        } else {
+                                            "Start a task with ${resolveSelectedAgentLabel(preferredAgentId, metadata) ?: "the selected agent"}"
+                                        },
+                                        onAddPhoto = onAddPhoto,
+                                        onTakePhoto = onTakePhoto,
+                                        onVoiceInput = onVoiceInput,
+                                        onRemoveAttachment = onRemoveAttachment
+                                    )
                                     OutlinedTextField(
                                         value = query,
                                         onValueChange = onQueryChange,
                                         label = { Text("Message") },
-                                        placeholder = { Text("Follow up") },
-                                        modifier = Modifier.weight(1f),
-                                        minLines = 1,
-                                        maxLines = 2
+                                        placeholder = { Text("Ask a follow-up or start a new task") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        minLines = 2,
+                                        maxLines = 5
                                     )
-                                    Button(
-                                        onClick = onRunQuery,
-                                        enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty())
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.End,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("Send")
-                                    }
-                                }
-                            } else {
-                                ComposerHeader(
-                                    title = "Composer",
-                                    attachments = composerAttachments,
-                                    canCapturePhoto = canCapturePhoto,
-                                    canUseVoiceInput = canUseVoiceInput,
-                                    agentLabel = null,
-                                    subtitle = if (!activeConversationId.isNullOrBlank()) {
-                                        "Continuing current conversation"
-                                    } else {
-                                        "A new conversation will be created"
-                                    },
-                                    onAddPhoto = onAddPhoto,
-                                    onTakePhoto = onTakePhoto,
-                                    onVoiceInput = onVoiceInput,
-                                    onRemoveAttachment = onRemoveAttachment
-                                )
-                                OutlinedTextField(
-                                    value = query,
-                                    onValueChange = onQueryChange,
-                                    label = { Text("Message") },
-                                    placeholder = { Text("Ask a follow-up or start a new task") },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    minLines = 2,
-                                    maxLines = 5
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Button(
-                                        onClick = onRunQuery,
-                                        enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty())
-                                    ) {
-                                        Text("Send")
+                                        Button(
+                                            onClick = onRunQuery,
+                                            enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty())
+                                        ) {
+                                            Text("Send")
+                                        }
                                     }
                                 }
                             }

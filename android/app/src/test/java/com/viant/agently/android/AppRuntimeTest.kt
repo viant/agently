@@ -3,6 +3,7 @@ package com.viant.agently.android
 import com.viant.agentlysdk.ActiveFeedState
 import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.AuthProvider
+import com.viant.agentlysdk.Conversation
 import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.MetadataTargetContext
 import com.viant.agentlysdk.PendingToolApproval

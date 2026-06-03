@@ -6,7 +6,11 @@ import com.viant.forgeandroid.runtime.ForgeTargetContext
 import com.viant.forgeandroid.runtime.MetadataResolver
 import com.viant.forgeandroid.runtime.WindowMetadata
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 
 internal fun makeForgeAgentlyWindowMetadataLoader(
     client: AgentlyClient,
@@ -16,6 +20,65 @@ internal fun makeForgeAgentlyWindowMetadataLoader(
     return { windowKey ->
         val raw = client.fetchForgeWindowMetadata(windowKey)
         val resolved = MetadataResolver.resolve(raw, targetContext) ?: raw
-        json.decodeFromJsonElement<WindowMetadata>(resolved)
+        val normalized = normalizeWindowMetadataCollections(resolved)
+        json.decodeFromJsonElement<WindowMetadata>(normalized)
+    }
+}
+
+private fun normalizeWindowMetadataCollections(element: JsonElement): JsonElement {
+    return when (element) {
+        is JsonArray -> JsonArray(element.map(::normalizeWindowMetadataCollections))
+        is JsonObject -> {
+            val normalized = linkedMapOf<String, JsonElement>()
+            val listKeys = setOf(
+                "dialogs",
+                "on",
+                "actions",
+                "parameters",
+                "args",
+                "containers",
+                "metrics",
+                "checks",
+                "rows",
+                "sections",
+                "items",
+                "viewModes",
+                "measures",
+                "dimensions",
+                "staticFilters",
+                "dynamicFilterGroups",
+                "dynamicFilterFamilies",
+                "defaultChartSpecs",
+                "supportedTypes",
+                "options",
+                "fields",
+                "enum",
+                "uniqueKey",
+                "values"
+            )
+            val mapKeys = setOf(
+                "dataSources",
+                "dataSource",
+                "params",
+                "targetOverrides",
+                "filterBindings",
+                "properties",
+                "style",
+                "dataInfoSelectors",
+                "selectors"
+            )
+            for ((key, value) in element) {
+                val replacement = when (key) {
+                    in listKeys ->
+                        if (value is JsonNull) JsonArray(emptyList()) else normalizeWindowMetadataCollections(value)
+                    in mapKeys ->
+                        if (value is JsonNull) JsonObject(emptyMap()) else normalizeWindowMetadataCollections(value)
+                    else -> normalizeWindowMetadataCollections(value)
+                }
+                normalized[key] = replacement
+            }
+            JsonObject(normalized)
+        }
+        else -> element
     }
 }

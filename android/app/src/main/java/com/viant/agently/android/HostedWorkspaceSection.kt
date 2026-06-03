@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -52,19 +53,33 @@ internal data class HostedWorkspaceWindowUiState(
 internal fun HostedWorkspaceSection(
     conversationState: ConversationStateResponse?,
     forgeRuntime: ForgeRuntime,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    maxBodyHeight: androidx.compose.ui.unit.Dp = 420.dp,
+    showTitle: Boolean = true,
+    headerActions: (@Composable () -> Unit)? = null
 ) {
     val restoreState = remember(conversationState) {
         conversationState?.let(::deriveHostedWorkspaceRestoreState)
     } ?: return
     val windowState = rememberHostedWorkspaceWindowUiState(restoreState, forgeRuntime)
 
-    Card(modifier = modifier.fillMaxWidth()) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF6F8FD))
+    ) {
         Column(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("Workspace", style = MaterialTheme.typography.titleMedium)
+            if (showTitle) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Workspace", style = MaterialTheme.typography.titleMedium)
+                    headerActions?.invoke()
+                }
+            }
             if (windowState.windows.size > 1) {
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -99,7 +114,7 @@ internal fun HostedWorkspaceSection(
                 else -> Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 420.dp),
+                        .heightIn(max = maxBodyHeight),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     windowState.metadata.view?.content?.containers?.forEach { container ->

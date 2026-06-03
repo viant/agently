@@ -30,11 +30,26 @@ const SHOW_EXECUTION_DETAILS_KEY = 'agently.showExecutionDetails';
 const SHOW_INTAKE_DETAILS_KEY = 'agently.showIntakeDetails';
 const SHOW_WORKSPACE_WINDOW_KEY = 'agently.showWorkspaceWindow';
 const SHOW_TOOL_FEEDS_KEY = 'agently.showToolFeeds';
+const WORKSPACE_HEIGHT_KEY = 'agently.workspaceHeight';
+const WORKSPACE_DEFAULT_HEIGHT = 420;
+const WORKSPACE_MIN_HEIGHT = 240;
+const WORKSPACE_MAX_HEIGHT = 960;
 
 function clampSidebarWidth(value) {
   const next = Number(value || 0);
   if (!Number.isFinite(next)) return SIDEBAR_DEFAULT_WIDTH;
   return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(next)));
+}
+
+function clampWorkspaceHeight(value) {
+  const next = Number(value || 0);
+  if (!Number.isFinite(next)) return WORKSPACE_DEFAULT_HEIGHT;
+  return Math.min(WORKSPACE_MAX_HEIGHT, Math.max(WORKSPACE_MIN_HEIGHT, Math.round(next)));
+}
+
+function workspaceHeightStorageKey(conversationId = '') {
+  const id = String(conversationId || '').trim();
+  return id ? `${WORKSPACE_HEIGHT_KEY}:${id}` : WORKSPACE_HEIGHT_KEY;
 }
 
 export function resolveInitialAuthState(providers, me) {
@@ -302,8 +317,10 @@ export default function Root() {
     return true;
   });
   const [workspacePresentationMode, setWorkspacePresentationModeState] = useState('split');
+  const [workspaceHeight, setWorkspaceHeight] = useState(WORKSPACE_DEFAULT_HEIGHT);
   const [stableMainChatWindow, setStableMainChatWindow] = useState(null);
   const resizeStateRef = useRef(null);
+  const workspaceResizeStateRef = useRef(null);
   const approvals = useApprovalQueue(authState === 'ready');
   const selectedWindow = resolveSelectedMainWindow(
     activeWindows.value,
@@ -551,15 +568,23 @@ export default function Root() {
     if (typeof window === 'undefined') return () => {};
 
     const handlePointerMove = (event) => {
-      const state = resizeStateRef.current;
-      if (!state) return;
-      const delta = Number(event.clientX || 0) - state.startX;
-      setSidebarWidth(clampSidebarWidth(state.startWidth + delta));
+      const sidebarState = resizeStateRef.current;
+      if (sidebarState) {
+        const delta = Number(event.clientX || 0) - sidebarState.startX;
+        setSidebarWidth(clampSidebarWidth(sidebarState.startWidth + delta));
+        return;
+      }
+      const workspaceState = workspaceResizeStateRef.current;
+      if (!workspaceState) return;
+      const delta = Number(event.clientY || 0) - workspaceState.startY;
+      setWorkspaceHeight(clampWorkspaceHeight(workspaceState.startHeight + delta));
     };
 
     const stopResize = () => {
-      if (!resizeStateRef.current) return;
+      const wasResizing = !!resizeStateRef.current || !!workspaceResizeStateRef.current;
+      if (!wasResizing) return;
       resizeStateRef.current = null;
+      workspaceResizeStateRef.current = null;
       try { document.body.style.cursor = ''; } catch (_) {}
       try { document.body.style.userSelect = ''; } catch (_) {}
     };
@@ -573,6 +598,28 @@ export default function Root() {
       window.removeEventListener('pointercancel', stopResize);
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const conversationId = String(mainConversationId || '').trim();
+    try {
+      const raw = window.sessionStorage?.getItem(workspaceHeightStorageKey(conversationId));
+      setWorkspaceHeight(clampWorkspaceHeight(raw));
+    } catch (_) {
+      setWorkspaceHeight(WORKSPACE_DEFAULT_HEIGHT);
+    }
+  }, [mainConversationId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const conversationId = String(mainConversationId || '').trim();
+    try {
+      window.sessionStorage?.setItem(
+        workspaceHeightStorageKey(conversationId),
+        String(clampWorkspaceHeight(workspaceHeight))
+      );
+    } catch (_) {}
+  }, [mainConversationId, workspaceHeight]);
 
   useEffect(() => {
     const windows = Array.isArray(activeWindows.value) ? activeWindows.value : [];
@@ -801,6 +848,7 @@ export default function Root() {
                     style={{
                       ...(workspaceSharePct > 0 ? { '--app-workspace-share': `${workspaceSharePct}%` } : {}),
                       ...(workspaceMinHeight > 0 ? { '--app-workspace-min-height': `${workspaceMinHeight}px` } : {}),
+                      '--app-workspace-height': `${clampWorkspaceHeight(workspaceHeight)}px`,
                     }}
                   >
                   {showWorkspacePane ? (
@@ -863,6 +911,22 @@ export default function Root() {
                         <WindowContent window={activeWorkspaceWindow} isInTab />
                       </div>
                     </section>
+                  ) : null}
+                  {showWorkspacePane && !isWorkspaceFull && !isWorkspaceCollapsed ? (
+                    <div
+                      className="app-window-split-workspace-resizer"
+                      role="separator"
+                      aria-orientation="horizontal"
+                      aria-label="Resize workspace panel"
+                      onPointerDown={(event) => {
+                        workspaceResizeStateRef.current = {
+                          startY: Number(event.clientY || 0),
+                          startHeight: clampWorkspaceHeight(workspaceHeight),
+                        };
+                        try { document.body.style.cursor = 'row-resize'; } catch (_) {}
+                        try { document.body.style.userSelect = 'none'; } catch (_) {}
+                      }}
+                    />
                   ) : null}
                   <section
                     key="chat"

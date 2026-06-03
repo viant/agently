@@ -26,6 +26,8 @@ import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
@@ -34,6 +36,7 @@ import androidx.compose.ui.unit.dp
 internal fun PhoneComposerDock(
     loading: Boolean,
     activeConversationId: String?,
+    agentLabel: String?,
     query: String,
     onQueryChange: (String) -> Unit,
     composerAttachments: List<ComposerAttachmentDraft>,
@@ -76,6 +79,9 @@ internal fun PhoneComposerDock(
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFF667085)
                     )
+                }
+                agentLabel?.takeIf { it.isNotBlank() }?.let {
+                    AssistChip(onClick = {}, enabled = false, label = { Text(it) })
                 }
                 TextButton(onClick = onOpenSettings) {
                     Text("Settings")
@@ -206,7 +212,7 @@ private fun AttachmentChipsRow(
 
 @Composable
 internal fun ComposerHeader(
-    title: String,
+    title: String? = null,
     attachments: List<ComposerAttachmentDraft>,
     canCapturePhoto: Boolean,
     canUseVoiceInput: Boolean,
@@ -224,7 +230,9 @@ internal fun ComposerHeader(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, style = MaterialTheme.typography.titleMedium)
+                title?.takeIf { it.isNotBlank() }?.let {
+                    Text(it, style = MaterialTheme.typography.titleMedium)
+                }
                 subtitle?.takeIf { it.isNotBlank() }?.let {
                     Text(
                         it,
@@ -241,12 +249,24 @@ internal fun ComposerHeader(
                 agentLabel?.takeIf { it.isNotBlank() }?.let {
                     AssistChip(onClick = {}, enabled = false, label = { Text("Agent $it") })
                 }
-                AssistChip(onClick = onAddPhoto, label = { Text("Photo") })
+                ComposerHeaderActionIconButton(
+                    contentDescription = "Add photo",
+                    icon = { Icon(Icons.Outlined.Image, contentDescription = null) },
+                    onClick = onAddPhoto
+                )
                 if (canCapturePhoto) {
-                    AssistChip(onClick = onTakePhoto, label = { Text("Camera") })
+                    ComposerHeaderActionIconButton(
+                        contentDescription = "Take photo",
+                        icon = { Icon(Icons.Outlined.CameraAlt, contentDescription = null) },
+                        onClick = onTakePhoto
+                    )
                 }
                 if (canUseVoiceInput) {
-                    AssistChip(onClick = onVoiceInput, label = { Text("Voice") })
+                    ComposerHeaderActionIconButton(
+                        contentDescription = "Voice input",
+                        icon = { Icon(Icons.Outlined.Mic, contentDescription = null) },
+                        onClick = onVoiceInput
+                    )
                 }
             }
         }
@@ -286,5 +306,21 @@ internal fun ComposerHeader(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ComposerHeaderActionIconButton(
+    contentDescription: String,
+    icon: @Composable () -> Unit,
+    onClick: () -> Unit
+) {
+    FilledTonalIconButton(
+        onClick = onClick,
+        modifier = Modifier.semantics {
+            this.contentDescription = contentDescription
+        }
+    ) {
+        icon()
     }
 }

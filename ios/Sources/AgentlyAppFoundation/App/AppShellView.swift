@@ -529,10 +529,7 @@ internal func resolveWorkspaceBrandTitle(
     guard !normalized.isEmpty else {
         return fallbackTitle
     }
-    if normalized.lowercased().hasPrefix("viant ") || normalized.caseInsensitiveCompare("viant") == .orderedSame {
-        return normalized
-    }
-    return "Viant \(normalized)"
+    return normalized
 }
 
 private extension View {

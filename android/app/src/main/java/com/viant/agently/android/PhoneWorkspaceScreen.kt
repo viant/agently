@@ -33,6 +33,7 @@ import com.viant.agentlysdk.Conversation
 import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.PendingToolApproval
+import com.viant.agentlysdk.WorkspaceMetadata
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import com.viant.forgeandroid.runtime.ForgeRuntime
 import kotlinx.serialization.json.Json
@@ -46,6 +47,8 @@ private enum class PhoneWorkspaceContentMode {
 @Composable
 internal fun PhoneWorkspacePane(
     workspaceTitle: String,
+    metadata: WorkspaceMetadata?,
+    preferredAgentId: String,
     loading: Boolean,
     recentConversations: List<Conversation>,
     activeConversationId: String?,
@@ -62,13 +65,15 @@ internal fun PhoneWorkspacePane(
     approvalEdits: Map<String, Map<String, JsonElement>>,
     onRefresh: () -> Unit,
     onNewConversation: () -> Unit,
+    onSelectAgent: (String?) -> Unit,
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
     onSelectConversation: (String) -> Unit,
     onEditChange: (String, String, JsonElement) -> Unit,
     onDecision: (PendingToolApproval, String) -> Unit,
     onOpenFile: (GeneratedFileEntry) -> Unit,
-    onClosePreview: () -> Unit
+    onClosePreview: () -> Unit,
+    onStarterTaskSelected: (String) -> Unit
 ) {
     val hostedWorkspaceState = remember(conversationState) {
         conversationState?.let(::deriveHostedWorkspaceRestoreState)
@@ -189,6 +194,14 @@ internal fun PhoneWorkspacePane(
                     label = { Text("Conversation") }
                 )
             }
+        }
+        if (activeConversationId.isNullOrBlank()) {
+            WorkspaceTaskStartSection(
+                metadata = metadata,
+                preferredAgentId = preferredAgentId,
+                onSelectAgent = onSelectAgent,
+                onSelectStarterTask = onStarterTaskSelected
+            )
         }
         if (!activeConversationId.isNullOrBlank() || streamSnapshot?.activeTurnId != null) {
             Surface(
