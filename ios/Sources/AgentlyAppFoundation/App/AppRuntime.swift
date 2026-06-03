@@ -32,26 +32,54 @@ public final class AppRuntime: ObservableObject {
         clientFactory: @escaping @Sendable (String) -> AgentlyClient
     ) {
         let state = AppState(client: client, bootstrapBaseURL: startupBaseURL)
+        let queryRuntime = QueryRuntime(client: client)
         self.state = state
         self.settingsStore = settingsStore
         self.clientFactory = clientFactory
         self.settingsRuntime = SettingsRuntime(store: settingsStore)
         self.authRuntime = AuthRuntime(client: client)
-        self.queryRuntime = QueryRuntime(client: client)
+        self.queryRuntime = queryRuntime
         self.approvalRuntime = ApprovalRuntime(client: client)
         self.elicitationRuntime = ElicitationRuntime(client: client)
         Task {
             await state.forgeRuntime.registerDataSourceLoader(
                 makeForgeAgentlyDataSourceLoader(client: client)
             )
+            await state.forgeRuntime.registerWindowMetadataLoader(
+                makeForgeAgentlyWindowMetadataLoader(
+                    client: client,
+                    targetContext: state.forgeRuntime.targetContext
+                )
+            )
         }
         self.uiBridge = AppleUIBridgeController(
             client: client,
-            snapshotProvider: { _ in
-                await buildAppleUIBridgeSnapshot(
-                    activeConversationID: state.activeConversationID,
+            snapshotProvider: { selectedWindowID in
+                let activeConversationID = await MainActor.run {
+                    state.activeConversationID
+                }
+                let snapshot = await buildAppleUIBridgeSnapshot(
+                    activeConversationID: activeConversationID,
+                    selectedWindowID: selectedWindowID,
                     forgeRuntime: state.forgeRuntime
                 )
+                if let conversationID = activeConversationID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !conversationID.isEmpty {
+                    let restoreState = hostedWorkspaceRestoreState(
+                        from: snapshot,
+                        selectedWindowID: selectedWindowID
+                    )
+                    if let restoreState {
+                        settingsStore.saveHostedWorkspaceRestoreState(
+                            restoreState,
+                            conversationID: conversationID
+                        )
+                        await MainActor.run {
+                            state.activeHostedWorkspace = restoreState
+                        }
+                    }
+                }
+                return snapshot
             },
             commandHandler: { method, params in
                 let result = try await handleAppleUIBridgeCommand(
@@ -63,6 +91,7 @@ public final class AppRuntime: ObservableObject {
                 if let restoreState = bridgeHostedWorkspaceRestoreState(from: result) {
                     await MainActor.run {
                         state.activeHostedWorkspace = restoreState
+                        queryRuntime.markAccepted()
                     }
                 }
                 return result
@@ -108,18 +137,23 @@ public final class AppRuntime: ObservableObject {
         }
         do {
             state.workspaceMetadata = try await state.client.getWorkspaceMetadata(state.metadataTargetContext)
-            state.conversations = try await state.client.listConversations().rows
+            state.conversations = try await loadRecentConversations(client: state.client)
             reconcilePreferredAgentSelection()
             logger.info("Bootstrap succeeded with \(self.state.conversations.count, privacy: .public) conversations")
             bootstrapTimeoutTask?.cancel()
             state.authState = .signedIn
             uiBridge.start()
             await authRuntime.refreshConnectionContext(expectSignedIn: true)
-            let restoredConversationID = settingsStore.loadActiveConversationID()
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let restoredConversationID = resolvedBootstrapActiveConversationID(
+                storedValue: settingsStore.loadActiveConversationID(),
+                environmentValue: ProcessInfo.processInfo.environment["AGENTLY_IOS_ACTIVE_CONVERSATION_ID"],
+                launchArguments: CommandLine.arguments
+            )
             let selectedConversationID: String?
             if !restoredConversationID.isEmpty,
                state.conversations.contains(where: { $0.id == restoredConversationID }) {
+                selectedConversationID = restoredConversationID
+            } else if !restoredConversationID.isEmpty {
                 selectedConversationID = restoredConversationID
             } else {
                 selectedConversationID = state.conversations.first?.id
@@ -226,7 +260,7 @@ public final class AppRuntime: ObservableObject {
     public func refreshConversationList() async {
         state.isRefreshingConversations = true
         do {
-            state.conversations = try await state.client.listConversations().rows
+            state.conversations = try await loadRecentConversations(client: state.client)
             logger.info("Conversation list refreshed with \(self.state.conversations.count, privacy: .public) rows")
             state.bootstrapErrorMessage = nil
             if let activeConversationID = state.activeConversationID,
@@ -251,7 +285,7 @@ public final class AppRuntime: ObservableObject {
             if state.activeConversationID == trimmedConversationID {
                 startNewConversation()
             }
-            state.conversations = try await state.client.listConversations().rows
+            state.conversations = try await loadRecentConversations(client: state.client)
             state.bootstrapErrorMessage = nil
         } catch {
             logger.error("Conversation deletion failed: \(String(describing: error), privacy: .public)")
@@ -267,6 +301,7 @@ public final class AppRuntime: ObservableObject {
         state.streamErrorMessage = nil
         do {
             let conversationID = try await ensureConversationForOutgoingMessage()
+            let draftAttachments = composerRuntime.attachments
             let attachments = try await uploadDraftAttachments(conversationID: conversationID)
             let uiClientID = await uiBridge.ensureConnected()
             let queryContext = buildAppleClientQueryContext(
@@ -274,6 +309,14 @@ public final class AppRuntime: ObservableObject {
                 uiClientID: uiClientID
             )
             let optimisticTurn = chatRuntime.beginOptimisticTurn(query: text)
+            composerRuntime.query = ""
+            composerRuntime.clearAttachments()
+            if let conversationID, !conversationID.isEmpty {
+                state.activeConversationID = conversationID
+                settingsStore.saveActiveConversationID(conversationID)
+                await ensureConversationPresentInRecentList(conversationID: conversationID)
+                startStreaming(conversationID: conversationID)
+            }
             if let response = await queryRuntime.send(
                 conversationID: conversationID,
                 agentID: selectedAgentID,
@@ -282,7 +325,9 @@ public final class AppRuntime: ObservableObject {
                 context: queryContext
             ) {
                 chatRuntime.markOptimisticTurnAccepted(optimisticTurn)
-                if let conversationID = response.conversationID, !conversationID.isEmpty {
+                let resolvedConversationID = response.conversationID?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+                    ?? conversationID?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+                if let conversationID = resolvedConversationID {
                     state.activeConversationID = conversationID
                     settingsStore.saveActiveConversationID(conversationID)
                     await refreshConversationList()
@@ -291,11 +336,15 @@ public final class AppRuntime: ObservableObject {
                 } else {
                     chatRuntime.completeOptimisticTurn(optimisticTurn, response: response.content)
                 }
-                composerRuntime.query = ""
-                composerRuntime.clearAttachments()
             } else {
                 logger.error("Query send failed before response: \(self.queryRuntime.lastError ?? "unknown error", privacy: .public)")
                 chatRuntime.failOptimisticTurn(optimisticTurn, errorMessage: queryRuntime.lastError)
+                if composerRuntime.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    composerRuntime.query = text
+                }
+                if composerRuntime.attachments.isEmpty {
+                    composerRuntime.attachments = draftAttachments
+                }
             }
         } catch {
             logger.error("Query send threw error: \(String(describing: error), privacy: .public)")
@@ -383,6 +432,7 @@ public final class AppRuntime: ObservableObject {
     private func loadConversationState(conversationID: String) async {
         state.isLoadingConversation = true
         do {
+            await ensureConversationPresentInRecentList(conversationID: conversationID)
             let transcriptState = try await state.client.getTranscript(
                 GetTranscriptInput(
                     conversationID: conversationID,
@@ -392,7 +442,10 @@ public final class AppRuntime: ObservableObject {
                 )
             )
             state.activeConversationState = transcriptState
-            state.activeHostedWorkspace = deriveHostedWorkspaceRestoreState(from: transcriptState)
+            state.activeHostedWorkspace = resolvedHostedWorkspaceRestoreState(
+                conversationID: conversationID,
+                transcriptState: transcriptState
+            )
             chatRuntime.replaceTranscript(from: transcriptState)
             state.streamErrorMessage = nil
             logger.info("Loaded transcript state for conversation \(conversationID, privacy: .public)")
@@ -406,6 +459,28 @@ public final class AppRuntime: ObservableObject {
         await approvalRuntime.refresh(conversationID: conversationID)
         await elicitationRuntime.refresh(conversationID: conversationID)
         state.isLoadingConversation = false
+    }
+
+    private func resolvedHostedWorkspaceRestoreState(
+        conversationID: String,
+        transcriptState: ConversationStateResponse
+    ) -> HostedWorkspaceRestoreState? {
+        let stored = settingsStore.loadHostedWorkspaceRestoreState(conversationID: conversationID)
+        if let restored = deriveHostedWorkspaceRestoreState(from: transcriptState) {
+            return mergeHostedWorkspaceRestoreState(base: restored, overlay: stored)
+        }
+        if let existing = state.activeHostedWorkspace {
+            let normalizedConversationID = conversationID.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalizedConversationID.isEmpty {
+                let matchesConversation = existing.windows.contains { snapshot in
+                    snapshot.conversationId?.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedConversationID
+                }
+                if matchesConversation {
+                    return mergeHostedWorkspaceRestoreState(base: existing, overlay: stored)
+                }
+            }
+        }
+        return stored
     }
 
     private func loadArtifacts(conversationID: String) async {
@@ -432,6 +507,40 @@ public final class AppRuntime: ObservableObject {
             state.artifactErrorMessage = error.localizedDescription
         }
         state.isLoadingArtifacts = false
+    }
+
+    private func mergeHostedWorkspaceRestoreState(
+        base: HostedWorkspaceRestoreState,
+        overlay: HostedWorkspaceRestoreState?
+    ) -> HostedWorkspaceRestoreState {
+        guard let overlay else {
+            return base
+        }
+        let overlayByWindowID = Dictionary(uniqueKeysWithValues: overlay.windows.map { ($0.windowId, $0) })
+        let mergedWindows = base.windows.map { window in
+            guard let overlayWindow = overlayByWindowID[window.windowId] else {
+                return window
+            }
+            return WorkspaceWindowSnapshot(
+                windowId: window.windowId,
+                conversationId: window.conversationId ?? overlayWindow.conversationId,
+                windowKey: window.windowKey,
+                windowTitle: window.windowTitle ?? overlayWindow.windowTitle,
+                presentation: window.presentation ?? overlayWindow.presentation,
+                region: window.region ?? overlayWindow.region,
+                parentKey: window.parentKey ?? overlayWindow.parentKey,
+                inTab: window.inTab ?? overlayWindow.inTab,
+                parameters: window.parameters ?? overlayWindow.parameters,
+                windowForm: overlayWindow.windowForm ?? window.windowForm
+            )
+        }
+        let selectedWindowId = base.selectedWindowId
+            ?? overlay.selectedWindowId
+            ?? mergedWindows.last?.windowId
+        return HostedWorkspaceRestoreState(
+            windows: mergedWindows,
+            selectedWindowId: selectedWindowId?.isEmpty == false ? selectedWindowId : nil
+        )
     }
 
     private func startStreaming(conversationID: String) {
@@ -481,6 +590,21 @@ public final class AppRuntime: ObservableObject {
                 logger.error("Live stream failed for conversation \(conversationID, privacy: .public): \(String(describing: error), privacy: .public)")
                 state.streamErrorMessage = "Live updates failed: \(error.localizedDescription)"
             }
+        }
+    }
+
+    private func ensureConversationPresentInRecentList(conversationID: String) async {
+        guard !state.conversations.contains(where: { $0.id == conversationID }) else {
+            return
+        }
+        do {
+            let conversation = try await state.client.getConversation(conversationID: conversationID)
+            state.conversations = mergeConversationIntoRecentList(
+                state.conversations,
+                conversation: conversation
+            )
+        } catch {
+            logger.error("Conversation summary fetch failed for \(conversationID, privacy: .public): \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -568,9 +692,11 @@ public final class AppRuntime: ObservableObject {
             await state.forgeRuntime.registerDataSourceLoader(
                 makeForgeAgentlyDataSourceLoader(client: client)
             )
-            await state.forgeRuntime.configureWindowMetadata(
-                baseURL: URL(string: configuredBaseURL),
-                path: "/v1/api/agently/forge/window"
+            await state.forgeRuntime.registerWindowMetadataLoader(
+                makeForgeAgentlyWindowMetadataLoader(
+                    client: client,
+                    targetContext: state.forgeRuntime.targetContext
+                )
             )
         }
         authRuntime = AuthRuntime(client: client)
@@ -579,12 +705,16 @@ public final class AppRuntime: ObservableObject {
         elicitationRuntime = ElicitationRuntime(client: client)
     }
 
+    private func loadRecentConversations(client: AgentlyClient) async throws -> [Conversation] {
+        let page = PageInput(limit: 100)
+        return try await client.listConversations(
+            ListConversationsInput(page: page)
+        ).rows
+    }
+
     private func ensureConversationForOutgoingMessage() async throws -> String? {
         if let activeConversationID = state.activeConversationID, !activeConversationID.isEmpty {
             return activeConversationID
-        }
-        guard !composerRuntime.attachments.isEmpty else {
-            return nil
         }
         let conversation = try await state.client.createConversation(
             CreateConversationInput(agentID: selectedAgentID)
@@ -822,6 +952,27 @@ public struct WorkspaceAgentOption: Identifiable, Hashable {
     public let id: String
     public let displayName: String
     public let modelRef: String?
+}
+
+internal func resolvedBootstrapActiveConversationID(
+    storedValue: String,
+    environmentValue: String?,
+    launchArguments: [String]
+) -> String {
+    if developerAuthFeaturesEnabled() {
+        let override = environmentValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !override.isEmpty {
+            return override
+        }
+        let launchOverrideArgument = launchArguments.first { $0.hasPrefix("--activeConversationID=") }
+        let launchOverride = launchOverrideArgument
+            .flatMap { $0.split(separator: "=", maxSplits: 1).last.map(String.init) }?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !launchOverride.isEmpty {
+            return launchOverride
+        }
+    }
+    return storedValue.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 private extension String {

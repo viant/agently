@@ -72,7 +72,9 @@ private struct TranscriptForgeUIView: View {
                 WindowContentView(
                     runtime: runtime,
                     window: windowContext,
-                    metadata: metadata
+                    metadata: metadata,
+                    scrollEnabled: false,
+                    contentPadding: 6
                 )
             } else {
                 VStack(alignment: .leading, spacing: 6) {
@@ -102,7 +104,8 @@ private struct TranscriptForgeUIView: View {
     }
 
     private func openInlineWindow() async {
-        guard let metadata = try? buildTranscriptForgeWindowMetadata(payload: payload, dataStore: dataStore) else {
+        let normalizedStore = buildNormalizedTranscriptDataStore(payload: payload, dataStore: dataStore)
+        guard let metadata = try? buildTranscriptForgeWindowMetadata(payload: payload, dataStore: normalizedStore) else {
             return
         }
         let state = await runtime.openWindowInline(
@@ -111,8 +114,8 @@ private struct TranscriptForgeUIView: View {
             metadata: metadata
         )
         windowID = state.id
+        await hydrateTranscriptDataSources(windowID: state.id, dataStore: normalizedStore)
         windowContext = await runtime.windowContext(id: state.id)
-        await hydrateTranscriptDataSources(windowID: state.id, dataStore: dataStore)
     }
 
     private func hydrateTranscriptDataSources(windowID: String, dataStore: [String: MaterializedForgeDataBlock]) async {
@@ -174,7 +177,9 @@ func buildTranscriptForgeWindowMetadata(
 ) throws -> WindowMetadata {
     let refs = Set(dataStore.keys)
     let dataSources = Dictionary(uniqueKeysWithValues: refs.map { ($0, DataSourceDef()) })
-    let containers = try payload.blocks.compactMap(adaptForgeBlock)
+    let containers = try payload.blocks.enumerated().compactMap { index, block in
+        try adaptForgeBlock(block, index: index)
+    }
     return WindowMetadata(
         namespace: "agently.ios.transcript",
         view: ViewDef(
@@ -193,18 +198,27 @@ func buildTranscriptForgeWindowMetadata(
     )
 }
 
-private func adaptForgeBlock(_ block: JSONValue) throws -> ContainerDef? {
+private func adaptForgeBlock(_ block: JSONValue, index: Int) throws -> ContainerDef? {
     guard let object = block.objectValue else { return nil }
     let kind = object["kind"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     switch kind {
     case "planner.table":
-        let id = object["id"]?.stringValue ?? "planner-table"
+        let id = object["id"]?.stringValue ?? "planner-table-\(index)"
         let title = object["title"]?.stringValue
         let dataSourceRef = object["dataSourceRef"]?.stringValue
-        let columns = object["columns"]?.arrayValue?.compactMap { column -> String? in
-            guard let columnObject = column.objectValue else { return nil }
-            return columnObject["key"]?.stringValue ?? columnObject["id"]?.stringValue
-        } ?? []
+        let columns = transcriptColumns(from: object)
+        return ContainerDef(
+            id: id,
+            title: title,
+            kind: "table",
+            dataSourceRef: dataSourceRef,
+            table: TableDef(title: title, columns: columns)
+        )
+    case "dashboard.table":
+        let id = object["id"]?.stringValue ?? "dashboard-table-\(index)"
+        let title = object["title"]?.stringValue
+        let dataSourceRef = resolveTranscriptDataSourceRef(from: object)
+        let columns = transcriptColumns(from: object)
         return ContainerDef(
             id: id,
             title: title,
@@ -213,26 +227,50 @@ private func adaptForgeBlock(_ block: JSONValue) throws -> ContainerDef? {
             table: TableDef(title: title, columns: columns)
         )
     case "dashboard.summary":
-        let metrics = object["metrics"]?.arrayValue?.compactMap { metric -> DashboardMetricDef? in
-            if let name = metric.stringValue {
-                return DashboardMetricDef(id: name, label: titleize(name), selector: name, format: nil)
-            }
-            guard let metricObject = metric.objectValue else { return nil }
-            let selector = metricObject["selector"]?.stringValue ?? metricObject["key"]?.stringValue
-            return DashboardMetricDef(
-                id: metricObject["id"]?.stringValue ?? selector,
-                label: metricObject["label"]?.stringValue ?? titleize(selector ?? ""),
-                selector: selector,
-                format: metricObject["format"]?.stringValue
-            )
-        } ?? []
+        let metrics = transcriptSummaryMetrics(from: object)
         return ContainerDef(
-            id: object["id"]?.stringValue ?? "dashboard-summary",
+            id: object["id"]?.stringValue ?? "dashboard-summary-\(index)",
             title: object["title"]?.stringValue,
             subtitle: object["subtitle"]?.stringValue,
             kind: "dashboard.summary",
-            dataSourceRef: object["dataSourceRef"]?.stringValue,
+            dataSourceRef: resolveTranscriptDataSourceRef(from: object),
             metrics: metrics
+        )
+    case "dashboard.report":
+        let sectionValues = object["sections"]?.arrayValue ?? []
+        let sectionsPayload = sectionValues.compactMap { section -> JSONValue? in
+            guard let sectionObject = section.objectValue else { return nil }
+            let body = (sectionObject["body"]?.arrayValue ?? [])
+                .compactMap(\.stringValue)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            return .object([
+                "id": sectionObject["id"] ?? .null,
+                "title": sectionObject["title"] ?? .null,
+                "body": .array(body.map(JSONValue.string)),
+                "tone": sectionObject["tone"] ?? .null
+            ])
+        }
+        let sectionData = try JSONEncoder().encode(sectionsPayload)
+        let sections = try JSONDecoder().decode([DashboardReportSectionDef].self, from: sectionData)
+        return ContainerDef(
+            id: object["id"]?.stringValue ?? "dashboard-report-\(index)",
+            title: object["title"]?.stringValue,
+            subtitle: object["subtitle"]?.stringValue,
+            kind: "dashboard.report",
+            sections: sections
+        )
+    case "dashboard.kpiTable":
+        let id = object["id"]?.stringValue ?? "dashboard-kpi-table-\(index)"
+        let title = object["title"]?.stringValue
+        let dataSourceRef = resolveTranscriptDataSourceRef(from: object)
+        let columns = transcriptColumns(from: object)
+        return ContainerDef(
+            id: id,
+            title: title,
+            kind: "table",
+            dataSourceRef: dataSourceRef,
+            table: TableDef(title: title, columns: columns)
         )
     case "dashboard.filters":
         let items = object["items"]?.arrayValue?.compactMap { item -> DashboardFilterItemDef? in
@@ -254,19 +292,63 @@ private func adaptForgeBlock(_ block: JSONValue) throws -> ContainerDef? {
             )
         } ?? []
         return ContainerDef(
-            id: object["id"]?.stringValue ?? "dashboard-filters",
+            id: object["id"]?.stringValue ?? "dashboard-filters-\(index)",
             title: object["title"]?.stringValue,
             subtitle: object["subtitle"]?.stringValue,
             kind: "dashboard.filters",
             dashboard: DashboardDef(filters: DashboardFiltersDef(items: items))
         )
+    case "dashboard.dimensions":
+        let fieldData = try JSONEncoder().encode([
+            object["dimension"] ?? .null,
+            object["metric"] ?? .null
+        ])
+        let decodedFields = try JSONDecoder().decode([DashboardFieldDef].self, from: fieldData)
+        return ContainerDef(
+            id: object["id"]?.stringValue ?? "dashboard-dimensions-\(index)",
+            title: object["title"]?.stringValue,
+            subtitle: object["subtitle"]?.stringValue,
+            kind: "dashboard.dimensions",
+            dataSourceRef: resolveTranscriptDataSourceRef(from: object),
+            dimension: decodedFields.first,
+            metric: decodedFields.dropFirst().first,
+            viewModes: object["viewModes"]?.arrayValue?.compactMap(\.stringValue) ?? [],
+            limit: object["limit"]?.intValue,
+            orderBy: object["orderBy"]?.stringValue
+        )
+    case "dashboard.messages":
+        let items = (object["items"]?.arrayValue ?? []).compactMap { entry -> ItemDef? in
+            guard let itemObject = entry.objectValue else { return nil }
+            return ItemDef(
+                id: itemObject["id"]?.stringValue,
+                label: itemObject["label"]?.stringValue,
+                title: itemObject["title"]?.stringValue,
+                body: itemObject["body"]?.stringValue,
+                severity: itemObject["severity"]?.stringValue
+            )
+        }
+        return ContainerDef(
+            id: object["id"]?.stringValue ?? "dashboard-messages-\(index)",
+            title: object["title"]?.stringValue,
+            subtitle: object["subtitle"]?.stringValue,
+            kind: "dashboard.messages",
+            items: items
+        )
     case "dashboard.timeline":
         let chartType = object["chartType"]?.stringValue ?? "bar"
         let xKey = object["dateField"]?.stringValue ?? object["timeColumn"]?.stringValue ?? object["groupBy"]?.stringValue ?? object["seriesColumn"]?.stringValue ?? "label"
-        let valueKeys = object["series"]?.arrayValue?.compactMap(\.stringValue)
+        let valueKeys = object["series"]?.arrayValue?.compactMap { series -> String? in
+            if let key = series.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty {
+                return key
+            }
+            guard let seriesObject = series.objectValue else { return nil }
+            return nonEmpty(seriesObject["key"]?.stringValue)
+                ?? nonEmpty(seriesObject["id"]?.stringValue)
+                ?? nonEmpty(seriesObject["value"]?.stringValue)
+        }
             ?? [object["valueColumn"]?.stringValue].compactMap { $0 }
         return ContainerDef(
-            id: object["id"]?.stringValue ?? "dashboard-timeline",
+            id: object["id"]?.stringValue ?? "dashboard-timeline-\(index)",
             title: object["title"]?.stringValue,
             subtitle: object["subtitle"]?.stringValue,
             kind: "chart",
@@ -284,6 +366,121 @@ private func adaptForgeBlock(_ block: JSONValue) throws -> ContainerDef? {
     default:
         return nil
     }
+}
+
+private func buildNormalizedTranscriptDataStore(
+    payload: ForgeUIPayload,
+    dataStore: [String: MaterializedForgeDataBlock]
+) -> [String: MaterializedForgeDataBlock] {
+    var result = dataStore
+    for block in payload.blocks {
+        guard let object = block.objectValue else { continue }
+        guard let synthetic = synthesizeTranscriptDataBlock(from: object) else { continue }
+        result[synthetic.id] = synthetic
+    }
+    return result
+}
+
+private func synthesizeTranscriptDataBlock(from object: [String: JSONValue]) -> MaterializedForgeDataBlock? {
+    let kind = object["kind"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard kind == "dashboard.summary" else { return nil }
+    let dataSourceRef = syntheticTranscriptDataSourceRef(for: object)
+    let items = object["items"]?.arrayValue ?? []
+    var row: [String: JSONValue] = [:]
+    for item in items {
+        guard let itemObject = item.objectValue else { continue }
+        let key = transcriptFieldKey(
+            itemObject["key"]?.stringValue
+                ?? itemObject["label"]?.stringValue
+                ?? itemObject["id"]?.stringValue
+                ?? "value"
+        )
+        row[key] = itemObject["value"] ?? .null
+    }
+    guard !row.isEmpty else { return nil }
+    return MaterializedForgeDataBlock(id: dataSourceRef, rows: .array([.object(row)]))
+}
+
+private func transcriptSummaryMetrics(from object: [String: JSONValue]) -> [DashboardMetricDef] {
+    if let declared = object["metrics"]?.arrayValue, !declared.isEmpty {
+        return declared.compactMap { metric -> DashboardMetricDef? in
+            if let name = metric.stringValue {
+                return DashboardMetricDef(id: name, label: titleize(name), selector: name, format: nil)
+            }
+            guard let metricObject = metric.objectValue else { return nil }
+            let selector = metricObject["selector"]?.stringValue ?? metricObject["key"]?.stringValue
+            return DashboardMetricDef(
+                id: metricObject["id"]?.stringValue ?? selector,
+                label: metricObject["label"]?.stringValue ?? titleize(selector ?? ""),
+                selector: selector,
+                format: metricObject["format"]?.stringValue
+            )
+        }
+    }
+    return (object["items"]?.arrayValue ?? []).compactMap { item -> DashboardMetricDef? in
+        guard let itemObject = item.objectValue else { return nil }
+        let rawKey = itemObject["key"]?.stringValue
+            ?? itemObject["label"]?.stringValue
+            ?? itemObject["id"]?.stringValue
+            ?? "value"
+        let key = transcriptFieldKey(rawKey)
+        return DashboardMetricDef(
+            id: key,
+            label: itemObject["label"]?.stringValue ?? titleize(key),
+            selector: key,
+            format: itemObject["format"]?.stringValue
+        )
+    }
+}
+
+private func resolveTranscriptDataSourceRef(from object: [String: JSONValue]) -> String? {
+    nonEmpty(object["dataSourceRef"]?.stringValue)
+        ?? nonEmpty(object["dataSource"]?.stringValue)
+        ?? syntheticTranscriptDataSourceRef(for: object)
+}
+
+private func transcriptColumns(from object: [String: JSONValue]) -> [ColumnDef] {
+    (object["columns"]?.arrayValue ?? []).compactMap { column in
+        guard let columnObject = column.objectValue else { return nil }
+        guard let key = nonEmpty(columnObject["key"]?.stringValue)
+            ?? nonEmpty(columnObject["id"]?.stringValue) else {
+            return nil
+        }
+        return ColumnDef(
+            id: key,
+            name: key,
+            label: nonEmpty(columnObject["label"]?.stringValue) ?? titleize(key),
+            type: nonEmpty(columnObject["type"]?.stringValue),
+            format: nonEmpty(columnObject["format"]?.stringValue),
+            link: columnObject["link"]?.objectValue.flatMap { linkObject in
+                LinkDef(href: nonEmpty(linkObject["href"]?.stringValue))
+            }
+        )
+    }
+}
+
+private func syntheticTranscriptDataSourceRef(for object: [String: JSONValue]) -> String {
+    let base = nonEmpty(object["id"]?.stringValue)
+        ?? nonEmpty(object["title"]?.stringValue)
+        ?? "transcript-block"
+    return "inline_\(transcriptFieldKey(base))"
+}
+
+private func nonEmpty(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+}
+
+private func transcriptFieldKey(_ value: String) -> String {
+    let allowed = value
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .replacingOccurrences(of: #"[^A-Za-z0-9]+"#, with: "_", options: .regularExpression)
+        .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+    guard !allowed.isEmpty else { return "value" }
+    let parts = allowed.lowercased().split(separator: "_").map(String.init)
+    guard let head = parts.first else { return "value" }
+    return ([head] + parts.dropFirst().map { $0.prefix(1).uppercased() + $0.dropFirst() }).joined()
 }
 
 private func findForgeFenceMatches(in markdown: String) -> [FenceMatch] {

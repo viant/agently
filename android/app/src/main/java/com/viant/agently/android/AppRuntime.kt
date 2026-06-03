@@ -189,10 +189,12 @@ internal suspend fun loadRecentConversations(
 ): List<Conversation> {
     val conversations = client.listConversations(
         ListConversationsInput(
-            page = com.viant.agentlysdk.PageInput(limit = 10)
+            page = com.viant.agentlysdk.PageInput(limit = 100)
         )
     ).rows
-    return conversations
+    return conversations.sortedWith(compareByDescending<Conversation> {
+        parseConversationActivityInstantMillis(it.lastActivity ?: it.updatedAt ?: it.createdAt)
+    }.thenBy { it.title?.lowercase().orEmpty() }.thenBy { it.id })
 }
 
 internal suspend fun loadConversationBindingData(
@@ -241,6 +243,33 @@ internal suspend fun prepareConversationBinding(
         transcriptEntries = if (replaceTranscript) transcriptBuilder(binding.state) else emptyList(),
         replaceTranscript = replaceTranscript
     )
+}
+
+internal suspend fun ensureConversationPresentInRecentList(
+    client: AgentlyClient,
+    conversations: List<Conversation>,
+    conversationId: String
+): List<Conversation> {
+    if (conversations.any { it.id == conversationId }) {
+        return conversations
+    }
+    return runCatching {
+        val conversation = client.getConversation(conversationId)
+        mergeConversationIntoRecentList(conversations, conversation)
+    }.getOrElse { conversations }
+}
+
+internal fun mergeConversationIntoRecentList(
+    conversations: List<Conversation>,
+    conversation: Conversation
+): List<Conversation> {
+    return (conversations.filterNot { it.id == conversation.id } + conversation)
+        .sortedWith(
+            compareByDescending<Conversation> {
+                parseConversationActivityInstantMillis(it.lastActivity ?: it.createdAt)
+            }.thenBy { it.title?.lowercase().orEmpty() }
+                .thenBy { it.id }
+        )
 }
 
 private suspend fun loadExecutionPayloadPreviews(

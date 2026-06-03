@@ -28,6 +28,7 @@ import com.viant.forgeandroid.runtime.DashboardMetricDef
 import com.viant.forgeandroid.runtime.DataSourceDef
 import com.viant.forgeandroid.runtime.ForgeRuntime
 import com.viant.forgeandroid.runtime.JsonUtil
+import com.viant.forgeandroid.runtime.LinkDef
 import com.viant.forgeandroid.runtime.SelectorDef
 import com.viant.forgeandroid.runtime.TableDef
 import com.viant.forgeandroid.runtime.ViewDef
@@ -147,8 +148,8 @@ private fun TranscriptForgeUiBlock(
             title = payload.title ?: "Forge content",
             metadata = inlineMetadata
         )
-        windowId = state.windowId
         hydrateTranscriptForgeDataSources(forgeRuntime, state.windowId, dataStore)
+        windowId = state.windowId
     }
 
     val activeWindowId = windowId
@@ -436,8 +437,11 @@ internal fun buildTranscriptForgeWindowMetadata(
     payload: ForgeUiFencePayload,
     dataStore: Map<String, MaterializedForgeDataBlock>
 ): WindowMetadata {
-    val dataSources = buildTranscriptForgeDataSources(payload, dataStore)
-    val containers = payload.blocks.mapNotNull(::adaptTranscriptForgeBlock)
+    val normalizedDataStore = buildNormalizedTranscriptDataStore(payload, dataStore)
+    val dataSources = buildTranscriptForgeDataSources(payload, normalizedDataStore)
+    val containers = payload.blocks.mapIndexedNotNull { index, block ->
+        adaptTranscriptForgeBlock(block, index)
+    }
     require(containers.isNotEmpty()) { "forge-ui block does not contain any renderable blocks" }
     return WindowMetadata(
         namespace = "agently.android.transcript",
@@ -466,6 +470,7 @@ private fun buildTranscriptForgeDataSources(
     payload.blocks.forEach { block ->
         jsonString(block["dataSourceRef"]).takeIf { it.isNotBlank() }?.let(refs::add)
         jsonString(block["dataSource"]).takeIf { it.isNotBlank() }?.let(refs::add)
+        syntheticTranscriptDataSourceRef(block).takeIf { it.isNotBlank() }?.let(refs::add)
     }
     return refs.associateWith { ref ->
         val selectionMode = when {
@@ -483,18 +488,23 @@ private fun buildTranscriptForgeDataSources(
     }
 }
 
-private fun adaptTranscriptForgeBlock(block: JsonObject): ContainerDef? {
+private fun adaptTranscriptForgeBlock(block: JsonObject, index: Int): ContainerDef? {
     return when (jsonString(block["kind"])) {
-        "planner.table" -> adaptPlannerTableBlock(block)
-        "dashboard.summary" -> adaptDashboardSummaryBlock(block)
-        "dashboard.timeline" -> adaptDashboardTimelineBlock(block)
+        "planner.table" -> adaptPlannerTableBlock(block, index)
+        "dashboard.table" -> adaptDashboardTableBlock(block, index)
+        "dashboard.summary" -> adaptDashboardSummaryBlock(block, index)
+        "dashboard.report" -> adaptDashboardReportBlock(block, index)
+        "dashboard.kpiTable" -> adaptDashboardKpiTableBlock(block, index)
+        "dashboard.dimensions" -> adaptDashboardDimensionsBlock(block, index)
+        "dashboard.messages" -> adaptDashboardMessagesBlock(block, index)
+        "dashboard.timeline" -> adaptDashboardTimelineBlock(block, index)
         else -> runCatching {
             forgeFenceJson.decodeFromString(ContainerDef.serializer(), block.toString())
         }.getOrNull()
     }
 }
 
-private fun adaptPlannerTableBlock(block: JsonObject): ContainerDef {
+private fun adaptPlannerTableBlock(block: JsonObject, index: Int): ContainerDef {
     val dataSourceRef = resolveTranscriptDataSourceRef(block)
     val selectionField = jsonString((block["selection"] as? JsonObject)?.get("field"))
     val columns = mutableListOf<ColumnDef>()
@@ -514,7 +524,12 @@ private fun adaptPlannerTableBlock(block: JsonObject): ContainerDef {
         ColumnDef(
             id = key,
             name = key,
-            label = jsonString(value["label"]).ifBlank { titleizeKey(key) }
+            label = jsonString(value["label"]).ifBlank { titleizeKey(key) },
+            format = jsonString(value["format"]).takeIf { it.isNotBlank() },
+            type = jsonString(value["type"]).takeIf { it.isNotBlank() },
+            link = (value["link"] as? JsonObject)?.let { linkObject ->
+                LinkDef(href = jsonString(linkObject["href"]).takeIf { it.isNotBlank() })
+            }
         )
     }
     declaredColumns.forEach { column ->
@@ -523,7 +538,7 @@ private fun adaptPlannerTableBlock(block: JsonObject): ContainerDef {
         }
     }
     return ContainerDef(
-        id = jsonString(block["id"]).ifBlank { "planner-table" },
+        id = jsonString(block["id"]).ifBlank { "planner-table-$index" },
         title = jsonString(block["title"]).takeIf { it.isNotBlank() } ?: "Planner table",
         subtitle = jsonString(block["subtitle"]).takeIf { it.isNotBlank() },
         dataSourceRef = dataSourceRef,
@@ -531,8 +546,20 @@ private fun adaptPlannerTableBlock(block: JsonObject): ContainerDef {
     )
 }
 
-private fun adaptDashboardSummaryBlock(block: JsonObject): ContainerDef {
-    val metrics = (block["metrics"] as? JsonArray).orEmpty().mapNotNull { entry ->
+private fun adaptDashboardSummaryBlock(block: JsonObject, index: Int): ContainerDef {
+    val metrics = summaryMetrics(block)
+    return ContainerDef(
+        id = jsonString(block["id"]).ifBlank { "dashboard-summary-$index" },
+        kind = "dashboard.summary",
+        title = jsonString(block["title"]).takeIf { it.isNotBlank() },
+        subtitle = jsonString(block["subtitle"]).takeIf { it.isNotBlank() },
+        dataSourceRef = resolveTranscriptDataSourceRef(block),
+        metrics = metrics
+    )
+}
+
+private fun summaryMetrics(block: JsonObject): List<DashboardMetricDef> {
+    val declared = (block["metrics"] as? JsonArray).orEmpty().mapNotNull { entry ->
         when (entry) {
             is JsonPrimitive -> {
                 val selector = entry.content.trim()
@@ -558,17 +585,139 @@ private fun adaptDashboardSummaryBlock(block: JsonObject): ContainerDef {
             else -> null
         }
     }
+    if (declared.isNotEmpty()) {
+        return declared
+    }
+    return (block["items"] as? JsonArray).orEmpty().mapNotNull { entry ->
+        val item = entry as? JsonObject ?: return@mapNotNull null
+        val rawKey = jsonString(item["key"]).ifBlank {
+            jsonString(item["label"]).ifBlank { jsonString(item["id"]).ifBlank { "value" } }
+        }
+        val key = transcriptFieldKey(rawKey)
+        DashboardMetricDef(
+            id = key,
+            label = jsonString(item["label"]).ifBlank { titleizeKey(key) },
+            selector = key,
+            format = jsonString(item["format"]).takeIf { it.isNotBlank() }
+        )
+    }
+}
+
+private fun adaptDashboardReportBlock(block: JsonObject, index: Int): ContainerDef {
+    val sections = (block["sections"] as? JsonArray).orEmpty().mapNotNull { entry ->
+        val section = entry as? JsonObject ?: return@mapNotNull null
+        DashboardReportSectionDef(
+            id = jsonString(section["id"]).ifBlank { null },
+            title = jsonString(section["title"]).ifBlank { null },
+            body = (section["body"] as? JsonArray).orEmpty()
+                .mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf(String::isNotBlank) },
+            tone = jsonString(section["tone"]).ifBlank { null }
+        )
+    }
     return ContainerDef(
-        id = jsonString(block["id"]).ifBlank { "dashboard-summary" },
-        kind = "dashboard.summary",
+        id = jsonString(block["id"]).ifBlank { "dashboard-report-$index" },
+        kind = "dashboard.report",
         title = jsonString(block["title"]).takeIf { it.isNotBlank() },
         subtitle = jsonString(block["subtitle"]).takeIf { it.isNotBlank() },
-        dataSourceRef = resolveTranscriptDataSourceRef(block),
-        metrics = metrics
+        sections = sections
     )
 }
 
-private fun adaptDashboardTimelineBlock(block: JsonObject): ContainerDef {
+private fun adaptDashboardKpiTableBlock(block: JsonObject, index: Int): ContainerDef {
+    val columns = (block["columns"] as? JsonArray).orEmpty().mapNotNull { entry ->
+        val value = entry as? JsonObject ?: return@mapNotNull null
+        val key = jsonString(value["key"]).ifBlank { jsonString(value["id"]) }
+        if (key.isBlank()) return@mapNotNull null
+        ColumnDef(
+            id = key,
+            name = key,
+            label = jsonString(value["label"]).ifBlank { titleizeKey(key) },
+            format = jsonString(value["format"]).takeIf { it.isNotBlank() },
+            type = jsonString(value["type"]).takeIf { it.isNotBlank() },
+            link = (value["link"] as? JsonObject)?.let { linkObject ->
+                LinkDef(href = jsonString(linkObject["href"]).takeIf { it.isNotBlank() })
+            }
+        )
+    }
+    return ContainerDef(
+        id = jsonString(block["id"]).ifBlank { "dashboard-kpi-table-$index" },
+        title = jsonString(block["title"]).takeIf { it.isNotBlank() } ?: "KPI table",
+        subtitle = jsonString(block["subtitle"]).takeIf { it.isNotBlank() },
+        dataSourceRef = resolveTranscriptDataSourceRef(block),
+        table = TableDef(columns = columns)
+    )
+}
+
+private fun adaptDashboardTableBlock(block: JsonObject, index: Int): ContainerDef {
+    val columns = (block["columns"] as? JsonArray).orEmpty().mapNotNull { entry ->
+        val value = entry as? JsonObject ?: return@mapNotNull null
+        val key = jsonString(value["key"]).ifBlank { jsonString(value["id"]) }
+        if (key.isBlank()) return@mapNotNull null
+        ColumnDef(
+            id = key,
+            name = key,
+            label = jsonString(value["label"]).ifBlank { titleizeKey(key) }
+        )
+    }
+    return ContainerDef(
+        id = jsonString(block["id"]).ifBlank { "dashboard-table-$index" },
+        title = jsonString(block["title"]).takeIf { it.isNotBlank() } ?: "Table",
+        subtitle = jsonString(block["subtitle"]).takeIf { it.isNotBlank() },
+        dataSourceRef = resolveTranscriptDataSourceRef(block),
+        table = TableDef(columns = columns)
+    )
+}
+
+private fun adaptDashboardDimensionsBlock(block: JsonObject, index: Int): ContainerDef {
+    val dimension = (block["dimension"] as? JsonObject)?.let { field ->
+        DashboardFieldDef(
+            key = jsonString(field["key"]).takeIf { it.isNotBlank() },
+            label = jsonString(field["label"]).takeIf { it.isNotBlank() },
+            format = jsonString(field["format"]).takeIf { it.isNotBlank() }
+        )
+    }
+    val metric = (block["metric"] as? JsonObject)?.let { field ->
+        DashboardFieldDef(
+            key = jsonString(field["key"]).takeIf { it.isNotBlank() },
+            label = jsonString(field["label"]).takeIf { it.isNotBlank() },
+            format = jsonString(field["format"]).takeIf { it.isNotBlank() }
+        )
+    }
+    return ContainerDef(
+        id = jsonString(block["id"]).ifBlank { "dashboard-dimensions-$index" },
+        kind = "dashboard.dimensions",
+        title = jsonString(block["title"]).takeIf { it.isNotBlank() },
+        subtitle = jsonString(block["subtitle"]).takeIf { it.isNotBlank() },
+        dataSourceRef = resolveTranscriptDataSourceRef(block),
+        dimension = dimension,
+        metric = metric,
+        viewModes = (block["viewModes"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf(String::isNotBlank) },
+        limit = (block["limit"] as? JsonPrimitive)?.intOrNull,
+        orderBy = jsonString(block["orderBy"]).takeIf { it.isNotBlank() }
+    )
+}
+
+private fun adaptDashboardMessagesBlock(block: JsonObject, index: Int): ContainerDef {
+    val items = (block["items"] as? JsonArray).orEmpty().mapNotNull { entry ->
+        val item = entry as? JsonObject ?: return@mapNotNull null
+        ItemDef(
+            id = jsonString(item["id"]).takeIf { it.isNotBlank() },
+            label = jsonString(item["label"]).takeIf { it.isNotBlank() },
+            title = jsonString(item["title"]).takeIf { it.isNotBlank() },
+            body = jsonString(item["body"]).takeIf { it.isNotBlank() },
+            severity = jsonString(item["severity"]).takeIf { it.isNotBlank() }
+        )
+    }
+    return ContainerDef(
+        id = jsonString(block["id"]).ifBlank { "dashboard-messages-$index" },
+        kind = "dashboard.messages",
+        title = jsonString(block["title"]).takeIf { it.isNotBlank() },
+        subtitle = jsonString(block["subtitle"]).takeIf { it.isNotBlank() },
+        items = items
+    )
+}
+
+private fun adaptDashboardTimelineBlock(block: JsonObject, index: Int): ContainerDef {
     val dataSourceRef = resolveTranscriptDataSourceRef(block)
     val chartType = jsonString(block["chartType"]).ifBlank { "bar" }
     val categoryKey = jsonString(block["dateField"])
@@ -577,13 +726,21 @@ private fun adaptDashboardTimelineBlock(block: JsonObject): ContainerDef {
         .ifBlank { jsonString(block["seriesColumn"]) }
         .ifBlank { "label" }
     val seriesKeys = (block["series"] as? JsonArray).orEmpty()
-        .mapNotNull { (it as? JsonPrimitive)?.content?.trim()?.takeIf(String::isNotBlank) }
+        .mapNotNull { entry ->
+            when (entry) {
+                is JsonPrimitive -> entry.content.trim().takeIf(String::isNotBlank)
+                is JsonObject -> jsonString(entry["key"]).ifBlank {
+                    jsonString(entry["id"]).ifBlank { jsonString(entry["value"]) }
+                }.takeIf { it.isNotBlank() }
+                else -> null
+            }
+        }
     val valueKey = seriesKeys.firstOrNull()
         ?: jsonString(block["valueColumn"]).takeIf { it.isNotBlank() }
         ?: "value"
 
     return ContainerDef(
-        id = jsonString(block["id"]).ifBlank { "dashboard-timeline" },
+        id = jsonString(block["id"]).ifBlank { "dashboard-timeline-$index" },
         kind = "dashboard.timeline",
         title = jsonString(block["title"]).takeIf { it.isNotBlank() },
         subtitle = jsonString(block["subtitle"]).takeIf { it.isNotBlank() },
@@ -613,7 +770,62 @@ private fun adaptDashboardTimelineBlock(block: JsonObject): ContainerDef {
 }
 
 private fun resolveTranscriptDataSourceRef(block: JsonObject): String {
-    return jsonString(block["dataSourceRef"]).ifBlank { jsonString(block["dataSource"]) }
+    return jsonString(block["dataSourceRef"]).ifBlank {
+        jsonString(block["dataSource"]).ifBlank { syntheticTranscriptDataSourceRef(block) }
+    }
+}
+
+private fun buildNormalizedTranscriptDataStore(
+    payload: ForgeUiFencePayload,
+    dataStore: Map<String, MaterializedForgeDataBlock>
+): Map<String, MaterializedForgeDataBlock> {
+    val normalized = linkedMapOf<String, MaterializedForgeDataBlock>()
+    normalized.putAll(dataStore)
+    payload.blocks.forEach { block ->
+        synthesizeTranscriptDataBlock(block)?.let { normalized[it.id] = it }
+    }
+    return normalized
+}
+
+private fun synthesizeTranscriptDataBlock(block: JsonObject): MaterializedForgeDataBlock? {
+    if (jsonString(block["kind"]) != "dashboard.summary") {
+        return null
+    }
+    val dataSourceRef = syntheticTranscriptDataSourceRef(block)
+    val row = linkedMapOf<String, Any?>()
+    (block["items"] as? JsonArray).orEmpty().forEach { entry ->
+        val item = entry as? JsonObject ?: return@forEach
+        val rawKey = jsonString(item["key"]).ifBlank {
+            jsonString(item["label"]).ifBlank { jsonString(item["id"]).ifBlank { "value" } }
+        }
+        row[transcriptFieldKey(rawKey)] = item["value"]?.let(JsonUtil::elementToAny)
+    }
+    if (row.isEmpty()) {
+        return null
+    }
+    return MaterializedForgeDataBlock(
+        id = dataSourceRef,
+        rows = listOf(row)
+    )
+}
+
+private fun syntheticTranscriptDataSourceRef(block: JsonObject): String {
+    val base = jsonString(block["id"]).ifBlank {
+        jsonString(block["title"]).ifBlank { "transcript-block" }
+    }
+    return "inline_${transcriptFieldKey(base)}"
+}
+
+private fun transcriptFieldKey(value: String): String {
+    val normalized = value.trim()
+        .replace(Regex("[^A-Za-z0-9]+"), "_")
+        .trim('_')
+        .lowercase()
+    if (normalized.isBlank()) {
+        return "value"
+    }
+    val parts = normalized.split('_').filter { it.isNotBlank() }
+    return parts.first() + parts.drop(1).joinToString("") { it.replaceFirstChar(Char::titlecase) }
 }
 
 private fun titleizeKey(value: String): String {

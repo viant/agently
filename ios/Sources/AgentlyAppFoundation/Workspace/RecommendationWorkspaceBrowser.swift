@@ -3,7 +3,7 @@ import AgentlySDK
 import ForgeIOSRuntime
 import ForgeIOSUI
 
-struct RecommendationWorkspaceBrowser: View {
+struct HostedWorkspaceBrowser: View {
     let snapshot: WorkspaceWindowSnapshot
     let metadata: WindowMetadata
     let forgeRuntime: ForgeRuntime
@@ -128,15 +128,15 @@ struct RecommendationWorkspaceBrowser: View {
     @ViewBuilder
     private var listHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Recommendations")
+            Text(snapshot.windowTitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "Records")
                 .font(.title3.weight(.semibold))
             HStack(spacing: 8) {
                 if let totalCount {
-                    Text(recommendationCountLabel(totalCount))
+                    Text(itemCountLabel(totalCount))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text(recommendationCountLabel(rows.count))
+                    Text(itemCountLabel(rows.count))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -162,7 +162,7 @@ struct RecommendationWorkspaceBrowser: View {
                 }
 
                 if rows.isEmpty {
-                    Text(isLoading ? "Loading recommendations…" : "No recommendations found.")
+                    Text(isLoading ? "Loading items…" : "No items found.")
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -251,7 +251,7 @@ struct RecommendationWorkspaceBrowser: View {
     @ViewBuilder
     private func recommendationErrorState(_ message: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Recommendation data is unavailable right now.")
+            Text("Workspace data is unavailable right now.")
                 .font(.headline)
             Text(message)
                 .font(.footnote)
@@ -270,48 +270,44 @@ struct RecommendationWorkspaceBrowser: View {
     private func loadPage() async {
         guard let primaryDataSourceRef,
               let primaryDataSource else {
-            errorMessage = "Recommendation datasource metadata is incomplete."
+            errorMessage = "Workspace datasource metadata is incomplete."
             return
         }
 
         isLoading = true
         errorMessage = nil
 
-        do {
-            var inputs = snapshot.parameters ?? [:]
-            if primaryDataSource.paging?.enabled != false {
-                inputs[pageParameterName] = .number(Double(currentPage))
-                inputs[sizeParameterName] = .number(Double(pageSize))
-            }
-            await forgeRuntime.setDataSourceInputParameters(
-                windowID: windowContext.windowID,
-                dataSourceRef: primaryDataSourceRef,
-                parameters: inputs.mapValues(\.forgeValue),
-                fetch: false
-            )
-            await forgeRuntime.refreshDataSourceCollection(
-                windowID: windowContext.windowID,
-                dataSourceRef: primaryDataSourceRef
-            )
-            let preparedRows = await forgeRuntime.dataSourceCollection(
-                windowID: windowContext.windowID,
-                dataSourceRef: primaryDataSourceRef
-            ).map { $0.mapValues(\.appValue) }
-            rows = preparedRows
-            dataInfo = await forgeRuntime.dataSourceMetrics(
-                windowID: windowContext.windowID,
-                dataSourceRef: primaryDataSourceRef
-            ).mapValues(\.appValue)
+        var inputs = snapshot.parameters ?? [:]
+        if primaryDataSource.paging?.enabled != false {
+            inputs[pageParameterName] = .number(Double(currentPage))
+            inputs[sizeParameterName] = .number(Double(pageSize))
+        }
+        await forgeRuntime.setDataSourceInputParameters(
+            windowID: windowContext.windowID,
+            dataSourceRef: primaryDataSourceRef,
+            parameters: inputs.mapValues(\.forgeValue),
+            fetch: false
+        )
+        await forgeRuntime.refreshDataSourceCollection(
+            windowID: windowContext.windowID,
+            dataSourceRef: primaryDataSourceRef
+        )
+        let preparedRows = await forgeRuntime.dataSourceCollection(
+            windowID: windowContext.windowID,
+            dataSourceRef: primaryDataSourceRef
+        ).map { $0.mapValues(\.appValue) }
+        rows = preparedRows
+        dataInfo = await forgeRuntime.dataSourceMetrics(
+            windowID: windowContext.windowID,
+            dataSourceRef: primaryDataSourceRef
+        ).mapValues(\.appValue)
 
-            let preferredRow = preferredRow(for: preparedRows)
-            if let preferredRow {
-                selectedRowID = recommendationIdentity(for: preferredRow)
-                await selectRow(preferredRow)
-            } else {
-                selectedRowID = nil
-            }
-        } catch {
-            errorMessage = error.localizedDescription
+        let preferredRow = preferredRow(for: preparedRows)
+        if let preferredRow {
+            selectedRowID = recommendationIdentity(for: preferredRow)
+            await selectRow(preferredRow)
+        } else {
+            selectedRowID = nil
         }
 
         isLoading = false
@@ -335,23 +331,13 @@ struct RecommendationWorkspaceBrowser: View {
 
     private func selectRow(_ row: [String: AppJSONValue]) async {
         guard let primaryDataSourceRef else { return }
-        let resolvedRow = applyForgeSelectionHook(
-            metadata: metadata,
-            selectedRow: row,
-            rowIndex: rows.firstIndex(where: { recommendationIdentity(for: $0) == recommendationIdentity(for: row) }) ?? 0
-        )
-        selectedRowID = recommendationIdentity(for: resolvedRow)
-        let forgeRow = resolvedRow.mapValues(\.forgeValue)
+        let rowIndex = rows.firstIndex(where: { recommendationIdentity(for: $0) == recommendationIdentity(for: row) }) ?? 0
+        selectedRowID = recommendationIdentity(for: row)
         await forgeRuntime.setDataSourceSelection(
             windowID: windowContext.windowID,
             dataSourceRef: primaryDataSourceRef,
-            selected: forgeRow,
-            rowIndex: rows.firstIndex(where: { recommendationIdentity(for: $0) == selectedRowID }) ?? 0
-        )
-        await forgeRuntime.setDataSourceForm(
-            windowID: windowContext.windowID,
-            dataSourceRef: primaryDataSourceRef,
-            values: forgeRow
+            selected: row.mapValues(\.forgeValue),
+            rowIndex: rowIndex
         )
     }
 
@@ -392,8 +378,8 @@ struct RecommendationWorkspaceBrowser: View {
         return nil
     }
 
-    private func recommendationCountLabel(_ count: Int) -> String {
-        count == 1 ? "1 recommendation" : "\(count) recommendations"
+    private func itemCountLabel(_ count: Int) -> String {
+        count == 1 ? "1 item" : "\(count) items"
     }
 
     private func booleanValue(forAnyOf keys: [String], in payload: [String: AppJSONValue]) -> Bool? {

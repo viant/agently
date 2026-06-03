@@ -155,7 +155,12 @@ final class ChatRuntimeTests: XCTestCase {
                     "dataSourceRef": .string("metrics_data"),
                     "chartType": .string("bar"),
                     "dateField": .string("channel"),
-                    "series": .array([.string("spend")])
+                    "series": .array([
+                        .object([
+                            "key": .string("spend"),
+                            "label": .string("Spend")
+                        ])
+                    ])
                 ])
             ]
         )
@@ -185,6 +190,188 @@ final class ChatRuntimeTests: XCTestCase {
         XCTAssertEqual(chart.chart?.type, "bar")
         XCTAssertEqual(chart.chart?.xKey, "channel")
         XCTAssertEqual(chart.chart?.series, ["spend"])
+    }
+
+    func testBuildTranscriptForgeWindowMetadataAdaptsDashboardTableBlock() throws {
+        let payload = ForgeUIPayload(
+            version: 1,
+            title: "iOS dashboard verification",
+            subtitle: "Agency 4257",
+            blocks: [
+                .object([
+                    "id": .string("primary-evidence"),
+                    "kind": .string("dashboard.table"),
+                    "title": .string("Primary evidence"),
+                    "dataSourceRef": .string("summary_metrics"),
+                    "columns": .array([
+                        .object([
+                            "key": .string("ad_order_name"),
+                            "label": .string("Ad order"),
+                            "format": .string("currency"),
+                            "type": .string("link"),
+                            "link": .object([
+                                "href": .string("ad_order_url")
+                            ])
+                        ]),
+                        .object([
+                            "key": .string("primary_blocker_family"),
+                            "label": .string("Primary blocker"),
+                            "format": .string("percentFraction")
+                        ])
+                    ])
+                ])
+            ]
+        )
+
+        let metadata = try buildTranscriptForgeWindowMetadata(
+            payload: payload,
+            dataStore: [
+                "summary_metrics": MaterializedForgeDataBlock(
+                    id: "summary_metrics",
+                    rows: .array([
+                        .object([
+                            "ad_order_name": .string("CID-30432_DH_Retargeting"),
+                            "primary_blocker_family": .string("Supply restriction")
+                        ])
+                    ])
+                )
+            ]
+        )
+
+        let root = try XCTUnwrap(metadata.view?.content?.containers.first)
+        let table = try XCTUnwrap(root.containers.first)
+        XCTAssertEqual(table.kind, "table")
+        XCTAssertEqual(table.dataSourceRef, "summary_metrics")
+        XCTAssertEqual(table.table?.columns.map(\.id), ["ad_order_name", "primary_blocker_family"])
+        XCTAssertEqual(table.table?.columns.map(\.label), ["Ad order", "Primary blocker"])
+        XCTAssertEqual(table.table?.columns.map(\.format), ["currency", "percentFraction"])
+        XCTAssertEqual(table.table?.columns.first?.type, "link")
+        XCTAssertEqual(table.table?.columns.first?.link?.href, "ad_order_url")
+    }
+
+    func testBuildTranscriptForgeWindowMetadataAdaptsSummaryItemsAndReportBlocks() throws {
+        let payload = ForgeUIPayload(
+            version: 1,
+            title: "Frequency cap recommendation review",
+            subtitle: "Blocked before execution",
+            blocks: [
+                .object([
+                    "kind": .string("dashboard.summary"),
+                    "title": .string("Review summary"),
+                    "items": .array([
+                        .object([
+                            "label": .string("Ad order"),
+                            "value": .string("Houston (Galleria) - Display (2657754)")
+                        ]),
+                        .object([
+                            "label": .string("Submission status"),
+                            "value": .string("Blocked")
+                        ])
+                    ])
+                ]),
+                .object([
+                    "kind": .string("dashboard.report"),
+                    "title": .string("Why this recommendation is not yet safe"),
+                    "sections": .array([
+                        .object([
+                            "id": .string("interpretation"),
+                            "title": .string("Interpretation"),
+                            "body": .array([
+                                .string("Block submission until current cap truth is confirmed.")
+                            ])
+                        ])
+                    ])
+                ]),
+                .object([
+                    "kind": .string("dashboard.kpiTable"),
+                    "title": .string("Recent delivery posture"),
+                    "dataSourceRef": .string("recent_delivery"),
+                    "columns": .array([
+                        .object([
+                            "key": .string("total_spend"),
+                            "label": .string("Spend")
+                        ]),
+                        .object([
+                            "key": .string("flight_pacing_status"),
+                            "label": .string("Flight pacing")
+                        ])
+                    ])
+                ])
+            ]
+        )
+
+        let metadata = try buildTranscriptForgeWindowMetadata(
+            payload: payload,
+            dataStore: [
+                "recent_delivery": MaterializedForgeDataBlock(
+                    id: "recent_delivery",
+                    rows: .array([
+                        .object([
+                            "total_spend": .number(6061.727),
+                            "flight_pacing_status": .string("behind")
+                        ])
+                    ])
+                )
+            ]
+        )
+
+        let containers = try XCTUnwrap(metadata.view?.content?.containers.first?.containers)
+        XCTAssertEqual(containers[0].kind, "dashboard.summary")
+        XCTAssertEqual(containers[0].metrics.map(\.label), ["Ad order", "Submission status"])
+        XCTAssertEqual(containers[1].kind, "dashboard.report")
+        XCTAssertEqual(containers[1].sections.first?.title, "Interpretation")
+        XCTAssertEqual(containers[2].table?.columns.map(\.id), ["total_spend", "flight_pacing_status"])
+        XCTAssertEqual(containers[2].table?.columns.map(\.label), ["Spend", "Flight pacing"])
+    }
+
+    func testBuildTranscriptForgeWindowMetadataAdaptsDimensionsAndMessagesBlocks() throws {
+        let payload = ForgeUIPayload(
+            version: 1,
+            title: "iOS dashboard verification",
+            subtitle: "Agency 4257",
+            blocks: [
+                .object([
+                    "kind": .string("dashboard.dimensions"),
+                    "title": .string("Publisher concentration"),
+                    "dataSourceRef": .string("publisher_breakdown"),
+                    "dimension": .object([
+                        "key": .string("publisher_id"),
+                        "label": .string("Publisher")
+                    ]),
+                    "metric": .object([
+                        "key": .string("spend_share"),
+                        "label": .string("Spend share"),
+                        "format": .string("percentFraction")
+                    ]),
+                    "viewModes": .array([.string("chart"), .string("table")]),
+                    "limit": .number(10)
+                ]),
+                .object([
+                    "kind": .string("dashboard.messages"),
+                    "title": .string("Next action"),
+                    "items": .array([
+                        .object([
+                            "title": .string("Primary next step"),
+                            "body": .string("Validate supply restriction next."),
+                            "severity": .string("warning")
+                        ])
+                    ])
+                ])
+            ]
+        )
+
+        let metadata = try buildTranscriptForgeWindowMetadata(payload: payload, dataStore: [:])
+        let containers = try XCTUnwrap(metadata.view?.content?.containers.first?.containers)
+
+        XCTAssertEqual(containers[0].kind, "dashboard.dimensions")
+        XCTAssertEqual(containers[0].dimension?.key, "publisher_id")
+        XCTAssertEqual(containers[0].metric?.key, "spend_share")
+        XCTAssertEqual(containers[0].viewModes, ["chart", "table"])
+        XCTAssertEqual(containers[0].limit, 10)
+
+        XCTAssertEqual(containers[1].kind, "dashboard.messages")
+        XCTAssertEqual(containers[1].items.first?.title, "Primary next step")
+        XCTAssertEqual(containers[1].items.first?.severity, "warning")
     }
 
     func testDeriveHostedWorkspaceRestoreStateRestoresHostedWindowFromViewOpen() throws {

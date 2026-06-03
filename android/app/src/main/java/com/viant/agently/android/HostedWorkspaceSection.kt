@@ -142,11 +142,7 @@ internal fun rememberHostedWorkspaceWindowUiState(
 
     LaunchedEffect(selected.windowId) {
         try {
-            val state = forgeRuntime.openWindow(
-                windowKey = selected.windowKey,
-                title = selected.windowTitle?.takeIf { it.isNotBlank() } ?: selected.windowKey,
-                parameters = selected.parameters?.let(::jsonObjectToParameterMap).orEmpty()
-            )
+            val state = openHostedWorkspaceWindow(forgeRuntime, selected)
             runtimeWindowId = state.windowId
             loadError = null
         } catch (err: Throwable) {
@@ -175,6 +171,21 @@ internal fun rememberHostedWorkspaceWindowUiState(
         error = loadError
     )
 }
+
+internal fun openHostedWorkspaceWindow(
+    forgeRuntime: ForgeRuntime,
+    snapshot: WorkspaceWindowSnapshot
+) = forgeRuntime.openWindow(
+    windowKey = snapshot.windowKey,
+    title = snapshot.windowTitle?.takeIf { it.isNotBlank() } ?: snapshot.windowKey,
+    inTab = snapshot.inTab != false,
+    parameters = snapshot.parameters?.let(::jsonObjectToParameterMap).orEmpty(),
+    windowIdOverride = snapshot.windowId,
+    conversationId = snapshot.conversationId,
+    presentation = snapshot.presentation,
+    region = snapshot.region,
+    parentKey = snapshot.parentKey
+)
 
 internal fun deriveHostedWorkspaceRestoreState(
     state: ConversationStateResponse

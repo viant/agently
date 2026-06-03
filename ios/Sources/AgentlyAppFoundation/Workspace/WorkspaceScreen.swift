@@ -159,8 +159,7 @@ public struct WorkspaceScreen: View {
             HostedWorkspaceSection(
                 restoreState: hostedWorkspaceRestoreState,
                 conversationState: conversationState,
-                forgeRuntime: forgeRuntime,
-                client: client
+                forgeRuntime: forgeRuntime
             )
             WorkspaceStatusSection(
                 isSending: isSending,

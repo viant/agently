@@ -76,4 +76,31 @@ final class AppStateTargetingTests: XCTestCase {
             "~/.secret/env.enc|blowfish://default"
         )
     }
+
+    func testResolvedBootstrapActiveConversationIDPrefersEnvironmentOverrideInDevMode() {
+        XCTAssertEqual(
+            resolvedBootstrapActiveConversationID(
+                storedValue: "stored-conversation",
+                environmentValue: "env-conversation",
+                launchArguments: []
+            ),
+            "env-conversation"
+        )
+        XCTAssertEqual(
+            resolvedBootstrapActiveConversationID(
+                storedValue: "stored-conversation",
+                environmentValue: "   ",
+                launchArguments: []
+            ),
+            "stored-conversation"
+        )
+        XCTAssertEqual(
+            resolvedBootstrapActiveConversationID(
+                storedValue: "stored-conversation",
+                environmentValue: nil,
+                launchArguments: ["Agently", "--activeConversationID=launch-conversation"]
+            ),
+            "launch-conversation"
+        )
+    }
 }

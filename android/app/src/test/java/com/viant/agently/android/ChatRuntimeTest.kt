@@ -5,6 +5,7 @@ import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 class ChatRuntimeTest {
@@ -65,5 +66,14 @@ class ChatRuntimeTest {
         assertEquals("assistant-real-1", transcript.single().id)
         assertEquals("maple", transcript.single().markdown)
         assertFalse(transcript.single().streaming)
+    }
+
+    @Test
+    fun parseConversationActivityInstantMillis_handlesGoMonotonicSuffix() {
+        val parsed = parseConversationActivityInstantMillis(
+            "2026-06-02 11:44:30.288943 -0700 PDT m=+9154.487875251"
+        )
+
+        assertNotNull(parsed)
     }
 }
