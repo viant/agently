@@ -207,6 +207,3 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.45.0 // indirect
 )
-
-//replace github.com/viant/agently-core => /Users/pol-mfilipowicz/go/src/github.com/viant/agently-core
-//replace github.com/viant/forge => ../forge
