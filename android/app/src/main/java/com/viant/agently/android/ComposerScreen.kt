@@ -30,6 +30,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -47,68 +49,127 @@ internal fun PhoneComposerDock(
     onVoiceInput: () -> Unit,
     onRemoveAttachment: (String) -> Unit,
     onOpenSettings: () -> Unit,
-    onRunQuery: () -> Unit
+    onRunQuery: () -> Unit,
+    onMeasuredHeight: (androidx.compose.ui.unit.Dp) -> Unit = {}
 ) {
+    val compactConversationDock = !activeConversationId.isNullOrBlank()
+    val density = LocalDensity.current
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .navigationBarsPadding(),
+            .navigationBarsPadding()
+            .onGloballyPositioned { coordinates ->
+                onMeasuredHeight(with(density) { coordinates.size.height.toDp() })
+            },
         color = Color(0xFFFDFDFE),
         border = BorderStroke(1.dp, Color(0xFFDDE4F1)),
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        shape = RoundedCornerShape(topStart = if (compactConversationDock) 24.dp else 28.dp, topEnd = if (compactConversationDock) 24.dp else 28.dp),
         tonalElevation = 2.dp,
-        shadowElevation = 10.dp
+        shadowElevation = if (compactConversationDock) 6.dp else 10.dp
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier
+                .padding(
+                    horizontal = if (compactConversationDock) 14.dp else 16.dp,
+                    vertical = if (compactConversationDock) 10.dp else 14.dp
+                ),
+            verticalArrangement = Arrangement.spacedBy(if (compactConversationDock) 8.dp else 12.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        if (!activeConversationId.isNullOrBlank()) "Message" else "New message",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        if (!activeConversationId.isNullOrBlank()) "Reply in the current chat"
-                        else "Start a fresh conversation",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF667085)
-                    )
-                }
-                agentLabel?.takeIf { it.isNotBlank() }?.let {
-                    AssistChip(onClick = {}, enabled = false, label = { Text(it) })
-                }
-                TextButton(onClick = onOpenSettings) {
-                    Text("Settings")
+            if (!compactConversationDock) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            "New message",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            "Start a fresh conversation",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF667085)
+                        )
+                    }
+                    agentLabel?.takeIf { it.isNotBlank() }?.let {
+                        AssistChip(onClick = {}, enabled = false, label = { Text(it) })
+                    }
+                    TextButton(onClick = onOpenSettings) {
+                        Text("Settings")
+                    }
                 }
             }
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                ComposerActionButton(
-                    label = "Photo",
-                    icon = { Icon(Icons.Outlined.Image, contentDescription = "Add photo") },
-                    onClick = onAddPhoto
-                )
-                if (canCapturePhoto) {
-                    ComposerActionButton(
-                        label = "Camera",
-                        icon = { Icon(Icons.Outlined.CameraAlt, contentDescription = "Take photo") },
-                        onClick = onTakePhoto
+            if (compactConversationDock) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = onQueryChange,
+                        placeholder = { Text("Reply in the workspace") },
+                        modifier = Modifier.weight(1f),
+                        minLines = 1,
+                        maxLines = 2,
+                        shape = RoundedCornerShape(20.dp)
                     )
+                    Button(
+                        onClick = onRunQuery,
+                        enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty())
+                    ) {
+                        Text("Send")
+                    }
                 }
-                if (canUseVoiceInput) {
-                    ComposerActionButton(
-                        label = "Voice",
-                        icon = { Icon(Icons.Outlined.Mic, contentDescription = "Voice input") },
-                        onClick = onVoiceInput
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CompactComposerIconButton(
+                        contentDescription = "Add photo",
+                        icon = { Icon(Icons.Outlined.Image, contentDescription = "Add photo") },
+                        onClick = onAddPhoto
                     )
+                    if (canCapturePhoto) {
+                        CompactComposerIconButton(
+                            contentDescription = "Take photo",
+                            icon = { Icon(Icons.Outlined.CameraAlt, contentDescription = "Take photo") },
+                            onClick = onTakePhoto
+                        )
+                    }
+                    if (canUseVoiceInput) {
+                        CompactComposerIconButton(
+                            contentDescription = "Voice input",
+                            icon = { Icon(Icons.Outlined.Mic, contentDescription = "Voice input") },
+                            onClick = onVoiceInput
+                        )
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ComposerActionButton(
+                        label = "Photo",
+                        icon = { Icon(Icons.Outlined.Image, contentDescription = "Add photo") },
+                        onClick = onAddPhoto
+                    )
+                    if (canCapturePhoto) {
+                        ComposerActionButton(
+                            label = "Camera",
+                            icon = { Icon(Icons.Outlined.CameraAlt, contentDescription = "Take photo") },
+                            onClick = onTakePhoto
+                        )
+                    }
+                    if (canUseVoiceInput) {
+                        ComposerActionButton(
+                            label = "Voice",
+                            icon = { Icon(Icons.Outlined.Mic, contentDescription = "Voice input") },
+                            onClick = onVoiceInput
+                        )
+                    }
                 }
             }
             if (composerAttachments.isNotEmpty()) {
@@ -117,34 +178,50 @@ internal fun PhoneComposerDock(
                     onRemoveAttachment = onRemoveAttachment
                 )
             }
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                placeholder = { Text("Ask anything") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 3,
-                maxLines = 6,
-                shape = RoundedCornerShape(22.dp)
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    if (!activeConversationId.isNullOrBlank()) "Continuing current conversation" else "A new conversation will be created",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF667085),
-                    modifier = Modifier.weight(1f)
+            if (!compactConversationDock) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    placeholder = { Text("Ask anything") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    maxLines = 6,
+                    shape = RoundedCornerShape(22.dp)
                 )
-                Button(
-                    onClick = onRunQuery,
-                    enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty())
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Send")
+                    Text(
+                        "A new conversation will be created",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF667085),
+                        modifier = Modifier.weight(1f)
+                    )
+                    Button(
+                        onClick = onRunQuery,
+                        enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty())
+                    ) {
+                        Text("Send")
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CompactComposerIconButton(
+    contentDescription: String,
+    icon: @Composable () -> Unit,
+    onClick: () -> Unit
+) {
+    FilledTonalIconButton(
+        onClick = onClick,
+        modifier = Modifier.semantics { this.contentDescription = contentDescription }
+    ) {
+        icon()
     }
 }
 

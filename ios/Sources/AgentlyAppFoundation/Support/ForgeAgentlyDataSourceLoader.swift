@@ -63,7 +63,7 @@ func makeForgeAgentlyDataSourceLoader(
 
         return ForgeRuntime.DataSourceFetchResult(
             rows: response.rows.map { $0.mapValues(\.forgeValue) },
-            metrics: response.dataInfo?.mapValues(\.forgeValue) ?? [:]
+            metrics: response.metrics?.mapValues(\.forgeValue) ?? [:]
         )
     }
 }

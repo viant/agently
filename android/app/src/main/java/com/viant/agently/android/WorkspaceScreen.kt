@@ -25,6 +25,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -88,24 +89,41 @@ internal fun TabletWorkspacePane(
     onRunQuery: () -> Unit
 ) {
     val context = LocalContext.current
+    val hostedWorkspaceState = conversationState?.let(::deriveHostedWorkspaceRestoreState)
     val hasMainContent = transcript.isNotEmpty() || pendingApprovals.isNotEmpty() || generatedFiles.isNotEmpty() || !activeConversationId.isNullOrBlank()
-    val hasHostedWorkspace = remember(conversationState) {
-        conversationState?.let(::deriveHostedWorkspaceRestoreState) != null
-    }
+    val hasHostedWorkspace = hostedWorkspaceState != null
+    val hostedWorkspaceMinHeight = remember(hostedWorkspaceState) {
+        hostedWorkspaceState?.windows
+            ?.firstOrNull { it.windowId == hostedWorkspaceState.selectedWindowId }
+            ?.workspaceMinHeight
+            ?: hostedWorkspaceState?.windows?.lastOrNull()?.workspaceMinHeight
+            ?: 420
+    }.coerceIn(320, 1200)
     val prefs = remember(context) {
         context.applicationContext.getSharedPreferences("agently.workspace.pane", Context.MODE_PRIVATE)
     }
     var workspaceBodyHeight by remember {
         mutableStateOf(
             prefs.getFloat("hosted_workspace_height_dp", 420f)
-                .coerceIn(280f, 1200f)
+                .coerceAtLeast(hostedWorkspaceMinHeight.toFloat())
+                .coerceIn(hostedWorkspaceMinHeight.toFloat(), 1200f)
         )
     }
-    var workspacePanelMode by remember(hasHostedWorkspace) {
+    var workspacePanelMode by remember(activeConversationId, hostedWorkspaceState?.selectedWindowId, hasHostedWorkspace) {
         mutableStateOf(
-            if (hasHostedWorkspace) WorkspacePanelMode.Split
+            if (hasHostedWorkspace) WorkspacePanelMode.Expanded
             else WorkspacePanelMode.Hidden
         )
+    }
+    val contentScrollState = rememberScrollState()
+
+    LaunchedEffect(activeConversationId) {
+        contentScrollState.scrollTo(0)
+    }
+    LaunchedEffect(hostedWorkspaceMinHeight) {
+        if (workspaceBodyHeight < hostedWorkspaceMinHeight.toFloat()) {
+            workspaceBodyHeight = hostedWorkspaceMinHeight.toFloat()
+        }
     }
 
     Surface(
@@ -121,7 +139,7 @@ internal fun TabletWorkspacePane(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .widthIn(max = 1120.dp),
+                    .widthIn(max = if (workspacePanelMode == WorkspacePanelMode.Expanded) 1600.dp else 1120.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Column(
@@ -134,7 +152,7 @@ internal fun TabletWorkspacePane(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
-                            .verticalScroll(rememberScrollState()),
+                            .verticalScroll(contentScrollState),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         error?.let {
@@ -191,10 +209,10 @@ internal fun TabletWorkspacePane(
                         } else {
                             if (hasHostedWorkspace && workspacePanelMode != WorkspacePanelMode.Hidden) {
                                 HostedWorkspaceSection(
-                                    conversationState = conversationState,
+                                    restoreState = hostedWorkspaceState,
                                     forgeRuntime = forgeRuntime,
                                     maxBodyHeight = if (workspacePanelMode == WorkspacePanelMode.Expanded) 1100.dp else workspaceBodyHeight.dp,
-                                    showTitle = true,
+                                    showTitle = false,
                                     headerActions = {
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             WorkspaceHeaderDot(
@@ -232,7 +250,7 @@ internal fun TabletWorkspacePane(
                                                 .pointerInput(Unit) {
                                                     detectVerticalDragGestures { _, dragAmount ->
                                                         workspaceBodyHeight = (workspaceBodyHeight + dragAmount)
-                                                            .coerceIn(280f, 1200f)
+                                                            .coerceIn(hostedWorkspaceMinHeight.toFloat(), 1200f)
                                                         prefs.edit()
                                                             .putFloat("hosted_workspace_height_dp", workspaceBodyHeight)
                                                             .apply()

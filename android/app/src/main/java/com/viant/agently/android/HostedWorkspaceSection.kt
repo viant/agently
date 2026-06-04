@@ -54,17 +54,15 @@ internal data class HostedWorkspaceWindowUiState(
 
 @Composable
 internal fun HostedWorkspaceSection(
-    conversationState: ConversationStateResponse?,
+    restoreState: HostedWorkspaceRestoreState?,
     forgeRuntime: ForgeRuntime,
     modifier: Modifier = Modifier,
     maxBodyHeight: androidx.compose.ui.unit.Dp = 420.dp,
     showTitle: Boolean = true,
     headerActions: (@Composable () -> Unit)? = null
 ) {
-    val restoreState = remember(conversationState) {
-        conversationState?.let(::deriveHostedWorkspaceRestoreState)
-    } ?: return
-    val windowState = rememberHostedWorkspaceWindowUiState(restoreState, forgeRuntime)
+    val resolvedRestoreState = restoreState ?: return
+    val windowState = rememberHostedWorkspaceWindowUiState(resolvedRestoreState, forgeRuntime)
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -207,6 +205,8 @@ internal fun openHostedWorkspaceWindow(
     conversationId = snapshot.conversationId,
     presentation = snapshot.presentation,
     region = snapshot.region,
+    workspaceSharePct = snapshot.workspaceSharePct,
+    workspaceMinHeight = snapshot.workspaceMinHeight,
     parentKey = snapshot.parentKey
 )
 
@@ -321,6 +321,9 @@ private fun hostedWorkspaceWindowsFromViewOpenStep(
                 put("presentation", JsonPrimitive(jsonString(response["presentation"])))
                 put("region", JsonPrimitive(jsonString(response["region"])))
                 put("parentKey", JsonPrimitive(jsonString(response["parentKey"])))
+                response["workspaceSharePct"]?.let { put("workspaceSharePct", it) }
+                response["workspaceMinHeight"]?.let { put("workspaceMinHeight", it) }
+                response["inTab"]?.let { put("inTab", it) }
                 request?.get("parameters")?.let { put("parameters", it) }
                 response["windowForm"]?.let { put("windowForm", it) }
             }
@@ -348,6 +351,8 @@ private fun normalizeHostedWorkspaceWindow(raw: JsonObject?): WorkspaceWindowSna
         presentation = jsonString(raw["presentation"]).ifBlank { null },
         region = jsonString(raw["region"]).ifBlank { null },
         parentKey = parentKey,
+        workspaceSharePct = raw["workspaceSharePct"]?.let(::jsonInt),
+        workspaceMinHeight = raw["workspaceMinHeight"]?.let(::jsonInt),
         inTab = raw["inTab"]?.let(::jsonBoolean) ?: true,
         parameters = raw["parameters"] as? JsonObject,
         windowForm = raw["windowForm"] as? JsonObject
@@ -401,4 +406,9 @@ private fun jsonString(value: JsonElement?): String {
 
 private fun jsonBoolean(value: JsonElement): Boolean? {
     return (value as? JsonPrimitive)?.booleanOrNull
+}
+
+private fun jsonInt(value: JsonElement): Int? {
+    val primitive = value as? JsonPrimitive ?: return null
+    return primitive.contentOrNull?.trim()?.toIntOrNull()
 }

@@ -20,6 +20,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,83 +74,109 @@ internal fun PhoneWorkspacePane(
     onDecision: (PendingToolApproval, String) -> Unit,
     onOpenFile: (GeneratedFileEntry) -> Unit,
     onClosePreview: () -> Unit,
-    onStarterTaskSelected: (String) -> Unit
+    onStarterTaskSelected: (String) -> Unit,
+    bottomComposerInset: androidx.compose.ui.unit.Dp = 232.dp
 ) {
-    val hostedWorkspaceState = remember(conversationState) {
-        conversationState?.let(::deriveHostedWorkspaceRestoreState)
-    }
+    val hostedWorkspaceState = conversationState?.let(::deriveHostedWorkspaceRestoreState)
+    val hostedWorkspaceMinHeight = remember(hostedWorkspaceState) {
+        hostedWorkspaceState?.windows
+            ?.firstOrNull { it.windowId == hostedWorkspaceState.selectedWindowId }
+            ?.workspaceMinHeight
+            ?: hostedWorkspaceState?.windows?.lastOrNull()?.workspaceMinHeight
+            ?: 420
+    }.coerceIn(260, 900)
     val hasWorkspaceSurface = hostedWorkspaceState != null ||
         pendingApprovals.isNotEmpty() ||
         generatedFiles.isNotEmpty() ||
         artifactPreview != null
-    var selectedMode by remember(hasWorkspaceSurface) {
+    var selectedMode by remember(activeConversationId, hostedWorkspaceState?.selectedWindowId, hasWorkspaceSurface) {
         mutableStateOf(
             if (hasWorkspaceSurface) PhoneWorkspaceContentMode.Workspace
             else PhoneWorkspaceContentMode.Conversation
         )
+    }
+    val workspaceFocused = hostedWorkspaceState != null && selectedMode == PhoneWorkspaceContentMode.Workspace
+
+    LaunchedEffect(activeConversationId, hostedWorkspaceState?.selectedWindowId) {
+        if (hostedWorkspaceState != null) {
+            selectedMode = PhoneWorkspaceContentMode.Workspace
+        }
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(if (workspaceFocused) 10.dp else 16.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(if (workspaceFocused) 2.dp else 6.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
+            if (workspaceFocused) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onOpenSettings) {
+                        Text("Settings")
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "VIANT.",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = Color(0xFFDB1F2F)
+                            )
+                            Text(
+                                workspaceTitle,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = Color(0xFF182230),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                         Text(
-                            "VIANT.",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = Color(0xFFDB1F2F)
-                        )
-                        Text(
-                            workspaceTitle,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = Color(0xFF182230),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            if (!activeConversationId.isNullOrBlank()) "Continuing your latest chat"
+                            else "Ready for a new conversation",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF667085)
                         )
                     }
-                    Text(
-                        if (!activeConversationId.isNullOrBlank()) "Continuing your latest chat"
-                        else "Ready for a new conversation",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF667085)
-                    )
-                }
-                TextButton(onClick = onOpenSettings) {
-                    Text("Settings")
+                    TextButton(onClick = onOpenSettings) {
+                        Text("Settings")
+                    }
                 }
             }
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                TextButton(onClick = onNewConversation, enabled = !loading) {
-                    Text("New chat")
-                }
-                TextButton(
-                    onClick = onOpenHistory,
-                    enabled = recentConversations.isNotEmpty()
+            if (!workspaceFocused) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text("History")
-                }
-                TextButton(onClick = onRefresh, enabled = !loading) {
-                    Text("Refresh")
-                }
-                if (loading) {
-                    CircularProgressIndicator(modifier = Modifier.height(24.dp))
+                    TextButton(onClick = onNewConversation, enabled = !loading) {
+                        Text("New chat")
+                    }
+                    TextButton(
+                        onClick = onOpenHistory,
+                        enabled = recentConversations.isNotEmpty()
+                    ) {
+                        Text("History")
+                    }
+                    TextButton(onClick = onRefresh, enabled = !loading) {
+                        Text("Refresh")
+                    }
+                    if (loading) {
+                        CircularProgressIndicator(modifier = Modifier.height(24.dp))
+                    }
                 }
             }
             if (loading || streamSnapshot?.activeTurnId != null) {
@@ -203,7 +230,7 @@ internal fun PhoneWorkspacePane(
                 onSelectStarterTask = onStarterTaskSelected
             )
         }
-        if (!activeConversationId.isNullOrBlank() || streamSnapshot?.activeTurnId != null) {
+        if ((!activeConversationId.isNullOrBlank() || streamSnapshot?.activeTurnId != null) && hostedWorkspaceState == null) {
             Surface(
                 color = Color(0xFFFFFFFF),
                 border = BorderStroke(1.dp, Color(0xFFE2E8F3)),
@@ -245,8 +272,10 @@ internal fun PhoneWorkspacePane(
         when {
             hasWorkspaceSurface && selectedMode == PhoneWorkspaceContentMode.Workspace -> {
                 HostedWorkspaceSection(
-                    conversationState = conversationState,
-                    forgeRuntime = forgeRuntime
+                    restoreState = hostedWorkspaceState,
+                    forgeRuntime = forgeRuntime,
+                    maxBodyHeight = hostedWorkspaceMinHeight.dp,
+                    showTitle = false
                 )
                 if (pendingApprovals.isNotEmpty()) {
                     PendingApprovalsSection(
@@ -302,7 +331,7 @@ internal fun PhoneWorkspacePane(
                 )
             }
         }
-        Spacer(modifier = Modifier.height(320.dp))
+        Spacer(modifier = Modifier.height(bottomComposerInset))
     }
 }
 

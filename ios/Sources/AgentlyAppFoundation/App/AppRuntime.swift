@@ -529,6 +529,8 @@ public final class AppRuntime: ObservableObject {
                 presentation: window.presentation ?? overlayWindow.presentation,
                 region: window.region ?? overlayWindow.region,
                 parentKey: window.parentKey ?? overlayWindow.parentKey,
+                workspaceSharePct: window.workspaceSharePct ?? overlayWindow.workspaceSharePct,
+                workspaceMinHeight: window.workspaceMinHeight ?? overlayWindow.workspaceMinHeight,
                 inTab: window.inTab ?? overlayWindow.inTab,
                 parameters: window.parameters ?? overlayWindow.parameters,
                 windowForm: overlayWindow.windowForm ?? window.windowForm
@@ -562,8 +564,17 @@ public final class AppRuntime: ObservableObject {
                     guard state.activeConversationID == conversationID else {
                         continue
                     }
+                    let currentTurnID = snapshot.activeTurnID?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let hasAcceptedActivity =
+                        (currentTurnID?.isEmpty == false) ||
+                        !snapshot.bufferedMessages.isEmpty ||
+                        !snapshot.liveExecutionGroupsByID.isEmpty ||
+                        snapshot.pendingElicitation != nil
+                    if hasAcceptedActivity {
+                        queryRuntime.markAccepted()
+                    }
                     state.activeTurnID = snapshot.activeTurnID
-                    if let currentTurnID = snapshot.activeTurnID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                    if let currentTurnID,
                        !currentTurnID.isEmpty {
                         sawActiveTurn = true
                     } else {

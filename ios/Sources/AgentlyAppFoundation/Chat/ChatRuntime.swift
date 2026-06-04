@@ -192,7 +192,7 @@ public final class ChatRuntime: ObservableObject {
             }
 
             let assistantMarkdown = [turn.assistant?.narration?.content, turn.assistant?.final?.content]
-                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .compactMap(sanitizeVisibleAssistantText)
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n\n")
 
@@ -235,30 +235,36 @@ public final class ChatRuntime: ObservableObject {
                     }
                     return lhs.pageID < rhs.pageID
                 }
-                .map { group in
+                .compactMap { group in
                     let markdown = [group.narration, group.content]
-                        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .compactMap(sanitizeVisibleAssistantText)
                         .filter { !$0.isEmpty }
                         .joined(separator: "\n\n")
+                    guard !markdown.isEmpty else {
+                        return nil
+                    }
                     return ChatTranscriptEntry(
                         id: group.pageID,
                         role: "assistant",
-                        markdown: markdown.isEmpty ? "(waiting for response)" : markdown,
+                        markdown: markdown,
                         timestampLabel: Self.timestampLabel(for: group.createdAt),
                         statusLabel: Self.statusLabel(for: group.status)
                     )
                 }
         }
 
-        return snapshot.bufferedMessages.map { message -> ChatTranscriptEntry in
+        return snapshot.bufferedMessages.compactMap { message -> ChatTranscriptEntry? in
             let markdown = [message.narration, message.content]
-                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .compactMap(sanitizeVisibleAssistantText)
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n\n")
+            guard !markdown.isEmpty else {
+                return nil
+            }
             return ChatTranscriptEntry(
                 id: message.id,
                 role: "assistant",
-                markdown: markdown.isEmpty ? "(waiting for response)" : markdown,
+                markdown: markdown,
                 timestampLabel: Self.timestampLabel(for: Date()),
                 statusLabel: Self.statusLabel(for: message.status)
             )

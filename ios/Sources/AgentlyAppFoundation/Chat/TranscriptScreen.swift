@@ -24,18 +24,15 @@ public struct TranscriptScreen: View {
     public var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(items) { item in
-                        TranscriptBubble(
-                            item: item,
-                            onReusePrompt: onReusePrompt,
-                            onReuseAndSendPrompt: onReuseAndSendPrompt
-                        )
-                            .id(item.id)
-                    }
-                }
+                transcriptStack
                 .padding(.horizontal, 10)
                 .padding(.vertical, 12)
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear
+                            .preference(key: TranscriptContentHeightPreferenceKey.self, value: proxy.size.height)
+                    }
+                )
             }
             .onChange(of: items.last?.id) { _, newValue in
                 guard let newValue else { return }
@@ -48,6 +45,27 @@ public struct TranscriptScreen: View {
                 proxy.scrollTo(lastID, anchor: .bottom)
             }
         }
+    }
+
+    private var transcriptStack: some View {
+        LazyVStack(alignment: .leading, spacing: 12) {
+            ForEach(items) { item in
+                TranscriptBubble(
+                    item: item,
+                    onReusePrompt: onReusePrompt,
+                    onReuseAndSendPrompt: onReuseAndSendPrompt
+                )
+                .id(item.id)
+            }
+        }
+    }
+}
+
+public struct TranscriptContentHeightPreferenceKey: PreferenceKey {
+    public static var defaultValue: CGFloat = 0
+
+    public static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 

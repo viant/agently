@@ -27,10 +27,14 @@ public final class ElicitationRuntime: ObservableObject {
             )
             pending = rows.first.map {
                 let details = Self.decodePendingElicitation(from: $0.elicitation)
+                let visibleMessage = sanitizeVisibleAssistantText($0.content)
+                    ?? sanitizeVisibleAssistantText(details?.message)
+                    ?? $0.content
+                    ?? details?.message
                 return PendingElicitation(
                     elicitationID: $0.elicitationID,
                     conversationID: $0.conversationID,
-                    message: $0.content,
+                    message: visibleMessage,
                     mode: details?.mode,
                     url: details?.url,
                     requestedSchema: details?.requestedSchema
@@ -80,7 +84,7 @@ public final class ElicitationRuntime: ObservableObject {
         return PendingElicitation(
             elicitationID: jsonString(object["elicitationId"]) ?? "",
             conversationID: jsonString(object["conversationId"]),
-            message: jsonString(object["message"]),
+            message: sanitizeVisibleAssistantText(jsonString(object["message"])),
             mode: jsonString(object["mode"]),
             url: jsonString(object["url"]),
             requestedSchema: object["requestedSchema"]

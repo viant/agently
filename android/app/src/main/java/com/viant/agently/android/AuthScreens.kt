@@ -130,7 +130,7 @@ internal fun AuthRequiredScreen(
                         }
                     }
                 }
-                if (developerAuthEnabled && !prefersRetry && savedLoginConfig.hasStoredOobSecretRef) {
+                if (developerAuthEnabled && savedLoginConfig.hasStoredOobSecretRef) {
                     OutlinedButton(onClick = onOobSignIn, enabled = !busy) {
                         Text(if (busy) "Starting OOB…" else "Use saved OOB sign-in")
                     }
