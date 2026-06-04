@@ -348,6 +348,8 @@ func hostedWorkspaceRestoreState(
             presentation: window.presentation,
             region: window.region,
             parentKey: window.parentKey,
+            workspaceSharePct: window.workspaceSharePct,
+            workspaceMinHeight: window.workspaceMinHeight,
             inTab: window.inTab,
             parameters: window.parameters,
             windowForm: window.windowForm.isEmpty ? nil : window.windowForm
@@ -515,6 +517,8 @@ private func normalizeBridgeHostedWorkspaceWindow(_ raw: [String: BridgeJSONValu
         presentation: raw["presentation"]?.stringValue,
         region: raw["region"]?.stringValue,
         parentKey: parentKey,
+        workspaceSharePct: raw["workspaceSharePct"]?.intValue,
+        workspaceMinHeight: raw["workspaceMinHeight"]?.intValue,
         inTab: true,
         parameters: raw["parameters"]?.objectValue,
         windowForm: raw["windowForm"]?.objectValue

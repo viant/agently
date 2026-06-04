@@ -72,6 +72,97 @@ final class ChatRuntimeTests: XCTestCase {
         XCTAssertNil(runtime.transcript.first?.statusLabel)
     }
 
+    @MainActor
+    func testReplaceTranscriptStripsHiddenRouterPayloadSuffix() {
+        let runtime = ChatRuntime()
+        let state = ConversationStateResponse(
+            conversation: ConversationState(
+                conversationID: "conv-1",
+                turns: [
+                    TurnState(
+                        turnID: "turn-1",
+                        user: UserMessageState(messageID: "u1", content: "troubleshoot order"),
+                        assistant: AssistantState(
+                            final: AssistantMessageState(
+                                messageID: "a1",
+                                content: """
+                                I can troubleshoot the order, but I need the exact ad order ID because “order” by itself is ambiguous. {
+                                  "classification": { "intent": "troubleshoot_delivery_blocker" },
+                                  "prompting": { "suggestedProfileId": "diagnostic_baseline" },
+                                  "scope": { "values": { "entityType": "AdOrder" } }
+                                }
+                                """,
+                                createdAt: "2026-06-03T21:00:00Z"
+                            )
+                        ),
+                        createdAt: "2026-06-03T21:00:00Z"
+                    )
+                ]
+            )
+        )
+
+        runtime.replaceTranscript(from: state)
+
+        XCTAssertEqual(runtime.transcript.count, 2)
+        XCTAssertEqual(
+            runtime.transcript.last?.markdown,
+            "I can troubleshoot the order, but I need the exact ad order ID because “order” by itself is ambiguous."
+        )
+    }
+
+    @MainActor
+    func testApplyStreamingStripsPureRouterPayloadMessage() {
+        let runtime = ChatRuntime()
+        let snapshot = ConversationStreamSnapshot(
+            conversationID: "conv-1",
+            activeTurnID: nil,
+            feeds: [],
+            pendingElicitation: nil,
+            bufferedMessages: [
+                BufferedStreamMessage(
+                    id: "msg-router",
+                    conversationID: "conv-1",
+                    turnID: "turn-1",
+                    content: #"{"appendToolBundles":["analyst-baseline"],"suggestedProfileId":"diagnostic_baseline","scope":{"values":{"entityType":"AdOrder"}}}"#,
+                    narration: nil,
+                    status: "completed"
+                ),
+                BufferedStreamMessage(
+                    id: "msg-human",
+                    conversationID: "conv-1",
+                    turnID: "turn-1",
+                    content: "I’m pulling the baseline delivery signals first.",
+                    narration: nil,
+                    status: "completed"
+                )
+            ],
+            liveExecutionGroupsByID: [:]
+        )
+
+        runtime.applyStreaming(snapshot: snapshot)
+
+        XCTAssertEqual(runtime.transcript.count, 1)
+        XCTAssertEqual(runtime.transcript[0].markdown, "I’m pulling the baseline delivery signals first.")
+    }
+
+    func testSanitizeVisibleAssistantTextStripsPureRouterPayload() {
+        let raw = #"{"appendToolBundles":["analyst-baseline"],"suggestedProfileId":"diagnostic_baseline","scope":{"values":{"entityType":"AdOrder"}}}"#
+        XCTAssertNil(sanitizeVisibleAssistantText(raw))
+    }
+
+    func testSanitizeVisibleAssistantTextPreservesHumanPrefixAndStripsRouterPayloadSuffix() {
+        let raw = """
+        I can troubleshoot the order, but I need the exact ad order ID because “order” by itself is ambiguous. {
+          "classification": { "intent": "troubleshoot_delivery_blocker" },
+          "prompting": { "suggestedProfileId": "diagnostic_baseline" }
+        }
+        """
+        XCTAssertEqual(
+            sanitizeVisibleAssistantText(raw),
+            "I can troubleshoot the order, but I need the exact ad order ID because “order” by itself is ambiguous."
+        )
+    }
+
     func testParseTranscriptContentPartsExtractsForgeUIBlocks() {
         let content = [
             "Intro text",
@@ -513,7 +604,7 @@ final class ChatRuntimeTests: XCTestCase {
                           "toolCallId": "tool-1",
                           "toolName": "ui/view/open",
                           "status": "completed",
-                          "content": "{\\"conversationId\\":\\"conv-1\\",\\"items\\":[{\\"conversationId\\":\\"conv-1\\",\\"parameters\\":{\\"AdOrderId\\":[2673453]},\\"parentKey\\":\\"chat/new\\",\\"presentation\\":\\"hosted\\",\\"region\\":\\"chat.top\\",\\"windowId\\":\\"order_2345888602__conv-1\\",\\"windowKey\\":\\"order\\",\\"windowTitle\\":\\"Order Summary\\"}],\\"ok\\":true,\\"parentKey\\":\\"chat/new\\",\\"presentation\\":\\"hosted\\",\\"region\\":\\"chat.top\\",\\"selectedWindowId\\":\\"order_2345888602__conv-1\\",\\"windowId\\":\\"order_2345888602__conv-1\\",\\"windowKey\\":\\"order\\",\\"windowTitle\\":\\"Order Summary\\"}",
+                          "content": "{\\"conversationId\\":\\"conv-1\\",\\"items\\":[{\\"conversationId\\":\\"conv-1\\",\\"parameters\\":{\\"AdOrderId\\":[2673453]},\\"parentKey\\":\\"chat/new\\",\\"presentation\\":\\"hosted\\",\\"region\\":\\"chat.top\\",\\"windowId\\":\\"order_2345888602__conv-1\\",\\"windowKey\\":\\"order\\",\\"windowTitle\\":\\"Order Summary\\",\\"workspaceSharePct\\":72,\\"workspaceMinHeight\\":500}],\\"ok\\":true,\\"parentKey\\":\\"chat/new\\",\\"presentation\\":\\"hosted\\",\\"region\\":\\"chat.top\\",\\"selectedWindowId\\":\\"order_2345888602__conv-1\\",\\"windowId\\":\\"order_2345888602__conv-1\\",\\"windowKey\\":\\"order\\",\\"windowTitle\\":\\"Order Summary\\"}",
                           "requestPayload": {
                             "InlineBody": "{\\"id\\":\\"order\\",\\"parameters\\":{\\"AdOrderId\\":[2673453]}}",
                             "Compression": "none"
@@ -542,5 +633,7 @@ final class ChatRuntimeTests: XCTestCase {
         XCTAssertEqual(restore?.selectedWindowId, "order_2345888602__conv-1")
         XCTAssertEqual(restore?.windows.first?.windowKey, "order")
         XCTAssertEqual(restore?.windows.first?.parameters?["AdOrderId"], .array([.number(2673453)]))
+        XCTAssertEqual(restore?.windows.first?.workspaceSharePct, 72)
+        XCTAssertEqual(restore?.windows.first?.workspaceMinHeight, 500)
     }
 }

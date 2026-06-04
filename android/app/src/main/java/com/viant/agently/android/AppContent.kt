@@ -8,6 +8,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -59,6 +63,7 @@ internal fun AppBody(
     mediaController: ComposerMediaController,
     callbacks: AppUiCallbacks
 ) {
+    var phoneComposerInset by remember { mutableStateOf(232.dp) }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -198,7 +203,8 @@ internal fun AppBody(
                         onDecision = callbacks.onApprovalDecision,
                         onOpenFile = callbacks.onOpenFile,
                         onClosePreview = callbacks.onClosePreview,
-                        onStarterTaskSelected = callbacks.onQueryChange
+                        onStarterTaskSelected = callbacks.onQueryChange,
+                        bottomComposerInset = phoneComposerInset
                     )
                 }
             }
@@ -255,7 +261,8 @@ internal fun AppBody(
                     onVoiceInput = mediaController.launchVoiceInput,
                     onRemoveAttachment = mediaController.removeAttachment,
                     onOpenSettings = callbacks.onOpenSettings,
-                    onRunQuery = callbacks.onRunQuery
+                    onRunQuery = callbacks.onRunQuery,
+                    onMeasuredHeight = { phoneComposerInset = it }
                 )
             }
         }

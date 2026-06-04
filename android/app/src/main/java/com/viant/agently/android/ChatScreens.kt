@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.Conversation
@@ -83,7 +84,8 @@ internal fun PhoneChatScreen(
     onDecision: (PendingToolApproval, String) -> Unit,
     onOpenFile: (GeneratedFileEntry) -> Unit,
     onClosePreview: () -> Unit,
-    onStarterTaskSelected: (String) -> Unit
+    onStarterTaskSelected: (String) -> Unit,
+    bottomComposerInset: Dp = 232.dp
 ) {
     PhoneWorkspacePane(
         workspaceTitle = workspaceTitle,
@@ -113,7 +115,8 @@ internal fun PhoneChatScreen(
         onDecision = onDecision,
         onOpenFile = onOpenFile,
         onClosePreview = onClosePreview,
-        onStarterTaskSelected = onStarterTaskSelected
+        onStarterTaskSelected = onStarterTaskSelected,
+        bottomComposerInset = bottomComposerInset
     )
 }
 
@@ -157,6 +160,8 @@ internal fun TabletChatScreen(
     onRemoveAttachment: (String) -> Unit,
     onRunQuery: () -> Unit
 ) {
+    val activeConversationHasWorkspace =
+        conversationState?.let(::deriveHostedWorkspaceRestoreState) != null
     Row(
         modifier = Modifier.fillMaxSize(),
         horizontalArrangement = Arrangement.spacedBy(0.dp)
@@ -167,6 +172,7 @@ internal fun TabletChatScreen(
             loading = loading,
             recentConversations = recentConversations,
             activeConversationId = activeConversationId,
+            activeConversationHasWorkspace = activeConversationHasWorkspace,
             onNewConversation = onNewConversation,
             onRefresh = onRefresh,
             onSelectConversation = onSelectConversation

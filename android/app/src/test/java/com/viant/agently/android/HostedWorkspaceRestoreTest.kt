@@ -164,7 +164,7 @@ class HostedWorkspaceRestoreTest {
                                             responsePayload = json.parseToJsonElement(
                                                 """{"InlineBody":"\u0001\u0002garbled","Compression":"gzip"}"""
                                             ),
-                                            content = """{"conversationId":"conv-1","items":[{"conversationId":"conv-1","parameters":{"AdOrderId":[2673453]},"parentKey":"chat/new","presentation":"hosted","region":"chat.top","windowId":"order_2345888602__conv-1","windowKey":"order","windowTitle":"Order Summary"}],"ok":true,"parentKey":"chat/new","presentation":"hosted","region":"chat.top","selectedWindowId":"order_2345888602__conv-1","windowId":"order_2345888602__conv-1","windowKey":"order","windowTitle":"Order Summary"}"""
+                                            content = """{"conversationId":"conv-1","items":[{"conversationId":"conv-1","parameters":{"AdOrderId":[2673453]},"parentKey":"chat/new","presentation":"hosted","region":"chat.top","windowId":"order_2345888602__conv-1","windowKey":"order","windowTitle":"Order Summary","workspaceSharePct":72,"workspaceMinHeight":500}],"ok":true,"parentKey":"chat/new","presentation":"hosted","region":"chat.top","selectedWindowId":"order_2345888602__conv-1","windowId":"order_2345888602__conv-1","windowKey":"order","windowTitle":"Order Summary"}"""
                                         )
                                     )
                                 )
@@ -181,5 +181,7 @@ class HostedWorkspaceRestoreTest {
         assertEquals("order_2345888602__conv-1", restore?.selectedWindowId)
         assertEquals("order", restore?.windows?.singleOrNull()?.windowKey)
         assertEquals("[2673453]", (restore?.windows?.singleOrNull()?.parameters?.get("AdOrderId") as? JsonArray)?.toString())
+        assertEquals(72, restore?.windows?.singleOrNull()?.workspaceSharePct)
+        assertEquals(500, restore?.windows?.singleOrNull()?.workspaceMinHeight)
     }
 }

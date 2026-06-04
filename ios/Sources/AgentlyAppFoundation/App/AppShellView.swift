@@ -7,6 +7,8 @@ public struct AppShellView: View {
     @State private var isShowingSettings = false
     @State private var conversationSearchText = ""
     @State private var compactNavigationPath: [String] = []
+    @State private var compactShowsStarterSurface = false
+    @State private var regularColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var pendingConversationDeletion: Conversation?
 
     public init(runtime: AppRuntime) {
@@ -30,6 +32,12 @@ public struct AppShellView: View {
                 }
 
                 Button {
+                    compactNavigationPath = []
+                    conversationSearchText = ""
+                    compactShowsStarterSurface = true
+                    if horizontalSizeClass == .regular {
+                        regularColumnVisibility = .detailOnly
+                    }
                     runtime.startNewConversation()
                 } label: {
                     Label("New Chat", systemImage: "square.and.pencil")
@@ -70,7 +78,7 @@ public struct AppShellView: View {
     }
 
     private var regularShell: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $regularColumnVisibility) {
             ConversationListView(
                 conversations: runtime.state.conversations,
                 activeConversationID: runtime.state.activeConversationID,
@@ -82,10 +90,15 @@ public struct AppShellView: View {
                 metadata: runtime.state.workspaceMetadata,
                 selectedAgentID: runtime.selectedAgentOption?.id,
                 availableAgents: runtime.availableAgentOptions,
+                composerRuntime: runtime.composerRuntime,
+                isSending: runtime.isQueryBusy,
+                showsStarterSurfaceOverride: compactShowsStarterSurface,
                 onRefresh: {
                     await runtime.refreshConversationList()
                 },
                 onSelectConversation: { conversationID in
+                    compactShowsStarterSurface = false
+                    regularColumnVisibility = .detailOnly
                     Task { await runtime.selectConversation(conversationID) }
                 },
                 onSelectAgent: { agentID in
@@ -94,12 +107,14 @@ public struct AppShellView: View {
                 onSelectStarterTask: { task in
                     let prompt = (task.prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                     if !prompt.isEmpty {
+                        compactShowsStarterSurface = true
                         runtime.composerRuntime.query = prompt
                     }
                 },
                 onRequestDeleteConversation: { conversation in
                     pendingConversationDeletion = conversation
-                }
+                },
+                onSend: { Task { await runtime.sendCurrentQuery() } }
             )
         } detail: {
             if runtime.state.activeConversationID == nil {
@@ -108,13 +123,16 @@ public struct AppShellView: View {
                     metadata: runtime.state.workspaceMetadata,
                     selectedAgentID: runtime.selectedAgentOption?.id,
                     availableAgents: runtime.availableAgentOptions,
+                    composerRuntime: runtime.composerRuntime,
+                    isSending: runtime.isQueryBusy,
                     onSelectAgent: { runtime.selectPreferredAgent($0) },
                     onSelectStarterTask: { task in
                         let prompt = (task.prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                         if !prompt.isEmpty {
                             runtime.composerRuntime.query = prompt
                         }
-                    }
+                    },
+                    onSend: { Task { await runtime.sendCurrentQuery() } }
                 )
             } else {
                 ChatScreens(runtime: runtime)
@@ -127,8 +145,18 @@ public struct AppShellView: View {
                     }
             }
         }
-        .navigationSplitViewStyle(.balanced)
+        .navigationSplitViewStyle(.prominentDetail)
         .id("split-\(runtime.state.activeConversationID ?? "none")")
+        .task(id: runtime.state.activeConversationID) {
+            let hasActiveConversation = !(runtime.state.activeConversationID?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty ?? true)
+            if hasActiveConversation, regularColumnVisibility == .all {
+                regularColumnVisibility = .detailOnly
+            } else if !hasActiveConversation {
+                regularColumnVisibility = .all
+            }
+        }
     }
 
     private var compactShell: some View {
@@ -144,10 +172,14 @@ public struct AppShellView: View {
                 metadata: runtime.state.workspaceMetadata,
                 selectedAgentID: runtime.selectedAgentOption?.id,
                 availableAgents: runtime.availableAgentOptions,
+                composerRuntime: runtime.composerRuntime,
+                isSending: runtime.isQueryBusy,
+                showsStarterSurfaceOverride: compactShowsStarterSurface,
                 onRefresh: {
                     await runtime.refreshConversationList()
                 },
                 onSelectConversation: { conversationID in
+                    compactShowsStarterSurface = false
                     Task { await runtime.selectConversation(conversationID) }
                 },
                 onSelectAgent: { agentID in
@@ -156,12 +188,14 @@ public struct AppShellView: View {
                 onSelectStarterTask: { task in
                     let prompt = (task.prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                     if !prompt.isEmpty {
+                        compactShowsStarterSurface = true
                         runtime.composerRuntime.query = prompt
                     }
                 },
                 onRequestDeleteConversation: { conversation in
                     pendingConversationDeletion = conversation
-                }
+                },
+                onSend: { Task { await runtime.sendCurrentQuery() } }
             )
             .navigationDestination(for: String.self) { conversationID in
                 ChatScreens(runtime: runtime)
@@ -174,6 +208,11 @@ public struct AppShellView: View {
             }
             .task(id: runtime.state.activeConversationID) {
                 syncCompactNavigationPath()
+            }
+            .onChange(of: compactNavigationPath) { _, newValue in
+                if newValue.isEmpty, runtime.state.activeConversationID != nil {
+                    compactShowsStarterSurface = false
+                }
             }
         }
     }
@@ -248,11 +287,15 @@ private struct ConversationListView: View {
     let metadata: WorkspaceMetadata?
     let selectedAgentID: String?
     let availableAgents: [WorkspaceAgentOption]
+    let composerRuntime: ComposerRuntime
+    let isSending: Bool
+    let showsStarterSurfaceOverride: Bool
     let onRefresh: () async -> Void
     let onSelectConversation: (String) -> Void
     let onSelectAgent: (String?) -> Void
     let onSelectStarterTask: (StarterTask) -> Void
     let onRequestDeleteConversation: (Conversation) -> Void
+    let onSend: () -> Void
 
     private var trimmedSearchText: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -277,9 +320,13 @@ private struct ConversationListView: View {
     }
 
     private var showsCompactStarterTasks: Bool {
-        usesNavigationDestination
-            && (activeConversationID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-            && trimmedSearchText.isEmpty
+        guard usesNavigationDestination, trimmedSearchText.isEmpty else {
+            return false
+        }
+        if showsStarterSurfaceOverride {
+            return true
+        }
+        return activeConversationID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
     }
 
     var body: some View {
@@ -291,18 +338,8 @@ private struct ConversationListView: View {
                 .padding(.bottom, 6)
 
             if showsCompactStarterTasks {
-                ChatWorkspaceView(
-                    metadata: metadata,
-                    selectedAgentID: selectedAgentID,
-                    availableAgents: availableAgents,
-                    onSelectAgent: onSelectAgent,
-                    showStarterTasks: true,
-                    onSelectStarterTask: onSelectStarterTask
-                )
-                .padding(.bottom, 6)
-            }
-
-            if conversations.isEmpty, isRefreshing {
+                compactStarterSurface
+            } else if conversations.isEmpty, isRefreshing {
                 ContentUnavailableView {
                     Label("Loading Conversations", systemImage: "arrow.triangle.2.circlepath")
                 } description: {
@@ -397,6 +434,34 @@ private struct ConversationListView: View {
         )
         .refreshable {
             await onRefresh()
+        }
+    }
+
+    private var compactStarterSurface: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                ComposerScreen(
+                    runtime: composerRuntime,
+                    isSending: isSending,
+                    onSend: onSend
+                )
+                .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 18))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
+                )
+
+                ChatWorkspaceView(
+                    metadata: metadata,
+                    selectedAgentID: selectedAgentID,
+                    availableAgents: availableAgents,
+                    onSelectAgent: onSelectAgent,
+                    showStarterTasks: true,
+                    onSelectStarterTask: onSelectStarterTask
+                )
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 18)
         }
     }
 
@@ -540,8 +605,11 @@ private struct EmptyConversationDetailView: View {
     let metadata: WorkspaceMetadata?
     let selectedAgentID: String?
     let availableAgents: [WorkspaceAgentOption]
+    let composerRuntime: ComposerRuntime
+    let isSending: Bool
     let onSelectAgent: (String?) -> Void
     let onSelectStarterTask: (StarterTask) -> Void
+    let onSend: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -557,6 +625,16 @@ private struct EmptyConversationDetailView: View {
                 workspaceTitle ?? "Workspace Ready",
                 systemImage: "text.bubble",
                 description: Text("Choose a conversation from the sidebar or create one by sending a query once the backend is connected.")
+            )
+            ComposerScreen(
+                runtime: composerRuntime,
+                isSending: isSending,
+                onSend: onSend
+            )
+            .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 18))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

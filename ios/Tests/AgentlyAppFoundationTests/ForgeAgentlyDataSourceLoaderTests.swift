@@ -52,7 +52,7 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
                 httpVersion: nil,
                 headerFields: ["Content-Type": "application/json"]
             )!
-            let bodyData = #"{"rows":[{"advertiserId":13579,"advertiserName":"Acme"}],"dataInfo":{"recordCount":1,"pageCount":1}}"#.data(using: .utf8)!
+            let bodyData = #"{"rows":[{"advertiserId":13579,"advertiserName":"Acme"}],"dataInfo":{"recordCount":1,"pageCount":1},"metrics":{"recordCount":1,"selectedCount":1}}"#.data(using: .utf8)!
             return (response, bodyData)
         }
 
@@ -80,6 +80,7 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
 
         XCTAssertEqual(result?.rows.first?["advertiserId"], .number(13579))
         XCTAssertEqual(result?.metrics["recordCount"], .number(1))
+        XCTAssertEqual(result?.metrics["selectedCount"], .number(1))
         URLProtocolStub.requestHandler = nil
     }
 
@@ -110,7 +111,7 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
                 httpVersion: nil,
                 headerFields: ["Content-Type": "application/json"]
             )!
-            let bodyData = #"{"rows":[],"dataInfo":{"recordCount":0,"pageCount":0}}"#.data(using: .utf8)!
+            let bodyData = #"{"rows":[],"dataInfo":{"recordCount":0,"pageCount":0},"metrics":{"totalSpend":42}}"#.data(using: .utf8)!
             return (response, bodyData)
         }
 
@@ -167,11 +168,11 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
                 httpVersion: nil,
                 headerFields: ["Content-Type": "application/json"]
             )!
-            let bodyData = #"{"rows":[],"dataInfo":{"recordCount":0,"pageCount":0}}"#.data(using: .utf8)!
+            let bodyData = #"{"rows":[],"dataInfo":{"recordCount":0,"pageCount":0},"metrics":{"dailyBudget":180,"lifetimePacingIndex":26}}"#.data(using: .utf8)!
             return (response, bodyData)
         }
 
-        _ = try await loader(
+        let result = try await loader(
             ForgeRuntime.DataSourceFetchRequest(
                 windowID: "w1",
                 dataSourceRef: "order_performance_period_today",
@@ -199,6 +200,43 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
             )
         )
 
+        XCTAssertEqual(result?.metrics["dailyBudget"], .number(180))
+        XCTAssertEqual(result?.metrics["lifetimePacingIndex"], .number(26))
+        URLProtocolStub.requestHandler = nil
+    }
+
+    @MainActor
+    func testDatasourceLoaderDoesNotTreatDataInfoAsMetricsWhenMetricsAreMissing() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+        let loader = makeForgeAgentlyDataSourceLoader(client: client)
+
+        URLProtocolStub.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            let bodyData = #"{"rows":[],"dataInfo":{"recordCount":3,"pageCount":1}}"#.data(using: .utf8)!
+            return (response, bodyData)
+        }
+
+        let result = try await loader(
+            ForgeRuntime.DataSourceFetchRequest(
+                windowID: "w1",
+                dataSourceRef: "advertiser_lookup",
+                dataSource: DataSourceDef(
+                    service: DataSourceServiceDef(endpoint: "agentlyAPI", uri: "/v1/api/datasources/advertiser_lookup/fetch", method: "POST")
+                ),
+                input: InputState(fetch: true)
+            )
+        )
+
+        XCTAssertTrue(result?.metrics.isEmpty == true)
         URLProtocolStub.requestHandler = nil
     }
 }

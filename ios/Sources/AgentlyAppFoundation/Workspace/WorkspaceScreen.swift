@@ -2,10 +2,16 @@ import SwiftUI
 import AgentlySDK
 import Foundation
 import ForgeIOSRuntime
+import ForgeIOSUI
 
 public struct WorkspaceScreen: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isArtifactSectionExpanded = false
     @State private var isApprovalSectionExpanded = true
+    @State private var hostedWorkspaceDisplayMode: HostedWorkspaceDisplayMode = .standard
+    @State private var hostedWorkspaceMeasuredHeight: CGFloat = 0
+    @State private var hostedWindowContentMeasuredHeight: CGFloat = 0
+    @State private var transcriptMeasuredHeight: CGFloat = 0
     let metadata: WorkspaceMetadata?
     let selectedAgentID: String?
     let availableAgents: [WorkspaceAgentOption]
@@ -159,15 +165,36 @@ public struct WorkspaceScreen: View {
                 onDismiss: onDismissElicitation
             )
         }
+        .onChange(of: hostedWorkspaceIdentity) { _, _ in
+            hostedWorkspaceDisplayMode = defaultHostedWorkspaceDisplayMode
+            hostedWorkspaceMeasuredHeight = 0
+            hostedWindowContentMeasuredHeight = 0
+            transcriptMeasuredHeight = 0
+        }
+        .onAppear {
+            if showsHostedWorkspace && hostedWorkspaceDisplayMode == .standard {
+                hostedWorkspaceDisplayMode = defaultHostedWorkspaceDisplayMode
+            }
+        }
+        .onPreferenceChange(HostedWorkspaceContentHeightPreferenceKey.self) { newHeight in
+            guard newHeight > 0 else { return }
+            hostedWorkspaceMeasuredHeight = newHeight
+        }
+        .onPreferenceChange(WindowContentHeightPreferenceKey.self) { newHeight in
+            guard newHeight > 0 else { return }
+            hostedWindowContentMeasuredHeight = newHeight
+        }
+        .onPreferenceChange(TranscriptContentHeightPreferenceKey.self) { newHeight in
+            guard newHeight > 0 else { return }
+            transcriptMeasuredHeight = newHeight
+        }
     }
 
     private var mainPane: some View {
-        VStack(spacing: 16) {
-            HostedWorkspaceSection(
-                restoreState: hostedWorkspaceRestoreState,
-                conversationState: conversationState,
-                forgeRuntime: forgeRuntime
-            )
+        let usesWorkspaceFocusedLayout = horizontalSizeClass == .regular &&
+            showsHostedWorkspace &&
+            hostedWorkspaceDisplayMode == .expanded
+        return VStack(spacing: 16) {
             WorkspaceStatusSection(
                 isSending: isSending,
                 isLoadingArtifacts: isLoadingArtifacts,
@@ -184,12 +211,77 @@ public struct WorkspaceScreen: View {
                 onRetryStreaming: onRetryStreaming
             )
 
-            transcriptCard
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            GeometryReader { proxy in
+                let availableHeight = max(proxy.size.height, 0)
+                let layoutPlan = resolveHostedWorkspaceLayoutPlan(
+                    availableHeight: availableHeight,
+                    showsHostedWorkspace: showsHostedWorkspace,
+                    displayMode: hostedWorkspaceDisplayMode,
+                    isRegularWidth: horizontalSizeClass == .regular,
+                    transcriptMeasuredHeight: transcriptMeasuredHeight,
+                    hostedWorkspaceMeasuredHeight: hostedWorkspaceMeasuredHeight,
+                    hostedWindowContentMeasuredHeight: hostedWindowContentMeasuredHeight,
+                    activeWindow: activeHostedWorkspaceWindow
+                )
 
-            ComposerScreen(runtime: composerRuntime, isSending: isSending, onSend: onSend)
-                .padding(.horizontal, 4)
+                VStack(spacing: 16) {
+                    if showsHostedWorkspace {
+                        HostedWorkspaceSection(
+                            restoreState: hostedWorkspaceRestoreState,
+                            conversationState: conversationState,
+                            forgeRuntime: forgeRuntime,
+                            displayMode: $hostedWorkspaceDisplayMode
+                        )
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: usesWorkspaceFocusedLayout ? availableHeight : layoutPlan.workspaceHeight,
+                            maxHeight: usesWorkspaceFocusedLayout ? availableHeight : layoutPlan.workspaceHeight,
+                            alignment: .topLeading
+                        )
+                        .clipped()
+                    }
+
+                    if !usesWorkspaceFocusedLayout {
+                        transcriptCard
+                            .frame(maxWidth: .infinity, minHeight: layoutPlan.transcriptHeight, maxHeight: layoutPlan.transcriptHeight, alignment: .topLeading)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            if !usesWorkspaceFocusedLayout {
+                ComposerScreen(runtime: composerRuntime, isSending: isSending, onSend: onSend)
+                    .padding(.horizontal, 4)
+            }
         }
+    }
+
+    private var hasHostedWorkspace: Bool {
+        hostedWorkspaceRestoreState != nil || conversationState.map { deriveHostedWorkspaceRestoreState(from: $0) != nil } == true
+    }
+
+    private var showsHostedWorkspace: Bool {
+        hasHostedWorkspace && hostedWorkspaceDisplayMode != .closed
+    }
+
+    private var hostedWorkspaceIdentity: String {
+        let windowIdentity = hostedWorkspaceRestoreState?.selectedWindowId
+            ?? hostedWorkspaceRestoreState?.windows.last?.windowId
+            ?? conversationState?.conversation?.conversationID
+            ?? "none"
+        let turnIdentity = conversationState?.conversation?.turns.last?.turnID ?? "no-turn"
+        return "\(windowIdentity)#\(turnIdentity)"
+    }
+
+    private var defaultHostedWorkspaceDisplayMode: HostedWorkspaceDisplayMode {
+        resolveDefaultHostedWorkspaceDisplayMode(isRegularWidth: horizontalSizeClass == .regular)
+    }
+
+    private var activeHostedWorkspaceWindow: WorkspaceWindowSnapshot? {
+        resolveActiveHostedWorkspaceWindow(
+            restoreState: hostedWorkspaceRestoreState,
+            conversationState: conversationState
+        )
     }
 
     private var transcriptCard: some View {

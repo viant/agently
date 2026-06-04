@@ -31,7 +31,7 @@ const SHOW_INTAKE_DETAILS_KEY = 'agently.showIntakeDetails';
 const SHOW_WORKSPACE_WINDOW_KEY = 'agently.showWorkspaceWindow';
 const SHOW_TOOL_FEEDS_KEY = 'agently.showToolFeeds';
 const WORKSPACE_HEIGHT_KEY = 'agently.workspaceHeight';
-const WORKSPACE_DEFAULT_HEIGHT = 420;
+const WORKSPACE_DEFAULT_HEIGHT = 620;
 const WORKSPACE_MIN_HEIGHT = 240;
 const WORKSPACE_MAX_HEIGHT = 960;
 

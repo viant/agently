@@ -66,7 +66,7 @@ internal fun makeForgeAgentlyDataSourceLoader(
 
         ForgeRuntime.DataSourceFetchResult(
             rows = response.rows.map { row -> row.mapValues { JsonUtil.elementToAny(it.value) } },
-            metrics = response.dataInfo?.mapValues { JsonUtil.elementToAny(it.value) } ?: emptyMap()
+            metrics = response.metrics?.mapValues { JsonUtil.elementToAny(it.value) } ?: emptyMap()
         )
     }
 }

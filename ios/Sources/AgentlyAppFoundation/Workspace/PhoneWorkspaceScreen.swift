@@ -317,7 +317,9 @@ public struct PhoneWorkspaceScreen: View {
                 HostedWorkspaceSection(
                     restoreState: hostedWorkspaceRestoreState,
                     conversationState: conversationState,
-                    forgeRuntime: forgeRuntime
+                    forgeRuntime: forgeRuntime,
+                    showTitle: false,
+                    displayMode: .constant(.standard)
                 )
                 if !approvals.isEmpty {
                     WorkspaceAccessorySection(

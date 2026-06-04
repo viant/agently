@@ -50,6 +50,7 @@ internal fun TabletConversationSidebar(
     loading: Boolean,
     recentConversations: List<Conversation>,
     activeConversationId: String?,
+    activeConversationHasWorkspace: Boolean,
     onNewConversation: () -> Unit,
     onRefresh: () -> Unit,
     onSelectConversation: (String) -> Unit
@@ -232,7 +233,7 @@ internal fun TabletConversationSidebar(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    if (isActive) {
+                                    if (isActive && activeConversationHasWorkspace) {
                                         Text(
                                             "Open in workspace",
                                             style = MaterialTheme.typography.labelSmall,
