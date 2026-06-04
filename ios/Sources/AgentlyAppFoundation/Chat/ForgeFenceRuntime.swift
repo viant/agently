@@ -58,6 +58,8 @@ struct TranscriptMessageContent: View {
 }
 
 private struct TranscriptForgeUIView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     let payload: ForgeUIPayload
     let dataStore: [String: MaterializedForgeDataBlock]
 
@@ -73,9 +75,12 @@ private struct TranscriptForgeUIView: View {
                     runtime: runtime,
                     window: windowContext,
                     metadata: metadata,
-                    scrollEnabled: false,
-                    contentPadding: 6
+                    scrollEnabled: true,
+                    contentPadding: 4
                 )
+                .environment(\.forgePresentationDensity, .compact)
+                .frame(maxHeight: inlineDashboardMaxHeight)
+                .clipped()
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     if let title = payload.title, !title.isEmpty {
@@ -95,6 +100,10 @@ private struct TranscriptForgeUIView: View {
             windowContext = nil
             await openInlineWindow()
         }
+    }
+
+    private var inlineDashboardMaxHeight: CGFloat {
+        horizontalSizeClass == .regular ? 420 : 340
     }
 
     private var renderTaskKey: String {

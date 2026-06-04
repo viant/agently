@@ -67,6 +67,7 @@ internal fun TabletWorkspacePane(
     transcript: List<ChatEntry>,
     pendingApprovals: List<PendingToolApproval>,
     generatedFiles: List<GeneratedFileEntry>,
+    payloadPreviews: Map<String, ArtifactPreview>,
     artifactPreview: ArtifactPreview?,
     client: AgentlyClient,
     forgeRuntime: ForgeRuntime,
@@ -115,7 +116,10 @@ internal fun TabletWorkspacePane(
             else WorkspacePanelMode.Hidden
         )
     }
+    var showExecutionDetails by remember(activeConversationId) { mutableStateOf(false) }
     val contentScrollState = rememberScrollState()
+    val hasExecutionDetails = conversationState?.conversation?.turns
+        ?.lastOrNull { it.execution?.pages?.isNotEmpty() == true } != null
 
     LaunchedEffect(activeConversationId) {
         contentScrollState.scrollTo(0)
@@ -298,6 +302,23 @@ internal fun TabletWorkspacePane(
                                 }
                             }
                             if (workspacePanelMode != WorkspacePanelMode.Expanded) {
+                                if (hasExecutionDetails) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        androidx.compose.material3.FilterChip(
+                                            selected = !showExecutionDetails,
+                                            onClick = { showExecutionDetails = false },
+                                            label = { Text("Transcript") }
+                                        )
+                                        androidx.compose.material3.FilterChip(
+                                            selected = showExecutionDetails,
+                                            onClick = { showExecutionDetails = true },
+                                            label = { Text("Execution details") }
+                                        )
+                                    }
+                                }
                                 PendingApprovalsSection(
                                     approvals = pendingApprovals,
                                     forgeRuntime = forgeRuntime,
@@ -331,6 +352,12 @@ internal fun TabletWorkspacePane(
                                     onClosePreview = onClosePreview,
                                     onOpenFile = onOpenFile
                                 )
+                                if (showExecutionDetails) {
+                                    ExecutionInspectorSection(
+                                        state = conversationState,
+                                        payloadPreviews = payloadPreviews
+                                    )
+                                }
                                 Spacer(modifier = Modifier.padding(bottom = 24.dp))
                             }
                         }

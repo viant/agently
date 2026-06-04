@@ -3,6 +3,7 @@ package com.viant.agently.android
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -17,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.viant.forgeandroid.runtime.ChartAxisDef
 import com.viant.forgeandroid.runtime.ChartDef
@@ -39,6 +41,7 @@ import com.viant.forgeandroid.runtime.WindowContext
 import com.viant.forgeandroid.runtime.WindowMetadata
 import com.viant.forgeandroid.ui.ContainerRenderer
 import com.viant.forgeandroid.ui.MarkdownRenderer
+import com.viant.forgeandroid.ui.WindowContentView
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -183,15 +186,22 @@ private fun TranscriptForgeUiBlock(
         shape = MaterialTheme.shapes.large,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(
-            modifier = Modifier.padding(vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            resolvedMetadata?.view?.content?.containers.orEmpty().forEach { container ->
-                ContainerRenderer(forgeRuntime, windowContext, container)
-            }
-        }
+        WindowContentView(
+            runtime = forgeRuntime,
+            windowId = windowContext.windowId,
+            windowKey = payload.title ?: "Forge content",
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = transcriptInlineMaxHeight(payload)),
+            scrollEnabled = true,
+            showWindowHeader = false
+        )
     }
+}
+
+private fun transcriptInlineMaxHeight(payload: ForgeUiFencePayload): Dp {
+    val titleLength = payload.title?.trim()?.length ?: 0
+    return if (titleLength > 48) 500.dp else 420.dp
 }
 
 @Composable
