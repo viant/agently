@@ -129,6 +129,7 @@ struct ChatWorkspaceView: View {
                                                 .font(.subheadline.weight(.semibold))
                                                 .foregroundStyle(.primary)
                                                 .multilineTextAlignment(.leading)
+                                                .lineLimit(2)
                                             Text((task.description ?? resolvedAgentLabel).trimmingCharacters(in: .whitespacesAndNewlines))
                                                 .font(.footnote)
                                                 .foregroundStyle(.secondary)
@@ -136,6 +137,7 @@ struct ChatWorkspaceView: View {
                                                 .lineLimit(3)
                                         }
                                         .frame(width: 220, alignment: .leading)
+                                        .frame(minHeight: 118, alignment: .topLeading)
                                         .padding(14)
                                         .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 18))
                                     }

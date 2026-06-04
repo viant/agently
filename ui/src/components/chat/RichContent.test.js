@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import RichContent, { normalizeDashboardPayload, parseFences, resolveForgeScope, scopeForgeDashboardPayload } from './RichContent';
+import RichContent, { normalizeDashboardPayload, normalizeLegacyForgeDescriptors, normalizeLegacyForgeFenceBlocks, parseFences, resolveForgeScope, scopeForgeDashboardPayload } from './RichContent';
 import { renderMarkdownBlock } from 'agently-core-ui-sdk';
 
 describe('RichContent fence parsing', () => {
@@ -60,6 +60,45 @@ describe('RichContent fence parsing', () => {
       lang: 'forge-ui',
     });
     expect(parts[2].body).toContain('"Review recommended site lists"');
+  });
+
+  it('normalizes legacy forge marker plus json fence form into proper forge fences', () => {
+    const normalized = normalizeLegacyForgeFenceBlocks([
+      'Before summary',
+      'forge-data',
+      '```json',
+      '{"version":1,"id":"recommended_sites","format":"json","mode":"replace","data":[]}',
+      '```',
+      '',
+      'forge-ui',
+      '```json',
+      '{"version":1,"title":"Review recommended site lists","blocks":[]}',
+      '```'
+    ].join('\n'));
+
+    expect(normalized).toContain('```forge-data');
+    expect(normalized).toContain('```forge-ui');
+    expect(normalized).not.toContain('\nforge-data\n```json');
+    expect(normalized).not.toContain('\nforge-ui\n```json');
+  });
+
+  it('merges legacy forge text marker plus json fence descriptors into forge fence descriptors', () => {
+    const descriptors = normalizeLegacyForgeDescriptors([
+      { kind: 'text', value: 'forge-data\n' },
+      { kind: 'fence', fence: { lang: 'json', body: '{"version":1,"id":"recommended_sites","format":"json","mode":"replace","data":[]}', renderer: 'code' } },
+      { kind: 'text', value: '\n' },
+      { kind: 'text', value: 'forge-ui\n' },
+      { kind: 'fence', fence: { lang: 'json', body: '{"version":1,"title":"Review recommended site lists","blocks":[]}', renderer: 'code' } },
+    ]);
+
+    expect(descriptors[0]).toMatchObject({
+      kind: 'fence',
+      fence: { lang: 'forge-data' }
+    });
+    expect(descriptors[2]).toMatchObject({
+      kind: 'fence',
+      fence: { lang: 'forge-ui' }
+    });
   });
 
   it('renders markdown headings as heading tags', () => {

@@ -162,47 +162,46 @@ private struct HostedWorkspaceWindowView: View {
     }
 
     private var headerRow: some View {
-        HStack(alignment: .center, spacing: 12) {
+        ZStack {
+            HStack {
+                controlButtons
+                Spacer(minLength: 0)
+            }
+
             Text(selectedWindow?.windowTitle ?? selectedWindow?.windowKey ?? "Workspace")
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-
-            Spacer(minLength: 0)
-
-            HStack(spacing: 10) {
-                controlButtons
-            }
         }
     }
 
     private var controlRow: some View {
         HStack {
-            Spacer(minLength: 0)
             controlButtons
+            Spacer(minLength: 0)
         }
     }
 
     private var controlButtons: some View {
-        HStack(spacing: 10) {
-                workspaceControlDot(
-                    color: Color(red: 0.95, green: 0.76, blue: 0.24),
-                    accessibilityLabel: displayMode == .minimized ? "Restore workspace" : "Minimize workspace"
-                ) {
-                    displayMode = displayMode == .minimized ? .standard : .minimized
-                }
-                workspaceControlDot(
-                    color: Color(red: 0.20, green: 0.76, blue: 0.44),
-                    accessibilityLabel: displayMode == .expanded ? "Restore workspace size" : "Expand workspace"
-                ) {
-                    displayMode = displayMode == .expanded ? .standard : .expanded
-                }
-                workspaceControlDot(
-                    color: Color(red: 0.93, green: 0.36, blue: 0.31),
-                    accessibilityLabel: "Close workspace"
-                ) {
-                    displayMode = .closed
-                }
+        HStack(spacing: 6) {
+            workspaceControlDot(
+                color: Color(red: 0.93, green: 0.36, blue: 0.31),
+                accessibilityLabel: "Close workspace"
+            ) {
+                displayMode = .closed
+            }
+            workspaceControlDot(
+                color: Color(red: 0.95, green: 0.76, blue: 0.24),
+                accessibilityLabel: displayMode == .minimized ? "Restore workspace" : "Minimize workspace"
+            ) {
+                displayMode = displayMode == .minimized ? .standard : .minimized
+            }
+            workspaceControlDot(
+                color: Color(red: 0.20, green: 0.76, blue: 0.44),
+                accessibilityLabel: displayMode == .expanded ? "Restore workspace size" : "Expand workspace"
+            ) {
+                displayMode = displayMode == .expanded ? .standard : .expanded
+            }
         }
     }
 
@@ -221,7 +220,7 @@ private struct HostedWorkspaceWindowView: View {
                             .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
                     )
             }
-            .frame(width: 44, height: 44)
+            .frame(width: 18, height: 18)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

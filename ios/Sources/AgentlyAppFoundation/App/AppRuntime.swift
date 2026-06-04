@@ -98,6 +98,14 @@ public final class AppRuntime: ObservableObject {
             }
         )
         bindChildObjectChanges()
+        Task { [weak self] in
+            guard let self else { return }
+            await self.composerRuntime.configureLookupSupport(
+                contextID: self.selectedAgentID ?? "",
+                registryLoader: makeComposerLookupRegistryLoader(client: client),
+                rowsLoader: makeComposerLookupRowsLoader(client: client)
+            )
+        }
     }
 
     private func bindChildObjectChanges() {
@@ -139,6 +147,11 @@ public final class AppRuntime: ObservableObject {
             state.workspaceMetadata = try await state.client.getWorkspaceMetadata(state.metadataTargetContext)
             state.conversations = try await loadRecentConversations(client: state.client)
             reconcilePreferredAgentSelection()
+            await composerRuntime.configureLookupSupport(
+                contextID: selectedAgentID ?? "",
+                registryLoader: makeComposerLookupRegistryLoader(client: state.client),
+                rowsLoader: makeComposerLookupRowsLoader(client: state.client)
+            )
             logger.info("Bootstrap succeeded with \(self.state.conversations.count, privacy: .public) conversations")
             bootstrapTimeoutTask?.cancel()
             state.authState = .signedIn
@@ -295,7 +308,13 @@ public final class AppRuntime: ObservableObject {
     }
 
     public func sendCurrentQuery() async {
-        let text = composerRuntime.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text: String
+        do {
+            text = try composerRuntime.resolvedQuery().trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            queryRuntime.lastError = error.localizedDescription
+            return
+        }
         guard !text.isEmpty else { return }
         logger.info("Sending query with \(self.composerRuntime.attachments.count, privacy: .public) attachment(s)")
         state.streamErrorMessage = nil
@@ -672,6 +691,13 @@ public final class AppRuntime: ObservableObject {
         let trimmed = agentID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         settingsRuntime.preferredAgentID = trimmed
         settingsRuntime.save()
+        Task {
+            await composerRuntime.configureLookupSupport(
+                contextID: selectedAgentID ?? "",
+                registryLoader: makeComposerLookupRegistryLoader(client: state.client),
+                rowsLoader: makeComposerLookupRowsLoader(client: state.client)
+            )
+        }
     }
 
     private var selectedAgentID: String? {
@@ -971,6 +997,36 @@ public struct WorkspaceAgentOption: Identifiable, Hashable {
     public let id: String
     public let displayName: String
     public let modelRef: String?
+}
+
+private func makeComposerLookupRegistryLoader(
+    client: AgentlyClient
+) -> ComposerRuntime.LookupRegistryLoader {
+    return { contextKind, contextID in
+        let output = try await client.listLookupRegistry(
+            ListLookupRegistryInput(context: "\(contextKind):\(contextID)")
+        )
+        return output.entries
+    }
+}
+
+private func makeComposerLookupRowsLoader(
+    client: AgentlyClient
+) -> ComposerRuntime.LookupRowsLoader {
+    return { entry, searchQuery in
+        var inputs: [String: JSONValue] = [:]
+        let queryKey = entry.token?.queryInput?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !queryKey.isEmpty, !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            inputs[queryKey] = .string(searchQuery)
+        }
+        let output = try await client.fetchDatasource(
+            FetchDatasourceInput(
+                id: entry.dataSource,
+                inputs: inputs.isEmpty ? nil : inputs
+            )
+        )
+        return output.rows
+    }
 }
 
 internal func resolvedBootstrapActiveConversationID(

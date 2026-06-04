@@ -5,6 +5,22 @@ import ForgeIOSRuntime
 import ForgeIOSUI
 
 public struct WorkspaceScreen: View {
+    private enum DetailPane: String, CaseIterable, Identifiable {
+        case transcript
+        case execution
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .transcript:
+                return "Transcript"
+            case .execution:
+                return "Execution details"
+            }
+        }
+    }
+
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isArtifactSectionExpanded = false
     @State private var isApprovalSectionExpanded = true
@@ -12,6 +28,7 @@ public struct WorkspaceScreen: View {
     @State private var hostedWorkspaceMeasuredHeight: CGFloat = 0
     @State private var hostedWindowContentMeasuredHeight: CGFloat = 0
     @State private var transcriptMeasuredHeight: CGFloat = 0
+    @State private var selectedDetailPane: DetailPane = .transcript
     let metadata: WorkspaceMetadata?
     let selectedAgentID: String?
     let availableAgents: [WorkspaceAgentOption]
@@ -170,6 +187,7 @@ public struct WorkspaceScreen: View {
             hostedWorkspaceMeasuredHeight = 0
             hostedWindowContentMeasuredHeight = 0
             transcriptMeasuredHeight = 0
+            selectedDetailPane = .transcript
         }
         .onAppear {
             if showsHostedWorkspace && hostedWorkspaceDisplayMode == .standard {
@@ -242,7 +260,17 @@ public struct WorkspaceScreen: View {
                     }
 
                     if !usesWorkspaceFocusedLayout {
-                        transcriptCard
+                        if hasExecutionDetails {
+                            Picker("Conversation detail", selection: $selectedDetailPane) {
+                                ForEach(DetailPane.allCases) { pane in
+                                    Text(pane.title).tag(pane)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .padding(.horizontal, 4)
+                        }
+
+                        activeDetailCard
                             .frame(maxWidth: .infinity, minHeight: layoutPlan.transcriptHeight, maxHeight: layoutPlan.transcriptHeight, alignment: .topLeading)
                     }
                 }
@@ -250,7 +278,12 @@ public struct WorkspaceScreen: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
             if !usesWorkspaceFocusedLayout {
-                ComposerScreen(runtime: composerRuntime, isSending: isSending, onSend: onSend)
+                ComposerScreen(
+                    runtime: composerRuntime,
+                    isSending: isSending,
+                    density: hostedWorkspaceDisplayMode == .minimized ? .compact : .regular,
+                    onSend: onSend
+                )
                     .padding(.horizontal, 4)
             }
         }
@@ -315,6 +348,30 @@ public struct WorkspaceScreen: View {
             RoundedRectangle(cornerRadius: 20)
                 .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
         )
+    }
+
+    @ViewBuilder
+    private var activeDetailCard: some View {
+        switch selectedDetailPane {
+        case .transcript:
+            transcriptCard
+        case .execution:
+            executionCard
+        }
+    }
+
+    private var executionCard: some View {
+        ExecutionInspectorSection(state: conversationState)
+            .padding(.vertical, 8)
+            .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 20))
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
+            )
+    }
+
+    private var hasExecutionDetails: Bool {
+        conversationState?.conversation?.turns.contains(where: { !($0.execution?.pages.isEmpty ?? true) }) == true
     }
 
     @ViewBuilder

@@ -1052,6 +1052,7 @@ private fun AgentlyApp() {
         transcript = transcript,
         pendingApprovals = pendingApprovals,
         generatedFiles = generatedFiles,
+        payloadPreviews = payloadPreviews,
         artifactPreview = artifactPreview,
         client = client,
         forgeRuntime = forgeRuntime,

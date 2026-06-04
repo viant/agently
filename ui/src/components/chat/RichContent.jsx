@@ -1785,11 +1785,51 @@ function renderPipeTable(body = '', generatedFiles = []) {
   return <FencedPipeTable headers={headers} rows={rows} aligns={aligns} generatedFiles={generatedFiles} />;
 }
 
+export function normalizeLegacyForgeFenceBlocks(content = '') {
+  const source = String(content || '').replace(/\r\n/g, '\n');
+  const pattern = /(^|\n)(forge-(?:data|ui))\s*\n```json\s*\n?([\s\S]*?)\n```(?=\n|$)/gi;
+  return source.replace(pattern, (_, prefix, marker, body) => {
+    const normalizedBody = String(body || '').replace(/\n+$/, '');
+    return `${prefix}\`\`\`${String(marker || '').toLowerCase()}\n${normalizedBody}\n\`\`\``;
+  });
+}
+
+export function normalizeLegacyForgeDescriptors(descriptors = []) {
+  const parts = Array.isArray(descriptors) ? descriptors : [];
+  const normalized = [];
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
+    const next = parts[index + 1];
+    if (
+      part?.kind === 'text'
+      && next?.kind === 'fence'
+      && String(next?.fence?.lang || '').trim().toLowerCase() === 'json'
+    ) {
+      const trimmed = String(part.value || '').trim().toLowerCase();
+      if (trimmed === FORGE_DATA_FENCE || trimmed === FORGE_UI_FENCE) {
+        normalized.push({
+          kind: 'fence',
+          fence: describeFence(trimmed, String(next?.fence?.body || ''))
+        });
+        index += 1;
+        continue;
+      }
+    }
+    normalized.push(part);
+  }
+  return normalized;
+}
+
 // ── Main component ──
 
 function RichContent({ content = '', generatedFiles = [], messageId = '' }) {
-  const textNorm = normalizeBrokenMarkdownLayout(String(content || '').replace(/\r\n/g, '\n'));
-  const descriptors = React.useMemo(() => describeContent(textNorm), [textNorm]);
+  const textNorm = normalizeBrokenMarkdownLayout(
+    normalizeLegacyForgeFenceBlocks(String(content || ''))
+  );
+  const descriptors = React.useMemo(
+    () => normalizeLegacyForgeDescriptors(describeContent(textNorm)),
+    [textNorm]
+  );
   const forgeDataBlocks = React.useMemo(() => {
     const blocks = [];
     for (const part of descriptors) {
