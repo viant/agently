@@ -1,5 +1,6 @@
 import React from 'react';
 import { WindowContent } from 'forge/components';
+import { useSetting } from 'forge/core';
 import { installForgeGuestBridge } from '../../services/mcpApps/forgeGuestBridge.js';
 import MCPUIVerifierRouteDebug from './MCPUIVerifierRouteDebug.jsx';
 import { MCPUI_VERIFIER_ROUTE_WINDOW_KEY } from '../../services/mcpApps/mcpuiVerifierRouteDiagnostics.js';
@@ -28,10 +29,32 @@ function buildWindowPayload(windowKey, payload, parameters) {
   };
 }
 
+function appendTargetContext(params, targetContext = {}) {
+  const platform = String(targetContext.platform || '').trim();
+  const formFactor = String(targetContext.formFactor || '').trim();
+  const surface = String(targetContext.surface || '').trim();
+  const capabilities = Array.isArray(targetContext.capabilities)
+    ? targetContext.capabilities.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+  if (platform) params.set('platform', platform);
+  if (formFactor) params.set('formFactor', formFactor);
+  if (surface) params.set('surface', surface);
+  capabilities.forEach((capability) => params.append('capabilities', capability));
+}
+
 export default function MCPUIForgeWindowPage() {
   const params = React.useMemo(() => new URLSearchParams(window.location.search), []);
   const windowKey = String(params.get('windowKey') || '').trim();
   const windowParams = React.useMemo(() => parseJSONParam(params.get('windowParams')), [params]);
+  const { targetContext = {} } = useSetting();
+  const targetKey = React.useMemo(() => JSON.stringify({
+    platform: String(targetContext.platform || '').trim(),
+    formFactor: String(targetContext.formFactor || '').trim(),
+    surface: String(targetContext.surface || '').trim(),
+    capabilities: Array.isArray(targetContext.capabilities)
+      ? targetContext.capabilities.map((item) => String(item || '').trim()).filter(Boolean).sort()
+      : [],
+  }), [targetContext]);
   const [state, setState] = React.useState({
     loading: true,
     error: '',
@@ -46,7 +69,11 @@ export default function MCPUIForgeWindowPage() {
       setState({ loading: false, error: 'windowKey is required', window: null });
       return () => {};
     }
-    fetch(`/v1/api/agently/forge/window/${encodeURIComponent(windowKey)}`, {
+    const requestParams = new URLSearchParams();
+    appendTargetContext(requestParams, targetContext);
+    const query = requestParams.toString();
+    const requestURL = `/v1/api/agently/forge/window/${encodeURIComponent(windowKey)}${query ? `?${query}` : ''}`;
+    fetch(requestURL, {
       method: 'GET',
       credentials: 'include',
       headers: { Accept: 'application/json' },
@@ -77,7 +104,7 @@ export default function MCPUIForgeWindowPage() {
     return () => {
       active = false;
     };
-  }, [windowKey, windowParams]);
+  }, [windowKey, windowParams, targetContext, targetKey]);
 
   if (state.loading) {
     return <div style={{ padding: 20, color: '#475467', fontFamily: 'ui-sans-serif, system-ui, sans-serif' }}>Loading workspace window...</div>;

@@ -1193,6 +1193,7 @@ internal fun buildForgeTargetContext(formFactor: String): ForgeTargetContext {
     return ForgeTargetContext(
         platform = "android",
         formFactor = formFactor,
+        surface = "app",
         capabilities = buildAndroidTargetCapabilities().toSet()
     )
 }

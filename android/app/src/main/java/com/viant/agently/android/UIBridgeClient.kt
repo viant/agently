@@ -147,8 +147,8 @@ internal class AndroidUIBridgeClient(
         try {
             val commandResult = commandHandler(method, commandParams)
             updateSelectedWindow(method, commandParams, commandResult)
+            publishSnapshot(force = true, requireAck = true)
             rpcClient.respond(commandId = commandId, ok = true, result = commandResult)
-            publishSnapshot(force = true)
         } catch (err: Throwable) {
             rpcClient.respond(commandId = commandId, ok = false, error = err.message ?: err.toString())
         }
@@ -171,7 +171,7 @@ internal class AndroidUIBridgeClient(
         }
     }
 
-    private suspend fun publishSnapshot(force: Boolean) {
+    private suspend fun publishSnapshot(force: Boolean, requireAck: Boolean = false) {
         val snapshot = snapshotProvider()
         val snapshotJson = buildJsonObject {
             snapshot.conversationId?.takeIf { it.isNotBlank() }?.let {
@@ -200,6 +200,9 @@ internal class AndroidUIBridgeClient(
         }
         val result = rpcClient.snapshot(clientId = clientId, data = snapshotJson)
         if (result == null) {
+            if (requireAck) {
+                throw IllegalStateException("UI bridge snapshot was not accepted")
+            }
             return
         }
         lastSnapshotFingerprint = fingerprint

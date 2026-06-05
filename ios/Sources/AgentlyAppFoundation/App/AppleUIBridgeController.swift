@@ -168,12 +168,12 @@ final class AppleUIBridgeController {
         do {
             let result = try await commandHandler(method, commandParams)
             updateSelectedWindowID(method: method, params: commandParams, result: result)
+            try await publishSnapshot(force: true, requireAck: true)
             _ = try await rpcClient.respond(
                 commandID: commandID,
                 ok: true,
                 result: BridgeJSONValue.object(result)
             )
-            try await publishSnapshot(force: true)
         } catch {
             _ = try? await rpcClient.respond(commandID: commandID, ok: false, error: error.localizedDescription)
         }
@@ -201,7 +201,7 @@ final class AppleUIBridgeController {
         }
     }
 
-    private func publishSnapshot(force: Bool) async throws {
+    private func publishSnapshot(force: Bool, requireAck: Bool = false) async throws {
         let snapshot = await snapshotProvider(selectedWindowID)
         let payload = SnapshotPayload(
             clientID: clientIDValue,
@@ -217,11 +217,17 @@ final class AppleUIBridgeController {
         if !force, fingerprint == lastSnapshotFingerprint {
             return
         }
-        lastSnapshotFingerprint = fingerprint
         guard let snapshotValue = try decoder.decode(BridgeJSONValue.self, from: fingerprintData).objectValue else {
             return
         }
-        _ = try await rpcClient.snapshot(clientID: clientIDValue, data: BridgeJSONValue.object(snapshotValue))
+        let result = try await rpcClient.snapshot(clientID: clientIDValue, data: BridgeJSONValue.object(snapshotValue))
+        if requireAck, result == nil {
+            throw AgentlySDKError.invalidResponse
+        }
+        guard result != nil else {
+            return
+        }
+        lastSnapshotFingerprint = fingerprint
     }
 
     private static func loadOrCreateClientID(defaults: UserDefaults = .standard) -> String {

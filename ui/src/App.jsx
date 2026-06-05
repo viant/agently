@@ -50,6 +50,7 @@ const webClientContext = buildWebClientContext();
 const targetContext = {
   platform: webClientContext.platform,
   formFactor: webClientContext.formFactor,
+  surface: webClientContext.surface,
   capabilities: webClientContext.capabilities
 };
 
