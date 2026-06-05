@@ -9,7 +9,7 @@ public final class SettingsRuntime: ObservableObject {
     private let store: AppSettingsStore
 
     public static let localPresets: [(title: String, value: String)] = [
-        ("Steward 9191", "http://127.0.0.1:9191"),
+        ("Loopback 9191", "http://127.0.0.1:9191"),
         ("Localhost 9191", "http://localhost:9191")
     ]
 
@@ -19,7 +19,8 @@ public final class SettingsRuntime: ObservableObject {
         self.preferredAgentID = store.loadPreferredAgentID()
         self.oobSecretReference = resolvedBootstrapOOBSecretReference(
             storedValue: store.loadOOBSecretReference(),
-            environmentValue: ProcessInfo.processInfo.environment["AGENTLY_IOS_OOB_SECRET_REF"]
+            environmentValue: ProcessInfo.processInfo.environment["AGENTLY_IOS_OOB_SECRET_REF"],
+            launchArguments: CommandLine.arguments
         )
     }
 
@@ -45,7 +46,8 @@ public final class SettingsRuntime: ObservableObject {
 
 internal func resolvedBootstrapOOBSecretReference(
     storedValue: String,
-    environmentValue: String?
+    environmentValue: String?,
+    launchArguments: [String]
 ) -> String {
     guard developerAuthFeaturesEnabled() else {
         return storedValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -54,7 +56,30 @@ internal func resolvedBootstrapOOBSecretReference(
     if !stored.isEmpty {
         return stored
     }
-    return environmentValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let environmentOverride = environmentValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if !environmentOverride.isEmpty {
+        return environmentOverride
+    }
+    let launchOverrideArgument = launchArguments.first { $0.hasPrefix("--oobSecretReference=") }
+    let launchOverride = launchOverrideArgument
+        .flatMap { $0.split(separator: "=", maxSplits: 1).last.map(String.init) }?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return launchOverride
+}
+
+internal func resolvedBootstrapAutoOOBSignIn(
+    environmentValue: String?,
+    launchArguments: [String]
+) -> Bool {
+    guard developerAuthFeaturesEnabled() else {
+        return false
+    }
+    let normalized = environmentValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+    if ["1", "true", "yes", "on"].contains(normalized) {
+        return true
+    }
+    return launchArguments.contains("--autoOOBSignIn=1")
+        || launchArguments.contains("--autoOOBSignIn=true")
 }
 
 internal func developerAuthFeaturesEnabled() -> Bool {

@@ -1,7 +1,7 @@
 # Agently iOS Foundation
 
 This directory starts the iOS implementation described in
-`/Users/awitas/go/src/github.com/viant/agently/ios-app.md`.
+`../ios-app.md`.
 
 Current scope:
 
@@ -32,7 +32,7 @@ Current scope:
 - workspace metadata now uses the richer backend contract, including version,
   capabilities, models, and agent starter-task metadata
 - the shared iOS SDK now also exposes a generic `MCPHostClient` for any
-  workspace-backed MCP HTTP host instead of hardcoding a Steward-specific flow
+  workspace-backed MCP HTTP host instead of hardcoding a single workspace flow
 - the shell now exposes `New Chat` and `Refresh`, refreshes the conversation
   list after query-created conversations, and supports local conversation
   search on both phone and tablet layouts

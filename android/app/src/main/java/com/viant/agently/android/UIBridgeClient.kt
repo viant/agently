@@ -11,7 +11,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -77,34 +76,49 @@ internal class AndroidUIBridgeClient(
     fun clientId(): String = clientId
 
     suspend fun ensureConnected(): String {
+        if (!started) {
+            start()
+        }
         helloIfNeeded()
         return clientId
     }
 
-    fun start() {
-        if (started) {
-            return
+    suspend fun publishSnapshotNow() {
+        try {
+            helloIfNeeded()
+            publishSnapshot(force = true)
+        } catch (_: Throwable) {
+            rpcClient.resetSession()
         }
+    }
+
+    fun start() {
         started = true
-        pollJob = scope.launch {
-            while (started) {
-                try {
-                    helloIfNeeded()
-                    pollOnce()
-                } catch (_: Throwable) {
-                    rpcClient.resetSession()
-                    delay(1_000)
+        if (pollJob?.isActive != true) {
+            pollJob?.cancel()
+            pollJob = scope.launch {
+                while (started) {
+                    try {
+                        helloIfNeeded()
+                        pollOnce()
+                    } catch (_: Throwable) {
+                        rpcClient.resetSession()
+                        delay(1_000)
+                    }
                 }
             }
         }
-        snapshotJob = scope.launch {
-            while (started) {
-                try {
-                    publishSnapshot(force = false)
-                } catch (_: Throwable) {
-                    rpcClient.resetSession()
+        if (snapshotJob?.isActive != true) {
+            snapshotJob?.cancel()
+            snapshotJob = scope.launch {
+                while (started) {
+                    try {
+                        publishSnapshot(force = false)
+                    } catch (_: Throwable) {
+                        rpcClient.resetSession()
+                    }
+                    delay(1_000)
                 }
-                delay(1_000)
             }
         }
     }
@@ -269,6 +283,17 @@ private fun NativeUIBridgeWindow.toJsonObject(): JsonObject {
     }
 }
 
+private fun WindowState.toUIBridgeOpenResult(): JsonObject {
+    val window = toUIBridgeWindow(conversationId = conversationId)
+    return buildJsonObject {
+        put("ok", JsonPrimitive(true))
+        put("selectedWindowId", JsonPrimitive(window.windowId))
+        window.toJsonObject().forEach { (key, value) ->
+            put(key, value)
+        }
+    }
+}
+
 internal suspend fun handleAndroidUIBridgeCommand(
     method: String,
     params: JsonObject,
@@ -316,12 +341,7 @@ internal suspend fun handleAndroidUIBridgeCommand(
                 parentKey = parentKey,
                 isModal = false
             )
-            withTimeoutOrNull(5_000) {
-                forgeRuntime.metadataSignal(state.windowId).flow.first { it != null }
-            }
-            buildJsonObject {
-                put("windowId", JsonPrimitive(state.windowId))
-            }
+            state.toUIBridgeOpenResult()
         }
 
         "ui.window.close" -> {
@@ -340,17 +360,16 @@ internal suspend fun handleAndroidUIBridgeCommand(
             val windowId = jsonString(params["windowId"]).ifBlank {
                 throw IllegalArgumentException("windowId is required")
             }
-            val metadata = withTimeoutOrNull(5_000) {
-                forgeRuntime.metadataSignal(windowId).flow.first { it != null }
-            } ?: throw IllegalStateException("window metadata did not load")
             val requestedRef = jsonString(params["dataSourceRef"]).ifBlank { null }
-            val dataSourceRefs = requestedRef?.let(::listOf)
-                ?: metadata.defaultDataSourceRefs()
-            dataSourceRefs.forEach { ref ->
-                forgeRuntime.refreshDataSourceCollection(
-                    windowID = windowId,
-                    dataSourceRef = ref
-                )
+            val metadataSignal = forgeRuntime.metadataSignal(windowId)
+            val metadata = metadataSignal.peek()
+            if (metadata != null || requestedRef != null) {
+                forgeRuntime.refreshWindowDataSources(windowId, requestedRef, metadata)
+            } else {
+                forgeRuntime.scope.launch {
+                    val loaded = metadataSignal.flow.first { it != null }
+                    forgeRuntime.refreshWindowDataSources(windowId, requestedRef = null, metadata = loaded)
+                }
             }
             buildJsonObject { put("ok", JsonPrimitive(true)) }
         }
@@ -359,7 +378,25 @@ internal suspend fun handleAndroidUIBridgeCommand(
     }
 }
 
-private fun WindowMetadata.defaultDataSourceRefs(): List<String> {
+private fun ForgeRuntime.refreshWindowDataSources(
+    windowId: String,
+    requestedRef: String?,
+    metadata: WindowMetadata?
+) {
+    val dataSourceRefs = requestedRef?.let(::listOf)
+        ?: metadata.defaultDataSourceRefs()
+    dataSourceRefs.forEach { ref ->
+        refreshDataSourceCollection(
+            windowID = windowId,
+            dataSourceRef = ref
+        )
+    }
+}
+
+private fun WindowMetadata?.defaultDataSourceRefs(): List<String> {
+    if (this == null) {
+        return emptyList()
+    }
     val refs = mutableListOf<String>()
     view?.content?.containers.orEmpty()
         .mapNotNullTo(refs) { it.dataSourceRef?.takeIf(String::isNotBlank) }

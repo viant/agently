@@ -623,13 +623,20 @@ private fun AgentlyApp() {
     }
 
     fun applyPreparedConversationBinding(preparedBinding: PreparedConversationBinding) {
+        val preserveStreamSnapshot = shouldPreserveConversationStreamSnapshot(
+            targetConversationId = preparedBinding.conversationId,
+            replaceTranscript = preparedBinding.replaceTranscript,
+            streamSnapshot = streamSnapshot
+        )
         activeConversationId = preparedBinding.conversationId
         conversationState = preparedBinding.state
         pendingApprovals = preparedBinding.pendingApprovals
         approvalEdits = preparedBinding.approvalEdits
         generatedFiles = preparedBinding.generatedFiles
         payloadPreviews = preparedBinding.payloadPreviews
-        streamSnapshot = null
+        if (!preserveStreamSnapshot) {
+            streamSnapshot = null
+        }
         streamedMarkdown = null
         if (preparedBinding.replaceTranscript) {
             transcript.clear()
@@ -692,7 +699,15 @@ private fun AgentlyApp() {
 
     suspend fun bindConversation(conversationId: String, replaceTranscript: Boolean) {
         val resolvedClient = resolveClient()
-        streamJob?.cancelAndJoin()
+        val keepCurrentStream = shouldKeepConversationStream(
+            activeConversationId = activeConversationId,
+            targetConversationId = conversationId,
+            replaceTranscript = replaceTranscript,
+            hasStreamJob = streamJob != null
+        )
+        if (!keepCurrentStream) {
+            streamJob?.cancelAndJoin()
+        }
         val preparedBinding = prepareConversationBinding(
             client = resolvedClient,
             conversationId = conversationId,
@@ -706,7 +721,9 @@ private fun AgentlyApp() {
             conversationId = conversationId
         )
         applyPreparedConversationBinding(preparedBinding)
-        startConversationStream(resolvedClient, conversationId)
+        if (!keepCurrentStream) {
+            startConversationStream(resolvedClient, conversationId)
+        }
     }
 
     fun applyApprovalRefreshState(approvalState: ApprovalRefreshState) {
@@ -850,7 +867,12 @@ private fun AgentlyApp() {
                         formFactor = formFactor,
                         uiClientId = uiBridge.ensureConnected()
                     ),
-                    targetContext = buildMetadataTargetContext(formFactor)
+                    targetContext = buildMetadataTargetContext(formFactor),
+                    onConversationReady = { conversationId ->
+                        activeConversationId = conversationId
+                        uiBridge.publishSnapshotNow()
+                        startConversationStream(resolvedClient, conversationId)
+                    }
                 )
                 val querySuccessState = buildQuerySuccessState(
                     execution = queryExecution,
@@ -1076,13 +1098,22 @@ internal fun buildApiCandidates(configuredBaseUrl: String): List<String> {
         else -> 80
     }
     val path = parsed?.rawPath?.takeIf { it.isNotBlank() && it != "/" }.orEmpty()
-    val candidates = mutableListOf(
-        trimmed,
-        "$scheme://10.0.2.2:$port$path",
-        "$scheme://10.0.3.2:$port$path",
-        "$scheme://localhost:$port$path",
-        "$scheme://127.0.0.1:$port$path"
-    )
+    val prefersDeviceLoopback =
+        host.equals("localhost", ignoreCase = true) || host == "127.0.0.1"
+    val candidates = mutableListOf(trimmed)
+    if (prefersDeviceLoopback) {
+        candidates += listOf(
+            "$scheme://localhost:$port$path",
+            "$scheme://127.0.0.1:$port$path",
+            "$scheme://10.0.2.2:$port$path",
+            "$scheme://10.0.3.2:$port$path"
+        )
+    } else {
+        candidates += listOf(
+            "$scheme://10.0.2.2:$port$path",
+            "$scheme://10.0.3.2:$port$path"
+        )
+    }
     if (
         host.isNotBlank() &&
         !host.equals("localhost", ignoreCase = true) &&

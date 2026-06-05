@@ -26,7 +26,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.HostedWorkspaceRestoreState
 import com.viant.agentlysdk.WorkspaceWindowSnapshot
 import com.viant.forgeandroid.runtime.ForgeRuntime
@@ -34,7 +33,6 @@ import com.viant.forgeandroid.runtime.WindowContext
 import com.viant.forgeandroid.runtime.WindowMetadata
 import com.viant.forgeandroid.ui.ContainerRenderer
 import com.viant.forgeandroid.ui.WindowContentView
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -62,7 +60,21 @@ internal fun HostedWorkspaceSection(
     headerActions: (@Composable () -> Unit)? = null
 ) {
     val resolvedRestoreState = restoreState ?: return
-    val windowState = rememberHostedWorkspaceWindowUiState(resolvedRestoreState, forgeRuntime)
+    var selectedWindowId by remember(resolvedRestoreState.selectionKey()) {
+        mutableStateOf(defaultHostedWorkspaceWindowId(resolvedRestoreState))
+    }
+    val windowState = rememberHostedWorkspaceWindowUiState(
+        resolvedRestoreState,
+        forgeRuntime,
+        selectedWindowId
+    )
+    val minBodyHeight = minOf(
+        (
+            windowState.windows.firstOrNull { it.windowId == windowState.selectedWindowId }?.workspaceMinHeight
+                ?: 320
+        ).coerceAtLeast(240).dp,
+        maxBodyHeight
+    )
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -91,8 +103,7 @@ internal fun HostedWorkspaceSection(
                     windowState.windows.forEach { snapshot ->
                         FilterChip(
                             selected = snapshot.windowId == windowState.selectedWindowId,
-                            onClick = { },
-                            enabled = false,
+                            onClick = { selectedWindowId = snapshot.windowId },
                             label = {
                                 Text(
                                     snapshot.windowTitle?.takeIf { it.isNotBlank() }
@@ -109,7 +120,7 @@ internal fun HostedWorkspaceSection(
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFFB42318)
                 )
-                windowState.metadata == null || windowState.windowContext == null -> Text(
+                windowState.windowContext == null -> Text(
                     "Loading workspace view…",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF667085)
@@ -122,7 +133,7 @@ internal fun HostedWorkspaceSection(
                     showWindowHeader = false,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = maxBodyHeight)
+                        .heightIn(min = minBodyHeight, max = maxBodyHeight)
                 )
             }
         }
@@ -132,15 +143,9 @@ internal fun HostedWorkspaceSection(
 @Composable
 internal fun rememberHostedWorkspaceWindowUiState(
     restoreState: HostedWorkspaceRestoreState,
-    forgeRuntime: ForgeRuntime
+    forgeRuntime: ForgeRuntime,
+    selectedWindowId: String = defaultHostedWorkspaceWindowId(restoreState)
 ): HostedWorkspaceWindowUiState {
-    var selectedWindowId by remember(restoreState.selectedWindowId, restoreState.windows) {
-        mutableStateOf(
-            restoreState.selectedWindowId
-                ?: restoreState.windows.lastOrNull()?.windowId
-                ?: ""
-        )
-    }
     val selected = remember(restoreState.windows, selectedWindowId) {
         restoreState.windows.firstOrNull { it.windowId == selectedWindowId }
             ?: restoreState.windows.lastOrNull()
@@ -193,6 +198,20 @@ internal fun rememberHostedWorkspaceWindowUiState(
     )
 }
 
+internal fun defaultHostedWorkspaceWindowId(
+    restoreState: HostedWorkspaceRestoreState
+): String {
+    return restoreState.selectedWindowId
+        ?: restoreState.windows.lastOrNull()?.windowId
+        ?: ""
+}
+
+private fun HostedWorkspaceRestoreState.selectionKey(): String {
+    val selected = selectedWindowId.orEmpty()
+    val windowsKey = windows.joinToString("|") { it.windowId }
+    return "$selected#$windowsKey"
+}
+
 internal fun openHostedWorkspaceWindow(
     forgeRuntime: ForgeRuntime,
     snapshot: WorkspaceWindowSnapshot
@@ -209,177 +228,6 @@ internal fun openHostedWorkspaceWindow(
     workspaceMinHeight = snapshot.workspaceMinHeight,
     parentKey = snapshot.parentKey
 )
-
-internal fun deriveHostedWorkspaceRestoreState(
-    state: ConversationStateResponse
-): HostedWorkspaceRestoreState? {
-    val turns = state.conversation?.turns.orEmpty()
-    val lastTurn = turns.lastOrNull() ?: return null
-    val toolSteps = lastTurn.execution?.pages.orEmpty()
-        .flatMap { it.toolSteps }
-        .filter { it.status?.trim()?.lowercase() == "completed" }
-    for (step in toolSteps.asReversed()) {
-        when (normalizeToolName(step.toolName)) {
-            "ui/window/list" -> {
-                val windows = hostedWorkspaceWindowsFromListPayload(
-                    firstParsedPayload(step.responsePayload, step.content)
-                )
-                if (windows.isNotEmpty()) {
-                    return HostedWorkspaceRestoreState(
-                        windows = windows,
-                        selectedWindowId = selectedWindowIdFromToolSteps(toolSteps, windows)
-                            .ifBlank { null }
-                    )
-                }
-            }
-            "ui/view/open" -> {
-                val windows = hostedWorkspaceWindowsFromViewOpenStep(step)
-                if (windows.isNotEmpty()) {
-                    val response = firstParsedPayload(step.responsePayload, step.content) as? JsonObject
-                    val selectedWindowId = jsonString(response?.get("selectedWindowId"))
-                        .ifBlank { windows.lastOrNull()?.windowId.orEmpty() }
-                    return HostedWorkspaceRestoreState(
-                        windows = windows,
-                        selectedWindowId = selectedWindowId.ifBlank { null }
-                    )
-                }
-            }
-        }
-    }
-    return null
-}
-
-private fun normalizeToolName(raw: String?): String {
-    return raw.orEmpty().trim().lowercase().replace(":", "/")
-}
-
-private fun firstParsedPayload(rawPayload: JsonElement?, rawText: String?): JsonElement? {
-    val candidates = listOfNotNull(rawPayload, rawText?.takeIf { it.isNotBlank() }?.let(::JsonPrimitive))
-    candidates.forEach { candidate ->
-        val parsed = parsePayload(candidate) ?: return@forEach
-        if (!isPayloadEnvelope(parsed)) {
-            return parsed
-        }
-    }
-    return null
-}
-
-private fun parsePayload(raw: JsonElement): JsonElement? {
-    return when (raw) {
-        is JsonPrimitive -> {
-            val text = raw.contentOrNull?.trim().orEmpty()
-            if (text.isBlank()) {
-                null
-            } else {
-                runCatching { Json.parseToJsonElement(text) }.getOrNull()
-            }
-        }
-        is JsonObject -> {
-            val inlineBody = raw["inlineBody"] ?: raw["InlineBody"]
-            if (inlineBody is JsonPrimitive) {
-                val text = inlineBody.contentOrNull?.trim().orEmpty()
-                if (text.isNotBlank()) {
-                    return runCatching { Json.parseToJsonElement(text) }.getOrNull() ?: raw
-                }
-            }
-            raw
-        }
-        else -> raw
-    }
-}
-
-private fun isPayloadEnvelope(value: JsonElement): Boolean {
-    val obj = value as? JsonObject ?: return false
-    val hasInlineBody = jsonString(obj["inlineBody"]).isNotBlank() || jsonString(obj["InlineBody"]).isNotBlank()
-    val hasCompression = jsonString(obj["compression"]).isNotBlank() || jsonString(obj["Compression"]).isNotBlank()
-    val hasDirectWorkspaceShape = obj["items"] != null || obj["windowId"] != null || obj["focusedWindowId"] != null
-    return (hasInlineBody || hasCompression) && !hasDirectWorkspaceShape
-}
-
-private fun hostedWorkspaceWindowsFromListPayload(raw: JsonElement?): List<WorkspaceWindowSnapshot> {
-    val payload = raw as? JsonObject ?: return emptyList()
-    val items = payload["items"] as? JsonArray ?: return emptyList()
-    return items.mapNotNull { normalizeHostedWorkspaceWindow(it as? JsonObject) }
-}
-
-private fun hostedWorkspaceWindowsFromViewOpenStep(
-    step: com.viant.agentlysdk.ToolStepState
-): List<WorkspaceWindowSnapshot> {
-    val response = firstParsedPayload(step.responsePayload, step.content) as? JsonObject ?: return emptyList()
-    val request = firstParsedPayload(step.requestPayload, null) as? JsonObject
-    val items = response["items"] as? JsonArray
-    if (items != null && items.isNotEmpty()) {
-        return items.mapNotNull { normalizeHostedWorkspaceWindow(it as? JsonObject) }
-    }
-    val normalized = normalizeHostedWorkspaceWindow(
-        JsonObject(
-            buildMap {
-                put("windowId", JsonPrimitive(jsonString(response["windowId"])))
-                put("conversationId", JsonPrimitive(jsonString(response["conversationId"])))
-                put("windowKey", JsonPrimitive(jsonString(response["windowKey"]).ifBlank { jsonString(request?.get("id")) }))
-                put("windowTitle", JsonPrimitive(jsonString(response["windowTitle"])))
-                put("presentation", JsonPrimitive(jsonString(response["presentation"])))
-                put("region", JsonPrimitive(jsonString(response["region"])))
-                put("parentKey", JsonPrimitive(jsonString(response["parentKey"])))
-                response["workspaceSharePct"]?.let { put("workspaceSharePct", it) }
-                response["workspaceMinHeight"]?.let { put("workspaceMinHeight", it) }
-                response["inTab"]?.let { put("inTab", it) }
-                request?.get("parameters")?.let { put("parameters", it) }
-                response["windowForm"]?.let { put("windowForm", it) }
-            }
-        )
-    )
-    return listOfNotNull(normalized)
-}
-
-private fun normalizeHostedWorkspaceWindow(raw: JsonObject?): WorkspaceWindowSnapshot? {
-    raw ?: return null
-    val presentation = jsonString(raw["presentation"]).lowercase()
-    val region = jsonString(raw["region"]).lowercase()
-    val parentKey = jsonString(raw["parentKey"])
-    val windowId = jsonString(raw["windowId"])
-    val windowKey = jsonString(raw["windowKey"])
-    if (windowId.isBlank() || windowKey.isBlank()) return null
-    if (presentation != "hosted") return null
-    if (region != "chat.top") return null
-    if (parentKey != "chat/new") return null
-    return WorkspaceWindowSnapshot(
-        windowId = windowId,
-        conversationId = jsonString(raw["conversationId"]).ifBlank { null },
-        windowKey = windowKey,
-        windowTitle = jsonString(raw["windowTitle"]).ifBlank { windowKey },
-        presentation = jsonString(raw["presentation"]).ifBlank { null },
-        region = jsonString(raw["region"]).ifBlank { null },
-        parentKey = parentKey,
-        workspaceSharePct = raw["workspaceSharePct"]?.let(::jsonInt),
-        workspaceMinHeight = raw["workspaceMinHeight"]?.let(::jsonInt),
-        inTab = raw["inTab"]?.let(::jsonBoolean) ?: true,
-        parameters = raw["parameters"] as? JsonObject,
-        windowForm = raw["windowForm"] as? JsonObject
-    )
-}
-
-private fun selectedWindowIdFromToolSteps(
-    toolSteps: List<com.viant.agentlysdk.ToolStepState>,
-    windows: List<WorkspaceWindowSnapshot>
-): String {
-    val windowIds = windows.map { it.windowId }.toSet()
-    toolSteps.asReversed().forEach { step ->
-        when (normalizeToolName(step.toolName)) {
-            "ui/window/show" -> {
-                val request = firstParsedPayload(step.requestPayload, null) as? JsonObject
-                val windowId = jsonString(request?.get("windowId"))
-                if (windowId in windowIds) return windowId
-            }
-            "ui/window/list" -> {
-                val response = firstParsedPayload(step.responsePayload, step.content) as? JsonObject
-                val focused = jsonString(response?.get("focusedWindowId"))
-                if (focused in windowIds) return focused
-            }
-        }
-    }
-    return ""
-}
 
 private fun jsonObjectToParameterMap(value: JsonObject): Map<String, Any?> {
     return value.mapValues { (_, entry) -> jsonElementToAny(entry) }

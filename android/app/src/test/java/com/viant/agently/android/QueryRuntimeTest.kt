@@ -5,13 +5,229 @@ import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.agentlysdk.QueryOutput
 import com.viant.agentlysdk.WorkspaceMetadata
+import com.viant.agentlysdk.stream.ConversationStreamSnapshot
+import com.viant.forgeandroid.runtime.DataSourceDef
+import com.viant.forgeandroid.runtime.ForgeRuntime
+import com.viant.forgeandroid.runtime.WindowMetadata
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.longOrNull
+import java.util.concurrent.atomic.AtomicInteger
 
 class QueryRuntimeTest {
+
+    @Test
+    fun `app session client allows long lived reads for query stream and ui bridge`() {
+        val client = appSessionHttpClient()
+
+        assertEquals(0, client.readTimeoutMillis)
+        assertEquals(0, client.callTimeoutMillis)
+    }
+
+    @Test
+    fun `post query bind keeps existing same conversation stream`() {
+        assertTrue(
+            shouldKeepConversationStream(
+                activeConversationId = "conv-1",
+                targetConversationId = "conv-1",
+                replaceTranscript = false,
+                hasStreamJob = true
+            )
+        )
+        assertEquals(
+            false,
+            shouldKeepConversationStream(
+                activeConversationId = "conv-1",
+                targetConversationId = "conv-1",
+                replaceTranscript = true,
+                hasStreamJob = true
+            )
+        )
+        assertEquals(
+            false,
+            shouldKeepConversationStream(
+                activeConversationId = "conv-1",
+                targetConversationId = "conv-2",
+                replaceTranscript = false,
+                hasStreamJob = true
+            )
+        )
+    }
+
+    @Test
+    fun `post query bind preserves same conversation stream snapshot`() {
+        val snapshot = ConversationStreamSnapshot(
+            conversationId = "conv-1",
+            activeTurnId = "turn-1",
+            feeds = emptyList(),
+            pendingElicitation = null,
+            bufferedMessages = emptyList(),
+            liveExecutionGroupsById = emptyMap()
+        )
+
+        assertTrue(
+            shouldPreserveConversationStreamSnapshot(
+                targetConversationId = "conv-1",
+                replaceTranscript = false,
+                streamSnapshot = snapshot
+            )
+        )
+        assertEquals(
+            false,
+            shouldPreserveConversationStreamSnapshot(
+                targetConversationId = "conv-1",
+                replaceTranscript = true,
+                streamSnapshot = snapshot
+            )
+        )
+        assertEquals(
+            false,
+            shouldPreserveConversationStreamSnapshot(
+                targetConversationId = "conv-2",
+                replaceTranscript = false,
+                streamSnapshot = snapshot
+            )
+        )
+    }
+
+    @Test
+    fun `ui bridge window open returns without waiting for forge metadata`() {
+        runBlocking {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val runtime = ForgeRuntime(endpoints = emptyMap(), scope = scope)
+            val metadata = CompletableDeferred<WindowMetadata?>()
+            runtime.registerWindowMetadataLoader {
+                metadata.await()
+            }
+
+            try {
+                val response = withTimeout(1_000) {
+                    handleAndroidUIBridgeCommand(
+                        method = "ui.window.open",
+                        params = buildJsonObject {
+                            put("windowKey", JsonPrimitive("record-detail"))
+                            put("windowTitle", JsonPrimitive("Record Detail"))
+                            put("windowId", JsonPrimitive("record-detail-1"))
+                            put(
+                                "parameters",
+                                buildJsonObject {
+                                    put("recordId", JsonPrimitive(42L))
+                                }
+                            )
+                            put(
+                                "options",
+                                buildJsonObject {
+                                    put("conversationId", JsonPrimitive("conv-1"))
+                                    put("presentation", JsonPrimitive("hosted"))
+                                    put("region", JsonPrimitive("workspace"))
+                                    put("parentKey", JsonPrimitive("parent-window"))
+                                    put("workspaceSharePct", JsonPrimitive(45))
+                                    put("workspaceMinHeight", JsonPrimitive(320))
+                                }
+                            )
+                        },
+                        forgeRuntime = runtime
+                    )
+                }
+
+                assertEquals(true, (response["ok"] as? JsonPrimitive)?.booleanOrNull)
+                assertEquals("record-detail-1", (response["selectedWindowId"] as? JsonPrimitive)?.contentOrNull)
+                assertEquals("record-detail-1", (response["windowId"] as? JsonPrimitive)?.contentOrNull)
+                assertEquals("record-detail", (response["windowKey"] as? JsonPrimitive)?.contentOrNull)
+                assertEquals("Record Detail", (response["windowTitle"] as? JsonPrimitive)?.contentOrNull)
+                assertEquals("conv-1", (response["conversationId"] as? JsonPrimitive)?.contentOrNull)
+                assertEquals("hosted", (response["presentation"] as? JsonPrimitive)?.contentOrNull)
+                assertEquals("workspace", (response["region"] as? JsonPrimitive)?.contentOrNull)
+                assertEquals("parent-window", (response["parentKey"] as? JsonPrimitive)?.contentOrNull)
+                val parameters = response["parameters"] as JsonObject
+                assertEquals(42L, (parameters["recordId"] as? JsonPrimitive)?.longOrNull)
+                assertNull(runtime.metadataSignal("record-detail-1").peek())
+                metadata.complete(WindowMetadata())
+                withTimeout(1_000) {
+                    runtime.metadataSignal("record-detail-1").flow.first { it != null }
+                }
+            } finally {
+                if (!metadata.isCompleted) {
+                    metadata.complete(null)
+                }
+                scope.cancel()
+            }
+        }
+    }
+
+    @Test
+    fun `ui bridge data fetch returns before metadata and refreshes after load`() {
+        runBlocking {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val runtime = ForgeRuntime(endpoints = emptyMap(), scope = scope)
+            val metadata = CompletableDeferred<WindowMetadata?>()
+            val fetched = CompletableDeferred<ForgeRuntime.DataSourceFetchRequest>()
+            val fetchAttempts = AtomicInteger(0)
+            runtime.registerWindowMetadataLoader {
+                metadata.await()
+            }
+            runtime.registerDataSourceLoader { request ->
+                fetchAttempts.incrementAndGet()
+                fetched.complete(request)
+                ForgeRuntime.DataSourceFetchResult()
+            }
+
+            try {
+                handleAndroidUIBridgeCommand(
+                    method = "ui.window.open",
+                    params = buildJsonObject {
+                        put("windowKey", JsonPrimitive("record-detail"))
+                        put("windowTitle", JsonPrimitive("Record Detail"))
+                        put("windowId", JsonPrimitive("record-detail-2"))
+                    },
+                    forgeRuntime = runtime
+                )
+
+                val response = withTimeout(1_000) {
+                    handleAndroidUIBridgeCommand(
+                        method = "ui.data.fetch",
+                        params = buildJsonObject {
+                            put("windowId", JsonPrimitive("record-detail-2"))
+                        },
+                        forgeRuntime = runtime
+                    )
+                }
+
+                assertEquals(true, (response["ok"] as? JsonPrimitive)?.booleanOrNull)
+                assertEquals(0, fetchAttempts.get())
+                metadata.complete(
+                    WindowMetadata(
+                        dataSources = mapOf("detail" to DataSourceDef())
+                    )
+                )
+                val request = withTimeout(1_000) {
+                    fetched.await()
+                }
+                assertEquals("record-detail-2", request.windowId)
+                assertEquals("detail", request.dataSourceRef)
+            } finally {
+                if (!metadata.isCompleted) {
+                    metadata.complete(null)
+                }
+                scope.cancel()
+            }
+        }
+    }
 
     @Test
     fun `resolveEffectivePrompt uses attachment fallback when prompt is blank`() {

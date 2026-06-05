@@ -47,11 +47,11 @@ final class AuthRuntimeTests: XCTestCase {
             let body: String
             switch url.path {
             case "/v1/api/auth/oob":
-                body = #"{"sessionId":"sess-1","status":"ok","username":"awitas"}"#
+                body = #"{"sessionId":"sess-1","status":"ok","username":"test-user"}"#
             case "/v1/api/auth/providers":
                 body = #"[]"#
             case "/v1/api/auth/me":
-                body = #"{"id":"user-1","email":"awitas@example.com","displayName":"Awitas"}"#
+                body = #"{"id":"user-1","email":"test-user@example.com","displayName":"Test User"}"#
             default:
                 XCTFail("unexpected path \(url.path)")
                 body = #"{}"#
@@ -59,12 +59,12 @@ final class AuthRuntimeTests: XCTestCase {
             return (response, body.data(using: .utf8)!)
         }
 
-        let success = await runtime.beginOOBLogin(secretsURL: "~/.secret/awitas_dsp_ui.enc|blowfish://default")
+        let success = await runtime.beginOOBLogin(secretsURL: "~/.secret/app_oob.enc|blowfish://default")
 
         XCTAssertTrue(success)
-        XCTAssertEqual(runtime.currentUser?.displayName, "Awitas")
+        XCTAssertEqual(runtime.currentUser?.displayName, "Test User")
         XCTAssertNil(runtime.lastError)
-        XCTAssertEqual(runtime.probeMessage, "Connected as Awitas.")
+        XCTAssertEqual(runtime.probeMessage, "Connected as Test User.")
         URLProtocolStub.requestHandler = nil
     }
 
@@ -88,11 +88,11 @@ final class AuthRuntimeTests: XCTestCase {
 
         runtime.apiBaseURL = "http://localhost:9191/v1"
         runtime.preferredAgentID = "agent-1"
-        runtime.oobSecretReference = "~/.secret/awitas_dsp_ui.enc|blowfish://default"
+        runtime.oobSecretReference = "~/.secret/app_oob.enc|blowfish://default"
         runtime.save()
 
         XCTAssertEqual(store.loadAPIBaseURL(), "http://localhost:9191")
         XCTAssertEqual(store.loadPreferredAgentID(), "agent-1")
-        XCTAssertEqual(store.loadOOBSecretReference(), "~/.secret/awitas_dsp_ui.enc|blowfish://default")
+        XCTAssertEqual(store.loadOOBSecretReference(), "~/.secret/app_oob.enc|blowfish://default")
     }
 }

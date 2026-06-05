@@ -246,7 +246,6 @@ public struct WorkspaceScreen: View {
                     if showsHostedWorkspace {
                         HostedWorkspaceSection(
                             restoreState: hostedWorkspaceRestoreState,
-                            conversationState: conversationState,
                             forgeRuntime: forgeRuntime,
                             displayMode: $hostedWorkspaceDisplayMode
                         )
@@ -290,7 +289,7 @@ public struct WorkspaceScreen: View {
     }
 
     private var hasHostedWorkspace: Bool {
-        hostedWorkspaceRestoreState != nil || conversationState.map { deriveHostedWorkspaceRestoreState(from: $0) != nil } == true
+        hostedWorkspaceRestoreState != nil
     }
 
     private var showsHostedWorkspace: Bool {
@@ -312,8 +311,7 @@ public struct WorkspaceScreen: View {
 
     private var activeHostedWorkspaceWindow: WorkspaceWindowSnapshot? {
         resolveActiveHostedWorkspaceWindow(
-            restoreState: hostedWorkspaceRestoreState,
-            conversationState: conversationState
+            restoreState: hostedWorkspaceRestoreState
         )
     }
 

@@ -256,7 +256,8 @@ internal suspend fun executeQueryTurn(
     prompt: String,
     attachments: List<ComposerAttachmentDraft>,
     queryContext: Map<String, JsonElement>,
-    targetContext: MetadataTargetContext
+    targetContext: MetadataTargetContext,
+    onConversationReady: suspend (String) -> Unit = {}
 ): QueryExecutionResult {
     val workspaceMetadata = metadata ?: client.getWorkspaceMetadata(targetContext)
     val conversationId = activeConversationId ?: client.createConversation(
@@ -265,6 +266,7 @@ internal suspend fun executeQueryTurn(
             title = buildConversationTitle(prompt, attachments)
         )
     ).id
+    onConversationReady(conversationId)
     val uploadedAttachments = uploadComposerAttachments(
         client = client,
         conversationId = conversationId,

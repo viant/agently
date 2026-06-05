@@ -1,19 +1,18 @@
 package com.viant.agently.android
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppEndpointConfigTest {
 
     @Test
-    fun `buildApiCandidates prefers emulator loopback by default`() {
+    fun `buildApiCandidates prefers host alias by default`() {
         val candidates = buildApiCandidates("")
 
         assertEquals("http://10.0.2.2:9191", candidates.first())
         assertTrue(candidates.contains("http://10.0.3.2:9191"))
-        assertTrue(candidates.contains("http://localhost:9191"))
-        assertTrue(candidates.contains("http://127.0.0.1:9191"))
     }
 
     @Test
@@ -39,5 +38,6 @@ class AppEndpointConfigTest {
         assertEquals(1, candidates.count { it == "http://10.0.2.2:9191" })
         assertEquals(1, candidates.count { it == "http://10.0.3.2:9191" })
         assertTrue(candidates.contains("http://localhost:9191"))
+        assertFalse(candidates.contains("http://127.0.0.1:9191"))
     }
 }

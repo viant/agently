@@ -9,6 +9,7 @@ import com.viant.forgeandroid.runtime.normalizeWindowMetadataJson
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -20,9 +21,11 @@ internal fun makeForgeAgentlyWindowMetadataLoader(
     val json = Json { ignoreUnknownKeys = true }
     return { windowKey ->
         val raw = client.fetchForgeWindowMetadata(windowKey)
-        val resolved = MetadataResolver.resolve(raw, targetContext) ?: raw
-        val normalized = normalizeWindowMetadataJson(normalizeWindowMetadataCollections(resolved))
-        json.decodeFromJsonElement<WindowMetadata>(normalized)
+        val normalized = normalizeWindowMetadataJson(normalizeWindowMetadataCollections(raw))
+        val metadata = json.decodeFromJsonElement<WindowMetadata>(normalized)
+        val metadataJson = json.encodeToJsonElement(metadata)
+        val resolved = MetadataResolver.resolve(metadataJson, targetContext) ?: metadataJson
+        json.decodeFromJsonElement<WindowMetadata>(normalizeWindowMetadataJson(resolved))
     }
 }
 

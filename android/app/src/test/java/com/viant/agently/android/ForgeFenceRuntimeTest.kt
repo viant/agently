@@ -11,10 +11,10 @@ class ForgeFenceRuntimeTest {
         val content = listOf(
             "Intro text",
             "```forge-data",
-            """{"version":1,"id":"recommended_sites","format":"json","mode":"replace","data":[{"site_id":101,"site_name":"example.com","reason":"Strong overlap","selected":true}]}""",
+            """{"version":1,"id":"review_items","format":"json","mode":"replace","data":[{"item_id":101,"item_name":"Item Alpha","reason":"Strong overlap","selected":true}]}""",
             "```",
             "```forge-ui",
-            """{"version":1,"title":"Recommended sites","blocks":[{"id":"site-review","kind":"planner.table","title":"Site review","dataSourceRef":"recommended_sites","selection":{"mode":"checkbox","field":"selected"},"columns":[{"key":"site_id","label":"Site ID"},{"key":"site_name","label":"Site name"},{"key":"reason","label":"Why recommended"}]}]}""",
+            """{"version":1,"title":"Review items","blocks":[{"id":"item-review","kind":"planner.table","title":"Item review","dataSourceRef":"review_items","selection":{"mode":"checkbox","field":"selected"},"columns":[{"key":"item_id","label":"Item ID"},{"key":"item_name","label":"Item name"},{"key":"reason","label":"Why selected"}]}]}""",
             "```",
             "Closing text"
         ).joinToString("\n")
@@ -26,8 +26,29 @@ class ForgeFenceRuntimeTest {
         assertTrue(parts[1] is TranscriptContentPart.ForgeUi)
         assertTrue(parts[2] is TranscriptContentPart.Markdown)
         val forge = parts[1] as TranscriptContentPart.ForgeUi
-        assertEquals("Recommended sites", forge.payload.title)
-        assertEquals(listOf("recommended_sites"), forge.dataStore.keys.toList())
+        assertEquals("Review items", forge.payload.title)
+        assertEquals(listOf("review_items"), forge.dataStore.keys.toList())
+    }
+
+    @Test
+    fun `parseTranscriptContentParts leaves malformed legacy marker plus json fence as markdown`() {
+        val content = listOf(
+            "forge-data",
+            "```json",
+            """{"version":1,"id":"summary_metrics","format":"json","mode":"replace","data":[{"primary_value":42}]}""",
+            "```",
+            "forge-ui",
+            "```json",
+            """{"version":1,"title":"Legacy dashboard","blocks":[{"id":"summary","kind":"dashboard.summary","dataSourceRef":"summary_metrics","metrics":["primary_value"]}]}""",
+            "```"
+        ).joinToString("\n")
+
+        val parts = parseTranscriptContentParts(content)
+
+        assertEquals(1, parts.size)
+        val markdown = parts.single() as TranscriptContentPart.Markdown
+        assertTrue(markdown.text.contains("forge-data"))
+        assertTrue(markdown.text.contains("```json"))
     }
 
     @Test
@@ -35,10 +56,10 @@ class ForgeFenceRuntimeTest {
         val parts = parseTranscriptContentParts(
             listOf(
                 "```forge-data",
-                """{"version":1,"id":"recommended_sites","format":"json","mode":"replace","data":[{"site_id":101,"site_name":"example.com","reason":"Strong overlap","selected":true}]}""",
+                """{"version":1,"id":"review_items","format":"json","mode":"replace","data":[{"item_id":101,"item_name":"Item Alpha","reason":"Strong overlap","selected":true}]}""",
                 "```",
                 "```forge-ui",
-                """{"version":1,"title":"Recommended sites","blocks":[{"id":"site-review","kind":"planner.table","title":"Site review","dataSourceRef":"recommended_sites","selection":{"mode":"checkbox","field":"selected"},"columns":[{"key":"site_id","label":"Site ID"},{"key":"site_name","label":"Site name"},{"key":"reason","label":"Why recommended"}]}]}""",
+                """{"version":1,"title":"Review items","blocks":[{"id":"item-review","kind":"planner.table","title":"Item review","dataSourceRef":"review_items","selection":{"mode":"checkbox","field":"selected"},"columns":[{"key":"item_id","label":"Item ID"},{"key":"item_name","label":"Item name"},{"key":"reason","label":"Why selected"}]}]}""",
                 "```"
             ).joinToString("\n")
         )
@@ -48,10 +69,10 @@ class ForgeFenceRuntimeTest {
         val root = metadata.view?.content?.containers?.single()
         val table = root?.containers?.single()
 
-        assertEquals("Recommended sites", root?.title)
-        assertEquals("site-review", table?.id)
-        assertEquals("recommended_sites", table?.dataSourceRef)
-        assertEquals(listOf("selected", "site_id", "site_name", "reason"), table?.table?.columns?.map { it.id })
+        assertEquals("Review items", root?.title)
+        assertEquals("item-review", table?.id)
+        assertEquals("review_items", table?.dataSourceRef)
+        assertEquals(listOf("selected", "item_id", "item_name", "reason"), table?.table?.columns?.map { it.id })
     }
 
     @Test
@@ -59,10 +80,10 @@ class ForgeFenceRuntimeTest {
         val parts = parseTranscriptContentParts(
             listOf(
                 "```forge-data",
-                """{"version":1,"id":"summary_metrics","format":"json","mode":"replace","data":[{"spend":1316.86,"pacing_ratio":0.17,"win_rate":4.02}]}""",
+                """{"version":1,"id":"summary_metrics","format":"json","mode":"replace","data":[{"primary_value":1316.86,"secondary_ratio":0.17,"success_rate":4.02}]}""",
                 "```",
                 "```forge-ui",
-                """{"version":1,"title":"Ad order","subtitle":"Agency","blocks":[{"id":"summary","kind":"dashboard.summary","dataSourceRef":"summary_metrics","metrics":["spend","pacing_ratio","win_rate"]}]}""",
+                """{"version":1,"title":"Record","subtitle":"Group","blocks":[{"id":"summary","kind":"dashboard.summary","dataSourceRef":"summary_metrics","metrics":["primary_value","secondary_ratio","success_rate"]}]}""",
                 "```"
             ).joinToString("\n")
         )
@@ -73,8 +94,8 @@ class ForgeFenceRuntimeTest {
 
         assertEquals("dashboard.summary", summary?.kind)
         assertEquals("summary_metrics", summary?.dataSourceRef)
-        assertEquals(listOf("spend", "pacing_ratio", "win_rate"), summary?.metrics?.map { it.id })
-        assertEquals(listOf("Spend", "Pacing Ratio", "Win Rate"), summary?.metrics?.map { it.label })
+        assertEquals(listOf("primary_value", "secondary_ratio", "success_rate"), summary?.metrics?.map { it.id })
+        assertEquals(listOf("Primary Value", "Secondary Ratio", "Success Rate"), summary?.metrics?.map { it.label })
     }
 
     @Test
@@ -82,10 +103,10 @@ class ForgeFenceRuntimeTest {
         val parts = parseTranscriptContentParts(
             listOf(
                 "```forge-data",
-                """{"version":1,"id":"pie_data","format":"json","mode":"replace","data":[{"channel":"Alpha","spend":1316.86},{"channel":"Beta","spend":842.10},{"channel":"Gamma","spend":402.40}]}""",
+                """{"version":1,"id":"pie_data","format":"json","mode":"replace","data":[{"channel":"Alpha","activity":1316.86},{"channel":"Beta","activity":842.10},{"channel":"Gamma","activity":402.40}]}""",
                 "```",
                 "```forge-ui",
-                """{"version":1,"title":"Android chart verification","subtitle":"Agency 4257","blocks":[{"id":"share","kind":"dashboard.timeline","title":"Spend share","dataSourceRef":"pie_data","chartType":"pie","dateField":"channel","series":[{"key":"spend","label":"Spend"}]}]}""",
+                """{"version":1,"title":"Android chart verification","subtitle":"Group 4257","blocks":[{"id":"share","kind":"dashboard.timeline","title":"Activity share","dataSourceRef":"pie_data","chartType":"pie","dateField":"channel","series":[{"key":"activity","label":"Activity"}]}]}""",
                 "```"
             ).joinToString("\n")
         )
@@ -98,8 +119,8 @@ class ForgeFenceRuntimeTest {
         assertEquals("pie_data", timeline?.dataSourceRef)
         assertEquals("pie", timeline?.chart?.type)
         assertEquals("channel", timeline?.chart?.xAxis?.dataKey)
-        assertEquals("spend", timeline?.chart?.series?.valueKey)
-        assertEquals(listOf("spend"), timeline?.chart?.series?.values?.map { it.value })
+        assertEquals("activity", timeline?.chart?.series?.valueKey)
+        assertEquals(listOf("activity"), timeline?.chart?.series?.values?.map { it.value })
     }
 
     @Test
@@ -107,10 +128,10 @@ class ForgeFenceRuntimeTest {
         val parts = parseTranscriptContentParts(
             listOf(
                 "```forge-data",
-                """{"version":1,"id":"summary_metrics","format":"json","mode":"replace","data":[{"ad_order_name":"CID-30432_DH_Retargeting","primary_blocker_family":"Supply restriction"}]}""",
+                """{"version":1,"id":"summary_metrics","format":"json","mode":"replace","data":[{"record_name":"Record Alpha","primary_status":"Input mismatch"}]}""",
                 "```",
                 "```forge-ui",
-                """{"version":1,"title":"Android dashboard verification","subtitle":"Agency 4257","blocks":[{"id":"primary-evidence","kind":"dashboard.table","title":"Primary evidence","dataSourceRef":"summary_metrics","columns":[{"key":"ad_order_name","label":"Ad order","format":"currency","type":"link","link":{"href":"ad_order_url"}},{"key":"primary_blocker_family","label":"Primary blocker","format":"percentFraction"}]}]}""",
+                """{"version":1,"title":"Android dashboard verification","subtitle":"Group 4257","blocks":[{"id":"primary-evidence","kind":"dashboard.table","title":"Primary evidence","dataSourceRef":"summary_metrics","columns":[{"key":"record_name","label":"Record","format":"text","type":"link","link":{"href":"record_detail_url"}},{"key":"primary_status","label":"Primary status","format":"text"}]}]}""",
                 "```"
             ).joinToString("\n")
         )
@@ -120,11 +141,11 @@ class ForgeFenceRuntimeTest {
         val table = metadata.view?.content?.containers?.single()?.containers?.single()
 
         assertEquals("summary_metrics", table?.dataSourceRef)
-        assertEquals(listOf("ad_order_name", "primary_blocker_family"), table?.table?.columns?.map { it.id })
-        assertEquals(listOf("Ad order", "Primary blocker"), table?.table?.columns?.map { it.label })
-        assertEquals(listOf("currency", "percentFraction"), table?.table?.columns?.map { it.format })
+        assertEquals(listOf("record_name", "primary_status"), table?.table?.columns?.map { it.id })
+        assertEquals(listOf("Record", "Primary status"), table?.table?.columns?.map { it.label })
+        assertEquals(listOf("text", "text"), table?.table?.columns?.map { it.format })
         assertEquals("link", table?.table?.columns?.firstOrNull()?.type)
-        assertEquals("ad_order_url", table?.table?.columns?.firstOrNull()?.link?.href)
+        assertEquals("record_detail_url", table?.table?.columns?.firstOrNull()?.link?.href)
     }
 
     @Test
@@ -132,10 +153,10 @@ class ForgeFenceRuntimeTest {
         val parts = parseTranscriptContentParts(
             listOf(
                 "```forge-data",
-                """{"version":1,"id":"recent_delivery","format":"json","mode":"replace","data":[{"total_spend":6061.727,"flight_pacing_status":"behind"}]}""",
+                """{"version":1,"id":"recent_activity","format":"json","mode":"replace","data":[{"total_value":6061.727,"review_status":"behind"}]}""",
                 "```",
                 "```forge-ui",
-                """{"version":1,"title":"Frequency cap recommendation review","subtitle":"Blocked before execution","blocks":[{"kind":"dashboard.summary","title":"Review summary","items":[{"label":"Ad order","value":"Houston (Galleria) - Display (2657754)"},{"label":"Submission status","value":"Blocked"}]},{"kind":"dashboard.report","title":"Why this recommendation is not yet safe","sections":[{"id":"interpretation","title":"Interpretation","body":["Block submission until current cap truth is confirmed."]}]},{"kind":"dashboard.kpiTable","title":"Recent delivery posture","dataSourceRef":"recent_delivery","columns":[{"key":"total_spend","label":"Spend"},{"key":"flight_pacing_status","label":"Flight pacing"}]}]}""",
+                """{"version":1,"title":"Policy review","subtitle":"Blocked before execution","blocks":[{"kind":"dashboard.summary","title":"Review summary","items":[{"label":"Record","value":"Record Alpha (2657754)"},{"label":"Submission status","value":"Blocked"}]},{"kind":"dashboard.report","title":"Why this report item is not yet safe","sections":[{"id":"interpretation","title":"Interpretation","body":["Wait until the current threshold is confirmed."]}]},{"kind":"dashboard.kpiTable","title":"Recent activity posture","dataSourceRef":"recent_activity","columns":[{"key":"total_value","label":"Total value"},{"key":"review_status","label":"Review status"}]}]}""",
                 "```"
             ).joinToString("\n")
         )
@@ -145,10 +166,10 @@ class ForgeFenceRuntimeTest {
         val containers = metadata.view?.content?.containers?.single()?.containers.orEmpty()
 
         assertEquals("dashboard.summary", containers.getOrNull(0)?.kind)
-        assertEquals(listOf("Ad order", "Submission status"), containers.getOrNull(0)?.metrics?.map { it.label })
+        assertEquals(listOf("Record", "Submission status"), containers.getOrNull(0)?.metrics?.map { it.label })
         assertEquals("dashboard.report", containers.getOrNull(1)?.kind)
         assertEquals("Interpretation", containers.getOrNull(1)?.sections?.firstOrNull()?.title)
-        assertEquals(listOf("total_spend", "flight_pacing_status"), containers.getOrNull(2)?.table?.columns?.map { it.id })
+        assertEquals(listOf("total_value", "review_status"), containers.getOrNull(2)?.table?.columns?.map { it.id })
     }
 
     @Test
@@ -156,7 +177,7 @@ class ForgeFenceRuntimeTest {
         val parts = parseTranscriptContentParts(
             listOf(
                 "```forge-ui",
-                """{"version":1,"title":"Android dashboard verification","subtitle":"Agency 4257","blocks":[{"kind":"dashboard.dimensions","title":"Publisher concentration","dataSourceRef":"publisher_breakdown","dimension":{"key":"publisher_id","label":"Publisher"},"metric":{"key":"spend_share","label":"Spend share","format":"percentFraction"},"viewModes":["chart","table"],"limit":10},{"kind":"dashboard.messages","title":"Next action","items":[{"title":"Primary next step","body":"Validate supply restriction next.","severity":"warning"}]}]}""",
+                """{"version":1,"title":"Android dashboard verification","subtitle":"Group 4257","blocks":[{"kind":"dashboard.dimensions","title":"Region concentration","dataSourceRef":"region_breakdown","dimension":{"key":"region_id","label":"Region"},"metric":{"key":"value_share","label":"Value share","format":"percentFraction"},"viewModes":["chart","table"],"limit":10},{"kind":"dashboard.messages","title":"Next action","items":[{"title":"Primary next step","body":"Validate threshold next.","severity":"warning"}]}]}""",
                 "```"
             ).joinToString("\n")
         )
@@ -166,8 +187,8 @@ class ForgeFenceRuntimeTest {
         val containers = metadata.view?.content?.containers?.single()?.containers.orEmpty()
 
         assertEquals("dashboard.dimensions", containers.getOrNull(0)?.kind)
-        assertEquals("publisher_id", containers.getOrNull(0)?.dimension?.key)
-        assertEquals("spend_share", containers.getOrNull(0)?.metric?.key)
+        assertEquals("region_id", containers.getOrNull(0)?.dimension?.key)
+        assertEquals("value_share", containers.getOrNull(0)?.metric?.key)
         assertEquals(listOf("chart", "table"), containers.getOrNull(0)?.viewModes)
         assertEquals(10, containers.getOrNull(0)?.limit)
 
