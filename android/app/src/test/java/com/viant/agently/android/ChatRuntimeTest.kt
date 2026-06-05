@@ -33,8 +33,8 @@ class ChatRuntimeTest {
     }
 
     @Test
-    fun syncAssistantTranscript_replacesSyntheticEntryOnlyFromActiveTurn() {
-        val transcript = mutableListOf(
+    fun transcriptWithActiveAssistant_appendsActiveEntryWithoutMutatingHistory() {
+        val transcript = listOf(
             ChatEntry(
                 id = "assistant-final-123",
                 role = "assistant",
@@ -60,17 +60,19 @@ class ChatRuntimeTest {
             liveExecutionGroupsById = emptyMap()
         )
 
-        syncAssistantTranscript(transcript, snapshot)
+        val displayTranscript = transcriptWithActiveAssistant(transcript, snapshot)
 
         assertEquals(1, transcript.size)
-        assertEquals("assistant-real-1", transcript.single().id)
-        assertEquals("maple", transcript.single().markdown)
-        assertEquals(true, transcript.single().streaming)
+        assertEquals("assistant-final-123", transcript.single().id)
+        assertEquals(2, displayTranscript.size)
+        assertEquals("assistant-real-1", displayTranscript.last().id)
+        assertEquals("maple", displayTranscript.last().markdown)
+        assertEquals(true, displayTranscript.last().streaming)
     }
 
     @Test
-    fun syncAssistantTranscript_ignoresHydratedHistoryWhenThereIsNoActiveTurn() {
-        val transcript = mutableListOf(
+    fun transcriptWithActiveAssistant_ignoresHydratedHistoryWhenThereIsNoActiveTurn() {
+        val transcript = listOf(
             ChatEntry(
                 id = "history-1",
                 role = "assistant",
@@ -94,11 +96,12 @@ class ChatRuntimeTest {
             liveExecutionGroupsById = emptyMap()
         )
 
-        syncAssistantTranscript(transcript, snapshot)
+        val displayTranscript = transcriptWithActiveAssistant(transcript, snapshot)
 
         assertEquals(1, transcript.size)
         assertEquals("history-1", transcript.single().id)
         assertEquals("existing history", transcript.single().markdown)
+        assertEquals(transcript, displayTranscript)
     }
 
     @Test

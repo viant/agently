@@ -40,6 +40,18 @@ internal data class ArtifactPreview(
 )
 
 internal fun latestAssistantMarkdown(snapshot: ConversationStreamSnapshot): String? {
+    return activeAssistantEntry(snapshot)?.markdown
+}
+
+internal fun transcriptWithActiveAssistant(
+    transcript: List<ChatEntry>,
+    snapshot: ConversationStreamSnapshot?
+): List<ChatEntry> {
+    val active = snapshot?.let(::activeAssistantEntry) ?: return transcript
+    return transcript.filterNot { it.id == active.id } + active
+}
+
+private fun activeAssistantEntry(snapshot: ConversationStreamSnapshot): ChatEntry? {
     val activeTurnId = snapshot.activeTurnId?.trim().orEmpty()
     if (activeTurnId.isBlank()) {
         return null
@@ -52,7 +64,14 @@ internal fun latestAssistantMarkdown(snapshot: ConversationStreamSnapshot): Stri
                 (!message.content.isNullOrBlank() || !message.narration.isNullOrBlank())
         }
         ?: return null
-    return combineAssistantMarkdown(latest)
+    val markdown = combineAssistantMarkdown(latest) ?: return null
+    return ChatEntry(
+        id = latest.id,
+        role = "assistant",
+        markdown = markdown,
+        streaming = true,
+        timestampLabel = formatTimestampLabel(latest.createdAt)
+    )
 }
 
 private fun combineAssistantMarkdown(message: BufferedMessage): String? {
@@ -63,68 +82,6 @@ private fun combineAssistantMarkdown(message: BufferedMessage): String? {
         content.isNotEmpty() -> content
         narration.isNotEmpty() -> narration
         else -> null
-    }
-}
-
-internal fun syncAssistantTranscript(
-    transcript: MutableList<ChatEntry>,
-    snapshot: ConversationStreamSnapshot
-) {
-    val activeTurnId = snapshot.activeTurnId?.trim().orEmpty()
-    if (activeTurnId.isBlank()) {
-        return
-    }
-    val assistantMessages = snapshot.bufferedMessages
-        .filter {
-            it.role.equals("assistant", ignoreCase = true) &&
-                it.turnId?.trim() == activeTurnId
-        }
-        .sortedBy { it.createdAt ?: it.id }
-
-    assistantMessages.forEach { message ->
-        val markdown = combineAssistantMarkdown(message) ?: return@forEach
-        val existingIndex = transcript.indexOfFirst { it.id == message.id }
-        val syntheticIndex = transcript.indexOfFirst { entry ->
-            entry.id.startsWith("assistant-final-") &&
-                entry.role.equals("assistant", ignoreCase = true) &&
-                entry.markdown == markdown
-        }
-        val updated = ChatEntry(
-            id = message.id,
-            role = "assistant",
-            markdown = markdown,
-            streaming = true,
-            timestampLabel = formatTimestampLabel(message.createdAt)
-        )
-        if (existingIndex >= 0) {
-            transcript[existingIndex] = updated
-        } else if (syntheticIndex >= 0) {
-            transcript[syntheticIndex] = updated
-        } else {
-            transcript.add(updated)
-        }
-    }
-}
-
-internal fun syncAssistantResult(
-    transcript: MutableList<ChatEntry>,
-    messageId: String?,
-    markdown: String
-) {
-    if (markdown.isBlank()) return
-    val id = messageId?.takeIf { it.isNotBlank() } ?: "assistant-final-${System.currentTimeMillis()}"
-    val existingIndex = transcript.indexOfFirst { it.id == id }
-    val updated = ChatEntry(
-        id = id,
-        role = "assistant",
-        markdown = markdown,
-        streaming = false,
-        timestampLabel = formatTimestampLabel(System.currentTimeMillis())
-    )
-    if (existingIndex >= 0) {
-        transcript[existingIndex] = updated
-    } else {
-        transcript.add(updated)
     }
 }
 

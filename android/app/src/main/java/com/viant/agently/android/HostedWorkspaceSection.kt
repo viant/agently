@@ -167,7 +167,12 @@ internal fun rememberHostedWorkspaceWindowUiState(
         try {
             val state = openHostedWorkspaceWindow(forgeRuntime, selected)
             selected.windowForm?.let(::jsonObjectToParameterMap)?.takeIf { it.isNotEmpty() }?.let { windowForm ->
-                forgeRuntime.setWindowFormValues(state.windowId, windowForm, replace = true)
+                forgeRuntime.setWindowFormValues(
+                    windowId = state.windowId,
+                    values = windowForm,
+                    replace = true,
+                    bumpPrefillRevision = false
+                )
             }
             runtimeWindowId = state.windowId
             loadError = null

@@ -188,6 +188,7 @@ public final class AppRuntime: ObservableObject {
             state.activeConversationState = nil
             state.activeHostedWorkspace = nil
             state.activeTurnID = nil
+            state.activeStreamSnapshot = nil
             state.artifacts = []
             state.selectedArtifact = nil
             state.artifactErrorMessage = nil
@@ -230,6 +231,7 @@ public final class AppRuntime: ObservableObject {
         state.activeConversationState = nil
         state.activeHostedWorkspace = nil
         state.activeTurnID = nil
+        state.activeStreamSnapshot = nil
         state.artifacts = []
         state.selectedArtifact = nil
         state.artifactErrorMessage = nil
@@ -250,6 +252,7 @@ public final class AppRuntime: ObservableObject {
         state.activeConversationState = nil
         state.activeHostedWorkspace = nil
         state.activeTurnID = nil
+        state.activeStreamSnapshot = nil
         state.streamErrorMessage = nil
         state.isStoppingTurn = false
         state.selectedArtifact = nil
@@ -267,6 +270,7 @@ public final class AppRuntime: ObservableObject {
         state.activeConversationState = nil
         state.activeHostedWorkspace = nil
         state.activeTurnID = nil
+        state.activeStreamSnapshot = nil
         state.selectedArtifact = nil
         state.artifacts = []
         state.artifactErrorMessage = nil
@@ -584,6 +588,7 @@ public final class AppRuntime: ObservableObject {
         streamTask?.cancel()
         postTurnRefreshTask?.cancel()
         state.activeTurnID = nil
+        state.activeStreamSnapshot = nil
         state.streamErrorMessage = nil
         state.isStoppingTurn = false
         streamTask = Task { [weak self] in
@@ -607,6 +612,7 @@ public final class AppRuntime: ObservableObject {
                         queryRuntime.markAccepted()
                     }
                     state.activeTurnID = snapshot.activeTurnID
+                    state.activeStreamSnapshot = snapshot
                     if let currentTurnID,
                        !currentTurnID.isEmpty {
                         sawActiveTurn = true
@@ -617,7 +623,6 @@ public final class AppRuntime: ObservableObject {
                             schedulePostTurnRefresh(conversationID: conversationID)
                         }
                     }
-                    chatRuntime.applyStreaming(snapshot: snapshot)
                     let liveRestoreState = deriveAgentlyHostedWorkspaceRestoreState(
                         from: state.activeConversationState,
                         streamSnapshot: snapshot
@@ -636,10 +641,12 @@ public final class AppRuntime: ObservableObject {
                     }
                 }
                 state.activeTurnID = nil
+                state.activeStreamSnapshot = nil
                 state.isStoppingTurn = false
                 logger.info("Live stream ended for conversation \(conversationID, privacy: .public)")
             } catch {
                 state.activeTurnID = nil
+                state.activeStreamSnapshot = nil
                 state.isStoppingTurn = false
                 guard !Task.isCancelled else { return }
                 logger.error("Live stream failed for conversation \(conversationID, privacy: .public): \(String(describing: error), privacy: .public)")

@@ -78,6 +78,7 @@ internal fun PhoneWorkspacePane(
     bottomComposerInset: androidx.compose.ui.unit.Dp = 232.dp
 ) {
     val hostedWorkspaceState = deriveAgentlyHostedWorkspaceRestoreState(conversationState, streamSnapshot)
+    val displayTranscript = transcriptWithActiveAssistant(transcript, streamSnapshot)
     val hostedWorkspaceMinHeight = remember(hostedWorkspaceState) {
         hostedWorkspaceState?.windows
             ?.firstOrNull { it.windowId == hostedWorkspaceState.selectedWindowId }
@@ -203,7 +204,7 @@ internal fun PhoneWorkspacePane(
                 }
             }
         }
-        if (hasWorkspaceSurface && transcript.isNotEmpty()) {
+        if (hasWorkspaceSurface && displayTranscript.isNotEmpty()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -317,7 +318,7 @@ internal fun PhoneWorkspacePane(
                     )
                 }
                 RenderTranscript(
-                    items = transcript,
+                    items = displayTranscript,
                     pendingApprovals = pendingApprovals,
                     generatedFiles = generatedFiles,
                     forgeRuntime = forgeRuntime,

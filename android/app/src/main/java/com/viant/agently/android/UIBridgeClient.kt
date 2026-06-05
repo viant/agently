@@ -42,6 +42,7 @@ internal data class NativeUIBridgeWindow(
     val workspaceSharePct: Int? = null,
     val workspaceMinHeight: Int? = null,
     val parameters: JsonObject = JsonObject(emptyMap()),
+    val windowForm: JsonObject = JsonObject(emptyMap()),
     val inTab: Boolean = true,
     val isModal: Boolean = false
 )
@@ -113,6 +114,7 @@ internal class AndroidUIBridgeClient(
             snapshotJob = scope.launch {
                 while (started) {
                     try {
+                        helloIfNeeded()
                         publishSnapshot(force = false)
                     } catch (_: Throwable) {
                         rpcClient.resetSession()
@@ -196,8 +198,11 @@ internal class AndroidUIBridgeClient(
         if (!force && fingerprint == lastSnapshotFingerprint) {
             return
         }
+        val result = rpcClient.snapshot(clientId = clientId, data = snapshotJson)
+        if (result == null) {
+            return
+        }
         lastSnapshotFingerprint = fingerprint
-        rpcClient.snapshot(clientId = clientId, data = snapshotJson)
     }
 }
 
@@ -237,8 +242,12 @@ internal fun buildAndroidUIBridgeSnapshot(
             conversationId.isEmpty() || windowConversationId.isEmpty() || windowConversationId == conversationId
         }
         .forEach { window ->
+            val windowForm = runCatching {
+                forgeRuntime.windowContext(window.windowId).peekWindowForm()
+            }.getOrDefault(emptyMap())
             windows += window.toUIBridgeWindow(
-                conversationId = conversationId.ifEmpty { window.conversationId?.trim() }
+                conversationId = conversationId.ifEmpty { window.conversationId?.trim() },
+                windowForm = windowForm
             )
         }
     return NativeUIBridgeSnapshot(
@@ -248,7 +257,8 @@ internal fun buildAndroidUIBridgeSnapshot(
 }
 
 private fun WindowState.toUIBridgeWindow(
-    conversationId: String?
+    conversationId: String?,
+    windowForm: Map<String, Any?> = emptyMap()
 ): NativeUIBridgeWindow {
     return NativeUIBridgeWindow(
         windowId = windowId,
@@ -261,6 +271,7 @@ private fun WindowState.toUIBridgeWindow(
         workspaceSharePct = workspaceSharePct,
         workspaceMinHeight = workspaceMinHeight,
         parameters = parameters.toJsonObject(),
+        windowForm = windowForm.toJsonObject(),
         inTab = inTab,
         isModal = isModal
     )
@@ -278,13 +289,14 @@ private fun NativeUIBridgeWindow.toJsonObject(): JsonObject {
         workspaceSharePct?.let { put("workspaceSharePct", JsonPrimitive(it)) }
         workspaceMinHeight?.let { put("workspaceMinHeight", JsonPrimitive(it)) }
         put("parameters", parameters)
+        put("windowForm", windowForm)
         put("inTab", JsonPrimitive(inTab))
         put("isModal", JsonPrimitive(isModal))
     }
 }
 
-private fun WindowState.toUIBridgeOpenResult(): JsonObject {
-    val window = toUIBridgeWindow(conversationId = conversationId)
+private fun WindowState.toUIBridgeOpenResult(windowForm: Map<String, Any?> = emptyMap()): JsonObject {
+    val window = toUIBridgeWindow(conversationId = conversationId, windowForm = windowForm)
     return buildJsonObject {
         put("ok", JsonPrimitive(true))
         put("selectedWindowId", JsonPrimitive(window.windowId))
@@ -341,7 +353,9 @@ internal suspend fun handleAndroidUIBridgeCommand(
                 parentKey = parentKey,
                 isModal = false
             )
-            state.toUIBridgeOpenResult()
+            state.toUIBridgeOpenResult(
+                windowForm = forgeRuntime.windowContext(state.windowId).peekWindowForm()
+            )
         }
 
         "ui.window.close" -> {
@@ -350,6 +364,32 @@ internal suspend fun handleAndroidUIBridgeCommand(
             }
             forgeRuntime.closeWindow(windowId)
             buildJsonObject { put("ok", JsonPrimitive(true)) }
+        }
+
+        "ui.window.setFormData" -> {
+            val windowId = jsonString(params["windowId"]).ifBlank {
+                throw IllegalArgumentException("windowId is required")
+            }
+            if (forgeRuntime.windows.value.none { it.windowId == windowId }) {
+                throw IllegalArgumentException("window not found: $windowId")
+            }
+            val values = ((params["values"] as? JsonObject) ?: (params["parameters"] as? JsonObject))
+                ?: throw IllegalArgumentException("values must be an object")
+            val valuesMap = values.toMapValue()
+            if (valuesMap.isEmpty()) {
+                throw IllegalArgumentException("values are required")
+            }
+            val replace = (params["replace"] as? JsonPrimitive)?.booleanOrNull == true
+            forgeRuntime.setWindowFormValues(
+                windowId = windowId,
+                values = valuesMap,
+                replace = replace
+            )
+            buildJsonObject {
+                put("ok", JsonPrimitive(true))
+                put("windowId", JsonPrimitive(windowId))
+                put("windowForm", forgeRuntime.windowContext(windowId).peekWindowForm().toJsonObject())
+            }
         }
 
         "ui.window.activate" -> buildJsonObject {

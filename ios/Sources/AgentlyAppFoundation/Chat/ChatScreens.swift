@@ -11,6 +11,9 @@ public struct ChatScreens: View {
     }
 
     public var body: some View {
+        let displayTranscript = runtime.chatRuntime.transcriptWithActiveAssistant(
+            snapshot: runtime.state.activeStreamSnapshot
+        )
         Group {
             if horizontalSizeClass == .compact {
                 PhoneWorkspaceScreen(
@@ -19,7 +22,7 @@ public struct ChatScreens: View {
                     availableAgents: runtime.availableAgentOptions,
                     hostedWorkspaceRestoreState: runtime.state.activeHostedWorkspace,
                     conversationState: runtime.state.activeConversationState,
-                    transcript: runtime.chatRuntime.transcript,
+                    transcript: displayTranscript,
                     client: runtime.state.client,
                     artifacts: runtime.state.artifacts,
                     composerRuntime: runtime.composerRuntime,
@@ -69,7 +72,7 @@ public struct ChatScreens: View {
                     availableAgents: runtime.availableAgentOptions,
                     hostedWorkspaceRestoreState: runtime.state.activeHostedWorkspace,
                     conversationState: runtime.state.activeConversationState,
-                    transcript: runtime.chatRuntime.transcript,
+                    transcript: displayTranscript,
                     client: runtime.state.client,
                     artifacts: runtime.state.artifacts,
                     composerRuntime: runtime.composerRuntime,

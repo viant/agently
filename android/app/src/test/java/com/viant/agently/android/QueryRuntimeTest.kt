@@ -230,6 +230,61 @@ class QueryRuntimeTest {
     }
 
     @Test
+    fun `ui bridge set form data patches generic window form`() {
+        runBlocking {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val runtime = ForgeRuntime(endpoints = emptyMap(), scope = scope)
+
+            try {
+                val state = runtime.openWindowInline(
+                    windowKey = "report-builder",
+                    title = "Report Builder",
+                    metadata = WindowMetadata()
+                )
+                runtime.setWindowFormValues(
+                    state.windowId,
+                    mapOf(
+                        "prefill" to mapOf(
+                            "accountId" to 7
+                        )
+                    ),
+                    replace = true
+                )
+
+                val response = handleAndroidUIBridgeCommand(
+                    method = "ui.window.setFormData",
+                    params = buildJsonObject {
+                        put("windowId", JsonPrimitive(state.windowId))
+                        put(
+                            "values",
+                            buildJsonObject {
+                                put(
+                                    "prefill",
+                                    buildJsonObject {
+                                        put("segmentId", JsonPrimitive(9))
+                                    }
+                                )
+                            }
+                        )
+                    },
+                    forgeRuntime = runtime
+                )
+
+                assertEquals(true, (response["ok"] as? JsonPrimitive)?.booleanOrNull)
+                val responseWindowForm = response["windowForm"] as JsonObject
+                val responsePrefill = responseWindowForm["prefill"] as JsonObject
+                assertEquals(7L, (responsePrefill["accountId"] as? JsonPrimitive)?.longOrNull)
+                assertEquals(9L, (responsePrefill["segmentId"] as? JsonPrimitive)?.longOrNull)
+                val runtimePrefill = runtime.windowContext(state.windowId).peekWindowForm()["prefill"] as Map<*, *>
+                assertEquals(7, runtimePrefill["accountId"])
+                assertEquals(9L, runtimePrefill["segmentId"])
+            } finally {
+                scope.cancel()
+            }
+        }
+    }
+
+    @Test
     fun `resolveEffectivePrompt uses attachment fallback when prompt is blank`() {
         val prompt = resolveEffectivePrompt(
             prompt = "   ",
