@@ -14,6 +14,7 @@ public final class AppState: ObservableObject {
     @Published public var activeConversationState: ConversationStateResponse?
     @Published public var activeHostedWorkspace: HostedWorkspaceRestoreState?
     @Published public var activeTurnID: String?
+    @Published public var activeStreamSnapshot: ConversationStreamSnapshot?
     @Published public var artifacts: [ArtifactPreview] = []
     @Published public var selectedArtifact: ArtifactPreview?
     @Published public var query: String = ""

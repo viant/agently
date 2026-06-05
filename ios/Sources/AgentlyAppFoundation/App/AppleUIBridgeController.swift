@@ -423,6 +423,7 @@ func handleAppleUIBridgeCommand(
             parentKey: parentKey,
             isModal: false
         )
+        let windowForm = await forgeRuntime.windowFormJSONValue(windowID: state.id).mapValues(\.appValue)
         return [
             "ok": .bool(true),
             "selectedWindowId": .string(state.id),
@@ -433,7 +434,8 @@ func handleAppleUIBridgeCommand(
             "presentation": presentation.map(BridgeJSONValue.string) ?? .null,
             "region": region.map(BridgeJSONValue.string) ?? .null,
             "parentKey": parentKey.map(BridgeJSONValue.string) ?? .null,
-            "parameters": .object(parameters)
+            "parameters": .object(parameters),
+            "windowForm": .object(windowForm)
         ]
 
     case "ui.window.close":
@@ -443,6 +445,32 @@ func handleAppleUIBridgeCommand(
         }
         await forgeRuntime.closeWindow(id: windowID)
         return ["ok": .bool(true)]
+
+    case "ui.window.setFormData":
+        let windowID = params["windowId"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !windowID.isEmpty else {
+            throw AgentlySDKError.invalidResponse
+        }
+        let existingWindows = await forgeRuntime.windows
+        guard existingWindows.contains(where: { $0.id == windowID }) else {
+            throw AgentlySDKError.invalidResponse
+        }
+        guard let values = params["values"]?.objectValue ?? params["parameters"]?.objectValue,
+              !values.isEmpty else {
+            throw AgentlySDKError.invalidResponse
+        }
+        let replace = params["replace"]?.boolValue == true
+        await forgeRuntime.setWindowFormValue(
+            windowID: windowID,
+            values: values.mapValues(\.forgeValue),
+            replace: replace
+        )
+        let windowForm = await forgeRuntime.windowFormJSONValue(windowID: windowID).mapValues(\.appValue)
+        return [
+            "ok": .bool(true),
+            "windowId": .string(windowID),
+            "windowForm": .object(windowForm)
+        ]
 
     case "ui.window.activate":
         return ["ok": .bool(true)]

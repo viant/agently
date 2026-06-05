@@ -650,7 +650,6 @@ private fun AgentlyApp() {
             activeConversationId = snapshot.conversationId
         }
         streamedMarkdown = latestAssistantMarkdown(snapshot) ?: streamedMarkdown
-        syncAssistantTranscript(transcript, snapshot)
     }
 
     fun schedulePostTurnRefresh(conversationId: String) {
@@ -806,7 +805,6 @@ private fun AgentlyApp() {
         result = querySuccessState.result
         querySuccessState.streamedMarkdown?.let { markdown ->
             streamedMarkdown = markdown
-            syncAssistantResult(transcript, querySuccessState.result?.messageId, markdown)
         }
         generatedFiles = querySuccessState.generatedFiles
         pendingApprovals = querySuccessState.pendingApprovals

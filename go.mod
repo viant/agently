@@ -13,10 +13,10 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.17.0
-	github.com/viant/agently-core v0.1.11-0.20260604231438-e1150ecfd283
+	github.com/viant/agently-core v0.1.12-0.20260605155417-90981186aafc
 	github.com/viant/datly v0.37.1-0.20260409194131-e40dcc4467ab
 	github.com/viant/embedius v0.5.3 // indirect
-	github.com/viant/forge v0.3.2
+	github.com/viant/forge v0.3.3
 	github.com/viant/jsonrpc v0.21.0 // indirect
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
 	github.com/viant/mcp v0.16.0 // indirect
@@ -32,10 +32,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-//replace github.com/viant/jsonrpc => ../jsonrpc
-replace github.com/viant/forge => ../forge
-
-replace github.com/viant/agently-core => ../agently-core
 
 require (
 	github.com/google/gops v0.3.28
@@ -212,3 +208,7 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.45.0 // indirect
 )
+
+
+//replace github.com/viant/forge => ../forge
+//replace github.com/viant/agently-core => ../agently-core

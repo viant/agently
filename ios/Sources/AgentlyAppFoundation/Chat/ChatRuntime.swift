@@ -210,78 +210,59 @@ public final class ChatRuntime: ObservableObject {
         transcript = next
     }
 
-    public func applyStreaming(snapshot: ConversationStreamSnapshot) {
-        let streamEntries = streamingEntries(from: snapshot)
-        let streamEntryIDs = Set(streamEntries.map(\.id))
-        var next = transcript.filter { entry in
-            !streamEntryIDs.contains(entry.id) &&
-            entry.statusLabel != "Waiting" &&
-            entry.statusLabel != "Streaming"
-        }
-
-        next.append(contentsOf: streamEntries)
-        transcript = next
+    public func latestAssistantMarkdown(snapshot: ConversationStreamSnapshot) -> String? {
+        Self.activeAssistantEntry(from: snapshot)?.markdown
     }
 
-    private func streamingEntries(from snapshot: ConversationStreamSnapshot) -> [ChatTranscriptEntry] {
+    public func transcriptWithActiveAssistant(
+        snapshot: ConversationStreamSnapshot?
+    ) -> [ChatTranscriptEntry] {
+        Self.transcriptWithActiveAssistant(transcript, snapshot: snapshot)
+    }
+
+    public static func transcriptWithActiveAssistant(
+        _ transcript: [ChatTranscriptEntry],
+        snapshot: ConversationStreamSnapshot?
+    ) -> [ChatTranscriptEntry] {
+        guard let snapshot,
+              let active = activeAssistantEntry(from: snapshot) else {
+            return transcript
+        }
+        return transcript.filter { entry in
+            entry.id != active.id &&
+            entry.statusLabel != "Waiting" &&
+            entry.statusLabel != "Streaming"
+        } + [active]
+    }
+
+    private static func activeAssistantEntry(from snapshot: ConversationStreamSnapshot) -> ChatTranscriptEntry? {
         guard let activeTurnID = snapshot.activeTurnID?.trimmingCharacters(in: .whitespacesAndNewlines),
               !activeTurnID.isEmpty else {
-            return []
+            return nil
         }
 
-        let activeGroups = snapshot.liveExecutionGroupsByID.values
-            .filter { group in
-                group.turnID?.trimmingCharacters(in: .whitespacesAndNewlines) == activeTurnID
-            }
-        if !activeGroups.isEmpty {
-            return activeGroups
-                .sorted { lhs, rhs in
-                    if lhs.sequence != rhs.sequence {
-                        return (lhs.sequence ?? 0) < (rhs.sequence ?? 0)
-                    }
-                    if lhs.createdAt != rhs.createdAt {
-                        return (lhs.createdAt ?? "") < (rhs.createdAt ?? "")
-                    }
-                    return lhs.pageID < rhs.pageID
-                }
-                .compactMap { group in
-                    let markdown = [group.narration, group.content]
-                        .compactMap(sanitizeVisibleAssistantText)
-                        .filter { !$0.isEmpty }
-                        .joined(separator: "\n\n")
-                    guard !markdown.isEmpty else {
-                        return nil
-                    }
-                    return ChatTranscriptEntry(
-                        id: group.pageID,
-                        role: "assistant",
-                        markdown: markdown,
-                        timestampLabel: Self.timestampLabel(for: group.createdAt),
-                        statusLabel: Self.statusLabel(for: group.status)
-                    )
-                }
+        guard let message = snapshot.bufferedMessages.reversed().first(where: { message in
+            message.role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "assistant" &&
+                message.turnID?.trimmingCharacters(in: .whitespacesAndNewlines) == activeTurnID &&
+                (message.content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ||
+                 message.narration?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+        }) else {
+            return nil
         }
-
-        return snapshot.bufferedMessages
-            .filter { message in
-                message.turnID?.trimmingCharacters(in: .whitespacesAndNewlines) == activeTurnID
-            }
-            .compactMap { message -> ChatTranscriptEntry? in
-                let markdown = [message.narration, message.content]
-                    .compactMap(sanitizeVisibleAssistantText)
-                    .filter { !$0.isEmpty }
-                    .joined(separator: "\n\n")
-                guard !markdown.isEmpty else {
-                    return nil
-                }
-                return ChatTranscriptEntry(
-                    id: message.id,
-                    role: "assistant",
-                    markdown: markdown,
-                    timestampLabel: Self.timestampLabel(for: Date()),
-                    statusLabel: Self.statusLabel(for: message.status)
-                )
-            }
+        let markdown = [message.narration, message.content]
+            .compactMap(sanitizeVisibleAssistantText)
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+        guard !markdown.isEmpty else {
+            return nil
+        }
+        return ChatTranscriptEntry(
+            id: message.id,
+            role: "assistant",
+            markdown: markdown,
+            timestampLabel: Self.timestampLabel(for: message.createdAt),
+            statusLabel: Self.statusLabel(for: message.status) ?? "Streaming"
+        )
     }
 
     private static func timestampLabel(for value: Date) -> String {

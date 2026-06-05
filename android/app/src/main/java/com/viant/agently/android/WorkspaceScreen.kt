@@ -92,7 +92,8 @@ internal fun TabletWorkspacePane(
 ) {
     val context = LocalContext.current
     val hostedWorkspaceState = deriveAgentlyHostedWorkspaceRestoreState(conversationState, streamSnapshot)
-    val hasMainContent = transcript.isNotEmpty() || pendingApprovals.isNotEmpty() || generatedFiles.isNotEmpty() || !activeConversationId.isNullOrBlank()
+    val displayTranscript = transcriptWithActiveAssistant(transcript, streamSnapshot)
+    val hasMainContent = displayTranscript.isNotEmpty() || pendingApprovals.isNotEmpty() || generatedFiles.isNotEmpty() || !activeConversationId.isNullOrBlank()
     val hasHostedWorkspace = hostedWorkspaceState != null
     val hostedWorkspaceMinHeight = remember(hostedWorkspaceState) {
         hostedWorkspaceState?.windows
@@ -341,7 +342,7 @@ internal fun TabletWorkspacePane(
                                     }
                                 }
                                 RenderTranscript(
-                                    items = transcript,
+                                    items = displayTranscript,
                                     pendingApprovals = pendingApprovals,
                                     generatedFiles = generatedFiles,
                                     forgeRuntime = forgeRuntime,
