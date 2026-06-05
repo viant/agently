@@ -3,15 +3,14 @@ package com.viant.agently.android
 import com.viant.agentlysdk.stream.BufferedMessage
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ChatRuntimeTest {
 
     @Test
-    fun latestAssistantMarkdown_prefersNewestAssistantMessage() {
+    fun latestAssistantMarkdown_prefersNewestActiveAssistantMessage() {
         val snapshot = ConversationStreamSnapshot(
             conversationId = "conv-1",
             activeTurnId = "turn-2",
@@ -19,7 +18,8 @@ class ChatRuntimeTest {
             pendingElicitation = null,
             bufferedMessages = listOf(
                 BufferedMessage(id = "m1", turnId = "turn-1", role = "assistant", content = "Earlier"),
-                BufferedMessage(id = "m2", turnId = "turn-2", role = "assistant", narration = "Heads up", content = "Latest")
+                BufferedMessage(id = "m2", turnId = "turn-2", role = "assistant", narration = "Heads up", content = "Latest"),
+                BufferedMessage(id = "m3", turnId = "turn-1", role = "assistant", content = "Historical but newer")
             ),
             liveExecutionGroupsById = emptyMap()
         )
@@ -33,7 +33,7 @@ class ChatRuntimeTest {
     }
 
     @Test
-    fun syncAssistantTranscript_replacesSyntheticFinalEntryWithRealMessage() {
+    fun syncAssistantTranscript_replacesSyntheticEntryOnlyFromActiveTurn() {
         val transcript = mutableListOf(
             ChatEntry(
                 id = "assistant-final-123",
@@ -45,7 +45,7 @@ class ChatRuntimeTest {
         )
         val snapshot = ConversationStreamSnapshot(
             conversationId = "conv-1",
-            activeTurnId = null,
+            activeTurnId = "turn-1",
             feeds = emptyList(),
             pendingElicitation = null,
             bufferedMessages = listOf(
@@ -65,7 +65,40 @@ class ChatRuntimeTest {
         assertEquals(1, transcript.size)
         assertEquals("assistant-real-1", transcript.single().id)
         assertEquals("maple", transcript.single().markdown)
-        assertFalse(transcript.single().streaming)
+        assertEquals(true, transcript.single().streaming)
+    }
+
+    @Test
+    fun syncAssistantTranscript_ignoresHydratedHistoryWhenThereIsNoActiveTurn() {
+        val transcript = mutableListOf(
+            ChatEntry(
+                id = "history-1",
+                role = "assistant",
+                markdown = "existing history",
+                streaming = false
+            )
+        )
+        val snapshot = ConversationStreamSnapshot(
+            conversationId = "conv-1",
+            activeTurnId = null,
+            feeds = emptyList(),
+            pendingElicitation = null,
+            bufferedMessages = listOf(
+                BufferedMessage(
+                    id = "assistant-hydrated-1",
+                    turnId = "turn-1",
+                    role = "assistant",
+                    content = "hydrated history"
+                )
+            ),
+            liveExecutionGroupsById = emptyMap()
+        )
+
+        syncAssistantTranscript(transcript, snapshot)
+
+        assertEquals(1, transcript.size)
+        assertEquals("history-1", transcript.single().id)
+        assertEquals("existing history", transcript.single().markdown)
     }
 
     @Test

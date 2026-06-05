@@ -22,6 +22,16 @@ final class ChatRuntimeTests: XCTestCase {
                 )
             ],
             liveExecutionGroupsByID: [
+                "msg-history": LiveExecutionGroup(
+                    pageID: "msg-history",
+                    assistantMessageID: "msg-history",
+                    turnID: "turn-history",
+                    sequence: 1,
+                    narration: "historical narration",
+                    content: "historical content",
+                    status: "completed",
+                    createdAt: "2026-04-15T21:00:00Z"
+                ),
                 "msg-live": LiveExecutionGroup(
                     pageID: "msg-live",
                     assistantMessageID: "msg-live",
@@ -52,6 +62,14 @@ final class ChatRuntimeTests: XCTestCase {
             feeds: [],
             pendingElicitation: nil,
             bufferedMessages: [
+                BufferedStreamMessage(
+                    id: "msg-history",
+                    conversationID: "conv-1",
+                    turnID: "turn-history",
+                    content: "historical content",
+                    narration: "historical narration",
+                    status: "completed"
+                ),
                 BufferedStreamMessage(
                     id: "msg-buffered",
                     conversationID: "conv-1",
@@ -115,7 +133,7 @@ final class ChatRuntimeTests: XCTestCase {
         let runtime = ChatRuntime()
         let snapshot = ConversationStreamSnapshot(
             conversationID: "conv-1",
-            activeTurnID: nil,
+            activeTurnID: "turn-1",
             feeds: [],
             pendingElicitation: nil,
             bufferedMessages: [
@@ -143,6 +161,34 @@ final class ChatRuntimeTests: XCTestCase {
 
         XCTAssertEqual(runtime.transcript.count, 1)
         XCTAssertEqual(runtime.transcript[0].markdown, "I’m pulling the baseline delivery signals first.")
+    }
+
+    @MainActor
+    func testApplyStreamingIgnoresBufferedHistoryWithoutActiveTurn() {
+        let runtime = ChatRuntime()
+        runtime.appendAssistantMessage("existing history")
+        let snapshot = ConversationStreamSnapshot(
+            conversationID: "conv-1",
+            activeTurnID: nil,
+            feeds: [],
+            pendingElicitation: nil,
+            bufferedMessages: [
+                BufferedStreamMessage(
+                    id: "msg-history",
+                    conversationID: "conv-1",
+                    turnID: "turn-1",
+                    content: "hydrated history",
+                    narration: nil,
+                    status: "completed"
+                )
+            ],
+            liveExecutionGroupsByID: [:]
+        )
+
+        runtime.applyStreaming(snapshot: snapshot)
+
+        XCTAssertEqual(runtime.transcript.count, 1)
+        XCTAssertEqual(runtime.transcript[0].markdown, "existing history")
     }
 
     func testSanitizeVisibleAssistantTextStripsPureRouterPayload() {
