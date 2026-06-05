@@ -3344,7 +3344,16 @@ td[data-col="enabled"] {
   align-self: center;
 }
 
-.app-chat-pane:has(.app-tool-workspace) [data-testid="chat-composer"] {
+/*
+ * When the ToolFeedWorkspace right rail is open at full or expanded width, the chat
+ * composer extends rightward to span across the workspace area (visual continuation).
+ * Scoped to `:not(.is-dismissed)` so the trick does NOT apply when the rail is
+ * collapsed to its 112px "Reopen tool feeds" thumb — in that case the
+ * `--app-tool-workspace-width` CSS variable still holds the open-state width
+ * (320–408px), which would over-extend the composer and push the Send button past
+ * `.app-chat-pane { overflow: hidden }` on the right.
+ */
+.app-chat-pane:has(.app-tool-workspace:not(.is-dismissed)) [data-testid="chat-composer"] {
   width: calc(100% + var(--app-tool-workspace-width) + var(--app-tool-workspace-gap));
   max-width: none;
   align-self: flex-start;
