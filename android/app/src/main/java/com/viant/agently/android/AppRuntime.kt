@@ -12,6 +12,7 @@ import com.viant.agentlysdk.MetadataTargetContext
 import com.viant.agentlysdk.ListPendingToolApprovalsInput
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.agentlysdk.WorkspaceMetadata
+import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import kotlinx.serialization.json.JsonElement
 
 internal data class ResolvedClient(
@@ -243,6 +244,28 @@ internal suspend fun prepareConversationBinding(
         transcriptEntries = if (replaceTranscript) transcriptBuilder(binding.state) else emptyList(),
         replaceTranscript = replaceTranscript
     )
+}
+
+internal fun shouldKeepConversationStream(
+    activeConversationId: String?,
+    targetConversationId: String,
+    replaceTranscript: Boolean,
+    hasStreamJob: Boolean
+): Boolean {
+    val active = activeConversationId?.trim().orEmpty()
+    val target = targetConversationId.trim()
+    return !replaceTranscript && hasStreamJob && target.isNotEmpty() && active == target
+}
+
+internal fun shouldPreserveConversationStreamSnapshot(
+    targetConversationId: String,
+    replaceTranscript: Boolean,
+    streamSnapshot: ConversationStreamSnapshot?
+): Boolean {
+    val target = targetConversationId.trim()
+    return !replaceTranscript &&
+        target.isNotEmpty() &&
+        streamSnapshot?.conversationId?.trim() == target
 }
 
 internal suspend fun ensureConversationPresentInRecentList(

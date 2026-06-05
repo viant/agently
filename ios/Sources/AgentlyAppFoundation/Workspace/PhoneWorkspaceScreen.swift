@@ -253,7 +253,7 @@ public struct PhoneWorkspaceScreen: View {
                     ContentUnavailableView(
                         "Workspace Ready",
                         systemImage: "rectangle.topthird.inset.filled",
-                        description: Text("Recommendation views and workspace approvals will appear here.")
+                        description: Text("Hosted workspace views and approvals will appear here.")
                     )
                     .frame(maxWidth: .infinity)
                     .padding(.top, 24)
@@ -316,7 +316,6 @@ public struct PhoneWorkspaceScreen: View {
                 )
                 HostedWorkspaceSection(
                     restoreState: hostedWorkspaceRestoreState,
-                    conversationState: conversationState,
                     forgeRuntime: forgeRuntime,
                     showTitle: false,
                     displayMode: .constant(.standard)
@@ -381,13 +380,7 @@ public struct PhoneWorkspaceScreen: View {
     }
 
     private var hostedWorkspaceRestoreState: HostedWorkspaceRestoreState? {
-        if let hostedWorkspaceRestoreStateOverride {
-            return hostedWorkspaceRestoreStateOverride
-        }
-        guard let conversationState else {
-            return nil
-        }
-        return deriveHostedWorkspaceRestoreState(from: conversationState)
+        hostedWorkspaceRestoreStateOverride
     }
 
     private var hostedWorkspaceWindowID: String? {

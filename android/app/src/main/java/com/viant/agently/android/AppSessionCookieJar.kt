@@ -4,6 +4,7 @@ import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
 
 internal class AppSessionCookieJar : CookieJar {
@@ -43,5 +44,7 @@ internal class AppSessionCookieJar : CookieJar {
 internal fun appSessionHttpClient(cookieJar: CookieJar = AppSessionCookieJar()): OkHttpClient {
     return OkHttpClient.Builder()
         .cookieJar(cookieJar)
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .callTimeout(0, TimeUnit.MILLISECONDS)
         .build()
 }

@@ -11,10 +11,9 @@ func resolveDefaultHostedWorkspaceDisplayMode(isRegularWidth: Bool) -> HostedWor
 }
 
 func resolveActiveHostedWorkspaceWindow(
-    restoreState: HostedWorkspaceRestoreState?,
-    conversationState: ConversationStateResponse?
+    restoreState: HostedWorkspaceRestoreState?
 ) -> WorkspaceWindowSnapshot? {
-    let restore = restoreState ?? conversationState.flatMap { deriveHostedWorkspaceRestoreState(from: $0) }
+    let restore = restoreState
     let selectedID = restore?.selectedWindowId?.trimmingCharacters(in: .whitespacesAndNewlines)
     if let selectedID, !selectedID.isEmpty,
        let matched = restore?.windows.first(where: { $0.windowId == selectedID }) {

@@ -8,12 +8,12 @@ final class AppShellBrandingTests: XCTestCase {
     }
 
     func testResolveWorkspaceBrandTitlePrefixesViantForWorkspaceName() {
-        XCTAssertEqual(resolveWorkspaceBrandTitle(workspaceTitle: "steward"), "Viant Steward")
+        XCTAssertEqual(resolveWorkspaceBrandTitle(workspaceTitle: "workspace"), "Viant Workspace")
         XCTAssertEqual(resolveWorkspaceBrandTitle(workspaceTitle: "metrics_builder"), "Viant Metrics Builder")
     }
 
     func testResolveWorkspaceBrandTitleDoesNotDoublePrefixViant() {
-        XCTAssertEqual(resolveWorkspaceBrandTitle(workspaceTitle: "Viant Steward"), "Viant Steward")
+        XCTAssertEqual(resolveWorkspaceBrandTitle(workspaceTitle: "Viant Workspace"), "Viant Workspace")
         XCTAssertEqual(resolveWorkspaceBrandTitle(workspaceTitle: "viant"), "Viant")
     }
 }

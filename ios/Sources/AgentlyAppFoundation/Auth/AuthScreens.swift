@@ -4,6 +4,7 @@ import AgentlySDK
 public struct AuthRequiredScreen: View {
     @ObservedObject private var authRuntime: AuthRuntime
     @ObservedObject private var settingsRuntime: SettingsRuntime
+    @State private var didAttemptAutoOOBSignIn = false
     private let baseURL: String
     private let statusMessage: String?
     private let onOpenSettings: () -> Void
@@ -137,6 +138,20 @@ public struct AuthRequiredScreen: View {
         .task {
             guard authRuntime.shouldAutoRefreshAuthContext else { return }
             await authRuntime.refreshConnectionContext()
+        }
+        .task {
+            guard developerAuthFeaturesEnabled() else { return }
+            guard resolvedBootstrapAutoOOBSignIn(
+                environmentValue: ProcessInfo.processInfo.environment["AGENTLY_IOS_AUTO_OOB_SIGN_IN"],
+                launchArguments: CommandLine.arguments
+            ) else { return }
+            guard !didAttemptAutoOOBSignIn else { return }
+            let secret = settingsRuntime.oobSecretReference.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !secret.isEmpty else { return }
+            didAttemptAutoOOBSignIn = true
+            if await authRuntime.beginOOBLogin(secretsURL: secret) {
+                onLoginSuccess()
+            }
         }
     }
 }

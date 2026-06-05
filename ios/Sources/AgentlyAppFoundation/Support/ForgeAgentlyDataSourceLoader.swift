@@ -1,3 +1,4 @@
+import Foundation
 import AgentlySDK
 import ForgeIOSRuntime
 
@@ -66,4 +67,21 @@ func makeForgeAgentlyDataSourceLoader(
             metrics: response.metrics?.mapValues(\.forgeValue) ?? [:]
         )
     }
+}
+
+internal func extractDatasourceID(from uri: String) -> String? {
+    let trimmed = uri.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    let marker = "/datasources/"
+    guard let markerRange = trimmed.range(of: marker) else { return nil }
+    var suffix = String(trimmed[markerRange.upperBound...])
+    if let queryRange = suffix.range(of: "?") {
+        suffix = String(suffix[..<queryRange.lowerBound])
+    }
+    if suffix.hasSuffix("/fetch") {
+        suffix.removeLast("/fetch".count)
+    }
+    let datasourceID = suffix.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    guard !datasourceID.isEmpty else { return nil }
+    return datasourceID.removingPercentEncoding ?? datasourceID
 }

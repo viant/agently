@@ -22,6 +22,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -90,7 +91,7 @@ internal fun TabletWorkspacePane(
     onRunQuery: () -> Unit
 ) {
     val context = LocalContext.current
-    val hostedWorkspaceState = conversationState?.let(::deriveHostedWorkspaceRestoreState)
+    val hostedWorkspaceState = deriveAgentlyHostedWorkspaceRestoreState(conversationState, streamSnapshot)
     val hasMainContent = transcript.isNotEmpty() || pendingApprovals.isNotEmpty() || generatedFiles.isNotEmpty() || !activeConversationId.isNullOrBlank()
     val hasHostedWorkspace = hostedWorkspaceState != null
     val hostedWorkspaceMinHeight = remember(hostedWorkspaceState) {
@@ -364,23 +365,24 @@ internal fun TabletWorkspacePane(
                     }
 
                     if (workspacePanelMode != WorkspacePanelMode.Expanded) {
+                        val compactComposer = !activeConversationId.isNullOrBlank()
+                        val composerWidthFraction = if (compactComposer) 0.82f else 0.9f
                         Surface(
                             modifier = Modifier
-                                .fillMaxWidth(0.74f)
-                                .widthIn(max = 900.dp)
+                                .fillMaxWidth(composerWidthFraction)
+                                .widthIn(max = if (compactComposer) 1040.dp else 1200.dp)
                                 .align(Alignment.CenterHorizontally)
                                 .navigationBarsPadding(),
                             color = Color(0xFFFDFDFE),
                             border = BorderStroke(1.dp, Color(0xFFDDE4F1)),
                             shape = MaterialTheme.shapes.large
                         ) {
-                            val compactComposer = !activeConversationId.isNullOrBlank()
                             Column(
                                 modifier = Modifier.padding(
-                                    horizontal = if (compactComposer) 16.dp else 18.dp,
-                                    vertical = if (compactComposer) 10.dp else 14.dp
+                                    horizontal = if (compactComposer) 16.dp else 20.dp,
+                                    vertical = if (compactComposer) 10.dp else 12.dp
                                 ),
-                                verticalArrangement = Arrangement.spacedBy(if (compactComposer) 8.dp else 12.dp)
+                                verticalArrangement = Arrangement.spacedBy(if (compactComposer) 8.dp else 10.dp)
                             ) {
                                 if (compactComposer) {
                                     Row(
@@ -395,7 +397,15 @@ internal fun TabletWorkspacePane(
                                             placeholder = { Text("Follow up") },
                                             modifier = Modifier.weight(1f),
                                             minLines = 1,
-                                            maxLines = 2
+                                            maxLines = 2,
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedContainerColor = ComposerInputFill,
+                                                unfocusedContainerColor = ComposerInputFill,
+                                                disabledContainerColor = ComposerInputFill,
+                                                focusedBorderColor = ComposerInputBorder,
+                                                unfocusedBorderColor = ComposerInputBorder,
+                                                disabledBorderColor = ComposerInputBorder.copy(alpha = 0.6f)
+                                            )
                                         )
                                         Button(
                                             onClick = onRunQuery,
@@ -436,8 +446,16 @@ internal fun TabletWorkspacePane(
                                         label = { Text("Message") },
                                         placeholder = { Text("Ask a follow-up or start a new task") },
                                         modifier = Modifier.fillMaxWidth(),
-                                        minLines = 2,
-                                        maxLines = 5
+                                        minLines = 1,
+                                        maxLines = 4,
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedContainerColor = ComposerInputFill,
+                                            unfocusedContainerColor = ComposerInputFill,
+                                            disabledContainerColor = ComposerInputFill,
+                                            focusedBorderColor = ComposerInputBorder,
+                                            unfocusedBorderColor = ComposerInputBorder,
+                                            disabledBorderColor = ComposerInputBorder.copy(alpha = 0.6f)
+                                        )
                                     )
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),

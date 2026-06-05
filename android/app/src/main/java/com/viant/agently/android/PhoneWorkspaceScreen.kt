@@ -77,7 +77,7 @@ internal fun PhoneWorkspacePane(
     onStarterTaskSelected: (String) -> Unit,
     bottomComposerInset: androidx.compose.ui.unit.Dp = 232.dp
 ) {
-    val hostedWorkspaceState = conversationState?.let(::deriveHostedWorkspaceRestoreState)
+    val hostedWorkspaceState = deriveAgentlyHostedWorkspaceRestoreState(conversationState, streamSnapshot)
     val hostedWorkspaceMinHeight = remember(hostedWorkspaceState) {
         hostedWorkspaceState?.windows
             ?.firstOrNull { it.windowId == hostedWorkspaceState.selectedWindowId }
@@ -355,7 +355,7 @@ private fun WorkspaceModePlaceholder() {
                 color = Color(0xFF182230)
             )
             Text(
-                "Recommendations, approvals, and generated outputs appear here when the conversation opens a hosted workspace.",
+                "Hosted workspace views, approvals, and generated outputs appear here when the conversation opens them.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color(0xFF667085)
             )

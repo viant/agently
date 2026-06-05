@@ -37,9 +37,9 @@ class ForgeAgentlyDataSourceLoaderTest {
                 .setBody(
                     """
                     {
-                      "rows": [{"advertiserId": 13579, "advertiserName": "Acme"}],
+                      "rows": [{"accountId": 13579, "accountName": "Acme"}],
                       "dataInfo": {"recordCount": 1, "pageCount": 1},
-                      "metrics": {"dailyBudget": 180, "lifetimePacingIndex": 26}
+                      "metrics": {"primaryValue": 180, "secondaryIndex": 26}
                     }
                     """.trimIndent()
                 )
@@ -55,11 +55,11 @@ class ForgeAgentlyDataSourceLoaderTest {
         val result = loader(
             ForgeRuntime.DataSourceFetchRequest(
                 windowId = "w1",
-                dataSourceRef = "order_performance_profile",
+                dataSourceRef = "entity_performance_profile",
                 dataSource = DataSourceDef(
                     service = ServiceDef(
                         endpoint = "agentlyAPI",
-                        uri = "/v1/api/datasources/order_performance_profile/fetch",
+                        uri = "/v1/api/datasources/entity_performance_profile/fetch",
                         method = "POST"
                     )
                 ),
@@ -68,10 +68,10 @@ class ForgeAgentlyDataSourceLoaderTest {
         )
 
         val recorded = server.takeRequest()
-        assertEquals("/v1/api/datasources/order_performance_profile/fetch", recorded.path)
-        assertEquals(13579L, result?.rows?.firstOrNull()?.get("advertiserId"))
-        assertEquals(180L, result?.metrics?.get("dailyBudget"))
-        assertEquals(26L, result?.metrics?.get("lifetimePacingIndex"))
+        assertEquals("/v1/api/datasources/entity_performance_profile/fetch", recorded.path)
+        assertEquals(13579L, result?.rows?.firstOrNull()?.get("accountId"))
+        assertEquals(180L, result?.metrics?.get("primaryValue"))
+        assertEquals(26L, result?.metrics?.get("secondaryIndex"))
     }
 
     @Test
@@ -99,11 +99,11 @@ class ForgeAgentlyDataSourceLoaderTest {
         val result = loader(
             ForgeRuntime.DataSourceFetchRequest(
                 windowId = "w1",
-                dataSourceRef = "advertiser_lookup",
+                dataSourceRef = "account_lookup",
                 dataSource = DataSourceDef(
                     service = ServiceDef(
                         endpoint = "agentlyAPI",
-                        uri = "/v1/api/datasources/advertiser_lookup/fetch",
+                        uri = "/v1/api/datasources/account_lookup/fetch",
                         method = "POST"
                     )
                 ),

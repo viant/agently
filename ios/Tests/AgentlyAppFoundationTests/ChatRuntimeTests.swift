@@ -86,10 +86,10 @@ final class ChatRuntimeTests: XCTestCase {
                             final: AssistantMessageState(
                                 messageID: "a1",
                                 content: """
-                                I can troubleshoot the order, but I need the exact ad order ID because “order” by itself is ambiguous. {
+                                I can troubleshoot the order, but I need the exact entity ID because “order” by itself is ambiguous. {
                                   "classification": { "intent": "troubleshoot_delivery_blocker" },
                                   "prompting": { "suggestedProfileId": "diagnostic_baseline" },
-                                  "scope": { "values": { "entityType": "AdOrder" } }
+                                  "scope": { "values": { "entityType": "Entity" } }
                                 }
                                 """,
                                 createdAt: "2026-06-03T21:00:00Z"
@@ -106,7 +106,7 @@ final class ChatRuntimeTests: XCTestCase {
         XCTAssertEqual(runtime.transcript.count, 2)
         XCTAssertEqual(
             runtime.transcript.last?.markdown,
-            "I can troubleshoot the order, but I need the exact ad order ID because “order” by itself is ambiguous."
+            "I can troubleshoot the order, but I need the exact entity ID because “order” by itself is ambiguous."
         )
     }
 
@@ -123,7 +123,7 @@ final class ChatRuntimeTests: XCTestCase {
                     id: "msg-router",
                     conversationID: "conv-1",
                     turnID: "turn-1",
-                    content: #"{"appendToolBundles":["analyst-baseline"],"suggestedProfileId":"diagnostic_baseline","scope":{"values":{"entityType":"AdOrder"}}}"#,
+                    content: #"{"appendToolBundles":["analyst-baseline"],"suggestedProfileId":"diagnostic_baseline","scope":{"values":{"entityType":"Entity"}}}"#,
                     narration: nil,
                     status: "completed"
                 ),
@@ -146,20 +146,20 @@ final class ChatRuntimeTests: XCTestCase {
     }
 
     func testSanitizeVisibleAssistantTextStripsPureRouterPayload() {
-        let raw = #"{"appendToolBundles":["analyst-baseline"],"suggestedProfileId":"diagnostic_baseline","scope":{"values":{"entityType":"AdOrder"}}}"#
+        let raw = #"{"appendToolBundles":["analyst-baseline"],"suggestedProfileId":"diagnostic_baseline","scope":{"values":{"entityType":"Entity"}}}"#
         XCTAssertNil(sanitizeVisibleAssistantText(raw))
     }
 
     func testSanitizeVisibleAssistantTextPreservesHumanPrefixAndStripsRouterPayloadSuffix() {
         let raw = """
-        I can troubleshoot the order, but I need the exact ad order ID because “order” by itself is ambiguous. {
+        I can troubleshoot the order, but I need the exact entity ID because “order” by itself is ambiguous. {
           "classification": { "intent": "troubleshoot_delivery_blocker" },
           "prompting": { "suggestedProfileId": "diagnostic_baseline" }
         }
         """
         XCTAssertEqual(
             sanitizeVisibleAssistantText(raw),
-            "I can troubleshoot the order, but I need the exact ad order ID because “order” by itself is ambiguous."
+            "I can troubleshoot the order, but I need the exact entity ID because “order” by itself is ambiguous."
         )
     }
 
@@ -170,7 +170,7 @@ final class ChatRuntimeTests: XCTestCase {
             #"{"version":1,"id":"summary_metrics","data":[{"spend":1316.86,"pacing_ratio":0.17,"win_rate":4.02}]}"#,
             "```",
             "```forge-ui",
-            #"{"version":1,"title":"Ad order 2639076","subtitle":"Agency 4257","blocks":[{"id":"summary","kind":"dashboard.summary","dataSourceRef":"summary_metrics","metrics":["spend","pacing_ratio","win_rate"]}]}"#,
+            #"{"version":1,"title":"Entity 2639076","subtitle":"Group 4257","blocks":[{"id":"summary","kind":"dashboard.summary","dataSourceRef":"summary_metrics","metrics":["spend","pacing_ratio","win_rate"]}]}"#,
             "```"
         ].joined(separator: "\n")
 
@@ -183,18 +183,41 @@ final class ChatRuntimeTests: XCTestCase {
             XCTFail("Expected leading markdown part")
         }
         if case .forgeUI(let payload, let dataStore) = parts[1] {
-            XCTAssertEqual(payload.title, "Ad order 2639076")
+            XCTAssertEqual(payload.title, "Entity 2639076")
             XCTAssertEqual(dataStore.keys.sorted(), ["summary_metrics"])
         } else {
             XCTFail("Expected forge-ui part")
         }
     }
 
+    func testParseTranscriptContentPartsLeavesMalformedLegacyMarkerPlusJSONFenceAsMarkdown() {
+        let content = [
+            "forge-data",
+            "```json",
+            #"{"version":1,"id":"summary_metrics","format":"json","mode":"replace","data":[{"spend":42}]}"#,
+            "```",
+            "forge-ui",
+            "```json",
+            #"{"version":1,"title":"Legacy dashboard","blocks":[{"id":"summary","kind":"dashboard.summary","dataSourceRef":"summary_metrics","metrics":["spend"]}]}"#,
+            "```"
+        ].joined(separator: "\n")
+
+        let parts = parseTranscriptContentParts(content)
+
+        XCTAssertEqual(parts.count, 1)
+        if case .markdown(let text) = parts[0] {
+            XCTAssertTrue(text.contains("forge-data"))
+            XCTAssertTrue(text.contains("```json"))
+        } else {
+            XCTFail("Expected malformed legacy block to remain markdown")
+        }
+    }
+
     func testBuildTranscriptForgeWindowMetadataAdaptsDashboardSummaryBlock() throws {
         let payload = ForgeUIPayload(
             version: 1,
-            title: "Ad order 2639076",
-            subtitle: "Agency 4257",
+            title: "Entity 2639076",
+            subtitle: "Group 4257",
             blocks: [
                 .object([
                     "id": .string("summary"),
@@ -227,7 +250,7 @@ final class ChatRuntimeTests: XCTestCase {
 
         let root = try XCTUnwrap(metadata.view?.content?.containers.first)
         let summary = try XCTUnwrap(root.containers.first)
-        XCTAssertEqual(root.title, "Ad order 2639076")
+        XCTAssertEqual(root.title, "Entity 2639076")
         XCTAssertEqual(summary.kind, "dashboard.summary")
         XCTAssertEqual(summary.dataSourceRef, "summary_metrics")
         XCTAssertEqual(summary.metrics.map(\.id), ["spend", "pacing_ratio", "win_rate"])
@@ -237,7 +260,7 @@ final class ChatRuntimeTests: XCTestCase {
         let payload = ForgeUIPayload(
             version: 1,
             title: "iOS dashboard verification",
-            subtitle: "Agency 4257",
+            subtitle: "Group 4257",
             blocks: [
                 .object([
                     "id": .string("spend-trend"),
@@ -287,7 +310,7 @@ final class ChatRuntimeTests: XCTestCase {
         let payload = ForgeUIPayload(
             version: 1,
             title: "iOS dashboard verification",
-            subtitle: "Agency 4257",
+            subtitle: "Group 4257",
             blocks: [
                 .object([
                     "id": .string("primary-evidence"),
@@ -296,8 +319,8 @@ final class ChatRuntimeTests: XCTestCase {
                     "dataSourceRef": .string("summary_metrics"),
                     "columns": .array([
                         .object([
-                            "key": .string("ad_order_name"),
-                            "label": .string("Ad order"),
+                            "key": .string("entity_name"),
+                            "label": .string("Entity"),
                             "format": .string("currency"),
                             "type": .string("link"),
                             "link": .object([
@@ -321,7 +344,7 @@ final class ChatRuntimeTests: XCTestCase {
                     id: "summary_metrics",
                     rows: .array([
                         .object([
-                            "ad_order_name": .string("CID-30432_DH_Retargeting"),
+                            "entity_name": .string("CID-30432_DH_Retargeting"),
                             "primary_blocker_family": .string("Supply restriction")
                         ])
                     ])
@@ -333,8 +356,8 @@ final class ChatRuntimeTests: XCTestCase {
         let table = try XCTUnwrap(root.containers.first)
         XCTAssertEqual(table.kind, "table")
         XCTAssertEqual(table.dataSourceRef, "summary_metrics")
-        XCTAssertEqual(table.table?.columns.map(\.id), ["ad_order_name", "primary_blocker_family"])
-        XCTAssertEqual(table.table?.columns.map(\.label), ["Ad order", "Primary blocker"])
+        XCTAssertEqual(table.table?.columns.map(\.id), ["entity_name", "primary_blocker_family"])
+        XCTAssertEqual(table.table?.columns.map(\.label), ["Entity", "Primary blocker"])
         XCTAssertEqual(table.table?.columns.map(\.format), ["currency", "percentFraction"])
         XCTAssertEqual(table.table?.columns.first?.type, "link")
         XCTAssertEqual(table.table?.columns.first?.link?.href, "ad_order_url")
@@ -343,7 +366,7 @@ final class ChatRuntimeTests: XCTestCase {
     func testBuildTranscriptForgeWindowMetadataAdaptsSummaryItemsAndReportBlocks() throws {
         let payload = ForgeUIPayload(
             version: 1,
-            title: "Frequency cap recommendation review",
+            title: "Policy review review",
             subtitle: "Blocked before execution",
             blocks: [
                 .object([
@@ -351,7 +374,7 @@ final class ChatRuntimeTests: XCTestCase {
                     "title": .string("Review summary"),
                     "items": .array([
                         .object([
-                            "label": .string("Ad order"),
+                            "label": .string("Entity"),
                             "value": .string("Houston (Galleria) - Display (2657754)")
                         ]),
                         .object([
@@ -362,7 +385,7 @@ final class ChatRuntimeTests: XCTestCase {
                 ]),
                 .object([
                     "kind": .string("dashboard.report"),
-                    "title": .string("Why this recommendation is not yet safe"),
+                    "title": .string("Why this report item is not yet safe"),
                     "sections": .array([
                         .object([
                             "id": .string("interpretation"),
@@ -408,7 +431,7 @@ final class ChatRuntimeTests: XCTestCase {
 
         let containers = try XCTUnwrap(metadata.view?.content?.containers.first?.containers)
         XCTAssertEqual(containers[0].kind, "dashboard.summary")
-        XCTAssertEqual(containers[0].metrics.map(\.label), ["Ad order", "Submission status"])
+        XCTAssertEqual(containers[0].metrics.map(\.label), ["Entity", "Submission status"])
         XCTAssertEqual(containers[1].kind, "dashboard.report")
         XCTAssertEqual(containers[1].sections.first?.title, "Interpretation")
         XCTAssertEqual(containers[2].table?.columns.map(\.id), ["total_spend", "flight_pacing_status"])
@@ -419,7 +442,7 @@ final class ChatRuntimeTests: XCTestCase {
         let payload = ForgeUIPayload(
             version: 1,
             title: "iOS dashboard verification",
-            subtitle: "Agency 4257",
+            subtitle: "Group 4257",
             blocks: [
                 .object([
                     "kind": .string("dashboard.dimensions"),
@@ -483,13 +506,13 @@ final class ChatRuntimeTests: XCTestCase {
                           "toolName": "ui/view:open",
                           "status": "completed",
                           "requestPayload": {
-                            "id": "recommendationList"
+                            "id": "reportWindow"
                           },
                           "responsePayload": {
-                            "windowId": "recommendationList__conv-1",
+                            "windowId": "reportWindow__conv-1",
                             "conversationId": "conv-1",
-                            "windowKey": "recommendationList",
-                            "windowTitle": "Recommendation Review",
+                            "windowKey": "reportWindow",
+                            "windowTitle": "Report Review",
                             "presentation": "hosted",
                             "region": "chat.top",
                             "parentKey": "chat/new"
@@ -511,8 +534,8 @@ final class ChatRuntimeTests: XCTestCase {
 
         let restore = deriveHostedWorkspaceRestoreState(from: response)
 
-        XCTAssertEqual(restore?.selectedWindowId, "recommendationList__conv-1")
-        XCTAssertEqual(restore?.windows.first?.windowKey, "recommendationList")
+        XCTAssertEqual(restore?.selectedWindowId, "reportWindow__conv-1")
+        XCTAssertEqual(restore?.windows.first?.windowKey, "reportWindow")
     }
 
     func testDeriveHostedWorkspaceRestoreStateUsesLastTurnOnly() throws {
@@ -544,7 +567,7 @@ final class ChatRuntimeTests: XCTestCase {
                                 "parentKey": "chat/new",
                                 "inTab": true,
                                 "parameters": {
-                                  "AdOrderId": [111]
+                                  "EntityId": [111]
                                 }
                               }
                             ]
@@ -587,6 +610,108 @@ final class ChatRuntimeTests: XCTestCase {
         XCTAssertNil(deriveHostedWorkspaceRestoreState(from: response))
     }
 
+    func testLatestTurnHostedWorkspaceRestoreStateIgnoresStoredStateWhenLatestTurnHasNoHostedWindow() throws {
+        let json = """
+        {
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [
+              {
+                "turnId": "turn-1",
+                "execution": {
+                  "pages": [
+                    {
+                      "pageId": "page-1",
+                      "toolSteps": [
+                        {
+                          "toolCallId": "tool-1",
+                          "toolName": "message/reply",
+                          "status": "completed",
+                          "responsePayload": {
+                            "ok": true
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+        """
+        let response = try JSONDecoder.agently().decode(
+            ConversationStateResponse.self,
+            from: XCTUnwrap(json.data(using: .utf8))
+        )
+        let stored = HostedWorkspaceRestoreState(
+            windows: [
+                WorkspaceWindowSnapshot(
+                    windowId: "order_legacy",
+                    conversationId: "conv-1",
+                    windowKey: "order",
+                    windowTitle: "Order Summary",
+                    presentation: "hosted",
+                    region: "chat.top",
+                    parentKey: "chat/new"
+                )
+            ],
+            selectedWindowId: "order_legacy"
+        )
+
+        let restore = AppRuntime.latestTurnHostedWorkspaceRestoreState(
+            transcriptState: response,
+            stored: stored
+        )
+
+        XCTAssertNil(restore)
+    }
+
+    func testLatestTurnHostedWorkspaceRestoreStateFiltersGenericWindowsOutsideHostedPlacement() throws {
+        let json = """
+        {
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [
+              {
+                "turnId": "turn-1",
+                "execution": {
+                  "pages": [
+                    {
+                      "pageId": "page-1",
+                      "toolSteps": [
+                        {
+                          "toolCallId": "tool-1",
+                          "toolName": "ui/view/open",
+                          "status": "completed",
+                          "responsePayload": {
+                            "windowId": "generic__conv-1",
+                            "windowKey": "generic-report",
+                            "windowTitle": "Generic Report"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+        """
+        let response = try JSONDecoder.agently().decode(
+            ConversationStateResponse.self,
+            from: XCTUnwrap(json.data(using: .utf8))
+        )
+
+        let restore = AppRuntime.latestTurnHostedWorkspaceRestoreState(
+            transcriptState: response,
+            stored: nil
+        )
+
+        XCTAssertNil(restore)
+    }
+
     func testDeriveHostedWorkspaceRestoreStateUsesToolContentWhenViewOpenPayloadIsGzipEnvelope() throws {
         let json = """
         {
@@ -604,9 +729,9 @@ final class ChatRuntimeTests: XCTestCase {
                           "toolCallId": "tool-1",
                           "toolName": "ui/view/open",
                           "status": "completed",
-                          "content": "{\\"conversationId\\":\\"conv-1\\",\\"items\\":[{\\"conversationId\\":\\"conv-1\\",\\"parameters\\":{\\"AdOrderId\\":[2673453]},\\"parentKey\\":\\"chat/new\\",\\"presentation\\":\\"hosted\\",\\"region\\":\\"chat.top\\",\\"windowId\\":\\"order_2345888602__conv-1\\",\\"windowKey\\":\\"order\\",\\"windowTitle\\":\\"Order Summary\\",\\"workspaceSharePct\\":72,\\"workspaceMinHeight\\":500}],\\"ok\\":true,\\"parentKey\\":\\"chat/new\\",\\"presentation\\":\\"hosted\\",\\"region\\":\\"chat.top\\",\\"selectedWindowId\\":\\"order_2345888602__conv-1\\",\\"windowId\\":\\"order_2345888602__conv-1\\",\\"windowKey\\":\\"order\\",\\"windowTitle\\":\\"Order Summary\\"}",
+                          "content": "{\\"conversationId\\":\\"conv-1\\",\\"items\\":[{\\"conversationId\\":\\"conv-1\\",\\"parameters\\":{\\"EntityId\\":[2673453]},\\"parentKey\\":\\"chat/new\\",\\"presentation\\":\\"hosted\\",\\"region\\":\\"chat.top\\",\\"windowId\\":\\"order_2345888602__conv-1\\",\\"windowKey\\":\\"order\\",\\"windowTitle\\":\\"Order Summary\\",\\"workspaceSharePct\\":72,\\"workspaceMinHeight\\":500}],\\"ok\\":true,\\"parentKey\\":\\"chat/new\\",\\"presentation\\":\\"hosted\\",\\"region\\":\\"chat.top\\",\\"selectedWindowId\\":\\"order_2345888602__conv-1\\",\\"windowId\\":\\"order_2345888602__conv-1\\",\\"windowKey\\":\\"order\\",\\"windowTitle\\":\\"Order Summary\\"}",
                           "requestPayload": {
-                            "InlineBody": "{\\"id\\":\\"order\\",\\"parameters\\":{\\"AdOrderId\\":[2673453]}}",
+                            "InlineBody": "{\\"id\\":\\"order\\",\\"parameters\\":{\\"EntityId\\":[2673453]}}",
                             "Compression": "none"
                           },
                           "responsePayload": {
@@ -632,7 +757,7 @@ final class ChatRuntimeTests: XCTestCase {
 
         XCTAssertEqual(restore?.selectedWindowId, "order_2345888602__conv-1")
         XCTAssertEqual(restore?.windows.first?.windowKey, "order")
-        XCTAssertEqual(restore?.windows.first?.parameters?["AdOrderId"], .array([.number(2673453)]))
+        XCTAssertEqual(restore?.windows.first?.parameters?["EntityId"], .array([.number(2673453)]))
         XCTAssertEqual(restore?.windows.first?.workspaceSharePct, 72)
         XCTAssertEqual(restore?.windows.first?.workspaceMinHeight, 500)
     }

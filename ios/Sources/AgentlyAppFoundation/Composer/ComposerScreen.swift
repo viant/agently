@@ -44,6 +44,16 @@ public struct ComposerScreen: View {
                 composerLookupSection
             }
             TextEditor(text: $runtime.query)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(composerInputBackground)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(Color(red: 0.72, green: 0.88, blue: 0.75).opacity(0.9), lineWidth: 1)
+                )
                 .frame(height: editorHeight)
             if voiceRuntime.isRecording {
                 Label(
@@ -222,6 +232,10 @@ public struct ComposerScreen: View {
         }
     }
 
+    private var composerInputBackground: Color {
+        Color(red: 0.94, green: 0.98, blue: 0.94)
+    }
+
     private var composerLookupSection: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -376,17 +390,16 @@ private func composerLookupRowLabel(row: [String: JSONValue], entry: LookupRegis
         return rendered
     }
     return row["name"]?.stringValue
-        ?? row["adOrderName"]?.stringValue
         ?? row["id"]?.stringValue
         ?? "Select"
 }
 
 private func composerLookupRowSecondaryText(row: [String: JSONValue]) -> String? {
-    let campaign = row["campaignName"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    let identifier = row["adOrderId"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let group = row["groupName"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let identifier = row["entityId"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
         ?? row["id"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
         ?? ""
-    let parts = [campaign, identifier].filter { !$0.isEmpty }
+    let parts = [group, identifier].filter { !$0.isEmpty }
     return parts.isEmpty ? nil : parts.joined(separator: " • ")
 }
 

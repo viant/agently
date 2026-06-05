@@ -39,11 +39,11 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
 
         URLProtocolStub.requestHandler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
-            XCTAssertEqual(request.url?.path, "/v1/api/datasources/advertiser_lookup/fetch")
+            XCTAssertEqual(request.url?.path, "/v1/api/datasources/account_lookup/fetch")
             let body = try XCTUnwrap(request.httpBody)
             let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
             let inputs = payload?["inputs"] as? [String: Any]
-            XCTAssertEqual(inputs?["AdvertiserId"] as? Double, 13579)
+            XCTAssertEqual(inputs?["AccountId"] as? Double, 13579)
             XCTAssertEqual(inputs?["Page"] as? Double, 1)
             XCTAssertEqual(inputs?["Limit"] as? Double, 20)
             let response = HTTPURLResponse(
@@ -52,16 +52,16 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
                 httpVersion: nil,
                 headerFields: ["Content-Type": "application/json"]
             )!
-            let bodyData = #"{"rows":[{"advertiserId":13579,"advertiserName":"Acme"}],"dataInfo":{"recordCount":1,"pageCount":1},"metrics":{"recordCount":1,"selectedCount":1}}"#.data(using: .utf8)!
+            let bodyData = #"{"rows":[{"accountId":13579,"accountName":"Acme"}],"dataInfo":{"recordCount":1,"pageCount":1},"metrics":{"recordCount":1,"selectedCount":1}}"#.data(using: .utf8)!
             return (response, bodyData)
         }
 
         let result = try await loader(
             ForgeRuntime.DataSourceFetchRequest(
                 windowID: "w1",
-                dataSourceRef: "advertiser_lookup",
+                dataSourceRef: "account_lookup",
                 dataSource: DataSourceDef(
-                    service: DataSourceServiceDef(endpoint: "agentlyAPI", uri: "/v1/api/datasources/advertiser_lookup/fetch", method: "POST"),
+                    service: DataSourceServiceDef(endpoint: "agentlyAPI", uri: "/v1/api/datasources/account_lookup/fetch", method: "POST"),
                     paging: DataSourcePagingDef(
                         size: 20,
                         enabled: true,
@@ -69,7 +69,7 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
                     )
                 ),
                 input: InputState(
-                    filter: ["AdvertiserId": .number(13579)],
+                    filter: ["AccountId": .number(13579)],
                     parameters: [:],
                     page: nil,
                     fetch: true,
@@ -78,7 +78,7 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(result?.rows.first?["advertiserId"], .number(13579))
+        XCTAssertEqual(result?.rows.first?["accountId"], .number(13579))
         XCTAssertEqual(result?.metrics["recordCount"], .number(1))
         XCTAssertEqual(result?.metrics["selectedCount"], .number(1))
         URLProtocolStub.requestHandler = nil
@@ -95,7 +95,7 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
 
         URLProtocolStub.requestHandler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
-            XCTAssertEqual(request.url?.path, "/v1/api/datasources/metrics_ad_cube_report/fetch")
+            XCTAssertEqual(request.url?.path, "/v1/api/datasources/metrics_cube_report/fetch")
             let body = try XCTUnwrap(request.httpBody)
             let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
             let inputs = payload?["inputs"] as? [String: Any]
@@ -104,7 +104,7 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
             let measures = query?["measures"] as? [String: Any]
             let filters = query?["filters"] as? [String: Any]
             XCTAssertEqual(measures?["totalSpend"] as? Bool, true)
-            XCTAssertEqual(filters?["advertiserId"] as? Double, 7)
+            XCTAssertEqual(filters?["accountId"] as? Double, 7)
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
                 statusCode: 200,
@@ -118,12 +118,12 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
         _ = try await loader(
             ForgeRuntime.DataSourceFetchRequest(
                 windowID: "w1",
-                dataSourceRef: "metrics_ad_cube_report",
+                dataSourceRef: "metrics_cube_report",
                 dataSource: DataSourceDef(
-                    service: DataSourceServiceDef(endpoint: "agentlyAPI", uri: "/v1/api/datasources/metrics_ad_cube_report/fetch", method: "POST")
+                    service: DataSourceServiceDef(endpoint: "agentlyAPI", uri: "/v1/api/datasources/metrics_cube_report/fetch", method: "POST")
                 ),
                 input: InputState(
-                    filter: ["filters": .object(["advertiserId": .number(7)])],
+                    filter: ["filters": .object(["accountId": .number(7)])],
                     parameters: [
                         "input": .object([
                             "query": .object([
@@ -228,9 +228,9 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
         let result = try await loader(
             ForgeRuntime.DataSourceFetchRequest(
                 windowID: "w1",
-                dataSourceRef: "advertiser_lookup",
+                dataSourceRef: "account_lookup",
                 dataSource: DataSourceDef(
-                    service: DataSourceServiceDef(endpoint: "agentlyAPI", uri: "/v1/api/datasources/advertiser_lookup/fetch", method: "POST")
+                    service: DataSourceServiceDef(endpoint: "agentlyAPI", uri: "/v1/api/datasources/account_lookup/fetch", method: "POST")
                 ),
                 input: InputState(fetch: true)
             )

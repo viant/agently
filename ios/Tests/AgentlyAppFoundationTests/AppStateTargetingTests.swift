@@ -64,16 +64,26 @@ final class AppStateTargetingTests: XCTestCase {
         XCTAssertEqual(
             resolvedBootstrapOOBSecretReference(
                 storedValue: "~/.secret/stored.enc|blowfish://default",
-                environmentValue: "~/.secret/env.enc|blowfish://default"
+                environmentValue: "~/.secret/env.enc|blowfish://default",
+                launchArguments: []
             ),
             "~/.secret/stored.enc|blowfish://default"
         )
         XCTAssertEqual(
             resolvedBootstrapOOBSecretReference(
                 storedValue: "   ",
-                environmentValue: "~/.secret/env.enc|blowfish://default"
+                environmentValue: "~/.secret/env.enc|blowfish://default",
+                launchArguments: []
             ),
             "~/.secret/env.enc|blowfish://default"
+        )
+        XCTAssertEqual(
+            resolvedBootstrapOOBSecretReference(
+                storedValue: "   ",
+                environmentValue: "   ",
+                launchArguments: ["Agently", "--oobSecretReference=~/.secret/launch.enc|blowfish://default"]
+            ),
+            "~/.secret/launch.enc|blowfish://default"
         )
     }
 
@@ -101,6 +111,27 @@ final class AppStateTargetingTests: XCTestCase {
                 launchArguments: ["Agently", "--activeConversationID=launch-conversation"]
             ),
             "launch-conversation"
+        )
+    }
+
+    func testResolvedBootstrapAutoOOBSignInHonorsEnvironmentAndLaunchArgs() {
+        XCTAssertTrue(
+            resolvedBootstrapAutoOOBSignIn(
+                environmentValue: "1",
+                launchArguments: []
+            )
+        )
+        XCTAssertTrue(
+            resolvedBootstrapAutoOOBSignIn(
+                environmentValue: nil,
+                launchArguments: ["Agently", "--autoOOBSignIn=1"]
+            )
+        )
+        XCTAssertFalse(
+            resolvedBootstrapAutoOOBSignIn(
+                environmentValue: nil,
+                launchArguments: []
+            )
         )
     }
 }

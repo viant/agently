@@ -34,7 +34,7 @@ class AuthUiActionsTest {
         var appliedConfig = SavedLoginConfig(
             username = "user",
             password = "pass",
-            oobSecretRef = "~/.secret/awitas_dsp_ui.enc|blowfish://default"
+            oobSecretRef = "~/.secret/app_oob.enc|blowfish://default"
         )
 
         clearSavedAuthSecrets(
@@ -51,7 +51,7 @@ class AuthUiActionsTest {
 
     @Test
     fun savedLoginConfig_reportsStoredOobSecretReference() {
-        val config = SavedLoginConfig(oobSecretRef = "~/.secret/awitas_dsp_ui.enc|blowfish://default")
+        val config = SavedLoginConfig(oobSecretRef = "~/.secret/app_oob.enc|blowfish://default")
 
         assertEquals(true, config.hasStoredOobSecretRef)
     }

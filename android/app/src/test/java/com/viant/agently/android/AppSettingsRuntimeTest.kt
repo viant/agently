@@ -58,29 +58,29 @@ class AppSettingsRuntimeTest {
     @Test
     fun resolveSelectedAgentLabel_prefersPublishedAgentLabel() {
         val metadata = WorkspaceMetadata(
-            defaultAgent = "steward",
+            defaultAgent = "workspace-agent",
             agentInfos = listOf(
-                WorkspaceAgentInfo(id = "steward", name = "Steward")
+                WorkspaceAgentInfo(id = "workspace-agent", name = "Workspace Agent")
             )
         )
 
-        assertEquals("Steward", resolveSelectedAgentLabel("", metadata))
+        assertEquals("Workspace Agent", resolveSelectedAgentLabel("", metadata))
     }
 
     @Test
     fun workspaceStarterTasks_readsSelectedAgentTasks() {
         val metadata = WorkspaceMetadata(
-            defaultAgent = "steward",
+            defaultAgent = "workspace-agent",
             agentInfos = listOf(
                 WorkspaceAgentInfo(
-                    id = "steward",
-                    name = "Steward",
+                    id = "workspace-agent",
+                    name = "Workspace Agent",
                     starterTasks = listOf(
                         StarterTask(
-                            id = "forecast",
-                            title = "Open forecasting",
-                            prompt = "Open forecasting",
-                            description = "Launch the forecasting workspace."
+                            id = "open-workspace",
+                            title = "Open workspace",
+                            prompt = "Open workspace",
+                            description = "Launch the workspace."
                         )
                     )
                 )
@@ -88,16 +88,16 @@ class AppSettingsRuntimeTest {
         )
 
         assertEquals(1, workspaceStarterTasks("", metadata).size)
-        assertEquals("forecast", workspaceStarterTasks("", metadata).first().id)
+        assertEquals("open-workspace", workspaceStarterTasks("", metadata).first().id)
     }
 
     @Test
     fun resolveWorkspaceBrandTitle_stripsViantPrefixWhenLogoAlreadyShowsIt() {
         assertEquals(
-            "Steward",
+            "Workspace",
             resolveWorkspaceBrandTitle(
-                workspaceRoot = "/tmp/Viant Steward",
-                defaultAgent = "steward"
+                workspaceRoot = "/tmp/Viant Workspace",
+                defaultAgent = "workspace"
             )
         )
     }

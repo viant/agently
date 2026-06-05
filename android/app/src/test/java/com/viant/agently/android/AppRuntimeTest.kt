@@ -122,13 +122,13 @@ class AppRuntimeTest {
     fun `mergeConversationIntoRecentList injects missing active conversation`() {
         val existing = Conversation(
             id = "existing",
-            title = "Open recommendations",
+            title = "Open workspace items",
             createdAt = "2026-06-02 13:31:23.337963 -0700 PDT m=+15567.496967543",
             lastActivity = "2026-06-02 13:32:09.609359 -0700 PDT m=+15613.768971084"
         )
         val active = Conversation(
             id = "active",
-            title = "Frequency cap recommendation request",
+            title = "Policy review request",
             createdAt = "2026-06-02 11:42:01.751982 -0700 PDT m=+9005.950440334",
             lastActivity = "2026-06-02 11:44:30.288943 -0700 PDT m=+9154.487875251"
         )

@@ -15,6 +15,7 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -33,6 +34,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+
+internal val ComposerInputFill = Color(0xFFF0FAF1)
+internal val ComposerInputBorder = Color(0xFFB9DBBD)
 
 @Composable
 internal fun PhoneComposerDock(
@@ -113,7 +117,15 @@ internal fun PhoneComposerDock(
                         modifier = Modifier.weight(1f),
                         minLines = 1,
                         maxLines = 2,
-                        shape = RoundedCornerShape(20.dp)
+                        shape = RoundedCornerShape(20.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = ComposerInputFill,
+                            unfocusedContainerColor = ComposerInputFill,
+                            disabledContainerColor = ComposerInputFill,
+                            focusedBorderColor = ComposerInputBorder,
+                            unfocusedBorderColor = ComposerInputBorder,
+                            disabledBorderColor = ComposerInputBorder.copy(alpha = 0.6f)
+                        )
                     )
                     Button(
                         onClick = onRunQuery,
@@ -186,7 +198,15 @@ internal fun PhoneComposerDock(
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 3,
                     maxLines = 6,
-                    shape = RoundedCornerShape(22.dp)
+                    shape = RoundedCornerShape(22.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = ComposerInputFill,
+                        unfocusedContainerColor = ComposerInputFill,
+                        disabledContainerColor = ComposerInputFill,
+                        focusedBorderColor = ComposerInputBorder,
+                        unfocusedBorderColor = ComposerInputBorder,
+                        disabledBorderColor = ComposerInputBorder.copy(alpha = 0.6f)
+                    )
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),

@@ -14,7 +14,7 @@ final class HostedWorkspaceLayoutTests: XCTestCase {
         let second = WorkspaceWindowSnapshot(windowId: "w2", windowKey: "order", workspaceSharePct: 72, workspaceMinHeight: 500)
         let restore = HostedWorkspaceRestoreState(windows: [first, second], selectedWindowId: "w2")
 
-        let resolved = resolveActiveHostedWorkspaceWindow(restoreState: restore, conversationState: nil)
+        let resolved = resolveActiveHostedWorkspaceWindow(restoreState: restore)
 
         XCTAssertEqual(resolved?.windowId, "w2")
         XCTAssertEqual(resolved?.workspaceSharePct, 72)

@@ -19,7 +19,6 @@ public final class AppRuntime: ObservableObject {
     private let settingsStore: AppSettingsStore
     private let clientFactory: @Sendable (String) -> AgentlyClient
     private let uiBridge: AppleUIBridgeController
-    private let streamTracker = ConversationStreamTracker()
     private var streamTask: Task<Void, Never>?
     private var postTurnRefreshTask: Task<Void, Never>?
     private var bootstrapTimeoutTask: Task<Void, Never>?
@@ -132,6 +131,10 @@ public final class AppRuntime: ObservableObject {
     }
 
     public func bootstrap() async {
+        await bootstrap(allowAutoOOB: true)
+    }
+
+    private func bootstrap(allowAutoOOB: Bool) async {
         logger.info("Bootstrap started for base URL: \(self.displayBaseURL, privacy: .public)")
         bootstrapTimeoutTask?.cancel()
         state.authState = .checking
@@ -193,6 +196,19 @@ public final class AppRuntime: ObservableObject {
             settingsStore.saveActiveConversationID(nil)
             state.bootstrapErrorMessage = bootstrapErrorMessage(for: error)
             let authRequired = isAuthenticationError(error)
+            if authRequired,
+               allowAutoOOB,
+               developerAuthFeaturesEnabled() {
+                let secret = settingsRuntime.oobSecretReference.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !secret.isEmpty {
+                    logger.info("Attempting bootstrap OOB sign-in before presenting auth screen")
+                    let success = await authRuntime.beginOOBLogin(secretsURL: secret)
+                    if success {
+                        await bootstrap(allowAutoOOB: false)
+                        return
+                    }
+                }
+            }
             state.authState = authRequired ? .required : .connectionFailed
             uiBridge.stop()
             if authRequired {
@@ -334,6 +350,7 @@ public final class AppRuntime: ObservableObject {
                 state.activeConversationID = conversationID
                 settingsStore.saveActiveConversationID(conversationID)
                 await ensureConversationPresentInRecentList(conversationID: conversationID)
+                await uiBridge.publishSnapshotNow()
                 startStreaming(conversationID: conversationID)
             }
             if let response = await queryRuntime.send(
@@ -485,21 +502,20 @@ public final class AppRuntime: ObservableObject {
         transcriptState: ConversationStateResponse
     ) -> HostedWorkspaceRestoreState? {
         let stored = settingsStore.loadHostedWorkspaceRestoreState(conversationID: conversationID)
-        if let restored = deriveHostedWorkspaceRestoreState(from: transcriptState) {
-            return mergeHostedWorkspaceRestoreState(base: restored, overlay: stored)
+        return Self.latestTurnHostedWorkspaceRestoreState(
+            transcriptState: transcriptState,
+            stored: stored
+        )
+    }
+
+    static func latestTurnHostedWorkspaceRestoreState(
+        transcriptState: ConversationStateResponse,
+        stored: HostedWorkspaceRestoreState?
+    ) -> HostedWorkspaceRestoreState? {
+        guard let restored = deriveAgentlyHostedWorkspaceRestoreState(from: transcriptState) else {
+            return nil
         }
-        if let existing = state.activeHostedWorkspace {
-            let normalizedConversationID = conversationID.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !normalizedConversationID.isEmpty {
-                let matchesConversation = existing.windows.contains { snapshot in
-                    snapshot.conversationId?.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedConversationID
-                }
-                if matchesConversation {
-                    return mergeHostedWorkspaceRestoreState(base: existing, overlay: stored)
-                }
-            }
-        }
-        return stored
+        return mergeHostedWorkspaceRestoreState(base: restored, overlay: stored)
     }
 
     private func loadArtifacts(conversationID: String) async {
@@ -528,7 +544,7 @@ public final class AppRuntime: ObservableObject {
         state.isLoadingArtifacts = false
     }
 
-    private func mergeHostedWorkspaceRestoreState(
+    private static func mergeHostedWorkspaceRestoreState(
         base: HostedWorkspaceRestoreState,
         overlay: HostedWorkspaceRestoreState?
     ) -> HostedWorkspaceRestoreState {
@@ -573,13 +589,11 @@ public final class AppRuntime: ObservableObject {
         streamTask = Task { [weak self] in
             guard let self else { return }
             logger.info("Starting live stream for conversation \(conversationID, privacy: .public)")
-            await streamTracker.reset(conversationID: conversationID)
             var sawActiveTurn = false
             do {
-                for try await event in state.client.streamEvents(conversationID: conversationID) {
+                for try await snapshot in state.client.trackConversation(conversationID: conversationID) {
                     if Task.isCancelled { return }
                     let previousActiveTurnID = state.activeTurnID?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let snapshot = await streamTracker.apply(event)
                     guard state.activeConversationID == conversationID else {
                         continue
                     }
@@ -604,6 +618,17 @@ public final class AppRuntime: ObservableObject {
                         }
                     }
                     chatRuntime.applyStreaming(snapshot: snapshot)
+                    let liveRestoreState = deriveAgentlyHostedWorkspaceRestoreState(
+                        from: state.activeConversationState,
+                        streamSnapshot: snapshot
+                    )
+                    if let liveRestoreState {
+                        let stored = settingsStore.loadHostedWorkspaceRestoreState(conversationID: conversationID)
+                        state.activeHostedWorkspace = Self.mergeHostedWorkspaceRestoreState(
+                            base: liveRestoreState,
+                            overlay: stored
+                        )
+                    }
                     if let pending = snapshot.pendingElicitation {
                         elicitationRuntime.pending = pending
                     } else {

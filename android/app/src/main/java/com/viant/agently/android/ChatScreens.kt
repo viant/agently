@@ -162,7 +162,7 @@ internal fun TabletChatScreen(
     onRunQuery: () -> Unit
 ) {
     val activeConversationHasWorkspace =
-        conversationState?.let(::deriveHostedWorkspaceRestoreState) != null
+        deriveAgentlyHostedWorkspaceRestoreState(conversationState, streamSnapshot) != null
     Row(
         modifier = Modifier.fillMaxSize(),
         horizontalArrangement = Arrangement.spacedBy(0.dp)

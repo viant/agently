@@ -411,7 +411,7 @@ class ApprovalComponentsTest {
     }
 
     @Test
-    fun buildApprovalEditorSeed_includesEditedFieldsPayload() {
+    fun buildApprovalEditorSeed_includesEditedArgs() {
         val metadata = ApprovalMeta(
             title = "Deploy approval",
             toolName = "deploy",

@@ -112,6 +112,15 @@ final class AppleUIBridgeController {
         return clientIDValue
     }
 
+    func publishSnapshotNow() async {
+        do {
+            _ = try await ensureConnectedRPC()
+            try await publishSnapshot(force: true)
+        } catch {
+            await rpcClient.resetSession()
+        }
+    }
+
     private func runPollLoop() async {
         while isStarted && !Task.isCancelled {
             do {

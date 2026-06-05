@@ -67,7 +67,7 @@ public struct SettingsScreen: View {
                 Section("Sign-In Helpers") {
                     TextField("OOB Secret Reference", text: $runtime.oobSecretReference)
                         .autocorrectionDisabled()
-                    Text("Example: `~/.secret/awitas_dsp_ui.enc|blowfish://default`. This helper is intended for developer verification builds only.")
+                    Text("Example: `~/.secret/app_oob.enc|blowfish://default`. This helper is intended for developer verification builds only.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
