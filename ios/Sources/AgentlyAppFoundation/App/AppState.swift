@@ -49,6 +49,7 @@ public final class AppState: ObservableObject {
             targetContext: ForgeTargetContext(
                 platform: "ios",
                 formFactor: formFactor,
+                surface: "app",
                 capabilities: buildAppleTargetCapabilities()
             )
         )

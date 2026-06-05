@@ -1,6 +1,7 @@
 package com.viant.agently.android
 
 import com.viant.agentlysdk.AgentlyClient
+import com.viant.agentlysdk.MetadataTargetContext
 import com.viant.agentlysdk.fetchForgeWindowMetadata
 import com.viant.forgeandroid.runtime.ForgeTargetContext
 import com.viant.forgeandroid.runtime.MetadataResolver
@@ -20,7 +21,15 @@ internal fun makeForgeAgentlyWindowMetadataLoader(
 ): suspend (String) -> WindowMetadata? {
     val json = Json { ignoreUnknownKeys = true }
     return { windowKey ->
-        val raw = client.fetchForgeWindowMetadata(windowKey)
+        val raw = client.fetchForgeWindowMetadata(
+            windowKey,
+            MetadataTargetContext(
+                platform = targetContext.platform,
+                formFactor = targetContext.formFactor,
+                surface = "app",
+                capabilities = targetContext.capabilities.toList().sorted()
+            )
+        )
         val normalized = normalizeWindowMetadataJson(normalizeWindowMetadataCollections(raw))
         val metadata = json.decodeFromJsonElement<WindowMetadata>(normalized)
         val metadataJson = json.encodeToJsonElement(metadata)
