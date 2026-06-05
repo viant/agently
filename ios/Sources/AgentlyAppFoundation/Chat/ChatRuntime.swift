@@ -211,21 +211,30 @@ public final class ChatRuntime: ObservableObject {
     }
 
     public func applyStreaming(snapshot: ConversationStreamSnapshot) {
-        var next = transcript.filter { entry in
-            !snapshot.bufferedMessages.contains(where: { $0.id == entry.id }) &&
-            !snapshot.liveExecutionGroupsByID.keys.contains(entry.id) &&
-            entry.statusLabel != "Waiting"
-        }
-
         let streamEntries = streamingEntries(from: snapshot)
+        let streamEntryIDs = Set(streamEntries.map(\.id))
+        var next = transcript.filter { entry in
+            !streamEntryIDs.contains(entry.id) &&
+            entry.statusLabel != "Waiting" &&
+            entry.statusLabel != "Streaming"
+        }
 
         next.append(contentsOf: streamEntries)
         transcript = next
     }
 
     private func streamingEntries(from snapshot: ConversationStreamSnapshot) -> [ChatTranscriptEntry] {
-        if !snapshot.liveExecutionGroupsByID.isEmpty {
-            return snapshot.liveExecutionGroupsByID.values
+        guard let activeTurnID = snapshot.activeTurnID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !activeTurnID.isEmpty else {
+            return []
+        }
+
+        let activeGroups = snapshot.liveExecutionGroupsByID.values
+            .filter { group in
+                group.turnID?.trimmingCharacters(in: .whitespacesAndNewlines) == activeTurnID
+            }
+        if !activeGroups.isEmpty {
+            return activeGroups
                 .sorted { lhs, rhs in
                     if lhs.sequence != rhs.sequence {
                         return (lhs.sequence ?? 0) < (rhs.sequence ?? 0)
@@ -253,22 +262,26 @@ public final class ChatRuntime: ObservableObject {
                 }
         }
 
-        return snapshot.bufferedMessages.compactMap { message -> ChatTranscriptEntry? in
-            let markdown = [message.narration, message.content]
-                .compactMap(sanitizeVisibleAssistantText)
-                .filter { !$0.isEmpty }
-                .joined(separator: "\n\n")
-            guard !markdown.isEmpty else {
-                return nil
+        return snapshot.bufferedMessages
+            .filter { message in
+                message.turnID?.trimmingCharacters(in: .whitespacesAndNewlines) == activeTurnID
             }
-            return ChatTranscriptEntry(
-                id: message.id,
-                role: "assistant",
-                markdown: markdown,
-                timestampLabel: Self.timestampLabel(for: Date()),
-                statusLabel: Self.statusLabel(for: message.status)
-            )
-        }
+            .compactMap { message -> ChatTranscriptEntry? in
+                let markdown = [message.narration, message.content]
+                    .compactMap(sanitizeVisibleAssistantText)
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n\n")
+                guard !markdown.isEmpty else {
+                    return nil
+                }
+                return ChatTranscriptEntry(
+                    id: message.id,
+                    role: "assistant",
+                    markdown: markdown,
+                    timestampLabel: Self.timestampLabel(for: Date()),
+                    statusLabel: Self.statusLabel(for: message.status)
+                )
+            }
     }
 
     private static func timestampLabel(for value: Date) -> String {

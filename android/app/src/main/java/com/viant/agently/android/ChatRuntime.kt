@@ -40,10 +40,15 @@ internal data class ArtifactPreview(
 )
 
 internal fun latestAssistantMarkdown(snapshot: ConversationStreamSnapshot): String? {
+    val activeTurnId = snapshot.activeTurnId?.trim().orEmpty()
+    if (activeTurnId.isBlank()) {
+        return null
+    }
     val latest = snapshot.bufferedMessages
         .asReversed()
         .firstOrNull { message ->
             message.role.equals("assistant", ignoreCase = true) &&
+                message.turnId?.trim() == activeTurnId &&
                 (!message.content.isNullOrBlank() || !message.narration.isNullOrBlank())
         }
         ?: return null
@@ -65,8 +70,15 @@ internal fun syncAssistantTranscript(
     transcript: MutableList<ChatEntry>,
     snapshot: ConversationStreamSnapshot
 ) {
+    val activeTurnId = snapshot.activeTurnId?.trim().orEmpty()
+    if (activeTurnId.isBlank()) {
+        return
+    }
     val assistantMessages = snapshot.bufferedMessages
-        .filter { it.role.equals("assistant", ignoreCase = true) }
+        .filter {
+            it.role.equals("assistant", ignoreCase = true) &&
+                it.turnId?.trim() == activeTurnId
+        }
         .sortedBy { it.createdAt ?: it.id }
 
     assistantMessages.forEach { message ->
@@ -81,7 +93,7 @@ internal fun syncAssistantTranscript(
             id = message.id,
             role = "assistant",
             markdown = markdown,
-            streaming = snapshot.activeTurnId != null && message.turnId == snapshot.activeTurnId,
+            streaming = true,
             timestampLabel = formatTimestampLabel(message.createdAt)
         )
         if (existingIndex >= 0) {
