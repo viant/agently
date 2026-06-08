@@ -17,6 +17,7 @@ let authMeCacheReady = false;
 let authMeCacheValue = null;
 const workspaceMetadataInFlight = new Map();
 const workspaceMetadataCache = new Map();
+const AUTH_REQUEST_TIMEOUT_MS = 4500;
 
 function workspaceMetadataCacheKey(targetContext = null) {
   const platform = String(targetContext?.platform || '').trim();
@@ -41,14 +42,42 @@ function clearAuthMeCache() {
   authMeCacheValue = null;
 }
 
-async function probeAuthMe() {
-  const response = await fetch(`${sdkBaseURL}/api/auth/me`, {
-    method: 'GET',
-    credentials: 'include',
-    headers: {
-      Accept: 'application/json'
+async function fetchAuthEndpoint(path = '', { timeoutMs = AUTH_REQUEST_TIMEOUT_MS } = {}) {
+  const controller = typeof AbortController !== 'undefined' && timeoutMs > 0
+    ? new AbortController()
+    : null;
+  const timer = controller && typeof globalThis.setTimeout === 'function'
+    ? globalThis.setTimeout(() => controller.abort(), timeoutMs)
+    : null;
+  try {
+    return await fetch(`${sdkBaseURL}${path}`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json'
+      },
+      signal: controller?.signal,
+    });
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
     }
-  });
+  }
+}
+
+export async function getAuthProvidersSilently() {
+  try {
+    const response = await fetchAuthEndpoint('/api/auth/providers');
+    if (!response.ok) return [];
+    const payload = await response.json().catch(() => null);
+    if (Array.isArray(payload?.providers)) return payload.providers;
+    if (Array.isArray(payload)) return payload;
+  } catch (_) {}
+  return [];
+}
+
+async function probeAuthMe() {
+  const response = await fetchAuthEndpoint('/api/auth/me');
   if (response.status === 200) return true;
   if (response.status === 401 || response.status === 403) return false;
   return false;
@@ -62,13 +91,7 @@ export async function getAuthMeSilently() {
     return authMeInFlight;
   }
   authMeInFlight = (async () => {
-    const response = await fetch(`${sdkBaseURL}/api/auth/me`, {
-      method: 'GET',
-      credentials: 'include',
-      headers: {
-        Accept: 'application/json'
-      }
-    });
+    const response = await fetchAuthEndpoint('/api/auth/me');
     if (response.status === 200) {
       try {
         authMeCacheValue = await response.json();

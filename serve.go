@@ -349,7 +349,7 @@ func newRouter(api http.Handler, meta http.Handler, speech http.Handler, uiDist 
 
 	return withFrameAncestorsPolicy(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if path == "/v1/api/auth/oauth/callback" && r.Method == http.MethodGet {
+		if path == "/v1/api/auth/oauth/callback" && r.Method == http.MethodGet && r.URL.Query().Get("code") == "" && r.URL.Query().Get("state") == "" {
 			w.Header().Set("Cache-Control", htmlCacheControl)
 			if localIndex != "" {
 				http.ServeFile(w, r, localIndex)

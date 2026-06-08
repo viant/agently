@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSignals } from '@preact/signals-react/runtime';
 import { Dialog } from '@blueprintjs/core';
-import { activeWindows, addWindow, getFormSignal, getViewSignal, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
+import { activeWindows, addWindow, findCollectionSignal, findFormSignal, findMetadataSignal, findMetricsSignal, findViewSignal, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
 import { WindowManager, WindowContent } from 'forge/components';
 import { DetailContext } from '../context/DetailContext';
 import { ConversationViewContext } from '../context/ConversationViewContext';
@@ -17,10 +17,10 @@ import StatusBar from './StatusBar';
 import Sidebar from './Sidebar';
 import ElicitationOverlay from './ElicitationOverlay';
 import { useApprovalQueue } from '../hooks/useApprovalQueue';
-import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, ensureWorkspaceWindowForConversation, getScopedConversationSelection, getScopedWorkspacePresentationMode, getSelectedWindow, isLinkedChildWindow, openConversationInMainWindow, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, returnToParentConversation, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
+import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, ensureWorkspaceWindowForConversation, getScopedConversationSelection, getScopedWorkspacePresentationMode, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, returnToParentConversation, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
-import { conversationIDFromPath } from '../services/chatRuntime';
-import { beginLogin, client, getAuthMeSilently, recoverSessionSilently } from '../services/agentlyClient';
+import { conversationIDFromPath, publishActiveConversation } from '../services/chatRuntime';
+import { beginLogin, getAuthMeSilently, getAuthProvidersSilently, recoverSessionSilently } from '../services/agentlyClient';
 
 const SIDEBAR_WIDTH_KEY = 'agently.sidebarWidth';
 const SIDEBAR_DEFAULT_WIDTH = 320;
@@ -50,6 +50,18 @@ function clampWorkspaceHeight(value) {
 function workspaceHeightStorageKey(conversationId = '') {
   const id = String(conversationId || '').trim();
   return id ? `${WORKSPACE_HEIGHT_KEY}:${id}` : WORKSPACE_HEIGHT_KEY;
+}
+
+function resolveActivatedWorkspaceHeight() {
+  if (typeof document === 'undefined') return WORKSPACE_DEFAULT_HEIGHT;
+  const shellHeight = Number(
+    document.querySelector('.app-chat-content-column')?.clientHeight
+    || document.querySelector('.app-window-split-stack')?.clientHeight
+    || document.documentElement?.clientHeight
+    || 0
+  );
+  if (!(shellHeight > 0)) return WORKSPACE_DEFAULT_HEIGHT;
+  return clampWorkspaceHeight(Math.round(shellHeight * (2 / 3)));
 }
 
 export function resolveInitialAuthState(providers, me) {
@@ -160,21 +172,73 @@ export function resolveMainWindowCloseConversationId(mainWindowConversationId = 
   return String(mainWindowConversationId || '').trim();
 }
 
-function resolveWindowOrderId(windowEntry = null) {
-  return String(windowEntry?.parameters?.AdOrderId?.[0] ?? '').trim();
+function attachResolvedMetrics(windowEntry = null) {
+  return windowEntry;
 }
 
-function resolveWindowCampaignId(windowEntry = null) {
-  return String(
-    windowEntry?.parameters?.CampaignId?.[0]
-    ?? windowEntry?.parameters?.campaignId?.[0]
-    ?? ''
-  ).trim();
+function resolvePathValue(holder, selector = '') {
+  const path = String(selector || '').trim();
+  if (!path) return holder;
+  return path.split('.').reduce((acc, part) => {
+    if (acc == null || typeof acc !== 'object') return undefined;
+    return acc[part];
+  }, holder);
+}
+
+function resolveMetadataBoundWindowTitle(windowEntry = null) {
+  const windowId = String(windowEntry?.windowId || '').trim();
+  if (!windowId) return '';
+  try {
+    const metadata = findMetadataSignal(windowId)?.value || null;
+    const binding = metadata?.window?.titleBinding || metadata?.view?.titleBinding;
+    if (!binding) return '';
+    const dataSourceRef = String(binding?.dataSourceRef || binding?.ref || '').trim();
+    const selector = String(binding?.selector || binding?.field || '').trim();
+    const source = String(binding?.source || 'metrics').trim().toLowerCase();
+    if (!dataSourceRef) return '';
+    const dataSourceId = `${windowId}DS${dataSourceRef}`;
+    let data = null;
+    switch (source) {
+      case 'collection':
+      case 'data': {
+        const collection = findCollectionSignal(dataSourceId)?.value;
+        data = Array.isArray(collection) ? (collection[0] || null) : collection;
+        break;
+      }
+      case 'metrics':
+      default:
+        data = findMetricsSignal(dataSourceId)?.value || null;
+        if ((data == null || (typeof data === 'object' && Object.keys(data).length === 0))) {
+          const collection = findCollectionSignal(dataSourceId)?.value;
+          data = Array.isArray(collection) ? (collection[0] || null) : collection;
+        }
+        break;
+    }
+    const resolved = resolvePathValue(data, selector);
+    if (resolved != null && String(resolved).trim() !== '') {
+      return String(resolved).trim();
+    }
+    if (typeof document !== 'undefined') {
+      const domSelector = String(binding?.domSelector || binding?.selectorCss || '').trim();
+      const controlId = String(binding?.controlId || binding?.domControlId || '').trim();
+      if (domSelector || controlId) {
+        try {
+          const base = document.querySelector(`[data-workspace-window-id="${windowId}"]`);
+          const node = domSelector
+            ? base?.querySelector?.(domSelector)
+            : base?.querySelector?.(`[data-forge-control-id="${controlId}"]`);
+          const text = String(node?.textContent || '').trim();
+          if (text) return text;
+        } catch (_) {}
+      }
+    }
+    return '';
+  } catch (_) {
+    return '';
+  }
 }
 
 export function resolveHostedWorkspaceTabLabel(windowEntry = null) {
-  const orderId = resolveWindowOrderId(windowEntry);
-  if (orderId) return orderId;
   return resolveMainWindowHeaderTitle(windowEntry);
 }
 
@@ -188,35 +252,11 @@ export function resolveHostedWorkspaceTabs(workspaceWindows = [], activeWindowId
 }
 
 export function resolveMainWindowHeaderTitle(windowEntry = null) {
-  const windowKey = String(windowEntry?.windowKey || '').trim();
-  if (windowKey === 'orderPerformance' || windowKey === 'order') {
-    const metrics = windowEntry?.resolvedMetrics || {};
-    const parameterOrderId = resolveWindowOrderId(windowEntry);
-    const metricsOrderId = String(metrics?.orderId ?? metrics?.orderID ?? '').trim();
-    const name = String(metrics?.name || '').trim();
-    const orderId = parameterOrderId || metricsOrderId;
-    if (parameterOrderId && metricsOrderId && metricsOrderId !== parameterOrderId) return `Order ${parameterOrderId}`;
-    if (name) return name;
-    if (orderId) return `Order ${orderId}`;
-  }
-  if (windowKey === 'campaign' || windowKey === 'campaignPerformance') {
-    const metrics = windowEntry?.resolvedMetrics || {};
-    const parameterCampaignId = resolveWindowCampaignId(windowEntry);
-    const metricsCampaignId = String(metrics?.campaignId ?? metrics?.campaignID ?? '').trim();
-    const name = String(metrics?.campaignName || metrics?.name || '').trim();
-    if (name) return name;
-    const campaignId = parameterCampaignId || metricsCampaignId;
-    const title = String(windowEntry?.windowTitle || '').trim();
-    if (title && parameterCampaignId) {
-      const suffix = ` (${parameterCampaignId})`;
-      if (title.endsWith(suffix)) {
-        return title.slice(0, -suffix.length).trim();
-      }
-    }
-    if (campaignId) return `Campaign ${campaignId}`;
-  }
-  const title = String(windowEntry?.windowTitle || windowEntry?.windowKey || '').trim();
-  return title;
+  const boundTitle = resolveMetadataBoundWindowTitle(windowEntry);
+  if (boundTitle) return boundTitle;
+  const explicitTitle = String(windowEntry?.windowTitle || '').trim();
+  if (explicitTitle) return explicitTitle;
+  return String(windowEntry?.windowKey || '').trim();
 }
 
 export function shouldShowMainWindowHeader(windowEntry = null) {
@@ -258,6 +298,21 @@ export function resolveRouteBootstrapAction(pathname = '', authState = '') {
     return { type: 'new', conversationId: '' };
   }
   return { type: 'none', conversationId: '' };
+}
+
+export function shouldReplayRouteConversationBootstrap({
+  pathname = '',
+  authState = '',
+  mainConversationId = '',
+  hasChatFeed = false,
+  hasWorkspace = false,
+} = {}) {
+  if (authState !== 'ready') return false;
+  const routeConversationId = String(conversationIDFromPath(pathname) || '').trim();
+  if (!routeConversationId) return false;
+  const selectedConversationId = String(mainConversationId || '').trim();
+  if (selectedConversationId && selectedConversationId !== routeConversationId) return false;
+  return !hasChatFeed && !hasWorkspace;
 }
 
 export default function Root() {
@@ -328,7 +383,7 @@ export default function Root() {
     selectedWindowId.value,
     getSelectedWindow()
   );
-  const selectedWindowForTitle = selectedWindow;
+  const selectedWindowForTitle = attachResolvedMetrics(selectedWindow);
   const mainChatWindow = useMemo(
     () => (Array.isArray(activeWindows.value)
       ? activeWindows.value.find((entry) => String(entry?.windowId || '').trim() === MAIN_CHAT_WINDOW_ID) || null
@@ -350,15 +405,15 @@ export default function Root() {
     [mainConversationId, activeWindows.value]
   );
   const workspaceWindows = useMemo(
-    () => resolveWorkspaceWindowsForConversation(mainConversationId),
+    () => resolveWorkspaceWindowsForConversation(mainConversationId).map((entry) => attachResolvedMetrics(entry)),
     [mainConversationId, activeWindows.value, selectedWindowId.value, selectedTabId.value]
   );
   const workspaceStatePersistenceSignature = workspaceWindows.map((entry) => {
     const windowId = String(entry?.windowId || '').trim();
     const hasInlineMetadata = entry?.inlineMetadata && typeof entry.inlineMetadata === 'object';
     const inlineNamespace = hasInlineMetadata ? String(entry.inlineMetadata.namespace || '').trim() : '';
-    const windowFormState = windowId ? (getFormSignal(`${windowId}:windowForm`)?.value || {}) : {};
-    const viewState = windowId ? (getViewSignal(windowId)?.value || {}) : {};
+    const windowFormState = windowId ? (findFormSignal(`${windowId}:windowForm`)?.value || {}) : {};
+    const viewState = windowId ? (findViewSignal(windowId)?.value || {}) : {};
     return `${windowId}:${hasInlineMetadata ? 1 : 0}:${inlineNamespace}:${JSON.stringify(windowFormState)}:${JSON.stringify(viewState)}`;
   }).join('|');
   const linkedChildWindow = isLinkedChildWindow(selectedWindow) ? selectedWindow : null;
@@ -373,8 +428,8 @@ export default function Root() {
             && isWorkspaceRegionWindow(selectedWindow))
           || isConversationHostedWorkspaceChild(selectedWindow, mainConversationId)
         )
-          ? selectedWindow
-          : (isWorkspaceRegionWindow(resolvedConversationWorkspaceWindow) ? resolvedConversationWorkspaceWindow : null)
+          ? attachResolvedMetrics(selectedWindow)
+          : (isWorkspaceRegionWindow(resolvedConversationWorkspaceWindow) ? attachResolvedMetrics(resolvedConversationWorkspaceWindow) : null)
       )
     : null;
   const workspaceTabs = useMemo(
@@ -492,7 +547,7 @@ export default function Root() {
 
   useEffect(() => {
     let mounted = true;
-    Promise.allSettled([client.getAuthProviders(), getAuthMeSilently()])
+    Promise.allSettled([getAuthProvidersSilently(), getAuthMeSilently()])
       .then(async (results) => {
         if (!mounted) return;
         const providers = results[0]?.status === 'fulfilled' ? results[0].value : [];
@@ -530,6 +585,45 @@ export default function Root() {
       window.removeEventListener('agently:authorized', onAuthorized);
     };
   }, []);
+
+  useEffect(() => {
+    if (authState !== 'required' || typeof window === 'undefined') {
+      return () => {};
+    }
+    let cancelled = false;
+    const recheck = async () => {
+      try {
+        const recovered = await recoverSessionSilently();
+        if (cancelled) return;
+        if (recovered) {
+          setAuthState('ready');
+        }
+      } catch (_) {}
+    };
+    const onFocus = () => {
+      void recheck();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void recheck();
+      }
+    };
+    const timer = window.setTimeout(() => {
+      void recheck();
+    }, 300);
+    const interval = window.setInterval(() => {
+      void recheck();
+    }, 2000);
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      window.clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [authState]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -611,6 +705,29 @@ export default function Root() {
   }, [mainConversationId]);
 
   useEffect(() => {
+    const requiredMinHeight = Number(activeWorkspaceWindow?.workspaceMinHeight || 0);
+    if (!(requiredMinHeight > 0)) return;
+    setWorkspaceHeight((current) => {
+      const normalizedCurrent = clampWorkspaceHeight(current);
+      const normalizedRequired = clampWorkspaceHeight(requiredMinHeight);
+      return normalizedCurrent >= normalizedRequired ? normalizedCurrent : normalizedRequired;
+    });
+  }, [activeWorkspaceWindow?.windowId, activeWorkspaceWindow?.workspaceMinHeight]);
+
+  useEffect(() => {
+    const windowId = String(activeWorkspaceWindow?.windowId || '').trim();
+    if (!windowId) return;
+    if (isWorkspaceFull || isWorkspaceCollapsed) return;
+    const activatedHeight = resolveActivatedWorkspaceHeight();
+    const requiredMinHeight = Number(activeWorkspaceWindow?.workspaceMinHeight || 0);
+    const desired = Math.max(
+      clampWorkspaceHeight(activatedHeight),
+      requiredMinHeight > 0 ? clampWorkspaceHeight(requiredMinHeight) : WORKSPACE_MIN_HEIGHT,
+    );
+    setWorkspaceHeight(desired);
+  }, [activeWorkspaceWindow?.windowId, activeWorkspaceWindow?.workspaceMinHeight, isWorkspaceFull, isWorkspaceCollapsed]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
     const conversationId = String(mainConversationId || '').trim();
     try {
@@ -679,6 +796,30 @@ export default function Root() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
+    if (!shouldReplayRouteConversationBootstrap({
+      pathname: window.location.pathname,
+      authState,
+      mainConversationId,
+      hasChatFeed: !!document.querySelector('.app-chat-feed'),
+      hasWorkspace: !!document.querySelector('[data-workspace-window-id]'),
+    })) {
+      return () => {};
+    }
+    const routeConversationId = conversationIDFromPath(window.location.pathname);
+    if (!routeConversationId) return () => {};
+    const replay = () => {
+      openConversationInMainWindow(routeConversationId);
+    };
+    const timer = window.setTimeout(replay, 250);
+    const timer2 = window.setTimeout(replay, 1200);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(timer2);
+    };
+  }, [authState, mainConversationId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return () => {};
     let active = true;
     const bump = () => {
       queueMicrotask(() => {
@@ -703,6 +844,26 @@ export default function Root() {
     if (linkedChildWindow?.windowId) return;
     ensureWorkspaceWindowForConversation(conversationId);
   }, [linkedChildWindow?.windowId, mainConversationId, conversationSelectionEpoch]);
+
+  useEffect(() => {
+    const conversationId = String(mainConversationId || '').trim();
+    if (!conversationId) return () => {};
+    if (linkedChildWindow?.windowId) return () => {};
+    if (activeWorkspaceWindow?.windowId) return () => {};
+    let cancelled = false;
+    const restoreIfNeeded = () => {
+      if (cancelled) return;
+      if (!hasScopedWorkspaceState(conversationId)) return;
+      reopenWorkspaceForConversation(conversationId);
+    };
+    const timer = window.setTimeout(restoreIfNeeded, 250);
+    const interval = window.setInterval(restoreIfNeeded, 1500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      window.clearInterval(interval);
+    };
+  }, [activeWorkspaceWindow?.windowId, linkedChildWindow?.windowId, mainConversationId]);
 
   useEffect(() => {
     const conversationId = mainConversationId;
@@ -743,6 +904,18 @@ export default function Root() {
     }
     setWorkspacePresentationModeState(getScopedWorkspacePresentationMode(conversationId));
   }, [mainConversationId]);
+
+  useEffect(() => {
+    const conversationId = String(mainConversationId || '').trim();
+    if (!conversationId) return;
+    if (authState !== 'ready') return;
+    const timer = window.setTimeout(() => {
+      try {
+        publishActiveConversation(conversationId);
+      } catch (_) {}
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [authState, mainConversationId]);
 
   if (authState === 'checking') {
     return (
@@ -907,8 +1080,12 @@ export default function Root() {
                           ))}
                         </div>
                       ) : null}
-                      <div className="app-window-split-workspace-body" hidden={isWorkspaceCollapsed}>
-                        <WindowContent window={activeWorkspaceWindow} isInTab />
+                      <div
+                        className="app-window-split-workspace-body"
+                        hidden={isWorkspaceCollapsed}
+                        key={String(activeWorkspaceWindow?.windowId || 'workspace')}
+                      >
+                        <WindowContent key={String(activeWorkspaceWindow?.windowId || 'workspace')} window={activeWorkspaceWindow} isInTab />
                       </div>
                     </section>
                   ) : null}

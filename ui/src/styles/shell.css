@@ -109,6 +109,21 @@ body {
   display: block;
 }
 
+.app-brand-mark {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #1f2430;
+  background: linear-gradient(180deg, #eef2f8 0%, #e3e9f3 100%);
+  border: 1px solid rgba(31, 36, 48, 0.08);
+}
+
 .app-brand-name {
   font-size: 16px;
   line-height: 1;

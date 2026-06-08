@@ -64,9 +64,36 @@ enum AppBootstrap {
         settings: AppSettingsStore = AppSettingsStore(),
         configuredBaseURL: String? = nil
     ) -> String {
-        let candidate = AppSettingsStore.normalizeAPIBaseURL(
-            configuredBaseURL ?? settings.loadAPIBaseURL()
+        let storedValue = AppSettingsStore.normalizeAPIBaseURL(configuredBaseURL ?? settings.loadAPIBaseURL())
+        let environmentValue = AppSettingsStore.normalizeAPIBaseURL(
+            ProcessInfo.processInfo.environment["AGENTLY_API_BASE_URL"] ?? ""
         )
+        let launchOverrideArgument = CommandLine.arguments.first { $0.hasPrefix("--apiBaseURL=") }
+        let launchOverride = launchOverrideArgument
+            .flatMap { $0.split(separator: "=", maxSplits: 1).last.map(String.init) }?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let launchValue = AppSettingsStore.normalizeAPIBaseURL(launchOverride)
+
+        let developerOverridesEnabled: Bool = {
+#if DEBUG
+            return true
+#else
+            return ProcessInfo.processInfo.environment["AGENTLY_ENABLE_DEV_AUTH"] == "1"
+#endif
+        }()
+
+        let candidate: String
+        if developerOverridesEnabled {
+            if !environmentValue.isEmpty {
+                candidate = environmentValue
+            } else if !launchValue.isEmpty {
+                candidate = launchValue
+            } else {
+                candidate = storedValue
+            }
+        } else {
+            candidate = storedValue
+        }
         if !candidate.isEmpty {
             return candidate
         }

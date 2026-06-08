@@ -32,6 +32,7 @@ public struct WorkspaceScreen: View {
     let metadata: WorkspaceMetadata?
     let selectedAgentID: String?
     let availableAgents: [WorkspaceAgentOption]
+    let activeGoal: Goal?
     let hostedWorkspaceRestoreState: HostedWorkspaceRestoreState?
     let conversationState: ConversationStateResponse?
     let transcript: [ChatTranscriptEntry]
@@ -66,6 +67,7 @@ public struct WorkspaceScreen: View {
         metadata: WorkspaceMetadata?,
         selectedAgentID: String? = nil,
         availableAgents: [WorkspaceAgentOption] = [],
+        activeGoal: Goal? = nil,
         hostedWorkspaceRestoreState: HostedWorkspaceRestoreState? = nil,
         conversationState: ConversationStateResponse? = nil,
         transcript: [ChatTranscriptEntry],
@@ -99,6 +101,7 @@ public struct WorkspaceScreen: View {
         self.metadata = metadata
         self.selectedAgentID = selectedAgentID
         self.availableAgents = availableAgents
+        self.activeGoal = activeGoal
         self.hostedWorkspaceRestoreState = hostedWorkspaceRestoreState
         self.conversationState = conversationState
         self.transcript = transcript
@@ -146,6 +149,11 @@ public struct WorkspaceScreen: View {
                     }
                 }
             )
+            if let activeGoal {
+                GoalSummaryCard(goal: activeGoal)
+                    .padding(.horizontal)
+                    .padding(.top, 12)
+            }
             HStack(alignment: .top, spacing: 20) {
                 mainPane
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

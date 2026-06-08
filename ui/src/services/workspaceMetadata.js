@@ -41,6 +41,21 @@ export function resolveWorkspaceAppName(payload = null, fallback = 'Agently') {
   return next || String(fallback || 'Agently').trim() || 'Agently'
 }
 
+export function resolveWorkspaceAppIconRef(payload = null, fallback = 'builtin:viant') {
+  const next = String(payload?.appIconRef || payload?.defaults?.appIconRef || '').trim()
+  return next || String(fallback || 'builtin:viant').trim() || 'builtin:viant'
+}
+
+export function resolveWorkspaceBranding(payload = null, {
+  fallbackName = 'Agently',
+  fallbackIconRef = 'builtin:viant',
+} = {}) {
+  return {
+    appName: resolveWorkspaceAppName(payload, fallbackName),
+    appIconRef: resolveWorkspaceAppIconRef(payload, fallbackIconRef),
+  }
+}
+
 function isInternalEntry(entry) {
   if (!entry || typeof entry !== 'object') return false
   return !!(entry.internal || entry.Internal)

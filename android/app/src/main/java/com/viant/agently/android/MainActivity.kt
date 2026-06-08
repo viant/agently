@@ -62,6 +62,7 @@ import com.viant.agentlysdk.DecideToolApprovalInput
 import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.EndpointConfig
 import com.viant.agentlysdk.GeneratedFileEntry
+import com.viant.agentlysdk.Goal
 import com.viant.agentlysdk.ListPendingToolApprovalsInput
 import com.viant.agentlysdk.MetadataTargetContext
 import com.viant.agentlysdk.PendingToolApproval
@@ -173,6 +174,7 @@ private fun AgentlyApp() {
     var streamedMarkdown by remember { mutableStateOf<String?>(null) }
     var activeConversationId by remember { mutableStateOf<String?>(null) }
     var conversationState by remember { mutableStateOf<ConversationStateResponse?>(null) }
+    var activeGoal by remember { mutableStateOf<Goal?>(null) }
     var recentConversations by remember { mutableStateOf<List<Conversation>>(emptyList()) }
     var currentScreen by remember { mutableStateOf(AppScreen.Chat) }
     var pendingApprovals by remember { mutableStateOf<List<PendingToolApproval>>(emptyList()) }
@@ -615,6 +617,7 @@ private fun AgentlyApp() {
         clearActiveStreamJob()
         val resetState = buildConversationResetState()
         applyConversationResetState(resetState)
+        activeGoal = null
     }
 
     suspend fun refreshRecentConversations() {
@@ -630,6 +633,7 @@ private fun AgentlyApp() {
         )
         activeConversationId = preparedBinding.conversationId
         conversationState = preparedBinding.state
+        activeGoal = preparedBinding.goal
         pendingApprovals = preparedBinding.pendingApprovals
         approvalEdits = preparedBinding.approvalEdits
         generatedFiles = preparedBinding.generatedFiles
@@ -1068,6 +1072,7 @@ private fun AgentlyApp() {
         recentConversations = recentConversations,
         activeConversationId = activeConversationId,
         conversationState = conversationState,
+        activeGoal = activeGoal,
         streamSnapshot = streamSnapshot,
         transcript = transcript,
         pendingApprovals = pendingApprovals,

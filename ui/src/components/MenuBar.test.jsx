@@ -46,7 +46,13 @@ vi.mock('../services/agentlyClient', () => ({
 
 vi.mock('../services/workspaceMetadata', () => ({
   getWorkspaceMetadataSnapshot: vi.fn().mockReturnValue(null),
-  resolveWorkspaceAppName: vi.fn((payload, fallback = 'Agently') => String(payload?.appName || payload?.defaults?.appName || '').trim() || fallback),
+  resolveWorkspaceBranding: vi.fn((payload, {
+    fallbackName = 'Agently',
+    fallbackIconRef = 'builtin:viant',
+  } = {}) => ({
+    appName: String(payload?.appName || payload?.defaults?.appName || '').trim() || fallbackName,
+    appIconRef: String(payload?.appIconRef || payload?.defaults?.appIconRef || '').trim() || fallbackIconRef,
+  })),
   subscribeWorkspaceMetadata: vi.fn(() => () => {}),
 }));
 
@@ -163,6 +169,22 @@ describe('MenuBar auth startup selection', () => {
     expect(mod.resolveStartupAuthAction([{ type: 'bff', name: 'oauth' }])).toEqual({ type: 'oauth' });
     // The component bootstrap should not call local login when oauth is present.
     expect(client.localLogin).not.toHaveBeenCalled();
+  });
+});
+
+describe('MenuBar branding', () => {
+  it('keeps the Viant logo only for the explicit builtin viant icon', async () => {
+    const { resolveBrandLogoSrc } = await import('./MenuBar.jsx');
+    expect(resolveBrandLogoSrc('builtin:viant')).toBe('logo.png');
+    expect(resolveBrandLogoSrc('')).toBe('logo.png');
+    expect(resolveBrandLogoSrc('builtin:steward')).toBe('');
+  });
+
+  it('derives a monogram for workspaces without an image-backed icon ref', async () => {
+    const { resolveBrandMonogram } = await import('./MenuBar.jsx');
+    expect(resolveBrandMonogram('Steward')).toBe('S');
+    expect(resolveBrandMonogram('Acme Workspace')).toBe('AW');
+    expect(resolveBrandMonogram('')).toBe('A');
   });
 });
 

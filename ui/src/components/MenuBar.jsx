@@ -5,9 +5,39 @@ import SchemaBasedForm from 'forge/widgets/SchemaBasedForm.jsx';
 import { client, getAuthMeSilently } from '../services/agentlyClient';
 import { subscribeMCPUIApprovalRequests } from '../services/mcpApps/approvalEvents.js';
 import { MAIN_CHAT_WINDOW_ID, resolveConversationSelection } from '../services/conversationWindow';
-import { getWorkspaceMetadataSnapshot, resolveWorkspaceAppName, subscribeWorkspaceMetadata } from '../services/workspaceMetadata';
+import { getWorkspaceMetadataSnapshot, resolveWorkspaceBranding, subscribeWorkspaceMetadata } from '../services/workspaceMetadata';
 import { extractPlannerElicitationMeta, prepareRenderableRequestedSchema } from './elicitationHelpers';
 import logo from '../viant-logo.png';
+
+const remoteOrInlineImageRefPattern = /^(https?:\/\/|data:image\/|blob:|\/)/i;
+
+export function resolveBrandLogoSrc(iconRef = '') {
+  const raw = String(iconRef || '').trim();
+  const normalized = raw.toLowerCase();
+  if (!normalized || normalized === 'builtin:viant') {
+    return logo;
+  }
+  if (remoteOrInlineImageRefPattern.test(raw)) {
+    return raw;
+  }
+  return '';
+}
+
+export function resolveBrandMonogram(appName = '') {
+  const words = String(appName || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+  if (words.length === 0) {
+    return 'A';
+  }
+  const letters = words.map((word) => {
+    const match = word.match(/[A-Za-z0-9]/);
+    return match ? match[0].toUpperCase() : '';
+  }).join('');
+  return letters || 'A';
+}
 
 export function resolveStartupAuthAction(providers) {
   const normalized = Array.isArray(providers) ? providers : [];
@@ -263,7 +293,10 @@ export default function MenuBar({
     decide
   } = approvals || {};
   const [user, setUser] = useState(null);
-  const [appName, setAppName] = useState(() => resolveWorkspaceAppName(getWorkspaceMetadataSnapshot(), 'Agently'));
+  const [branding, setBranding] = useState(() => resolveWorkspaceBranding(getWorkspaceMetadataSnapshot(), {
+    fallbackName: 'Agently',
+    fallbackIconRef: 'builtin:viant',
+  }));
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [approvalPage, setApprovalPage] = useState(0);
@@ -303,7 +336,10 @@ export default function MenuBar({
     const onAuthorized = () => { void loadUser(); };
     const unsubscribeWorkspaceMetadata = subscribeWorkspaceMetadata((payload) => {
       if (!mounted) return;
-      setAppName(resolveWorkspaceAppName(payload, 'Agently'));
+      setBranding(resolveWorkspaceBranding(payload, {
+        fallbackName: 'Agently',
+        fallbackIconRef: 'builtin:viant',
+      }));
     });
     void loadUser();
     if (typeof window !== 'undefined') {
@@ -320,6 +356,9 @@ export default function MenuBar({
 
   const displayName = user?.displayName || user?.username || user?.email || user?.subject || '';
   const currentConversationId = resolveConversationSelection(MAIN_CHAT_WINDOW_ID);
+  const appName = String(branding?.appName || 'Agently').trim() || 'Agently';
+  const appIconSrc = resolveBrandLogoSrc(branding?.appIconRef);
+  const appIconMonogram = resolveBrandMonogram(appName);
 
   const approvalPageData = useMemo(() => {
     if (typeof setPage === 'function') {
@@ -465,7 +504,11 @@ export default function MenuBar({
     <header className="app-topbar">
       <div className="app-topbar-left">
         <div className="app-brand">
-          <img src={logo} alt="Viant" className="app-brand-logo" />
+          {appIconSrc ? (
+            <img src={appIconSrc} alt={`${appName} logo`} className="app-brand-logo" />
+          ) : (
+            <span className="app-brand-mark" aria-hidden="true">{appIconMonogram}</span>
+          )}
           <span className="app-brand-name">{appName}</span>
         </div>
         <div className="app-topbar-divider" />

@@ -46,6 +46,7 @@ import java.nio.charset.StandardCharsets
 @Composable
 internal fun TabletConversationSidebar(
     workspaceTitle: String,
+    metadata: WorkspaceMetadata?,
     appApiBaseUrl: String,
     loading: Boolean,
     recentConversations: List<Conversation>,
@@ -55,6 +56,7 @@ internal fun TabletConversationSidebar(
     onRefresh: () -> Unit,
     onSelectConversation: (String) -> Unit
 ) {
+    val brandLabel = resolveWorkspaceBrandLabel(metadata)
     var sidebarQuery by remember { mutableStateOf("") }
     val filteredConversations = remember(recentConversations, sidebarQuery) {
         val filterText = sidebarQuery.trim().lowercase()
@@ -91,7 +93,7 @@ internal fun TabletConversationSidebar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "VIANT.",
+                    brandLabel,
                     style = MaterialTheme.typography.labelLarge,
                     color = Color(0xFFDB1F2F)
                 )

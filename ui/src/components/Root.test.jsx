@@ -8,6 +8,7 @@ import {
   resolveHostedWorkspaceTabs,
   resolveHostedBottomWindow,
   resolveRouteBootstrapAction,
+  shouldReplayRouteConversationBootstrap,
   resolveMainWindowCloseConversationId,
   resolveMainWindowHeaderTitle,
   resolveSelectedMainWindow,
@@ -127,32 +128,26 @@ describe('Root window selection helpers', () => {
     expect(resolveMainWindowHeaderTitle({ windowKey: 'schedule' })).toBe('schedule');
     expect(resolveMainWindowHeaderTitle({
       windowKey: 'orderPerformance',
-      parameters: { AdOrderId: [2637048] },
-      resolvedMetrics: { name: 'Delaware_SB_display_Bally', orderId: 2637048 }
+      windowTitle: 'Delaware_SB_display_Bally'
     })).toBe('Delaware_SB_display_Bally');
     expect(resolveMainWindowHeaderTitle({
       windowKey: 'orderPerformance',
-      parameters: { AdOrderId: [2637048] }
-    })).toBe('Order 2637048');
-    expect(resolveMainWindowHeaderTitle({
-      windowKey: 'orderPerformance',
-      parameters: { AdOrderId: [2609393] },
-      resolvedMetrics: { name: 'Stale Previous Order', orderId: 2656980 }
-    })).toBe('Order 2609393');
+    })).toBe('orderPerformance');
     expect(resolveMainWindowHeaderTitle({
       windowKey: 'campaign',
-      parameters: { CampaignId: [551665] },
-      resolvedMetrics: { campaignName: '6TJH_ThomasJHenryLaw_CTVPilot_2026', campaignId: 551665 }
-    })).toBe('6TJH_ThomasJHenryLaw_CTVPilot_2026');
-    expect(resolveMainWindowHeaderTitle({
-      windowKey: 'campaign',
-      parameters: { CampaignId: [551665] },
-      windowTitle: '6TJH_ThomasJHenryLaw_CTVPilot_2026 (551665)'
+      windowTitle: '6TJH_ThomasJHenryLaw_CTVPilot_2026'
     })).toBe('6TJH_ThomasJHenryLaw_CTVPilot_2026');
     expect(resolveMainWindowHeaderTitle({
       windowKey: 'campaignPerformance',
-      parameters: { CampaignId: [551665] }
+      windowTitle: 'Campaign 551665'
     })).toBe('Campaign 551665');
+    expect(resolveMainWindowHeaderTitle({
+      windowKey: 'line',
+      windowTitle: 'English OLV'
+    })).toBe('English OLV');
+    expect(resolveMainWindowHeaderTitle({
+      windowKey: 'line',
+    })).toBe('line');
     expect(shouldShowMainWindowHeader({ windowTitle: 'Runs', windowKey: 'schedule/history' })).toBe(false);
     expect(shouldShowMainWindowHeader({ windowTitle: 'Automation', windowKey: 'schedule' })).toBe(false);
     expect(shouldShowMainWindowHeader({ windowTitle: 'Runs', windowKey: 'schedule/history', inTab: false })).toBe(false);
@@ -171,12 +166,12 @@ describe('Root window selection helpers', () => {
     expect(shouldShowMainWindowHeader({ windowTitle: '', windowKey: '' })).toBe(false);
   });
 
-  it('uses compact order ids for hosted workspace compare tabs', () => {
+  it('uses the current window title for hosted workspace tabs', () => {
     expect(resolveHostedWorkspaceTabLabel({
       windowKey: 'order',
       parameters: { AdOrderId: [2656980] },
       windowTitle: 'Order 2656980'
-    })).toBe('2656980');
+    })).toBe('Order 2656980');
 
     expect(resolveHostedWorkspaceTabs([
       {
@@ -192,8 +187,8 @@ describe('Root window selection helpers', () => {
         windowTitle: 'Order 2609393'
       }
     ], 'order_2')).toEqual([
-      { windowId: 'order_1', label: '2656980', isActive: false },
-      { windowId: 'order_2', label: '2609393', isActive: true }
+      { windowId: 'order_1', label: 'Order 2656980', isActive: false },
+      { windowId: 'order_2', label: 'Order 2609393', isActive: true }
     ]);
   });
 
@@ -223,5 +218,42 @@ describe('Root window selection helpers', () => {
       type: 'new',
       conversationId: ''
     });
+  });
+
+  it('replays conversation route bootstrap after auth when the page is still empty', () => {
+    expect(shouldReplayRouteConversationBootstrap({
+      pathname: '/conversation/conv-123',
+      authState: 'ready',
+      mainConversationId: 'conv-123',
+      hasChatFeed: false,
+      hasWorkspace: false,
+    })).toBe(true);
+  });
+
+  it('skips route bootstrap replay once either chat feed or workspace is already mounted', () => {
+    expect(shouldReplayRouteConversationBootstrap({
+      pathname: '/conversation/conv-123',
+      authState: 'ready',
+      mainConversationId: 'conv-123',
+      hasChatFeed: true,
+      hasWorkspace: false,
+    })).toBe(false);
+    expect(shouldReplayRouteConversationBootstrap({
+      pathname: '/conversation/conv-123',
+      authState: 'ready',
+      mainConversationId: 'conv-123',
+      hasChatFeed: false,
+      hasWorkspace: true,
+    })).toBe(false);
+  });
+
+  it('does not replay route bootstrap when the selected conversation differs from the route', () => {
+    expect(shouldReplayRouteConversationBootstrap({
+      pathname: '/conversation/conv-123',
+      authState: 'ready',
+      mainConversationId: 'conv-999',
+      hasChatFeed: false,
+      hasWorkspace: false,
+    })).toBe(false);
   });
 });

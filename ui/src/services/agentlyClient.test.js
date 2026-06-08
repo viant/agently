@@ -161,6 +161,48 @@ describe('getAuthMeSilently', () => {
   });
 });
 
+describe('getAuthProvidersSilently', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.restoreAllMocks();
+    globalThis.window = {
+      dispatchEvent: vi.fn(),
+      CustomEvent: class extends Event {
+        constructor(name, init = {}) {
+          super(name);
+          this.detail = init.detail;
+        }
+      }
+    };
+    globalThis.CustomEvent = globalThis.window.CustomEvent;
+  });
+
+  it('unwraps auth providers from either envelope or flat-array responses', async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ providers: [{ type: 'bff', name: 'oauth' }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ([{ type: 'local', name: 'local' }]),
+      });
+
+    const { getAuthProvidersSilently } = await import('./agentlyClient.js');
+
+    expect(await getAuthProvidersSilently()).toEqual([{ type: 'bff', name: 'oauth' }]);
+    expect(await getAuthProvidersSilently()).toEqual([{ type: 'local', name: 'local' }]);
+  });
+
+  it('returns an empty provider list when the probe fails', async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('timeout'));
+
+    const { getAuthProvidersSilently } = await import('./agentlyClient.js');
+
+    expect(await getAuthProvidersSilently()).toEqual([]);
+  });
+});
+
 describe('beginLogin', () => {
   beforeEach(() => {
     vi.resetModules();

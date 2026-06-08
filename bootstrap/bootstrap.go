@@ -171,7 +171,7 @@ func ensureInternalMCPConfig(path string) error {
 		return err
 	}
 
-	targetServices := []string{"system/exec", "system/os", "system/patch", "orchestration/plan", "llm/agents", "resources", "message"}
+	targetServices := []string{"system/exec", "system/os", "system/goal", "system/patch", "orchestration/plan", "llm/agents", "resources", "message"}
 	changed := false
 
 	// Migrate legacy flat key if present.

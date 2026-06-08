@@ -7,6 +7,7 @@ import com.viant.agentlysdk.Conversation
 import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.GetTranscriptInput
+import com.viant.agentlysdk.Goal
 import com.viant.agentlysdk.ListConversationsInput
 import com.viant.agentlysdk.MetadataTargetContext
 import com.viant.agentlysdk.ListPendingToolApprovalsInput
@@ -27,6 +28,7 @@ internal data class WorkspaceSnapshot(
 
 internal data class ConversationBindingData(
     val state: ConversationStateResponse,
+    val goal: Goal?,
     val approvals: List<PendingToolApproval>,
     val generatedFiles: List<GeneratedFileEntry>,
     val payloadPreviews: Map<String, ArtifactPreview>
@@ -55,6 +57,7 @@ internal data class WorkspaceLoadResult(
 internal data class PreparedConversationBinding(
     val conversationId: String,
     val state: ConversationStateResponse,
+    val goal: Goal?,
     val pendingApprovals: List<PendingToolApproval>,
     val approvalEdits: Map<String, Map<String, JsonElement>>,
     val generatedFiles: List<GeneratedFileEntry>,
@@ -210,6 +213,7 @@ internal suspend fun loadConversationBindingData(
             includeFeeds = true
         )
     )
+    val goal = client.getGoal(conversationId)
     val approvals = client.listPendingToolApprovals(
         ListPendingToolApprovalsInput(
             conversationId = conversationId,
@@ -220,6 +224,7 @@ internal suspend fun loadConversationBindingData(
     val generatedFiles = client.listGeneratedFiles(conversationId)
     return ConversationBindingData(
         state = state,
+        goal = goal,
         approvals = approvals,
         generatedFiles = generatedFiles,
         payloadPreviews = loadExecutionPayloadPreviews(client, state)
@@ -237,6 +242,7 @@ internal suspend fun prepareConversationBinding(
     return PreparedConversationBinding(
         conversationId = conversationId,
         state = binding.state,
+        goal = binding.goal,
         pendingApprovals = binding.approvals,
         approvalEdits = trimApprovalEdits(approvalEdits, binding.approvals),
         generatedFiles = binding.generatedFiles,

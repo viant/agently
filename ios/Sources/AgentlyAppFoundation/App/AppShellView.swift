@@ -258,11 +258,12 @@ private extension SearchFieldPlacement {
 
 private struct AppBrandView: View {
     let workspaceTitle: String?
+    let brandLabel: String
 
     var body: some View {
         let displayTitle = resolveWorkspaceBrandTitle(workspaceTitle: workspaceTitle)
         HStack(spacing: 8) {
-            Text("VIANT.")
+            Text(brandLabel)
                 .font(.caption.weight(.black))
                 .tracking(0.4)
                 .foregroundStyle(Color(red: 0.86, green: 0.12, blue: 0.17))
@@ -272,7 +273,7 @@ private struct AppBrandView: View {
         }
         .fixedSize(horizontal: true, vertical: false)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Viant \(displayTitle)")
+        .accessibilityLabel("\(brandLabel) \(displayTitle)")
     }
 }
 
@@ -331,7 +332,10 @@ private struct ConversationListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            AppBrandView(workspaceTitle: workspaceTitle)
+            AppBrandView(
+                workspaceTitle: workspaceTitle,
+                brandLabel: resolveWorkspaceBrandLabel(metadata: metadata)
+            )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20)
                 .padding(.top, 10)
@@ -688,6 +692,21 @@ internal func resolveWorkspaceBrandTitle(
         options: [.regularExpression, .caseInsensitive]
     ).trimmingCharacters(in: .whitespacesAndNewlines)
     return stripped.isEmpty ? fallbackTitle : stripped
+}
+
+internal func resolveWorkspaceBrandLabel(
+    metadata: WorkspaceMetadata?,
+    fallbackLabel: String = "Agently"
+) -> String {
+    let explicit = metadata?.appName?.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let explicit, !explicit.isEmpty {
+        return explicit
+    }
+    let defaultLabel = metadata?.defaults?.appName?.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let defaultLabel, !defaultLabel.isEmpty {
+        return defaultLabel
+    }
+    return fallbackLabel
 }
 
 private extension View {
