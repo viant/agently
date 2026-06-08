@@ -8,6 +8,7 @@ import {
   extractPlannerElicitationMeta,
   extractToolApprovalMeta,
   prepareRequestedSchema,
+  resolveElicitationTarget,
   resolveElicitationSubmitAction,
   serializeApprovalEditedFields
 } from '../elicitationHelpers';
@@ -28,6 +29,29 @@ describe('ElicitationForm utilities', () => {
     })).toEqual({
       conversationId: 'conv-2',
       elicitationId: 'elic-2'
+    });
+  });
+
+  it('uses callback URL as authoritative target for proxied elicitations', () => {
+    expect(resolveElicitationTarget({
+      conversationId: 'conv-root',
+      elicitationId: 'elic-1',
+      callbackURL: '/v1/api/conversations/conv-child/elicitation/elic-1'
+    })).toEqual({
+      conversationId: 'conv-child',
+      elicitationId: 'elic-1',
+      callbackURL: '/v1/api/conversations/conv-child/elicitation/elic-1'
+    });
+
+    expect(parseConversationAndElicitation({
+      conversationId: 'conv-root',
+      elicitationId: 'elic-1',
+      elicitation: {
+        callbackURL: '/v1/api/conversations/conv-child/elicitation/elic-1'
+      }
+    })).toEqual({
+      conversationId: 'conv-child',
+      elicitationId: 'elic-1'
     });
   });
 

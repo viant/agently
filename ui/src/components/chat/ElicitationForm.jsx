@@ -9,29 +9,19 @@ import {
   elicitationDataBindingKey,
   extractToolApprovalMeta,
   prepareRenderableRequestedSchema,
+  resolveElicitationTarget,
   resolveElicitationSubmitAction,
   triggerElicitationFormSubmit
 } from '../elicitationHelpers';
 
 export function parseConversationAndElicitation(message = {}) {
-  const elicitation = message?.elicitation || {};
-  const callbackURL = String(elicitation?.callbackURL || message?.callbackURL || '').trim();
-  const directConversationId = String(message?.conversationId || message?.ConversationId || '').trim();
-  const directElicitationId = String(
-    message?.elicitationId || message?.ElicitationId
-    || elicitation?.elicitationId || elicitation?.ElicitationId || ''
-  ).trim();
-  const match = callbackURL.match(/\/v1\/(?:api\/)?(?:conversations\/([^/]+)\/elicitation\/([^/?#]+)|elicitations\/([^/]+)\/([^/?#]+)\/resolve)/i);
   const persistedConversationId = typeof window !== 'undefined'
     ? getScopedConversationSelection(MAIN_CHAT_WINDOW_ID)
     : '';
-  const conversationId = directConversationId
-    || persistedConversationId
-    || (match ? (match[1] || match[3] || '') : '');
-  const elicitationId = directElicitationId || (match ? (match[2] || match[4] || '') : '');
+  const target = resolveElicitationTarget(message, persistedConversationId);
   return {
-    conversationId: String(conversationId || '').trim(),
-    elicitationId: String(elicitationId || '').trim()
+    conversationId: String(target.conversationId || '').trim(),
+    elicitationId: String(target.elicitationId || '').trim()
   };
 }
 

@@ -160,6 +160,23 @@ export function resolveElicitationSubmitAction(requestedSchema = null) {
   return meta?.type === 'tool_approval' ? 'accept' : 'submit';
 }
 
+export function resolveElicitationTarget(source = {}, fallbackConversationId = '') {
+  const direct = source?.elicitation && typeof source.elicitation === 'object'
+    ? { ...source.elicitation, ...source }
+    : source;
+  const callbackURL = String(direct?.callbackURL || direct?.callbackUrl || '').trim();
+  const match = callbackURL.match(/\/v1\/(?:api\/)?(?:conversations\/([^/]+)\/elicitation\/([^/?#]+)|elicitations\/([^/]+)\/([^/?#]+)\/resolve)/i);
+  const callbackConversationId = match ? String(match[1] || match[3] || '').trim() : '';
+  const callbackElicitationId = match ? String(match[2] || match[4] || '').trim() : '';
+  const directConversationId = String(direct?.conversationId || direct?.ConversationId || '').trim();
+  const directElicitationId = String(direct?.elicitationId || direct?.ElicitationId || '').trim();
+  return {
+    conversationId: callbackConversationId || directConversationId || String(fallbackConversationId || '').trim(),
+    elicitationId: callbackElicitationId || directElicitationId,
+    callbackURL,
+  };
+}
+
 export function buildApprovalEditorState(meta = null) {
   return sdkBuildApprovalEditorState(meta);
 }
