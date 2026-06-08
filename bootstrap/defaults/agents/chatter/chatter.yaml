@@ -46,6 +46,7 @@ tool:
   callExposure: conversation
   bundles:
     - system/exec
+    - system/goal
     - system/os
     - template
   items:

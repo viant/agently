@@ -134,4 +134,31 @@ final class AppStateTargetingTests: XCTestCase {
             )
         )
     }
+
+    func testResolvedBootstrapAPIBaseURLPrefersDeveloperOverrides() {
+        XCTAssertEqual(
+            resolvedBootstrapAPIBaseURL(
+                storedValue: "http://127.0.0.1:9294",
+                environmentValue: "http://127.0.0.1:9191",
+                launchArguments: []
+            ),
+            "http://127.0.0.1:9191"
+        )
+        XCTAssertEqual(
+            resolvedBootstrapAPIBaseURL(
+                storedValue: "http://127.0.0.1:9294",
+                environmentValue: "   ",
+                launchArguments: ["Agently", "--apiBaseURL=http://localhost:9191"]
+            ),
+            "http://localhost:9191"
+        )
+        XCTAssertEqual(
+            resolvedBootstrapAPIBaseURL(
+                storedValue: "http://127.0.0.1:9294",
+                environmentValue: "   ",
+                launchArguments: []
+            ),
+            "http://127.0.0.1:9294"
+        )
+    }
 }

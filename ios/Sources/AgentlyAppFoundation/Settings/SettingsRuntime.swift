@@ -15,7 +15,11 @@ public final class SettingsRuntime: ObservableObject {
 
     public init(store: AppSettingsStore = AppSettingsStore()) {
         self.store = store
-        self.apiBaseURL = store.loadAPIBaseURL()
+        self.apiBaseURL = resolvedBootstrapAPIBaseURL(
+            storedValue: store.loadAPIBaseURL(),
+            environmentValue: ProcessInfo.processInfo.environment["AGENTLY_API_BASE_URL"],
+            launchArguments: CommandLine.arguments
+        )
         self.preferredAgentID = store.loadPreferredAgentID()
         self.oobSecretReference = resolvedBootstrapOOBSecretReference(
             storedValue: store.loadOOBSecretReference(),
@@ -65,6 +69,31 @@ internal func resolvedBootstrapOOBSecretReference(
         .flatMap { $0.split(separator: "=", maxSplits: 1).last.map(String.init) }?
         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return launchOverride
+}
+
+internal func resolvedBootstrapAPIBaseURL(
+    storedValue: String,
+    environmentValue: String?,
+    launchArguments: [String]
+) -> String {
+    let normalizedStored = AppSettingsStore.normalizeAPIBaseURL(storedValue)
+    let normalizedEnvironment = AppSettingsStore.normalizeAPIBaseURL(environmentValue ?? "")
+
+    if developerAuthFeaturesEnabled() {
+        if !normalizedEnvironment.isEmpty {
+            return normalizedEnvironment
+        }
+        let launchOverrideArgument = launchArguments.first { $0.hasPrefix("--apiBaseURL=") }
+        let launchOverride = launchOverrideArgument
+            .flatMap { $0.split(separator: "=", maxSplits: 1).last.map(String.init) }?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedLaunch = AppSettingsStore.normalizeAPIBaseURL(launchOverride)
+        if !normalizedLaunch.isEmpty {
+            return normalizedLaunch
+        }
+    }
+
+    return normalizedStored
 }
 
 internal func resolvedBootstrapAutoOOBSignIn(

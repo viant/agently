@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { buildWebClientContext, buildWebQueryContext, detectWebFormFactor } from './clientContext';
 
@@ -37,18 +37,19 @@ describe('clientContext', () => {
 
   it('nests client target metadata inside query context', () => {
     const previousWindow = global.window;
-    global.window = { innerWidth: 1365 };
+    global.window = { innerWidth: 1365, sessionStorage: { getItem: () => null, setItem: () => {} } };
 
     try {
-      expect(buildWebQueryContext()).toEqual({
-        client: {
-          kind: 'web',
-          platform: 'web',
-          formFactor: 'desktop',
-          surface: 'browser',
-          capabilities: ['markdown', 'chart', 'upload', 'code', 'diff'],
-        },
+      const result = buildWebQueryContext();
+      expect(result.client).toEqual({
+        kind: 'web',
+        platform: 'web',
+        formFactor: 'desktop',
+        surface: 'browser',
+        capabilities: ['markdown', 'chart', 'upload', 'code', 'diff'],
       });
+      expect(typeof result.uiClientId).toBe('string');
+      expect(result.uiClientId.length).toBeGreaterThan(0);
     } finally {
       global.window = previousWindow;
     }

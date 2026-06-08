@@ -17,6 +17,7 @@ public struct PhoneWorkspaceScreen: View {
     let metadata: WorkspaceMetadata?
     let selectedAgentID: String?
     let availableAgents: [WorkspaceAgentOption]
+    let activeGoal: Goal?
     let hostedWorkspaceRestoreStateOverride: HostedWorkspaceRestoreState?
     let conversationState: ConversationStateResponse?
     let transcript: [ChatTranscriptEntry]
@@ -51,6 +52,7 @@ public struct PhoneWorkspaceScreen: View {
         metadata: WorkspaceMetadata?,
         selectedAgentID: String? = nil,
         availableAgents: [WorkspaceAgentOption] = [],
+        activeGoal: Goal? = nil,
         hostedWorkspaceRestoreState: HostedWorkspaceRestoreState? = nil,
         conversationState: ConversationStateResponse? = nil,
         transcript: [ChatTranscriptEntry],
@@ -84,6 +86,7 @@ public struct PhoneWorkspaceScreen: View {
         self.metadata = metadata
         self.selectedAgentID = selectedAgentID
         self.availableAgents = availableAgents
+        self.activeGoal = activeGoal
         self.hostedWorkspaceRestoreStateOverride = hostedWorkspaceRestoreState
         self.conversationState = conversationState
         self.transcript = transcript
@@ -130,6 +133,11 @@ public struct PhoneWorkspaceScreen: View {
                     }
                 }
             )
+            if let activeGoal {
+                GoalSummaryCard(goal: activeGoal)
+                    .padding(.horizontal)
+                    .padding(.top, 12)
+            }
             WorkspaceStatusSection(
                 isSending: isSending,
                 isLoadingArtifacts: isLoadingArtifacts,
@@ -271,14 +279,19 @@ public struct PhoneWorkspaceScreen: View {
             isHostedWorkspacePresented = true
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: "rectangle.topthird.inset.filled")
+                Image(systemName: hostedWorkspacePresentation?.badgeSymbolName ?? "rectangle.topthird.inset.filled")
                     .font(.headline)
+                    .foregroundStyle(hostedWorkspaceAccentColor())
                 VStack(alignment: .leading, spacing: 2) {
                     Text(hostedWorkspaceTitle ?? "Open Workspace")
                         .font(.headline)
-                    Text("Open the active workspace view")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    if let detail = [hostedWorkspacePresentation?.subtitle, hostedWorkspacePresentation?.supportingText]
+                        .compactMap({ $0?.trimmingCharacters(in: .whitespacesAndNewlines) })
+                        .first(where: { !$0.isEmpty }) {
+                        Text(detail)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
@@ -390,13 +403,17 @@ public struct PhoneWorkspaceScreen: View {
         return restoreState.selectedWindowId ?? restoreState.windows.last?.windowId
     }
 
-    private var hostedWorkspaceTitle: String? {
+    private var hostedWorkspacePresentation: HostedWorkspacePresentation? {
         guard let restoreState = hostedWorkspaceRestoreState else {
             return nil
         }
-        let targetWindowID = hostedWorkspaceWindowID
-        return restoreState.windows.first(where: { $0.windowId == targetWindowID })?.windowTitle
-            ?? restoreState.windows.last?.windowTitle
+        let selected = restoreState.windows.first(where: { $0.windowId == hostedWorkspaceWindowID })
+            ?? restoreState.windows.last
+        return resolveHostedWorkspacePresentation(window: selected)
+    }
+
+    private var hostedWorkspaceTitle: String? {
+        hostedWorkspacePresentation?.title ?? hostedWorkspaceRestoreState?.windows.last?.windowTitle
     }
 
     private func syncPaneSelection(for hasWorkspaceSurface: Bool) {

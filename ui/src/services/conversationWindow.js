@@ -74,6 +74,37 @@ function workspacePresentationModeKey(conversationId = '') {
   return id ? `${WORKSPACE_PRESENTATION_MODE_KEY}:${id}` : WORKSPACE_PRESENTATION_MODE_KEY;
 }
 
+const RUNNING_TRANSCRIPT_STATUSES = new Set(['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress']);
+
+function dispatchWorkspaceStateEvent(conversationId = '') {
+  const convID = String(conversationId || '').trim();
+  if (!convID || typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(new CustomEvent('agently:workspace-state', { detail: { conversationId: convID } }));
+  } catch (_) {}
+}
+
+function transcriptTurnsHaveRunningStatus(turns = []) {
+  return (Array.isArray(turns) ? turns : []).some((turn) => {
+    const status = String(turn?.status || turn?.Status || '').trim().toLowerCase();
+    return RUNNING_TRANSCRIPT_STATUSES.has(status);
+  });
+}
+
+export function nudgeWorkspaceRestore(conversationId = '', attempts = 3) {
+  const convID = String(conversationId || '').trim();
+  if (!convID || typeof window === 'undefined' || typeof window.setTimeout !== 'function') return;
+  const total = Math.max(1, Number(attempts || 1));
+  const delays = [0, 250, 1000, 2000].slice(0, total);
+  for (const delay of delays) {
+    window.setTimeout(() => {
+      try {
+        window.dispatchEvent(new CustomEvent('agently:workspace-state', { detail: { conversationId: convID } }));
+      } catch (_) {}
+    }, delay);
+  }
+}
+
 export function isMainChatWindowId(windowId = '') {
   return String(windowId || '').trim() === MAIN_CHAT_WINDOW_ID;
 }
@@ -462,11 +493,54 @@ function normalizeWorkspaceStateSnapshot(raw = null, { preferLiveSignals = true 
 
 export function deriveWorkspaceStateFromTranscriptTurns(turns = []) {
   const derived = deriveHostedWorkspaceRestoreStateFromTranscriptTurns(Array.isArray(turns) ? turns : []);
-  if (!derived?.windows?.length) return null;
+  const windows = (Array.isArray(derived?.windows) ? derived.windows : []).filter((entry) => (
+    String(entry?.windowKey || '').trim() !== CHAT_WINDOW_KEY
+  ));
+  if (windows.length === 0) return null;
+  const selectedCandidate = String(derived.selectedWindowId || '').trim();
+  const selectedWindowId = windows.some((entry) => String(entry?.windowId || '').trim() === selectedCandidate)
+    ? selectedCandidate
+    : (String(windows[0]?.windowId || '').trim() || null);
   return {
-    windows: derived.windows,
-    selectedWindowId: String(derived.selectedWindowId || '').trim() || null,
+    windows,
+    selectedWindowId,
   };
+}
+
+export function syncScopedWorkspaceStateFromTranscriptTurns(
+  conversationId = '',
+  turns = [],
+  {
+    reopen = false,
+    announce = true,
+    allowRunning = false,
+  } = {}
+) {
+  const convID = String(conversationId || '').trim();
+  if (!convID) return null;
+  if (!allowRunning && transcriptTurnsHaveRunningStatus(turns)) return null;
+  const derived = deriveWorkspaceStateFromTranscriptTurns(turns);
+  if (!derived?.windows?.length) return null;
+  setScopedWorkspaceState(convID, derived.windows);
+  setScopedWorkspaceSelection(convID, String(derived.selectedWindowId || '').trim());
+  if (!announce || typeof window === 'undefined') {
+    return derived;
+  }
+  if (reopen && typeof window.setTimeout === 'function') {
+    window.setTimeout(() => {
+      reopenWorkspaceForConversation(convID);
+      dispatchWorkspaceStateEvent(convID);
+    }, 0);
+    nudgeWorkspaceRestore(convID, 4);
+    return derived;
+  }
+  if (reopen) {
+    reopenWorkspaceForConversation(convID);
+    dispatchWorkspaceStateEvent(convID);
+    return derived;
+  }
+  nudgeWorkspaceRestore(convID, 4);
+  return derived;
 }
 
 export function ensureMainChatWindow() {
@@ -541,6 +615,9 @@ export function openConversationInMainWindow(conversationId = '') {
   const workspaceWindow = reopenWorkspaceForConversation(targetID);
   if (workspaceWindow) {
     return workspaceWindow;
+  }
+  if (targetID && hasScopedWorkspaceState(targetID)) {
+    nudgeWorkspaceRestore(targetID, 4);
   }
   return mainWindow;
 }

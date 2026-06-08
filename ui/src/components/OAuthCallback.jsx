@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { AgentlyClient } from 'agently-core-ui-sdk';
-import { client } from '../services/agentlyClient';
 
 export function completeOAuthReturn(targetWindow, returnTo) {
   const win = targetWindow || window;
@@ -18,6 +17,24 @@ export function completeOAuthReturn(targetWindow, returnTo) {
   }
 
   win.location.replace(returnTo);
+}
+
+export async function exchangeOAuthCallback(targetWindow, code, state) {
+  const win = targetWindow || window;
+  const response = await win.fetch('/v1/api/auth/oauth/callback?format=json', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ code, state }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(String(text || `OAuth callback failed (${response.status})`));
+  }
+  return response.json().catch(() => ({}));
 }
 
 /**
@@ -42,7 +59,7 @@ export default function OAuthCallback() {
       return;
     }
 
-    client.oauthCallback({ code, state })
+    exchangeOAuthCallback(window, code, state)
       .then(() => {
         setStatus('success');
         const returnTo = AgentlyClient.getLoginReturnURL();

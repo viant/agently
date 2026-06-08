@@ -350,6 +350,33 @@ function tokenLabel(tokenText = '', fallback = '') {
   return parsed[0]?.label || fallback;
 }
 
+function firstNonEmptyString(...values) {
+  for (const value of values) {
+    const normalized = String(value ?? '').trim();
+    if (normalized) return normalized;
+  }
+  return '';
+}
+
+function resolveLookupRowLabel(row = null) {
+  return firstNonEmptyString(
+    row?.name,
+    row?.title,
+    row?.label,
+    row?.displayName,
+    row?.text,
+  );
+}
+
+function resolveLookupRowIdentifier(row = null) {
+  return firstNonEmptyString(
+    row?.id,
+    row?.key,
+    row?.value,
+    row?.code,
+  );
+}
+
 function unwrapSelection(record) {
   if (Array.isArray(record)) {
     if (record.length === 0) return null;
@@ -740,7 +767,7 @@ export default function NamedLookupInput({
   const pickRow = useCallback(
     (entry, row) => {
       const token = serializeToken(entry, row);
-      const label = tokenLabel(token, row?.name || row?.adOrderName || unresolvedChipLabel(entry?.name));
+      const label = tokenLabel(token, resolveLookupRowLabel(row) || unresolvedChipLabel(entry?.name));
       let nextStored = '';
       if (multiline && editorRef.current) {
         nextStored = replaceDisplayRangeWithChip(
@@ -782,7 +809,7 @@ export default function NamedLookupInput({
   const handleChipRowPick = useCallback(
     (entry, row) => {
       const token = serializeToken(entry, row);
-      const label = tokenLabel(token, row?.name || row?.adOrderName || unresolvedChipLabel(entry?.name));
+      const label = tokenLabel(token, resolveLookupRowLabel(row) || unresolvedChipLabel(entry?.name));
       let nextStored = '';
       if (editorRef.current && activeTrigger?.chipRaw) {
         nextStored = replaceChipToken(editorRef.current, activeTrigger.chipRaw, token, label);
@@ -1027,10 +1054,10 @@ export default function NamedLookupInput({
             const entry = activeTrigger.entry;
             const label = entry?.token?.display
               ? entry.token.display.replace(/\$\{(\w+)\}/g, (_, key) => String(row?.[key] ?? ''))
-              : String(row?.name || row?.adOrderName || '');
+              : resolveLookupRowLabel(row);
             const id = entry?.token?.store
               ? entry.token.store.replace(/\$\{(\w+)\}/g, (_, key) => String(row?.[key] ?? ''))
-              : String(row?.id ?? row?.adOrderId ?? '');
+              : resolveLookupRowIdentifier(row);
             return (
               <MenuItem
                 key={`${id}:${label}`}
@@ -1067,194 +1094,200 @@ export default function NamedLookupInput({
     ...style,
   };
 
-  return (
-    <div className="named-lookup-input" style={{ width: '100%' }}>
-      <Popover
-        isOpen={!!activeTrigger}
-        onClose={() => setActiveTrigger(null)}
-        content={popoverContent}
-        placement="top-start"
-        minimal
-        autoFocus={false}
-        enforceFocus={false}
-      >
-        <div style={{ width: '100%', minWidth: 0 }}>
-          {useInlineEditor ? (
-            <div
-              ref={editorRef}
-              contentEditable={!disabled}
-              suppressContentEditableWarning
-              role="textbox"
-              aria-multiline="true"
-              data-testid={dataTestId || 'chat-composer-input'}
-              className={className}
-              onInput={handleEditableInput}
-              onClick={(event) => {
-                if (chipEditorFromTarget(event.target)) {
-                  return;
-                }
-                const caret = caretOffsetWithin(editorRef.current);
-                const text = editorRef.current?.innerText || '';
-                const display = textBeforeCaret(text, caret);
+  const inputShell = (
+    <div style={{ width: '100%', minWidth: 0 }}>
+      {useInlineEditor ? (
+        <div
+          ref={editorRef}
+          contentEditable={!disabled}
+          suppressContentEditableWarning
+          role="textbox"
+          aria-multiline="true"
+          data-testid={dataTestId || 'chat-composer-input'}
+          className={className}
+          onInput={handleEditableInput}
+          onClick={(event) => {
+            if (chipEditorFromTarget(event.target)) {
+              return;
+            }
+            const caret = caretOffsetWithin(editorRef.current);
+            const text = editorRef.current?.innerText || '';
+            const display = textBeforeCaret(text, caret);
+            const slash = display.lastIndexOf(DEFAULT_TRIGGER);
+            if (slash >= 0 && !/\s/.test(display.slice(slash + 1))) {
+              setActiveTrigger({ phase: 'namePicker', start: slash, caret, query: display.slice(slash + 1) });
+            }
+          }}
+          onFocus={(event) => {
+            setRetainInlineEditor(true);
+            onFocus?.(event);
+          }}
+          onBlur={(event) => {
+            if (!hasInlineChips) {
+              setRetainInlineEditor(false);
+            }
+            onBlur?.(event);
+          }}
+          style={editorStyle}
+        />
+      ) : (
+        multiline ? (
+          <textarea
+            ref={inputRef}
+            value={value}
+            placeholder={placeholder}
+            disabled={disabled}
+            onChange={handlePlainInput}
+            onFocus={onFocus}
+            onBlur={onBlur}
+            onSelect={(event) => {
+              const pos = event.target.selectionStart || 0;
+              const display = textBeforeCaret(String(event.target.value || ''), pos);
+              const slash = display.lastIndexOf(DEFAULT_TRIGGER);
+              if (slash >= 0 && !/\s/.test(display.slice(slash + 1))) {
+                setActiveTrigger({ phase: 'namePicker', start: slash, caret: pos, query: display.slice(slash + 1) });
+              }
+            }}
+            data-testid={dataTestId || 'chat-composer-input'}
+            className={className}
+            style={editorStyle}
+          />
+        ) : (
+          <>
+            {chips.length > 0 && (
+              <div className="named-lookup-chips" style={{ marginBottom: 4 }}>
+                {chips.map((chip) => (
+                  editingChip?.raw === chip.raw ? (
+                    <div
+                      key={chip.raw + ':' + chip.id}
+                      style={{ display: 'inline-flex', flexDirection: 'column', marginRight: 6, verticalAlign: 'top' }}
+                    >
+                      <InputGroup
+                        inputRef={chipEditInputRef}
+                        value={editingChip?.value || ''}
+                        onChange={(event) => {
+                          const nextValue = event?.target?.value ?? '';
+                          setEditingChip((prev) => prev ? { ...prev, value: nextValue, error: '' } : prev);
+                        }}
+                        onFocus={() => {
+                          chipEditFocusedRef.current = true;
+                        }}
+                        onBlur={(event) => {
+                          if (skipChipBlurRef.current) {
+                            skipChipBlurRef.current = false;
+                            return;
+                          }
+                          emitNamedLookupDebug('chip.input.blur', {
+                            raw: editingChip?.raw,
+                            name: editingChip?.name,
+                            value: event?.target?.value ?? '',
+                          });
+                          resolveEditingChip({ valueOverride: event?.target?.value ?? '' });
+                        }}
+                        onKeyDown={async (event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            await resolveEditingChip({ valueOverride: event?.currentTarget?.value });
+                          } else if (event.key === 'Escape') {
+                            event.preventDefault();
+                            chipEditFocusedRef.current = false;
+                            setEditingChip(null);
+                          }
+                        }}
+                        rightElement={(
+                          <Button
+                            icon="caret-down"
+                            minimal
+                            small
+                            tabIndex={-1}
+                            data-testid={`named-lookup-chip-browse-${chip.name}`}
+                            aria-label={`Browse ${chip.name}`}
+                            title={`Browse ${chip.name}`}
+                            style={{
+                              borderRadius: 999,
+                              background: 'linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%)',
+                              border: '1px solid #d7e3f0',
+                              color: '#4b6480',
+                              boxShadow: '0 1px 1px rgba(15, 23, 42, 0.06)',
+                              marginRight: 2,
+                            }}
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              skipChipBlurRef.current = true;
+                            }}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              openEditingChipLookup();
+                            }}
+                          />
+                        )}
+                        data-testid={`named-lookup-chip-input-${chip.name}`}
+                        intent={editingChip?.error ? 'danger' : undefined}
+                        style={{ minWidth: 160 }}
+                      />
+                      {editingChip?.error ? (
+                        <div style={{ fontSize: 11, color: '#c23030', marginTop: 4, paddingLeft: 2 }}>
+                          {editingChip.error}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <Tag
+                      key={chip.raw + ':' + chip.id}
+                      minimal
+                      interactive
+                      round
+                      intent={chip.unresolved ? 'warning' : 'success'}
+                      style={{ marginRight: 4 }}
+                      onClick={() => handleChipClick(chip)}
+                    >
+                      {chip.unresolved
+                        ? unresolvedChipLabel(chip.name)
+                        : (chip.label || unresolvedChipLabel(chip.name))}
+                    </Tag>
+                  )
+                ))}
+              </div>
+            )}
+            <InputGroup
+              inputRef={inputRef}
+              value={value}
+              placeholder={placeholder}
+              disabled={disabled}
+              onChange={handlePlainInput}
+              onSelect={(event) => {
+                const pos = event.target.selectionStart || 0;
+                const display = textBeforeCaret(String(event.target.value || ''), pos);
                 const slash = display.lastIndexOf(DEFAULT_TRIGGER);
                 if (slash >= 0 && !/\s/.test(display.slice(slash + 1))) {
-                  setActiveTrigger({ phase: 'namePicker', start: slash, caret, query: display.slice(slash + 1) });
+                  setActiveTrigger({ phase: 'namePicker', start: slash, caret: pos, query: display.slice(slash + 1) });
                 }
               }}
-              onFocus={(event) => {
-                setRetainInlineEditor(true);
-                onFocus?.(event);
-              }}
-              onBlur={(event) => {
-                if (!hasInlineChips) {
-                  setRetainInlineEditor(false);
-                }
-                onBlur?.(event);
-              }}
-              style={editorStyle}
+              fill
+              data-testid={dataTestId || 'chat-composer-input'}
+              className={className}
             />
-          ) : (
-            multiline ? (
-              <textarea
-                ref={inputRef}
-                value={value}
-                placeholder={placeholder}
-                disabled={disabled}
-                onChange={handlePlainInput}
-                onFocus={onFocus}
-                onBlur={onBlur}
-                onSelect={(event) => {
-                  const pos = event.target.selectionStart || 0;
-                  const display = textBeforeCaret(String(event.target.value || ''), pos);
-                  const slash = display.lastIndexOf(DEFAULT_TRIGGER);
-                  if (slash >= 0 && !/\s/.test(display.slice(slash + 1))) {
-                    setActiveTrigger({ phase: 'namePicker', start: slash, caret: pos, query: display.slice(slash + 1) });
-                  }
-                }}
-                data-testid={dataTestId || 'chat-composer-input'}
-                className={className}
-                style={editorStyle}
-              />
-            ) : (
-              <>
-                {chips.length > 0 && (
-                  <div className="named-lookup-chips" style={{ marginBottom: 4 }}>
-                    {chips.map((chip) => (
-                      editingChip?.raw === chip.raw ? (
-                        <div
-                          key={chip.raw + ':' + chip.id}
-                          style={{ display: 'inline-flex', flexDirection: 'column', marginRight: 6, verticalAlign: 'top' }}
-                        >
-                          <InputGroup
-                            inputRef={chipEditInputRef}
-                            value={editingChip?.value || ''}
-                            onChange={(event) => {
-                              const nextValue = event?.target?.value ?? '';
-                              setEditingChip((prev) => prev ? { ...prev, value: nextValue, error: '' } : prev);
-                            }}
-                            onFocus={() => {
-                              chipEditFocusedRef.current = true;
-                            }}
-                            onBlur={(event) => {
-                              if (skipChipBlurRef.current) {
-                                skipChipBlurRef.current = false;
-                                return;
-                              }
-                              emitNamedLookupDebug('chip.input.blur', {
-                                raw: editingChip?.raw,
-                                name: editingChip?.name,
-                                value: event?.target?.value ?? '',
-                              });
-                              resolveEditingChip({ valueOverride: event?.target?.value ?? '' });
-                            }}
-                            onKeyDown={async (event) => {
-                              if (event.key === 'Enter') {
-                                event.preventDefault();
-                                await resolveEditingChip({ valueOverride: event?.currentTarget?.value });
-                              } else if (event.key === 'Escape') {
-                                event.preventDefault();
-                                chipEditFocusedRef.current = false;
-                                setEditingChip(null);
-                              }
-                            }}
-                            rightElement={(
-                              <Button
-                                icon="caret-down"
-                                minimal
-                                small
-                                tabIndex={-1}
-                                data-testid={`named-lookup-chip-browse-${chip.name}`}
-                                aria-label={`Browse ${chip.name}`}
-                                title={`Browse ${chip.name}`}
-                                style={{
-                                  borderRadius: 999,
-                                  background: 'linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%)',
-                                  border: '1px solid #d7e3f0',
-                                  color: '#4b6480',
-                                  boxShadow: '0 1px 1px rgba(15, 23, 42, 0.06)',
-                                  marginRight: 2,
-                                }}
-                                onMouseDown={(event) => {
-                                  event.preventDefault();
-                                  skipChipBlurRef.current = true;
-                                }}
-                                onClick={(event) => {
-                                  event.preventDefault();
-                                  openEditingChipLookup();
-                                }}
-                              />
-                            )}
-                            data-testid={`named-lookup-chip-input-${chip.name}`}
-                            intent={editingChip?.error ? 'danger' : undefined}
-                            style={{ minWidth: 160 }}
-                          />
-                          {editingChip?.error ? (
-                            <div style={{ fontSize: 11, color: '#c23030', marginTop: 4, paddingLeft: 2 }}>
-                              {editingChip.error}
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <Tag
-                          key={chip.raw + ':' + chip.id}
-                          minimal
-                          interactive
-                          round
-                          intent={chip.unresolved ? 'warning' : 'success'}
-                          style={{ marginRight: 4 }}
-                          onClick={() => handleChipClick(chip)}
-                        >
-                          {chip.unresolved
-                            ? unresolvedChipLabel(chip.name)
-                            : (chip.label || unresolvedChipLabel(chip.name))}
-                        </Tag>
-                      )
-                    ))}
-                  </div>
-                )}
-                <InputGroup
-                  inputRef={inputRef}
-                  value={value}
-                  placeholder={placeholder}
-                  disabled={disabled}
-                  onChange={handlePlainInput}
-                  onSelect={(event) => {
-                    const pos = event.target.selectionStart || 0;
-                    const display = textBeforeCaret(String(event.target.value || ''), pos);
-                    const slash = display.lastIndexOf(DEFAULT_TRIGGER);
-                    if (slash >= 0 && !/\s/.test(display.slice(slash + 1))) {
-                      setActiveTrigger({ phase: 'namePicker', start: slash, caret: pos, query: display.slice(slash + 1) });
-                    }
-                  }}
-                  fill
-                  data-testid={dataTestId || 'chat-composer-input'}
-                  className={className}
-                />
-              </>
-            )
-          )}
-        </div>
-      </Popover>
+          </>
+        )
+      )}
+    </div>
+  );
+
+  return (
+    <div className="named-lookup-input" style={{ width: '100%' }}>
+      {!!activeTrigger ? (
+        <Popover
+          isOpen
+          onClose={() => setActiveTrigger(null)}
+          content={popoverContent}
+          placement="top-start"
+          minimal
+          autoFocus={false}
+          enforceFocus={false}
+        >
+          {inputShell}
+        </Popover>
+      ) : inputShell}
       {namedLookupDebugEnabled() && debugEvents.length > 0 ? (
         <div
           data-testid="named-lookup-debug-events"

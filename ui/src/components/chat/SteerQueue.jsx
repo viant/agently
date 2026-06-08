@@ -1,11 +1,14 @@
-import React, { useMemo, useState } from 'react';
-import { Button } from '@blueprintjs/core';
+import React, { useMemo, useState } from "react";
+import { Button } from "@blueprintjs/core";
 
 function resolveConversationID(context, message) {
-  const fromMessage = String(message?.conversationId || '').trim();
+  const fromMessage = String(message?.conversationId || "").trim();
   if (fromMessage) return fromMessage;
-  const form = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
-  return String(form?.id || '').trim();
+  const form =
+    context
+      ?.Context?.("conversations")
+      ?.handlers?.dataSource?.peekFormData?.() || {};
+  return String(form?.id || "").trim();
 }
 
 function readQueued(message) {
@@ -14,16 +17,19 @@ function readQueued(message) {
 
 export default function SteerQueue({ message, context }) {
   const queue = readQueued(message);
-  const [busyId, setBusyId] = useState('');
-  const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState("");
+  const [error, setError] = useState("");
   const [expanded, setExpanded] = useState(false);
-  const [editingId, setEditingId] = useState('');
-  const [draftContent, setDraftContent] = useState('');
+  const [editingId, setEditingId] = useState("");
+  const [draftContent, setDraftContent] = useState("");
   const isRunning = !!message?.running;
   const chat = context?.services?.chat;
   const conversationID = resolveConversationID(context, message);
 
-  const visible = useMemo(() => (expanded ? queue : queue.slice(0, 3)), [queue, expanded]);
+  const visible = useMemo(
+    () => (expanded ? queue : queue.slice(0, 3)),
+    [queue, expanded],
+  );
 
   if (queue.length === 0) {
     return null;
@@ -32,13 +38,13 @@ export default function SteerQueue({ message, context }) {
   const run = async (turnID, action) => {
     if (!chat || !conversationID || !turnID) return;
     setBusyId(turnID);
-    setError('');
+    setError("");
     try {
       await action();
     } catch (err) {
-      setError(String(err?.message || err || 'queue action failed'));
+      setError(String(err?.message || err || "queue action failed"));
     } finally {
-      setBusyId('');
+      setBusyId("");
     }
   };
 
@@ -46,36 +52,66 @@ export default function SteerQueue({ message, context }) {
     <section className="steer-queue" data-testid="steer-queue-card">
       <div className="steer-queue-header">
         <div className="steer-queue-title-wrap">
-          <div className="steer-queue-title">{queue.length} queued {queue.length === 1 ? 'request' : 'requests'}</div>
-          <div className="steer-queue-subtitle">Latest user turns waiting in queue</div>
+          <div className="steer-queue-title">
+            {queue.length} queued {queue.length === 1 ? "request" : "requests"}
+          </div>
+          <div className="steer-queue-subtitle">
+            Latest user turns waiting in queue
+          </div>
         </div>
         {queue.length > 3 ? (
           <Button small minimal onClick={() => setExpanded((value) => !value)}>
-            {expanded ? 'Show less' : `Show all (${queue.length})`}
+            {expanded ? "Show less" : `Show all (${queue.length})`}
           </Button>
         ) : null}
       </div>
 
       <div className="steer-queue-list">
         {visible.map((item, index) => {
-          const id = String(item?.id || '');
+          const id = String(item?.id || "");
           const pending = id && busyId === id;
           return (
             <article className="steer-queue-item" key={id || index}>
               <div className="steer-queue-preview">
-                {String(item?.preview || '').trim() || id}
+                {String(item?.origin || "").trim() === "controller" ? (
+                  <span
+                    style={{
+                      marginRight: 8,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: "#667085",
+                    }}
+                  >
+                    AUTO
+                  </span>
+                ) : null}
+                {String(item?.preview || "").trim() || id}
               </div>
+              {String(item?.statusReason || "").trim() ? (
+                <div style={{ marginTop: 4, fontSize: 12, color: "#667085" }}>
+                  {String(item?.statusReason || "").trim()}
+                </div>
+              ) : null}
               {editingId === id ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    marginTop: 8,
+                  }}
+                >
                   <input
                     value={draftContent}
-                    onChange={(event) => setDraftContent(String(event?.target?.value || ''))}
+                    onChange={(event) =>
+                      setDraftContent(String(event?.target?.value || ""))
+                    }
                     style={{
                       flex: 1,
                       minWidth: 0,
-                      border: '1px solid var(--gray4, #d0d7de)',
+                      border: "1px solid var(--gray4, #d0d7de)",
                       borderRadius: 8,
-                      padding: '6px 8px',
+                      padding: "6px 8px",
                       fontSize: 12,
                     }}
                   />
@@ -83,7 +119,7 @@ export default function SteerQueue({ message, context }) {
                     small
                     disabled={pending}
                     onClick={() => {
-                      const next = String(draftContent || '').trim();
+                      const next = String(draftContent || "").trim();
                       if (!next) return;
                       void run(id, async () => {
                         await chat.editQueuedTurn?.({
@@ -92,8 +128,8 @@ export default function SteerQueue({ message, context }) {
                           turnID: id,
                           content: next,
                         });
-                        setEditingId('');
-                        setDraftContent('');
+                        setEditingId("");
+                        setDraftContent("");
                       });
                     }}
                   >
@@ -104,8 +140,8 @@ export default function SteerQueue({ message, context }) {
                     minimal
                     disabled={pending}
                     onClick={() => {
-                      setEditingId('');
-                      setDraftContent('');
+                      setEditingId("");
+                      setDraftContent("");
                     }}
                   >
                     Cancel
@@ -116,7 +152,15 @@ export default function SteerQueue({ message, context }) {
                 <Button
                   small
                   disabled={!isRunning || pending}
-                  onClick={() => run(id, () => chat.forceSteerQueuedTurn?.({ context, conversationID, turnID: id }))}
+                  onClick={() =>
+                    run(id, () =>
+                      chat.forceSteerQueuedTurn?.({
+                        context,
+                        conversationID,
+                        turnID: id,
+                      }),
+                    )
+                  }
                 >
                   Steer
                 </Button>
@@ -125,14 +169,32 @@ export default function SteerQueue({ message, context }) {
                   minimal
                   icon="arrow-up"
                   disabled={pending}
-                  onClick={() => run(id, () => chat.moveQueuedTurn?.({ context, conversationID, turnID: id, direction: 'up' }))}
+                  onClick={() =>
+                    run(id, () =>
+                      chat.moveQueuedTurn?.({
+                        context,
+                        conversationID,
+                        turnID: id,
+                        direction: "up",
+                      }),
+                    )
+                  }
                 />
                 <Button
                   small
                   minimal
                   icon="arrow-down"
                   disabled={pending}
-                  onClick={() => run(id, () => chat.moveQueuedTurn?.({ context, conversationID, turnID: id, direction: 'down' }))}
+                  onClick={() =>
+                    run(id, () =>
+                      chat.moveQueuedTurn?.({
+                        context,
+                        conversationID,
+                        turnID: id,
+                        direction: "down",
+                      }),
+                    )
+                  }
                 />
                 <Button
                   small
@@ -141,7 +203,7 @@ export default function SteerQueue({ message, context }) {
                   disabled={pending}
                   onClick={() => {
                     setEditingId(id);
-                    setDraftContent(String(item?.preview || '').trim());
+                    setDraftContent(String(item?.preview || "").trim());
                   }}
                 />
                 <Button
@@ -149,7 +211,15 @@ export default function SteerQueue({ message, context }) {
                   minimal
                   icon="trash"
                   disabled={pending}
-                  onClick={() => run(id, () => chat.cancelQueuedTurnByID?.({ context, conversationID, turnID: id }))}
+                  onClick={() =>
+                    run(id, () =>
+                      chat.cancelQueuedTurnByID?.({
+                        context,
+                        conversationID,
+                        turnID: id,
+                      }),
+                    )
+                  }
                 />
               </div>
             </article>

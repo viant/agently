@@ -1,3 +1,5 @@
+import { ensureUIBridgeClientId } from 'forge/core';
+
 export function detectWebFormFactor() {
   if (typeof window === 'undefined') return 'desktop';
   const width = Number(window.innerWidth || 0);
@@ -25,7 +27,7 @@ export function buildWebClientContext() {
 function currentUIBridgeClientId() {
   if (typeof window === 'undefined') return '';
   try {
-    return String(window.__forgeUIBridgeClientId || '').trim();
+    return String(window.__forgeUIBridgeClientId || ensureUIBridgeClientId() || '').trim();
   } catch (_) {
     return '';
   }

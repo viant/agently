@@ -18,7 +18,7 @@ function baseURL() {
 /**
  * GET /v1/api/lookups/registry?context=<kind>:<id>
  * @param {string} contextKind  e.g. "template", "chat-composer"
- * @param {string} contextID    e.g. "site_list_planner"
+ * @param {string} contextID    e.g. "profile_editor"
  * @returns {Promise<Array<LookupRegistryEntry>>}
  */
 export async function listLookupRegistry(contextKind, contextID) {

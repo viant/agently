@@ -3,6 +3,36 @@ import { describe, expect, it } from 'vitest';
 import { buildCanonicalTranscriptRows, buildConversationRenderRows } from './renderRows';
 
 describe('buildCanonicalTranscriptRows', () => {
+  it('preserves controller queue metadata on queued turn previews', () => {
+    const { queuedTurns } = buildCanonicalTranscriptRows([
+      {
+        turnId: 'turn-controller',
+        conversationId: 'conv-goal',
+        status: 'queued',
+        origin: 'controller',
+        goalId: 'goal-1',
+        statusReason: 'continue active goal after successful turn',
+        queueSeq: 7,
+        createdAt: '2026-06-05T22:00:00Z',
+        user: {
+          content: 'Continue implementing the remaining workspace checks.'
+        }
+      }
+    ]);
+
+    expect(queuedTurns).toEqual([
+      expect.objectContaining({
+        id: 'turn-controller',
+        conversationId: 'conv-goal',
+        origin: 'controller',
+        goalId: 'goal-1',
+        statusReason: 'continue active goal after successful turn',
+        queueSeq: 7,
+        preview: 'Continue implementing the remaining workspace checks.'
+      })
+    ]);
+  });
+
   it('keeps intake pages visible in execution groups even when iteration is 0', () => {
     const turn = {
       turnId: 'turn-intake',

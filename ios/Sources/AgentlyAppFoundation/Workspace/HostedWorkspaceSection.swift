@@ -3,6 +3,8 @@ import AgentlySDK
 import ForgeIOSRuntime
 import ForgeIOSUI
 
+private let hostedWorkspaceDidOpenNotification = Notification.Name("forgeHostedWorkspaceDidOpen")
+
 struct HostedWorkspaceSection: View {
     let restoreState: HostedWorkspaceRestoreState?
     let forgeRuntime: ForgeRuntime?
@@ -43,6 +45,7 @@ private struct HostedWorkspaceWindowView: View {
     @Binding var displayMode: HostedWorkspaceDisplayMode
 
     @State private var selectedWindowID: String
+    @State private var activeWindowSnapshot: WorkspaceWindowSnapshot?
     @State private var metadata: WindowMetadata?
     @State private var windowContext: WindowContext?
     @State private var errorMessage: String?
@@ -57,24 +60,26 @@ private struct HostedWorkspaceWindowView: View {
         self.forgeRuntime = forgeRuntime
         self.showTitle = showTitle
         self._displayMode = displayMode
-        _selectedWindowID = State(
-            initialValue: restoreState.selectedWindowId
-                ?? restoreState.windows.last?.windowId
-                ?? ""
-        )
+        let initialWindow = restoreState.windows.first(where: { $0.windowId == restoreState.selectedWindowId })
+            ?? restoreState.windows.last
+        _selectedWindowID = State(initialValue: initialWindow?.windowId ?? "")
+        _activeWindowSnapshot = State(initialValue: initialWindow)
     }
 
     private var selectedWindow: WorkspaceWindowSnapshot? {
-        restoreState.windows.first(where: { $0.windowId == selectedWindowID })
+        activeWindowSnapshot
+            ?? restoreState.windows.first(where: { $0.windowId == selectedWindowID })
             ?? restoreState.windows.last
+    }
+
+    private var presentation: HostedWorkspacePresentation? {
+        resolveHostedWorkspacePresentation(window: selectedWindow)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if showTitle {
+            if showTitle || presentation != nil {
                 headerRow
-            } else if displayMode != .minimized {
-                controlRow
             }
 
             if restoreState.windows.count > 1 {
@@ -126,56 +131,97 @@ private struct HostedWorkspaceWindowView: View {
         )
         .modifier(HostedWorkspaceChromeModifier(applyChrome: true))
         .onChange(of: restoreSelectionKey) { _, _ in
-            selectedWindowID = restoreState.selectedWindowId
-                ?? restoreState.windows.last?.windowId
-                ?? ""
+            let restoredWindow = restoreState.windows.first(where: { $0.windowId == restoreState.selectedWindowId })
+                ?? restoreState.windows.last
+            selectedWindowID = restoredWindow?.windowId ?? ""
+            activeWindowSnapshot = restoredWindow
             metadata = nil
             windowContext = nil
             errorMessage = nil
         }
-        .task(id: selectedWindow?.windowId) {
+        .onReceive(NotificationCenter.default.publisher(for: hostedWorkspaceDidOpenNotification)) { notification in
+            let snapshot: WorkspaceWindowSnapshot?
+            if let state = notification.userInfo?["state"] as? ForgeRuntime.WindowState {
+                snapshot = workspaceWindowSnapshot(from: state)
+            } else {
+                snapshot = notification.userInfo?["snapshot"] as? WorkspaceWindowSnapshot
+            }
+            guard let snapshot else {
+                return
+            }
+            Task { @MainActor in
+                applyHostedWorkspaceUpdate(snapshot)
+            }
+        }
+        .task(id: selectedWindowLoadKey) {
             guard let selectedWindow else { return }
             await load(selectedWindow)
         }
     }
 
     private var headerRow: some View {
-        ZStack {
-            HStack {
-                controlButtons
-                Spacer(minLength: 0)
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: showTitle ? 8 : 6) {
+                if let presentation {
+                    HStack(spacing: 8) {
+                        Label(presentation.badgeLabel, systemImage: presentation.badgeSymbolName)
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                hostedWorkspaceAccentColor().opacity(0.12),
+                                in: Capsule()
+                            )
+                            .foregroundStyle(hostedWorkspaceAccentColor())
+                    }
+
+                    Text(presentation.title)
+                        .font(showTitle ? .title3.weight(.semibold) : .headline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+
+                    if let subtitle = presentation.subtitle {
+                        Text(subtitle)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+
+                    if showTitle {
+                        Text(presentation.supportingText)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                } else {
+                    Text(selectedWindow?.windowTitle ?? selectedWindow?.windowKey ?? "Workspace")
+                        .font(showTitle ? .title3.weight(.semibold) : .headline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                }
             }
-
-            Text(selectedWindow?.windowTitle ?? selectedWindow?.windowKey ?? "Workspace")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-        }
-    }
-
-    private var controlRow: some View {
-        HStack {
-            controlButtons
             Spacer(minLength: 0)
+            if showTitle {
+                controlButtons
+            }
         }
     }
 
     private var controlButtons: some View {
         HStack(spacing: 6) {
-            workspaceControlDot(
-                color: Color(red: 0.93, green: 0.36, blue: 0.31),
+            workspaceControlButton(
+                systemName: "xmark",
                 accessibilityLabel: "Close workspace"
             ) {
                 displayMode = .closed
             }
-            workspaceControlDot(
-                color: Color(red: 0.95, green: 0.76, blue: 0.24),
+            workspaceControlButton(
+                systemName: displayMode == .minimized ? "rectangle" : "rectangle.compress.vertical",
                 accessibilityLabel: displayMode == .minimized ? "Restore workspace" : "Minimize workspace"
             ) {
                 displayMode = displayMode == .minimized ? .standard : .minimized
             }
-            workspaceControlDot(
-                color: Color(red: 0.20, green: 0.76, blue: 0.44),
+            workspaceControlButton(
+                systemName: displayMode == .expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
                 accessibilityLabel: displayMode == .expanded ? "Restore workspace size" : "Expand workspace"
             ) {
                 displayMode = displayMode == .expanded ? .standard : .expanded
@@ -183,23 +229,17 @@ private struct HostedWorkspaceWindowView: View {
         }
     }
 
-    private func workspaceControlDot(
-        color: Color,
+    private func workspaceControlButton(
+        systemName: String,
         accessibilityLabel: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            ZStack {
-                Circle()
-                    .fill(color)
-                    .frame(width: 12, height: 12)
-                    .overlay(
-                        Circle()
-                            .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
-                    )
-            }
-            .frame(width: 18, height: 18)
-            .contentShape(Rectangle())
+            Image(systemName: systemName)
+                .font(.footnote.weight(.semibold))
+                .frame(width: 30, height: 30)
+                .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
+                .foregroundStyle(.primary)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
@@ -211,8 +251,58 @@ private struct HostedWorkspaceWindowView: View {
         return "\(selected)#\(windows)"
     }
 
+    private var selectedWindowLoadKey: String {
+        guard let selectedWindow else { return "" }
+        return [
+            selectedWindow.windowId,
+            selectedWindow.windowKey,
+            selectedWindow.windowTitle ?? "",
+            selectedWindow.parameters?.description ?? ""
+        ].joined(separator: "#")
+    }
+
+    @MainActor
+    private func applyHostedWorkspaceUpdate(_ snapshot: WorkspaceWindowSnapshot) {
+        guard shouldApplyHostedWorkspaceUpdate(snapshot) else {
+            return
+        }
+        selectedWindowID = snapshot.windowId
+        activeWindowSnapshot = snapshot
+        metadata = nil
+        windowContext = nil
+        errorMessage = nil
+    }
+
+    private func shouldApplyHostedWorkspaceUpdate(_ snapshot: WorkspaceWindowSnapshot) -> Bool {
+        guard let current = selectedWindow else {
+            return false
+        }
+        if snapshot.windowId == current.windowId {
+            return true
+        }
+        let currentPresentation = normalizedHostedField(current.presentation)
+        let snapshotPresentation = normalizedHostedField(snapshot.presentation)
+        guard currentPresentation == "hosted", snapshotPresentation == "hosted" else {
+            return false
+        }
+        let currentRegion = normalizedHostedField(current.region)
+        let snapshotRegion = normalizedHostedField(snapshot.region)
+        let currentConversationID = normalizedHostedField(current.conversationId)
+        let snapshotConversationID = normalizedHostedField(snapshot.conversationId)
+        guard !currentRegion.isEmpty,
+              currentRegion == snapshotRegion,
+              !currentConversationID.isEmpty,
+              currentConversationID == snapshotConversationID else {
+            return false
+        }
+        let currentParentKey = normalizedHostedField(current.parentKey)
+        let snapshotParentKey = normalizedHostedField(snapshot.parentKey)
+        return currentParentKey.isEmpty || snapshotParentKey.isEmpty || currentParentKey == snapshotParentKey
+    }
+
     @MainActor
     private func load(_ selectedWindow: WorkspaceWindowSnapshot) async {
+        activeWindowSnapshot = selectedWindow
         let state = await forgeRuntime.openWindow(
             key: selectedWindow.windowKey,
             title: selectedWindow.windowTitle ?? selectedWindow.windowKey,
@@ -240,6 +330,33 @@ private struct HostedWorkspaceWindowView: View {
         errorMessage = metadata == nil ? "Workspace metadata did not load." : nil
     }
 
+}
+
+private func normalizedHostedField(_ value: String?) -> String {
+    String(value ?? "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+}
+
+private func workspaceWindowSnapshot(from state: ForgeRuntime.WindowState) -> WorkspaceWindowSnapshot {
+    WorkspaceWindowSnapshot(
+        windowId: state.id,
+        conversationId: state.conversationID,
+        windowKey: state.key,
+        windowTitle: state.title,
+        presentation: state.presentation,
+        region: state.region,
+        parentKey: state.parentKey,
+        workspaceSharePct: state.workspaceSharePct,
+        workspaceMinHeight: state.workspaceMinHeight,
+        inTab: state.inTab,
+        parameters: state.parameters.mapValues(\.appValue),
+        windowForm: nil
+    )
+}
+
+func hostedWorkspaceAccentColor() -> Color {
+    .accentColor
 }
 
 struct HostedWorkspaceContentHeightPreferenceKey: PreferenceKey {

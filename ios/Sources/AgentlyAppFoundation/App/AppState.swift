@@ -12,6 +12,7 @@ public final class AppState: ObservableObject {
     @Published public var conversations: [Conversation] = []
     @Published public var activeConversationID: String?
     @Published public var activeConversationState: ConversationStateResponse?
+    @Published public var activeGoal: Goal?
     @Published public var activeHostedWorkspace: HostedWorkspaceRestoreState?
     @Published public var activeTurnID: String?
     @Published public var activeStreamSnapshot: ConversationStreamSnapshot?

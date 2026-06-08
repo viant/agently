@@ -47,7 +47,8 @@ import {
   MAIN_CHAT_WINDOW_ID,
   getScopedConversationSelection,
   isMainChatWindowId,
-  publishConversationSelection
+  publishConversationSelection,
+  syncScopedWorkspaceStateFromTranscriptTurns
 } from './conversationWindow';
 import { setStage } from './stageBus';
 import { client } from './agentlyClient';
@@ -1325,6 +1326,14 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
       }
     }
   } catch (_) { /* best-effort mirror */ }
+  try {
+    if (canonicalConversation?.conversationId && Array.isArray(canonicalTurns) && canonicalTurns.length > 0 && !canonicalHasRunning) {
+      syncScopedWorkspaceStateFromTranscriptTurns(canonicalConversation.conversationId, canonicalTurns, {
+        reopen: false,
+        announce: true,
+      });
+    }
+  } catch (_) { /* best-effort workspace restore cache */ }
   const resolvedFeeds = Array.isArray(data?.feeds)
     ? data.feeds
     : (Array.isArray(canonicalConversation?.feeds) ? canonicalConversation.feeds : []);
@@ -1384,6 +1393,40 @@ export async function fetchConversation(conversationID = '') {
     return null;
   } catch (_) {
     return null;
+  }
+}
+
+export async function refreshGoalFeed(conversationID = '') {
+  const id = String(conversationID || '').trim();
+  if (!id) return;
+  try {
+    const goal = await client.getGoal(id);
+    if (!goal || typeof goal !== 'object') {
+      applyFeedEvent({
+        type: 'tool_feed_inactive',
+        feedId: 'goal',
+        conversationId: id,
+      });
+      return;
+    }
+    applyFeedEvent({
+      type: 'tool_feed_active',
+      feedId: 'goal',
+      feedTitle: 'Goal',
+      feedItemCount: 1,
+      conversationId: id,
+      feedData: {
+        ui: { title: 'Goal' },
+        data: { goal },
+      },
+      localOnly: true,
+    });
+  } catch (_) {
+    applyFeedEvent({
+      type: 'tool_feed_inactive',
+      feedId: 'goal',
+      conversationId: id,
+    });
   }
 }
 
@@ -2504,6 +2547,7 @@ export async function switchConversation(context, conversationID = '') {
       conversationId: targetID,
       cachedTurnCount: Array.isArray(cachedSettledSnapshot?.turns) ? cachedSettledSnapshot.turns.length : 0
     });
+    await refreshGoalFeed(targetID);
     publishActiveConversation(targetID, context);
     return;
   }
@@ -2556,6 +2600,7 @@ export async function switchConversation(context, conversationID = '') {
         disconnectStream(context);
       }
     }
+    await refreshGoalFeed(targetID);
     publishActiveConversation(targetID, context);
     return;
   }
@@ -2582,6 +2627,7 @@ export async function switchConversation(context, conversationID = '') {
       disconnectStream(context);
     }
   }
+  await refreshGoalFeed(targetID);
   publishActiveConversation(targetID, context);
 }
 
@@ -2609,13 +2655,8 @@ export function applyIterationVisibility(context) {
 export function bootstrapConversationSelection(context) {
   const windowId = getContextWindowId(context);
   const win = getWindowById(windowId);
-  const routeConversationID = typeof window !== 'undefined' && isMainChatWindowId(windowId)
-    ? conversationIDFromPath(window.location.pathname)
-    : '';
-  const bootstrapID = typeof window !== 'undefined'
+  const explicitWindowConversationID = typeof window !== 'undefined'
     ? (
-      routeConversationID
-      || 
       String(win?.parameters?.conversations?.form?.id || '').trim()
       || String(win?.parameters?.conversations?.input?.parameters?.id || '').trim()
       || String(win?.parameters?.conversations?.input?.path?.id || '').trim()
@@ -2627,6 +2668,14 @@ export function bootstrapConversationSelection(context) {
       || getScopedConversationSelection(windowId)
     )
     : '';
+  const routeConversationID = typeof window !== 'undefined'
+    ? conversationIDFromPath(window.location.pathname)
+    : '';
+  const bootstrapID = (
+    routeConversationID && (isMainChatWindowId(windowId) || !String(explicitWindowConversationID || '').trim())
+      ? routeConversationID
+      : explicitWindowConversationID
+  );
   if (!bootstrapID) return;
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const current = conversationsDS?.peekFormData?.() || {};

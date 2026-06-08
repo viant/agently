@@ -10,9 +10,13 @@ import (
 
 	"github.com/viant/agently-core/app/executor"
 	"github.com/viant/agently-core/app/executor/config"
+	"github.com/viant/agently-core/app/store/data"
 	"github.com/viant/agently-core/genai/llm"
+	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	resourcesvc "github.com/viant/agently-core/protocol/tool/service/resources"
+	goalsvc "github.com/viant/agently-core/protocol/tool/service/system/goal"
 	templatesvc "github.com/viant/agently-core/protocol/tool/service/template"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/agent"
 	"github.com/viant/agently-core/service/augmenter"
 	core2 "github.com/viant/agently-core/service/core"
@@ -156,6 +160,63 @@ func TestInternalServiceFactoryTemplateUsesRuntimeStore(t *testing.T) {
 	}
 	if len(out.Items) != 1 || out.Items[0].Name != "dashboard" {
 		t.Fatalf("unexpected templates: %+v", out.Items)
+	}
+}
+
+func TestInternalServiceFactorySystemGoalExecutesAgainstConversationScopedStore(t *testing.T) {
+	ctx := context.Background()
+	dataSvc, err := data.NewThinServiceInMemory(ctx)
+	if err != nil {
+		t.Fatalf("NewThinServiceInMemory: %v", err)
+	}
+	if _, err := dataSvc.PatchConversations(ctx, []*convw.Conversation{
+		convw.NewMutableConversationView(convw.WithConversationID("conv-goal")),
+	}); err != nil {
+		t.Fatalf("seed conversation: %v", err)
+	}
+
+	runtime := &executor.Runtime{Data: dataSvc}
+	service := internalServiceFactory(runtime, t.TempDir(), "system/goal")
+	if service == nil {
+		t.Fatalf("expected system/goal service")
+	}
+
+	toolCtx := runtimerequestctx.WithConversationID(ctx, "conv-goal")
+
+	createExec, err := service.Method("create")
+	if err != nil {
+		t.Fatalf("system/goal create method: %v", err)
+	}
+	createOut := &goalsvc.CreateOutput{}
+	if err := createExec(toolCtx, &goalsvc.CreateInput{Objective: "finish parser cleanup"}, createOut); err != nil {
+		t.Fatalf("system/goal create exec: %v", err)
+	}
+	if createOut.Goal == nil || createOut.Goal.Objective != "finish parser cleanup" {
+		t.Fatalf("unexpected create output: %#v", createOut.Goal)
+	}
+
+	getExec, err := service.Method("get")
+	if err != nil {
+		t.Fatalf("system/goal get method: %v", err)
+	}
+	getOut := &goalsvc.GetOutput{}
+	if err := getExec(toolCtx, &goalsvc.GetInput{}, getOut); err != nil {
+		t.Fatalf("system/goal get exec: %v", err)
+	}
+	if getOut.Goal == nil || getOut.Goal.Objective != "finish parser cleanup" {
+		t.Fatalf("unexpected get output: %#v", getOut.Goal)
+	}
+
+	updateExec, err := service.Method("update")
+	if err != nil {
+		t.Fatalf("system/goal update method: %v", err)
+	}
+	updateOut := &goalsvc.UpdateOutput{}
+	if err := updateExec(toolCtx, &goalsvc.UpdateInput{Status: "blocked", Reason: "waiting for review"}, updateOut); err != nil {
+		t.Fatalf("system/goal update exec: %v", err)
+	}
+	if updateOut.Goal == nil || updateOut.Goal.Status != "blocked" || updateOut.Goal.StatusReason == nil || *updateOut.Goal.StatusReason != "waiting for review" {
+		t.Fatalf("unexpected update output: %#v", updateOut.Goal)
 	}
 }
 

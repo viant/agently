@@ -21,6 +21,7 @@ import com.viant.agentlysdk.AuthUser
 import com.viant.agentlysdk.Conversation
 import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.GeneratedFileEntry
+import com.viant.agentlysdk.Goal
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.agentlysdk.WorkspaceMetadata
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
@@ -49,6 +50,7 @@ internal fun AppBody(
     recentConversations: List<Conversation>,
     activeConversationId: String?,
     conversationState: ConversationStateResponse?,
+    activeGoal: Goal?,
     streamSnapshot: ConversationStreamSnapshot?,
     transcript: List<ChatEntry>,
     pendingApprovals: List<PendingToolApproval>,
@@ -146,6 +148,7 @@ internal fun AppBody(
                         recentConversations = recentConversations,
                         activeConversationId = activeConversationId,
                         conversationState = conversationState,
+                        activeGoal = activeGoal,
                         error = error,
                         streamSnapshot = streamSnapshot,
                         transcript = transcript,
@@ -185,6 +188,7 @@ internal fun AppBody(
                         recentConversations = recentConversations,
                         activeConversationId = activeConversationId,
                         conversationState = conversationState,
+                        activeGoal = activeGoal,
                         error = error,
                         streamSnapshot = streamSnapshot,
                         transcript = transcript,

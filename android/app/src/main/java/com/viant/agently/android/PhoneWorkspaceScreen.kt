@@ -33,6 +33,7 @@ import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.Conversation
 import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.GeneratedFileEntry
+import com.viant.agentlysdk.Goal
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.agentlysdk.WorkspaceMetadata
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
@@ -54,6 +55,7 @@ internal fun PhoneWorkspacePane(
     recentConversations: List<Conversation>,
     activeConversationId: String?,
     conversationState: ConversationStateResponse?,
+    activeGoal: Goal?,
     error: String?,
     streamSnapshot: ConversationStreamSnapshot?,
     transcript: List<ChatEntry>,
@@ -77,6 +79,7 @@ internal fun PhoneWorkspacePane(
     onStarterTaskSelected: (String) -> Unit,
     bottomComposerInset: androidx.compose.ui.unit.Dp = 232.dp
 ) {
+    val brandLabel = resolveWorkspaceBrandLabel(metadata)
     val hostedWorkspaceState = deriveAgentlyHostedWorkspaceRestoreState(conversationState, streamSnapshot)
     val displayTranscript = transcriptWithActiveAssistant(transcript, streamSnapshot)
     val hostedWorkspaceMinHeight = remember(hostedWorkspaceState) {
@@ -117,8 +120,27 @@ internal fun PhoneWorkspacePane(
             if (workspaceFocused) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                brandLabel,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = Color(0xFFDB1F2F)
+                            )
+                            Text(
+                                workspaceTitle,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = Color(0xFF182230),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                     TextButton(onClick = onOpenSettings) {
                         Text("Settings")
                     }
@@ -134,7 +156,7 @@ internal fun PhoneWorkspacePane(
                     ) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                "VIANT.",
+                                brandLabel,
                                 style = MaterialTheme.typography.labelLarge,
                                 color = Color(0xFFDB1F2F)
                             )
@@ -204,6 +226,7 @@ internal fun PhoneWorkspacePane(
                 }
             }
         }
+        activeGoal?.let { GoalSummaryCard(goal = it) }
         if (hasWorkspaceSurface && displayTranscript.isNotEmpty()) {
             Row(
                 modifier = Modifier
@@ -276,7 +299,7 @@ internal fun PhoneWorkspacePane(
                     restoreState = hostedWorkspaceState,
                     forgeRuntime = forgeRuntime,
                     maxBodyHeight = hostedWorkspaceMinHeight.dp,
-                    showTitle = false
+                    showTitle = true
                 )
                 if (pendingApprovals.isNotEmpty()) {
                     PendingApprovalsSection(

@@ -16,9 +16,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.GeneratedFileEntry
+import com.viant.agentlysdk.Goal
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.agentlysdk.WorkspaceMetadata
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
@@ -63,6 +64,7 @@ internal fun TabletWorkspacePane(
     metadata: WorkspaceMetadata?,
     preferredAgentId: String,
     conversationState: ConversationStateResponse?,
+    activeGoal: Goal?,
     error: String?,
     streamSnapshot: ConversationStreamSnapshot?,
     transcript: List<ChatEntry>,
@@ -92,6 +94,9 @@ internal fun TabletWorkspacePane(
 ) {
     val context = LocalContext.current
     val hostedWorkspaceState = deriveAgentlyHostedWorkspaceRestoreState(conversationState, streamSnapshot)
+    val hostedWorkspacePresentation = remember(hostedWorkspaceState?.selectedWindowId, hostedWorkspaceState?.windows) {
+        resolveHostedWorkspacePresentation(hostedWorkspaceState)
+    }
     val displayTranscript = transcriptWithActiveAssistant(transcript, streamSnapshot)
     val hasMainContent = displayTranscript.isNotEmpty() || pendingApprovals.isNotEmpty() || generatedFiles.isNotEmpty() || !activeConversationId.isNullOrBlank()
     val hasHostedWorkspace = hostedWorkspaceState != null
@@ -161,6 +166,7 @@ internal fun TabletWorkspacePane(
                             .verticalScroll(contentScrollState),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
+                        activeGoal?.let { GoalSummaryCard(goal = it) }
                         error?.let {
                             Card(modifier = Modifier.fillMaxWidth()) {
                                 Text(
@@ -218,24 +224,21 @@ internal fun TabletWorkspacePane(
                                     restoreState = hostedWorkspaceState,
                                     forgeRuntime = forgeRuntime,
                                     maxBodyHeight = if (workspacePanelMode == WorkspacePanelMode.Expanded) 1100.dp else workspaceBodyHeight.dp,
-                                    showTitle = false,
+                                    showTitle = true,
                                     headerActions = {
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            WorkspaceHeaderDot(
-                                                color = Color(0xFFFF5F57),
-                                                description = "Close workspace",
+                                            WorkspacePanelActionChip(
+                                                label = "Hide",
                                                 selected = workspacePanelMode == WorkspacePanelMode.Hidden,
                                                 onClick = { workspacePanelMode = WorkspacePanelMode.Hidden }
                                             )
-                                            WorkspaceHeaderDot(
-                                                color = Color(0xFFFEBB2E),
-                                                description = "Minimize workspace",
+                                            WorkspacePanelActionChip(
+                                                label = "Split",
                                                 selected = workspacePanelMode == WorkspacePanelMode.Split,
                                                 onClick = { workspacePanelMode = WorkspacePanelMode.Split }
                                             )
-                                            WorkspaceHeaderDot(
-                                                color = Color(0xFF28C840),
-                                                description = "Expand workspace",
+                                            WorkspacePanelActionChip(
+                                                label = "Focus",
                                                 selected = workspacePanelMode == WorkspacePanelMode.Expanded,
                                                 onClick = { workspacePanelMode = WorkspacePanelMode.Expanded }
                                             )
@@ -290,9 +293,12 @@ internal fun TabletWorkspacePane(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text("Workspace closed", style = MaterialTheme.typography.titleSmall)
                                             Text(
-                                                "Reopen the hosted workspace when you want the full data-driven view back.",
+                                                hostedWorkspacePresentation?.title ?: "Workspace closed",
+                                                style = MaterialTheme.typography.titleSmall
+                                            )
+                                            Text(
+                                                "Reopen the ${hostedWorkspacePresentation?.badgeLabel?.lowercase() ?: "hosted"} workspace when you want the full data-driven view back.",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = Color(0xFF667085)
                                             )
@@ -481,21 +487,15 @@ internal fun TabletWorkspacePane(
 }
 
 @Composable
-private fun WorkspaceHeaderDot(
-    color: Color,
-    description: String,
+private fun WorkspacePanelActionChip(
+    label: String,
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    Surface(
+    FilterChip(
+        selected = selected,
         onClick = onClick,
-        shape = CircleShape,
-        color = color.copy(alpha = if (selected) 1f else 0.9f),
-        border = if (selected) BorderStroke(2.dp, Color.White.copy(alpha = 0.9f)) else null,
-        modifier = Modifier
-            .semantics { contentDescription = description }
-            .size(14.dp)
-    ) {
-        Spacer(modifier = Modifier.fillMaxSize())
-    }
+        modifier = Modifier.semantics { contentDescription = label },
+        label = { Text(label) }
+    )
 }

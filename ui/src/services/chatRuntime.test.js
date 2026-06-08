@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { activeWindows } from 'forge/core';
+import { getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, MAIN_CHAT_WINDOW_ID } from './conversationWindow';
 
 const {
   setPendingElicitationMock,
@@ -3390,6 +3391,35 @@ describe('bootstrapConversationSelection', () => {
 
     expect(conversationState.values.id).toBe('conv-from-route');
   });
+
+  it('falls back to the route conversation when startup has not yet resolved the main chat window id', () => {
+    const conversationState = { values: {} };
+    activeWindows.value = [];
+    global.window = {
+      location: { pathname: '/conversation/conv-from-route' },
+      localStorage: createStorage(),
+      sessionStorage: createStorage()
+    };
+
+    bootstrapConversationSelection({
+      identity: { windowId: 'pending-main-window' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => conversationState.values,
+                setFormData: ({ values }) => { conversationState.values = values; }
+              }
+            }
+          };
+        }
+        return null;
+      }
+    });
+
+    expect(conversationState.values.id).toBe('conv-from-route');
+  });
 });
 
 describe('fetchConversation', () => {
@@ -4808,6 +4838,80 @@ describe('mapTranscriptToRows', () => {
         })
       })
     ]));
+  });
+
+  it('persists hosted workspace restore state from a settled canonical transcript fetch', async () => {
+    const originalWindow = global.window;
+    global.window = {
+      sessionStorage: createStorage(),
+      localStorage: createStorage(),
+      location: { pathname: '/conversation/conv-workspace', port: '5176', hostname: '127.0.0.1' },
+      history: { state: null, replaceState: vi.fn() },
+      dispatchEvent: vi.fn(),
+      setTimeout,
+      clearTimeout,
+    };
+    try {
+      client.getTranscript.mockResolvedValueOnce({
+        conversation: {
+          conversationId: 'conv-workspace',
+          turns: [
+            {
+              turnId: 'turn-workspace',
+              status: 'completed',
+              execution: {
+                pages: [
+                  {
+                    toolSteps: [
+                      {
+                        toolName: 'ui/view/open',
+                        status: 'completed',
+                        requestPayload: {
+                          id: 'line',
+                          parameters: {
+                            AudienceId: [7289845],
+                          },
+                        },
+                        responsePayload: {
+                          windowId: 'line_3866014773__conv-workspace',
+                          windowKey: 'line',
+                          windowTitle: 'Line Summary',
+                          conversationId: 'conv-workspace',
+                          presentation: 'hosted',
+                          region: 'chat.top',
+                          parentKey: MAIN_CHAT_WINDOW_ID,
+                          selectedWindowId: 'line_3866014773__conv-workspace',
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      });
+
+      const turns = await fetchTranscript('conv-workspace');
+
+      expect(turns).toHaveLength(1);
+      expect(getScopedWorkspaceSelection('conv-workspace')).toBe('line_3866014773__conv-workspace');
+      expect(getScopedWorkspaceWindowsState('conv-workspace')).toEqual([
+        expect.objectContaining({
+          windowId: 'line_3866014773__conv-workspace',
+          windowKey: 'line',
+          conversationId: 'conv-workspace',
+          presentation: 'hosted',
+          region: 'chat.top',
+          parentKey: MAIN_CHAT_WINDOW_ID,
+          parameters: {
+            AudienceId: [7289845],
+          },
+        }),
+      ]);
+    } finally {
+      global.window = originalWindow;
+    }
   });
 
   it('ensureConversation reuses the scoped active conversation when the form id is transiently empty', async () => {

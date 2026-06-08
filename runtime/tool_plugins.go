@@ -23,6 +23,7 @@ import (
 	promptsvc "github.com/viant/agently-core/protocol/tool/service/prompt"
 	resourcesvc "github.com/viant/agently-core/protocol/tool/service/resources"
 	toolexec "github.com/viant/agently-core/protocol/tool/service/system/exec"
+	goalsvc "github.com/viant/agently-core/protocol/tool/service/system/goal"
 	toolos "github.com/viant/agently-core/protocol/tool/service/system/os"
 	toolpatch "github.com/viant/agently-core/protocol/tool/service/system/patch"
 	templatesvc "github.com/viant/agently-core/protocol/tool/service/template"
@@ -39,6 +40,7 @@ import (
 var allInternalServices = []string{
 	"system/exec",
 	"system/os",
+	"system/goal",
 	"system/patch",
 	"orchestration/plan",
 	"llm/agents",
@@ -164,6 +166,11 @@ func internalServiceFactory(rt *executor.Runtime, workspaceRoot, name string) sv
 		return toolexec.New()
 	case "system/os":
 		return toolos.New()
+	case "system/goal":
+		if rt.Data == nil {
+			return nil
+		}
+		return goalsvc.New(rt.Data)
 	case "system/patch":
 		return toolpatch.New()
 	case "orchestration/plan":

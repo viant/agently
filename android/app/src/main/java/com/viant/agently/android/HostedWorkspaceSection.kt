@@ -1,4 +1,5 @@
 package com.viant.agently.android
+
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -60,13 +61,21 @@ internal fun HostedWorkspaceSection(
     headerActions: (@Composable () -> Unit)? = null
 ) {
     val resolvedRestoreState = restoreState ?: return
+    var activeWindowOverride by remember(resolvedRestoreState.selectionKey()) {
+        mutableStateOf<WorkspaceWindowSnapshot?>(null)
+    }
     var selectedWindowId by remember(resolvedRestoreState.selectionKey()) {
         mutableStateOf(defaultHostedWorkspaceWindowId(resolvedRestoreState))
     }
+    val selectedWindow = remember(resolvedRestoreState.windows, selectedWindowId, activeWindowOverride) {
+        activeWindowOverride
+            ?: resolvedRestoreState.windows.firstOrNull { it.windowId == selectedWindowId }
+            ?: resolvedRestoreState.windows.lastOrNull()
+    }
     val windowState = rememberHostedWorkspaceWindowUiState(
-        resolvedRestoreState,
-        forgeRuntime,
-        selectedWindowId
+        windows = resolvedRestoreState.windows,
+        selectedWindow = selectedWindow,
+        forgeRuntime
     )
     val minBodyHeight = minOf(
         (
@@ -75,25 +84,24 @@ internal fun HostedWorkspaceSection(
         ).coerceAtLeast(240).dp,
         maxBodyHeight
     )
+    val presentation = remember(selectedWindow) {
+        resolveHostedWorkspacePresentation(selectedWindow)
+    }
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFF6F8FD))
+        colors = CardDefaults.cardColors(containerColor = Color.White)
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            if (showTitle) {
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(modifier = Modifier.align(Alignment.CenterStart)) {
-                        headerActions?.invoke()
-                    }
-                    Text("Workspace", style = MaterialTheme.typography.titleMedium)
-                }
+            if (showTitle || headerActions != null || presentation != null) {
+                HostedWorkspaceHeader(
+                    presentation = presentation,
+                    showTitle = showTitle,
+                    headerActions = headerActions
+                )
             }
             if (windowState.windows.size > 1) {
                 Row(
@@ -142,14 +150,11 @@ internal fun HostedWorkspaceSection(
 
 @Composable
 internal fun rememberHostedWorkspaceWindowUiState(
-    restoreState: HostedWorkspaceRestoreState,
-    forgeRuntime: ForgeRuntime,
-    selectedWindowId: String = defaultHostedWorkspaceWindowId(restoreState)
+    windows: List<WorkspaceWindowSnapshot>,
+    selectedWindow: WorkspaceWindowSnapshot?,
+    forgeRuntime: ForgeRuntime
 ): HostedWorkspaceWindowUiState {
-    val selected = remember(restoreState.windows, selectedWindowId) {
-        restoreState.windows.firstOrNull { it.windowId == selectedWindowId }
-            ?: restoreState.windows.lastOrNull()
-    }
+    val selected = selectedWindow
     if (selected == null) {
         return HostedWorkspaceWindowUiState(
             metadata = null,
@@ -160,10 +165,20 @@ internal fun rememberHostedWorkspaceWindowUiState(
         )
     }
 
-    var runtimeWindowId by remember(selected.windowId) { mutableStateOf<String?>(null) }
-    var loadError by remember(selected.windowId) { mutableStateOf<String?>(null) }
+    val selectedWindowLoadKey = remember(selected) {
+        listOf(
+            selected.windowId,
+            selected.windowKey,
+            selected.windowTitle.orEmpty(),
+            selected.parameters?.toString().orEmpty(),
+            selected.windowForm?.toString().orEmpty()
+        ).joinToString("#")
+    }
 
-    LaunchedEffect(selected.windowId) {
+    var runtimeWindowId by remember(selectedWindowLoadKey) { mutableStateOf<String?>(null) }
+    var loadError by remember(selectedWindowLoadKey) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(selectedWindowLoadKey) {
         try {
             val state = openHostedWorkspaceWindow(forgeRuntime, selected)
             selected.windowForm?.let(::jsonObjectToParameterMap)?.takeIf { it.isNotEmpty() }?.let { windowForm ->
@@ -193,14 +208,86 @@ internal fun rememberHostedWorkspaceWindowUiState(
     val windowContext = remember(runtimeWindowId) {
         runtimeWindowId?.let { forgeRuntime.windowContext(it) }
     }
-
     return HostedWorkspaceWindowUiState(
         metadata = resolvedMetadata,
         windowContext = windowContext,
         selectedWindowId = selected.windowId,
-        windows = restoreState.windows,
+        windows = windows,
         error = loadError
     )
+}
+
+@Composable
+private fun HostedWorkspaceHeader(
+    presentation: HostedWorkspacePresentation?,
+    showTitle: Boolean,
+    headerActions: (@Composable () -> Unit)?
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(if (showTitle) 8.dp else 6.dp)
+        ) {
+            if (showTitle && presentation != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    HostedWorkspaceBadge(
+                        text = presentation.badgeLabel,
+                        background = hostedWorkspaceAccentColor().copy(alpha = 0.12f),
+                        contentColor = hostedWorkspaceAccentColor()
+                    )
+                }
+            }
+            if (showTitle && presentation != null) {
+                Text(
+                    presentation.title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = Color(0xFF182230)
+                )
+                presentation.subtitle?.takeIf { it.isNotBlank() }?.let { subtitle ->
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF667085)
+                    )
+                }
+                Text(
+                    presentation.supportingText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color(0xFF98A2B3)
+                )
+            } else if (showTitle) {
+                Text("Workspace", style = MaterialTheme.typography.titleMedium)
+            }
+        }
+        headerActions?.invoke()
+    }
+}
+
+@Composable
+private fun HostedWorkspaceBadge(
+    text: String,
+    background: Color,
+    contentColor: Color
+) {
+    Surface(
+        color = background,
+        shape = MaterialTheme.shapes.large
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            color = contentColor,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+        )
+    }
+}
+
+internal fun hostedWorkspaceAccentColor(): Color {
+    return Color(0xFF344054)
 }
 
 internal fun defaultHostedWorkspaceWindowId(
@@ -264,4 +351,28 @@ private fun jsonBoolean(value: JsonElement): Boolean? {
 private fun jsonInt(value: JsonElement): Int? {
     val primitive = value as? JsonPrimitive ?: return null
     return primitive.contentOrNull?.trim()?.toIntOrNull()
+}
+
+private fun anyToJsonElement(value: Any?): JsonElement? {
+    return when (value) {
+        null -> null
+        is JsonElement -> value
+        is String -> JsonPrimitive(value)
+        is Int -> JsonPrimitive(value)
+        is Long -> JsonPrimitive(value)
+        is Double -> JsonPrimitive(value)
+        is Float -> JsonPrimitive(value)
+        is Boolean -> JsonPrimitive(value)
+        is List<*> -> JsonArray(value.mapNotNull(::anyToJsonElement))
+        is Map<*, *> -> JsonObject(value.entries.mapNotNull { (key, entryValue) ->
+            val stringKey = key as? String ?: return@mapNotNull null
+            val element = anyToJsonElement(entryValue) ?: JsonPrimitive("")
+            stringKey to element
+        }.toMap())
+        else -> JsonPrimitive(value.toString())
+    }
+}
+
+private fun anyMapToJsonObject(values: Map<String, Any?>): JsonObject {
+    return JsonObject(values.mapValues { (_, value) -> anyToJsonElement(value) ?: JsonPrimitive("") })
 }

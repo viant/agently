@@ -1,4 +1,4 @@
-import { buildUISnapshot } from 'forge/core';
+import { buildUISnapshot, ensureUIBridgeClientId } from 'forge/core';
 import { MAIN_CHAT_WINDOW_ID, resolveConversationSelection } from './services/conversationWindow';
 
 function firstString(...values) {
@@ -29,7 +29,7 @@ export function snapshotConversationId(snapshot = null) {
 
 function uiBridgeClientId() {
   try {
-    return String(window.__forgeUIBridgeClientId || '').trim();
+    return String(window.__forgeUIBridgeClientId || ensureUIBridgeClientId() || '').trim();
   } catch (_) {
     return '';
   }

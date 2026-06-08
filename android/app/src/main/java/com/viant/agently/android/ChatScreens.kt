@@ -47,6 +47,7 @@ import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.Conversation
 import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.GeneratedFileEntry
+import com.viant.agentlysdk.Goal
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.agentlysdk.WorkspaceMetadata
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
@@ -64,6 +65,7 @@ internal fun PhoneChatScreen(
     recentConversations: List<Conversation>,
     activeConversationId: String?,
     conversationState: ConversationStateResponse?,
+    activeGoal: Goal?,
     error: String?,
     streamSnapshot: ConversationStreamSnapshot?,
     transcript: List<ChatEntry>,
@@ -95,6 +97,7 @@ internal fun PhoneChatScreen(
         recentConversations = recentConversations,
         activeConversationId = activeConversationId,
         conversationState = conversationState,
+        activeGoal = activeGoal,
         error = error,
         streamSnapshot = streamSnapshot,
         transcript = transcript,
@@ -131,6 +134,7 @@ internal fun TabletChatScreen(
     recentConversations: List<Conversation>,
     activeConversationId: String?,
     conversationState: ConversationStateResponse?,
+    activeGoal: Goal?,
     error: String?,
     streamSnapshot: ConversationStreamSnapshot?,
     transcript: List<ChatEntry>,
@@ -169,6 +173,7 @@ internal fun TabletChatScreen(
     ) {
         TabletConversationSidebar(
             workspaceTitle = workspaceTitle,
+            metadata = metadata,
             appApiBaseUrl = appApiBaseUrl,
             loading = loading,
             recentConversations = recentConversations,
@@ -197,6 +202,7 @@ internal fun TabletChatScreen(
                 metadata = metadata,
                 preferredAgentId = preferredAgentId,
                 conversationState = conversationState,
+                activeGoal = activeGoal,
                 error = error,
                 streamSnapshot = streamSnapshot,
                 transcript = transcript,

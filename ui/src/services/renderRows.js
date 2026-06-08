@@ -1,56 +1,105 @@
-import { compareTemporalEntries } from 'agently-core-ui-sdk';
-import { projectTrackerToTurns } from 'agently-core-ui-sdk/internal';
-import { normalizeOne } from './messageNormalizer';
-import { mergeRenderedRows } from './rowMerge';
+import { compareTemporalEntries } from "agently-core-ui-sdk";
+import { projectTrackerToTurns } from "agently-core-ui-sdk/internal";
+import { normalizeOne } from "./messageNormalizer";
+import { mergeRenderedRows } from "./rowMerge";
 
-function filterLiveOwnedTranscriptRows(rows = [], currentConversationID = '', ownedConversationID = '', ownedTurnIds = []) {
-  const currentID = String(currentConversationID || '').trim();
-  const liveID = String(ownedConversationID || '').trim();
+function filterLiveOwnedTranscriptRows(
+  rows = [],
+  currentConversationID = "",
+  ownedConversationID = "",
+  ownedTurnIds = [],
+) {
+  const currentID = String(currentConversationID || "").trim();
+  const liveID = String(ownedConversationID || "").trim();
   if (!currentID || !liveID || currentID !== liveID) {
     return Array.isArray(rows) ? rows : [];
   }
-  const owned = new Set((Array.isArray(ownedTurnIds) ? ownedTurnIds : []).map((item) => String(item || '').trim()).filter(Boolean));
+  const owned = new Set(
+    (Array.isArray(ownedTurnIds) ? ownedTurnIds : [])
+      .map((item) => String(item || "").trim())
+      .filter(Boolean),
+  );
   if (owned.size === 0) {
     return Array.isArray(rows) ? rows : [];
   }
-  return (Array.isArray(rows) ? rows : []).filter((row) => !owned.has(String(row?.turnId || '').trim()));
+  return (Array.isArray(rows) ? rows : []).filter(
+    (row) => !owned.has(String(row?.turnId || "").trim()),
+  );
 }
 
 function isVisibleExecutionPage(page = {}) {
-  if (!page || typeof page !== 'object') return false;
-  const status = String(page?.status || '').trim().toLowerCase();
-  const phase = String(page?.phase || '').trim().toLowerCase();
-  const hasVisibleContent = String(page?.narration || '').trim() !== '' || String(page?.content || '').trim() !== '';
-  const hasError = String(page?.errorMessage || page?.ErrorMessage || '').trim() !== '';
-  const hasTools = (Array.isArray(page?.toolSteps) && page.toolSteps.length > 0)
-    || (Array.isArray(page?.toolCallsPlanned) && page.toolCallsPlanned.length > 0);
+  if (!page || typeof page !== "object") return false;
+  const status = String(page?.status || "")
+    .trim()
+    .toLowerCase();
+  const phase = String(page?.phase || "")
+    .trim()
+    .toLowerCase();
+  const hasVisibleContent =
+    String(page?.narration || "").trim() !== "" ||
+    String(page?.content || "").trim() !== "";
+  const hasError =
+    String(page?.errorMessage || page?.ErrorMessage || "").trim() !== "";
+  const hasTools =
+    (Array.isArray(page?.toolSteps) && page.toolSteps.length > 0) ||
+    (Array.isArray(page?.toolCallsPlanned) && page.toolCallsPlanned.length > 0);
   const hasModelCall = !!page?.modelCall || !!page?.modelSteps?.length;
-  const isActive = ['running', 'thinking', 'streaming', 'processing', 'in_progress', 'waiting_for_user', 'tool_calls'].includes(status);
-  const isError = status === 'failed' || status === 'error' || status === 'terminated';
-  const isExplicitPhase = phase === 'intake' || phase === 'sidecar' || phase === 'summary';
-  return hasVisibleContent || hasError || hasTools || isActive || isError || (isExplicitPhase && hasModelCall);
+  const isActive = [
+    "running",
+    "thinking",
+    "streaming",
+    "processing",
+    "in_progress",
+    "waiting_for_user",
+    "tool_calls",
+  ].includes(status);
+  const isError =
+    status === "failed" || status === "error" || status === "terminated";
+  const isExplicitPhase =
+    phase === "intake" || phase === "sidecar" || phase === "summary";
+  return (
+    hasVisibleContent ||
+    hasError ||
+    hasTools ||
+    isActive ||
+    isError ||
+    (isExplicitPhase && hasModelCall)
+  );
 }
 
 function executionPageIteration(page = {}) {
   const raw = Number(page?.iteration);
   if (Number.isFinite(raw)) return raw;
-  const status = String(page?.status || '').trim().toLowerCase();
-  const hasAssistantIdentity = String(page?.assistantMessageId || page?.pageId || '').trim() !== '';
-  const hasVisibleContent = String(page?.narration || '').trim() !== '' || String(page?.content || '').trim() !== '';
-  const isActive = ['running', 'thinking', 'streaming', 'processing', 'waiting_for_user', 'in_progress', 'tool_calls'].includes(status);
+  const status = String(page?.status || "")
+    .trim()
+    .toLowerCase();
+  const hasAssistantIdentity =
+    String(page?.assistantMessageId || page?.pageId || "").trim() !== "";
+  const hasVisibleContent =
+    String(page?.narration || "").trim() !== "" ||
+    String(page?.content || "").trim() !== "";
+  const isActive = [
+    "running",
+    "thinking",
+    "streaming",
+    "processing",
+    "waiting_for_user",
+    "in_progress",
+    "tool_calls",
+  ].includes(status);
   if (hasAssistantIdentity || hasVisibleContent || isActive) return 1;
   return 0;
 }
 
-function extractEmbeddedElicitation(text = '') {
-  const raw = String(text || '').trim();
+function extractEmbeddedElicitation(text = "") {
+  const raw = String(text || "").trim();
   if (!raw) return null;
   let candidate = raw;
   try {
     const fence = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
     if (fence && fence[1]) candidate = String(fence[1]).trim();
   } catch (_) {}
-  const start = candidate.indexOf('{');
+  const start = candidate.indexOf("{");
   if (start === -1) return null;
 
   let depth = 0;
@@ -61,7 +110,7 @@ function extractEmbeddedElicitation(text = '') {
     if (inString) {
       if (escaped) {
         escaped = false;
-      } else if (ch === '\\') {
+      } else if (ch === "\\") {
         escaped = true;
       } else if (ch === '"') {
         inString = false;
@@ -72,20 +121,21 @@ function extractEmbeddedElicitation(text = '') {
       inString = true;
       continue;
     }
-    if (ch === '{') {
+    if (ch === "{") {
       depth += 1;
       continue;
     }
-    if (ch !== '}') continue;
+    if (ch !== "}") continue;
     depth -= 1;
     if (depth !== 0) continue;
     try {
       const parsed = JSON.parse(candidate.slice(start, i + 1));
-      if (!parsed || typeof parsed !== 'object') return null;
-      if (String(parsed.type || '').toLowerCase() !== 'elicitation') return null;
+      if (!parsed || typeof parsed !== "object") return null;
+      if (String(parsed.type || "").toLowerCase() !== "elicitation")
+        return null;
       return {
-        message: String(parsed.message || parsed.prompt || '').trim(),
-        requestedSchema: parsed.requestedSchema || null
+        message: String(parsed.message || parsed.prompt || "").trim(),
+        requestedSchema: parsed.requestedSchema || null,
       };
     } catch (_) {
       return null;
@@ -94,212 +144,332 @@ function extractEmbeddedElicitation(text = '') {
   return null;
 }
 
-function displayableElicitationMessage(rawMessage = '', embedded = null) {
-  const explicit = String(rawMessage || '').trim();
+function displayableElicitationMessage(rawMessage = "", embedded = null) {
+  const explicit = String(rawMessage || "").trim();
   if (embedded?.message) return embedded.message;
-  if (!explicit) return '';
-  if (/^[{\[]/.test(explicit)) return '';
+  if (!explicit) return "";
+  if (/^[{\[]/.test(explicit)) return "";
   return explicit;
 }
 
 function isHiddenCanonicalAssistantMessage(message = {}) {
-  const role = String(message?.role || '').trim().toLowerCase();
-  if (role !== 'assistant') return false;
-  const mode = String(message?.mode || '').trim().toLowerCase();
-  const status = String(message?.status || '').trim().toLowerCase();
-  if (mode !== 'router') return false;
-  return status !== 'intake.answer' && status !== 'intake.clarify';
+  const role = String(message?.role || "")
+    .trim()
+    .toLowerCase();
+  if (role !== "assistant") return false;
+  const mode = String(message?.mode || "")
+    .trim()
+    .toLowerCase();
+  const status = String(message?.status || "")
+    .trim()
+    .toLowerCase();
+  if (mode !== "router") return false;
+  return status !== "intake.answer" && status !== "intake.clarify";
 }
 
 function isNonRenderableAssistantPlaceholder(row = {}) {
-  if (String(row?.role || '').trim().toLowerCase() !== 'assistant') return false;
+  if (
+    String(row?.role || "")
+      .trim()
+      .toLowerCase() !== "assistant"
+  )
+    return false;
   if (Number(row?.interim ?? 0) === 0) return false;
-  if (String(row?.content || '').trim() !== '') return false;
-  if (String(row?.narration || '').trim() !== '') return false;
+  if (String(row?.content || "").trim() !== "") return false;
+  if (String(row?.narration || "").trim() !== "") return false;
   if (row?.elicitation || row?.linkedConversationId) return false;
   const groups = Array.isArray(row?.executionGroups) ? row.executionGroups : [];
   if (groups.length === 0) return true;
   return groups.every((group) => {
-    if (!group || typeof group !== 'object') return true;
-    if (String(group?.content || '').trim() !== '') return false;
-    if (String(group?.narration || '').trim() !== '') return false;
-    if (String(group?.errorMessage || '').trim() !== '') return false;
+    if (!group || typeof group !== "object") return true;
+    if (String(group?.content || "").trim() !== "") return false;
+    if (String(group?.narration || "").trim() !== "") return false;
+    if (String(group?.errorMessage || "").trim() !== "") return false;
     if (group?.finalResponse) return false;
-    if (Array.isArray(group?.toolSteps) && group.toolSteps.length > 0) return false;
-    if (Array.isArray(group?.toolCallsPlanned) && group.toolCallsPlanned.length > 0) return false;
+    if (Array.isArray(group?.toolSteps) && group.toolSteps.length > 0)
+      return false;
+    if (
+      Array.isArray(group?.toolCallsPlanned) &&
+      group.toolCallsPlanned.length > 0
+    )
+      return false;
     return true;
   });
 }
 
-function normalizeExecutionStatus(value = '', fallback = 'completed') {
-  const raw = String(value || '').trim().toLowerCase();
+function normalizeExecutionStatus(value = "", fallback = "completed") {
+  const raw = String(value || "")
+    .trim()
+    .toLowerCase();
   if (!raw) return fallback;
-  if (raw === 'success' || raw === 'succeeded' || raw === 'done') return 'completed';
-  if (raw === 'cancelled') return 'canceled';
+  if (raw === "success" || raw === "succeeded" || raw === "done")
+    return "completed";
+  if (raw === "cancelled") return "canceled";
   return raw;
 }
 
 function normalizeHistoricalElicitationStatus(...values) {
   for (const value of values) {
-    const raw = String(value || '').trim();
+    const raw = String(value || "").trim();
     if (!raw) continue;
-    const normalized = normalizeExecutionStatus(raw, '');
+    const normalized = normalizeExecutionStatus(raw, "");
     if (normalized) return normalized;
   }
-  return 'pending';
+  return "pending";
 }
 
 function buildSyntheticRouterExecutionPages(turn = {}) {
   const messages = Array.isArray(turn?.messages) ? turn.messages : [];
   if (messages.length === 0) return [];
-  const realPages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
+  const realPages = Array.isArray(turn?.execution?.pages)
+    ? turn.execution.pages
+    : [];
   const claimedAssistantIds = new Set(
-    realPages.flatMap((page) => [
-      String(page?.assistantMessageId || '').trim(),
-      String(page?.pageId || '').trim()
-    ]).filter(Boolean)
+    realPages
+      .flatMap((page) => [
+        String(page?.assistantMessageId || "").trim(),
+        String(page?.pageId || "").trim(),
+      ])
+      .filter(Boolean),
   );
-  const userMessageId = String(turn?.user?.messageId || '').trim();
+  const userMessageId = String(turn?.user?.messageId || "").trim();
   return messages
     .filter((message) => isHiddenCanonicalAssistantMessage(message))
     .filter((message) => {
-      const messageId = String(message?.messageId || '').trim();
+      const messageId = String(message?.messageId || "").trim();
       return !messageId || !claimedAssistantIds.has(messageId);
     })
     .map((message, index) => {
-      const messageId = String(message?.messageId || '').trim() || `router:${index}`;
-      const createdAt = String(message?.createdAt || turn?.createdAt || '').trim();
-      const status = normalizeExecutionStatus(message?.status || turn?.status || '', 'completed');
+      const messageId =
+        String(message?.messageId || "").trim() || `router:${index}`;
+      const createdAt = String(
+        message?.createdAt || turn?.createdAt || "",
+      ).trim();
+      const status = normalizeExecutionStatus(
+        message?.status || turn?.status || "",
+        "completed",
+      );
       return {
         pageId: `router:${messageId}`,
         assistantMessageId: messageId,
         parentMessageId: userMessageId,
         iteration: 0,
-        phase: 'intake',
+        phase: "intake",
         status,
-        narration: '',
-        content: '',
+        narration: "",
+        content: "",
         finalResponse: false,
-        modelSteps: [{
-          id: `router-model:${messageId}`,
-          assistantMessageId: messageId,
-          executionRole: 'intake',
-          phase: 'intake',
-          provider: '',
-          model: 'router',
-          status,
-          startedAt: createdAt,
-          completedAt: status === 'running' || status === 'thinking' || status === 'processing' ? '' : createdAt,
-          responsePayload: String(message?.content || '').trim() || null
-        }],
-        toolSteps: []
+        modelSteps: [
+          {
+            id: `router-model:${messageId}`,
+            assistantMessageId: messageId,
+            executionRole: "intake",
+            phase: "intake",
+            provider: "",
+            model: "router",
+            status,
+            startedAt: createdAt,
+            completedAt:
+              status === "running" ||
+              status === "thinking" ||
+              status === "processing"
+                ? ""
+                : createdAt,
+            responsePayload: String(message?.content || "").trim() || null,
+          },
+        ],
+        toolSteps: [],
       };
     });
 }
 
 function pageOwnedAssistantMessageIds(turn = {}) {
   const ids = new Set();
-  const pages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
+  const pages = Array.isArray(turn?.execution?.pages)
+    ? turn.execution.pages
+    : [];
   for (const page of pages) {
-    const narrationId = String(page?.narrationMessageId || '').trim();
-    const finalId = String(page?.finalAssistantMessageId || page?.assistantMessageId || '').trim();
+    const narrationId = String(page?.narrationMessageId || "").trim();
+    const finalId = String(
+      page?.finalAssistantMessageId || page?.assistantMessageId || "",
+    ).trim();
     if (narrationId) ids.add(narrationId);
     if (finalId) ids.add(finalId);
   }
-  const assistantNarrationId = String(turn?.assistant?.narration?.messageId || '').trim();
-  const assistantFinalId = String(turn?.assistant?.final?.messageId || '').trim();
+  const assistantNarrationId = String(
+    turn?.assistant?.narration?.messageId || "",
+  ).trim();
+  const assistantFinalId = String(
+    turn?.assistant?.final?.messageId || "",
+  ).trim();
   if (assistantNarrationId) ids.add(assistantNarrationId);
   if (assistantFinalId) ids.add(assistantFinalId);
   return ids;
 }
 
 export function isCanonicalTranscriptTurn(turn = {}) {
-  return !!turn && typeof turn === 'object' && (
-    Object.prototype.hasOwnProperty.call(turn, 'turnId')
-    || Object.prototype.hasOwnProperty.call(turn, 'execution')
-    || Object.prototype.hasOwnProperty.call(turn, 'assistant')
-    || Object.prototype.hasOwnProperty.call(turn, 'user')
-    || Object.prototype.hasOwnProperty.call(turn, 'elicitation')
+  return (
+    !!turn &&
+    typeof turn === "object" &&
+    (Object.prototype.hasOwnProperty.call(turn, "turnId") ||
+      Object.prototype.hasOwnProperty.call(turn, "execution") ||
+      Object.prototype.hasOwnProperty.call(turn, "assistant") ||
+      Object.prototype.hasOwnProperty.call(turn, "user") ||
+      Object.prototype.hasOwnProperty.call(turn, "elicitation"))
   );
 }
 
 export function buildCanonicalTranscriptRows(turns = [], options = {}) {
   const rows = [];
   const queuedTurns = [];
-  let runningTurnId = '';
+  let runningTurnId = "";
   const list = Array.isArray(turns) ? turns : [];
-  const holdAfterTurnId = String(options?.holdAfterTurnId || '').trim();
+  const holdAfterTurnId = String(options?.holdAfterTurnId || "").trim();
   const holdAfterTurnIndex = holdAfterTurnId
-    ? list.findIndex((turn) => String(turn?.turnId || '').trim() === holdAfterTurnId)
+    ? list.findIndex(
+        (turn) => String(turn?.turnId || "").trim() === holdAfterTurnId,
+      )
     : -1;
   const runningTurnIndex = list.findIndex((turn) => {
-    const status = String(turn?.status || '').trim().toLowerCase();
-    return ['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress'].includes(status);
+    const status = String(turn?.status || "")
+      .trim()
+      .toLowerCase();
+    return [
+      "running",
+      "thinking",
+      "processing",
+      "waiting_for_user",
+      "in_progress",
+    ].includes(status);
   });
 
   const turnPreview = (turn = {}) => {
-    const user = turn?.user && typeof turn.user === 'object' ? turn.user : {};
-    const content = String(user?.content || '').trim();
+    const user = turn?.user && typeof turn.user === "object" ? turn.user : {};
+    const content = String(user?.content || "").trim();
     return {
-      id: turn?.turnId || '',
-      conversationId: turn?.conversationId || '',
-      status: String(turn?.status || '').toLowerCase(),
+      id: turn?.turnId || "",
+      conversationId: turn?.conversationId || "",
+      status: String(turn?.status || "").toLowerCase(),
+      origin: String(turn?.origin || "").trim(),
+      goalId: String(turn?.goalId || "").trim(),
+      statusReason: String(turn?.statusReason || "").trim(),
       queueSeq: turn?.queueSeq || null,
       content,
       preview: content.slice(0, 220),
-      createdAt: turn?.createdAt || '',
+      createdAt: turn?.createdAt || "",
       overrides: {
-        agent: String(turn?.agentIdUsed || '').trim(),
-        model: String(turn?.modelOverride || '').trim(),
-        tools: []
-      }
+        agent: String(turn?.agentIdUsed || "").trim(),
+        model: String(turn?.modelOverride || "").trim(),
+        tools: [],
+      },
     };
   };
 
   const hasPersistedAssistant = (turn = {}) => {
     const assistantFinal = turn?.assistant?.final || null;
-    if (assistantFinal && String(assistantFinal?.content || '').trim() !== '') return true;
-    const pages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
-    return pages.some((page) => Number(page?.iteration || 0) !== 0 && String(page?.content || '').trim() !== '');
+    if (assistantFinal && String(assistantFinal?.content || "").trim() !== "")
+      return true;
+    const pages = Array.isArray(turn?.execution?.pages)
+      ? turn.execution.pages
+      : [];
+    return pages.some(
+      (page) =>
+        Number(page?.iteration || 0) !== 0 &&
+        String(page?.content || "").trim() !== "",
+    );
   };
 
   for (let turnIndex = 0; turnIndex < list.length; turnIndex += 1) {
     const turn = list[turnIndex] || {};
-    const turnId = String(turn?.turnId || '').trim();
-    const turnStatus = String(turn?.status || '').trim().toLowerCase();
-    const shouldHoldBehindRunningTurn = runningTurnIndex >= 0
-      && turnIndex > runningTurnIndex
-      && !hasPersistedAssistant(turn);
-    const shouldHoldBehindLiveStream = holdAfterTurnIndex >= 0
-      && turnIndex > holdAfterTurnIndex
-      && !hasPersistedAssistant(turn);
+    const turnId = String(turn?.turnId || "").trim();
+    const turnStatus = String(turn?.status || "")
+      .trim()
+      .toLowerCase();
+    const shouldHoldBehindRunningTurn =
+      runningTurnIndex >= 0 &&
+      turnIndex > runningTurnIndex &&
+      !hasPersistedAssistant(turn);
+    const shouldHoldBehindLiveStream =
+      holdAfterTurnIndex >= 0 &&
+      turnIndex > holdAfterTurnIndex &&
+      !hasPersistedAssistant(turn);
 
-    if (!runningTurnId && ['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress'].includes(turnStatus)) {
+    if (
+      !runningTurnId &&
+      [
+        "running",
+        "thinking",
+        "processing",
+        "waiting_for_user",
+        "in_progress",
+      ].includes(turnStatus)
+    ) {
       runningTurnId = turnId;
     }
-    if (turnStatus === 'queued' || turnStatus === 'pending' || turnStatus === 'open' || shouldHoldBehindRunningTurn || shouldHoldBehindLiveStream) {
+    if (
+      turnStatus === "queued" ||
+      turnStatus === "pending" ||
+      turnStatus === "open" ||
+      shouldHoldBehindRunningTurn ||
+      shouldHoldBehindLiveStream
+    ) {
       queuedTurns.push(turnPreview(turn));
       continue;
     }
 
-    const persistedExecutionPages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
+    const persistedExecutionPages = Array.isArray(turn?.execution?.pages)
+      ? turn.execution.pages
+      : [];
     const executionPages = [
       ...buildSyntheticRouterExecutionPages(turn),
-      ...persistedExecutionPages
+      ...persistedExecutionPages,
     ];
-    const summaryPages = executionPages.filter((page) => String(page?.phase || '').trim().toLowerCase() === 'summary');
-    const visiblePages = executionPages.filter((page) => String(page?.phase || '').trim().toLowerCase() !== 'summary' && isVisibleExecutionPage(page));
+    const summaryPages = executionPages.filter(
+      (page) =>
+        String(page?.phase || "")
+          .trim()
+          .toLowerCase() === "summary",
+    );
+    const visiblePages = executionPages.filter(
+      (page) =>
+        String(page?.phase || "")
+          .trim()
+          .toLowerCase() !== "summary" && isVisibleExecutionPage(page),
+    );
     const normalizedExecutionPages = [
       ...visiblePages,
-      ...summaryPages.filter((page) => isVisibleExecutionPage(page) || String(page?.content || '').trim() !== '')
+      ...summaryPages.filter(
+        (page) =>
+          isVisibleExecutionPage(page) ||
+          String(page?.content || "").trim() !== "",
+      ),
     ];
-    const linkedConversations = Array.isArray(turn?.linkedConversations) ? turn.linkedConversations : [];
-    const latestVisiblePage = visiblePages.length > 0 ? visiblePages[visiblePages.length - 1] : null;
-    const latestFinalVisiblePage = visiblePages.length > 0
-      ? ([...visiblePages].reverse().find((page) => page?.finalResponse) || null)
-      : null;
-    const latestVisibleStatus = String(latestVisiblePage?.status || turnStatus || '').trim().toLowerCase();
-    const renderPageIsActive = !!latestVisiblePage && ['running', 'thinking', 'streaming', 'processing', 'in_progress', 'waiting_for_user', 'tool_calls'].includes(latestVisibleStatus);
+    const linkedConversations = Array.isArray(turn?.linkedConversations)
+      ? turn.linkedConversations
+      : [];
+    const latestVisiblePage =
+      visiblePages.length > 0 ? visiblePages[visiblePages.length - 1] : null;
+    const latestFinalVisiblePage =
+      visiblePages.length > 0
+        ? [...visiblePages].reverse().find((page) => page?.finalResponse) ||
+          null
+        : null;
+    const latestVisibleStatus = String(
+      latestVisiblePage?.status || turnStatus || "",
+    )
+      .trim()
+      .toLowerCase();
+    const renderPageIsActive =
+      !!latestVisiblePage &&
+      [
+        "running",
+        "thinking",
+        "streaming",
+        "processing",
+        "in_progress",
+        "waiting_for_user",
+        "tool_calls",
+      ].includes(latestVisibleStatus);
     const renderPage = (() => {
       if (!latestVisiblePage) return null;
       if (renderPageIsActive) return latestVisiblePage;
@@ -309,212 +479,288 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
     let assistantRowSuppressesElicitationContent = false;
 
     if (turn?.user) {
-      rows.push(normalizeOne({
-        id: turn.user?.messageId || `${turnId}:user`,
-        messageId: turn.user?.messageId || '',
-        role: 'user',
-        content: turn.user?.content || '',
-        turnId,
-        turnStatus,
-        createdAt: turn?.createdAt || '',
-        sequence: Number.isFinite(Number(turn?.user?.sequence)) ? Number(turn.user.sequence) : null,
-        errorMessage: turn?.errorMessage || '',
-        executionGroup: null,
-        executionGroups: []
-      }));
+      rows.push(
+        normalizeOne({
+          id: turn.user?.messageId || `${turnId}:user`,
+          messageId: turn.user?.messageId || "",
+          role: "user",
+          content: turn.user?.content || "",
+          turnId,
+          turnStatus,
+          createdAt: turn?.createdAt || "",
+          sequence: Number.isFinite(Number(turn?.user?.sequence))
+            ? Number(turn.user.sequence)
+            : null,
+          errorMessage: turn?.errorMessage || "",
+          executionGroup: null,
+          executionGroups: [],
+        }),
+      );
     }
 
     const assistantOwnedIds = pageOwnedAssistantMessageIds(turn);
-    const extraMessages = (Array.isArray(turn?.messages) ? turn.messages : []).filter((message) => {
+    const extraMessages = (
+      Array.isArray(turn?.messages) ? turn.messages : []
+    ).filter((message) => {
       if (isHiddenCanonicalAssistantMessage(message)) return false;
-      const role = String(message?.role || '').trim().toLowerCase();
-      if (role !== 'assistant') return true;
+      const role = String(message?.role || "")
+        .trim()
+        .toLowerCase();
+      if (role !== "assistant") return true;
       if (Number(message?.interim || 0) > 0) return false;
-      const messageId = String(message?.messageId || '').trim();
+      const messageId = String(message?.messageId || "").trim();
       return !messageId || !assistantOwnedIds.has(messageId);
     });
     for (const message of extraMessages) {
-      rows.push(normalizeOne({
-        id: message?.messageId || `${turnId}:message`,
-        messageId: message?.messageId || '',
-        _bubbleSource: 'turn_message',
-        role: String(message?.role || '').trim().toLowerCase(),
-        content: message?.content || '',
-        turnId,
-        turnStatus,
-        status: message?.status || '',
-        mode: message?.mode || '',
-        interim: Number(message?.interim || 0) || 0,
-        createdAt: message?.createdAt || turn?.createdAt || '',
-        sequence: Number.isFinite(Number(message?.sequence)) ? Number(message.sequence) : null,
-        executionGroup: null,
-        executionGroups: []
-      }));
+      rows.push(
+        normalizeOne({
+          id: message?.messageId || `${turnId}:message`,
+          messageId: message?.messageId || "",
+          _bubbleSource: "turn_message",
+          role: String(message?.role || "")
+            .trim()
+            .toLowerCase(),
+          content: message?.content || "",
+          turnId,
+          turnStatus,
+          status: message?.status || "",
+          mode: message?.mode || "",
+          interim: Number(message?.interim || 0) || 0,
+          createdAt: message?.createdAt || turn?.createdAt || "",
+          sequence: Number.isFinite(Number(message?.sequence))
+            ? Number(message.sequence)
+            : null,
+          executionGroup: null,
+          executionGroups: [],
+        }),
+      );
     }
 
     const assistantFinal = turn?.assistant?.final || null;
     const assistantPreamble = turn?.assistant?.narration || null;
     if (renderPage) {
-      const transcriptElicitation = turn?.elicitation && typeof turn.elicitation === 'object'
-        ? turn.elicitation
-        : null;
-      const embeddedElicitation = extractEmbeddedElicitation(renderPage?.content || '');
-      const elicitationStatus = String(transcriptElicitation?.status || '').trim().toLowerCase();
-      const suppressAssistantContent = !!embeddedElicitation
-        && (elicitationStatus === '' || elicitationStatus === 'pending' || elicitationStatus === 'open');
+      const transcriptElicitation =
+        turn?.elicitation && typeof turn.elicitation === "object"
+          ? turn.elicitation
+          : null;
+      const embeddedElicitation = extractEmbeddedElicitation(
+        renderPage?.content || "",
+      );
+      const elicitationStatus = String(transcriptElicitation?.status || "")
+        .trim()
+        .toLowerCase();
+      const suppressAssistantContent =
+        !!embeddedElicitation &&
+        (elicitationStatus === "" ||
+          elicitationStatus === "pending" ||
+          elicitationStatus === "open");
       const renderedContent = renderPageIsActive
-        ? (renderPage?.content || '')
-        : (renderPage?.content || assistantFinal?.content || '');
-      rows.push(normalizeOne({
-        id: renderPage?.assistantMessageId || assistantFinal?.messageId || renderPage?.pageId || turnId,
-        messageId: renderPage?.assistantMessageId || assistantFinal?.messageId || '',
-        role: 'assistant',
-        interim: renderPageIsActive
-          ? 1
-          : (renderPage?.finalResponse || String(assistantFinal?.content || '').trim() !== '' ? 0 : 1),
-        content: suppressAssistantContent ? '' : renderedContent,
-        narration: renderPage?.narration || assistantPreamble?.content || '',
-        turnId,
-        turnStartedAt: turn?.createdAt || '',
-        turnStatus,
-        status: renderPage?.status || turnStatus,
-        createdAt: turn?.createdAt || '',
-        sequence: Number.isFinite(Number(renderPage?.sequence)) ? Number(renderPage.sequence) : null,
-        errorMessage: renderPage?.errorMessage || turn?.errorMessage || '',
-        linkedConversations,
-        executionGroup: normalizedExecutionPages[0] || null,
-        executionGroups: normalizedExecutionPages
-      }));
+        ? renderPage?.content || ""
+        : renderPage?.content || assistantFinal?.content || "";
+      rows.push(
+        normalizeOne({
+          id:
+            renderPage?.assistantMessageId ||
+            assistantFinal?.messageId ||
+            renderPage?.pageId ||
+            turnId,
+          messageId:
+            renderPage?.assistantMessageId || assistantFinal?.messageId || "",
+          role: "assistant",
+          interim: renderPageIsActive
+            ? 1
+            : renderPage?.finalResponse ||
+                String(assistantFinal?.content || "").trim() !== ""
+              ? 0
+              : 1,
+          content: suppressAssistantContent ? "" : renderedContent,
+          narration: renderPage?.narration || assistantPreamble?.content || "",
+          turnId,
+          turnStartedAt: turn?.createdAt || "",
+          turnStatus,
+          status: renderPage?.status || turnStatus,
+          createdAt: turn?.createdAt || "",
+          sequence: Number.isFinite(Number(renderPage?.sequence))
+            ? Number(renderPage.sequence)
+            : null,
+          errorMessage: renderPage?.errorMessage || turn?.errorMessage || "",
+          linkedConversations,
+          executionGroup: normalizedExecutionPages[0] || null,
+          executionGroups: normalizedExecutionPages,
+        }),
+      );
       hasExplicitAssistantRow = true;
       assistantRowSuppressesElicitationContent = suppressAssistantContent;
     }
 
-    if (!hasExplicitAssistantRow && ['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress', 'tool_calls'].includes(turnStatus)) {
-      rows.push(normalizeOne({
-        id: `turn:${turnId}:execution`,
-        role: 'assistant',
-        interim: 1,
-        content: '',
-        narration: assistantPreamble?.content || '',
-        turnId,
-        turnStartedAt: turn?.createdAt || '',
-        turnStatus,
-        status: turnStatus,
-        createdAt: turn?.createdAt || '',
-        errorMessage: turn?.errorMessage || '',
-        linkedConversations,
-        executionGroup: {
-          assistantMessageId: '',
-          parentMessageId: turn?.startedByMessageId || turn?.user?.messageId || '',
-          iteration: 1,
-          narration: assistantPreamble?.content || '',
-          content: '',
-          finalResponse: false,
+    if (
+      !hasExplicitAssistantRow &&
+      [
+        "running",
+        "thinking",
+        "processing",
+        "waiting_for_user",
+        "in_progress",
+        "tool_calls",
+      ].includes(turnStatus)
+    ) {
+      rows.push(
+        normalizeOne({
+          id: `turn:${turnId}:execution`,
+          role: "assistant",
+          interim: 1,
+          content: "",
+          narration: assistantPreamble?.content || "",
+          turnId,
+          turnStartedAt: turn?.createdAt || "",
+          turnStatus,
           status: turnStatus,
-          startedAt: turn?.createdAt || '',
-          modelSteps: [],
-          toolSteps: [],
-          toolCallsPlanned: []
-        },
-        executionGroups: [{
-          assistantMessageId: '',
-          parentMessageId: turn?.startedByMessageId || turn?.user?.messageId || '',
-          iteration: 1,
-          narration: assistantPreamble?.content || '',
-          content: '',
-          finalResponse: false,
-          status: turnStatus,
-          startedAt: turn?.createdAt || '',
-          modelSteps: [],
-          toolSteps: [],
-          toolCallsPlanned: []
-        }]
-      }));
+          createdAt: turn?.createdAt || "",
+          errorMessage: turn?.errorMessage || "",
+          linkedConversations,
+          executionGroup: {
+            assistantMessageId: "",
+            parentMessageId:
+              turn?.startedByMessageId || turn?.user?.messageId || "",
+            iteration: 1,
+            narration: assistantPreamble?.content || "",
+            content: "",
+            finalResponse: false,
+            status: turnStatus,
+            startedAt: turn?.createdAt || "",
+            modelSteps: [],
+            toolSteps: [],
+            toolCallsPlanned: [],
+          },
+          executionGroups: [
+            {
+              assistantMessageId: "",
+              parentMessageId:
+                turn?.startedByMessageId || turn?.user?.messageId || "",
+              iteration: 1,
+              narration: assistantPreamble?.content || "",
+              content: "",
+              finalResponse: false,
+              status: turnStatus,
+              startedAt: turn?.createdAt || "",
+              modelSteps: [],
+              toolSteps: [],
+              toolCallsPlanned: [],
+            },
+          ],
+        }),
+      );
       hasExplicitAssistantRow = true;
     }
 
-    if (!hasExplicitAssistantRow && assistantFinal && String(assistantFinal?.content || '').trim() !== '') {
-      rows.push(normalizeOne({
-        id: assistantFinal?.messageId || turnId,
-        role: 'assistant',
-        interim: 0,
-        content: assistantFinal?.content || '',
-        narration: assistantPreamble?.content || '',
-        turnId,
-        turnStatus,
-        status: turnStatus,
-        createdAt: turn?.createdAt || '',
-        errorMessage: turn?.errorMessage || '',
-        linkedConversations,
-        executionGroup: null,
-        executionGroups: normalizedExecutionPages
-      }));
+    if (
+      !hasExplicitAssistantRow &&
+      assistantFinal &&
+      String(assistantFinal?.content || "").trim() !== ""
+    ) {
+      rows.push(
+        normalizeOne({
+          id: assistantFinal?.messageId || turnId,
+          role: "assistant",
+          interim: 0,
+          content: assistantFinal?.content || "",
+          narration: assistantPreamble?.content || "",
+          turnId,
+          turnStatus,
+          status: turnStatus,
+          createdAt: turn?.createdAt || "",
+          errorMessage: turn?.errorMessage || "",
+          linkedConversations,
+          executionGroup: null,
+          executionGroups: normalizedExecutionPages,
+        }),
+      );
       hasExplicitAssistantRow = true;
     }
 
     if (summaryPages.length > 0) {
       const summaryPage = summaryPages[summaryPages.length - 1];
-      rows.push(normalizeOne({
-        id: summaryPage?.assistantMessageId || summaryPage?.pageId || `summary:${turnId}`,
-        role: 'assistant',
-        mode: 'summary',
-        interim: 0,
-        content: summaryPage?.content || '',
-        turnId,
-        turnStatus,
-        status: summaryPage?.status || turnStatus,
-        createdAt: turn?.createdAt || ''
-      }));
+      rows.push(
+        normalizeOne({
+          id:
+            summaryPage?.assistantMessageId ||
+            summaryPage?.pageId ||
+            `summary:${turnId}`,
+          role: "assistant",
+          mode: "summary",
+          interim: 0,
+          content: summaryPage?.content || "",
+          turnId,
+          turnStatus,
+          status: summaryPage?.status || turnStatus,
+          createdAt: turn?.createdAt || "",
+        }),
+      );
     }
 
-    if (turn?.elicitation && (!hasExplicitAssistantRow || assistantRowSuppressesElicitationContent)) {
+    if (
+      turn?.elicitation &&
+      (!hasExplicitAssistantRow || assistantRowSuppressesElicitationContent)
+    ) {
       const elic = turn.elicitation;
-      const embeddedElicitation = extractEmbeddedElicitation(turn?.assistant?.final?.content || '');
-      const elicitationMessage = displayableElicitationMessage(elic.message || '', embeddedElicitation);
+      const embeddedElicitation = extractEmbeddedElicitation(
+        turn?.assistant?.final?.content || "",
+      );
+      const elicitationMessage = displayableElicitationMessage(
+        elic.message || "",
+        embeddedElicitation,
+      );
       const elicitationStatus = normalizeHistoricalElicitationStatus(
         elic.status,
         turn?.assistant?.final?.status,
         turn?.assistant?.status,
-        turnStatus
-      );
-      rows.push(normalizeOne({
-        id: `elicitation:${elic.elicitationId || turnId}`,
-        role: 'assistant',
-        interim: 0,
-        content: elicitationMessage,
-        turnId,
         turnStatus,
-        status: elicitationStatus,
-        elicitationId: elic.elicitationId || '',
-        elicitation: {
-          elicitationId: elic.elicitationId || '',
+      );
+      rows.push(
+        normalizeOne({
+          id: `elicitation:${elic.elicitationId || turnId}`,
+          role: "assistant",
+          interim: 0,
+          content: elicitationMessage,
+          turnId,
+          turnStatus,
           status: elicitationStatus,
-          message: elicitationMessage,
-          requestedSchema: elic.requestedSchema || embeddedElicitation?.requestedSchema || null,
-          callbackURL: elic.callbackUrl || elic.callbackURL || ''
-        }
-      }));
+          elicitationId: elic.elicitationId || "",
+          elicitation: {
+            elicitationId: elic.elicitationId || "",
+            status: elicitationStatus,
+            message: elicitationMessage,
+            requestedSchema:
+              elic.requestedSchema ||
+              embeddedElicitation?.requestedSchema ||
+              null,
+            callbackURL: elic.callbackUrl || elic.callbackURL || "",
+          },
+        }),
+      );
     }
 
     for (const linked of linkedConversations) {
       if (!linked?.conversationId) continue;
-      rows.push(normalizeOne({
-        id: `linked:${linked.conversationId}`,
-        role: 'tool',
-        type: 'tool',
-        kind: 'tool',
-        reason: 'link',
-        toolName: 'llm/agents/run',
-        turnId,
-        turnStatus,
-        linkedConversationId: linked.conversationId,
-        linkedConversationAgentId: linked.agentId || '',
-        linkedConversationTitle: linked.title || '',
-        status: linked.status || '',
-        response: linked.response || '',
-        updatedAt: linked.updatedAt || '',
-        createdAt: linked.createdAt || ''
-      }));
+      rows.push(
+        normalizeOne({
+          id: `linked:${linked.conversationId}`,
+          role: "tool",
+          type: "tool",
+          kind: "tool",
+          reason: "link",
+          toolName: "llm/agents/run",
+          turnId,
+          turnStatus,
+          linkedConversationId: linked.conversationId,
+          linkedConversationAgentId: linked.agentId || "",
+          linkedConversationTitle: linked.title || "",
+          status: linked.status || "",
+          response: linked.response || "",
+          updatedAt: linked.updatedAt || "",
+          createdAt: linked.createdAt || "",
+        }),
+      );
     }
   }
 
@@ -522,7 +768,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
     const aSeq = Number(a?.queueSeq || 0);
     const bSeq = Number(b?.queueSeq || 0);
     if (aSeq !== bSeq) return aSeq - bSeq;
-    return String(a?.id || '').localeCompare(String(b?.id || ''));
+    return String(a?.id || "").localeCompare(String(b?.id || ""));
   });
   rows.sort(compareTemporalEntries);
   return { rows, queuedTurns, runningTurnId };
@@ -532,40 +778,64 @@ export function buildConversationRenderRows({
   transcriptRows = [],
   streamState = null,
   liveRows = [],
-  currentConversationID = '',
-  runningTurnId = '',
+  currentConversationID = "",
+  runningTurnId = "",
   hasRunning = false,
-  findLatestRunningTurnId = () => '',
-  liveOwnedConversationID = '',
-  liveOwnedTurnIds = []
+  findLatestRunningTurnId = () => "",
+  liveOwnedConversationID = "",
+  liveOwnedTurnIds = [],
 } = {}) {
-  const trackerActiveTurnId = String(streamState?.activeTurnId || '').trim();
-  const trackerTurns = projectTrackerToTurns(streamState, currentConversationID);
+  const trackerActiveTurnId = String(streamState?.activeTurnId || "").trim();
+  const trackerTurns = projectTrackerToTurns(
+    streamState,
+    currentConversationID,
+  );
   const explicitRows = (Array.isArray(liveRows) ? liveRows : []).map((row) => {
-    const role = String(row?.role || '').trim().toLowerCase();
-    const hasExecutionGroups = Array.isArray(row?.executionGroups) && row.executionGroups.length > 0;
-    if (role !== 'assistant' || hasExecutionGroups || Number(row?.interim ?? 0) !== 0) {
+    const role = String(row?.role || "")
+      .trim()
+      .toLowerCase();
+    const hasExecutionGroups =
+      Array.isArray(row?.executionGroups) && row.executionGroups.length > 0;
+    if (
+      role !== "assistant" ||
+      hasExecutionGroups ||
+      Number(row?.interim ?? 0) !== 0
+    ) {
       return row;
     }
     return {
       ...row,
-      _bubbleSource: String(row?._bubbleSource || '').trim() || 'message_add'
+      _bubbleSource: String(row?._bubbleSource || "").trim() || "message_add",
     };
   });
   const trackerRowsBase = buildCanonicalTranscriptRows(trackerTurns).rows;
   const trackerRows = trackerRowsBase.map((row) => {
-    if (String(row?.role || '').trim().toLowerCase() !== 'assistant') return row;
-    const rowId = String(row?.id || '').trim();
+    if (
+      String(row?.role || "")
+        .trim()
+        .toLowerCase() !== "assistant"
+    )
+      return row;
+    const rowId = String(row?.id || "").trim();
     if (!rowId) return row;
-    const matchingExplicit = explicitRows.find((entry) => (
-      String(entry?.role || '').trim().toLowerCase() === 'assistant'
-      && String(entry?.id || '').trim() === rowId
-    ));
+    const matchingExplicit = explicitRows.find(
+      (entry) =>
+        String(entry?.role || "")
+          .trim()
+          .toLowerCase() === "assistant" &&
+        String(entry?.id || "").trim() === rowId,
+    );
     if (!matchingExplicit) return row;
     return {
       ...row,
-      content: String(row?.content || '').trim() !== '' ? row.content : matchingExplicit?.content || row?.content || '',
-      narration: String(row?.narration || '').trim() !== '' ? row.narration : matchingExplicit?.narration || row?.narration || '',
+      content:
+        String(row?.content || "").trim() !== ""
+          ? row.content
+          : matchingExplicit?.content || row?.content || "",
+      narration:
+        String(row?.narration || "").trim() !== ""
+          ? row.narration
+          : matchingExplicit?.narration || row?.narration || "",
       isStreaming: matchingExplicit?.isStreaming,
       _streamContent: matchingExplicit?._streamContent,
       _streamFence: matchingExplicit?._streamFence,
@@ -574,20 +844,30 @@ export function buildConversationRenderRows({
   });
   const trackerAssistantTurnIds = new Set(
     trackerRows
-      .filter((row) => String(row?.role || '').trim().toLowerCase() === 'assistant')
-      .map((row) => String(row?.turnId || '').trim())
-      .filter(Boolean)
+      .filter(
+        (row) =>
+          String(row?.role || "")
+            .trim()
+            .toLowerCase() === "assistant",
+      )
+      .map((row) => String(row?.turnId || "").trim())
+      .filter(Boolean),
   );
   const effectiveLiveRows = [
     ...trackerRows,
     ...explicitRows.filter((row) => {
-      const type = String(row?._type || '').trim().toLowerCase();
-      if (type === 'stream') return true;
-      const role = String(row?.role || '').trim().toLowerCase();
-      if (role === 'user') return true;
-      if (role === 'assistant') {
-        const turnId = String(row?.turnId || '').trim();
-        const hasExecutionGroups = Array.isArray(row?.executionGroups) && row.executionGroups.length > 0;
+      const type = String(row?._type || "")
+        .trim()
+        .toLowerCase();
+      if (type === "stream") return true;
+      const role = String(row?.role || "")
+        .trim()
+        .toLowerCase();
+      if (role === "user") return true;
+      if (role === "assistant") {
+        const turnId = String(row?.turnId || "").trim();
+        const hasExecutionGroups =
+          Array.isArray(row?.executionGroups) && row.executionGroups.length > 0;
         if (!turnId || !trackerAssistantTurnIds.has(turnId)) return true;
         return !hasExecutionGroups && Number(row?.interim ?? 0) === 0;
       }
@@ -595,7 +875,7 @@ export function buildConversationRenderRows({
       // The tracker projection owns canonical live rendering; explicit rows are
       // only for transient overlays and optimistic user bubbles.
       return false;
-    })
+    }),
   ].sort(compareTemporalEntries);
   const mergedRows = mergeRenderedRows({
     transcriptRows: filterLiveOwnedTranscriptRows(
@@ -603,21 +883,36 @@ export function buildConversationRenderRows({
       currentConversationID,
       liveOwnedConversationID,
       trackerActiveTurnId
-        ? Array.from(new Set([...(Array.isArray(liveOwnedTurnIds) ? liveOwnedTurnIds : []), trackerActiveTurnId]))
-        : liveOwnedTurnIds
+        ? Array.from(
+            new Set([
+              ...(Array.isArray(liveOwnedTurnIds) ? liveOwnedTurnIds : []),
+              trackerActiveTurnId,
+            ]),
+          )
+        : liveOwnedTurnIds,
     ),
     liveRows: effectiveLiveRows,
-    runningTurnId: String(runningTurnId || '').trim(),
-    hasRunning: !!hasRunning || effectiveLiveRows.length > 0 || !!String(runningTurnId || '').trim(),
+    runningTurnId: String(runningTurnId || "").trim(),
+    hasRunning:
+      !!hasRunning ||
+      effectiveLiveRows.length > 0 ||
+      !!String(runningTurnId || "").trim(),
     findLatestRunningTurnId,
     currentConversationID,
     liveOwnedConversationID,
     liveOwnedTurnIds: trackerActiveTurnId
-      ? Array.from(new Set([...(Array.isArray(liveOwnedTurnIds) ? liveOwnedTurnIds : []), trackerActiveTurnId]))
-      : liveOwnedTurnIds
+      ? Array.from(
+          new Set([
+            ...(Array.isArray(liveOwnedTurnIds) ? liveOwnedTurnIds : []),
+            trackerActiveTurnId,
+          ]),
+        )
+      : liveOwnedTurnIds,
   });
   return {
     effectiveLiveRows,
-    mergedRows: (Array.isArray(mergedRows) ? mergedRows : []).filter((row) => !isNonRenderableAssistantPlaceholder(row))
+    mergedRows: (Array.isArray(mergedRows) ? mergedRows : []).filter(
+      (row) => !isNonRenderableAssistantPlaceholder(row),
+    ),
   };
 }

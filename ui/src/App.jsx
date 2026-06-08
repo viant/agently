@@ -1,7 +1,7 @@
 import React from 'react';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { HotkeysProvider } from '@blueprintjs/core';
-import { SettingProvider } from 'forge/core';
+import { SettingProvider, ensureUIBridgeClientId, maybeAutoStartUIBridge } from 'forge/core';
 import 'forge/packs/blueprint/index.jsx';
 import Root from './components/Root';
 import OAuthCallback from './components/OAuthCallback';
@@ -14,6 +14,7 @@ import { chatService } from './services/chatService';
 import { scheduleService } from './services/scheduleService';
 import { redirectToLogin } from './services/httpClient';
 import { buildWebClientContext } from './services/clientContext';
+import { prepareAgentlyDataConnectorRequest } from './services/datasourceRequestContext';
 import * as chatStore from './services/chatStore';
 import { installChatStoreMirror } from './services/chatRuntime';
 
@@ -27,9 +28,17 @@ if (typeof window !== 'undefined') {
   } catch (_) { /* ignore */ }
 }
 
+if (typeof window !== 'undefined') {
+  try {
+    ensureUIBridgeClientId(connectorConfig?.uiBridge?.clientId);
+    maybeAutoStartUIBridge({ endpoints, connectorConfig });
+  } catch (_) { /* ignore */ }
+}
+
 const services = {
   chat: chatService,
-  schedule: scheduleService
+  schedule: scheduleService,
+  prepareDataConnectorRequest: prepareAgentlyDataConnectorRequest,
 };
 
 const AgentlyAuthContext = React.createContext({

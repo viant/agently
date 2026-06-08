@@ -2,6 +2,7 @@
 
 default:
   appName: Agently
+  appIconRef: builtin:viant
   agent: chatter
   model: openai_gpt-5.4
   summaryModel: openai_gpt-5-mini
@@ -21,6 +22,7 @@ internalMCP:
   services:
     - system/exec
     - system/os
+    - system/goal
     - system/patch
     - orchestration/plan
     - llm/agents

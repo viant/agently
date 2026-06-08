@@ -114,7 +114,7 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
       const msg = String(submitMessage.mock.calls[0][0].message || '');
       expect(msg).toContain('Forge UI callback dispatched: spo_planner_submit');
       expect(msg).toContain('steward-SaveRecommendation');
-      expect(msg).toContain('Recommendation lifecycle advanced: Validate -> Execute.');
+      expect(msg).toContain('Stage lifecycle advanced: Validate -> Execute.');
       expect(msg).toContain('Next stage: Follow Up.');
 
       disconnect();
@@ -189,7 +189,7 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
       const call = submitMessage.mock.calls[0][0];
       expect(call.context).toBe(context);
       expect(call.message).toEqual({
-        content: 'Submit selected site recommendations for audience 7301206. Use the structured plannerSubmitEvent context and attempt steward-RecommendationPatch before answering. If selected rows span both target and exclusion, emit separate steward-RecommendationPatch tool calls per relationship group.',
+        content: 'Execute the planner submit event using the structured plannerSubmitEvent context. If plannerSubmitEvent.plannerSubmit.toolGuidance.tool is present, attempt that guided tool or its review flow before answering. Do not summarize selected rows in prose unless execution is blocked after attempting the guided path.',
         displayQuery: 'Submit selected site recommendations.',
         tools: ['steward-RecommendationPatch'],
         toolBundles: ['analyst-sitelist-tools'],
@@ -275,7 +275,7 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
       const msg = String(submitMessage.mock.calls[0][0].message || '');
       expect(msg).toContain('Forge UI callback blocked');
       expect(msg).toContain('blocked by evaluator verdict');
-      expect(msg).toContain('Recommendation lifecycle blocked at Validate');
+      expect(msg).toContain('Stage lifecycle blocked at Validate');
 
       disconnect();
     });

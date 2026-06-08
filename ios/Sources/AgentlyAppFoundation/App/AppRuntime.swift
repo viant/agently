@@ -186,6 +186,7 @@ public final class AppRuntime: ObservableObject {
             state.conversations = []
             state.activeConversationID = nil
             state.activeConversationState = nil
+            state.activeGoal = nil
             state.activeHostedWorkspace = nil
             state.activeTurnID = nil
             state.activeStreamSnapshot = nil
@@ -250,6 +251,7 @@ public final class AppRuntime: ObservableObject {
         streamTask?.cancel()
         state.activeConversationID = conversationID
         state.activeConversationState = nil
+        state.activeGoal = nil
         state.activeHostedWorkspace = nil
         state.activeTurnID = nil
         state.activeStreamSnapshot = nil
@@ -268,6 +270,7 @@ public final class AppRuntime: ObservableObject {
         streamTask?.cancel()
         state.activeConversationID = nil
         state.activeConversationState = nil
+        state.activeGoal = nil
         state.activeHostedWorkspace = nil
         state.activeTurnID = nil
         state.activeStreamSnapshot = nil
@@ -481,7 +484,9 @@ public final class AppRuntime: ObservableObject {
                     includeFeeds: true
                 )
             )
+            let goal = try await state.client.getGoal(conversationID: conversationID)
             state.activeConversationState = transcriptState
+            state.activeGoal = goal
             state.activeHostedWorkspace = resolvedHostedWorkspaceRestoreState(
                 conversationID: conversationID,
                 transcriptState: transcriptState
@@ -491,6 +496,7 @@ public final class AppRuntime: ObservableObject {
             logger.info("Loaded transcript state for conversation \(conversationID, privacy: .public)")
         } catch {
             state.activeConversationState = nil
+            state.activeGoal = nil
             state.activeHostedWorkspace = nil
             logger.error("Transcript load failed for conversation \(conversationID, privacy: .public): \(String(describing: error), privacy: .public)")
             state.streamErrorMessage = "Failed to load conversation state. \(error.localizedDescription)"

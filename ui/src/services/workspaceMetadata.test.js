@@ -7,7 +7,9 @@ import {
   normalizeWorkspaceModelInfos,
   normalizeWorkspaceModelOptions,
   publishWorkspaceMetadataSnapshot,
+  resolveWorkspaceAppIconRef,
   resolveWorkspaceAppName,
+  resolveWorkspaceBranding,
   subscribeWorkspaceMetadata,
 } from './workspaceMetadata'
 
@@ -76,5 +78,21 @@ describe('workspaceMetadata', () => {
     expect(resolveWorkspaceAppName({ appName: 'Steward' }, 'Agently')).toBe('Steward')
     expect(resolveWorkspaceAppName({ defaults: { appName: 'Workspace' } }, 'Agently')).toBe('Workspace')
     expect(resolveWorkspaceAppName({}, 'Agently')).toBe('Agently')
+  })
+
+  it('resolves workspace app icon ref from normalized metadata', () => {
+    expect(resolveWorkspaceAppIconRef({ appIconRef: 'builtin:viant' }, 'builtin:none')).toBe('builtin:viant')
+    expect(resolveWorkspaceAppIconRef({ defaults: { appIconRef: 'builtin:workspace' } }, 'builtin:none')).toBe('builtin:workspace')
+    expect(resolveWorkspaceAppIconRef({}, 'builtin:viant')).toBe('builtin:viant')
+  })
+
+  it('resolves workspace branding as a single contract', () => {
+    expect(resolveWorkspaceBranding({
+      appName: 'Steward',
+      appIconRef: 'builtin:viant',
+    })).toEqual({
+      appName: 'Steward',
+      appIconRef: 'builtin:viant',
+    })
   })
 })

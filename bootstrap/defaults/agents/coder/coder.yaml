@@ -70,6 +70,7 @@ tool:
     - resources
     - system/patch
     - system/exec
+    - system/goal
     - system/os
     - llm/agents
   items:

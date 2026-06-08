@@ -37,6 +37,25 @@ func TestDefaultAgentsExposeExactMessageAdd(t *testing.T) {
 	}
 }
 
+func TestDefaultWorkspaceConfigEnablesSystemGoal(t *testing.T) {
+	data, err := DefaultsFS.ReadFile("defaults/config.yaml")
+	if err != nil {
+		t.Fatalf("read defaults/config.yaml: %v", err)
+	}
+
+	var cfg struct {
+		InternalMCP struct {
+			Services []string `yaml:"services"`
+		} `yaml:"internalMCP"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("parse defaults/config.yaml: %v", err)
+	}
+	if !hasBundle(cfg.InternalMCP.Services, "system/goal") {
+		t.Fatalf("defaults/config.yaml: expected system/goal internal MCP service")
+	}
+}
+
 func hasToolItem(items []struct {
 	Name string `yaml:"name"`
 }, name string) bool {

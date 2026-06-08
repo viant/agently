@@ -1,7 +1,20 @@
 package com.viant.agently.android
 
+import com.viant.agentlysdk.WorkspaceMetadata
 import java.io.File
 import java.util.Locale
+
+internal fun resolveWorkspaceBrandLabel(
+    metadata: WorkspaceMetadata?,
+    fallbackLabel: String = "Agently"
+): String {
+    val explicit = metadata?.appName?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?: metadata?.defaults?.appName?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        ?: return fallbackLabel
+    return explicit
+}
 
 internal fun resolveWorkspaceBrandTitle(
     workspaceRoot: String?,

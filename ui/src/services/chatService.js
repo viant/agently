@@ -35,6 +35,7 @@ import {
   ensureContextResources,
   ensureConversation,
   fetchConversation,
+  refreshGoalFeed,
   fetchPendingElicitations,
   getSettledConversationBootstrapSnapshot,
   getVisibleIterations,
@@ -74,7 +75,7 @@ import { openCodeDiffDialog, openFileViewDialog, updateCodeDiffDialog, updateFil
 import ChatFeedFromChatStore from '../components/chat/ChatFeedFromChatStore.jsx';
 import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore } from './chatStore.js';
 import { conversationIDFromPath } from './chatRuntime';
-import { getScopedConversationSelection, MAIN_CHAT_WINDOW_ID, openConversationInMainWindow } from './conversationWindow';
+import { getScopedConversationSelection, MAIN_CHAT_WINDOW_ID, openConversationInMainWindow, syncScopedWorkspaceStateFromTranscriptTurns } from './conversationWindow';
 
 const DEFAULT_VISIBLE_ITERATIONS = Number.MAX_SAFE_INTEGER;
 const ITERATION_STEP = 1;
@@ -282,6 +283,7 @@ export async function onInit({ context }) {
         cachedTurnCount: Array.isArray(cachedSnapshot?.turns) ? cachedSnapshot.turns.length : 0
       });
       if (cachedSnapshot && hydrateConversationFromBootstrapSnapshot(context, cachedSnapshot)) {
+        await refreshGoalFeed(conversationID);
         publishActiveConversation(conversationID, context);
         renderMergedRowsForContext(context);
         return;
@@ -328,6 +330,7 @@ export async function onInit({ context }) {
             disconnectStream(context);
           }
         }
+        await refreshGoalFeed(conversationID);
         publishActiveConversation(conversationID, context);
       }
     }
@@ -647,6 +650,10 @@ export async function submitMessage({ context, message, model, agent }) {
       if (canonicalConversation?.conversationId) {
         applyTranscriptToChatStore(canonicalConversation.conversationId, canonicalConversation);
         prefetchedTranscriptTurns = Array.isArray(canonicalConversation?.turns) ? canonicalConversation.turns : [];
+        syncScopedWorkspaceStateFromTranscriptTurns(canonicalConversation.conversationId, prefetchedTranscriptTurns, {
+          reopen: false,
+          announce: true,
+        });
         const latestPrefetchedTurn = prefetchedTranscriptTurns[prefetchedTranscriptTurns.length - 1] || null;
         const latestPrefetchedTurnID = String(
           latestPrefetchedTurn?.turnId
