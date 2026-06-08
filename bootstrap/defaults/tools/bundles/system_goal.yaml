@@ -1,0 +1,7 @@
+id: system/goal
+title: System Goal
+description: Durable conversation goal tools
+iconRef: builtin:tools
+priority: 60
+match:
+  - name: "system/goal:*"
