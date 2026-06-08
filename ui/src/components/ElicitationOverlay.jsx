@@ -9,6 +9,7 @@ import {
   extractToolApprovalMeta,
   extractPlannerElicitationMeta,
   prepareRequestedSchema,
+  resolveElicitationTarget,
   resolveElicitationSubmitAction,
   triggerElicitationFormSubmit
 } from './elicitationHelpers';
@@ -47,6 +48,9 @@ export default function ElicitationOverlay({ context }) {
   const mode = pending?.mode || '';
   const conversationId = pending?.conversationId || '';
   const elicitationId = pending?.elicitationId || '';
+  const resolveTarget = useMemo(() => resolveElicitationTarget(pending, conversationId), [pending, conversationId]);
+  const resolveConversationId = resolveTarget.conversationId || conversationId;
+  const resolveElicitationId = resolveTarget.elicitationId || elicitationId;
   const resolvedStatus = String(pending?.status || '').trim().toLowerCase();
   const isResolvedHistory = !!resolvedStatus && !['pending', 'open', 'waiting_for_user', 'running'].includes(resolvedStatus);
   const plannerMeta = useMemo(() => extractPlannerElicitationMeta(schema), [schema]);
@@ -117,7 +121,7 @@ export default function ElicitationOverlay({ context }) {
   }, []);
 
   const resolve = useCallback(async (action, payload = null) => {
-    if (!conversationId || !elicitationId) {
+    if (!resolveConversationId || !resolveElicitationId) {
       setError('Missing conversation or elicitation id.');
       return;
     }
@@ -131,23 +135,27 @@ export default function ElicitationOverlay({ context }) {
     }
     console.log('[ElicitationOverlay] resolve', {
       action: resolvedAction, conversationId, elicitationId,
+      resolveConversationId, resolveElicitationId,
       payload: JSON.stringify(resolvedPayload).slice(0, 500)
     });
     setSubmitting(true);
     setError('');
     try {
-      await client.resolveElicitation(conversationId, elicitationId, {
+      await client.resolveElicitation(resolveConversationId, resolveElicitationId, {
         action: resolvedAction,
         payload: resolvedPayload
       });
       clearPendingElicitation();
-      await dsTick(context, { conversationID: conversationId });
+      await dsTick(context, { conversationID: conversationId || resolveConversationId });
+      if (resolveConversationId && resolveConversationId !== conversationId) {
+        await dsTick(context, { conversationID: resolveConversationId });
+      }
     } catch (err) {
       setError(String(err?.message || err || 'Failed'));
     } finally {
       setSubmitting(false);
     }
-  }, [conversationId, elicitationId, context, collectFormValues, plannerMeta, plannerRows]);
+  }, [conversationId, elicitationId, resolveConversationId, resolveElicitationId, context, collectFormValues, plannerMeta, plannerRows]);
 
   if (!pending || (!schema && !isOOB)) return null;
 
