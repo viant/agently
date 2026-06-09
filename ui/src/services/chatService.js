@@ -242,6 +242,198 @@ function matchesAgentIdentity(entry, selectedAgent) {
   return value === target || label === target;
 }
 
+const GOAL_COMMAND_HELP = 'Goal commands: /goal show · /goal set <objective> · /goal pause · /goal resume · /goal clear';
+
+function goalsCapabilityEnabled(context) {
+  const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+  return metaForm?.capabilities?.goals !== false;
+}
+
+function currentConversationId(context) {
+  return String(
+    context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.()?.id
+    || context?.resources?.chat?.activeConversationID
+    || ''
+  ).trim();
+}
+
+function goalConversationIdFromFeedContext(context) {
+  return String(
+    context?.identity?.conversationId
+    || context?.conversationId
+    || currentConversationId(context)
+    || ''
+  ).trim();
+}
+
+function isGoalAlreadyExistsError(err) {
+  return String(err?.message || err || '').toLowerCase().includes('goal already exists');
+}
+
+export function parseGoalCommand(text = '') {
+  const raw = String(text || '').trim();
+  if (!/^\/goal(\s|$)/i.test(raw)) return null;
+  const rest = raw.replace(/^\/goal\s*/i, '').trim();
+  if (!rest) return { action: 'show' };
+  const lower = rest.toLowerCase();
+  if (lower === 'show' || lower === 'status') return { action: 'show' };
+  if (lower === 'pause') return { action: 'pause' };
+  if (lower === 'resume') return { action: 'resume' };
+  if (lower === 'clear') return { action: 'clear' };
+  if (lower === 'help') return { action: 'help' };
+  if (/^set(\s|$)/i.test(rest)) {
+    const objective = rest.replace(/^set\s*/i, '').trim();
+    return { action: 'set', objective };
+  }
+  return { action: 'set', objective: rest };
+}
+
+export async function setConversationGoal({ context, objective }) {
+  const conversationID = currentConversationId(context);
+  if (!conversationID) {
+    showToast('Open or start a conversation before using /goal.', { intent: 'warning' });
+    return null;
+  }
+  const trimmedObjective = String(objective || '').trim();
+  if (!trimmedObjective) {
+    showToast('Provide an objective, e.g. /goal set ship the release.', { intent: 'warning' });
+    return null;
+  }
+  let goal = null;
+  try {
+    goal = await client.createGoal(conversationID, { objective: trimmedObjective });
+  } catch (err) {
+    if (!isGoalAlreadyExistsError(err)) throw err;
+    goal = await client.updateGoal(conversationID, { objective: trimmedObjective });
+  }
+  await refreshGoalFeed(conversationID);
+  await dsTick(context, { conversationID });
+  return goal;
+}
+
+export async function pauseConversationGoal({ context }) {
+  const conversationID = currentConversationId(context);
+  if (!conversationID) {
+    showToast('Open or start a conversation before using /goal.', { intent: 'warning' });
+    return null;
+  }
+  const goal = await client.updateGoal(conversationID, { status: 'paused' });
+  await refreshGoalFeed(conversationID);
+  await dsTick(context, { conversationID });
+  return goal;
+}
+
+export async function resumeConversationGoal({ context }) {
+  const conversationID = currentConversationId(context);
+  if (!conversationID) {
+    showToast('Open or start a conversation before using /goal.', { intent: 'warning' });
+    return null;
+  }
+  const goal = await client.updateGoal(conversationID, { status: 'active' });
+  await refreshGoalFeed(conversationID);
+  await dsTick(context, { conversationID });
+  return goal;
+}
+
+export async function clearConversationGoal({ context }) {
+  const conversationID = currentConversationId(context);
+  if (!conversationID) {
+    showToast('Open or start a conversation before using /goal.', { intent: 'warning' });
+    return false;
+  }
+  await client.clearGoal(conversationID);
+  await refreshGoalFeed(conversationID);
+  await dsTick(context, { conversationID });
+  return true;
+}
+
+export async function handleGoalCommand({ context, command }) {
+  const parsed = command && typeof command === 'object' ? command : null;
+  if (!parsed) return false;
+  if (!goalsCapabilityEnabled(context)) {
+    showToast('Goals are not enabled in this workspace.', { intent: 'warning' });
+    return true;
+  }
+  const conversationID = currentConversationId(context);
+  if (!conversationID) {
+    showToast('Open or start a conversation before using /goal.', { intent: 'warning' });
+    return true;
+  }
+  switch (parsed.action) {
+    case 'show': {
+      const goal = await client.getGoal(conversationID);
+      if (!goal) {
+        showToast('No goal set for this conversation.', { intent: 'info' });
+        return true;
+      }
+      showToast(`${goal.objective} (${goal.status})`, { intent: 'info' });
+      await refreshGoalFeed(conversationID);
+      return true;
+    }
+    case 'set':
+      await setConversationGoal({ context, objective: parsed.objective });
+      return true;
+    case 'pause':
+      await pauseConversationGoal({ context });
+      return true;
+    case 'resume':
+      await resumeConversationGoal({ context });
+      return true;
+    case 'clear':
+      await clearConversationGoal({ context });
+      return true;
+    case 'help':
+      showToast(GOAL_COMMAND_HELP, { intent: 'info' });
+      return true;
+    default:
+      return false;
+  }
+}
+
+export async function saveGoalFeedForm({ context }) {
+  const conversationID = goalConversationIdFromFeedContext(context);
+  if (!conversationID) return null;
+  const formData = context?.handlers?.dataSource?.getFormData?.() || {};
+  const objective = String(formData?.objective || '').trim();
+  if (!objective) {
+    showToast('Provide a goal objective before saving.', { intent: 'warning' });
+    return null;
+  }
+  let goal = null;
+  try {
+    goal = await client.createGoal(conversationID, { objective });
+  } catch (err) {
+    if (!isGoalAlreadyExistsError(err)) throw err;
+    goal = await client.updateGoal(conversationID, { objective });
+  }
+  await refreshGoalFeed(conversationID);
+  return goal;
+}
+
+export async function pauseGoalFeed({ context }) {
+  const conversationID = goalConversationIdFromFeedContext(context);
+  if (!conversationID) return null;
+  const goal = await client.updateGoal(conversationID, { status: 'paused' });
+  await refreshGoalFeed(conversationID);
+  return goal;
+}
+
+export async function resumeGoalFeed({ context }) {
+  const conversationID = goalConversationIdFromFeedContext(context);
+  if (!conversationID) return null;
+  const goal = await client.updateGoal(conversationID, { status: 'active' });
+  await refreshGoalFeed(conversationID);
+  return goal;
+}
+
+export async function clearGoalFeed({ context }) {
+  const conversationID = goalConversationIdFromFeedContext(context);
+  if (!conversationID) return false;
+  await client.clearGoal(conversationID);
+  await refreshGoalFeed(conversationID);
+  return true;
+}
+
 export async function onInit({ context }) {
   logExecutorDebug('chat-service-init', {
     windowId: String(context?.identity?.windowId || '').trim(),
@@ -442,6 +634,11 @@ export async function submitMessage({ context, message, model, agent }) {
   const rawQuery = typeof message === 'string'
     ? message.trim()
     : String(message?.content || message?.text || message?.value || '').trim();
+  const goalCommand = parseGoalCommand(rawQuery);
+  if (goalCommand) {
+    await handleGoalCommand({ context, command: goalCommand });
+    return;
+  }
   const selectedAgent = sanitizeAutoSelection(agent || '');
   const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
   const convForm = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
@@ -1527,6 +1724,16 @@ export const chatService = {
   showHeaderChainStatus,
   toggleChains,
   submitMessage,
+  parseGoalCommand,
+  handleGoalCommand,
+  setConversationGoal,
+  pauseConversationGoal,
+  resumeConversationGoal,
+  clearConversationGoal,
+  saveGoalFeedForm,
+  pauseGoalFeed,
+  resumeGoalFeed,
+  clearGoalFeed,
   onSettings,
   onUpload,
   saveSettings,
