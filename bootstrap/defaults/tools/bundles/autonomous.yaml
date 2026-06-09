@@ -1,0 +1,8 @@
+id: autonomous
+title: Autonomous
+description: Goal and async autonomy helpers
+iconRef: builtin:tools
+priority: 58
+match:
+  - name: "system/goal:*"
+  - name: "system/async:*"
