@@ -1,0 +1,76 @@
+id: goal
+title: Goal
+
+dataSource:
+  goalState:
+    source: goal
+
+ui:
+  title: Goal
+  renderMode: forge
+  dataSources:
+    goalState:
+      source: goal
+  containers:
+    - id: goalEditor
+      title: Goal
+      dataSourceRef: goalState
+      style:
+        background: '#ffffff'
+        border: 1px solid #d8e1ea
+        borderRadius: 14px
+        padding: 12px
+        boxShadow: 0 10px 24px rgba(15, 23, 42, 0.05)
+      schemaBasedForm:
+        id: goalForm
+        dataSourceRef: goalState
+        showSubmit: false
+        schema:
+          type: object
+          properties:
+            objective:
+              type: string
+              title: Objective
+            status:
+              type: string
+              title: Status
+            statusReason:
+              type: string
+              title: Status reason
+            pauseReason:
+              type: string
+              title: Pause reason
+            tokensUsed:
+              type: integer
+              title: Tokens used
+            timeUsedSeconds:
+              type: integer
+              title: Time used (s)
+      toolbar:
+        className: app-feed-toolbar
+        items:
+          - id: saveGoal
+            label: Save
+            icon: floppy-disk
+            on:
+              - event: onClick
+                handler: chat.saveGoalFeedForm
+          - id: pauseGoal
+            label: Pause
+            icon: pause
+            on:
+              - event: onClick
+                handler: chat.pauseGoalFeed
+          - id: resumeGoal
+            label: Resume
+            icon: play
+            on:
+              - event: onClick
+                handler: chat.resumeGoalFeed
+          - id: clearGoal
+            label: Clear
+            icon: cross
+            align: right
+            on:
+              - event: onClick
+                handler: chat.clearGoalFeed

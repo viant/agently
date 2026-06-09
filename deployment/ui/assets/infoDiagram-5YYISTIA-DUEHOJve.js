@@ -1,2 +1,0 @@
-import{c as e,l as s,P as o,j as i}from"./index-DgKmoLOo.js";import{p as g}from"./wardley-L42UT6IY-DGY7rE-i.js";var p={parse:e(async r=>{const a=await g("info",r);s.debug(a)},"parse")},v={version:"11.15.0"},d=e(()=>v.version,"getVersion"),c={getVersion:d},m=e((r,a,n)=>{s.debug(`rendering info diagram
-`+r);const t=o(a);i(t,100,400,!0),t.append("g").append("text").attr("x",100).attr("y",40).attr("class","version").attr("font-size",32).style("text-anchor","middle").text(`v${n}`)},"draw"),l={draw:m},_={parser:p,db:c,renderer:l};export{_ as diagram};
