@@ -1518,9 +1518,17 @@ export function buildIterationDataFromCanonicalRow(canonicalRow = null, message 
     return message?._iterationData || {};
   }
   const rounds = Array.isArray(canonicalRow?.rounds) ? canonicalRow.rounds : [];
+  const canonicalElicitations = Array.isArray(canonicalRow?.elicitations)
+    ? canonicalRow.elicitations.filter((item) => item && typeof item === 'object')
+    : [];
   const canonicalElicitation = canonicalRow?.elicitation && typeof canonicalRow.elicitation === 'object'
     ? canonicalRow.elicitation
-    : null;
+    : (canonicalElicitations[0] || null);
+  const elicitations = canonicalElicitations.length > 0
+    ? canonicalElicitations
+    : (Array.isArray(message?._iterationData?.elicitations) && message._iterationData.elicitations.length > 0
+      ? message._iterationData.elicitations
+      : (canonicalElicitation ? [canonicalElicitation] : []));
   const executionGroups = rounds.map((round) => ({
     pageId: round?.pageId || round?.renderKey || '',
     assistantMessageId: (Array.isArray(round?.modelSteps) ? round.modelSteps[0]?.assistantMessageId : '') || '',
@@ -1544,6 +1552,7 @@ export function buildIterationDataFromCanonicalRow(canonicalRow = null, message 
     turnStartedAt: canonicalRow?.turnStartedAt || '',
     narration: firstNarration ? { content: firstNarration } : (message?._iterationData?.narration || null),
     elicitation: canonicalElicitation || message?._iterationData?.elicitation || null,
+    elicitations,
     elicitationId: canonicalElicitation?.elicitationId || message?._iterationData?.elicitationId || '',
     elicitationStatus: canonicalElicitation?.status || message?._iterationData?.elicitationStatus || '',
     response: {
@@ -1551,6 +1560,7 @@ export function buildIterationDataFromCanonicalRow(canonicalRow = null, message 
       content: finalContent || message?._iterationData?.response?.content || '',
       status: canonicalRow?.lifecycle || message?._iterationData?.response?.status || '',
       elicitation: canonicalElicitation || message?._iterationData?.response?.elicitation || null,
+      elicitations,
       elicitationId: canonicalElicitation?.elicitationId || message?._iterationData?.response?.elicitationId || '',
       elicitationStatus: canonicalElicitation?.status || message?._iterationData?.response?.elicitationStatus || '',
     },
@@ -1691,15 +1701,58 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
         status: String(last?.status || data?.status || 'completed').trim() || 'completed'
       };
     }
-    // Inject elicitation as a step in the last group so it appears in execution details.
-    const elic = message?.elicitation || data?.elicitation || data?.response?.elicitation;
-    const elicId = String(message?.elicitationId || data?.elicitationId || data?.response?.elicitationId || data?.response?.elicitation?.elicitationId || '').trim();
-    if (elic && elicId && groups.length > 0) {
+    // Inject elicitations as steps in the last group so they appear in execution details.
+    const rawElicitations = Array.isArray(message?.elicitations) && message.elicitations.length > 0
+      ? message.elicitations
+      : (Array.isArray(data?.elicitations) && data.elicitations.length > 0
+        ? data.elicitations
+        : (Array.isArray(data?.response?.elicitations) && data.response.elicitations.length > 0
+          ? data.response.elicitations
+          : []));
+    const fallbackElicitation = message?.elicitation || data?.elicitation || data?.response?.elicitation;
+    const fallbackElicitationId = String(message?.elicitationId || data?.elicitationId || data?.response?.elicitationId || data?.response?.elicitation?.elicitationId || '').trim();
+    const elicitationItems = rawElicitations.length > 0
+      ? rawElicitations
+      : (fallbackElicitation && fallbackElicitationId ? [{ ...fallbackElicitation, elicitationId: fallbackElicitationId }] : []);
+    if (elicitationItems.length > 0 && groups.length === 0) {
+      groups = [{
+        id: `elicitation-group:${String(data?.turnId || message?.turnId || 'turn').trim() || 'turn'}`,
+        groupKind: 'tool',
+        title: 'Needs input',
+        fullTitle: 'Needs input',
+        narrationContent: '',
+        modelStep: null,
+        toolSteps: [],
+        detailStep: null,
+        status: String(data?.status || message?.status || 'pending').trim() || 'pending',
+        errorMessage: '',
+        finalResponse: false,
+        finalContent: '',
+        elapsed: '',
+        stepCount: 0
+      }];
+    }
+    if (elicitationItems.length > 0 && groups.length > 0) {
       const last = groups[groups.length - 1];
-      const alreadyPresent = last.toolSteps.some((s) => s.elicitationId === elicId);
-      if (!alreadyPresent) {
+      const existingToolSteps = Array.isArray(last.toolSteps) ? last.toolSteps : [];
+      const terminalLifecycleSteps = existingToolSteps.filter((step) => {
+        const kind = String(step?.kind || '').trim().toLowerCase();
+        const reason = String(step?.reason || step?.toolName || '').trim().toLowerCase();
+        return kind === 'turn' && (reason === 'turn_completed' || reason === 'turn_failed' || reason === 'turn_canceled' || reason === 'turn_cancelled');
+      });
+      const nonTerminalSteps = existingToolSteps.filter((step) => !terminalLifecycleSteps.includes(step));
+      const existingElicitationIds = new Set(nonTerminalSteps
+        .filter((step) => String(step?.kind || '').trim().toLowerCase() === 'elicitation')
+        .map((step) => String(step?.elicitationId || '').trim())
+        .filter(Boolean));
+      const elicitationSteps = [];
+      for (const elic of elicitationItems) {
+        const elicId = String(elic?.elicitationId || elic?.ElicitationId || '').trim();
+        if (!elicId || existingElicitationIds.has(elicId)) continue;
+        existingElicitationIds.add(elicId);
         const elicStatus = normalizeElicitationStatus(
           elic?.status
+          || elic?.elicitationStatus
           || message?.elicitationStatus
           || data?.elicitationStatus
           || data?.response?.elicitationStatus
@@ -1707,7 +1760,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
           || data?.response?.status
           || data?.status
         ) || 'pending';
-        const elicStep = {
+        elicitationSteps.push({
           id: `elicitation:${elicId}`,
           elicitationId: elicId,
           kind: 'elicitation',
@@ -1720,27 +1773,22 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
           latencyMs: null,
           requestedSchema: elic?.requestedSchema || null,
           callbackURL: elic?.callbackUrl || elic?.callbackURL || '',
-          conversationId: String(message?.conversationId || data?.conversationId || '').trim(),
-          turnId: String(message?.turnId || data?.turnId || '').trim(),
+          conversationId: String(elic?.conversationId || message?.conversationId || data?.conversationId || '').trim(),
+          turnId: String(elic?.turnId || message?.turnId || data?.turnId || '').trim(),
           url: elic?.url || '',
           mode: elic?.mode || ''
-        };
-        const existingToolSteps = Array.isArray(last.toolSteps) ? last.toolSteps : [];
-        const terminalLifecycleSteps = existingToolSteps.filter((step) => {
-          const kind = String(step?.kind || '').trim().toLowerCase();
-          const reason = String(step?.reason || step?.toolName || '').trim().toLowerCase();
-          return kind === 'turn' && (reason === 'turn_completed' || reason === 'turn_failed' || reason === 'turn_canceled' || reason === 'turn_cancelled');
         });
-        const nonTerminalSteps = existingToolSteps.filter((step) => !terminalLifecycleSteps.includes(step));
+      }
+      if (elicitationSteps.length > 0) {
         groups[groups.length - 1] = {
           ...last,
-          toolSteps: [...nonTerminalSteps, elicStep, ...terminalLifecycleSteps],
-          stepCount: last.stepCount + 1
+          toolSteps: [...nonTerminalSteps, ...elicitationSteps, ...terminalLifecycleSteps],
+          stepCount: Number(last.stepCount || 0) + elicitationSteps.length
         };
       }
     }
     return groups;
-  }, [data, message?.elicitation, message?.elicitationId, message?.status, message?.createdAt, data?.elicitation, data?.elicitationId, data?.response?.elicitation, data?.response?.elicitationId, data?.response?.status]);
+  }, [data, message?.elicitation, message?.elicitationId, message?.elicitations, message?.status, message?.createdAt, data?.elicitation, data?.elicitationId, data?.elicitations, data?.response?.elicitation, data?.response?.elicitationId, data?.response?.elicitations, data?.response?.status]);
   const includeExecutionGroup = (group) => {
     const groupKind = String(group?.groupKind || '').trim().toLowerCase();
     if (groupKind === 'intake' && !showIntakeDetails) return false;

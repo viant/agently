@@ -35,6 +35,7 @@ import {
 import {
   applyAssistantMessageAddEvent,
   applyElicitationRequestedEvent,
+  applyElicitationResolvedEvent,
   applyExecutionStreamEvent,
   applyMessagePatchEvent,
   applyPreambleEvent,
@@ -2296,7 +2297,8 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
           requestedSchema,
           callbackURL: String(payload?.callbackUrl || '').trim(),
           url: elicUrl,
-          mode: elicMode
+          mode: elicMode,
+          source: 'stream'
         });
       }
 
@@ -2309,6 +2311,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
     if (type === 'elicitation_resolved') {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
+      applyElicitationResolvedEvent(chatState, payload);
       removePendingElicitation({
         conversationId: String(payload?.conversationId || payload?.streamId || conversationID || '').trim(),
         elicitationId: String(payload?.elicitationId || '').trim()

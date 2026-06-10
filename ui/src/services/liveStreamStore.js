@@ -330,6 +330,32 @@ function findAssistantExecutionRowIndex(rows, turnId, assistantMessageId) {
   return -1;
 }
 
+function findElicitationRowIndex(rows, elicitationId, assistantMessageId) {
+  if (!Array.isArray(rows)) return -1;
+  const eid = String(elicitationId || '').trim();
+  const amid = String(assistantMessageId || '').trim();
+  if (!eid && !amid) return -1;
+  return rows.findIndex((row) => {
+    if (eid && String(row?.elicitationId || '').trim() === eid) return true;
+    if (amid && String(row?.id || '').trim() === amid) return true;
+    const list = Array.isArray(row?.elicitations) ? row.elicitations : [];
+    return eid && list.some((item) => String(item?.elicitationId || '').trim() === eid);
+  });
+}
+
+function upsertElicitation(list, next) {
+  const eid = String(next?.elicitationId || '').trim();
+  if (!eid) return Array.isArray(list) ? list : [];
+  const existing = Array.isArray(list) ? [...list] : [];
+  const index = existing.findIndex((item) => String(item?.elicitationId || '').trim() === eid);
+  if (index >= 0) {
+    existing[index] = { ...existing[index], ...next };
+    return existing;
+  }
+  existing.push(next);
+  return existing;
+}
+
 function isAssistantPlaceholderId(id = '', turnId = '') {
   const rowId = String(id || '').trim();
   const tid = String(turnId || '').trim();
@@ -1167,12 +1193,6 @@ export function applyElicitationRequestedEvent(chatState = {}, payload = {}) {
     || elicitationData?.schema
     || elicitationData
     || null;
-  const elicitation = {
-    elicitationId,
-    message,
-    requestedSchema,
-    callbackURL
-  };
 
   // Build the callbackURL for the resolve endpoint if not provided by the event.
   const conversationId = String(payload?.conversationId || payload?.streamId || '').trim();
@@ -1180,22 +1200,39 @@ export function applyElicitationRequestedEvent(chatState = {}, payload = {}) {
     || (conversationId && elicitationId
       ? `/v1/elicitations/${encodeURIComponent(conversationId)}/${encodeURIComponent(elicitationId)}/resolve`
       : '');
+  const elicitation = {
+    elicitationId,
+    message,
+    requestedSchema,
+    callbackURL: resolvedCallbackURL,
+    conversationId,
+    turnId,
+    status: 'pending',
+    url: String(elicitationData?.url || elicitationData?.Url || '').trim(),
+    mode: String(elicitationData?.mode || elicitationData?.Mode || '').trim()
+  };
 
   const rows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
-  const index = findAssistantExecutionRowIndex(rows, turnId, assistantMessageId);
+  let index = findAssistantExecutionRowIndex(rows, turnId, assistantMessageId);
+  if (index < 0) {
+    index = findElicitationRowIndex(rows, elicitationId, assistantMessageId);
+  }
   if (index >= 0) {
     const prev = rows[index];
+    const elicitations = upsertElicitation(prev.elicitations || (prev.elicitation ? [prev.elicitation] : []), elicitation);
+    const firstElicitation = elicitations[0] || elicitation;
     rows[index] = {
       ...prev,
       // Replace raw streamed content (e.g. LLM-generated JSON) with the
       // elicitation message so the UI no longer displays raw JSON blocks.
-    content: message || prev.content,
-    _streamContent: '',
-    _streamFence: null,
-      elicitation,
-      elicitationId,
-      callbackURL: resolvedCallbackURL,
-      conversationId,
+      content: message || prev.content,
+      _streamContent: '',
+      _streamFence: null,
+      elicitations,
+      elicitation: firstElicitation,
+      elicitationId: firstElicitation.elicitationId,
+      callbackURL: firstElicitation.callbackURL,
+      conversationId: firstElicitation.conversationId,
       status: 'pending'
     };
   } else {
@@ -1209,6 +1246,7 @@ export function applyElicitationRequestedEvent(chatState = {}, payload = {}) {
       status: 'pending',
       interim: 1,
       content: message,
+      elicitations: [elicitation],
       elicitation,
       elicitationId,
       callbackURL: resolvedCallbackURL,
@@ -1220,6 +1258,45 @@ export function applyElicitationRequestedEvent(chatState = {}, payload = {}) {
   }
   chatState.liveRows = rows;
   return rows;
+}
+
+export function applyElicitationResolvedEvent(chatState = {}, payload = {}) {
+  const elicitationId = String(payload?.elicitationId || '').trim();
+  if (!elicitationId) return chatState.liveRows || [];
+  const status = String(payload?.status || 'accepted').trim().toLowerCase() || 'accepted';
+  const rows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
+  let changed = false;
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    const elicitations = Array.isArray(row?.elicitations)
+      ? row.elicitations
+      : (row?.elicitation ? [row.elicitation] : []);
+    if (!elicitations.some((item) => String(item?.elicitationId || '').trim() === elicitationId)) {
+      continue;
+    }
+    const nextElicitations = elicitations.map((item) => (
+      String(item?.elicitationId || '').trim() === elicitationId
+        ? {
+          ...item,
+          status,
+          responsePayload: payload?.responsePayload || item?.responsePayload || null,
+          completedAt: String(payload?.completedAt || payload?.createdAt || item?.completedAt || '').trim()
+        }
+        : item
+    ));
+    const firstElicitation = nextElicitations[0] || null;
+    rows[index] = {
+      ...row,
+      elicitations: nextElicitations,
+      elicitation: firstElicitation || row.elicitation || null,
+      elicitationId: firstElicitation?.elicitationId || row.elicitationId || ''
+    };
+    changed = true;
+  }
+  if (changed) {
+    chatState.liveRows = rows;
+  }
+  return chatState.liveRows || [];
 }
 
 export function applyPreambleEvent(chatState = {}, payload = {}, fallbackConversationID = '') {
