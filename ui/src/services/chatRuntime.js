@@ -1230,9 +1230,23 @@ export function publishActiveConversation(conversationID = '', context = null) {
   const currentRouteConversationId = isMainChatWindowId(targetWindowId) && typeof window !== 'undefined'
     ? conversationIDFromPath(window.location?.pathname)
     : '';
+  const activeConversationId = String(getCurrentConversationID(context) || '').trim();
   publishConversationSelection(targetWindowId, id, {
+    // Keep the URL in lockstep with the scoped selection for the main window so
+    // Root.jsx (route-first) and the poller (scoped-first) can never resolve to
+    // different conversations and ping-pong. We realign the path when:
+    //   - there is no route id yet (deep-link bootstrap / new conversation), or
+    //   - the route already matches (no-op), or
+    //   - this context is genuinely active on `id` (form/activeConversationID),
+    //     which is the divergence the oscillation came from.
+    // We intentionally do NOT sync when a stale/background completion publishes
+    // an id this context isn't actually on, so it can't hijack the user's route.
     syncPath: isMainChatWindowId(targetWindowId)
-      && (!currentRouteConversationId || currentRouteConversationId === id),
+      && (
+        !currentRouteConversationId
+        || currentRouteConversationId === id
+        || (!!id && id === activeConversationId)
+      ),
     eventType: 'forge:conversation-active'
   });
 }
@@ -2806,7 +2820,13 @@ export function startPolling(context) {
       )
       : '';
     const currentID = getCurrentConversationID(context);
-    if (desiredID && desiredID !== currentID) {
+    const switchingID = String(chatState.switchingConversationID || '').trim();
+    // Don't enqueue another switch while one is already in flight; otherwise a
+    // route-driven switch (Root.jsx) and this scoped-selection poller can keep
+    // re-queuing opposite targets and ping-pong between conversations. The
+    // in-flight switch always clears switchingConversationID before returning,
+    // so the next tick re-evaluates against the settled state.
+    if (desiredID && desiredID !== currentID && !switchingID) {
       void enqueueConversationSwitch(context, desiredID);
       return;
     }
