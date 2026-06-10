@@ -339,6 +339,10 @@ public final class AppRuntime: ObservableObject {
             return
         }
         guard !text.isEmpty else { return }
+        if let command = parseGoalCommand(text) {
+            await handleGoalCommand(command)
+            return
+        }
         logger.info("Sending query with \(self.composerRuntime.attachments.count, privacy: .public) attachment(s)")
         state.streamErrorMessage = nil
         do {
@@ -391,6 +395,89 @@ public final class AppRuntime: ObservableObject {
             }
         } catch {
             logger.error("Query send threw error: \(String(describing: error), privacy: .public)")
+            queryRuntime.lastError = error.localizedDescription
+        }
+    }
+
+    private enum GoalCommandAction {
+        case show
+        case set(String)
+        case pause
+        case resume
+        case clear
+        case help
+    }
+
+    private func parseGoalCommand(_ text: String) -> GoalCommandAction? {
+        let raw = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard raw.lowercased().hasPrefix("/goal") else { return nil }
+        let rest = raw.dropFirst(5).trimmingCharacters(in: .whitespacesAndNewlines)
+        if rest.isEmpty { return .show }
+        let lower = rest.lowercased()
+        switch lower {
+        case "show", "status":
+            return .show
+        case "pause":
+            return .pause
+        case "resume":
+            return .resume
+        case "clear":
+            return .clear
+        case "help":
+            return .help
+        default:
+            if lower.hasPrefix("set ") {
+                let objective = String(rest.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+                return .set(objective)
+            }
+            return .set(String(rest))
+        }
+    }
+
+    private func handleGoalCommand(_ command: GoalCommandAction) async {
+        guard let conversationID = state.activeConversationID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !conversationID.isEmpty else {
+            state.streamErrorMessage = "Open an existing conversation before using /goal."
+            return
+        }
+        do {
+            switch command {
+            case .show:
+                let goal = try await state.client.getGoal(conversationID: conversationID)
+                state.activeGoal = goal
+            case .set(let objective):
+                let trimmed = objective.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else {
+                    state.streamErrorMessage = "Provide a goal objective after /goal set."
+                    return
+                }
+                do {
+                    _ = try await state.client.createGoal(conversationID: conversationID, CreateGoalInput(objective: trimmed))
+                } catch {
+                    if String(describing: error).lowercased().contains("goal already exists") {
+                        _ = try await state.client.updateGoal(conversationID: conversationID, UpdateGoalInput(objective: trimmed))
+                    } else {
+                        throw error
+                    }
+                }
+            case .pause:
+                _ = try await state.client.updateGoal(conversationID: conversationID, UpdateGoalInput(status: "paused"))
+            case .resume:
+                _ = try await state.client.updateGoal(conversationID: conversationID, UpdateGoalInput(status: "active"))
+            case .clear:
+                try await state.client.clearGoal(conversationID: conversationID)
+            case .help:
+                state.streamErrorMessage = "Goal commands: /goal show, /goal set <objective>, /goal pause, /goal resume, /goal clear"
+                return
+            }
+            await loadConversationState(conversationID: conversationID)
+            await refreshConversationList()
+            startStreaming(conversationID: conversationID)
+            composerRuntime.query = ""
+            state.streamErrorMessage = nil
+            queryRuntime.lastError = nil
+        } catch {
+            state.streamErrorMessage = error.localizedDescription
             queryRuntime.lastError = error.localizedDescription
         }
     }
