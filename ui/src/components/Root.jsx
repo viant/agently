@@ -10,6 +10,7 @@ import DetailPopoutWindow from './DetailPopoutWindow';
 import CodeDiffDialog from './CodeDiffDialog';
 import ConfirmDialog from './ConfirmDialog';
 import FileViewDialog from './FileViewDialog';
+import GoalDraftDialog from './GoalDraftDialog';
 import MenuBar, { refreshWindowDataSources } from './MenuBar';
 import ToolFeedWorkspace from './ToolFeedWorkspace';
 import UsageBar from './UsageBar';
@@ -21,6 +22,7 @@ import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, ensureWorkspaceWindowForConversat
 import { AGENTLY_UI_BUILD } from '../buildInfo';
 import { conversationIDFromPath, publishActiveConversation } from '../services/chatRuntime';
 import { beginLogin, getAuthMeSilently, getAuthProvidersSilently, recoverSessionSilently } from '../services/agentlyClient';
+import { onGoalDraftOpen } from '../services/goalDraftBus';
 
 const SIDEBAR_WIDTH_KEY = 'agently.sidebarWidth';
 const SIDEBAR_DEFAULT_WIDTH = 320;
@@ -371,6 +373,7 @@ export default function Root() {
     } catch (_) {}
     return true;
   });
+  const [goalDraftState, setGoalDraftState] = useState({ isOpen: false, conversationId: '', initialDraft: '' });
   const [workspacePresentationMode, setWorkspacePresentationModeState] = useState('split');
   const [workspaceHeight, setWorkspaceHeight] = useState(WORKSPACE_DEFAULT_HEIGHT);
   const [stableMainChatWindow, setStableMainChatWindow] = useState(null);
@@ -585,6 +588,16 @@ export default function Root() {
       window.removeEventListener('agently:authorized', onAuthorized);
     };
   }, []);
+
+  useEffect(() => onGoalDraftOpen((detail) => {
+    const conversationId = String(
+      detail?.conversationId
+      || getScopedConversationSelection(MAIN_CHAT_WINDOW_ID)
+      || ''
+    ).trim();
+    const initialDraft = String(detail?.initialDraft || '').trim();
+    setGoalDraftState({ isOpen: true, conversationId, initialDraft });
+  }), []);
 
   useEffect(() => {
     if (authState !== 'required' || typeof window === 'undefined') {
@@ -1162,6 +1175,12 @@ export default function Root() {
       <CodeDiffDialog />
       <ConfirmDialog />
       <FileViewDialog />
+      <GoalDraftDialog
+        isOpen={goalDraftState.isOpen}
+        conversationId={goalDraftState.conversationId}
+        initialDraft={goalDraftState.initialDraft}
+        onClose={() => setGoalDraftState((state) => ({ ...state, isOpen: false, initialDraft: '' }))}
+      />
       <ElicitationOverlay context={null} />
     </DetailContext.Provider>
   );
