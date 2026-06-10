@@ -71,6 +71,44 @@ describe('publishActiveConversation', () => {
     expect(replaceState).not.toHaveBeenCalled();
     expect(window.location.pathname).toBe('/conversation/conv-route');
   });
+
+  it('realigns the route to the active conversation so scoped selection and URL cannot diverge', () => {
+    const replaceState = vi.fn((state, _title, url) => {
+      window.location.pathname = String(url || '');
+    });
+    global.window = {
+      location: { pathname: '/conversation/conv-route', port: '5176', hostname: '127.0.0.1' },
+      history: { state: null, replaceState },
+      localStorage: createStorage(),
+      sessionStorage: createStorage(),
+      dispatchEvent: () => {}
+    };
+    global.CustomEvent = class CustomEvent extends Event {
+      constructor(type, init = {}) {
+        super(type);
+        this.detail = init.detail;
+      }
+    };
+
+    // Context is genuinely active on conv-active (form id matches the published
+    // id) while the URL still points at the previous conversation. This is the
+    // divergence that made Root.jsx (route-first) and the poller (scoped-first)
+    // ping-pong, so publishActiveConversation must realign the URL here.
+    const context = {
+      identity: { windowId: 'chat/new' },
+      Context(name) {
+        if (name === 'conversations') {
+          return { handlers: { dataSource: { peekFormData: () => ({ id: 'conv-active' }) } } };
+        }
+        return null;
+      }
+    };
+
+    publishActiveConversation('conv-active', context);
+
+    expect(replaceState).toHaveBeenCalled();
+    expect(window.location.pathname).toBe('/conversation/conv-active');
+  });
 });
 
 describe('syncMessagesSnapshot pending elicitation overlay sync', () => {
