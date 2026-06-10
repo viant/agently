@@ -74,6 +74,14 @@ vi.mock('./toolFeedBus', () => ({
   updateFeedData: vi.fn(),
 }));
 
+const { requestGoalDraftOpenMock } = vi.hoisted(() => ({
+  requestGoalDraftOpenMock: vi.fn(),
+}));
+
+vi.mock('./goalDraftBus', () => ({
+  requestGoalDraftOpen: requestGoalDraftOpenMock,
+}));
+
 vi.mock('../utils/dialogBus', () => ({
   openCodeDiffDialog: vi.fn(),
   openFileViewDialog: vi.fn(),
@@ -83,6 +91,7 @@ vi.mock('../utils/dialogBus', () => ({
 
 import { client } from './agentlyClient';
 import { showToast } from './httpClient';
+import { requestGoalDraftOpen } from './goalDraftBus';
 import { submit as submitToChatStore } from './chatStore';
 import { dsTick, ensureConversation, refreshGoalFeed } from './chatRuntime';
 import {
@@ -163,8 +172,11 @@ describe('parseGoalCommand', () => {
     expect(parseGoalCommand('/goalkeeper stats')).toBeNull();
   });
 
-  it('parses bare /goal as show', () => {
-    expect(parseGoalCommand('/goal')).toEqual({ action: 'show' });
+  it('parses bare /goal as draft activation', () => {
+    expect(parseGoalCommand('/goal')).toEqual({ action: 'draft' });
+    expect(parseGoalCommand('/goal draft')).toEqual({ action: 'draft' });
+    expect(parseGoalCommand('/goal edit')).toEqual({ action: 'draft' });
+    expect(parseGoalCommand('/goal new')).toEqual({ action: 'draft' });
     expect(parseGoalCommand('/goal show')).toEqual({ action: 'show' });
     expect(parseGoalCommand('/goal status')).toEqual({ action: 'show' });
   });
@@ -203,6 +215,19 @@ describe('handleGoalCommand', () => {
     await handleGoalCommand({ context: makeContext('conv-1'), command: { action: 'show' } });
     expect(client.getGoal).toHaveBeenCalledWith('conv-1');
     expect(showToast).toHaveBeenCalledWith(expect.stringContaining('ship'), expect.anything());
+  });
+
+  it('opens the draft dialog for bare /goal activation', async () => {
+    const handled = await handleGoalCommand({ context: makeContext('conv-1'), command: { action: 'draft' } });
+    expect(handled).toBe(true);
+    expect(requestGoalDraftOpen).toHaveBeenCalledWith({ conversationId: 'conv-1' });
+  });
+
+  it('opens the draft dialog when show is requested with no goal set', async () => {
+    client.getGoal.mockResolvedValue(null);
+    const handled = await handleGoalCommand({ context: makeContext('conv-1'), command: { action: 'show' } });
+    expect(handled).toBe(true);
+    expect(requestGoalDraftOpen).toHaveBeenCalledWith({ conversationId: 'conv-1' });
   });
 
   it('creates a goal on set', async () => {
@@ -246,6 +271,13 @@ describe('goal helper actions', () => {
     expect(goal).toEqual({ objective: 'ship', status: 'active' });
     expect(client.createGoal).toHaveBeenCalledWith('conv-1', { objective: 'ship' });
     expect(dsTick).toHaveBeenCalled();
+  });
+
+  it('setConversationGoal opens the draft dialog when no objective is provided', async () => {
+    const goal = await setConversationGoal({ context: makeContext('conv-1'), objective: '' });
+    expect(goal).toBeNull();
+    expect(requestGoalDraftOpen).toHaveBeenCalledWith({ conversationId: 'conv-1' });
+    expect(client.createGoal).not.toHaveBeenCalled();
   });
 
   it('pause/resume/clear helpers use existing goal routes', async () => {

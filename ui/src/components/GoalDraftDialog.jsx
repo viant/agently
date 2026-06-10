@@ -25,15 +25,21 @@ const GOAL_TEMPLATES = [
   },
 ];
 
-export default function GoalDraftDialog({ isOpen = false, conversationId = '', onClose = null, onCreated = null }) {
+export default function GoalDraftDialog({ isOpen = false, conversationId = '', initialDraft = '', onClose = null, onCreated = null }) {
   const [selectedTemplate, setSelectedTemplate] = React.useState(GOAL_TEMPLATES[0].id);
   const [draft, setDraft] = React.useState(GOAL_TEMPLATES[0].template);
   const [saving, setSaving] = React.useState(false);
 
   React.useEffect(() => {
+    if (!isOpen) return;
+    const incoming = String(initialDraft || '').trim();
+    if (incoming) {
+      setDraft(incoming);
+      return;
+    }
     const template = GOAL_TEMPLATES.find((item) => item.id === selectedTemplate) || GOAL_TEMPLATES[0];
     setDraft(template.template);
-  }, [selectedTemplate]);
+  }, [initialDraft, isOpen, selectedTemplate]);
 
   const save = async () => {
     const id = String(conversationId || '').trim();

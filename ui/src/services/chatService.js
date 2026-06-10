@@ -20,6 +20,7 @@ import { setStage } from './stageBus';
 import { client } from './agentlyClient';
 import { showToast } from './httpClient';
 import { getFeedData, updateFeedData } from './toolFeedBus';
+import { requestGoalDraftOpen } from './goalDraftBus';
 import { buildWebQueryContext } from './clientContext';
 import { resetLiveStreamState } from './liveStreamStore';
 import {
@@ -274,9 +275,10 @@ export function parseGoalCommand(text = '') {
   const raw = String(text || '').trim();
   if (!/^\/goal(\s|$)/i.test(raw)) return null;
   const rest = raw.replace(/^\/goal\s*/i, '').trim();
-  if (!rest) return { action: 'show' };
+  if (!rest) return { action: 'draft' };
   const lower = rest.toLowerCase();
   if (lower === 'show' || lower === 'status') return { action: 'show' };
+  if (lower === 'edit' || lower === 'draft' || lower === 'new') return { action: 'draft' };
   if (lower === 'pause') return { action: 'pause' };
   if (lower === 'resume') return { action: 'resume' };
   if (lower === 'clear') return { action: 'clear' };
@@ -296,7 +298,7 @@ export async function setConversationGoal({ context, objective }) {
   }
   const trimmedObjective = String(objective || '').trim();
   if (!trimmedObjective) {
-    showToast('Provide an objective, e.g. /goal set ship the release.', { intent: 'warning' });
+    requestGoalDraftOpen({ conversationId: conversationID });
     return null;
   }
   let goal = null;
@@ -360,10 +362,13 @@ export async function handleGoalCommand({ context, command }) {
     return true;
   }
   switch (parsed.action) {
+    case 'draft':
+      requestGoalDraftOpen({ conversationId: conversationID });
+      return true;
     case 'show': {
       const goal = await client.getGoal(conversationID);
       if (!goal) {
-        showToast('No goal set for this conversation.', { intent: 'info' });
+        requestGoalDraftOpen({ conversationId: conversationID });
         return true;
       }
       showToast(`${goal.objective} (${goal.status})`, { intent: 'info' });
