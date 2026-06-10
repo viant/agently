@@ -72,7 +72,13 @@ describe('publishActiveConversation', () => {
     expect(window.location.pathname).toBe('/conversation/conv-route');
   });
 
-  it('realigns the route to the active conversation so scoped selection and URL cannot diverge', () => {
+  it('does not rewrite the URL even when the calling context still has the published id in its form', () => {
+    // Reproduces the conversation-switching bug: user is on conv-route after
+    // clicking it in the sidebar; an in-flight load for conv-active (the
+    // conversation they just left) finishes and publishActiveConversation is
+    // called with conv-active because that context's form still reads
+    // conv-active. The URL must not snap back to conv-active — the user is on
+    // conv-route now.
     const replaceState = vi.fn((state, _title, url) => {
       window.location.pathname = String(url || '');
     });
@@ -90,11 +96,7 @@ describe('publishActiveConversation', () => {
       }
     };
 
-    // Context is genuinely active on conv-active (form id matches the published
-    // id) while the URL still points at the previous conversation. This is the
-    // divergence that made Root.jsx (route-first) and the poller (scoped-first)
-    // ping-pong, so publishActiveConversation must realign the URL here.
-    const context = {
+    const staleContext = {
       identity: { windowId: 'chat/new' },
       Context(name) {
         if (name === 'conversations') {
@@ -104,10 +106,39 @@ describe('publishActiveConversation', () => {
       }
     };
 
-    publishActiveConversation('conv-active', context);
+    publishActiveConversation('conv-active', staleContext);
+
+    expect(replaceState).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe('/conversation/conv-route');
+  });
+
+  it('seeds the URL on bootstrap when no conversation is in the path yet', () => {
+    // The legitimate case the previous guard tried to handle: there is no
+    // route id yet (deep link to /, or just after a fresh new conversation),
+    // and a context publishes the id it just bootstrapped onto. We should
+    // promote that id into the URL so refreshes keep the user on the same
+    // conversation.
+    const replaceState = vi.fn((state, _title, url) => {
+      window.location.pathname = String(url || '');
+    });
+    global.window = {
+      location: { pathname: '/', port: '5176', hostname: '127.0.0.1' },
+      history: { state: null, replaceState },
+      localStorage: createStorage(),
+      sessionStorage: createStorage(),
+      dispatchEvent: () => {}
+    };
+    global.CustomEvent = class CustomEvent extends Event {
+      constructor(type, init = {}) {
+        super(type);
+        this.detail = init.detail;
+      }
+    };
+
+    publishActiveConversation('conv-bootstrap', { identity: { windowId: 'chat/new' } });
 
     expect(replaceState).toHaveBeenCalled();
-    expect(window.location.pathname).toBe('/conversation/conv-active');
+    expect(window.location.pathname).toBe('/conversation/conv-bootstrap');
   });
 });
 
