@@ -1230,23 +1230,22 @@ export function publishActiveConversation(conversationID = '', context = null) {
   const currentRouteConversationId = isMainChatWindowId(targetWindowId) && typeof window !== 'undefined'
     ? conversationIDFromPath(window.location?.pathname)
     : '';
-  const activeConversationId = String(getCurrentConversationID(context) || '').trim();
+  // The URL is the user's source of truth for which conversation they're
+  // viewing. Only seed it when there is no route yet (deep-link bootstrap /
+  // fresh new-conversation), or no-op when it already matches the published
+  // id. NEVER rewrite the URL on behalf of a different id, even when the
+  // calling context's own form happens to be on that id — that context is
+  // very likely a stale/background completion for a conversation the user
+  // just navigated away from (e.g. user clicked B, in-flight load for A
+  // finishes and publishes A; without this guard the URL silently snaps
+  // back to A while the visible chat is B). Convergence in the legitimate
+  // case is handled by the explicit selection path (openConversationInMainWindow
+  // and requestNewConversationInMainWindow both call publishConversationSelection
+  // with syncPath: true) and by the poller's switchingConversationID guard
+  // in startPolling.
   publishConversationSelection(targetWindowId, id, {
-    // Keep the URL in lockstep with the scoped selection for the main window so
-    // Root.jsx (route-first) and the poller (scoped-first) can never resolve to
-    // different conversations and ping-pong. We realign the path when:
-    //   - there is no route id yet (deep-link bootstrap / new conversation), or
-    //   - the route already matches (no-op), or
-    //   - this context is genuinely active on `id` (form/activeConversationID),
-    //     which is the divergence the oscillation came from.
-    // We intentionally do NOT sync when a stale/background completion publishes
-    // an id this context isn't actually on, so it can't hijack the user's route.
     syncPath: isMainChatWindowId(targetWindowId)
-      && (
-        !currentRouteConversationId
-        || currentRouteConversationId === id
-        || (!!id && id === activeConversationId)
-      ),
+      && (!currentRouteConversationId || currentRouteConversationId === id),
     eventType: 'forge:conversation-active'
   });
 }
