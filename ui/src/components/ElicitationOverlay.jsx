@@ -14,9 +14,9 @@ import {
   triggerElicitationFormSubmit
 } from './elicitationHelpers';
 import {
-  getPendingElicitation,
-  clearPendingElicitation,
-  onElicitationChange
+  getPendingElicitations,
+  onElicitationChange,
+  removePendingElicitation
 } from '../services/elicitationBus';
 import {
   translateSchema,
@@ -25,22 +25,45 @@ import {
 } from './lookups/forgeBridge';
 
 export default function ElicitationOverlay({ context }) {
-  const [pending, setPending] = useState(getPendingElicitation);
+  const [pendingItems, setPendingItems] = useState(getPendingElicitations);
+
+  useEffect(() => {
+    return onElicitationChange((_next, list) => {
+      setPendingItems(Array.isArray(list) ? list : getPendingElicitations());
+    });
+  }, []);
+
+  const visibleItems = pendingItems.filter((item) => {
+    const schema = item?.requestedSchema || null;
+    const url = item?.url || '';
+    const mode = item?.mode || '';
+    const isOOB = !!url || mode === 'oob' || mode === 'webonly' || mode === 'url';
+    return !!item && (!!schema || isOOB);
+  });
+
+  if (visibleItems.length === 0) return null;
+
+  return (
+    <>
+      {visibleItems.map((item, index) => (
+        <ElicitationDialog
+          key={`${String(item?.conversationId || '').trim()}::${String(item?.elicitationId || '').trim()}`}
+          context={context}
+          pending={item}
+          index={index}
+          total={visibleItems.length}
+        />
+      ))}
+    </>
+  );
+}
+
+function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [plannerRows, setPlannerRows] = useState([]);
   const formValuesRef = useRef({});
-  const formWrapperId = useRef(`elic-overlay-${Date.now()}`);
-
-  useEffect(() => {
-    return onElicitationChange((next) => {
-      setPending(next);
-      setSubmitting(false);
-      setError('');
-      setPlannerRows([]);
-      formValuesRef.current = {};
-    });
-  }, []);
+  const formWrapperId = useRef(`elic-overlay-${String(pending?.elicitationId || 'local').trim() || 'local'}-${Date.now()}`);
 
   const schema = pending?.requestedSchema || null;
   const prompt = pending?.message || '';
@@ -145,7 +168,7 @@ export default function ElicitationOverlay({ context }) {
         action: resolvedAction,
         payload: resolvedPayload
       });
-      clearPendingElicitation();
+      removePendingElicitation({ conversationId, elicitationId }, { allConversationsForElicitation: true });
       await dsTick(context, { conversationID: conversationId || resolveConversationId });
       if (resolveConversationId && resolveConversationId !== conversationId) {
         await dsTick(context, { conversationID: resolveConversationId });
@@ -183,12 +206,12 @@ export default function ElicitationOverlay({ context }) {
       isOpen={true}
       canEscapeKeyClose={!submitting}
       canOutsideClickClose={!submitting}
-      onClose={() => (isResolvedHistory ? clearPendingElicitation() : resolve('cancel'))}
+      onClose={() => (isResolvedHistory ? removePendingElicitation({ conversationId, elicitationId }, { allConversationsForElicitation: true }) : resolve('cancel'))}
       hasBackdrop={false}
       enforceFocus={false}
       autoFocus={false}
-      title={approvalMeta?.title || 'Needs your input'}
-      style={{ width: '50vw', minWidth: 520, maxWidth: '80vw' }}
+      title={`${approvalMeta?.title || 'Needs your input'}${total > 1 ? ` - ${index + 1} of ${total}` : ''}`}
+      style={{ width: '50vw', minWidth: 520, maxWidth: '80vw', marginTop: index ? 32 * index : undefined }}
     >
       <div className={Classes.DIALOG_BODY}>
         {prompt ? <p style={{ marginBottom: 12 }}>{prompt}</p> : null}
@@ -283,7 +306,7 @@ export default function ElicitationOverlay({ context }) {
         <div className={Classes.DIALOG_FOOTER_ACTIONS}>
           {submitting ? <Spinner size={16} /> : null}
           {isResolvedHistory ? (
-            <Button onClick={() => clearPendingElicitation()}>Close</Button>
+            <Button onClick={() => removePendingElicitation({ conversationId, elicitationId }, { allConversationsForElicitation: true })}>Close</Button>
           ) : (
             <>
               <Button minimal onClick={() => resolve('decline')} disabled={submitting}>

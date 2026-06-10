@@ -14,6 +14,18 @@ const getActiveFeedsMock = vi.hoisted(() => vi.fn(() => []));
 vi.mock('../services/toolFeedBus', () => ({
   getFeedData: getFeedDataMock,
   makeFeedKey: makeFeedKeyMock,
+  normalizeFeedPayload: vi.fn((payload) => {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+    const nested = payload?.data;
+    if (!payload?.ui && nested && typeof nested === 'object' && !Array.isArray(nested) && nested?.ui) {
+      return {
+        ...payload,
+        ...nested,
+        data: nested?.data,
+      };
+    }
+    return payload;
+  }),
   splitFeedKey: vi.fn((feedKey = '') => {
     const raw = String(feedKey || '').trim();
     const idx = raw.indexOf('::');
@@ -171,6 +183,64 @@ describe('ToolFeedDetail', () => {
     expect(html).not.toContain('data-testid="forge-container"');
     expect(html).toContain('Inspect package');
     expect(html).toContain('Add test');
+  });
+
+  it('renders forge goal feeds in the rail when renderMode is forge and the payload is envelope-wrapped', async () => {
+    const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
+    const toolFeedBar = await import('../services/toolFeedSelection');
+    getActiveFeedsMock.mockReturnValueOnce([
+      {
+        feedId: 'conv-1::goal',
+        rawFeedId: 'goal',
+        title: 'Goal',
+        conversationId: 'conv-1',
+      },
+    ]);
+    toolFeedBar.getExpandedFeedIds.mockImplementation(() => new Set(['conv-1::goal']));
+    toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-1::goal');
+    getFeedDataMock.mockImplementation(() => ({
+      data: {
+        ui: {
+          title: 'Goal',
+          renderMode: 'forge',
+          dataSources: {
+            goalState: { source: 'goal' },
+          },
+          containers: [
+            {
+              id: 'goalEditor',
+              title: 'Goal',
+              dataSourceRef: 'goalState',
+              schemaBasedForm: {
+                id: 'goalForm',
+                dataSourceRef: 'goalState',
+                showSubmit: false,
+                schema: {
+                  type: 'object',
+                  properties: {
+                    objective: { type: 'string', title: 'Objective' },
+                    status: { type: 'string', title: 'Status' },
+                  },
+                },
+              },
+            },
+          ],
+        },
+        data: {
+          goal: {
+            objective: 'Stay focused on shipping the Go task',
+            status: 'active',
+          },
+        },
+      },
+      _conversationId: 'conv-1',
+    }));
+
+    const html = renderToStaticMarkup(React.createElement(ToolFeedDetail, { variant: 'rail' }));
+
+    expect(html).toContain('data-testid="forge-container"');
+    expect(html).not.toContain('data-testid="compact-feed-list"');
+    expect(html).toContain('goalEditor');
   });
 
   it('renders terminal feeds with the Forge terminal component when terminal ui metadata exists', async () => {
