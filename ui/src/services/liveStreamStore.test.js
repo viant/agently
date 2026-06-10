@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyAssistantMessageAddEvent,
   applyElicitationRequestedEvent,
+  applyElicitationResolvedEvent,
   applyExecutionStreamEvent,
   applyAssistantTerminalEvent,
   applyMessagePatchEvent,
@@ -2377,6 +2378,132 @@ describe('applyElicitationRequestedEvent', () => {
       type: 'object',
       properties: { confirm: { type: 'boolean' } }
     });
+    expect(row.elicitations).toHaveLength(1);
+    expect(row.elicitations[0]).toMatchObject({ elicitationId: 'elic-1' });
+  });
+
+  it('keeps multiple live elicitations on the same assistant row', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'mc-1',
+      conversationId: 'root',
+      turnId: 'turn-1',
+      iteration: 1,
+      status: 'thinking',
+      createdAt: '2026-03-17T10:00:01Z',
+      model: { provider: 'openai', model: 'gpt-5.2' }
+    }, 'root');
+
+    applyElicitationRequestedEvent(chatState, {
+      conversationId: 'root',
+      turnId: 'turn-1',
+      assistantMessageId: 'mc-1',
+      elicitationId: 'root-elic-1',
+      content: 'Root value:',
+      callbackUrl: '/v1/elicitations/root/root-elic-1/resolve',
+      elicitationData: { requestedSchema: { type: 'object', properties: { rootValue: { type: 'string' } } } }
+    });
+    applyElicitationRequestedEvent(chatState, {
+      conversationId: 'root',
+      turnId: 'turn-1',
+      assistantMessageId: 'mc-1',
+      elicitationId: 'a3-elic',
+      content: 'A3 value:',
+      callbackUrl: '/v1/api/conversations/a3/elicitation/a3-elic',
+      elicitationData: { requestedSchema: { type: 'object', properties: { releaseApprovalCode: { type: 'string' } } } }
+    });
+    applyElicitationRequestedEvent(chatState, {
+      conversationId: 'root',
+      turnId: 'turn-1',
+      assistantMessageId: 'mc-1',
+      elicitationId: 'b3-elic',
+      content: 'B3 value:',
+      callbackUrl: '/v1/api/conversations/b3/elicitation/b3-elic',
+      elicitationData: { requestedSchema: { type: 'object', properties: { complianceConfirmationToken: { type: 'string' } } } }
+    });
+
+    expect(chatState.liveRows).toHaveLength(1);
+    const row = chatState.liveRows[0];
+    expect(row.elicitationId).toBe('root-elic-1');
+    expect(row.elicitations).toMatchObject([
+      { elicitationId: 'root-elic-1', message: 'Root value:' },
+      { elicitationId: 'a3-elic', message: 'A3 value:' },
+      { elicitationId: 'b3-elic', message: 'B3 value:' },
+    ]);
+  });
+
+  it('updates repeated elicitation events instead of duplicating them', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'mc-1',
+      conversationId: 'root',
+      turnId: 'turn-1',
+      iteration: 1,
+      status: 'thinking',
+      model: { provider: 'openai', model: 'gpt-5.2' }
+    }, 'root');
+
+    applyElicitationRequestedEvent(chatState, {
+      conversationId: 'root',
+      turnId: 'turn-1',
+      assistantMessageId: 'mc-1',
+      elicitationId: 'a3-elic',
+      content: 'A3 value:',
+      elicitationData: { requestedSchema: { type: 'object' } }
+    });
+    applyElicitationRequestedEvent(chatState, {
+      conversationId: 'root',
+      turnId: 'turn-1',
+      assistantMessageId: 'mc-1',
+      elicitationId: 'a3-elic',
+      content: 'A3 updated value:',
+      elicitationData: { requestedSchema: { type: 'object', properties: { code: { type: 'string' } } } }
+    });
+
+    expect(chatState.liveRows[0].elicitations).toHaveLength(1);
+    expect(chatState.liveRows[0].elicitations[0]).toMatchObject({
+      elicitationId: 'a3-elic',
+      message: 'A3 updated value:'
+    });
+  });
+
+  it('marks only the resolved live elicitation', () => {
+    const chatState = { liveRows: [] };
+
+    applyExecutionStreamEvent(chatState, {
+      assistantMessageId: 'mc-1',
+      conversationId: 'root',
+      turnId: 'turn-1',
+      iteration: 1,
+      status: 'thinking',
+      model: { provider: 'openai', model: 'gpt-5.2' }
+    }, 'root');
+
+    for (const elicitationId of ['a3-elic', 'b3-elic']) {
+      applyElicitationRequestedEvent(chatState, {
+        conversationId: 'root',
+        turnId: 'turn-1',
+        assistantMessageId: 'mc-1',
+        elicitationId,
+        content: `${elicitationId} value:`,
+        elicitationData: { requestedSchema: { type: 'object' } }
+      });
+    }
+
+    applyElicitationResolvedEvent(chatState, {
+      conversationId: 'root',
+      turnId: 'turn-1',
+      elicitationId: 'a3-elic',
+      status: 'accepted',
+      responsePayload: { releaseApprovalCode: 'AAA' }
+    });
+
+    expect(chatState.liveRows[0].elicitations).toMatchObject([
+      { elicitationId: 'a3-elic', status: 'accepted', responsePayload: { releaseApprovalCode: 'AAA' } },
+      { elicitationId: 'b3-elic', status: 'pending' },
+    ]);
   });
 
   it('creates a new row when no assistant row exists for the turn', () => {

@@ -1320,6 +1320,58 @@ describe('mapCanonicalExecutionGroups', () => {
     )).toBe(true);
   });
 
+  it('renders every live elicitation as a separate execution row', () => {
+    const html = renderToStaticMarkup(React.createElement(IterationBlock, {
+      message: {
+        id: 'msg-live',
+        turnId: 'turn-live',
+        conversationId: 'root',
+        _iterationData: {
+          turnId: 'turn-live',
+          status: 'running',
+          isLatestIteration: true,
+          elicitations: [
+            {
+              elicitationId: 'root-elic-1',
+              message: 'Root critical dependency: please provide the run authorization phrase.',
+              requestedSchema: { type: 'object' },
+              status: 'pending',
+              conversationId: 'root'
+            },
+            {
+              elicitationId: 'a3-elic',
+              message: 'A3 critical dependency: please provide the release approval code.',
+              requestedSchema: { type: 'object' },
+              status: 'pending',
+              conversationId: 'root',
+              callbackURL: '/v1/api/conversations/a3/elicitation/a3-elic'
+            },
+            {
+              elicitationId: 'b3-elic',
+              message: 'B3 critical dependency: please provide the compliance confirmation token.',
+              requestedSchema: { type: 'object' },
+              status: 'pending',
+              conversationId: 'root',
+              callbackURL: '/v1/api/conversations/b3/elicitation/b3-elic'
+            }
+          ],
+          executionGroups: [{
+            id: 'main-group',
+            phase: 'main',
+            status: 'running',
+            toolSteps: []
+          }]
+        }
+      },
+      context: null,
+      showToolFeedDetail: true
+    }));
+
+    expect(html).toContain('Root critical dependency: please provide the run authorizati');
+    expect(html).toContain('A3 critical dependency: please provide the release approval ');
+    expect(html).toContain('B3 critical dependency: please provide the compliance confir');
+  });
+
   it('does not advance a live wall-clock for transcript-owned running history rows', () => {
     const html = renderToStaticMarkup(React.createElement(IterationBlock, {
       canonicalRow: {

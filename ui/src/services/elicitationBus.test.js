@@ -75,4 +75,15 @@ describe('elicitationBus', () => {
       { conversationId: 'root', elicitationId: 'new-root', message: 'new root' },
     ]);
   });
+
+  it('does not remove stream-owned live elicitations when poll rows are empty', () => {
+    setPendingElicitation({ conversationId: 'root', elicitationId: 'proxy-a3', requestedSchema: schema, source: 'stream' });
+    setPendingElicitation({ conversationId: 'root', elicitationId: 'poll-root', requestedSchema: schema, source: 'poll' });
+
+    replacePendingElicitationsForConversation('root', []);
+
+    expect(getPendingElicitations()).toMatchObject([
+      { conversationId: 'root', elicitationId: 'proxy-a3', source: 'stream' },
+    ]);
+  });
 });

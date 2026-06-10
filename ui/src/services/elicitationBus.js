@@ -94,6 +94,9 @@ export function replacePendingElicitationsForConversation(conversationId = '', p
 
   for (const [key, item] of Array.from(pendingByKey.entries())) {
     if (String(item?.conversationId || '').trim() === targetConversationId && !nextKeys.has(key)) {
+      if (String(item?.source || '').trim().toLowerCase() === 'stream') {
+        continue;
+      }
       pendingByKey.delete(key);
       changed = true;
     }
@@ -141,7 +144,8 @@ export function normalizeElicitationDialogState(source = {}, fallbackConversatio
     callbackURL,
     url: String(direct?.url || direct?.Url || '').trim(),
     mode: String(direct?.mode || direct?.Mode || '').trim(),
-    status: String(direct?.status || '').trim()
+    status: String(direct?.status || '').trim(),
+    source: String(direct?.source || direct?.Source || '').trim()
   };
 }
 
