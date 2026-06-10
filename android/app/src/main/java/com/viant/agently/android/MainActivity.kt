@@ -842,11 +842,69 @@ private fun AgentlyApp() {
         applyVisibleAppError(err)
     }
 
+    suspend fun handleGoalCommand(command: GoalCommandAction) {
+        val conversationId = activeConversationId?.trim().orEmpty()
+        if (conversationId.isBlank()) {
+            setVisibleError("Open an existing conversation before using /goal.")
+            return
+        }
+        val client = resolveClient()
+        when (command) {
+            GoalCommandAction.Show -> {
+                activeGoal = client.getGoal(conversationId)
+            }
+            is GoalCommandAction.Set -> {
+                val objective = command.objective.trim()
+                if (objective.isBlank()) {
+                    setVisibleError("Provide a goal objective after /goal set.")
+                    return
+                }
+                try {
+                    client.createGoal(conversationId, com.viant.agentlysdk.CreateGoalInput(objective = objective))
+                } catch (err: Throwable) {
+                    val normalizedMessage = (err.message ?: "").lowercase()
+                    val shouldUpdateExistingGoal = normalizedMessage.contains("goal already exists") ||
+                        normalizedMessage.contains("failed: 409") ||
+                        normalizedMessage.contains("status 409")
+                    if (shouldUpdateExistingGoal) {
+                        client.updateGoal(conversationId, com.viant.agentlysdk.UpdateGoalInput(objective = objective))
+                    } else {
+                        throw err
+                    }
+                }
+            }
+            GoalCommandAction.Pause -> {
+                client.updateGoal(conversationId, com.viant.agentlysdk.UpdateGoalInput(status = "paused"))
+            }
+            GoalCommandAction.Resume -> {
+                client.updateGoal(conversationId, com.viant.agentlysdk.UpdateGoalInput(status = "active"))
+            }
+            GoalCommandAction.Clear -> {
+                client.clearGoal(conversationId)
+            }
+            GoalCommandAction.Help -> {
+                setVisibleError("Goal commands: /goal show, /goal set <objective>, /goal pause, /goal resume, /goal clear")
+                return
+            }
+        }
+        bindConversation(conversationId, replaceTranscript = true)
+        refreshRecentConversations()
+        query = ""
+        composerAttachments = emptyList()
+        setVisibleError(null)
+    }
+
     fun runQuery() {
         launchAppOperation(showLoading = true) {
             var userEntryId: String? = null
             val currentDraft = currentComposerDraft()
             try {
+                val rawPrompt = currentDraft.prompt.trim()
+                val goalCommand = parseGoalCommand(rawPrompt)
+                if (goalCommand != null) {
+                    handleGoalCommand(goalCommand)
+                    return@launchAppOperation
+                }
                 val resolvedClient = resolveClient()
                 streamJob?.cancelAndJoin()
                 resetQueryResponseState()

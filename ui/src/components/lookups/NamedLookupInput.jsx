@@ -434,6 +434,7 @@ export default function NamedLookupInput({
   className,
   onFocus,
   onBlur,
+  onKeyDown,
   'data-testid': dataTestId,
   ...rest
 }) {
@@ -1128,6 +1129,7 @@ export default function NamedLookupInput({
             }
             onBlur?.(event);
           }}
+          onKeyDown={onKeyDown}
           style={editorStyle}
         />
       ) : (
@@ -1151,6 +1153,7 @@ export default function NamedLookupInput({
             data-testid={dataTestId || 'chat-composer-input'}
             className={className}
             style={editorStyle}
+            onKeyDown={onKeyDown}
           />
         ) : (
           <>
@@ -1266,6 +1269,7 @@ export default function NamedLookupInput({
               fill
               data-testid={dataTestId || 'chat-composer-input'}
               className={className}
+              onKeyDown={onKeyDown}
             />
           </>
         )

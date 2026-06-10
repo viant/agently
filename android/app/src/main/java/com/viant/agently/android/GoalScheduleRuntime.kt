@@ -5,6 +5,13 @@ import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
+internal data class GoalControllerScheduleInfo(
+    val mode: String = "",
+    val reason: String? = null,
+    val preview: String? = null,
+    val wakeAt: String? = null,
+)
+
 internal fun goalControllerScheduleInfo(snapshot: ConversationStreamSnapshot?): GoalControllerScheduleInfo? {
     val goalFeed = snapshot?.feeds?.firstOrNull { it.feedId.trim() == "goal" } ?: return null
     return goalControllerScheduleInfo(goalFeed)
