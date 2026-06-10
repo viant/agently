@@ -4,15 +4,18 @@ import { getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, MAIN_CHAT_
 
 const {
   setPendingElicitationMock,
-  clearPendingElicitationMock,
+  removePendingElicitationMock,
+  replacePendingElicitationsForConversationMock,
 } = vi.hoisted(() => ({
   setPendingElicitationMock: vi.fn(),
-  clearPendingElicitationMock: vi.fn(),
+  removePendingElicitationMock: vi.fn(),
+  replacePendingElicitationsForConversationMock: vi.fn(),
 }));
 
 vi.mock('./elicitationBus', () => ({
   setPendingElicitation: setPendingElicitationMock,
-  clearPendingElicitation: clearPendingElicitationMock,
+  removePendingElicitation: removePendingElicitationMock,
+  replacePendingElicitationsForConversation: replacePendingElicitationsForConversationMock,
 }));
 
 import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, connectStream, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, handleStreamEvent, hydrateMeta, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
@@ -71,9 +74,10 @@ describe('publishActiveConversation', () => {
 });
 
 describe('syncMessagesSnapshot pending elicitation overlay sync', () => {
-  it('hydrates the overlay bus from pendingElicitations returned by transcript/poll', () => {
+  it('reconciles pending elicitations returned by transcript/poll for the active conversation', () => {
     setPendingElicitationMock.mockReset();
-    clearPendingElicitationMock.mockReset();
+    removePendingElicitationMock.mockReset();
+    replacePendingElicitationsForConversationMock.mockReset();
     const context = {
       resources: { chat: {} },
       Context(name) {
@@ -90,7 +94,7 @@ describe('syncMessagesSnapshot pending elicitation overlay sync', () => {
       },
     };
 
-    syncMessagesSnapshot(context, [], 'poll', [{
+    const pendingElicitations = [{
       conversationId: 'conv-1',
       elicitationId: 'elic-1',
       content: 'Review the selected site recommendation changes before patching.',
@@ -99,15 +103,13 @@ describe('syncMessagesSnapshot pending elicitation overlay sync', () => {
         message: 'Review the selected site recommendation changes before patching.',
         requestedSchema: { type: 'object', properties: { rows: { type: 'array' } } },
       },
-    }]);
+    }];
 
-    expect(setPendingElicitationMock).toHaveBeenCalledWith(expect.objectContaining({
-      conversationId: 'conv-1',
-      elicitationId: 'elic-1',
-      message: 'Review the selected site recommendation changes before patching.',
-      requestedSchema: { type: 'object', properties: { rows: { type: 'array' } } },
-    }));
-    expect(clearPendingElicitationMock).not.toHaveBeenCalled();
+    syncMessagesSnapshot(context, [], 'poll', pendingElicitations);
+
+    expect(replacePendingElicitationsForConversationMock).toHaveBeenCalledWith('conv-1', pendingElicitations);
+    expect(setPendingElicitationMock).not.toHaveBeenCalled();
+    expect(removePendingElicitationMock).not.toHaveBeenCalled();
   });
 });
 
@@ -190,6 +192,50 @@ describe('resolveStarterTasks', () => {
 });
 
 describe('handleStreamEvent', () => {
+  it('removes only the resolved elicitation from the overlay bus', () => {
+    removePendingElicitationMock.mockReset();
+    const chatState = ensureContextResources({ resources: {} });
+    const context = {
+      resources: { chat: chatState },
+      identity: { windowId: 'chat/main' },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'root-conv' }),
+                setFormData: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: vi.fn(),
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    handleStreamEvent(chatState, context, 'root-conv', {
+      type: 'elicitation_resolved',
+      conversationId: 'root-conv',
+      elicitationId: 'elic-a3',
+      status: 'accepted',
+    });
+
+    expect(removePendingElicitationMock).toHaveBeenCalledWith({
+      conversationId: 'root-conv',
+      elicitationId: 'elic-a3',
+    }, { allConversationsForElicitation: true });
+  });
+
   it('updates the sidecar stream tracker with live event identity', () => {
     const chatState = ensureContextResources({ resources: {} });
     const context = {

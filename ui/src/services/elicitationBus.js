@@ -1,27 +1,119 @@
 /**
- * Singleton ElicitationTracker from the SDK.
- * chatRuntime stores pending elicitations here via SSE events.
- * ElicitationOverlay subscribes and renders the modal Dialog.
+ * Tracks pending elicitations independently by conversation + elicitation id.
+ * Root proxy elicitations can arrive concurrently from different child
+ * conversations, so the UI must not store them as one global pending item.
  */
-import { ElicitationTracker } from 'agently-core-ui-sdk';
+const pendingByKey = new Map();
+let listeners = [];
 
-export const elicitationTracker = new ElicitationTracker();
+function elicitationKey(item = {}) {
+  const conversationId = String(item?.conversationId || item?.ConversationId || '').trim();
+  const elicitationId = String(item?.elicitationId || item?.ElicitationId || '').trim();
+  if (!conversationId || !elicitationId) return '';
+  return `${conversationId}::${elicitationId}`;
+}
 
-// Convenience wrappers for backward compat
+function notify() {
+  const list = getPendingElicitations();
+  const first = list[0] || null;
+  for (const fn of listeners) {
+    try { fn(first, list); } catch (_) {}
+  }
+}
+
+export const elicitationTracker = {
+  setPending: (elicitation) => setPendingElicitation(elicitation),
+  get pending() {
+    return getPendingElicitation();
+  },
+  clear: () => clearPendingElicitation(),
+  onChange: (fn) => onElicitationChange(fn),
+};
+
+// Convenience wrappers for backward compat. setPending is now an upsert.
 export function setPendingElicitation(elicitation) {
-  elicitationTracker.setPending(elicitation);
+  return upsertPendingElicitation(elicitation);
+}
+
+export function upsertPendingElicitation(elicitation) {
+  const normalized = normalizeElicitationDialogState(elicitation);
+  if (!normalized) return false;
+  const key = elicitationKey(normalized);
+  if (!key) return false;
+  const previous = pendingByKey.get(key) || {};
+  pendingByKey.set(key, { ...previous, ...normalized });
+  notify();
+  return true;
 }
 
 export function getPendingElicitation() {
-  return elicitationTracker.pending;
+  return getPendingElicitations()[0] || null;
+}
+
+export function getPendingElicitations() {
+  return Array.from(pendingByKey.values());
 }
 
 export function clearPendingElicitation() {
-  elicitationTracker.clear();
+  if (pendingByKey.size === 0) return;
+  pendingByKey.clear();
+  notify();
+}
+
+export function removePendingElicitation(target = {}, options = {}) {
+  const elicitationId = String(target?.elicitationId || target?.ElicitationId || '').trim();
+  const conversationId = String(target?.conversationId || target?.ConversationId || '').trim();
+  if (!elicitationId && !conversationId) return false;
+  const allConversationsForElicitation = options?.allConversationsForElicitation !== false;
+  let removed = false;
+  for (const [key, item] of Array.from(pendingByKey.entries())) {
+    const itemElicitationId = String(item?.elicitationId || '').trim();
+    const itemConversationId = String(item?.conversationId || '').trim();
+    const matchesElicitation = elicitationId && itemElicitationId === elicitationId;
+    const matchesConversation = conversationId && itemConversationId === conversationId;
+    const shouldRemove = allConversationsForElicitation
+      ? matchesElicitation && (!conversationId || matchesConversation || itemElicitationId === elicitationId)
+      : matchesElicitation && matchesConversation;
+    if (shouldRemove || (!elicitationId && matchesConversation)) {
+      pendingByKey.delete(key);
+      removed = true;
+    }
+  }
+  if (removed) notify();
+  return removed;
+}
+
+export function replacePendingElicitationsForConversation(conversationId = '', pendingElicitations = []) {
+  const targetConversationId = String(conversationId || '').trim();
+  if (!targetConversationId) return;
+  const nextItems = (Array.isArray(pendingElicitations) ? pendingElicitations : [])
+    .map((item) => normalizeElicitationDialogState(item, targetConversationId))
+    .filter(Boolean);
+  const nextKeys = new Set(nextItems.map(elicitationKey).filter(Boolean));
+  let changed = false;
+
+  for (const [key, item] of Array.from(pendingByKey.entries())) {
+    if (String(item?.conversationId || '').trim() === targetConversationId && !nextKeys.has(key)) {
+      pendingByKey.delete(key);
+      changed = true;
+    }
+  }
+  for (const item of nextItems) {
+    const key = elicitationKey(item);
+    if (!key) continue;
+    const previous = pendingByKey.get(key) || {};
+    const next = { ...previous, ...item };
+    pendingByKey.set(key, next);
+    changed = true;
+  }
+  if (changed) notify();
 }
 
 export function onElicitationChange(fn) {
-  return elicitationTracker.onChange(fn);
+  listeners.push(fn);
+  return () => {
+    listeners = listeners.filter((listener) => listener !== fn);
+  };
 }
 
 export function normalizeElicitationDialogState(source = {}, fallbackConversationId = '') {

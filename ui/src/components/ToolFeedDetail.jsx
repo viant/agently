@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { CompactFeedList, Terminal } from 'forge/components';
+import { CompactFeedList, Container, Terminal } from 'forge/components';
 import { getFeedData, onFeedDataChange, getActiveFeeds, onFeedChange, splitFeedKey } from '../services/toolFeedBus';
 import { openResourceFeedPath } from '../services/chatService';
 import {
@@ -8,7 +8,16 @@ import {
   onFeedExpansionChange,
   onSelectedFeedChange
 } from '../services/toolFeedSelection';
-import { asArray, selectPath } from '../services/feedForgeWiring';
+import {
+  applyAutoTableColumns,
+  asArray,
+  computeDataMap,
+  normalizeDataSources,
+  selectPath,
+  wireFeedSignals
+} from '../services/feedForgeWiring';
+import { createFeedContext } from '../services/feedForgeContext';
+import { normalizeFeedPayload } from '../services/toolFeedBus';
 
 function dedupeFeeds(feeds = []) {
   const seen = new Map();
@@ -166,13 +175,97 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
 function FeedPanel({ feedId, context, variant = 'inline' }) {
   const scopedConversationId = String(splitFeedKey(feedId).conversationId || '').trim();
   const rawFeedId = String(splitFeedKey(feedId).feedId || '').trim();
-  const data = getFeedData(feedId, scopedConversationId);
+  const data = normalizeFeedPayload(getFeedData(feedId, scopedConversationId));
   if (!data) return null;
   if (!hasRenderableFeedData(data)) return null;
   const onPathActivate = rawFeedId === 'resources'
     ? (row) => openResourceFeedPath({ row, context })
     : null;
+  if (String(data?.ui?.renderMode || data?.renderMode || '').trim().toLowerCase() === 'forge') {
+    return (
+      <ForgeFeedRenderer
+        data={data}
+        feedId={rawFeedId || feedId}
+        conversationId={scopedConversationId}
+        variant={variant}
+      />
+    );
+  }
   return <InlineRenderer data={data} variant={variant} onPathActivate={onPathActivate} />;
+}
+
+function cloneFeedNode(node) {
+  if (!node || typeof node !== 'object') return node;
+  try {
+    return JSON.parse(JSON.stringify(node));
+  } catch (_) {
+    return { ...node };
+  }
+}
+
+function buildForgeFeedContainer(feedId = '', payload = {}, dataMap = {}) {
+  const ui = (payload?.ui && typeof payload.ui === 'object') ? payload.ui : {};
+  const rootContainers = Array.isArray(ui.containers) ? cloneFeedNode(ui.containers) : [];
+  const rootItems = Array.isArray(ui.items) ? cloneFeedNode(ui.items) : [];
+  const dsRefs = Object.keys((ui.dataSources && typeof ui.dataSources === 'object')
+    ? ui.dataSources
+    : ((payload?.dataSources && typeof payload.dataSources === 'object') ? payload.dataSources : {}));
+  const defaultDataSourceRef = dsRefs[0] || '';
+
+  let container = null;
+  const hasTopLevelVisuals = !!(ui.toolbar || ui.table || ui.chart || ui.chat || ui.terminal || ui.fileBrowser || ui.treeBrowser || ui.editor || ui.schemaBasedForm || ui.layout || rootItems.length > 0);
+  if (rootContainers.length === 1 && !hasTopLevelVisuals) {
+    container = rootContainers[0];
+  } else {
+    container = {
+      id: `${feedId || 'feed'}-root`,
+      title: ui.title || payload?.title || '',
+      dataSourceRef: defaultDataSourceRef,
+      layout: ui.layout || { orientation: 'vertical', columns: 1 },
+      items: rootItems,
+      containers: rootContainers,
+      toolbar: ui.toolbar,
+      table: ui.table,
+      chart: ui.chart,
+      chat: ui.chat,
+      terminal: ui.terminal,
+      fileBrowser: ui.fileBrowser,
+      treeBrowser: ui.treeBrowser,
+      editor: ui.editor,
+      schemaBasedForm: ui.schemaBasedForm,
+      style: ui.style || {},
+    };
+  }
+
+  if (container && !container.dataSourceRef && defaultDataSourceRef) {
+    container.dataSourceRef = defaultDataSourceRef;
+  }
+  return applyAutoTableColumns(container, dataMap);
+}
+
+function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = 'inline' }) {
+  const normalized = normalizeFeedPayload(data);
+  const dataSources = normalizeDataSources(normalized?.ui?.dataSources || normalized?.dataSources || {});
+  const context = createFeedContext(feedId, dataSources, conversationId);
+  const execution = {
+    dataSources,
+    dataFeed: {
+      name: Object.keys(dataSources)[0] || feedId,
+      data: normalized?.data,
+    },
+  };
+  const dataMap = computeDataMap(execution);
+  wireFeedSignals(execution, context.identity.windowId);
+  const container = buildForgeFeedContainer(feedId, normalized, dataMap);
+  if (!container) return null;
+  const railStyle = variant === 'rail'
+    ? { height: '100%', minHeight: 0, overflowY: 'auto' }
+    : { maxHeight: 'min(18vh, 220px)', overflowY: 'auto' };
+  return (
+    <div className="app-tool-feed-detail-forge" style={railStyle}>
+      <Container context={context} container={container} isActive suppressTitle={!container?.title} />
+    </div>
+  );
 }
 
 /**

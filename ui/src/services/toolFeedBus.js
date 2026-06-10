@@ -18,6 +18,36 @@ let feedDataCache = {};
 let inactiveFeedKeys = new Set();
 const dataListeners = new Set();
 
+function looksLikeResolvedFeedPayload(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (value.ui && typeof value.ui === 'object') return true;
+  if (value.dataSources && typeof value.dataSources === 'object') return true;
+  if (value.dataFeed && typeof value.dataFeed === 'object') return true;
+  if (Array.isArray(value.containers)) return true;
+  if (String(value.renderMode || '').trim()) return true;
+  return false;
+}
+
+export function normalizeFeedPayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+  const base = { ...payload };
+  const nested = base.data;
+  if (
+    !looksLikeResolvedFeedPayload(base)
+    && nested
+    && typeof nested === 'object'
+    && !Array.isArray(nested)
+    && looksLikeResolvedFeedPayload(nested)
+  ) {
+    return {
+      ...base,
+      ...nested,
+      data: Object.prototype.hasOwnProperty.call(nested, 'data') ? nested.data : nested,
+    };
+  }
+  return base;
+}
+
 export function makeFeedKey(feedId = '', conversationId = '') {
   const rawFeedId = String(feedId || '').trim();
   const rawConversationId = String(conversationId || '').trim();
@@ -64,8 +94,8 @@ export function onFeedChange(fn) {
 /** Get cached feed data. */
 export function getFeedData(feedId, conversationId = '') {
   const { feedId: normalizedFeedId, scopedKey } = normalizeScopedFeedIdentity(feedId, conversationId);
-  if (scopedKey && feedDataCache[scopedKey]) return feedDataCache[scopedKey] || null;
-  return normalizedFeedId ? (feedDataCache[normalizedFeedId] || null) : null;
+  if (scopedKey && feedDataCache[scopedKey]) return normalizeFeedPayload(feedDataCache[scopedKey]) || null;
+  return normalizedFeedId ? (normalizeFeedPayload(feedDataCache[normalizedFeedId]) || null) : null;
 }
 
 export function isFeedInactive(feedId, conversationId = '') {
@@ -84,13 +114,13 @@ export function updateFeedData(feedId, patch = {}, conversationId = '') {
     feedId: normalizedFeedId,
     _conversationId: normalizedConversationId
   };
-  feedDataCache[scopedKey] = {
+  feedDataCache[scopedKey] = normalizeFeedPayload({
     ...current,
     ...(patch || {}),
     feedKey: scopedKey,
     feedId: normalizedFeedId,
     _conversationId: normalizedConversationId
-  };
+  });
   notifyDataChange();
 }
 
@@ -111,14 +141,14 @@ export function fetchFeedDataNow(feedId, conversationId) {
   }
   client.getFeedData(normalizedFeedId, normalizedConversationId).then((data) => {
     if (data) {
-      feedDataCache[scopedKey] = {
+      feedDataCache[scopedKey] = normalizeFeedPayload({
         ...(existing || {}),
         ...data,
         data: data?.data != null ? data.data : (existing?.data ?? null),
         feedKey: scopedKey,
         feedId: normalizedFeedId,
         _conversationId: normalizedConversationId
-      };
+      });
     }
     notifyDataChange();
   }).catch(() => {
@@ -190,13 +220,13 @@ export function applyFeedEvent(payload) {
     const existing = feedDataCache[scopedKey] || null;
     // Set inline data immediately for fast rendering.
     if (payload.feedData) {
-      feedDataCache[scopedKey] = {
+      feedDataCache[scopedKey] = normalizeFeedPayload({
         data: payload.feedData,
         feedKey: scopedKey,
         feedId,
         title: payload.feedTitle || feedId,
         _conversationId: conversationId
-      };
+      });
       notifyDataChange();
     }
     // Fetch from API only when the scoped feed does not already have the
@@ -207,14 +237,14 @@ export function applyFeedEvent(payload) {
       client.getFeedData(feedId, conversationId).then((data) => {
         if (data) {
           const latest = feedDataCache[scopedKey] || existing || {};
-          feedDataCache[scopedKey] = {
+          feedDataCache[scopedKey] = normalizeFeedPayload({
             ...latest,
             ...data,
             data: data?.data != null ? data.data : (latest?.data ?? null),
             feedKey: scopedKey,
             feedId,
             _conversationId: conversationId
-          };
+          });
           notifyDataChange();
         }
       }).catch(() => {});

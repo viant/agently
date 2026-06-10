@@ -51,6 +51,33 @@ describe('toolFeedBus conversation scoping', () => {
     expect(mod.getFeedData('terminal', 'conv-b')?.data?.output?.lines).toEqual(['b']);
   });
 
+  it('unwraps feed payload envelopes that place ui and data under a nested data object', async () => {
+    const mod = await import('./toolFeedBus');
+
+    mod.updateFeedData('goal', {
+      data: {
+        ui: {
+          title: 'Goal',
+          renderMode: 'forge',
+          dataSources: {
+            goalState: { source: 'goal' },
+          },
+        },
+        data: {
+          goal: {
+            objective: 'Ship the Go task',
+            status: 'active',
+          },
+        },
+      },
+    }, 'conv-goal');
+
+    const feed = mod.getFeedData('goal', 'conv-goal');
+    expect(feed?.ui?.title).toBe('Goal');
+    expect(feed?.ui?.renderMode).toBe('forge');
+    expect(feed?.data?.goal?.objective).toBe('Ship the Go task');
+  });
+
   it('resolves scoped feed ids without double-scoping lookups or fetches', async () => {
     const mod = await import('./toolFeedBus');
     const { client } = await import('./agentlyClient');
