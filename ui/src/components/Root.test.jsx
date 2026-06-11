@@ -1,23 +1,66 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  isCompactShellViewport,
   isConversationOwnedWorkspaceWindow,
   isConversationHostedWorkspaceChild,
   isHostedWorkspaceChildOfMainChat,
+  resolveActiveConversationId,
+  resolveChatChromeWindow,
+  resolveEffectiveWorkspaceCollapsed,
   resolveHostedWorkspaceTabLabel,
   resolveHostedWorkspaceTabs,
   resolveHostedBottomWindow,
   resolveRouteBootstrapAction,
+  shouldReturnSelectionToMainChat,
+  resolveWorkspaceVisibilitySelection,
+  shouldShowChatChromeForLayout,
   shouldReplayRouteConversationBootstrap,
+  shouldCaptureDesktopSidebarPreference,
+  shouldPersistWorkspaceHeight,
+  shouldRestoreDesktopSidebarPreference,
   resolveMainWindowCloseConversationId,
   resolveMainWindowHeaderTitle,
   resolveSelectedMainWindow,
   resolveWindowRefreshDataSources,
+  shouldForceWorkspaceFull,
   shouldShowChatChrome,
   shouldShowMainWindowHeader
 } from './Root.jsx';
 
 describe('Root window selection helpers', () => {
+  it('detects phone-sized shell viewports for overlay navigation', () => {
+    expect(isCompactShellViewport(390)).toBe(true);
+    expect(isCompactShellViewport(820)).toBe(true);
+    expect(isCompactShellViewport(821)).toBe(false);
+    expect(isCompactShellViewport(0)).toBe(false);
+  });
+
+  it('forces hosted workspace full-screen on compact shells', () => {
+    expect(shouldForceWorkspaceFull({ isCompactShell: true, showWorkspacePane: true })).toBe(true);
+    expect(shouldForceWorkspaceFull({ isCompactShell: true, showWorkspacePane: false })).toBe(false);
+    expect(shouldForceWorkspaceFull({ isCompactShell: false, showWorkspacePane: true })).toBe(false);
+  });
+
+  it('keeps collapsed workspaces visible on compact shells', () => {
+    expect(resolveEffectiveWorkspaceCollapsed({ isCompactShell: true, isWorkspaceCollapsed: true })).toBe(false);
+    expect(resolveEffectiveWorkspaceCollapsed({ isCompactShell: false, isWorkspaceCollapsed: true })).toBe(true);
+    expect(resolveEffectiveWorkspaceCollapsed({ isCompactShell: false, isWorkspaceCollapsed: false })).toBe(false);
+  });
+
+  it('captures and restores desktop sidebar preference only across compact-shell transitions', () => {
+    expect(shouldCaptureDesktopSidebarPreference({ wasCompactShell: false, isCompactShell: true })).toBe(true);
+    expect(shouldCaptureDesktopSidebarPreference({ wasCompactShell: true, isCompactShell: true })).toBe(false);
+    expect(shouldRestoreDesktopSidebarPreference({ wasCompactShell: true, isCompactShell: false })).toBe(true);
+    expect(shouldRestoreDesktopSidebarPreference({ wasCompactShell: false, isCompactShell: false })).toBe(false);
+  });
+
+  it('persists workspace height only when a workspace exists or a stored height already exists', () => {
+    expect(shouldPersistWorkspaceHeight({ activeWorkspaceWindowId: 'workspace-1', hasStoredHeight: false })).toBe(true);
+    expect(shouldPersistWorkspaceHeight({ activeWorkspaceWindowId: '', hasStoredHeight: true })).toBe(true);
+    expect(shouldPersistWorkspaceHeight({ activeWorkspaceWindowId: '', hasStoredHeight: false })).toBe(false);
+  });
+
   it('prefers the selected tabbed window over stale focused window state', () => {
     const windows = [
       { windowId: 'chat/new', windowKey: 'chat/new' },
@@ -39,6 +82,79 @@ describe('Root window selection helpers', () => {
     expect(shouldShowChatChrome({ windowKey: 'chat/new' })).toBe(true);
     expect(shouldShowChatChrome({ windowKey: 'schedule' })).toBe(false);
     expect(shouldShowChatChrome(null)).toBe(false);
+  });
+
+  it('uses the hosted bottom window as the chat-chrome source in split shell mode', () => {
+    expect(resolveChatChromeWindow({
+      shouldRenderSplitShell: true,
+      hostedBottomWindow: { windowKey: 'chat/new' },
+      selectedWindow: { windowKey: 'metricReportBuilder' },
+    })).toEqual({ windowKey: 'chat/new' });
+    expect(resolveChatChromeWindow({
+      shouldRenderSplitShell: false,
+      hostedBottomWindow: { windowKey: 'chat/new' },
+      selectedWindow: { windowKey: 'metricReportBuilder' },
+    })).toEqual({ windowKey: 'metricReportBuilder' });
+  });
+
+  it('suppresses chat chrome when the workspace is fully expanded over the chat pane', () => {
+    expect(shouldShowChatChromeForLayout({
+      chatChromeWindow: { windowKey: 'chat/new' },
+      effectiveWorkspaceFull: false,
+    })).toBe(true);
+    expect(shouldShowChatChromeForLayout({
+      chatChromeWindow: { windowKey: 'chat/new' },
+      effectiveWorkspaceFull: true,
+    })).toBe(false);
+  });
+
+  it('resolves the active conversation id from the chat pane before falling back to the main conversation', () => {
+    expect(resolveActiveConversationId({
+      chatChromeWindowId: 'chat/new',
+      mainConversationId: 'conv-main',
+      scopedConversationId: 'conv-chat',
+    })).toBe('conv-chat');
+    expect(resolveActiveConversationId({
+      chatChromeWindowId: 'workspace-1',
+      mainConversationId: 'conv-main',
+      scopedConversationId: '',
+    })).toBe('conv-main');
+  });
+
+  it('returns the chat window selection when hiding an active workspace pane', () => {
+    expect(resolveWorkspaceVisibilitySelection({
+      nextVisible: false,
+      activeWorkspaceWindowId: 'workspace-1',
+      mainChatWindowId: 'chat/new',
+    })).toBe('chat/new');
+    expect(resolveWorkspaceVisibilitySelection({
+      nextVisible: true,
+      activeWorkspaceWindowId: 'workspace-1',
+      mainChatWindowId: 'chat/new',
+    })).toBe('');
+    expect(resolveWorkspaceVisibilitySelection({
+      nextVisible: false,
+      activeWorkspaceWindowId: '',
+      mainChatWindowId: 'chat/new',
+    })).toBe('');
+  });
+
+  it('returns selection to the main chat only when a hidden workspace is still selected', () => {
+    expect(shouldReturnSelectionToMainChat({
+      showWorkspaceWindow: false,
+      activeWorkspaceWindowId: 'workspace-1',
+      selectedWindowId: 'workspace-1',
+    })).toBe(true);
+    expect(shouldReturnSelectionToMainChat({
+      showWorkspaceWindow: false,
+      activeWorkspaceWindowId: 'workspace-1',
+      selectedWindowId: 'chat/new',
+    })).toBe(false);
+    expect(shouldReturnSelectionToMainChat({
+      showWorkspaceWindow: true,
+      activeWorkspaceWindowId: 'workspace-1',
+      selectedWindowId: 'workspace-1',
+    })).toBe(false);
   });
 
   it('resolves datasource refresh refs for windows that need first-open data', () => {
