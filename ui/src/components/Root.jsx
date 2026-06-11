@@ -28,6 +28,7 @@ const SIDEBAR_WIDTH_KEY = 'agently.sidebarWidth';
 const SIDEBAR_DEFAULT_WIDTH = 320;
 const SIDEBAR_MIN_WIDTH = 220;
 const SIDEBAR_MAX_WIDTH = 520;
+const COMPACT_SHELL_BREAKPOINT = 820;
 const SHOW_EXECUTION_DETAILS_KEY = 'agently.showExecutionDetails';
 const SHOW_INTAKE_DETAILS_KEY = 'agently.showIntakeDetails';
 const SHOW_WORKSPACE_WINDOW_KEY = 'agently.showWorkspaceWindow';
@@ -43,6 +44,39 @@ function clampSidebarWidth(value) {
   return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(next)));
 }
 
+export function isCompactShellViewport(width) {
+  const next = Number(width || 0);
+  return Number.isFinite(next) && next > 0 && next <= COMPACT_SHELL_BREAKPOINT;
+}
+
+export function shouldForceWorkspaceFull({
+  isCompactShell = false,
+  showWorkspacePane = false,
+} = {}) {
+  return isCompactShell === true && showWorkspacePane === true;
+}
+
+export function resolveEffectiveWorkspaceCollapsed({
+  isCompactShell = false,
+  isWorkspaceCollapsed = false,
+} = {}) {
+  return isCompactShell ? false : isWorkspaceCollapsed === true;
+}
+
+export function shouldCaptureDesktopSidebarPreference({
+  wasCompactShell = false,
+  isCompactShell = false,
+} = {}) {
+  return wasCompactShell === false && isCompactShell === true;
+}
+
+export function shouldRestoreDesktopSidebarPreference({
+  wasCompactShell = false,
+  isCompactShell = false,
+} = {}) {
+  return wasCompactShell === true && isCompactShell === false;
+}
+
 function clampWorkspaceHeight(value) {
   const next = Number(value || 0);
   if (!Number.isFinite(next)) return WORKSPACE_DEFAULT_HEIGHT;
@@ -52,6 +86,16 @@ function clampWorkspaceHeight(value) {
 function workspaceHeightStorageKey(conversationId = '') {
   const id = String(conversationId || '').trim();
   return id ? `${WORKSPACE_HEIGHT_KEY}:${id}` : WORKSPACE_HEIGHT_KEY;
+}
+
+function hasStoredWorkspaceHeight(conversationId = '') {
+  if (typeof window === 'undefined') return false;
+  try {
+    const raw = String(window.sessionStorage?.getItem(workspaceHeightStorageKey(conversationId)) || '').trim();
+    return raw !== '';
+  } catch (_) {
+    return false;
+  }
 }
 
 function resolveActivatedWorkspaceHeight() {
@@ -120,6 +164,63 @@ export function resolveSelectedMainWindow(windows = [], selectedTabWindowId = ''
 
 export function shouldShowChatChrome(windowEntry = null) {
   return String(windowEntry?.windowKey || '').trim() === CHAT_WINDOW_KEY;
+}
+
+export function resolveChatChromeWindow({
+  shouldRenderSplitShell = false,
+  hostedBottomWindow = null,
+  selectedWindow = null,
+} = {}) {
+  return shouldRenderSplitShell ? (hostedBottomWindow || null) : (selectedWindow || null);
+}
+
+export function shouldShowChatChromeForLayout({
+  chatChromeWindow = null,
+  effectiveWorkspaceFull = false,
+} = {}) {
+  return shouldShowChatChrome(chatChromeWindow) && effectiveWorkspaceFull !== true;
+}
+
+export function resolveWorkspaceVisibilitySelection({
+  nextVisible = true,
+  activeWorkspaceWindowId = '',
+  mainChatWindowId = '',
+} = {}) {
+  if (nextVisible !== false) {
+    return '';
+  }
+  if (!String(activeWorkspaceWindowId || '').trim()) {
+    return '';
+  }
+  return String(mainChatWindowId || MAIN_CHAT_WINDOW_ID).trim() || MAIN_CHAT_WINDOW_ID;
+}
+
+export function shouldReturnSelectionToMainChat({
+  showWorkspaceWindow = true,
+  activeWorkspaceWindowId = '',
+  selectedWindowId = '',
+} = {}) {
+  if (showWorkspaceWindow !== false) {
+    return false;
+  }
+  const activeId = String(activeWorkspaceWindowId || '').trim();
+  const selectedId = String(selectedWindowId || '').trim();
+  return !!activeId && activeId === selectedId;
+}
+
+export function resolveActiveConversationId({
+  chatChromeWindowId = '',
+  mainConversationId = '',
+  scopedConversationId = '',
+} = {}) {
+  return String(scopedConversationId || mainConversationId || '').trim();
+}
+
+export function shouldPersistWorkspaceHeight({
+  activeWorkspaceWindowId = '',
+  hasStoredHeight = false,
+} = {}) {
+  return String(activeWorkspaceWindowId || '').trim() !== '' || hasStoredHeight === true;
 }
 
 export function isHostedWorkspaceChildOfMainChat(windowEntry = null) {
@@ -330,7 +431,10 @@ export default function Root() {
     const stored = String(window.localStorage?.getItem('agently.detailMode') || '').trim();
     return stored === 'left' || stored === 'window' ? stored : 'right';
   });
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return !isCompactShellViewport(window.innerWidth);
+  });
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     if (typeof window === 'undefined') return SIDEBAR_DEFAULT_WIDTH;
     try {
@@ -377,8 +481,15 @@ export default function Root() {
   const [workspacePresentationMode, setWorkspacePresentationModeState] = useState('split');
   const [workspaceHeight, setWorkspaceHeight] = useState(WORKSPACE_DEFAULT_HEIGHT);
   const [stableMainChatWindow, setStableMainChatWindow] = useState(null);
+  const [isCompactShell, setIsCompactShell] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return isCompactShellViewport(window.innerWidth);
+  });
   const resizeStateRef = useRef(null);
   const workspaceResizeStateRef = useRef(null);
+  const sidebarOpenRef = useRef(isSidebarOpen);
+  const desktopSidebarOpenRef = useRef(true);
+  const previousCompactShellRef = useRef(isCompactShell);
   const approvals = useApprovalQueue(authState === 'ready');
   const selectedWindow = resolveSelectedMainWindow(
     activeWindows.value,
@@ -398,6 +509,12 @@ export default function Root() {
       setStableMainChatWindow(mainChatWindow);
     }
   }, [mainChatWindow]);
+  useEffect(() => {
+    sidebarOpenRef.current = isSidebarOpen;
+    if (!isCompactShell) {
+      desktopSidebarOpenRef.current = isSidebarOpen;
+    }
+  }, [isCompactShell, isSidebarOpen]);
   const effectiveMainChatWindow = mainChatWindow || stableMainChatWindow;
   const mainConversationId = String(
     resolveConversationSelection(MAIN_CHAT_WINDOW_ID)
@@ -420,7 +537,6 @@ export default function Root() {
     return `${windowId}:${hasInlineMetadata ? 1 : 0}:${inlineNamespace}:${JSON.stringify(windowFormState)}:${JSON.stringify(viewState)}`;
   }).join('|');
   const linkedChildWindow = isLinkedChildWindow(selectedWindow) ? selectedWindow : null;
-  const showChatChrome = shouldShowChatChrome(selectedWindow);
   const activeWindowTitle = resolveMainWindowHeaderTitle(selectedWindowForTitle);
   const activeWorkspaceWindow = !linkedChildWindow
     ? (
@@ -442,24 +558,41 @@ export default function Root() {
   const activeWorkspaceTitle = resolveMainWindowHeaderTitle(activeWorkspaceWindow);
   const workspaceSharePct = Number(activeWorkspaceWindow?.workspaceSharePct || 0);
   const workspaceMinHeight = Number(activeWorkspaceWindow?.workspaceMinHeight || 0);
-  const activeConversationId = String(
-    getScopedConversationSelection(String(selectedWindow?.windowId || '').trim())
-    || ''
-  ).trim();
   const hostedBottomWindow = resolveHostedBottomWindow(selectedWindow, effectiveMainChatWindow, activeWindows.value, mainConversationId);
+  const selectedWindowShowsChatChrome = shouldShowChatChrome(selectedWindow);
   const shouldRenderSplitShell = !!(
     effectiveMainChatWindow
     && (
       !selectedWindow
       ||
-      showChatChrome
+      selectedWindowShowsChatChrome
       || !!activeWorkspaceWindow
       || isChatBottomRegionWindow(selectedWindow)
     )
   );
+  const chatChromeWindow = resolveChatChromeWindow({
+    shouldRenderSplitShell,
+    hostedBottomWindow,
+    selectedWindow,
+  });
+  const activeConversationId = resolveActiveConversationId({
+    chatChromeWindowId: String(chatChromeWindow?.windowId || '').trim(),
+    mainConversationId,
+    scopedConversationId: getScopedConversationSelection(String(chatChromeWindow?.windowId || '').trim()),
+  });
   const showWorkspacePane = !!(workspaceWindows.length > 0 && activeWorkspaceWindow && showWorkspaceWindow);
   const isWorkspaceFull = workspacePresentationMode === 'full';
+  const forceWorkspaceFull = shouldForceWorkspaceFull({ isCompactShell, showWorkspacePane });
+  const effectiveWorkspaceFull = isWorkspaceFull || forceWorkspaceFull;
+  const showChatChrome = shouldShowChatChromeForLayout({
+    chatChromeWindow,
+    effectiveWorkspaceFull,
+  });
   const isWorkspaceCollapsed = activeWorkspaceWindow?.workspaceCollapsed === true;
+  const effectiveWorkspaceCollapsed = resolveEffectiveWorkspaceCollapsed({
+    isCompactShell,
+    isWorkspaceCollapsed,
+  });
 
   const setWorkspacePresentationMode = (mode) => {
     const next = String(mode || '').trim().toLowerCase() === 'full' ? 'full' : 'split';
@@ -520,6 +653,22 @@ export default function Root() {
     setScopedWorkspaceState(restoreConversationId, null);
     openConversationInMainWindow(restoreConversationId);
   };
+
+  const toggleWorkspaceVisibility = React.useCallback(() => {
+    setShowWorkspaceWindow((current) => {
+      const next = !current;
+      const fallbackWindowId = resolveWorkspaceVisibilitySelection({
+        nextVisible: next,
+        activeWorkspaceWindowId: activeWorkspaceWindow?.windowId,
+        mainChatWindowId: effectiveMainChatWindow?.windowId,
+      });
+      if (fallbackWindowId) {
+        selectedWindowId.value = fallbackWindowId;
+        selectedTabId.value = fallbackWindowId;
+      }
+      return next;
+    });
+  }, [activeWorkspaceWindow?.windowId, effectiveMainChatWindow?.windowId]);
 
   const setMode = (mode) => {
     const next = mode === 'left' || mode === 'window' ? mode : 'right';
@@ -646,6 +795,36 @@ export default function Root() {
   }, [sidebarWidth]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return () => {};
+    const syncViewport = () => {
+      setIsCompactShell(isCompactShellViewport(window.innerWidth));
+    };
+    syncViewport();
+    window.addEventListener('resize', syncViewport);
+    return () => window.removeEventListener('resize', syncViewport);
+  }, []);
+
+  useEffect(() => {
+    if (isCompactShell) {
+      if (shouldCaptureDesktopSidebarPreference({
+        wasCompactShell: previousCompactShellRef.current,
+        isCompactShell,
+      })) {
+        desktopSidebarOpenRef.current = sidebarOpenRef.current;
+      }
+      setIsSidebarOpen(false);
+    } else {
+      if (shouldRestoreDesktopSidebarPreference({
+        wasCompactShell: previousCompactShellRef.current,
+        isCompactShell,
+      })) {
+        setIsSidebarOpen(desktopSidebarOpenRef.current);
+      }
+    }
+    previousCompactShellRef.current = isCompactShell;
+  }, [isCompactShell]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
       window.localStorage?.setItem(SHOW_EXECUTION_DETAILS_KEY, showExecutionDetails ? 'true' : 'false');
@@ -730,7 +909,8 @@ export default function Root() {
   useEffect(() => {
     const windowId = String(activeWorkspaceWindow?.windowId || '').trim();
     if (!windowId) return;
-    if (isWorkspaceFull || isWorkspaceCollapsed) return;
+    if (effectiveWorkspaceFull || effectiveWorkspaceCollapsed) return;
+    if (hasStoredWorkspaceHeight(mainConversationId)) return;
     const activatedHeight = resolveActivatedWorkspaceHeight();
     const requiredMinHeight = Number(activeWorkspaceWindow?.workspaceMinHeight || 0);
     const desired = Math.max(
@@ -738,18 +918,25 @@ export default function Root() {
       requiredMinHeight > 0 ? clampWorkspaceHeight(requiredMinHeight) : WORKSPACE_MIN_HEIGHT,
     );
     setWorkspaceHeight(desired);
-  }, [activeWorkspaceWindow?.windowId, activeWorkspaceWindow?.workspaceMinHeight, isWorkspaceFull, isWorkspaceCollapsed]);
+  }, [activeWorkspaceWindow?.windowId, activeWorkspaceWindow?.workspaceMinHeight, effectiveWorkspaceCollapsed, effectiveWorkspaceFull, mainConversationId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const conversationId = String(mainConversationId || '').trim();
+    const hasStoredHeight = hasStoredWorkspaceHeight(conversationId);
+    if (!shouldPersistWorkspaceHeight({
+      activeWorkspaceWindowId: activeWorkspaceWindow?.windowId,
+      hasStoredHeight,
+    })) {
+      return;
+    }
     try {
       window.sessionStorage?.setItem(
         workspaceHeightStorageKey(conversationId),
         String(clampWorkspaceHeight(workspaceHeight))
       );
     } catch (_) {}
-  }, [mainConversationId, workspaceHeight]);
+  }, [activeWorkspaceWindow?.windowId, mainConversationId, workspaceHeight]);
 
   useEffect(() => {
     const windows = Array.isArray(activeWindows.value) ? activeWindows.value : [];
@@ -821,6 +1008,15 @@ export default function Root() {
     const routeConversationId = conversationIDFromPath(window.location.pathname);
     if (!routeConversationId) return () => {};
     const replay = () => {
+      if (!shouldReplayRouteConversationBootstrap({
+        pathname: window.location.pathname,
+        authState,
+        mainConversationId,
+        hasChatFeed: !!document.querySelector('.app-chat-feed'),
+        hasWorkspace: !!document.querySelector('[data-workspace-window-id]'),
+      })) {
+        return;
+      }
       openConversationInMainWindow(routeConversationId);
     };
     const timer = window.setTimeout(replay, 250);
@@ -904,10 +1100,17 @@ export default function Root() {
   }, [activeWorkspaceWindow?.windowId, workspaceWindows, selectedWindow?.windowId, mainConversationId, workspaceStatePersistenceSignature]);
 
   useEffect(() => {
-    if (!activeWorkspaceWindow?.windowId) return;
-    if (showWorkspaceWindow) return;
-    setShowWorkspaceWindow(true);
-  }, [activeWorkspaceWindow?.windowId, showWorkspaceWindow]);
+    if (!shouldReturnSelectionToMainChat({
+      showWorkspaceWindow,
+      activeWorkspaceWindowId: activeWorkspaceWindow?.windowId,
+      selectedWindowId: selectedWindow?.windowId,
+    })) {
+      return;
+    }
+    const fallbackWindowId = String(effectiveMainChatWindow?.windowId || MAIN_CHAT_WINDOW_ID).trim() || MAIN_CHAT_WINDOW_ID;
+    selectedWindowId.value = fallbackWindowId;
+    selectedTabId.value = fallbackWindowId;
+  }, [activeWorkspaceWindow?.windowId, effectiveMainChatWindow?.windowId, selectedWindow?.windowId, showWorkspaceWindow]);
 
   useEffect(() => {
     const conversationId = String(mainConversationId || '').trim();
@@ -962,9 +1165,9 @@ export default function Root() {
     <DetailContext.Provider value={value}>
       <ConversationViewContext.Provider value={{ showExecutionDetails, setShowExecutionDetails, showIntakeDetails, setShowIntakeDetails, toolFeedDock: showChatChrome ? 'right' : 'inline' }}>
         <div
-          className="app-shell"
+          className={`app-shell${isCompactShell ? ' is-compact-shell' : ''}`}
           style={{
-            '--app-sidebar-width': `${isSidebarOpen ? clampSidebarWidth(sidebarWidth) : 64}px`
+            '--app-sidebar-width': `${isCompactShell ? 0 : (isSidebarOpen ? clampSidebarWidth(sidebarWidth) : 64)}px`
           }}
         >
           <MenuBar
@@ -975,14 +1178,27 @@ export default function Root() {
             showIntakeDetails={showIntakeDetails}
             onToggleIntakeDetails={() => setShowIntakeDetails((value) => !value)}
             showWorkspaceWindow={showWorkspaceWindow}
-            onToggleWorkspaceWindow={() => setShowWorkspaceWindow((value) => !value)}
+            onToggleWorkspaceWindow={toggleWorkspaceVisibility}
             showToolFeeds={showToolFeeds}
             onToggleToolFeeds={() => setShowToolFeeds((value) => !value)}
           />
 
-        <div className="app-main">
-          <Sidebar collapsed={!isSidebarOpen} />
-          {isSidebarOpen ? (
+        <div className={`app-main${isCompactShell ? ' is-compact-shell' : ''}`}>
+          {isCompactShell && isSidebarOpen ? (
+            <button
+              type="button"
+              className="app-sidebar-scrim"
+              aria-label="Close conversation sidebar"
+              onClick={() => setIsSidebarOpen(false)}
+            />
+          ) : null}
+          {(!isCompactShell || isSidebarOpen) ? (
+            <Sidebar
+              collapsed={!isCompactShell && !isSidebarOpen}
+              onNavigate={isCompactShell ? () => setIsSidebarOpen(false) : undefined}
+            />
+          ) : null}
+          {!isCompactShell && isSidebarOpen ? (
             <div
               className="app-sidebar-resizer"
               role="separator"
@@ -1028,9 +1244,9 @@ export default function Root() {
                 </div>
               ) : null}
               {shouldRenderSplitShell ? (
-                <div className={`app-window-split-stack${isWorkspaceFull ? ' is-full' : ''}${isWorkspaceCollapsed ? ' is-collapsed' : ''}${!showWorkspacePane ? ' is-chat-only' : ''}`}>
+                <div className={`app-window-split-stack${effectiveWorkspaceFull ? ' is-full' : ''}${effectiveWorkspaceCollapsed ? ' is-collapsed' : ''}${!showWorkspacePane ? ' is-chat-only' : ''}`}>
                   <div
-                    className={`app-window-split-shell${isWorkspaceFull ? ' is-full' : ''}${isWorkspaceCollapsed ? ' is-collapsed' : ''}${!showWorkspacePane ? ' is-chat-only' : ''}`}
+                    className={`app-window-split-shell${effectiveWorkspaceFull ? ' is-full' : ''}${effectiveWorkspaceCollapsed ? ' is-collapsed' : ''}${!showWorkspacePane ? ' is-chat-only' : ''}`}
                     style={{
                       ...(workspaceSharePct > 0 ? { '--app-workspace-share': `${workspaceSharePct}%` } : {}),
                       ...(workspaceMinHeight > 0 ? { '--app-workspace-min-height': `${workspaceMinHeight}px` } : {}),
@@ -1042,11 +1258,11 @@ export default function Root() {
                       key="workspace"
                       className="app-window-split-workspace"
                       aria-label={`${activeWorkspaceTitle} workspace`}
-                      aria-expanded={!isWorkspaceCollapsed}
+                      aria-expanded={!effectiveWorkspaceCollapsed}
                       data-workspace-window-id={String(activeWorkspaceWindow?.windowId || '')}
                       data-workspace-window-key={String(activeWorkspaceWindow?.windowKey || '')}
                       data-workspace-region="chat.top"
-                      data-workspace-collapsed={isWorkspaceCollapsed ? 'true' : 'false'}
+                      data-workspace-collapsed={effectiveWorkspaceCollapsed ? 'true' : 'false'}
                     >
                       <div className="app-window-split-workspace-header">
                         <div className="app-window-split-workspace-dots" aria-label="Workspace window controls">
@@ -1057,28 +1273,32 @@ export default function Root() {
                             title="Close workspace"
                             onClick={closeActiveWorkspaceWindow}
                           />
-                          <button
-                            type="button"
-                            className="app-window-dot app-window-dot-collapse"
-                            aria-label={isWorkspaceCollapsed ? `Restore split view for ${activeWorkspaceTitle}` : `Collapse ${activeWorkspaceTitle}`}
-                            title={isWorkspaceCollapsed ? 'Restore split workspace' : 'Collapse workspace body'}
-                            onClick={() => setActiveWorkspaceCollapsed(!isWorkspaceCollapsed)}
-                          />
-                          <button
-                            type="button"
-                            className="app-window-dot app-window-dot-expand"
-                            aria-label={isWorkspaceFull ? `Restore split view for ${activeWorkspaceTitle}` : `Expand ${activeWorkspaceTitle}`}
-                            title={isWorkspaceFull ? 'Restore split workspace' : 'Expand workspace'}
-                            onClick={() => {
-                              setActiveWorkspaceCollapsed(false);
-                              setWorkspacePresentationMode(isWorkspaceFull ? 'split' : 'full');
-                            }}
-                          />
+                          {!isCompactShell ? (
+                            <button
+                              type="button"
+                              className="app-window-dot app-window-dot-collapse"
+                              aria-label={isWorkspaceCollapsed ? `Restore split view for ${activeWorkspaceTitle}` : `Collapse ${activeWorkspaceTitle}`}
+                              title={isWorkspaceCollapsed ? 'Restore split workspace' : 'Collapse workspace body'}
+                              onClick={() => setActiveWorkspaceCollapsed(!isWorkspaceCollapsed)}
+                            />
+                          ) : null}
+                          {!isCompactShell ? (
+                            <button
+                              type="button"
+                              className="app-window-dot app-window-dot-expand"
+                              aria-label={isWorkspaceFull ? `Restore split view for ${activeWorkspaceTitle}` : `Expand ${activeWorkspaceTitle}`}
+                              title={isWorkspaceFull ? 'Restore split workspace' : 'Expand workspace'}
+                              onClick={() => {
+                                setActiveWorkspaceCollapsed(false);
+                                setWorkspacePresentationMode(isWorkspaceFull ? 'split' : 'full');
+                              }}
+                            />
+                          ) : null}
                         </div>
                         <div className="app-window-split-workspace-title">{activeWorkspaceTitle}</div>
                       </div>
-                      {!isWorkspaceCollapsed && workspaceTabs.length > 1 ? (
-                        <div className="app-window-split-workspace-tabs" role="tablist" aria-label="Workspace compare tabs">
+                          {!effectiveWorkspaceCollapsed && workspaceTabs.length > 1 ? (
+                            <div className="app-window-split-workspace-tabs" role="tablist" aria-label="Workspace compare tabs">
                           {workspaceTabs.map((tab) => (
                             <button
                               key={tab.windowId}
@@ -1095,14 +1315,14 @@ export default function Root() {
                       ) : null}
                       <div
                         className="app-window-split-workspace-body"
-                        hidden={isWorkspaceCollapsed}
+                        hidden={effectiveWorkspaceCollapsed}
                         key={String(activeWorkspaceWindow?.windowId || 'workspace')}
                       >
                         <WindowContent key={String(activeWorkspaceWindow?.windowId || 'workspace')} window={activeWorkspaceWindow} isInTab />
                       </div>
                     </section>
                   ) : null}
-                  {showWorkspacePane && !isWorkspaceFull && !isWorkspaceCollapsed ? (
+                  {showWorkspacePane && !effectiveWorkspaceFull && !effectiveWorkspaceCollapsed ? (
                     <div
                       className="app-window-split-workspace-resizer"
                       role="separator"

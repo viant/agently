@@ -6,6 +6,18 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "proof:browser": "node scripts/browser-proof-runner.mjs",
+    "proof:report-builder-preview": "node scripts/browser-proof-runner.mjs ../../forge/tests/report-builder-preview-proof.scenario.json test-results/forecasting-proof-harness-dev",
+    "proof:report-builder-preview:categorical": "node scripts/browser-proof-runner.mjs ../../forge/tests/report-builder-preview-categorical.scenario.json test-results/forecasting-proof-harness-dev",
+    "proof:report-builder-preview:manual": "node scripts/browser-proof-runner.mjs ../../forge/tests/report-builder-preview-manual.scenario.json test-results/forecasting-proof-harness-dev",
+    "proof:report-builder-preview:transition": "node scripts/browser-proof-runner.mjs ../../forge/tests/report-builder-preview-transition.scenario.json test-results/forecasting-proof-harness-dev",
+    "proof:report-builder-preview:empty": "node scripts/browser-proof-runner.mjs ../../forge/tests/report-builder-preview-empty.scenario.json test-results/forecasting-proof-harness-dev",
+    "proof:report-builder-preview:setup": "node scripts/browser-proof-runner.mjs ../../forge/tests/report-builder-preview-setup.scenario.json test-results/forecasting-proof-harness-dev",
+    "proof:report-builder-preview:reload": "node scripts/browser-proof-runner.mjs ../../forge/tests/report-builder-preview-reload.scenario.json test-results/forecasting-proof-harness-dev",
+    "proof:report-builder-preview:rerun": "node scripts/browser-proof-runner.mjs ../../forge/tests/report-builder-preview-rerun.scenario.json test-results/forecasting-proof-harness-dev",
+    "proof:report-builder-preview:stress": "node scripts/browser-proof-runner.mjs ../../forge/tests/report-builder-preview-stress.scenario.json test-results/forecasting-proof-harness-dev",
+    "proof:report-builder-preview:previous": "node scripts/browser-proof-runner.mjs ../../forge/tests/report-builder-preview-previous.scenario.json test-results/forecasting-proof-harness-dev",
+    "proof:forecasting-live": "node scripts/run-forecasting-live-proof.mjs",
     "sync:deployment": "./scripts/sync-deployment-ui.sh",
     "sync:deployment:v1": "./scripts/sync-deployment-ui.sh",
     "build:embed": "vite build && ./scripts/sync-deployment-ui.sh",
@@ -43,6 +55,7 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
     "dotenv": "^16.4.7",
+    "playwright": "^1.60.0",
     "vite": "^6.3.5",
     "vitest": "^2.1.5"
   }

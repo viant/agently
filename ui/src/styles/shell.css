@@ -398,6 +398,22 @@ body {
   min-height: 0;
 }
 
+.app-main.is-compact-shell {
+  position: relative;
+  overflow: hidden;
+}
+
+.app-sidebar-scrim {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  padding: 0;
+  background: rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(2px);
+  cursor: pointer;
+  z-index: 35;
+}
+
 .app-sidebar {
   width: var(--app-sidebar-width);
   flex: 0 0 var(--app-sidebar-width);
@@ -408,6 +424,18 @@ body {
   flex-direction: column;
   gap: 10px;
   transition: width 180ms ease;
+}
+
+.app-main.is-compact-shell .app-sidebar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: min(320px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  flex: 0 0 auto;
+  z-index: 40;
+  box-shadow: 0 28px 44px rgba(15, 23, 42, 0.22);
 }
 
 .app-sidebar.app-sidebar-detail {
@@ -2842,6 +2870,13 @@ td[data-col="enabled"] {
   border-bottom: 1px solid rgba(148, 163, 184, 0.18);
   min-height: min(var(--app-workspace-min-height, 0px), 70vh);
   max-height: 70vh;
+}
+
+.app-window-split-shell.is-full .app-window-split-workspace {
+  min-height: 0;
+  max-height: none;
+  height: 100%;
+  border-bottom: 0;
 }
 
 .app-window-split-shell.is-collapsed .app-window-split-workspace {

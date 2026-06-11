@@ -240,7 +240,7 @@ async function fetchPage({ query = '', direction = 'latest', cursor = '' }) {
   return normalizeSidebarPage(page, direction, cursor);
 }
 
-export default function Sidebar({ collapsed = false }) {
+export default function Sidebar({ collapsed = false, onNavigate = null }) {
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState([]);
   const [seedVersion, setSeedVersion] = useState(0);
@@ -255,6 +255,7 @@ export default function Sidebar({ collapsed = false }) {
   const [deleteError, setDeleteError] = useState('');
   const [deletingID, setDeletingID] = useState('');
   const rowsRef = React.useRef([]);
+  const queryRef = React.useRef('');
   const prevCursorRef = React.useRef('');
   const nextCursorRef = React.useRef('');
   const activityReloadTimerRef = React.useRef(null);
@@ -267,6 +268,11 @@ export default function Sidebar({ collapsed = false }) {
     return sidebarPageStatusLabel({ loading, prevCursor, nextCursor });
   }, [loading, prevCursor, nextCursor]);
   const showPagination = loading || !!prevCursor || !!nextCursor;
+  const navigate = React.useCallback(() => {
+    if (typeof onNavigate === 'function') {
+      onNavigate();
+    }
+  }, [onNavigate]);
 
   const requestDeleteConversation = (row) => {
     const id = String(row?.Id || row?.id || '').trim();
@@ -335,9 +341,10 @@ export default function Sidebar({ collapsed = false }) {
   };
 
   const reload = async (direction = 'latest', cursor = '', options = {}) => {
+    const activeQuery = String(queryRef.current || '').trim();
     const pageRequest = normalizeSidebarPageRequest(direction, cursor);
     const requestKey = JSON.stringify({
-      query: query.trim(),
+      query: activeQuery,
       direction: pageRequest.direction,
       cursor: pageRequest.cursor,
     });
@@ -349,7 +356,7 @@ export default function Sidebar({ collapsed = false }) {
     setLoading(true);
     const request = (async () => {
       try {
-        const page = await fetchPage({ query: query.trim(), direction: pageRequest.direction, cursor: pageRequest.cursor });
+        const page = await fetchPage({ query: activeQuery, direction: pageRequest.direction, cursor: pageRequest.cursor });
         if (reloadSeqRef.current !== requestSeq) return page;
         lastResolvedReloadKeyRef.current = requestKey;
         setRows(Array.isArray(page.rows) ? page.rows : []);
@@ -383,6 +390,10 @@ export default function Sidebar({ collapsed = false }) {
   useEffect(() => {
     rowsRef.current = rows;
   }, [rows]);
+
+  useEffect(() => {
+    queryRef.current = query;
+  }, [query]);
 
   useEffect(() => {
     prevCursorRef.current = prevCursor;
@@ -436,6 +447,7 @@ export default function Sidebar({ collapsed = false }) {
                   onClick={() => {
                     setSelectedID(id);
                     openConversationInMainWindow(id);
+                    navigate();
                   }}
                 >
                   <div className="app-conversation-topline">
@@ -462,7 +474,7 @@ export default function Sidebar({ collapsed = false }) {
         </div>
       </>
     );
-  }, [rows, loading, error, deleteError, selectedID, seedVersion, deletingID]);
+  }, [rows, loading, error, deleteError, selectedID, seedVersion, deletingID, navigate]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
@@ -476,7 +488,7 @@ export default function Sidebar({ collapsed = false }) {
         queryReloadTimerRef.current = null;
       }
       const latestRequestKey = JSON.stringify({
-        query: query.trim(),
+        query: String(queryRef.current || '').trim(),
         direction: 'latest',
         cursor: '',
       });
@@ -550,7 +562,10 @@ export default function Sidebar({ collapsed = false }) {
 
   return (
     <aside className={`app-sidebar ${collapsed ? 'is-collapsed' : ''}`}>
-      <Button minimal icon="plus" alignText="left" onClick={() => requestNewConversationInMainWindow()}>
+      <Button minimal icon="plus" alignText="left" onClick={() => {
+        requestNewConversationInMainWindow();
+        navigate();
+      }}>
         {collapsed ? '' : 'New Conversation'}
       </Button>
 
