@@ -2880,12 +2880,26 @@ td[data-col="enabled"] {
 }
 
 .app-window-split-shell.is-collapsed .app-window-split-workspace {
+  grid-row: 1;
   min-height: 0;
   max-height: none;
   height: auto;
   flex: 0 0 auto;
   align-self: start;
   border-bottom-color: rgba(148, 163, 184, 0.12);
+}
+
+.app-window-split-shell.is-collapsed .app-window-split-chat {
+  grid-row: 3;
+  min-height: 0;
+  height: 100%;
+  align-self: stretch;
+  flex: 1 1 auto;
+}
+
+.app-window-split-shell.is-collapsed .app-window-split-chat > * {
+  min-height: 0;
+  height: 100%;
 }
 
 .app-window-split-workspace {

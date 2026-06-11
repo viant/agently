@@ -208,6 +208,19 @@ export function shouldReturnSelectionToMainChat({
   return !!activeId && activeId === selectedId;
 }
 
+export function shouldReturnCollapsedWorkspaceSelectionToMainChat({
+  effectiveWorkspaceCollapsed = false,
+  activeWorkspaceWindowId = '',
+  selectedWindowId = '',
+} = {}) {
+  if (effectiveWorkspaceCollapsed !== true) {
+    return false;
+  }
+  const activeId = String(activeWorkspaceWindowId || '').trim();
+  const selectedId = String(selectedWindowId || '').trim();
+  return !!activeId && activeId === selectedId;
+}
+
 export function resolveActiveConversationId({
   chatChromeWindowId = '',
   mainConversationId = '',
@@ -1111,6 +1124,19 @@ export default function Root() {
     selectedWindowId.value = fallbackWindowId;
     selectedTabId.value = fallbackWindowId;
   }, [activeWorkspaceWindow?.windowId, effectiveMainChatWindow?.windowId, selectedWindow?.windowId, showWorkspaceWindow]);
+
+  useEffect(() => {
+    if (!shouldReturnCollapsedWorkspaceSelectionToMainChat({
+      effectiveWorkspaceCollapsed,
+      activeWorkspaceWindowId: activeWorkspaceWindow?.windowId,
+      selectedWindowId: selectedWindow?.windowId,
+    })) {
+      return;
+    }
+    const fallbackWindowId = String(effectiveMainChatWindow?.windowId || MAIN_CHAT_WINDOW_ID).trim() || MAIN_CHAT_WINDOW_ID;
+    selectedWindowId.value = fallbackWindowId;
+    selectedTabId.value = fallbackWindowId;
+  }, [activeWorkspaceWindow?.windowId, effectiveMainChatWindow?.windowId, effectiveWorkspaceCollapsed, selectedWindow?.windowId]);
 
   useEffect(() => {
     const conversationId = String(mainConversationId || '').trim();
