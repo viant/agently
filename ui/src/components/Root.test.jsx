@@ -13,6 +13,7 @@ import {
   resolveHostedBottomWindow,
   resolveRouteBootstrapAction,
   shouldReturnSelectionToMainChat,
+  shouldReturnCollapsedWorkspaceSelectionToMainChat,
   resolveWorkspaceVisibilitySelection,
   shouldShowChatChromeForLayout,
   shouldReplayRouteConversationBootstrap,
@@ -154,6 +155,24 @@ describe('Root window selection helpers', () => {
       showWorkspaceWindow: true,
       activeWorkspaceWindowId: 'workspace-1',
       selectedWindowId: 'workspace-1',
+    })).toBe(false);
+  });
+
+  it('returns selection to the main chat when the active workspace is collapsed while still selected', () => {
+    expect(shouldReturnCollapsedWorkspaceSelectionToMainChat({
+      effectiveWorkspaceCollapsed: true,
+      activeWorkspaceWindowId: 'workspace-1',
+      selectedWindowId: 'workspace-1',
+    })).toBe(true);
+    expect(shouldReturnCollapsedWorkspaceSelectionToMainChat({
+      effectiveWorkspaceCollapsed: false,
+      activeWorkspaceWindowId: 'workspace-1',
+      selectedWindowId: 'workspace-1',
+    })).toBe(false);
+    expect(shouldReturnCollapsedWorkspaceSelectionToMainChat({
+      effectiveWorkspaceCollapsed: true,
+      activeWorkspaceWindowId: 'workspace-1',
+      selectedWindowId: 'chat/new',
     })).toBe(false);
   });
 
