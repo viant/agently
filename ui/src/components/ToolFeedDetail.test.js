@@ -1,8 +1,12 @@
 import React from 'react';
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, '../../..');
 
 const { getFeedDataMock, makeFeedKeyMock } = vi.hoisted(() => ({
   getFeedDataMock: vi.fn(() => null)
@@ -727,8 +731,8 @@ describe('ToolFeedDetail', () => {
   });
 
   it('keeps changes and explorer feeds visually compact at the spec level', () => {
-    const changesYaml = fs.readFileSync('/Users/awitas/go/src/github.com/viant/agently/bootstrap/defaults/feeds/changes.yaml', 'utf8');
-    const explorerYaml = fs.readFileSync('/Users/awitas/go/src/github.com/viant/agently/bootstrap/defaults/feeds/explorer.yaml', 'utf8');
+    const changesYaml = fs.readFileSync(path.join(repoRoot, 'bootstrap/defaults/feeds/changes.yaml'), 'utf8');
+    const explorerYaml = fs.readFileSync(path.join(repoRoot, 'bootstrap/defaults/feeds/explorer.yaml'), 'utf8');
 
     expect(changesYaml).toContain('height: min(18vh, 180px)');
     expect(changesYaml).toContain('borderRadius: 10px');

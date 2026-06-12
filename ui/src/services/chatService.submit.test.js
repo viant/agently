@@ -14,6 +14,7 @@ vi.mock('./agentlyClient', () => ({
   client: {
     getTranscript: vi.fn(),
     query: vi.fn(),
+    uploadFile: vi.fn(),
   },
 }));
 
@@ -88,7 +89,7 @@ vi.mock('../utils/dialogBus', () => ({
 
 import { client } from './agentlyClient';
 import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore } from './chatStore';
-import { onInit, submitMessage } from './chatService';
+import { onInit, prepareUpload, submitMessage } from './chatService';
 import { listLookupRegistry } from '../components/lookups/client.js';
 import {
   dsTick,
@@ -288,6 +289,182 @@ describe('submitMessage', () => {
       tools: ['llm/agents:list', 'steward-RecommendationPatch'],
       toolBundles: ['analyst-sitelist-tools'],
     }));
+  });
+
+  it('submits only canonical message attachments and ignores legacy message files', async () => {
+    client.query.mockResolvedValue({});
+    ensureConversation.mockResolvedValue('conv-attach');
+    resolveUserID.mockReturnValue('');
+    ensureContextResources.mockReturnValue({
+      runningTurnId: '',
+      lastHasRunning: false,
+      activeConversationID: '',
+      liveOwnedConversationID: '',
+      activeStreamPrompt: '',
+      activeStreamTurnId: '',
+      activeStreamStartedAt: 0,
+    });
+    dsTick.mockResolvedValue({
+      conversationID: 'conv-attach',
+      hasRunning: false,
+    });
+
+    const convForm = {};
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => convForm,
+                setFormData: vi.fn(({ values }) => Object.assign(convForm, values)),
+              },
+            },
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({
+                  defaults: { model: 'openai_gpt-5_4' },
+                }),
+              },
+            },
+          };
+        }
+        return null;
+      },
+    };
+
+    await submitMessage({
+      context,
+      message: {
+        content: 'what is in this image?',
+        attachments: [{
+          id: 'file-1',
+          name: 'cat.jpg',
+          uri: '/v1/files/file-1?conversationId=conv-attach',
+          size: 700,
+          mime: 'image/jpeg',
+        }],
+        files: [{
+          name: 'legacy.jpg',
+          uri: '/legacy/should-not-send',
+          mime: 'image/jpeg',
+        }],
+      },
+      model: 'openai_gpt-5_4',
+      agent: 'steward',
+    });
+
+    expect(client.query).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-attach',
+      attachments: [{
+        id: 'file-1',
+        name: 'cat.jpg',
+        uri: '/v1/files/file-1?conversationId=conv-attach',
+        size: 700,
+        mime: 'image/jpeg',
+        stagingFolder: undefined,
+        content: undefined,
+        data: undefined,
+      }],
+    }));
+    expect(client.query.mock.calls[0][0].attachments).not.toContainEqual(expect.objectContaining({
+      name: 'legacy.jpg',
+    }));
+  });
+
+  it('prepares staged uploads without creating a conversation', async () => {
+    const context = {};
+
+    await expect(prepareUpload({ context })).resolves.toEqual({});
+    expect(ensureConversation).not.toHaveBeenCalled();
+  });
+
+  it('promotes staged attachments to conversation files before querying', async () => {
+    client.query.mockResolvedValue({});
+    client.uploadFile.mockResolvedValue({
+      id: 'file-promoted',
+      name: 'cat.jpg',
+      uri: '/v1/files/file-promoted?conversationId=conv-staged',
+      size: 5,
+      mimeType: 'image/jpeg',
+    });
+    ensureConversation.mockResolvedValue('conv-staged');
+    resolveUserID.mockReturnValue('');
+    ensureContextResources.mockReturnValue({
+      runningTurnId: '',
+      lastHasRunning: false,
+      activeConversationID: '',
+      liveOwnedConversationID: '',
+      activeStreamPrompt: '',
+      activeStreamTurnId: '',
+      activeStreamStartedAt: 0,
+    });
+
+    const convForm = {};
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => convForm,
+                setFormData: vi.fn(({ values }) => Object.assign(convForm, values)),
+              },
+            },
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({
+                  defaults: { model: 'openai_gpt-5_4' },
+                }),
+              },
+            },
+          };
+        }
+        return null;
+      },
+    };
+    const file = new Blob(['hello'], { type: 'image/jpeg' });
+
+    await submitMessage({
+      context,
+      message: {
+        content: "what's in this picture?",
+        attachments: [{
+          name: 'cat.jpg',
+          uri: 'agently-staging-uploads/stage-1/cat.jpg',
+          mime: 'image/jpeg',
+          size: 5,
+          file,
+        }],
+      },
+      model: 'openai_gpt-5_4',
+      agent: 'chatter',
+    });
+
+    expect(client.uploadFile).toHaveBeenCalledWith('conv-staged', file, 'cat.jpg');
+    expect(client.query).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-staged',
+      query: "what's in this picture?",
+      attachments: [{
+        id: 'file-promoted',
+        name: 'cat.jpg',
+        uri: '/v1/files/file-promoted?conversationId=conv-staged',
+        size: 5,
+        mime: 'image/jpeg',
+        stagingFolder: undefined,
+        content: undefined,
+        data: undefined,
+      }],
+    }));
+    expect(client.uploadFile.mock.invocationCallOrder[0]).toBeLessThan(client.query.mock.invocationCallOrder[0]);
   });
 
   it('resets canonical chatStore state before transcript hydration on a fast completed query', async () => {
@@ -566,6 +743,79 @@ describe('submitMessage', () => {
     });
     expect(client.query).not.toHaveBeenCalled();
     expect(submitToChatStore).not.toHaveBeenCalled();
+  });
+
+  it('submits canonical attachments even when the resolved prompt is empty', async () => {
+    client.query.mockResolvedValue({});
+    ensureConversation.mockResolvedValue('conv-attachment-only');
+    resolveUserID.mockReturnValue('');
+    ensureContextResources.mockReturnValue({
+      runningTurnId: '',
+      lastHasRunning: false,
+      activeConversationID: '',
+      liveOwnedConversationID: '',
+      activeStreamPrompt: '',
+      activeStreamTurnId: '',
+      activeStreamStartedAt: 0,
+    });
+    dsTick.mockResolvedValue({
+      conversationID: 'conv-attachment-only',
+      hasRunning: true,
+    });
+
+    const convForm = {};
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => convForm,
+                setFormData: vi.fn(({ values }) => Object.assign(convForm, values)),
+              },
+            },
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({
+                  defaults: { model: 'openai_gpt-5_4' },
+                }),
+              },
+            },
+          };
+        }
+        return null;
+      },
+    };
+
+    await submitMessage({
+      context,
+      message: {
+        content: '',
+        attachments: [{
+          id: 'file-1',
+          name: 'cat04.jpeg',
+          uri: '/v1/files/file-1?conversationId=conv-attachment-only',
+          mime: 'image/jpeg',
+        }],
+      },
+      model: 'openai_gpt-5_4',
+      agent: 'chatter',
+    });
+
+    expect(client.query).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-attachment-only',
+      query: '',
+      attachments: [{
+        id: 'file-1',
+        name: 'cat04.jpeg',
+        uri: '/v1/files/file-1?conversationId=conv-attachment-only',
+        mime: 'image/jpeg',
+      }],
+    }));
   });
 
   it('submits unresolved required starter lookups by preserving the /name token for the model', async () => {

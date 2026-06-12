@@ -73,3 +73,36 @@ func TestNewRouter_ServesLookupChipPreviewAsHTML(t *testing.T) {
 		t.Fatalf("bundle FS must satisfy fs.FS")
 	}
 }
+
+func TestNewRouter_ForwardsUploadToAPI(t *testing.T) {
+	apiCalled := false
+	api := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiCalled = true
+		if r.URL.Path != "/upload" {
+			t.Fatalf("unexpected API path %q", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	})
+	meta := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("meta should not handle %s", r.URL.Path)
+	})
+	speech := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("speech should not handle %s", r.URL.Path)
+	})
+	bundle := servedUIBundle{
+		Name:  "test",
+		FS:    fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}},
+		Index: []byte("<html></html>"),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/upload", nil)
+	w := httptest.NewRecorder()
+	newRouter(api, meta, speech, "", bundle).ServeHTTP(w, req)
+
+	if !apiCalled {
+		t.Fatalf("expected /upload to reach API handler")
+	}
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("want 202, got %d", w.Code)
+	}
+}
