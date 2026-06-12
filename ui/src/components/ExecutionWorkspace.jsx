@@ -462,6 +462,7 @@ export default function ExecutionWorkspace() {
     const onNew = (event) => {
       const targetWindowId = firstString(event?.detail?.windowId);
       if (targetWindowId && targetWindowId !== instanceWindowId) return;
+      if (firstString(event?.detail?.id)) return;
       setConversationId('');
       setTimeline([]);
       setTurns([]);

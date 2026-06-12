@@ -3361,6 +3361,58 @@ describe('switchConversation', () => {
 });
 
 describe('bindConversationWindowEvents', () => {
+  it('does not reset the active conversation when a created-conversation notification is emitted', async () => {
+    const originalWindow = globalThis.window;
+    const stubWindow = new EventTarget();
+    stubWindow.location = { pathname: '/conversation/conv-1' };
+    globalThis.window = stubWindow;
+    const setFormData = vi.fn();
+    const setCollection = vi.fn();
+    const setError = vi.fn();
+    const convForm = { id: 'conv-1', title: 'Existing conversation' };
+    const context = {
+      identity: { windowId: 'chat/new' },
+      resources: { chat: {} },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => convForm,
+                setFormData
+              }
+            }
+          };
+        }
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection,
+                setError
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    try {
+      bindConversationWindowEvents(context);
+      globalThis.window.dispatchEvent(new CustomEvent('agently:conversation-new', {
+        detail: { id: 'conv-created' }
+      }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(setFormData).not.toHaveBeenCalled();
+      expect(setCollection).not.toHaveBeenCalled();
+      expect(setError).not.toHaveBeenCalled();
+    } finally {
+      unbindConversationWindowEvents(context);
+      globalThis.window = originalWindow;
+    }
+  });
+
   it('skips redundant self-switch bootstrap for a freshly created conversation awaiting its first submit', async () => {
     const originalWindow = globalThis.window;
     const stubWindow = new EventTarget();

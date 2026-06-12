@@ -2699,6 +2699,8 @@ export function bindConversationWindowEvents(context) {
   chatState.onNewConversation = (event) => {
     const targetWindowId = String(event?.detail?.windowId || '').trim();
     if (targetWindowId && targetWindowId !== currentWindowId) return;
+    const createdConversationID = String(event?.detail?.id || '').trim();
+    if (createdConversationID) return;
     void createNewConversation(context);
   };
   window.addEventListener('agently:conversation-select', chatState.onConversationSelect);

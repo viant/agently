@@ -80,12 +80,34 @@ import { getScopedConversationSelection, MAIN_CHAT_WINDOW_ID, openConversationIn
 
 const DEFAULT_VISIBLE_ITERATIONS = Number.MAX_SAFE_INTEGER;
 const ITERATION_STEP = 1;
-const pendingUploads = [];
 const DEFAULT_REASONING_OPTIONS = [
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
 ];
+
+function isFileLike(value) {
+  if (!value || typeof value !== 'object') return false;
+  if (typeof File !== 'undefined' && value instanceof File) return true;
+  if (typeof Blob !== 'undefined' && value instanceof Blob) return true;
+  return typeof value.arrayBuffer === 'function' && typeof value.size === 'number';
+}
+
+function isCanonicalFileAttachment(attachment = null) {
+  const uri = String(attachment?.uri || '').trim();
+  return uri.startsWith('/v1/files/') || uri.includes('/v1/files/');
+}
+
+function stripAttachmentRuntimeFields(attachment = null) {
+  if (!attachment || typeof attachment !== 'object') return attachment;
+  const {
+    file: _file,
+    sourceFile: _sourceFile,
+    uploadFile: _uploadFile,
+    ...rest
+  } = attachment;
+  return rest;
+}
 
 function normalizeUploadItems(raw = null) {
   let list = raw;
@@ -103,22 +125,58 @@ function normalizeUploadItems(raw = null) {
     const src = item?.data || item || {};
     const uri = String(src?.uri || src?.url || src?.path || src?.href || '').trim();
     const name = String(src?.name || (uri ? uri.split('/').pop() : '')).trim();
-    const mime = String(src?.mime || src?.type || src?.contentType || '').trim();
+    const mime = String(src?.mime || src?.mimeType || src?.mediaType || src?.type || src?.contentType || '').trim();
     const stagingFolder = String(src?.stagingFolder || src?.folder || src?.staging || src?.dir || '').trim();
     const content = typeof src?.content === 'string' ? src.content : '';
     const data = Array.isArray(src?.data) || typeof src?.data === 'string' ? src.data : undefined;
     const size = Number(src?.size || src?.length || src?.bytes || 0) || undefined;
+    const file = isFileLike(src?.file)
+      ? src.file
+      : (isFileLike(src?.sourceFile) ? src.sourceFile : (isFileLike(src?.uploadFile) ? src.uploadFile : undefined));
     const normalized = {
+      id: src?.id || src?.fileId || undefined,
       name: name || undefined,
       mime: mime || undefined,
       stagingFolder: stagingFolder || undefined,
       uri: uri || undefined,
       content: content || undefined,
       data,
-      size
+      size,
+      file
     };
     return normalized;
-  }).filter((item) => !!(item.uri || item.content || item.data));
+  }).filter((item) => !!(item.uri || item.content || item.data || item.file));
+}
+
+async function promoteAttachmentToConversation(conversationID, attachment) {
+  if (!attachment || typeof attachment !== 'object') return null;
+  if (isCanonicalFileAttachment(attachment)) {
+    return stripAttachmentRuntimeFields(attachment);
+  }
+  const file = attachment.file;
+  if (!isFileLike(file)) {
+    throw new Error(`Attachment ${attachment.name || attachment.uri || 'file'} is no longer available; attach it again before sending.`);
+  }
+  const output = await client.uploadFile(
+    conversationID,
+    file,
+    attachment.name || file.name || 'upload.bin'
+  );
+  return {
+    id: output?.id || output?.ID || attachment.id || undefined,
+    name: output?.name || output?.Name || attachment.name || file.name || undefined,
+    uri: output?.uri || output?.URI || undefined,
+    size: Number(output?.size || output?.Size || attachment.size || file.size || 0) || undefined,
+    mime: output?.mime || output?.mimeType || output?.contentType || output?.ContentType || attachment.mime || file.type || undefined,
+    stagingFolder: undefined,
+    content: undefined,
+    data: undefined,
+  };
+}
+
+async function promoteAttachmentsToConversation(conversationID, attachments = []) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return [];
+  return Promise.all(attachments.map((attachment) => promoteAttachmentToConversation(conversationID, attachment)));
 }
 
 function getPersistedSelectedAgent() {
@@ -188,28 +246,6 @@ function normalizeToolList(raw = null) {
     if (!normalized || seen.has(normalized)) continue;
     seen.add(normalized);
     out.push(normalized);
-  }
-  return out;
-}
-
-function mergeAttachments(primary = [], secondary = []) {
-  const out = [];
-  const seen = new Set();
-  for (const list of [primary, secondary]) {
-    for (const item of list) {
-      if (!item || typeof item !== 'object') continue;
-      const key = JSON.stringify({
-        uri: item.uri || '',
-        name: item.name || '',
-        mime: item.mime || '',
-        stagingFolder: item.stagingFolder || '',
-        content: item.content || '',
-        hasData: item.data != null
-      });
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(item);
-    }
   }
   return out;
 }
@@ -659,7 +695,8 @@ export async function submitMessage({ context, message, model, agent }) {
       return;
     }
   }
-  if (!query) return;
+  const messageAttachments = normalizeUploadItems(message?.attachments || []);
+  if (!query && messageAttachments.length === 0) return;
   setStage({ phase: 'thinking', text: 'Assistant thinking…' });
   const convDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const selectedModel = sanitizeAutoSelection(model || '');
@@ -713,8 +750,18 @@ export async function submitMessage({ context, message, model, agent }) {
     await publishUIBridgeSnapshotNow();
   } catch (_) {}
 
-  const messageAttachments = normalizeUploadItems(message?.attachments || message?.files || []);
-  const mergedAttachments = mergeAttachments(messageAttachments, pendingUploads);
+  let queryAttachments = messageAttachments;
+  if (messageAttachments.length > 0) {
+    setStage({ phase: 'executing', text: 'Uploading attachments…', startedAt: Date.now(), completedAt: 0 });
+    try {
+      queryAttachments = await promoteAttachmentsToConversation(conversationID, messageAttachments);
+    } catch (err) {
+      showToast(String(err?.message || err || 'Failed to upload attachments.'), { intent: 'danger' });
+      setStage({ phase: 'ready', text: 'Ready' });
+      return;
+    }
+  }
+
   const payload = {
     conversationId: conversationID,
     messageId: clientRequestId,
@@ -732,7 +779,7 @@ export async function submitMessage({ context, message, model, agent }) {
       ...buildWebQueryContext(),
       ...(extraContext || {}),
     },
-    attachments: mergedAttachments.length > 0 ? mergedAttachments : undefined
+    attachments: queryAttachments.length > 0 ? queryAttachments : undefined
   };
   const resolvedUserID = resolveUserID(context);
   if (resolvedUserID) {
@@ -763,7 +810,7 @@ export async function submitMessage({ context, message, model, agent }) {
       clientRequestId,
       content: query,
       createdAt: new Date(submittedAt).toISOString(),
-      attachments: mergedAttachments.length > 0 ? mergedAttachments : undefined,
+      attachments: queryAttachments.length > 0 ? queryAttachments : undefined,
     });
     setStage({ phase: 'executing', text: 'Steering…', startedAt: submittedAt, completedAt: 0 });
     await client.steerTurn(conversationID, activeTurnID, { content: query, role: 'user' });
@@ -773,7 +820,7 @@ export async function submitMessage({ context, message, model, agent }) {
       clientRequestId,
       content: displayQuery || query,
       createdAt: new Date(submittedAt).toISOString(),
-      attachments: mergedAttachments.length > 0 ? mergedAttachments : undefined,
+      attachments: queryAttachments.length > 0 ? queryAttachments : undefined,
     });
     chatState.activeStreamPrompt = query;
     chatState.activeStreamTurnId = '';
@@ -810,7 +857,6 @@ export async function submitMessage({ context, message, model, agent }) {
     hasInlineContent: String(queryResult?.content || '').trim() !== '',
     resultKeys: queryResult && typeof queryResult === 'object' ? Object.keys(queryResult).length : 0
   });
-  pendingUploads.length = 0;
   const fastCompletedInlineResult = !queueingDuringActiveTurn
     && !steeringDuringActiveTurn
     && String(queryResult?.content || '').trim() !== '';
@@ -1243,20 +1289,8 @@ export function onSettings() {
   return true;
 }
 
-export async function onUpload(props = {}) {
-  const { context } = props;
-  const exec = props?.execution || {};
-  const result = props?.result;
-  const files = props?.files;
-  const data = props?.data;
-  const normalized = normalizeUploadItems(exec.result || exec.output || exec.data || result || files || data);
-  if (normalized.length > 0) {
-    const next = mergeAttachments(pendingUploads, normalized);
-    pendingUploads.length = 0;
-    pendingUploads.push(...next);
-  }
-  await dsTick(context);
-  return true;
+export async function prepareUpload() {
+  return {};
 }
 
 export function saveSettings() {
@@ -1740,7 +1774,7 @@ export const chatService = {
   resumeGoalFeed,
   clearGoalFeed,
   onSettings,
-  onUpload,
+  prepareUpload,
   saveSettings,
   selectAgent,
   selectModel,

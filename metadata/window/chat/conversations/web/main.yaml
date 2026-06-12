@@ -30,7 +30,7 @@ view:
           upload:
             endpoint: agentlyAPI
             path: upload
-          uploadField: files
+          uploadField: attachments
           on:
             - event: onSubmit
               handler: chat.submitMessage
@@ -47,8 +47,8 @@ view:
               handler: chat.selectAgent
             - event: onSettings
               handler: chat.onSettings
-            - event: onUpload
-              handler: chat.onUpload
+            - event: onUploadPrepare
+              handler: chat.prepareUpload
             - event: onAbort
               handler: chat.abortConversation
 
