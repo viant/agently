@@ -2315,6 +2315,105 @@ body {
   margin-top: -6px;
 }
 
+#bp6-tab-panel_form-tabs-general_general,
+#bp6-tab-panel_form-tabs-general_schedule,
+#bp6-tab-panel_form-tabs-general_security,
+#bp6-tab-panel_form-tabs-general_execution,
+#bp6-tab-panel_form-tabs_general,
+#bp6-tab-panel_form-tabs_schedule,
+#bp6-tab-panel_form-tabs_security,
+#bp6-tab-panel_form-tabs_execution {
+  padding-top: 18px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+#bp6-tab-panel_form-tabs-general_general > div > div[style*='display: grid'],
+#bp6-tab-panel_form-tabs-general_schedule > div > div[style*='display: grid'],
+#bp6-tab-panel_form-tabs-general_security > div > div[style*='display: grid'],
+#bp6-tab-panel_form-tabs-general_execution > div > div[style*='display: grid'],
+#bp6-tab-panel_form-tabs_general > div > div[style*='display: grid'],
+#bp6-tab-panel_form-tabs_schedule > div > div[style*='display: grid'],
+#bp6-tab-panel_form-tabs_security > div > div[style*='display: grid'],
+#bp6-tab-panel_form-tabs_execution > div > div[style*='display: grid'] {
+  column-gap: 24px;
+  row-gap: 8px;
+}
+
+#bp6-tab-panel_form-tabs-general_general .forge-control-wrapper,
+#bp6-tab-panel_form-tabs-general_schedule .forge-control-wrapper,
+#bp6-tab-panel_form-tabs-general_security .forge-control-wrapper,
+#bp6-tab-panel_form-tabs-general_execution .forge-control-wrapper,
+#bp6-tab-panel_form-tabs_general .forge-control-wrapper,
+#bp6-tab-panel_form-tabs_schedule .forge-control-wrapper,
+#bp6-tab-panel_form-tabs_security .forge-control-wrapper,
+#bp6-tab-panel_form-tabs_execution .forge-control-wrapper {
+  margin-bottom: 14px;
+}
+
+#bp6-tab-panel_form-tabs-general_general .forge-control-wrapper > label,
+#bp6-tab-panel_form-tabs-general_schedule .forge-control-wrapper > label,
+#bp6-tab-panel_form-tabs-general_security .forge-control-wrapper > label,
+#bp6-tab-panel_form-tabs-general_execution .forge-control-wrapper > label,
+#bp6-tab-panel_form-tabs_general .forge-control-wrapper > label,
+#bp6-tab-panel_form-tabs_schedule .forge-control-wrapper > label,
+#bp6-tab-panel_form-tabs_security .forge-control-wrapper > label,
+#bp6-tab-panel_form-tabs_execution .forge-control-wrapper > label {
+  margin-bottom: 6px;
+}
+
+#bp6-tab-panel_form-tabs-general_general .bp6-input,
+#bp6-tab-panel_form-tabs-general_schedule .bp6-input,
+#bp6-tab-panel_form-tabs-general_security .bp6-input,
+#bp6-tab-panel_form-tabs-general_execution .bp6-input,
+#bp6-tab-panel_form-tabs_general .bp6-input,
+#bp6-tab-panel_form-tabs_schedule .bp6-input,
+#bp6-tab-panel_form-tabs_security .bp6-input,
+#bp6-tab-panel_form-tabs_execution .bp6-input {
+  box-sizing: border-box;
+}
+
+#bp6-tab-panel_form-tabs-general_general textarea.bp6-input,
+#bp6-tab-panel_form-tabs_general textarea.bp6-input {
+  width: 100% !important;
+  max-width: 100%;
+}
+
+#bp6-tab-panel_form-tabs-general_schedule input[placeholder='09:00 AM'],
+#bp6-tab-panel_form-tabs_schedule input[placeholder='09:00 AM'] {
+  max-width: 240px;
+}
+
+#bp6-tab-panel_form-tabs-general_schedule input[placeholder='2'],
+#bp6-tab-panel_form-tabs-general_schedule input[placeholder='24'],
+#bp6-tab-panel_form-tabs_schedule input[placeholder='2'],
+#bp6-tab-panel_form-tabs_schedule input[placeholder='24'] {
+  max-width: 180px;
+}
+
+#bp6-tab-panel_form-tabs-general_schedule input[placeholder='0 9 * * 1-5'],
+#bp6-tab-panel_form-tabs_schedule input[placeholder='0 9 * * 1-5'] {
+  max-width: 340px;
+}
+
+#bp6-tab-panel_form-tabs-general_schedule input[placeholder='America/New_York'],
+#bp6-tab-panel_form-tabs_schedule input[placeholder='America/New_York'] {
+  max-width: 260px;
+}
+
+#bp6-tab-panel_form-tabs-general_general .bp6-input::placeholder,
+#bp6-tab-panel_form-tabs-general_schedule .bp6-input::placeholder,
+#bp6-tab-panel_form-tabs-general_security .bp6-input::placeholder,
+#bp6-tab-panel_form-tabs-general_execution .bp6-input::placeholder,
+#bp6-tab-panel_form-tabs_general .bp6-input::placeholder,
+#bp6-tab-panel_form-tabs_schedule .bp6-input::placeholder,
+#bp6-tab-panel_form-tabs_security .bp6-input::placeholder,
+#bp6-tab-panel_form-tabs_execution .bp6-input::placeholder {
+  color: #7f8da3;
+  opacity: 0.62;
+}
+
 #bp6-tab-panel_form-tabs_scheduleEditor .app-automation-save-row,
 #bp6-tab-panel_form-tabs-schedulesCatalogue_scheduleEditor .app-automation-save-row {
   display: flex;
