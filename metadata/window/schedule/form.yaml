@@ -5,14 +5,14 @@
     columns: 2
     labelPosition: top
   style:
-    maxWidth: 860px
+    maxWidth: 1040px
     margin: 0
     paddingRight: 8px
   items:
     - id: name
       label: Schedule Name
       type: text
-      columnSpan: 2
+      columnSpan: 1
       properties:
         placeholder: "e.g. Daily bug scan"
         helperText: A short, descriptive name for this automation
@@ -20,7 +20,7 @@
     - id: agentRef
       label: Agent
       type: text
-      columnSpan: 2
+      columnSpan: 1
       properties:
         placeholder: Select an agent to run
         helperText: The agent that will execute on this schedule
@@ -77,6 +77,22 @@
     margin: 0
     paddingRight: 8px
   items:
+    - id: _triggerHeader
+      type: markdown
+      columnSpan: 3
+      properties:
+        value: "Trigger"
+        style:
+          marginTop: '0'
+          marginBottom: '0'
+          paddingTop: '4px'
+          borderTop: '1px solid #edf1f7'
+          color: '#627089'
+          fontSize: '12px'
+          fontWeight: 800
+          letterSpacing: '0.04em'
+          textTransform: uppercase
+
     - id: scheduleEditorKind
       label: Schedule Type
       type: radio
@@ -109,6 +125,22 @@
       label: Enabled
       type: checkbox
       columnSpan: 1
+
+    - id: _patternHeader
+      type: markdown
+      columnSpan: 3
+      properties:
+        value: "Pattern"
+        style:
+          marginTop: '6px'
+          marginBottom: '0'
+          paddingTop: '4px'
+          borderTop: '1px solid #edf1f7'
+          color: '#627089'
+          fontSize: '12px'
+          fontWeight: 800
+          letterSpacing: '0.04em'
+          textTransform: uppercase
 
     - id: calendarPattern
       label: Pattern
@@ -144,6 +176,8 @@
       properties:
         placeholder: "09:00 AM"
         helperText: "Calendar schedules use this as the fixed time or hourly anchor"
+        style:
+          maxWidth: 240px
 
     - id: calendarIntervalHours
       label: Repeat Every (Hours Within The Day)
@@ -168,6 +202,8 @@
         max: 23
         placeholder: "2"
         helperText: "Repeats within each selected day starting at the chosen time"
+        style:
+          maxWidth: 180px
 
     - id: weekdays
       label: On Days
@@ -222,6 +258,8 @@
         step: 1
         placeholder: "24"
         helperText: "Elapsed schedules repeat by duration, not by weekday"
+        style:
+          maxWidth: 180px
 
     - id: elapsedIntervalUnit
       label: Interval Unit
@@ -249,7 +287,7 @@
     - id: cronExpr
       label: Cron Expression
       type: text
-      columnSpan: 3
+      columnSpan: 1
       on:
         - event: onInput
           handler: schedule.syncScheduleFields
@@ -264,6 +302,24 @@
       properties:
         placeholder: "0 9 * * 1-5"
         helperText: "Use advanced mode for raw cron that does not fit the builder"
+        style:
+          maxWidth: 340px
+
+    - id: _previewHeader
+      type: markdown
+      columnSpan: 3
+      properties:
+        value: "Preview"
+        style:
+          marginTop: '6px'
+          marginBottom: '0'
+          paddingTop: '4px'
+          borderTop: '1px solid #edf1f7'
+          color: '#627089'
+          fontSize: '12px'
+          fontWeight: 800
+          letterSpacing: '0.04em'
+          textTransform: uppercase
 
     - id: scheduleSummary
       label: Summary
@@ -272,6 +328,22 @@
       properties:
         readOnly: true
         helperText: "Generated from the visible editor fields and saved as cron or interval"
+
+    - id: _windowHeader
+      type: markdown
+      columnSpan: 3
+      properties:
+        value: "Window"
+        style:
+          marginTop: '6px'
+          marginBottom: '0'
+          paddingTop: '4px'
+          borderTop: '1px solid #edf1f7'
+          color: '#627089'
+          fontSize: '12px'
+          fontWeight: 800
+          letterSpacing: '0.04em'
+          textTransform: uppercase
 
     - id: timezone
       label: Timezone
@@ -285,6 +357,8 @@
       properties:
         placeholder: America/New_York
         helperText: "Calendar and advanced schedules interpret times in this zone"
+        style:
+          maxWidth: 260px
 
     - id: startAt
       label: Start Date (UTC)
@@ -292,6 +366,8 @@
       columnSpan: 1
       properties:
         helperText: Schedule will not fire before this date
+        style:
+          maxWidth: 340px
 
     - id: endAt
       label: End Date (UTC)
@@ -299,6 +375,8 @@
       columnSpan: 1
       properties:
         helperText: Schedule will stop firing after this date
+        style:
+          maxWidth: 340px
 
     # persisted fields for backend compatibility; hidden from UI
     - id: scheduleType
@@ -321,7 +399,7 @@
     columns: 2
     labelPosition: top
   style:
-    maxWidth: 860px
+    maxWidth: 1040px
     margin: 0
     paddingRight: 8px
   items:
@@ -354,10 +432,26 @@
     columns: 2
     labelPosition: top
   style:
-    maxWidth: 860px
+    maxWidth: 1040px
     margin: 0
     paddingRight: 8px
   items:
+    - id: _runtimeHeader
+      type: markdown
+      columnSpan: 2
+      properties:
+        value: "Runtime"
+        style:
+          marginTop: '0'
+          marginBottom: '0'
+          paddingTop: '4px'
+          borderTop: '1px solid #edf1f7'
+          color: '#627089'
+          fontSize: '12px'
+          fontWeight: 800
+          letterSpacing: '0.04em'
+          textTransform: uppercase
+
     - id: timeoutSeconds
       label: Timeout (seconds)
       type: number
@@ -371,7 +465,7 @@
     - id: modelOverride
       label: Model Override (optional)
       type: text
-      columnSpan: 2
+      columnSpan: 1
       properties:
         helperText: "Override the agent's default model for scheduled runs"
       lookup:
@@ -383,6 +477,22 @@
         outputs:
           - name: modelOverride
             location: id
+
+    - id: _promptSourceHeader
+      type: markdown
+      columnSpan: 2
+      properties:
+        value: "Prompt Source"
+        style:
+          marginTop: '6px'
+          marginBottom: '0'
+          paddingTop: '4px'
+          borderTop: '1px solid #edf1f7'
+          color: '#627089'
+          fontSize: '12px'
+          fontWeight: 800
+          letterSpacing: '0.04em'
+          textTransform: uppercase
 
     - id: taskPromptUri
       label: Task Prompt URI (optional)
