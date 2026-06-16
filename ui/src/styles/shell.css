@@ -2176,16 +2176,44 @@ body {
 #bp6-tab-panel_window-manager-tabs_schedule .bp6-tab-list,
 #bp6-tab-panel_window-manager-tabs_schedule\/history .bp6-tab-list {
   gap: 8px;
-  padding: 0 4px 12px;
+  padding: 6px 4px 12px;
+  margin-top: -6px;
+}
+
+#bp6-tab-panel_window-manager-tabs_schedule,
+#bp6-tab-panel_window-manager-tabs_schedule .bp4-tabs,
+#bp6-tab-panel_window-manager-tabs_schedule .bp6-tabs,
+#bp6-tab-panel_window-manager-tabs_schedule .bp4-tab-list,
+#bp6-tab-panel_window-manager-tabs_schedule .bp6-tab-list,
+#bp6-tab-panel_form-tabs_scheduleEditor,
+#bp6-tab-panel_form-tabs_scheduleEditor .form-panel,
+#bp6-tab-panel_form-tabs_scheduleEditor .bp4-tabs,
+#bp6-tab-panel_form-tabs_scheduleEditor .bp6-tabs,
+#bp6-tab-panel_form-tabs_scheduleEditor .bp4-tab-list,
+#bp6-tab-panel_form-tabs_scheduleEditor .bp6-tab-list,
+#bp6-tab-panel_form-tabs-schedulesCatalogue_scheduleEditor,
+#bp6-tab-panel_form-tabs-schedulesCatalogue_scheduleEditor .form-panel,
+#bp6-tab-panel_form-tabs-schedulesCatalogue_scheduleEditor .bp4-tabs,
+#bp6-tab-panel_form-tabs-schedulesCatalogue_scheduleEditor .bp6-tabs,
+#bp6-tab-panel_form-tabs-schedulesCatalogue_scheduleEditor .bp4-tab-list,
+#bp6-tab-panel_form-tabs-schedulesCatalogue_scheduleEditor .bp6-tab-list {
+  overflow: visible;
 }
 
 #bp6-tab-title_form-tabs_schedulesCatalogue,
+#bp6-tab-title_form-tabs-schedulesCatalogue_schedulesCatalogue,
 #bp6-tab-title_form-tabs_scheduleEditor,
+#bp6-tab-title_form-tabs-schedulesCatalogue_scheduleEditor,
 #bp6-tab-title_form-tabs_scheduleConversations,
+#bp6-tab-title_form-tabs-schedulesCatalogue_scheduleRuns,
 #bp6-tab-title_form-tabs_general,
+#bp6-tab-title_form-tabs-general_general,
 #bp6-tab-title_form-tabs_schedule,
+#bp6-tab-title_form-tabs-general_schedule,
 #bp6-tab-title_form-tabs_security,
-#bp6-tab-title_form-tabs_execution {
+#bp6-tab-title_form-tabs-general_security,
+#bp6-tab-title_form-tabs_execution,
+#bp6-tab-title_form-tabs-general_execution {
   border-radius: 999px;
   padding: 8px 14px;
   font-size: 13px;
@@ -2196,16 +2224,56 @@ body {
 }
 
 #bp6-tab-title_form-tabs_schedulesCatalogue[aria-selected='true'],
+#bp6-tab-title_form-tabs-schedulesCatalogue_schedulesCatalogue[aria-selected='true'],
 #bp6-tab-title_form-tabs_scheduleEditor[aria-selected='true'],
+#bp6-tab-title_form-tabs-schedulesCatalogue_scheduleEditor[aria-selected='true'],
 #bp6-tab-title_form-tabs_scheduleConversations[aria-selected='true'],
+#bp6-tab-title_form-tabs-schedulesCatalogue_scheduleRuns[aria-selected='true'],
 #bp6-tab-title_form-tabs_general[aria-selected='true'],
+#bp6-tab-title_form-tabs-general_general[aria-selected='true'],
 #bp6-tab-title_form-tabs_schedule[aria-selected='true'],
+#bp6-tab-title_form-tabs-general_schedule[aria-selected='true'],
 #bp6-tab-title_form-tabs_security[aria-selected='true'],
-#bp6-tab-title_form-tabs_execution[aria-selected='true'] {
+#bp6-tab-title_form-tabs-general_security[aria-selected='true'],
+#bp6-tab-title_form-tabs_execution[aria-selected='true'],
+#bp6-tab-title_form-tabs-general_execution[aria-selected='true'] {
   color: #234a9f;
   background: rgba(255, 255, 255, 0.96);
-  border-color: #cdd9ef;
+  border-color: currentColor;
   box-shadow: 0 6px 18px rgba(30, 56, 107, 0.08);
+  position: relative;
+  z-index: 3;
+}
+
+#bp6-tab-title_form-tabs_schedulesCatalogue[aria-selected='true']:focus,
+#bp6-tab-title_form-tabs_schedulesCatalogue[aria-selected='true']:focus-visible,
+#bp6-tab-title_form-tabs-schedulesCatalogue_schedulesCatalogue[aria-selected='true']:focus,
+#bp6-tab-title_form-tabs-schedulesCatalogue_schedulesCatalogue[aria-selected='true']:focus-visible,
+#bp6-tab-title_form-tabs_scheduleEditor[aria-selected='true']:focus,
+#bp6-tab-title_form-tabs_scheduleEditor[aria-selected='true']:focus-visible,
+#bp6-tab-title_form-tabs-schedulesCatalogue_scheduleEditor[aria-selected='true']:focus,
+#bp6-tab-title_form-tabs-schedulesCatalogue_scheduleEditor[aria-selected='true']:focus-visible,
+#bp6-tab-title_form-tabs_scheduleConversations[aria-selected='true']:focus,
+#bp6-tab-title_form-tabs_scheduleConversations[aria-selected='true']:focus-visible,
+#bp6-tab-title_form-tabs-schedulesCatalogue_scheduleRuns[aria-selected='true']:focus,
+#bp6-tab-title_form-tabs-schedulesCatalogue_scheduleRuns[aria-selected='true']:focus-visible,
+#bp6-tab-title_form-tabs_general[aria-selected='true']:focus,
+#bp6-tab-title_form-tabs_general[aria-selected='true']:focus-visible,
+#bp6-tab-title_form-tabs-general_general[aria-selected='true']:focus,
+#bp6-tab-title_form-tabs-general_general[aria-selected='true']:focus-visible,
+#bp6-tab-title_form-tabs_schedule[aria-selected='true']:focus,
+#bp6-tab-title_form-tabs_schedule[aria-selected='true']:focus-visible,
+#bp6-tab-title_form-tabs-general_schedule[aria-selected='true']:focus,
+#bp6-tab-title_form-tabs-general_schedule[aria-selected='true']:focus-visible,
+#bp6-tab-title_form-tabs_security[aria-selected='true']:focus,
+#bp6-tab-title_form-tabs_security[aria-selected='true']:focus-visible,
+#bp6-tab-title_form-tabs-general_security[aria-selected='true']:focus,
+#bp6-tab-title_form-tabs-general_security[aria-selected='true']:focus-visible,
+#bp6-tab-title_form-tabs_execution[aria-selected='true']:focus,
+#bp6-tab-title_form-tabs_execution[aria-selected='true']:focus-visible,
+#bp6-tab-title_form-tabs-general_execution[aria-selected='true']:focus,
+#bp6-tab-title_form-tabs-general_execution[aria-selected='true']:focus-visible {
+  outline: none;
 }
 
 #bp6-tab-panel_form-tabs_schedulesCatalogue .basic-table-wrapper,
@@ -2220,35 +2288,6 @@ body {
   overflow: hidden;
 }
 
-#bp6-tab-panel_form-tabs_schedulesCatalogue::before {
-  content: 'Automation\A Create recurring agent jobs, control cadence, and keep the execution policy in one place.';
-}
-
-#bp6-tab-panel_form-tabs_scheduleConversations::before {
-  content: '';
-}
-
-#bp6-tab-panel_form-tabs_schedulesCatalogue::before,
-#bp6-tab-panel_form-tabs_scheduleConversations::before {
-  white-space: pre-line;
-  display: block;
-  max-width: 1180px;
-  margin: 0 auto;
-  color: #2d3a4f;
-  font-size: 14px;
-  line-height: 1.55;
-  padding: 4px 4px 0;
-  font-weight: 500;
-}
-
-#bp6-tab-panel_form-tabs_schedulesCatalogue::first-line,
-#bp6-tab-panel_form-tabs_scheduleConversations::first-line {
-  font-size: 26px;
-  line-height: 1.15;
-  font-weight: 800;
-  color: #182334;
-}
-
 #bp6-tab-panel_form-tabs_schedulesCatalogue .toolbar-container,
 #bp6-tab-panel_form-tabs_scheduleConversations .toolbar-container {
   padding: 12px 14px 10px;
@@ -2256,7 +2295,8 @@ body {
   background: linear-gradient(180deg, #fbfcfe 0%, #f4f7fb 100%);
 }
 
-#bp6-tab-panel_form-tabs_scheduleEditor .form-panel {
+#bp6-tab-panel_form-tabs_scheduleEditor .form-panel,
+#bp6-tab-panel_form-tabs-schedulesCatalogue_scheduleEditor .form-panel {
   max-width: 1180px;
   margin: 0 auto;
   background: rgba(255, 255, 255, 0.96);
@@ -2264,6 +2304,31 @@ body {
   border-radius: 22px;
   box-shadow: 0 14px 30px rgba(21, 37, 64, 0.06);
   padding: 14px 16px 18px;
+}
+
+#bp6-tab-panel_form-tabs_scheduleEditor .form-panel .bp4-tab-list,
+#bp6-tab-panel_form-tabs_scheduleEditor .form-panel .bp6-tab-list,
+#bp6-tab-panel_form-tabs-schedulesCatalogue_scheduleEditor .form-panel .bp4-tab-list,
+#bp6-tab-panel_form-tabs-schedulesCatalogue_scheduleEditor .form-panel .bp6-tab-list {
+  align-items: center;
+  padding-top: 6px;
+  margin-top: -6px;
+}
+
+#bp6-tab-panel_form-tabs_scheduleEditor .app-automation-save-row,
+#bp6-tab-panel_form-tabs-schedulesCatalogue_scheduleEditor .app-automation-save-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-left: auto;
+  padding-left: 16px;
+}
+
+.app-automation-save {
+  min-width: 72px;
+  height: 30px;
+  border-radius: 6px;
+  font-weight: 600;
 }
 
 #bp6-tab-panel_form-tabs_scheduleEditor .forge-control-wrapper > label {

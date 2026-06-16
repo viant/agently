@@ -14,15 +14,6 @@ items:
       - event: onClick
         handler: schedule.addNewSchedule
 
-  # Persist changes
-  - id: save
-    icon: floppy-disk
-    align: left
-    tooltip: Save schedule
-    on:
-      - event: onClick
-        handler: schedule.saveSchedule
-
   - id: pagination
     type: pagination
     align: center
