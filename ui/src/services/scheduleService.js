@@ -1075,8 +1075,119 @@ function scheduleEmptyStateConfig(panelId) {
   }
   return {
     title: 'No schedules yet',
-    body: 'Create an automation to run an agent on a cadence, then review recent runs from the Runs tab.'
+    body: 'Create an automation to run an agent on a cadence, then review recent runs from the Run History tab.'
   };
+}
+
+function scheduleEditorPanel() {
+  if (typeof document === 'undefined') return null;
+  return document.getElementById('bp6-tab-panel_form-tabs-schedulesCatalogue_scheduleEditor')
+    || document.getElementById('bp6-tab-panel_form-tabs_scheduleEditor');
+}
+
+function scheduleEditorActionHost(panel) {
+  if (!panel) return null;
+  return panel.querySelector('.form-panel .bp6-tab-list')
+    || panel.querySelector('.form-panel .bp4-tab-list')
+    || panel.querySelector('.form-panel [role="tablist"]');
+}
+
+function isVisibleNode(node) {
+  if (!node) return false;
+  const style = window.getComputedStyle?.(node);
+  if (style && (style.display === 'none' || style.visibility === 'hidden')) return false;
+  return !!(node.offsetWidth || node.offsetHeight || node.getClientRects?.().length);
+}
+
+function visibleScheduleIDValue(panel) {
+  const wrappers = Array.from(panel.querySelectorAll?.('.forge-control-wrapper') || []);
+  const idWrapper = wrappers.find((wrapper) => {
+    if (!isVisibleNode(wrapper)) return false;
+    const label = wrapper.querySelector?.('label');
+    return String(label?.textContent || '').trim() === 'Schedule ID';
+  });
+  if (!idWrapper) return undefined;
+  const input = idWrapper.querySelector('input, textarea');
+  return String(input?.value || '').trim();
+}
+
+function syncVisibleDefinitionFields(context) {
+  const ds = getSchedulesDataSource(context);
+  const panel = scheduleEditorPanel();
+  if (!ds || !panel) return null;
+  const next = { ...getFormState(ds) };
+  const visibleID = visibleScheduleIDValue(panel);
+  if (visibleID) {
+    next.id = visibleID;
+  } else if (scheduleService._creatingSchedule) {
+    next.id = '';
+  }
+  const fieldMap = [
+    ['input[placeholder="e.g. Daily bug scan"]', 'name'],
+    ['input[placeholder="Select an agent to run"]', 'agentRef'],
+    ['textarea[placeholder="Describe the task the agent should perform each run..."]', 'taskPrompt'],
+    ["textarea[placeholder=\"Internal notes about this schedule's purpose\"]", 'description']
+  ];
+  fieldMap.forEach(([selector, field]) => {
+    const input = panel.querySelector(selector);
+    if (!input) return;
+    next[field] = input.value;
+  });
+  const synced = ensureEditorState(next);
+  updateFormIfChanged(ds, synced);
+  return synced;
+}
+
+function decorateScheduleDefinitionActions(context) {
+  if (typeof document === 'undefined') return;
+  document.querySelectorAll('.app-automation-definition-header, .app-automation-runs-header, .app-automation-save-button')
+    .forEach((node) => node.remove());
+
+  const panel = scheduleEditorPanel();
+  if (!panel) return;
+  const actionHost = scheduleEditorActionHost(panel);
+  panel.querySelectorAll('.app-automation-save-row').forEach((node) => {
+    if (!actionHost || node.parentElement !== actionHost) {
+      node.remove();
+    }
+  });
+  if (!actionHost) return;
+  let row = Array.from(actionHost.children || []).find((child) => child.classList?.contains?.('app-automation-save-row'));
+  if (!row) {
+    row = document.createElement('div');
+    row.className = 'app-automation-save-row';
+    actionHost.appendChild(row);
+  }
+  let button = row.querySelector('button.app-automation-save');
+  if (!button) {
+    button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'bp6-button bp6-intent-primary app-automation-save';
+    button.textContent = 'Save';
+    button.setAttribute('aria-label', 'Save schedule');
+    button.setAttribute('title', 'Save schedule');
+    button.addEventListener('click', () => {
+      const actionContext = scheduleService._lastContext || context;
+      const formOverride = syncVisibleDefinitionFields(actionContext);
+      saveSchedule({ context: actionContext, formOverride });
+    });
+    row.appendChild(button);
+  }
+}
+
+function decorateScheduleChrome(context) {
+  decorateScheduleDefinitionActions(context);
+  decorateScheduleEmptyStates();
+}
+
+function installScheduleChromePoller() {
+  if (typeof window === 'undefined' || scheduleService._chromePollerInstalled) return;
+  scheduleService._chromePollerInstalled = true;
+  const tick = () => {
+    decorateScheduleChrome(scheduleService._lastContext);
+  };
+  scheduleService._chromePoller = setInterval(tick, 500);
+  setTimeout(tick, 0);
 }
 
 export function panelHasRenderableRows(wrapper) {
@@ -1128,13 +1239,13 @@ function installScheduleEmptyStateObserver() {
   if (typeof document === 'undefined' || scheduleService._emptyStateObserverInstalled) return;
   const observer = new MutationObserver(() => {
     clearTimeout(scheduleService._emptyStateObserverTimer);
-    scheduleService._emptyStateObserverTimer = setTimeout(decorateScheduleEmptyStates, 20);
+    scheduleService._emptyStateObserverTimer = setTimeout(() => decorateScheduleChrome(scheduleService._lastContext), 20);
   });
   observer.observe(document.body, { childList: true, subtree: true });
   scheduleService._emptyStateObserverInstalled = true;
 }
 
-async function saveSchedule({ context }) {
+async function saveSchedule({ context, formOverride } = {}) {
   if (scheduleService._saveScheduleInFlight) return true;
   const ctx = context?.Context('schedules');
   if (!ctx) {
@@ -1142,7 +1253,7 @@ async function saveSchedule({ context }) {
     return false;
   }
   const ds = ctx.handlers?.dataSource;
-  const form = ensureEditorState(getFormState(ds));
+  const form = ensureEditorState(formOverride || getFormState(ds));
   if (!Object.keys(form).length) {
     log.warn('scheduleService.saveSchedule: no form data');
     return false;
@@ -1168,6 +1279,7 @@ async function saveSchedule({ context }) {
       log.warn('scheduleService.saveSchedule refresh error', refreshErr);
     }
     setActiveSchedule(context, synced || { ...form, ...payload, id: scheduleID });
+    scheduleService._creatingSchedule = false;
     syncRunsToActiveSchedule(context);
     if (!existingID || !synced) {
       ds?.fetchCollection?.();
@@ -1311,8 +1423,10 @@ function resolveRunConversationID(params = {}) {
 
 export const scheduleService = {
   onInit({ context }) {
+    scheduleService._lastContext = context;
     installScheduleEmptyStateObserver();
-    setTimeout(decorateScheduleEmptyStates, 0);
+    installScheduleChromePoller();
+    setTimeout(() => decorateScheduleChrome(context), 0);
     installAutomationScheduleBindings(context);
     try {
       if (!scheduleService._visibilityHookInstalled) {
@@ -1375,6 +1489,7 @@ export const scheduleService = {
   },
   onSelectSchedule({ context, selected }) {
     try {
+      scheduleService._creatingSchedule = false;
       const normalized = normalizeScheduleRow(selected || {});
       if (!String(normalized?.id || '').trim()) return;
       setActiveSchedule(context, normalized);
@@ -1420,7 +1535,8 @@ export const scheduleService = {
   },
   onFetchSchedules({ context, collection = [] }) {
     try {
-      setTimeout(decorateScheduleEmptyStates, 0);
+      scheduleService._lastContext = context;
+      setTimeout(() => decorateScheduleChrome(context), 0);
       const incoming = (Array.isArray(collection) ? collection : []).map((r) => normalizeScheduleRow(r));
       const active = getActiveSchedule(context);
       if (active?.id) {
@@ -1443,7 +1559,8 @@ export const scheduleService = {
   },
   onFetchRuns({ context, collection = [] }) {
     try {
-      setTimeout(decorateScheduleEmptyStates, 0);
+      scheduleService._lastContext = context;
+      setTimeout(() => decorateScheduleChrome(context), 0);
       const incoming = Array.isArray(collection) ? collection : [];
       ensureRunsBoundToScheduleForm(context, incoming);
       return incoming.map((r) => {
@@ -1554,11 +1671,15 @@ export const scheduleService = {
   },
   addNewSchedule({ context }) {
     try {
+      scheduleService._lastContext = context;
+      scheduleService._creatingSchedule = true;
+      installScheduleChromePoller();
       const ds = getSchedulesDataSource(context);
       if (ds) {
         clearActiveSchedule(context);
         syncRunsToActiveSchedule(context, { clearCollection: true });
         ds.handleAddNew();
+        ds?.setSelected?.({ selected: {}, rowIndex: -1 });
         updateFormIfChanged(ds, ensureEditorState(getFormState(ds)));
       }
       // Switch to Editor tab via bus message
@@ -1566,6 +1687,7 @@ export const scheduleService = {
       if (windowId) {
         sendBusMessage(windowId, { type: 'selectTab', tabId: 'scheduleEditor' });
       }
+      setTimeout(() => decorateScheduleChrome(context), 0);
     } catch (e) {
       log.warn('schedule.addNewSchedule error', e);
     }
@@ -1603,3 +1725,7 @@ export const scheduleService = {
     } catch (_) { return undefined; }
   }
 };
+
+if (typeof window !== 'undefined') {
+  setTimeout(() => installScheduleChromePoller(), 0);
+}

@@ -7,19 +7,19 @@ view:
 
     containers:
       - id: schedulesCatalogue
-        title: Automation
+        title: Automations
         dataSourceRef: schedules
         table: $import('table/schedules.yaml')
 
       - id: scheduleEditor
-        title: Editor
+        title: Definition
         dataSourceRef: schedules
         tabs:
           vertical: false
         containers: $import('form.yaml')
 
       - id: scheduleRuns
-        title: Runs
+        title: Run History
         dataSourceRef: runs
         fetchData: false
         table: $import('history/table/runs.yaml')
