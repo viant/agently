@@ -22,6 +22,17 @@ const DEFAULT_TIMEOUT_SECONDS = 300;
 const ALL_WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const CALENDAR_BUILDER_FIELDS = new Set(['calendarPattern', 'calendarTime', 'calendarIntervalHours', 'weekdays']);
 const ELAPSED_BUILDER_FIELDS = new Set(['elapsedIntervalValue', 'elapsedIntervalUnit']);
+const VALIDATION_FIELD_LABELS = {
+  name: 'Schedule Name',
+  agentRef: 'Agent',
+  taskPrompt: 'Task Prompt or Task Prompt URI',
+  taskPromptUri: 'Task Prompt URI',
+  cronExpr: 'Cron Expression',
+  calendarTime: 'At / Starting At',
+  elapsedIntervalValue: 'Repeat Every',
+  startAt: 'Start Date',
+  endAt: 'End Date'
+};
 
 function newScheduleID() {
   const generated = globalThis?.crypto?.randomUUID?.();
@@ -40,6 +51,14 @@ function normalizeTimeoutSeconds(raw) {
   }
   const value = Number(raw);
   return Number.isFinite(value) && value >= 0 ? Math.round(value) : DEFAULT_TIMEOUT_SECONDS;
+}
+
+function optionalTextPayloadValue(form = {}, field) {
+  if (!Object.prototype.hasOwnProperty.call(form, field)) return undefined;
+  const value = form[field];
+  if (value === undefined) return undefined;
+  if (value === null) return '';
+  return String(value).trim();
 }
 
 function normalizeScheduleRow(r = {}) {
@@ -128,9 +147,9 @@ function buildSchedulePayload(form = {}, scheduleID = String(form?.id || '').tri
     intervalSeconds: form.scheduleType === 'interval' ? form.intervalSeconds : null,
     timezone: form.timezone,
     timeoutSeconds: normalizeTimeoutSeconds(form.timeoutSeconds),
-    taskPromptUri: form.taskPromptUri,
+    taskPromptUri: optionalTextPayloadValue(form, 'taskPromptUri'),
     taskPrompt: form.taskPrompt,
-    userCredUrl: form.userCredUrl
+    userCredUrl: optionalTextPayloadValue(form, 'userCredUrl')
   };
   const visibility = normalizeVisibility(form.visibility);
   if (visibility) {
@@ -1132,16 +1151,26 @@ function validateScheduleForm(form = {}) {
   return errors;
 }
 
+function validationFieldLabel(field) {
+  return VALIDATION_FIELD_LABELS[field] || String(field || '').trim() || 'Field';
+}
+
+function formatValidationToast(errors = {}) {
+  const labels = Object.keys(errors)
+    .map(validationFieldLabel)
+    .filter(Boolean);
+  if (!labels.length) {
+    return "Schedule can't be saved. Fix the highlighted fields and try again.";
+  }
+  return `Schedule can't be saved. Fill or fix: ${labels.join(', ')}.`;
+}
+
 function applyValidationErrors(context, ds, form = {}, errors = {}) {
   const values = { ...form, validationErrors: errors };
   updateFormIfChanged(ds, values);
-  const windowId = getAutomationWindowID(context);
-  if (windowId) {
-    sendAutomationBusMessage(windowId, { type: 'selectTab', tabId: 'scheduleEditor' });
-    sendAutomationBusMessage(windowId, { type: 'selectTab', tabId: 'general' });
-  }
   scheduleService._validationHookInstalled = true;
-  showToast("Schedule can't be saved. Fix the highlighted fields and try again.", {
+  decorateScheduleValidation(context);
+  showToast(formatValidationToast(errors), {
     intent: 'warning',
     key: 'schedule-validation'
   });
@@ -1173,6 +1202,37 @@ function scheduleEditorActionHost(panel) {
     || panel.querySelector('.form-panel [role="tablist"]');
 }
 
+function scheduleFieldWrapper(panel, field) {
+  if (!panel || !field) return null;
+  const escapedField = String(field).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return panel.querySelector(`.forge-control-wrapper[data-forge-control-id="${escapedField}"]`)
+    || panel.querySelector(`.forge-control-wrapper[data-field="${escapedField}"]`)
+    || panel.querySelector(`[name="${escapedField}"]`)?.closest?.('.forge-control-wrapper')
+    || panel.querySelector(`[data-field="${escapedField}"]`)?.closest?.('.forge-control-wrapper');
+}
+
+function decorateScheduleValidation(context) {
+  if (typeof document === 'undefined') return;
+  const panel = scheduleEditorPanel();
+  if (!panel) return;
+  panel.querySelectorAll('.app-automation-field-error').forEach((node) => node.remove());
+  panel.querySelectorAll('.app-automation-validation-error').forEach((node) => {
+    node.classList.remove('app-automation-validation-error');
+  });
+
+  const ds = getSchedulesDataSource(context);
+  const errors = getFormState(ds)?.validationErrors || {};
+  Object.entries(errors).forEach(([field, message]) => {
+    const wrapper = scheduleFieldWrapper(panel, field);
+    if (!wrapper) return;
+    wrapper.classList.add('app-automation-validation-error');
+    const error = document.createElement('div');
+    error.className = 'app-automation-field-error';
+    error.textContent = String(message || `${validationFieldLabel(field)} is required`);
+    wrapper.appendChild(error);
+  });
+}
+
 function isVisibleNode(node) {
   if (!node) return false;
   const style = window.getComputedStyle?.(node);
@@ -1192,6 +1252,22 @@ function visibleScheduleIDValue(panel) {
   return String(input?.value || '').trim();
 }
 
+function visibleFieldValueByLabel(panel, labelText) {
+  const wrappers = Array.from(panel?.querySelectorAll?.('.forge-control-wrapper') || []);
+  const wrapper = wrappers.find((candidate) => {
+    if (!isVisibleNode(candidate)) return false;
+    const label = candidate.querySelector?.('label');
+    return String(label?.textContent || '').trim() === labelText;
+  });
+  if (!wrapper) return { found: false, value: undefined };
+  const input = wrapper.querySelector('input, textarea, select');
+  if (!input) return { found: false, value: undefined };
+  if (input.type === 'checkbox') {
+    return { found: true, value: !!input.checked };
+  }
+  return { found: true, value: input.value };
+}
+
 function syncVisibleDefinitionFields(context) {
   const ds = getSchedulesDataSource(context);
   const panel = scheduleEditorPanel();
@@ -1204,15 +1280,19 @@ function syncVisibleDefinitionFields(context) {
     next.id = '';
   }
   const fieldMap = [
-    ['input[placeholder="e.g. Daily bug scan"]', 'name'],
-    ['input[placeholder="Select an agent to run"]', 'agentRef'],
-    ['textarea[placeholder="Describe the task the agent should perform each run..."]', 'taskPrompt'],
-    ["textarea[placeholder=\"Internal notes about this schedule's purpose\"]", 'description']
+    ['Schedule Name', 'name'],
+    ['Agent', 'agentRef'],
+    ['Task Prompt', 'taskPrompt'],
+    ['Description (optional)', 'description'],
+    ['User Secrets URL', 'userCredUrl'],
+    ['Timeout (seconds)', 'timeoutSeconds'],
+    ['Model Override (optional)', 'modelOverride'],
+    ['Task Prompt URI (optional)', 'taskPromptUri']
   ];
-  fieldMap.forEach(([selector, field]) => {
-    const input = panel.querySelector(selector);
-    if (!input) return;
-    next[field] = input.value;
+  fieldMap.forEach(([label, field]) => {
+    const { found, value } = visibleFieldValueByLabel(panel, label);
+    if (!found) return;
+    next[field] = value;
   });
   const synced = ensureEditorState(next);
   updateFormIfChanged(ds, synced);
@@ -1258,6 +1338,7 @@ function decorateScheduleDefinitionActions(context) {
 
 function decorateScheduleChrome(context) {
   decorateScheduleDefinitionActions(context);
+  decorateScheduleValidation(context);
   decorateScheduleEmptyStates();
 }
 
@@ -1368,10 +1449,6 @@ async function saveSchedule({ context, formOverride } = {}) {
     setActiveSchedule(context, synced || { ...form, ...payload, id: scheduleID });
     scheduleService._creatingSchedule = false;
     syncRunsToActiveSchedule(context);
-    const windowId = getAutomationWindowID(context);
-    if (windowId) {
-      sendAutomationBusMessage(windowId, { type: 'selectTab', tabId: 'general' });
-    }
     if (!synced) {
       ds?.fetchCollection?.();
     }

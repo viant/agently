@@ -2452,6 +2452,28 @@ body {
   min-height: 132px;
 }
 
+#bp6-tab-panel_form-tabs_scheduleEditor textarea[placeholder='Describe the task the agent should perform each run...'],
+#bp6-tab-panel_form-tabs-schedulesCatalogue_scheduleEditor textarea[placeholder='Describe the task the agent should perform each run...'] {
+  min-height: 320px;
+}
+
+#bp6-tab-panel_form-tabs_scheduleEditor .forge-control-wrapper.app-automation-validation-error .bp4-input,
+#bp6-tab-panel_form-tabs_scheduleEditor .forge-control-wrapper.app-automation-validation-error .bp6-input,
+#bp6-tab-panel_form-tabs-schedulesCatalogue_scheduleEditor .forge-control-wrapper.app-automation-validation-error .bp4-input,
+#bp6-tab-panel_form-tabs-schedulesCatalogue_scheduleEditor .forge-control-wrapper.app-automation-validation-error .bp6-input {
+  border-color: #c23030;
+  box-shadow: 0 0 0 1px rgba(194, 48, 48, 0.24);
+}
+
+#bp6-tab-panel_form-tabs_scheduleEditor .app-automation-field-error,
+#bp6-tab-panel_form-tabs-schedulesCatalogue_scheduleEditor .app-automation-field-error {
+  margin-top: 4px;
+  color: #a82a2a;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
 #bp6-tab-panel_form-tabs_schedulesCatalogue .toolbar-left,
 #bp6-tab-panel_form-tabs_schedulesCatalogue .toolbar-right,
 #bp6-tab-panel_form-tabs_scheduleConversations .toolbar-left,

@@ -67,7 +67,7 @@
         - event: onChange
           handler: schedule.syncScheduleFields
       properties:
-        rows: 8
+        rows: 16
         cols: 100
         placeholder: "Describe the task the agent should perform each run..."
         helperText: This prompt is sent to the agent every time the schedule fires
