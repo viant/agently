@@ -1,7 +1,8 @@
 import { client } from './agentlyClient';
+import { showToast } from './httpClient';
 import { getLogger } from 'forge/utils/logger';
 import { registerDynamicEvaluator } from 'forge/runtime/binding';
-import { sendBusMessage } from 'forge/core';
+import { getBusSignal, sendBusMessage } from 'forge/core';
 import { openConfirmDialog } from '../utils/dialogBus';
 import {
   filterLookupCollection,
@@ -17,6 +18,7 @@ const DEFAULT_CALENDAR_TIME = '09:00 AM';
 const DEFAULT_CALENDAR_INTERVAL_HOURS = 2;
 const DEFAULT_ELAPSED_INTERVAL_VALUE = 24;
 const DEFAULT_ELAPSED_INTERVAL_UNIT = 'hours';
+const DEFAULT_TIMEOUT_SECONDS = 300;
 const ALL_WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const CALENDAR_BUILDER_FIELDS = new Set(['calendarPattern', 'calendarTime', 'calendarIntervalHours', 'weekdays']);
 const ELAPSED_BUILDER_FIELDS = new Set(['elapsedIntervalValue', 'elapsedIntervalUnit']);
@@ -30,6 +32,14 @@ function newScheduleID() {
 function normalizeVisibility(raw) {
   const value = String(raw || '').trim().toLowerCase();
   return value || undefined;
+}
+
+function normalizeTimeoutSeconds(raw) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    return DEFAULT_TIMEOUT_SECONDS;
+  }
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? Math.round(value) : DEFAULT_TIMEOUT_SECONDS;
 }
 
 function normalizeScheduleRow(r = {}) {
@@ -117,7 +127,7 @@ function buildSchedulePayload(form = {}, scheduleID = String(form?.id || '').tri
     cronExpr: String(form.cronExpr || '').trim(),
     intervalSeconds: form.scheduleType === 'interval' ? form.intervalSeconds : null,
     timezone: form.timezone,
-    timeoutSeconds: form.timeoutSeconds,
+    timeoutSeconds: normalizeTimeoutSeconds(form.timeoutSeconds),
     taskPromptUri: form.taskPromptUri,
     taskPrompt: form.taskPrompt,
     userCredUrl: form.userCredUrl
@@ -156,6 +166,18 @@ function getAutomationWindowID(context) {
     context?.Context?.('runs')?.identity?.windowId ||
     ''
   ).trim();
+}
+
+function sendAutomationBusMessage(windowId, message) {
+  if (!windowId) return;
+  try {
+    const bus = getBusSignal(windowId);
+    if (bus && typeof bus.peek === 'function') {
+      bus.value = [...bus.peek(), message].slice(-500);
+      return;
+    }
+  } catch (_) {}
+  sendBusMessage(windowId, message);
 }
 
 function getAutomationState(context) {
@@ -223,26 +245,16 @@ function preserveActiveScheduleForm(context) {
 }
 
 function reconcileDeletedSchedule(context, ds, deletedID) {
-  const currentSelection = ds?.peekSelection?.() || ds?.getSelection?.() || {};
-  const selectedIndex = Number.isInteger(currentSelection?.rowIndex) ? currentSelection.rowIndex : -1;
-  const { removed, nextCollection, removedIndex } = removeScheduleFromCollection(ds, deletedID);
+  const { removed } = removeScheduleFromCollection(ds, deletedID);
   if (!removed) {
     clearActiveSchedule(context);
+    ds?.setSelected?.({ selected: {}, rowIndex: -1 });
     syncRunsToActiveSchedule(context, { clearCollection: true });
     return;
   }
 
-  const baseIndex = selectedIndex >= 0 ? selectedIndex : removedIndex;
-  const nextIndex = nextCollection.length > 0 ? Math.min(Math.max(baseIndex, 0), nextCollection.length - 1) : -1;
-  if (nextIndex >= 0) {
-    const nextSelected = normalizeScheduleRow(nextCollection[nextIndex]);
-    setActiveSchedule(context, nextSelected);
-    ds?.setSelected?.({ selected: nextSelected, rowIndex: nextIndex });
-    return;
-  }
-
   clearActiveSchedule(context);
-  ds?.setSelected?.({ selected: null, rowIndex: -1 });
+  ds?.setSelected?.({ selected: {}, rowIndex: -1 });
   syncRunsToActiveSchedule(context, { clearCollection: true });
 }
 
@@ -274,6 +286,12 @@ function installAutomationScheduleBindings(context) {
   const originalSetSelected = typeof ds.setSelected === 'function' ? ds.setSelected.bind(ds) : null;
   if (originalSetSelected) {
     ds.setSelected = (newSelection) => {
+      if (scheduleService._suppressNextScheduleSelection && String(newSelection?.selected?.id || '').trim()) {
+        scheduleService._suppressNextScheduleSelection = false;
+        originalSetSelected({ selected: {}, rowIndex: -1 });
+        syncSelectionState();
+        return;
+      }
       originalSetSelected(newSelection);
       syncSelectionState();
     };
@@ -943,6 +961,7 @@ function ensureEditorState(form = {}) {
   if (!String(next.timezone || '').trim()) {
     next.timezone = DEFAULT_TIMEZONE;
   }
+  next.timeoutSeconds = normalizeTimeoutSeconds(next.timeoutSeconds);
 
   const derived = deriveScheduleFields(next);
   next.scheduleType = derived.scheduleType;
@@ -972,6 +991,7 @@ function ensureRunsBoundToScheduleForm(context, collection = []) {
   const currentInputID = String(runsDS?.peekInput?.()?.parameters?.scheduleId || '').trim();
   if (currentInputID === formID) return;
   syncRunsToActiveSchedule(context);
+  schedulesDS?.pushFormDependencies?.();
 }
 
 function getFormState(ds) {
@@ -985,9 +1005,12 @@ function getFormState(ds) {
 function applyIncomingFieldValue(form = {}, item, value) {
   const fieldKey = item?.dataField || item?.bindingPath || item?.id;
   if (!fieldKey) return form;
+  const validationErrors = { ...(form.validationErrors || {}) };
+  delete validationErrors[fieldKey];
   return {
     ...form,
-    [fieldKey]: value
+    [fieldKey]: value,
+    validationErrors
   };
 }
 
@@ -1064,6 +1087,64 @@ function updateFormIfChanged(ds, values) {
   if (JSON.stringify(current) === JSON.stringify(values)) return false;
   ds?.setFormData?.({ values });
   return true;
+}
+
+function validateScheduleForm(form = {}) {
+  const errors = {};
+  const hasText = (value) => String(value || '').trim().length > 0;
+
+  if (!hasText(form.name)) {
+    errors.name = 'Schedule Name is required';
+  }
+  if (!hasText(form.agentRef || form.agent)) {
+    errors.agentRef = 'Agent is required';
+  }
+  if (!hasText(form.taskPrompt) && !hasText(form.taskPromptUri)) {
+    errors.taskPrompt = 'Task Prompt or Task Prompt URI is required';
+  }
+
+  const kind = normalizeEditorKind(form);
+  if (kind === 'advanced' && !hasText(form.cronExpr)) {
+    errors.cronExpr = 'Cron Expression is required';
+  }
+  if (kind === 'calendar' && !hasText(form.calendarTime || form.dailyTime)) {
+    errors.calendarTime = 'At / Starting At is required';
+  }
+  if (kind === 'elapsed') {
+    const raw = String(form.elapsedIntervalValue ?? '').trim();
+    const value = Number(raw);
+    if (!raw || !Number.isFinite(value) || value <= 0) {
+      errors.elapsedIntervalValue = 'Repeat Every is required';
+    }
+  }
+
+  try {
+    normalizeScheduleDateTime(form.startAt, 'Start Date');
+  } catch (err) {
+    errors.startAt = String(err?.message || err);
+  }
+  try {
+    normalizeScheduleDateTime(form.endAt, 'End Date');
+  } catch (err) {
+    errors.endAt = String(err?.message || err);
+  }
+
+  return errors;
+}
+
+function applyValidationErrors(context, ds, form = {}, errors = {}) {
+  const values = { ...form, validationErrors: errors };
+  updateFormIfChanged(ds, values);
+  const windowId = getAutomationWindowID(context);
+  if (windowId) {
+    sendAutomationBusMessage(windowId, { type: 'selectTab', tabId: 'scheduleEditor' });
+    sendAutomationBusMessage(windowId, { type: 'selectTab', tabId: 'general' });
+  }
+  scheduleService._validationHookInstalled = true;
+  showToast("Schedule can't be saved. Fix the highlighted fields and try again.", {
+    intent: 'warning',
+    key: 'schedule-validation'
+  });
 }
 
 function scheduleEmptyStateConfig(panelId) {
@@ -1253,7 +1334,13 @@ async function saveSchedule({ context, formOverride } = {}) {
     return false;
   }
   const ds = ctx.handlers?.dataSource;
-  const form = ensureEditorState(formOverride || getFormState(ds));
+  const rawForm = formOverride || getFormState(ds);
+  const errors = validateScheduleForm(rawForm);
+  if (Object.keys(errors).length) {
+    applyValidationErrors(context, ds, rawForm, errors);
+    return false;
+  }
+  const form = ensureEditorState(rawForm);
   if (!Object.keys(form).length) {
     log.warn('scheduleService.saveSchedule: no form data');
     return false;
@@ -1281,7 +1368,11 @@ async function saveSchedule({ context, formOverride } = {}) {
     setActiveSchedule(context, synced || { ...form, ...payload, id: scheduleID });
     scheduleService._creatingSchedule = false;
     syncRunsToActiveSchedule(context);
-    if (!existingID || !synced) {
+    const windowId = getAutomationWindowID(context);
+    if (windowId) {
+      sendAutomationBusMessage(windowId, { type: 'selectTab', tabId: 'general' });
+    }
+    if (!synced) {
       ds?.fetchCollection?.();
     }
     return true;
@@ -1303,12 +1394,13 @@ async function deleteSchedule({ context }) {
   }
   const ds = ctx.handlers?.dataSource;
   const selected = ds?.peekSelection?.()?.selected || ds?.getSelection?.()?.selected || {};
-  const id = selected?.id;
+  const form = getFormState(ds);
+  const id = selected?.id || form?.id;
   if (!id) {
     log.warn('scheduleService.deleteSchedule: no schedule selected');
     return false;
   }
-  const name = String(selected?.name || '').trim();
+  const name = String(selected?.name || form?.name || '').trim();
   openConfirmDialog({
     title: 'Delete Schedule',
     message: name
@@ -1322,7 +1414,13 @@ async function deleteSchedule({ context }) {
       try {
         await client.deleteSchedule(id);
         reconcileDeletedSchedule(context, ds, id);
+        scheduleService._suppressNextScheduleSelection = true;
         ds?.fetchCollection?.();
+        setTimeout(() => {
+          clearActiveSchedule(context);
+          ds?.setSelected?.({ selected: {}, rowIndex: -1 });
+          syncRunsToActiveSchedule(context, { clearCollection: true });
+        }, 100);
         return true;
       } catch (err) {
         log.error('scheduleService.deleteSchedule error', err);
@@ -1462,6 +1560,7 @@ export const scheduleService = {
         }
         if (!selectedID && String(synced?.id || '').trim()) {
           setActiveSchedule(context, synced);
+          ds?.pushFormDependencies?.();
         }
         syncRunsToActiveSchedule(context);
       }
@@ -1685,7 +1784,7 @@ export const scheduleService = {
       // Switch to Editor tab via bus message
       const windowId = context?.identity?.windowId;
       if (windowId) {
-        sendBusMessage(windowId, { type: 'selectTab', tabId: 'scheduleEditor' });
+        sendAutomationBusMessage(windowId, { type: 'selectTab', tabId: 'scheduleEditor' });
       }
       setTimeout(() => decorateScheduleChrome(context), 0);
     } catch (e) {
