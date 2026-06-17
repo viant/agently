@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { activeWindows } from 'forge/core';
+import { activeWindows, getFormSignal } from 'forge/core';
 import { getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, MAIN_CHAT_WINDOW_ID } from './conversationWindow';
 
 const {
@@ -5078,6 +5078,157 @@ describe('mapTranscriptToRows', () => {
       ]);
     } finally {
       global.window = originalWindow;
+    }
+  });
+
+  it('merges saved reportBuilder reopen state with transcript and live windowForm during canonical transcript fetch', async () => {
+    const originalWindow = global.window;
+    global.window = {
+      sessionStorage: createStorage(),
+      localStorage: createStorage(),
+      location: { pathname: '/conversation/conv-workspace', port: '5176', hostname: '127.0.0.1' },
+      history: { state: null, replaceState: vi.fn() },
+      dispatchEvent: vi.fn(),
+      setTimeout,
+      clearTimeout,
+    };
+    activeWindows.value = [
+      {
+        windowId: MAIN_CHAT_WINDOW_ID,
+        windowKey: 'chat/new',
+        parameters: {},
+      },
+      {
+        windowId: 'reportBuilder__conv-workspace',
+        windowKey: 'reportBuilder',
+        windowTitle: 'Report Builder',
+        conversationId: 'conv-workspace',
+        presentation: 'hosted',
+        region: 'chat.top',
+        parentKey: MAIN_CHAT_WINDOW_ID,
+        inTab: true,
+        parameters: {},
+      },
+    ];
+    getFormSignal('reportBuilder__conv-workspace:windowForm').value = {
+      reportBuilder: {
+        selectedMeasures: ['totalSpend'],
+        reportDocumentTitle: 'Forecasting Trend Q3 (Live)',
+      },
+    };
+    global.window.sessionStorage.setItem('agently.workspaceState:conv-workspace', JSON.stringify({
+      windowId: 'reportBuilder__conv-workspace',
+      windowKey: 'reportBuilder',
+      windowTitle: 'Report Builder',
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      presentation: 'hosted',
+      region: 'chat.top',
+      inTab: true,
+      parameters: {},
+      windowForm: {
+        reportBuilder: {
+          reportDocumentReopenSession: {
+            reportId: 'forecastingTrendQ3',
+            documentVersion: 6,
+            reopenedSemanticFingerprint: '{"modelRef":"model://steward/performance/ad_delivery@v1"}',
+          },
+          reportDocumentTitle: 'Forecasting Trend Q3',
+          reportDocumentSubtitle: 'Saved subtitle',
+        },
+      },
+    }));
+    try {
+      client.getTranscript.mockResolvedValueOnce({
+        conversation: {
+          conversationId: 'conv-workspace',
+          turns: [
+            {
+              turnId: 'turn-workspace',
+              status: 'completed',
+              execution: {
+                pages: [
+                  {
+                    toolSteps: [
+                      {
+                        toolName: 'ui/view/open',
+                        status: 'completed',
+                        responsePayload: {
+                          conversationId: 'conv-workspace',
+                          items: [
+                            {
+                              conversationId: 'conv-workspace',
+                              parentKey: MAIN_CHAT_WINDOW_ID,
+                              presentation: 'hosted',
+                              region: 'chat.top',
+                              windowId: 'reportBuilder__conv-workspace',
+                              windowKey: 'reportBuilder',
+                              windowTitle: 'Report Builder',
+                            },
+                          ],
+                          selectedWindowId: 'reportBuilder__conv-workspace',
+                        },
+                      },
+                      {
+                        toolName: 'ui/window:setFormData',
+                        status: 'completed',
+                        requestPayload: {
+                          windowId: 'reportBuilder__conv-workspace',
+                          values: {
+                            reportBuilder: {
+                              reportDocumentTitle: 'Forecasting Trend Q3 (Transcript)',
+                              reportDocumentSubtitle: 'Transcript subtitle',
+                            },
+                            prefill: {
+                              country: ['US'],
+                              recordIds: [123],
+                            },
+                          },
+                        },
+                        responsePayload: {
+                          ok: true,
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      });
+
+      const turns = await fetchTranscript('conv-workspace');
+
+      expect(turns).toHaveLength(1);
+      expect(getScopedWorkspaceWindowsState('conv-workspace')).toEqual([
+        expect.objectContaining({
+          windowId: 'reportBuilder__conv-workspace',
+          windowKey: 'reportBuilder',
+          conversationId: 'conv-workspace',
+          presentation: 'hosted',
+          region: 'chat.top',
+          parentKey: MAIN_CHAT_WINDOW_ID,
+          windowForm: {
+            reportBuilder: {
+              selectedMeasures: ['totalSpend'],
+              reportDocumentReopenSession: {
+                reportId: 'forecastingTrendQ3',
+                documentVersion: 6,
+                reopenedSemanticFingerprint: '{"modelRef":"model://steward/performance/ad_delivery@v1"}',
+              },
+              reportDocumentTitle: 'Forecasting Trend Q3 (Live)',
+              reportDocumentSubtitle: 'Transcript subtitle',
+            },
+            prefill: {
+              country: ['US'],
+              recordIds: [123],
+            },
+          },
+        }),
+      ]);
+    } finally {
+      global.window = originalWindow;
+      activeWindows.value = [];
     }
   });
 

@@ -333,7 +333,9 @@ internal fun PhoneWorkspacePane(
             }
 
             else -> {
-                if (!activeConversationId.isNullOrBlank() || recentConversations.isNotEmpty()) {
+                if (displayTranscript.isEmpty() &&
+                    (!activeConversationId.isNullOrBlank() || recentConversations.isNotEmpty())
+                ) {
                     RecentConversationsSection(
                         conversations = recentConversations,
                         activeConversationId = activeConversationId,

@@ -48,7 +48,22 @@ internal fun transcriptWithActiveAssistant(
     snapshot: ConversationStreamSnapshot?
 ): List<ChatEntry> {
     val active = snapshot?.let(::activeAssistantEntry) ?: return transcript
-    return transcript.filterNot { it.id == active.id } + active
+    return transcript.filterNot { entry ->
+        entry.id == active.id || entry.isTransientAssistantEntry()
+    } + active
+}
+
+private fun ChatEntry.isTransientAssistantEntry(): Boolean {
+    if (!role.equals("assistant", ignoreCase = true)) {
+        return false
+    }
+    if (streaming) {
+        return true
+    }
+    return when (deliveryState?.trim()?.lowercase(Locale.US)) {
+        "waiting", "streaming", "sending" -> true
+        else -> false
+    }
 }
 
 private fun activeAssistantEntry(snapshot: ConversationStreamSnapshot): ChatEntry? {

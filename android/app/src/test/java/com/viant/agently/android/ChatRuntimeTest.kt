@@ -71,6 +71,55 @@ class ChatRuntimeTest {
     }
 
     @Test
+    fun transcriptWithActiveAssistant_replacesOptimisticStreamingAssistantForDisplay() {
+        val transcript = listOf(
+            ChatEntry(
+                id = "user-1",
+                role = "user",
+                markdown = "open forecast builder",
+                streaming = false,
+                deliveryState = "sending"
+            ),
+            ChatEntry(
+                id = "assistant-pending-1",
+                role = "assistant",
+                markdown = "Working...",
+                streaming = false,
+                deliveryState = "streaming"
+            ),
+            ChatEntry(
+                id = "assistant-history-1",
+                role = "assistant",
+                markdown = "previous completed answer",
+                streaming = false
+            )
+        )
+        val snapshot = ConversationStreamSnapshot(
+            conversationId = "conv-1",
+            activeTurnId = "turn-1",
+            feeds = emptyList(),
+            pendingElicitation = null,
+            bufferedMessages = listOf(
+                BufferedMessage(
+                    id = "assistant-real-1",
+                    turnId = "turn-1",
+                    role = "assistant",
+                    content = "Opening the forecast builder.",
+                    createdAt = "2026-06-11T20:21:00Z"
+                )
+            ),
+            liveExecutionGroupsById = emptyMap()
+        )
+
+        val displayTranscript = transcriptWithActiveAssistant(transcript, snapshot)
+
+        assertEquals(listOf("user-1", "assistant-history-1", "assistant-real-1"), displayTranscript.map { it.id })
+        assertEquals("assistant-pending-1", transcript[1].id)
+        assertEquals("Opening the forecast builder.", displayTranscript.last().markdown)
+        assertEquals(true, displayTranscript.last().streaming)
+    }
+
+    @Test
     fun transcriptWithActiveAssistant_ignoresHydratedHistoryWhenThereIsNoActiveTurn() {
         val transcript = listOf(
             ChatEntry(

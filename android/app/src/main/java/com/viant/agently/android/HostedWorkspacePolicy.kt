@@ -10,16 +10,8 @@ internal fun deriveAgentlyHostedWorkspaceRestoreState(
     state: ConversationStateResponse?,
     streamSnapshot: ConversationStreamSnapshot? = null
 ): HostedWorkspaceRestoreState? {
-    val liveRestore = if (streamSnapshot?.activeTurnId?.trim().isNullOrEmpty()) {
-        null
-    } else {
-        streamSnapshot?.let(::deriveHostedWorkspaceRestoreState)
-    }
-    if (liveRestore != null) {
-        return filterAgentlyHostedWorkspaceRestoreState(liveRestore)
-    }
     return filterAgentlyHostedWorkspaceRestoreState(
-        state?.let(::deriveHostedWorkspaceRestoreState)
+        deriveHostedWorkspaceRestoreState(state, streamSnapshot)
     )
 }
 

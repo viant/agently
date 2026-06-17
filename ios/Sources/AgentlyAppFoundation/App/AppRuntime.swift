@@ -200,7 +200,10 @@ public final class AppRuntime: ObservableObject {
             let authRequired = isAuthenticationError(error)
             if authRequired,
                allowAutoOOB,
-               developerAuthFeaturesEnabled() {
+               resolvedBootstrapAutoOOBSignIn(
+                   environmentValue: ProcessInfo.processInfo.environment["AGENTLY_IOS_AUTO_OOB_SIGN_IN"],
+                   launchArguments: CommandLine.arguments
+               ) {
                 let secret = settingsRuntime.oobSecretReference.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !secret.isEmpty {
                     logger.info("Attempting bootstrap OOB sign-in before presenting auth screen")
@@ -665,7 +668,7 @@ public final class AppRuntime: ObservableObject {
                 workspaceMinHeight: window.workspaceMinHeight ?? overlayWindow.workspaceMinHeight,
                 inTab: window.inTab ?? overlayWindow.inTab,
                 parameters: window.parameters ?? overlayWindow.parameters,
-                windowForm: overlayWindow.windowForm ?? window.windowForm
+                windowForm: mergeWindowForm(base: window.windowForm, overlay: overlayWindow.windowForm)
             )
         }
         let selectedWindowId = base.selectedWindowId
@@ -675,6 +678,38 @@ public final class AppRuntime: ObservableObject {
             windows: mergedWindows,
             selectedWindowId: selectedWindowId?.isEmpty == false ? selectedWindowId : nil
         )
+    }
+
+    private static func mergeWindowForm(
+        base: [String: AgentlySDK.JSONValue]?,
+        overlay: [String: AgentlySDK.JSONValue]?
+    ) -> [String: AgentlySDK.JSONValue]? {
+        guard let overlay, !overlay.isEmpty else {
+            return base
+        }
+        guard let base, !base.isEmpty else {
+            return overlay
+        }
+        return mergeJSONObjects(base: base, overlay: overlay)
+    }
+
+    private static func mergeJSONObjects(
+        base: [String: AgentlySDK.JSONValue],
+        overlay: [String: AgentlySDK.JSONValue]
+    ) -> [String: AgentlySDK.JSONValue] {
+        var merged = base
+        for (key, value) in overlay {
+            if case .object(let baseObject)? = merged[key],
+               case .object(let overlayObject) = value {
+                if overlayObject.isEmpty && !baseObject.isEmpty {
+                    continue
+                }
+                merged[key] = .object(mergeJSONObjects(base: baseObject, overlay: overlayObject))
+            } else {
+                merged[key] = value
+            }
+        }
+        return merged
     }
 
     private func startStreaming(conversationID: String) {

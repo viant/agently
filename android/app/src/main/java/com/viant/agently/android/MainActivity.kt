@@ -1,5 +1,6 @@
 package com.viant.agently.android
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.net.Uri
@@ -54,10 +55,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.AgentlyClient
+import com.viant.agentlysdk.AttachSessionInput
 import com.viant.agentlysdk.AuthProvider
 import com.viant.agentlysdk.AuthUser
 import com.viant.agentlysdk.Conversation
 import com.viant.agentlysdk.CreateConversationInput
+import com.viant.agentlysdk.CreateSessionInput
 import com.viant.agentlysdk.DecideToolApprovalInput
 import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.EndpointConfig
@@ -70,6 +73,7 @@ import com.viant.agentlysdk.QueryAttachment
 import com.viant.agentlysdk.QueryInput
 import com.viant.agentlysdk.QueryOutput
 import com.viant.agentlysdk.OAuthCallbackInput
+import com.viant.agentlysdk.OAuthInitiateInput
 import com.viant.agentlysdk.UploadFileInput
 import com.viant.agentlysdk.WorkspaceMetadata
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
@@ -91,6 +95,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -108,21 +113,37 @@ import java.util.Locale
 import java.time.OffsetDateTime
 
 class MainActivity : ComponentActivity() {
+    private val oauthCallbackUri = MutableStateFlow<Uri?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleIncomingOAuthCallback(intent)
         setContent {
             AgentlyTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    AgentlyApp()
+                    AgentlyApp(oauthCallbackUri)
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingOAuthCallback(intent)
+    }
+
+    private fun handleIncomingOAuthCallback(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme == "agently-android" && uri.host == "oauth" && uri.path == "/callback") {
+            oauthCallbackUri.value = uri
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AgentlyApp() {
+private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
@@ -131,8 +152,22 @@ private fun AgentlyApp() {
     val configuredAppApiBaseUrl = BuildConfig.APP_API_BASE_URL
     val appSettingsStore = remember(context) { AppSettingsStore(context.applicationContext) }
     val storedAppSettings = remember(appSettingsStore) { appSettingsStore.load() }
+    val initialHasWorkspaceEndpointSelection = remember(storedAppSettings) {
+        storedAppSettings.hasWorkspaceEndpointSelection ||
+            storedAppSettings.baseUrlOverride.trim().isNotBlank()
+    }
+    var hasWorkspaceEndpointSelection by remember {
+        mutableStateOf(initialHasWorkspaceEndpointSelection)
+    }
     var appApiBaseUrl by remember {
-        mutableStateOf(storedAppSettings.baseUrlOverride.trim().ifBlank { configuredAppApiBaseUrl })
+        mutableStateOf(
+            normalizeApiBaseUrl(
+                storedAppSettings.baseUrlOverride.trim().ifBlank {
+                    if (initialHasWorkspaceEndpointSelection) configuredAppApiBaseUrl
+                    else workspaceEndpointOptions.first().value
+                }
+            )
+        )
     }
     var preferredAgentId by remember { mutableStateOf(storedAppSettings.preferredAgentId) }
     val savedLoginStore = remember(context) { SavedLoginStoreImpl(context.applicationContext) }
@@ -150,6 +185,7 @@ private fun AgentlyApp() {
     }
     var savedLoginConfig by remember { mutableStateOf(storedSavedLoginConfig) }
     var showSavedLoginSettings by remember { mutableStateOf(false) }
+    var authSessionId by remember { mutableStateOf<String?>(null) }
     val sessionCookieJar = remember { AppSessionCookieJar() }
     val appHttpClient = remember(sessionCookieJar) { appSessionHttpClient(sessionCookieJar) }
     val forgeTargetContext = remember(formFactor) { buildForgeTargetContext(formFactor) }
@@ -228,6 +264,7 @@ private fun AgentlyApp() {
     var authWebUrl by remember { mutableStateOf<String?>(null) }
     var authBusy by remember { mutableStateOf(false) }
     var authError by remember { mutableStateOf<String?>(null) }
+    val pendingOAuthCallback by oauthCallbackUriFlow.collectAsState()
     var workspaceBootstrapRequested by remember { mutableStateOf(false) }
     val effectiveAgentId = resolvePreferredAgentId(preferredAgentId, metadata)
 
@@ -487,6 +524,7 @@ private fun AgentlyApp() {
 
     fun resetWorkspaceForBaseUrl(baseUrl: String) {
         val resetState = buildWorkspaceSessionReset()
+        authSessionId = null
         setAppApiBaseUrl(baseUrl)
         applyWorkspaceSessionReset(resetState)
         refreshAuthAfterSuccessfulLogin()
@@ -494,22 +532,68 @@ private fun AgentlyApp() {
 
     suspend fun completeOAuthLogin(code: String, state: String) {
         val authClient = resolveAuthClient()
-        authClient.oauthCallback(OAuthCallbackInput(code = code, state = state))
+        val output = authClient.oauthMobileCallback(OAuthCallbackInput(code = code, state = state))
+        authSessionId = output.sessionId?.trim()?.takeIf { it.isNotBlank() }
         authWebUrl = null
         refreshAuthAfterSuccessfulLogin()
     }
 
     suspend fun requestOAuthSignInUrl(): String {
-        return resolveOAuthInitiateUrl(resolveAuthClient().oauthInitiate())
+        val authUrl = resolveOAuthInitiateUrl(
+            resolveAuthClient().oauthMobileInitiate(
+                OAuthInitiateInput(redirectURI = AndroidOAuthRedirectURI)
+            )
+        )
+        require(authUrlUsesRedirect(authUrl, AndroidOAuthRedirectURI)) {
+            "This workspace returned a web OAuth callback. Mobile sign-in needs $AndroidOAuthRedirectURI."
+        }
+        return authUrl
     }
 
     suspend fun runOobSignIn() {
         val secretRef = savedLoginConfig.oobSecretRef.trim()
         require(secretRef.isNotBlank()) { "Add an OOB secret reference in Settings before starting OOB sign-in." }
-        resolveAuthClient().oobLogin(
+        val output = resolveAuthClient().oobLogin(
             com.viant.agentlysdk.OOBLoginInput(secretsURL = secretRef)
         )
+        authSessionId = output.sessionId?.trim()?.takeIf { it.isNotBlank() }
         refreshAuthAfterSuccessfulLogin()
+    }
+
+    suspend fun runDeveloperSessionSignIn(rawCredential: String) {
+        val credential = normalizeDeveloperSessionCredential(rawCredential)
+        require(credential.isNotBlank()) { "Paste a session ID, cookie, or token." }
+        val authClient = resolveAuthClient()
+
+        val attachResult = runCatching {
+            authClient.attachAuthSession(AttachSessionInput(sessionId = credential))
+        }
+        if (attachResult.isSuccess) {
+            authSessionId = attachResult.getOrThrow().sessionId?.trim()?.takeIf { it.isNotBlank() }
+                ?: credential
+            refreshAuthAfterSuccessfulLogin()
+            return
+        }
+
+        val accessTokenResult = runCatching {
+            authClient.createAuthSession(CreateSessionInput(accessToken = credential))
+        }
+        if (accessTokenResult.isSuccess) {
+            authSessionId = accessTokenResult.getOrThrow().sessionId.trim().takeIf { it.isNotBlank() }
+            refreshAuthAfterSuccessfulLogin()
+            return
+        }
+
+        val idTokenResult = runCatching {
+            authClient.createAuthSession(CreateSessionInput(idToken = credential))
+        }
+        if (idTokenResult.isSuccess) {
+            authSessionId = idTokenResult.getOrThrow().sessionId.trim().takeIf { it.isNotBlank() }
+            refreshAuthAfterSuccessfulLogin()
+            return
+        }
+
+        throw IllegalStateException("Could not use that session ID or token.")
     }
 
     fun setSavedLoginConfig(next: SavedLoginConfig) {
@@ -564,6 +648,7 @@ private fun AgentlyApp() {
     }
 
     fun clearAuthSecrets() {
+        authSessionId = null
         clearSavedAuthSecrets(
             store = savedLoginStore,
             bindings = savedLoginBindings()
@@ -596,6 +681,15 @@ private fun AgentlyApp() {
         )
     }
 
+    fun startDeveloperSessionSignIn(rawCredential: String) {
+        launchAuthOperation(
+            scope = scope,
+            authBindings = authUiBindings(),
+            runOperation = { runDeveloperSessionSignIn(rawCredential) },
+            normalizeAuthError = ::normalizeAuthError
+        )
+    }
+
     fun handleOAuthCallback(code: String, state: String) {
         launchAuthOperation(
             scope = scope,
@@ -603,6 +697,16 @@ private fun AgentlyApp() {
             runOperation = { completeOAuthLogin(code, state) },
             normalizeAuthError = ::normalizeAuthError
         )
+    }
+
+    LaunchedEffect(pendingOAuthCallback) {
+        val uri = pendingOAuthCallback ?: return@LaunchedEffect
+        val code = uri.getQueryParameter("code").orEmpty()
+        val state = uri.getQueryParameter("state").orEmpty()
+        if (code.isNotBlank() && state.isNotBlank()) {
+            handleOAuthCallback(code, state)
+        }
+        oauthCallbackUriFlow.value = null
     }
 
     fun retryAuthConnection() {
@@ -848,10 +952,10 @@ private fun AgentlyApp() {
             setVisibleError("Open an existing conversation before using /goal.")
             return
         }
-        val client = resolveClient()
+        val goalClient = resolveClient()
         when (command) {
             GoalCommandAction.Show -> {
-                activeGoal = client.getGoal(conversationId)
+                activeGoal = goalClient.getGoal(conversationId)
             }
             is GoalCommandAction.Set -> {
                 val objective = command.objective.trim()
@@ -860,27 +964,27 @@ private fun AgentlyApp() {
                     return
                 }
                 try {
-                    client.createGoal(conversationId, com.viant.agentlysdk.CreateGoalInput(objective = objective))
+                    goalClient.createGoal(conversationId, com.viant.agentlysdk.CreateGoalInput(objective = objective))
                 } catch (err: Throwable) {
                     val normalizedMessage = (err.message ?: "").lowercase()
                     val shouldUpdateExistingGoal = normalizedMessage.contains("goal already exists") ||
                         normalizedMessage.contains("failed: 409") ||
                         normalizedMessage.contains("status 409")
                     if (shouldUpdateExistingGoal) {
-                        client.updateGoal(conversationId, com.viant.agentlysdk.UpdateGoalInput(objective = objective))
+                        goalClient.updateGoal(conversationId, com.viant.agentlysdk.UpdateGoalInput(objective = objective))
                     } else {
                         throw err
                     }
                 }
             }
             GoalCommandAction.Pause -> {
-                client.updateGoal(conversationId, com.viant.agentlysdk.UpdateGoalInput(status = "paused"))
+                goalClient.updateGoal(conversationId, com.viant.agentlysdk.UpdateGoalInput(status = "paused"))
             }
             GoalCommandAction.Resume -> {
-                client.updateGoal(conversationId, com.viant.agentlysdk.UpdateGoalInput(status = "active"))
+                goalClient.updateGoal(conversationId, com.viant.agentlysdk.UpdateGoalInput(status = "active"))
             }
             GoalCommandAction.Clear -> {
-                client.clearGoal(conversationId)
+                goalClient.clearGoal(conversationId)
             }
             GoalCommandAction.Help -> {
                 setVisibleError("Goal commands: /goal show, /goal set <objective>, /goal pause, /goal resume, /goal clear")
@@ -968,11 +1072,13 @@ private fun AgentlyApp() {
 
     fun applySettingsTransition(transition: SettingsApplyTransition) {
         preferredAgentId = transition.preferredAgentId
+        hasWorkspaceEndpointSelection = true
         persistAppSettings(
             store = appSettingsStore,
             configuredBaseUrl = configuredAppApiBaseUrl,
             nextBaseUrl = transition.resolvedBaseUrl,
-            nextPreferredAgentId = transition.preferredAgentId
+            nextPreferredAgentId = transition.preferredAgentId,
+            hasWorkspaceEndpointSelection = true
         )
         if (transition.requiresWorkspaceReset) {
             resetWorkspaceForBaseUrl(transition.resolvedBaseUrl)
@@ -986,7 +1092,8 @@ private fun AgentlyApp() {
             store = appSettingsStore,
             configuredBaseUrl = configuredAppApiBaseUrl,
             nextBaseUrl = appApiBaseUrl,
-            nextPreferredAgentId = preferredAgentId
+            nextPreferredAgentId = preferredAgentId,
+            hasWorkspaceEndpointSelection = hasWorkspaceEndpointSelection
         )
     }
 
@@ -1019,23 +1126,19 @@ private fun AgentlyApp() {
         )
     }
 
-    AppEffects(
-        forgeRuntime = forgeRuntime,
-        isTablet = isTablet,
-        authState = authState,
-        metadataLoaded = metadata != null,
-        recentConversationCount = recentConversations.size,
-        loading = loading,
-        workspaceBootstrapRequested = workspaceBootstrapRequested,
-        onWorkspaceBootstrapRequestedChange = ::setWorkspaceBootstrapRequested,
-        onWorkspaceBootstrap = ::bootstrapWorkspaceSession,
-        onSetCurrentScreen = ::setCurrentScreen,
-        onLoadWorkspace = ::loadWorkspace,
-        onResetConversation = ::resetConversation,
-        onDisposeStreamJob = ::disposeStreamJob,
-        onInitialAuthRefresh = ::runInitialAuthRefresh,
-        onSetAuthRequired = ::setAuthRequired
-    )
+    fun selectWorkspaceEndpoint(option: WorkspaceEndpointOption) {
+        hasWorkspaceEndpointSelection = true
+        val resolvedBaseUrl = normalizeApiBaseUrl(option.value)
+        preferredAgentId = ""
+        persistAppSettings(
+            store = appSettingsStore,
+            configuredBaseUrl = configuredAppApiBaseUrl,
+            nextBaseUrl = resolvedBaseUrl,
+            nextPreferredAgentId = "",
+            hasWorkspaceEndpointSelection = true
+        )
+        resetWorkspaceForBaseUrl(resolvedBaseUrl)
+    }
 
     fun applySettings(nextBaseUrl: String, nextPreferredAgentId: String, nextSavedLoginConfig: SavedLoginConfig) {
         val transition = buildSettingsApplyTransition(
@@ -1073,6 +1176,29 @@ private fun AgentlyApp() {
         )
     }
 
+    if (!hasWorkspaceEndpointSelection) {
+        WorkspaceSelectionScreen(onContinue = ::selectWorkspaceEndpoint)
+        return
+    }
+
+    AppEffects(
+        forgeRuntime = forgeRuntime,
+        isTablet = isTablet,
+        authState = authState,
+        metadataLoaded = metadata != null,
+        recentConversationCount = recentConversations.size,
+        loading = loading,
+        workspaceBootstrapRequested = workspaceBootstrapRequested,
+        onWorkspaceBootstrapRequestedChange = ::setWorkspaceBootstrapRequested,
+        onWorkspaceBootstrap = ::bootstrapWorkspaceSession,
+        onSetCurrentScreen = ::setCurrentScreen,
+        onLoadWorkspace = ::loadWorkspace,
+        onResetConversation = ::resetConversation,
+        onDisposeStreamJob = ::disposeStreamJob,
+        onInitialAuthRefresh = ::runInitialAuthRefresh,
+        onSetAuthRequired = ::setAuthRequired
+    )
+
     fun selectConversation(conversationId: String, navigateToChat: Boolean = false) {
         launchVisibleErrorOperation(showLoading = true) {
             bindConversation(conversationId, replaceTranscript = true)
@@ -1101,6 +1227,7 @@ private fun AgentlyApp() {
         onClearAuthSecrets = ::clearAuthSecrets,
         onAuthSignIn = ::startOAuthSignIn,
         onAuthOobSignIn = ::startOobSignIn,
+        onDeveloperSessionSignIn = ::startDeveloperSessionSignIn,
         onManageSavedLogin = ::openSavedLoginSettings,
         onAuthRetry = ::retryAuthConnection,
         onDismissAuthWeb = ::dismissAuthWeb,
@@ -1125,6 +1252,7 @@ private fun AgentlyApp() {
         error = error,
         authProviders = authProviders,
         authUser = authUser,
+        authSessionId = authSessionId,
         authWebUrl = authWebUrl,
         showSavedLoginSettings = showSavedLoginSettings,
         recentConversations = recentConversations,

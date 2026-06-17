@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -31,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -55,13 +58,16 @@ internal fun AuthRequiredScreen(
     error: String?,
     providers: List<AuthProvider>,
     user: AuthUser?,
+    authSessionId: String?,
     savedLoginConfig: SavedLoginConfig,
     onSignIn: () -> Unit,
     onOobSignIn: () -> Unit,
+    onDeveloperSessionSignIn: (String) -> Unit,
     onManageSavedLogin: () -> Unit,
     onOpenSettings: () -> Unit,
     onRetry: () -> Unit
 ) {
+    var developerSessionCredential by remember { mutableStateOf("") }
     val developerAuthEnabled = BuildConfig.DEBUG
     val providerLabel = resolveProviderLabel(providers)
     val normalizedError = normalizeAuthError(error)
@@ -69,6 +75,18 @@ internal fun AuthRequiredScreen(
     val authTitle = resolveAuthRequiredTitle(authMode)
     val authDescription = resolveAuthRequiredDescription(authMode, normalizedError)
     val prefersRetry = authMode == AuthRequirementMode.ConnectionProblem
+    val hasSavedOobSignIn = developerAuthEnabled && savedLoginConfig.hasStoredOobSecretRef
+    val showDeveloperSessionRecovery = shouldShowDeveloperSessionRecovery(
+        developerAuthEnabled = developerAuthEnabled,
+        error = normalizedError,
+        mode = authMode
+    )
+    val canSubmitDeveloperSessionCredential = !busy && developerSessionCredential.trim().isNotEmpty()
+    val submitDeveloperSessionCredential = {
+        if (canSubmitDeveloperSessionCredential) {
+            onDeveloperSessionSignIn(developerSessionCredential)
+        }
+    }
 
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -91,20 +109,27 @@ internal fun AuthRequiredScreen(
                 )
                 if (developerAuthEnabled && savedLoginConfig.hasStoredIdpCredential) {
                     Text(
-                        "Saved sign-in helper credentials are available for $providerLabel. They can autofill the OAuth login page, but the sign-in flow still completes through OAuth.",
+                        "Saved sign-in helper credentials are available for $providerLabel.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFF475467)
                     )
                 }
                 if (developerAuthEnabled && savedLoginConfig.hasStoredOobSecretRef) {
                     Text(
-                        "A saved OOB secret reference is available for direct workspace sign-in.",
+                        "Saved OOB sign-in is available.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFF475467)
                     )
                 }
                 user?.displayName?.takeIf { it.isNotBlank() }?.let {
                     Text("Current user: $it", style = MaterialTheme.typography.bodySmall)
+                }
+                if (developerAuthEnabled && !authSessionId.isNullOrBlank()) {
+                    Text(
+                        "Session ID: $authSessionId",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF475467)
+                    )
                 }
                 normalizedError?.takeIf { it.isNotBlank() }?.let {
                     Text(
@@ -114,25 +139,31 @@ internal fun AuthRequiredScreen(
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = if (prefersRetry) onRetry else onSignIn, enabled = !busy) {
+                    val primaryAction = when {
+                        prefersRetry -> onRetry
+                        hasSavedOobSignIn -> onOobSignIn
+                        else -> onSignIn
+                    }
+                    Button(onClick = primaryAction, enabled = !busy) {
                         Text(
                             when {
                                 busy && prefersRetry -> "Checking…"
                                 busy -> "Starting…"
                                 prefersRetry -> "Retry connection"
+                                hasSavedOobSignIn -> "Use saved OOB sign-in"
                                 else -> "Sign in with $providerLabel"
                             }
                         )
+                    }
+                    if (!prefersRetry && hasSavedOobSignIn) {
+                        OutlinedButton(onClick = onSignIn, enabled = !busy) {
+                            Text("Open workspace sign-in")
+                        }
                     }
                     if (!prefersRetry) {
                         OutlinedButton(onClick = onRetry, enabled = !busy) {
                             Text("Retry")
                         }
-                    }
-                }
-                if (developerAuthEnabled && savedLoginConfig.hasStoredOobSecretRef) {
-                    OutlinedButton(onClick = onOobSignIn, enabled = !busy) {
-                        Text(if (busy) "Starting OOB…" else "Use saved OOB sign-in")
                     }
                 }
                 if (developerAuthEnabled) {
@@ -148,6 +179,28 @@ internal fun AuthRequiredScreen(
                 }
                 TextButton(onClick = onOpenSettings, enabled = !busy) {
                     Text("Open client settings")
+                }
+                if (showDeveloperSessionRecovery) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = developerSessionCredential,
+                            onValueChange = { developerSessionCredential = it },
+                            label = { Text("Session ID or token") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(
+                                onDone = { submitDeveloperSessionCredential() }
+                            ),
+                            visualTransformation = PasswordVisualTransformation()
+                        )
+                        OutlinedButton(
+                            onClick = { submitDeveloperSessionCredential() },
+                            enabled = canSubmitDeveloperSessionCredential
+                        ) {
+                            Text("Use session")
+                        }
+                    }
                 }
             }
         }
@@ -188,6 +241,16 @@ internal fun resolveAuthRequiredDescription(
         AuthRequirementMode.SignInRequired ->
             "This Agently endpoint requires OAuth before conversations, approvals, and Forge-rendered content can load."
     }
+}
+
+internal fun shouldShowDeveloperSessionRecovery(
+    developerAuthEnabled: Boolean,
+    error: String?,
+    mode: AuthRequirementMode
+): Boolean {
+    return developerAuthEnabled &&
+        !error.isNullOrBlank() &&
+        mode == AuthRequirementMode.SignInRequired
 }
 
 @Composable
@@ -357,7 +420,16 @@ internal fun OAuthWebDialog(
                         webViewClient = object : WebViewClient() {
                             private fun intercept(url: String): Boolean {
                                 val uri = Uri.parse(url)
-                                if (!uri.path.orEmpty().endsWith(callbackPrefix)) {
+                                val callback = callbackPrefix.trim()
+                                val matchesCallback = if (callback.contains("://")) {
+                                    val callbackUri = Uri.parse(callback)
+                                    uri.scheme == callbackUri.scheme &&
+                                        uri.host == callbackUri.host &&
+                                        uri.path.orEmpty() == callbackUri.path.orEmpty()
+                                } else {
+                                    uri.path.orEmpty().endsWith(callback)
+                                }
+                                if (!matchesCallback) {
                                     return false
                                 }
                                 val code = uri.getQueryParameter("code").orEmpty()
@@ -377,7 +449,7 @@ internal fun OAuthWebDialog(
                                 }
                                 webError = null
                                 pageStatus = when {
-                                    target.contains("/oauth/callback") ->
+                                    target.startsWith(callbackPrefix) || target.contains("/oauth/callback") ->
                                         "Finishing sign-in…"
                                     isLikelyIdpPage(target) ->
                                         if (savedLoginConfig.hasStoredIdpCredential) {

@@ -75,4 +75,41 @@ class AuthScreensTest {
             resolveAuthRequirementMode("Authentication required. Sign in to load the Agently workspace.")
         )
     }
+
+    @Test
+    fun shouldShowDeveloperSessionRecovery_onlyAfterDebugAuthFailure() {
+        assertEquals(
+            true,
+            shouldShowDeveloperSessionRecovery(
+                developerAuthEnabled = true,
+                error = "Authentication required. Sign in to load the Agently workspace.",
+                mode = AuthRequirementMode.SignInRequired
+            )
+        )
+        assertEquals(
+            false,
+            shouldShowDeveloperSessionRecovery(
+                developerAuthEnabled = false,
+                error = "Authentication required. Sign in to load the Agently workspace.",
+                mode = AuthRequirementMode.SignInRequired
+            )
+        )
+        assertEquals(
+            false,
+            shouldShowDeveloperSessionRecovery(
+                developerAuthEnabled = true,
+                error = null,
+                mode = AuthRequirementMode.SignInRequired
+            )
+        )
+        assertEquals(
+            false,
+            shouldShowDeveloperSessionRecovery(
+                developerAuthEnabled = true,
+                error = "Agently could not reach the configured endpoint.",
+                mode = AuthRequirementMode.ConnectionProblem
+            )
+        )
+    }
+
 }

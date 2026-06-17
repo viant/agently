@@ -26,7 +26,10 @@ let package = Package(
                 .product(name: "ForgeIOSRuntime", package: "ForgeIOSPackage"),
                 .product(name: "ForgeIOSUI", package: "ForgeIOSPackage")
             ],
-            path: "Sources/AgentlyAppFoundation"
+            path: "Sources/AgentlyAppFoundation",
+            resources: [
+                .process("Resources")
+            ]
         ),
         .testTarget(
             name: "AgentlyAppFoundationTests",

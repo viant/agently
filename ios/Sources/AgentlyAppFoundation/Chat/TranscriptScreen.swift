@@ -34,6 +34,14 @@ public struct TranscriptScreen: View {
                     }
                 )
             }
+            .agentlyScrollDismissesKeyboard()
+            .contentShape(Rectangle())
+            .simultaneousGesture(TapGesture().onEnded {
+                requestAgentlyPlatformKeyboardDismissal()
+            })
+            .simultaneousGesture(DragGesture(minimumDistance: 3).onChanged { _ in
+                requestAgentlyPlatformKeyboardDismissal()
+            })
             .onChange(of: items.last?.id) { _, newValue in
                 guard let newValue else { return }
                 withAnimation(.easeOut(duration: 0.2)) {
@@ -73,6 +81,8 @@ private struct TranscriptBubble: View {
     let item: ChatTranscriptEntry
     let onReusePrompt: ((String) -> Void)?
     let onReuseAndSendPrompt: ((String) -> Void)?
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var isExpanded = false
 
     var body: some View {
         VStack(alignment: item.role == "user" ? .trailing : .leading, spacing: 6) {
@@ -106,6 +116,17 @@ private struct TranscriptBubble: View {
         .padding()
         .frame(maxWidth: .infinity, alignment: item.role == "user" ? .trailing : .leading)
         .background(bubbleTint.opacity(item.role == "user" ? 0.18 : 0.08), in: RoundedRectangle(cornerRadius: 14))
+        .contentShape(RoundedRectangle(cornerRadius: 14))
+        .simultaneousGesture(TapGesture().onEnded {
+            requestAgentlyPlatformKeyboardDismissal()
+        })
+        .onTapGesture {
+            guard shouldOfferExpansion else { return }
+            withAnimation(.easeInOut(duration: 0.18)) {
+                isExpanded.toggle()
+            }
+        }
+        .accessibilityHint(shouldOfferExpansion ? "Double tap to \(isExpanded ? "collapse" : "show full") message text." : "")
         .contextMenu {
             Button {
                 copyMessageToPasteboard()
@@ -138,15 +159,49 @@ private struct TranscriptBubble: View {
     @ViewBuilder
     private var transcriptContent: some View {
         if item.role == "user" {
-            Text(item.markdown.isEmpty ? "(empty response)" : item.markdown)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .lineLimit(4)
-                .truncationMode(.tail)
-                .textSelection(.enabled)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(item.markdown.isEmpty ? "(empty response)" : item.markdown)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .lineLimit(isExpanded ? nil : 4)
+                    .truncationMode(.tail)
+                    .transcriptTextSelection(allowsInlineTextSelection)
+                if shouldOfferExpansion {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            isExpanded.toggle()
+                        }
+                    } label: {
+                        Label(
+                            isExpanded ? "Show less" : "Show full text",
+                            systemImage: isExpanded ? "chevron.up" : "text.justify.left"
+                        )
+                        .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                    .accessibilityIdentifier(isExpanded ? "transcript-collapse-message" : "transcript-expand-message")
+                }
+            }
         } else {
             TranscriptMessageContent(markdown: item.markdown)
-                .textSelection(.enabled)
+                .transcriptTextSelection(allowsInlineTextSelection)
         }
+    }
+
+    private var allowsInlineTextSelection: Bool {
+        horizontalSizeClass != .compact
+    }
+
+    private var shouldOfferExpansion: Bool {
+        guard item.role == "user" else { return false }
+        let text = item.markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return false }
+        let explicitLineCount = text.components(separatedBy: .newlines).count
+        let estimatedWrappedLineCount = text
+            .components(separatedBy: .newlines)
+            .map { max(1, Int(ceil(Double($0.count) / 38.0))) }
+            .reduce(0, +)
+        return explicitLineCount > 4 || estimatedWrappedLineCount > 4
     }
 
     private var bubbleTint: Color {
@@ -171,5 +226,24 @@ private struct TranscriptBubble: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(item.markdown, forType: .string)
         #endif
+    }
+}
+
+private struct TranscriptTextSelectionModifier: ViewModifier {
+    let isEnabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.textSelection(.enabled)
+        } else {
+            content
+        }
+    }
+}
+
+private extension View {
+    func transcriptTextSelection(_ isEnabled: Bool) -> some View {
+        modifier(TranscriptTextSelectionModifier(isEnabled: isEnabled))
     }
 }

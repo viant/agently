@@ -247,7 +247,12 @@ private struct HostedWorkspaceWindowView: View {
 
     private var restoreSelectionKey: String {
         let selected = restoreState.selectedWindowId ?? ""
-        let windows = restoreState.windows.map(\.windowId).joined(separator: "|")
+        let windows = restoreState.windows.map { window in
+            [
+                window.windowId,
+                hostedWorkspaceJSONSignature(window.windowForm)
+            ].joined(separator: "@")
+        }.joined(separator: "|")
         return "\(selected)#\(windows)"
     }
 
@@ -257,7 +262,8 @@ private struct HostedWorkspaceWindowView: View {
             selectedWindow.windowId,
             selectedWindow.windowKey,
             selectedWindow.windowTitle ?? "",
-            selectedWindow.parameters?.description ?? ""
+            hostedWorkspaceJSONSignature(selectedWindow.parameters),
+            hostedWorkspaceJSONSignature(selectedWindow.windowForm)
         ].joined(separator: "#")
     }
 
@@ -320,7 +326,8 @@ private struct HostedWorkspaceWindowView: View {
             await forgeRuntime.setWindowFormValue(
                 windowID: state.id,
                 values: windowForm,
-                replace: true
+                replace: true,
+                bumpPrefillRevision: false
             )
         }
         windowContext = await forgeRuntime.windowContext(id: state.id)
@@ -336,6 +343,31 @@ private func normalizedHostedField(_ value: String?) -> String {
     String(value ?? "")
         .trimmingCharacters(in: .whitespacesAndNewlines)
         .lowercased()
+}
+
+private func hostedWorkspaceJSONSignature(_ value: [String: AgentlySDK.JSONValue]?) -> String {
+    guard let value else { return "" }
+    return value.keys.sorted().map { key in
+        "\(key)=\(hostedWorkspaceJSONSignature(value[key]))"
+    }.joined(separator: "&")
+}
+
+private func hostedWorkspaceJSONSignature(_ value: AgentlySDK.JSONValue?) -> String {
+    guard let value else { return "" }
+    switch value {
+    case .null:
+        return "null"
+    case .bool(let value):
+        return value ? "true" : "false"
+    case .number(let value):
+        return String(value)
+    case .string(let value):
+        return value
+    case .array(let values):
+        return "[" + values.map { hostedWorkspaceJSONSignature($0) }.joined(separator: ",") + "]"
+    case .object(let values):
+        return "{" + hostedWorkspaceJSONSignature(values) + "}"
+    }
 }
 
 private func workspaceWindowSnapshot(from state: ForgeRuntime.WindowState) -> WorkspaceWindowSnapshot {

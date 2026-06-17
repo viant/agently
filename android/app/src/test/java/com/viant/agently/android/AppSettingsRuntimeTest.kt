@@ -103,11 +103,11 @@ class AppSettingsRuntimeTest {
     }
 
     @Test
-    fun buildSettingsApplyTransition_trimsAgentAndResolvesBlankBaseUrl() {
+    fun buildSettingsApplyTransition_trimsAgentAndNormalizesBaseUrl() {
         val transition = buildSettingsApplyTransition(
             configuredBaseUrl = "http://configured",
             currentBaseUrl = "http://configured",
-            nextBaseUrl = "   ",
+            nextBaseUrl = " http://configured/v1/api/ ",
             nextPreferredAgentId = " coder "
         )
 
@@ -126,5 +126,37 @@ class AppSettingsRuntimeTest {
         assertEquals("http://configured", transition.resolvedBaseUrl)
         assertEquals("", transition.preferredAgentId)
         assertEquals(true, transition.requiresWorkspaceReset)
+    }
+
+    @Test
+    fun selectedWorkspaceEndpointOption_resolvesStewardPreset() {
+        val steward = workspaceEndpointOptions.first()
+
+        assertEquals(
+            steward,
+            selectedWorkspaceEndpointOption("https://steward.agently.viantinc.com/v1/api/")
+        )
+    }
+
+    @Test
+    fun selectedWorkspaceEndpointOption_resolvesLocalhostPreset() {
+        val localhost = workspaceEndpointOptions.first { it.value == "http://localhost:9191" }
+
+        assertEquals(
+            localhost,
+            selectedWorkspaceEndpointOption("http://localhost:9191/v1/api/")
+        )
+    }
+
+    @Test
+    fun normalizeApiBaseUrl_removesApiSuffixesAndTrailingSlash() {
+        assertEquals(
+            "https://steward.agently.viantinc.com",
+            normalizeApiBaseUrl(" https://steward.agently.viantinc.com/v1/api/ ")
+        )
+        assertEquals(
+            "https://steward.agently.viantinc.com",
+            normalizeApiBaseUrl("https://steward.agently.viantinc.com/v1")
+        )
     }
 }

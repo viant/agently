@@ -431,6 +431,7 @@ private struct ConversationListView: View {
             }
         }
         .navigationTitle("Conversations")
+        .modifier(ConversationListNavigationTitleMode(useInlineTitle: usesNavigationDestination))
         .searchable(
             text: $searchText,
             placement: SearchFieldPlacement.conversationSearchPlacement,
@@ -442,33 +443,52 @@ private struct ConversationListView: View {
     }
 
     private var compactStarterSurface: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                ComposerScreen(
-                    runtime: composerRuntime,
-                    isSending: isSending,
-                    onSend: onSend
-                )
-                .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 18))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18)
-                        .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
-                )
-
+        VStack(spacing: 12) {
+            ScrollView {
                 ChatWorkspaceView(
                     metadata: metadata,
                     selectedAgentID: selectedAgentID,
                     availableAgents: availableAgents,
                     onSelectAgent: onSelectAgent,
                     showStarterTasks: true,
+                    showWorkspaceHeader: false,
+                    starterTaskLayout: .verticalList,
                     onSelectStarterTask: onSelectStarterTask
                 )
+                .padding(.horizontal, 16)
+                .padding(.top, 6)
+                .padding(.bottom, 8)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            ComposerScreen(
+                runtime: composerRuntime,
+                isSending: isSending,
+                density: .compact,
+                onSend: onSend
+            )
             .padding(.horizontal, 16)
-            .padding(.bottom, 18)
+            .padding(.bottom, 10)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }
 
+}
+
+private struct ConversationListNavigationTitleMode: ViewModifier {
+    let useInlineTitle: Bool
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if useInlineTitle {
+            content.navigationBarTitleDisplayMode(.inline)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
 }
 
 private struct ConversationRowView: View {
@@ -720,7 +740,8 @@ private extension View {
                     availableAgents: runtime.availableAgentOptions,
                     agentAutoSelectionEnabled: runtime.state.workspaceMetadata?.capabilities?.agentAutoSelection == true,
                     oauthProviderLabels: runtime.authRuntime.authProviders.map { ($0.name ?? $0.type).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty },
-                    oauthScopes: runtime.authRuntime.oauthScopes
+                    oauthScopes: runtime.authRuntime.oauthScopes,
+                    authSessionID: runtime.authRuntime.lastAuthSessionID
                 ) {
                     Task {
                         isPresented.wrappedValue = false

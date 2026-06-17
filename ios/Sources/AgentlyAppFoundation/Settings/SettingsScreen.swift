@@ -8,6 +8,7 @@ public struct SettingsScreen: View {
     let agentAutoSelectionEnabled: Bool
     let oauthProviderLabels: [String]
     let oauthScopes: [String]
+    let authSessionID: String?
     let onApply: () -> Void
 
     public init(
@@ -18,6 +19,7 @@ public struct SettingsScreen: View {
         agentAutoSelectionEnabled: Bool = false,
         oauthProviderLabels: [String] = [],
         oauthScopes: [String] = [],
+        authSessionID: String? = nil,
         onApply: @escaping () -> Void = {}
     ) {
         self.runtime = runtime
@@ -27,20 +29,31 @@ public struct SettingsScreen: View {
         self.agentAutoSelectionEnabled = agentAutoSelectionEnabled
         self.oauthProviderLabels = oauthProviderLabels
         self.oauthScopes = oauthScopes
+        self.authSessionID = authSessionID
         self.onApply = onApply
     }
 
     public var body: some View {
         let developerAuthEnabled = developerAuthFeaturesEnabled()
         Form {
-            Section("Connection") {
-                TextField("API Base URL", text: $runtime.apiBaseURL)
-                    .autocorrectionDisabled()
+            Section("Workspace Endpoint") {
+                Picker("Workspace", selection: $runtime.apiBaseURL) {
+                    ForEach(SettingsRuntime.workspacePresets) { preset in
+                        Text(preset.title).tag(preset.value)
+                    }
+                    if runtime.selectedWorkspacePreset == nil,
+                       !runtime.normalizedAPIBaseURL.isEmpty {
+                        Text("Custom").tag(runtime.normalizedAPIBaseURL)
+                    }
+                }
+                #if os(iOS)
+                .pickerStyle(.navigationLink)
+                #endif
                 if !runtime.normalizedAPIBaseURL.isEmpty {
                     LabeledContent("Normalized", value: runtime.normalizedAPIBaseURL)
                         .font(.footnote)
                 }
-                Text("Use the workspace root URL. If you paste `/v1` or `/v1/api`, the app removes that automatically.")
+                Text("Workspace changes are applied after tapping Apply.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 if !hasWorkspaceMetadata {
@@ -48,18 +61,27 @@ public struct SettingsScreen: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(SettingsRuntime.localPresets, id: \.title) { preset in
-                            Button(preset.title) {
-                                runtime.applyPreset(preset.value)
+            }
+            if developerAuthEnabled {
+                Section("Developer Connection") {
+                    TextField("API Base URL", text: $runtime.apiBaseURL)
+                        .autocorrectionDisabled()
+                    Text("Use this for local verification. If you paste `/v1` or `/v1/api`, the app removes that automatically.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(SettingsRuntime.localPresets, id: \.title) { preset in
+                                Button(preset.title) {
+                                    runtime.applyPreset(preset.value)
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                            Button("Clear") {
+                                runtime.clearAPIBaseURL()
                             }
                             .buttonStyle(.bordered)
                         }
-                        Button("Clear") {
-                            runtime.clearAPIBaseURL()
-                        }
-                        .buttonStyle(.bordered)
                     }
                 }
             }
@@ -67,43 +89,48 @@ public struct SettingsScreen: View {
                 Section("Sign-In Helpers") {
                     TextField("OOB Secret Reference", text: $runtime.oobSecretReference)
                         .autocorrectionDisabled()
-                    Text("Example: `~/.secret/app_oob.enc|blowfish://default`. This helper is intended for developer verification builds only.")
+                    Text("Example: `~/.secret/app_oob.enc|blowfish://default`.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                    if let authSessionID,
+                       !authSessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        LabeledContent("Session ID", value: authSessionID)
+                            .font(.footnote)
+                    }
                 }
             }
             if hasWorkspaceMetadata {
                 Section("Workspace") {
-                if let workspaceRoot, !workspaceRoot.isEmpty {
-                    LabeledContent("Workspace", value: workspaceRoot)
-                        .font(.footnote)
-                }
-                LabeledContent(
-                    "Workspace Default Agent",
-                    value: workspaceDefaultAgentID?.isEmpty == false ? workspaceDefaultAgentID! : "n/a"
-                )
-                if agentAutoSelectionEnabled {
-                    Text("This workspace supports agent auto-selection. Leaving the app preference empty will use workspace default/auto behavior.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                Picker("Agent Preference", selection: $runtime.preferredAgentID) {
-                    Text(agentAutoSelectionEnabled ? "Auto / Workspace Default" : "Workspace Default")
-                        .tag("")
-                    ForEach(availableAgents, id: \.id) { agent in
-                        Text(agent.displayName).tag(agent.id)
+                    if let workspaceRoot, !workspaceRoot.isEmpty {
+                        LabeledContent("Workspace", value: workspaceRoot)
+                            .font(.footnote)
+                    }
+                    LabeledContent(
+                        "Workspace Default Agent",
+                        value: workspaceDefaultAgentID?.isEmpty == false ? workspaceDefaultAgentID! : "n/a"
+                    )
+                    if agentAutoSelectionEnabled {
+                        Text("This workspace supports agent auto-selection. Leaving the app preference empty will use workspace default/auto behavior.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    Picker("Agent Preference", selection: $runtime.preferredAgentID) {
+                        Text(agentAutoSelectionEnabled ? "Auto / Workspace Default" : "Workspace Default")
+                            .tag("")
+                        ForEach(availableAgents, id: \.id) { agent in
+                            Text(agent.displayName).tag(agent.id)
+                        }
+                    }
+                    #if os(iOS)
+                    .pickerStyle(.navigationLink)
+                    #endif
+                    if let selected = selectedAgentLabel {
+                        LabeledContent("Current Selection", value: selected)
+                            .font(.footnote)
                     }
                 }
-                #if os(iOS)
-                .pickerStyle(.navigationLink)
-                #endif
-                if let selected = selectedAgentLabel {
-                    LabeledContent("Current Selection", value: selected)
-                        .font(.footnote)
-                }
             }
-            }
-            if hasOAuthConfiguration {
+            if developerAuthEnabled, hasOAuthConfiguration {
                 Section("OAuth") {
                     LabeledContent("Providers", value: oauthProviderLabels.joined(separator: ", "))
                         .font(.footnote)

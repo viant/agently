@@ -209,4 +209,4 @@ require (
 )
 
 //replace github.com/viant/forge => ../forge
-//replace github.com/viant/agently-core => ../agently-core
+replace github.com/viant/agently-core => ../agently-core

@@ -65,7 +65,7 @@ final class AppStateTargetingTests: XCTestCase {
             resolvedBootstrapOOBSecretReference(
                 storedValue: "~/.secret/stored.enc|blowfish://default",
                 environmentValue: "~/.secret/env.enc|blowfish://default",
-                launchArguments: []
+                launchArguments: ["Agently", "--enableDevAuth=1"]
             ),
             "~/.secret/stored.enc|blowfish://default"
         )
@@ -73,7 +73,7 @@ final class AppStateTargetingTests: XCTestCase {
             resolvedBootstrapOOBSecretReference(
                 storedValue: "   ",
                 environmentValue: "~/.secret/env.enc|blowfish://default",
-                launchArguments: []
+                launchArguments: ["Agently", "--enableDevAuth=1"]
             ),
             "~/.secret/env.enc|blowfish://default"
         )
@@ -81,7 +81,7 @@ final class AppStateTargetingTests: XCTestCase {
             resolvedBootstrapOOBSecretReference(
                 storedValue: "   ",
                 environmentValue: "   ",
-                launchArguments: ["Agently", "--oobSecretReference=~/.secret/launch.enc|blowfish://default"]
+                launchArguments: ["Agently", "--enableDevAuth=1", "--oobSecretReference=~/.secret/launch.enc|blowfish://default"]
             ),
             "~/.secret/launch.enc|blowfish://default"
         )
@@ -118,13 +118,13 @@ final class AppStateTargetingTests: XCTestCase {
         XCTAssertTrue(
             resolvedBootstrapAutoOOBSignIn(
                 environmentValue: "1",
-                launchArguments: []
+                launchArguments: ["Agently", "--enableDevAuth=1"]
             )
         )
         XCTAssertTrue(
             resolvedBootstrapAutoOOBSignIn(
                 environmentValue: nil,
-                launchArguments: ["Agently", "--autoOOBSignIn=1"]
+                launchArguments: ["Agently", "--enableDevAuth=1", "--autoOOBSignIn=1"]
             )
         )
         XCTAssertFalse(
@@ -140,7 +140,7 @@ final class AppStateTargetingTests: XCTestCase {
             resolvedBootstrapAPIBaseURL(
                 storedValue: "http://127.0.0.1:9294",
                 environmentValue: "http://127.0.0.1:9191",
-                launchArguments: []
+                launchArguments: ["Agently", "--enableDevAuth=1"]
             ),
             "http://127.0.0.1:9191"
         )
@@ -148,7 +148,7 @@ final class AppStateTargetingTests: XCTestCase {
             resolvedBootstrapAPIBaseURL(
                 storedValue: "http://127.0.0.1:9294",
                 environmentValue: "   ",
-                launchArguments: ["Agently", "--apiBaseURL=http://localhost:9191"]
+                launchArguments: ["Agently", "--enableDevAuth=1", "--apiBaseURL=http://localhost:9191"]
             ),
             "http://localhost:9191"
         )

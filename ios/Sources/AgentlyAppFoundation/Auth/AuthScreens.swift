@@ -5,6 +5,8 @@ public struct AuthRequiredScreen: View {
     @ObservedObject private var authRuntime: AuthRuntime
     @ObservedObject private var settingsRuntime: SettingsRuntime
     @State private var didAttemptAutoOOBSignIn = false
+    @State private var didAttemptAutoWorkspaceSignIn = false
+    @State private var developerSessionCredential = ""
     private let baseURL: String
     private let statusMessage: String?
     private let onOpenSettings: () -> Void
@@ -28,14 +30,20 @@ public struct AuthRequiredScreen: View {
 
     public var body: some View {
         let developerAuthEnabled = developerAuthFeaturesEnabled()
+        let oobSecretReference = settingsRuntime.oobSecretReference.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasOOBSecret = !oobSecretReference.isEmpty
+        let showDeveloperSessionRecovery = developerAuthEnabled && authRuntime.shouldOfferDeveloperSessionRecovery
         VStack(alignment: .leading, spacing: 16) {
-            Text("Sign In Required")
+            Text("Sign in to \(workspaceDisplayName)")
                 .font(.title2.weight(.semibold))
-            if !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if developerAuthEnabled,
+               !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 LabeledContent("API Base URL", value: baseURL)
                     .font(.footnote)
             }
-            if let statusMessage, !statusMessage.isEmpty {
+            if developerAuthEnabled,
+               let statusMessage,
+               !statusMessage.isEmpty {
                 Text(statusMessage)
                     .foregroundStyle(.secondary)
                     .font(.footnote)
@@ -48,7 +56,9 @@ public struct AuthRequiredScreen: View {
                 ProgressView("Checking authentication options…")
                     .font(.footnote)
             }
-            if let probeMessage = authRuntime.probeMessage, !probeMessage.isEmpty {
+            if developerAuthEnabled,
+               let probeMessage = authRuntime.probeMessage,
+               !probeMessage.isEmpty {
                 Text(probeMessage)
                     .foregroundStyle(.secondary)
                     .font(.footnote)
@@ -62,14 +72,20 @@ public struct AuthRequiredScreen: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            if !authRuntime.authProviders.isEmpty {
+            if developerAuthEnabled,
+               let sessionID = authRuntime.lastAuthSessionID,
+               !sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                LabeledContent("Session ID", value: sessionID)
+                    .font(.footnote)
+            }
+            if developerAuthEnabled, !authRuntime.authProviders.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Available Providers")
                         .font(.footnote.weight(.semibold))
                     FlexibleProviderList(providers: authRuntime.authProviders)
                 }
             }
-            if !authRuntime.oauthScopes.isEmpty {
+            if developerAuthEnabled, !authRuntime.oauthScopes.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("OAuth Scopes")
                         .font(.footnote.weight(.semibold))
@@ -78,33 +94,29 @@ public struct AuthRequiredScreen: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            Text("Use the workspace sign-in flow. OAuth client setup is discovered from the connected workspace.")
+            Text("Continue with your workspace account.")
                 .foregroundStyle(.secondary)
                 .font(.footnote)
-            Button("Continue with Workspace Sign-In") {
-                Task {
-                    if await authRuntime.beginOAuthWebAuthenticationSessionLogin() {
-                        onLoginSuccess()
-                    }
-                }
-            }
-            .disabled(authRuntime.isSubmittingOAuthLogin)
-            .buttonStyle(.borderedProminent)
-            if developerAuthEnabled,
-               !settingsRuntime.oobSecretReference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Button("Use Saved OOB Sign-In") {
+            if hasOOBSecret {
+                Button("Sign In") {
                     Task {
-                        if await authRuntime.beginOOBLogin(secretsURL: settingsRuntime.oobSecretReference) {
+                        if await authRuntime.beginOOBLogin(secretsURL: oobSecretReference) {
                             onLoginSuccess()
                         }
                     }
                 }
                 .disabled(authRuntime.isSubmittingOAuthLogin)
-                .buttonStyle(.bordered)
-            } else if developerAuthEnabled {
-                Text("Add an OOB secret reference in Settings to use out-of-band sign-in.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                .buttonStyle(.borderedProminent)
+            } else {
+                Button("Sign In") {
+                    Task {
+                        if await authRuntime.beginOAuthWebAuthenticationSessionLogin() {
+                            onLoginSuccess()
+                        }
+                    }
+                }
+                .disabled(authRuntime.isSubmittingOAuthLogin || authRuntime.isRefreshingContext)
+                .buttonStyle(.borderedProminent)
             }
             if authRuntime.currentUser != nil {
                 Button("Sign Out") {
@@ -113,17 +125,20 @@ public struct AuthRequiredScreen: View {
                 .disabled(authRuntime.isSubmittingOAuthLogin)
                 .buttonStyle(.bordered)
             }
-            Button("Refresh Auth Options") {
-                Task { await authRuntime.refreshConnectionContext() }
-            }
-            .disabled(
-                authRuntime.isRefreshingContext ||
-                authRuntime.isSubmittingOAuthLogin
-            )
-            .buttonStyle(.bordered)
-            Button("Edit Connection Settings", action: onOpenSettings)
+            if developerAuthEnabled {
+                Button("Refresh Auth Options") {
+                    Task { await authRuntime.refreshConnectionContext() }
+                }
+                .disabled(
+                    authRuntime.isRefreshingContext ||
+                    authRuntime.isSubmittingOAuthLogin
+                )
                 .buttonStyle(.bordered)
-            if let probeError = authRuntime.probeError, !probeError.isEmpty {
+            }
+            Button(developerAuthEnabled ? "Edit Connection Settings" : "Connection Settings", action: onOpenSettings)
+                .buttonStyle(.bordered)
+            if let probeError = authRuntime.probeError,
+               !probeError.isEmpty {
                 Text(probeError)
                     .foregroundStyle(.orange)
                     .font(.footnote)
@@ -133,11 +148,33 @@ public struct AuthRequiredScreen: View {
                     .foregroundStyle(.red)
                     .font(.footnote)
             }
+            if showDeveloperSessionRecovery {
+                VStack(alignment: .leading, spacing: 10) {
+                    developerSessionCredentialField
+                    Button("Use Session") {
+                        Task {
+                            if await authRuntime.beginDeveloperSessionLogin(rawCredential: developerSessionCredential) {
+                                developerSessionCredential = ""
+                                onLoginSuccess()
+                            }
+                        }
+                    }
+                    .disabled(
+                        authRuntime.isSubmittingOAuthLogin ||
+                        developerSessionCredential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    )
+                    .buttonStyle(.bordered)
+                }
+            }
         }
         .padding()
         .task {
             guard authRuntime.shouldAutoRefreshAuthContext else { return }
             await authRuntime.refreshConnectionContext()
+            await autoStartWorkspaceSignIn(hasOOBSecret: hasOOBSecret)
+        }
+        .task(id: autoWorkspaceSignInSignature(hasOOBSecret: hasOOBSecret)) {
+            await autoStartWorkspaceSignIn(hasOOBSecret: hasOOBSecret)
         }
         .task {
             guard developerAuthFeaturesEnabled() else { return }
@@ -152,6 +189,56 @@ public struct AuthRequiredScreen: View {
             if await authRuntime.beginOOBLogin(secretsURL: secret) {
                 onLoginSuccess()
             }
+        }
+    }
+
+    private var workspaceDisplayName: String {
+        settingsRuntime.selectedWorkspacePreset?.title ?? "Workspace"
+    }
+
+    @ViewBuilder
+    private var developerSessionCredentialField: some View {
+        #if os(iOS)
+        SecureField("Session ID or token", text: $developerSessionCredential)
+            .textFieldStyle(.roundedBorder)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+        #else
+        SecureField("Session ID or token", text: $developerSessionCredential)
+            .textFieldStyle(.roundedBorder)
+            .autocorrectionDisabled()
+        #endif
+    }
+
+    private func autoWorkspaceSignInSignature(hasOOBSecret: Bool) -> String {
+        let providerTypes = authRuntime.authProviders
+            .map { $0.type.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .sorted()
+            .joined(separator: ",")
+        return [
+            hasOOBSecret ? "oob" : "oauth",
+            providerTypes,
+            authRuntime.currentUser == nil ? "signed-out" : "signed-in",
+            authRuntime.isRefreshingContext ? "refreshing" : "ready"
+        ].joined(separator: "|")
+    }
+
+    private var hasWorkspaceOAuthProvider: Bool {
+        authRuntime.authProviders.contains { provider in
+            let type = provider.type.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return type == "oauth" || type == "bff" || type == "oidc" || type == "jwt"
+        }
+    }
+
+    private func autoStartWorkspaceSignIn(hasOOBSecret: Bool) async {
+        guard !hasOOBSecret else { return }
+        guard !didAttemptAutoWorkspaceSignIn else { return }
+        guard hasWorkspaceOAuthProvider else { return }
+        guard authRuntime.currentUser == nil else { return }
+        guard !authRuntime.isRefreshingContext, !authRuntime.isSubmittingOAuthLogin else { return }
+        didAttemptAutoWorkspaceSignIn = true
+        if await authRuntime.beginOAuthWebAuthenticationSessionLogin() {
+            onLoginSuccess()
         }
     }
 }

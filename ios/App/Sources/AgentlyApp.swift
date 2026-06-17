@@ -10,6 +10,7 @@ struct AgentlyApp: App {
         WindowGroup {
             AppContent(runtime: runtime)
                 .task {
+                    guard runtime.settingsRuntime.hasWorkspaceEndpointSelection else { return }
                     await runtime.bootstrap()
                 }
                 .onOpenURL { url in
@@ -74,13 +75,7 @@ enum AppBootstrap {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let launchValue = AppSettingsStore.normalizeAPIBaseURL(launchOverride)
 
-        let developerOverridesEnabled: Bool = {
-#if DEBUG
-            return true
-#else
-            return ProcessInfo.processInfo.environment["AGENTLY_ENABLE_DEV_AUTH"] == "1"
-#endif
-        }()
+        let developerOverridesEnabled = developerOverridesEnabled()
 
         let candidate: String
         if developerOverridesEnabled {
@@ -108,5 +103,16 @@ enum AppBootstrap {
             return candidate
         }
         return "http://127.0.0.1:9191"
+    }
+
+    private static func developerOverridesEnabled() -> Bool {
+        let normalized = ProcessInfo.processInfo.environment["AGENTLY_ENABLE_DEV_AUTH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        if ["1", "true", "yes", "on"].contains(normalized) {
+            return true
+        }
+        return CommandLine.arguments.contains("--enableDevAuth=1")
+            || CommandLine.arguments.contains("--enableDevAuth=true")
     }
 }
