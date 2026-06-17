@@ -129,6 +129,7 @@ afterEach(() => {
   scheduleService._visibilityHookInstalled = false
   scheduleService._validationHookInstalled = false
   scheduleService._automationStateByWindow = undefined
+  scheduleService._suppressNextScheduleSelection = false
 })
 
 describe('scheduleService SDK lookups', () => {
@@ -396,6 +397,34 @@ describe('scheduleService saveSchedule', () => {
     expect(upsertSpy.mock.calls[0][0][0].scheduleType).toBe('cron')
     expect(upsertSpy.mock.calls[0][0][0].cronExpr).toBe('0 9-23/2 * * 1,6')
     expect(upsertSpy.mock.calls[0][0][0].intervalSeconds).toBeNull()
+  })
+
+  it('keeps general field edits available when saving from another definition tab', async () => {
+    const { context } = saveContext({
+      scheduleEditorKind: 'calendar',
+      calendarPattern: 'once',
+      calendarTime: '11:25 AM',
+      timezone: 'UTC'
+    })
+    const upsertSpy = vi.spyOn(client, 'upsertSchedules').mockResolvedValue(undefined)
+
+    scheduleService.syncScheduleFields({ context, item: { id: 'name' }, value: 'codex-create-real' })
+    scheduleService.syncScheduleFields({ context, item: { id: 'agentRef' }, value: 'chatter' })
+    scheduleService.syncScheduleFields({ context, item: { id: 'taskPrompt' }, value: 'Run from saved general state' })
+    scheduleService.syncScheduleFields({ context, item: { id: 'description' }, value: 'General tab was hidden before Save' })
+
+    const ok = await scheduleService.saveSchedule({ context })
+
+    expect(ok).toBe(true)
+    expect(upsertSpy).toHaveBeenCalledTimes(1)
+    expect(upsertSpy.mock.calls[0][0][0]).toMatchObject({
+      name: 'codex-create-real',
+      agentRef: 'chatter',
+      taskPrompt: 'Run from saved general state',
+      description: 'General tab was hidden before Save',
+      scheduleType: 'cron',
+      cronExpr: '25 11 * * *'
+    })
   })
 
   it('serializes elapsed schedules to interval seconds', async () => {
@@ -827,7 +856,7 @@ describe('scheduleService saveSchedule', () => {
     expect(state.selected.selected.description).toBe('persisted')
   })
 
-  it('keeps a newly created private schedule selected after save refresh', async () => {
+  it('keeps a newly created private schedule selected without a follow-up fetch', async () => {
     const state = {
       formValues: {
         name: 'nightly',
@@ -906,7 +935,7 @@ describe('scheduleService saveSchedule', () => {
     const ok = await scheduleService.saveSchedule({ context })
 
     expect(ok).toBe(true)
-    expect(state.fetches).toBe(1)
+    expect(state.fetches).toBe(0)
     expect(state.formValues.visibility).toBe('private')
     expect(state.collection).toHaveLength(1)
     expect(state.collection[0].visibility).toBe('private')

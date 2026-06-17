@@ -13,6 +13,15 @@
       label: Schedule Name
       type: text
       columnSpan: 1
+      on:
+        - event: onInput
+          handler: schedule.syncScheduleFields
+        - event: onKeyUp
+          handler: schedule.syncScheduleFields
+        - event: onBlur
+          handler: schedule.syncScheduleFields
+        - event: onChange
+          handler: schedule.syncScheduleFields
       properties:
         placeholder: "e.g. Daily bug scan"
         helperText: A short, descriptive name for this automation
@@ -21,6 +30,15 @@
       label: Agent
       type: text
       columnSpan: 1
+      on:
+        - event: onInput
+          handler: schedule.syncScheduleFields
+        - event: onKeyUp
+          handler: schedule.syncScheduleFields
+        - event: onBlur
+          handler: schedule.syncScheduleFields
+        - event: onChange
+          handler: schedule.syncScheduleFields
       properties:
         placeholder: Select an agent to run
         helperText: The agent that will execute on this schedule
@@ -39,6 +57,15 @@
       label: Task Prompt
       type: textarea
       columnSpan: 2
+      on:
+        - event: onInput
+          handler: schedule.syncScheduleFields
+        - event: onKeyUp
+          handler: schedule.syncScheduleFields
+        - event: onBlur
+          handler: schedule.syncScheduleFields
+        - event: onChange
+          handler: schedule.syncScheduleFields
       properties:
         rows: 8
         cols: 100
@@ -49,6 +76,15 @@
       label: Description (optional)
       type: textarea
       columnSpan: 2
+      on:
+        - event: onInput
+          handler: schedule.syncScheduleFields
+        - event: onKeyUp
+          handler: schedule.syncScheduleFields
+        - event: onBlur
+          handler: schedule.syncScheduleFields
+        - event: onChange
+          handler: schedule.syncScheduleFields
       properties:
         rows: 3
         cols: 100
@@ -421,6 +457,15 @@
       label: User Secrets URL
       type: text
       columnSpan: 2
+      on:
+        - event: onInput
+          handler: schedule.syncScheduleFields
+        - event: onKeyUp
+          handler: schedule.syncScheduleFields
+        - event: onBlur
+          handler: schedule.syncScheduleFields
+        - event: onChange
+          handler: schedule.syncScheduleFields
       properties:
         placeholder: "scy://secret/path|key"
         helperText: "Credential reference for authenticated API calls during execution"
@@ -456,6 +501,17 @@
       label: Timeout (seconds)
       type: number
       columnSpan: 1
+      on:
+        - event: onValueChange
+          handler: schedule.syncScheduleFields
+        - event: onInput
+          handler: schedule.syncScheduleFields
+        - event: onKeyUp
+          handler: schedule.syncScheduleFields
+        - event: onBlur
+          handler: schedule.syncScheduleFields
+        - event: onChange
+          handler: schedule.syncScheduleFields
       properties:
         min: 0
         step: 1
@@ -466,6 +522,15 @@
       label: Model Override (optional)
       type: text
       columnSpan: 1
+      on:
+        - event: onInput
+          handler: schedule.syncScheduleFields
+        - event: onKeyUp
+          handler: schedule.syncScheduleFields
+        - event: onBlur
+          handler: schedule.syncScheduleFields
+        - event: onChange
+          handler: schedule.syncScheduleFields
       properties:
         helperText: "Override the agent's default model for scheduled runs"
       lookup:
@@ -498,6 +563,15 @@
       label: Task Prompt URI (optional)
       type: text
       columnSpan: 2
+      on:
+        - event: onInput
+          handler: schedule.syncScheduleFields
+        - event: onKeyUp
+          handler: schedule.syncScheduleFields
+        - event: onBlur
+          handler: schedule.syncScheduleFields
+        - event: onChange
+          handler: schedule.syncScheduleFields
       properties:
         placeholder: "gs://bucket/path/prompt.txt"
         helperText: "External URI containing the task prompt (overrides inline prompt)"
