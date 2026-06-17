@@ -224,8 +224,11 @@ func Serve(options ServeOptions) error {
 	if wsConfig != nil {
 		mcpCfg = wsConfig.MCPServer
 	}
-	exposeMCP := options.ExposeMCP || (mcpCfg != nil && mcpCfg.Port > 0)
-	if exposeMCP && mcpCfg != nil && mcpCfg.Port > 0 {
+	exposeMCP := options.ExposeMCP || (mcpCfg != nil && mcpCfg.Enabled())
+	if exposeMCP {
+		if mcpCfg == nil {
+			return fmt.Errorf("mcp exposure requested but workspace config is missing mcpServer")
+		}
 		mcpSrv, err = appserver.NewExposedMCPServer(ctx, rt, mcpCfg, authRuntime)
 		if err != nil {
 			return fmt.Errorf("init mcp server: %w", err)

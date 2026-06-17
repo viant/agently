@@ -10,11 +10,9 @@ import MCPUIForgeWindowPage from './components/mcpApps/MCPUIForgeWindowPage.jsx'
 import { endpoints } from './endpoint';
 import { connectorConfig } from './connector';
 import { appRoutePaths } from './appRoutePaths.js';
-import { chatService } from './services/chatService';
-import { scheduleService } from './services/scheduleService';
+import { forgeHostServices } from './services/forgeHostServices';
 import { redirectToLogin } from './services/httpClient';
 import { buildWebClientContext } from './services/clientContext';
-import { prepareAgentlyDataConnectorRequest } from './services/datasourceRequestContext';
 import * as chatStore from './services/chatStore';
 import { installChatStoreMirror } from './services/chatRuntime';
 
@@ -34,12 +32,6 @@ if (typeof window !== 'undefined') {
     maybeAutoStartUIBridge({ endpoints, connectorConfig });
   } catch (_) { /* ignore */ }
 }
-
-const services = {
-  chat: chatService,
-  schedule: scheduleService,
-  prepareDataConnectorRequest: prepareAgentlyDataConnectorRequest,
-};
 
 const AgentlyAuthContext = React.createContext({
   authStates: {},
@@ -81,7 +73,7 @@ const router = createBrowserRouter(routes);
 export default function App() {
   return (
     <AgentlyAuthContext.Provider value={authContext}>
-      <SettingProvider endpoints={endpoints} connectorConfig={connectorConfig} authContext={AgentlyAuthContext} services={services} targetContext={targetContext}>
+      <SettingProvider endpoints={endpoints} connectorConfig={connectorConfig} authContext={AgentlyAuthContext} services={forgeHostServices} targetContext={targetContext}>
         <HotkeysProvider>
           <RouterProvider router={router} />
         </HotkeysProvider>

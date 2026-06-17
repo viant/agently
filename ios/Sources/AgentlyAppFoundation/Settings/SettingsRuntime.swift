@@ -1,12 +1,45 @@
 import Foundation
 
+public struct WorkspaceEndpointOption: Identifiable, Hashable, Sendable {
+    public let title: String
+    public let subtitle: String
+    public let value: String
+
+    public var id: String { value }
+
+    public init(title: String, subtitle: String, value: String) {
+        self.title = title
+        self.subtitle = subtitle
+        self.value = AppSettingsStore.normalizeAPIBaseURL(value)
+    }
+}
+
 @MainActor
 public final class SettingsRuntime: ObservableObject {
     @Published public var apiBaseURL: String = ""
     @Published public var preferredAgentID: String = ""
     @Published public var oobSecretReference: String = ""
+    @Published public private(set) var hasWorkspaceEndpointSelection: Bool = false
 
     private let store: AppSettingsStore
+
+    public static let workspacePresets: [WorkspaceEndpointOption] = [
+        WorkspaceEndpointOption(
+            title: "Steward",
+            subtitle: "Viant Steward workspace",
+            value: "https://steward.agently.viantinc.com/"
+        ),
+        WorkspaceEndpointOption(
+            title: "Localhost 9191",
+            subtitle: "Local Agently server on this Mac",
+            value: "http://localhost:9191"
+        ),
+        WorkspaceEndpointOption(
+            title: "Loopback 9191",
+            subtitle: "Local Agently server via loopback",
+            value: "http://127.0.0.1:9191"
+        )
+    ]
 
     public static let localPresets: [(title: String, value: String)] = [
         ("Loopback 9191", "http://127.0.0.1:9191"),
@@ -15,11 +48,13 @@ public final class SettingsRuntime: ObservableObject {
 
     public init(store: AppSettingsStore = AppSettingsStore()) {
         self.store = store
-        self.apiBaseURL = resolvedBootstrapAPIBaseURL(
+        let resolvedBaseURL = resolvedBootstrapAPIBaseURL(
             storedValue: store.loadAPIBaseURL(),
             environmentValue: ProcessInfo.processInfo.environment["AGENTLY_API_BASE_URL"],
             launchArguments: CommandLine.arguments
         )
+        self.apiBaseURL = resolvedBaseURL
+        self.hasWorkspaceEndpointSelection = !resolvedBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         self.preferredAgentID = store.loadPreferredAgentID()
         self.oobSecretReference = resolvedBootstrapOOBSecretReference(
             storedValue: store.loadOOBSecretReference(),
@@ -31,6 +66,7 @@ public final class SettingsRuntime: ObservableObject {
     public func save() {
         apiBaseURL = normalizedAPIBaseURL
         store.saveAPIBaseURL(apiBaseURL)
+        hasWorkspaceEndpointSelection = !apiBaseURL.isEmpty
         store.savePreferredAgentID(preferredAgentID.trimmingCharacters(in: .whitespacesAndNewlines))
         store.saveOOBSecretReference(oobSecretReference)
     }
@@ -43,8 +79,19 @@ public final class SettingsRuntime: ObservableObject {
         apiBaseURL = AppSettingsStore.normalizeAPIBaseURL(value)
     }
 
+    public func selectWorkspaceEndpoint(_ option: WorkspaceEndpointOption) {
+        apiBaseURL = option.value
+        save()
+    }
+
     public func clearAPIBaseURL() {
         apiBaseURL = ""
+        hasWorkspaceEndpointSelection = false
+    }
+
+    public var selectedWorkspacePreset: WorkspaceEndpointOption? {
+        let normalized = normalizedAPIBaseURL
+        return Self.workspacePresets.first { $0.value == normalized }
     }
 }
 
@@ -53,9 +100,6 @@ internal func resolvedBootstrapOOBSecretReference(
     environmentValue: String?,
     launchArguments: [String]
 ) -> String {
-    guard developerAuthFeaturesEnabled() else {
-        return storedValue.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
     let stored = storedValue.trimmingCharacters(in: .whitespacesAndNewlines)
     if !stored.isEmpty {
         return stored
@@ -79,7 +123,10 @@ internal func resolvedBootstrapAPIBaseURL(
     let normalizedStored = AppSettingsStore.normalizeAPIBaseURL(storedValue)
     let normalizedEnvironment = AppSettingsStore.normalizeAPIBaseURL(environmentValue ?? "")
 
-    if developerAuthFeaturesEnabled() {
+    if developerAuthFeaturesEnabled(
+        environmentValue: ProcessInfo.processInfo.environment["AGENTLY_ENABLE_DEV_AUTH"],
+        launchArguments: launchArguments
+    ) {
         if !normalizedEnvironment.isEmpty {
             return normalizedEnvironment
         }
@@ -100,7 +147,10 @@ internal func resolvedBootstrapAutoOOBSignIn(
     environmentValue: String?,
     launchArguments: [String]
 ) -> Bool {
-    guard developerAuthFeaturesEnabled() else {
+    guard developerAuthFeaturesEnabled(
+        environmentValue: ProcessInfo.processInfo.environment["AGENTLY_ENABLE_DEV_AUTH"],
+        launchArguments: launchArguments
+    ) else {
         return false
     }
     let normalized = environmentValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
@@ -112,9 +162,22 @@ internal func resolvedBootstrapAutoOOBSignIn(
 }
 
 internal func developerAuthFeaturesEnabled() -> Bool {
-#if DEBUG
-    true
-#else
-    ProcessInfo.processInfo.environment["AGENTLY_ENABLE_DEV_AUTH"] == "1"
-#endif
+    developerAuthFeaturesEnabled(
+        environmentValue: ProcessInfo.processInfo.environment["AGENTLY_ENABLE_DEV_AUTH"],
+        launchArguments: CommandLine.arguments
+    )
+}
+
+internal func developerAuthFeaturesEnabled(
+    environmentValue: String?,
+    launchArguments: [String]
+) -> Bool {
+    let normalized = environmentValue?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased() ?? ""
+    if ["1", "true", "yes", "on"].contains(normalized) {
+        return true
+    }
+    return launchArguments.contains("--enableDevAuth=1")
+        || launchArguments.contains("--enableDevAuth=true")
 }

@@ -37,6 +37,7 @@ internal fun SettingsScreen(
     metadata: WorkspaceMetadata?,
     currentPreferredAgentId: String,
     savedLoginConfig: SavedLoginConfig,
+    authSessionId: String?,
     loading: Boolean,
     error: String?,
     onBack: () -> Unit,
@@ -128,20 +129,48 @@ internal fun SettingsScreen(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("App Endpoint", style = MaterialTheme.typography.titleMedium)
-                OutlinedTextField(
-                    value = endpointDraft,
-                    onValueChange = { endpointDraft = it },
-                    label = { Text("Agently / MCP host") },
-                    placeholder = { Text(configuredAppApiBaseUrl) },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
+                Text("Workspace Endpoint", style = MaterialTheme.typography.titleMedium)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    workspaceEndpointOptions.forEach { option ->
+                        FilterChip(
+                            selected = normalizeApiBaseUrl(endpointDraft) == option.value,
+                            onClick = { endpointDraft = option.value },
+                            label = { Text(option.title) }
+                        )
+                    }
+                    if (selectedWorkspaceEndpointOption(endpointDraft) == null &&
+                        normalizeApiBaseUrl(endpointDraft).isNotBlank()
+                    ) {
+                        FilterChip(
+                            selected = true,
+                            onClick = {},
+                            label = { Text("Custom") }
+                        )
+                    }
+                }
                 Text(
-                    "Build default: $configuredAppApiBaseUrl",
+                    normalizeApiBaseUrl(endpointDraft).ifBlank { configuredAppApiBaseUrl },
                     style = MaterialTheme.typography.labelSmall,
                     color = Color(0xFF667085)
                 )
+                if (developerAuthEnabled) {
+                    OutlinedTextField(
+                        value = endpointDraft,
+                        onValueChange = { endpointDraft = it },
+                        label = { Text("Developer endpoint") },
+                        placeholder = { Text(configuredAppApiBaseUrl) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Text(
+                        "Build default: $configuredAppApiBaseUrl",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF667085)
+                    )
+                }
             }
         }
 
@@ -205,10 +234,17 @@ internal fun SettingsScreen(
                 ) {
                     Text("OAuth Sign-In Helper", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "These values are stored encrypted on-device for developer verification builds. Username/password help autofill the OAuth web login, and the OOB secret reference can be used for direct out-of-band sign-in when the workspace supports it.",
+                        "Values are stored encrypted on-device for developer verification builds.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFF667085)
                     )
+                    authSessionId?.takeIf { it.isNotBlank() }?.let {
+                        Text(
+                            "Session ID: $it",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF475467)
+                        )
+                    }
                     OutlinedTextField(
                         value = oobSecretRefDraft,
                         onValueChange = { oobSecretRefDraft = it },

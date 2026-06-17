@@ -835,6 +835,92 @@ describe('applyExecutionStreamEvent', () => {
     expect(allToolSteps[0].toolCallId).toBe('call-1');
   });
 
+  it('tool_call_started creates a minimal execution row when no model row exists yet', () => {
+    const chatState = { liveRows: [] };
+
+    applyToolStreamEvent(chatState, {
+      type: 'tool_call_started',
+      assistantMessageId: 'mc-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      toolCallId: 'call-1',
+      toolMessageId: 'tool-msg-1',
+      toolName: 'system_os/getEnv',
+      status: 'running',
+      createdAt: '2026-03-16T10:00:02Z'
+    }, 'conv-1');
+
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0]).toMatchObject({
+      id: 'mc-1',
+      role: 'assistant',
+      turnId: 'turn-1',
+      status: 'running',
+      turnStatus: 'running',
+      interim: 1,
+      content: ''
+    });
+    expect(chatState.liveRows[0].executionGroups).toHaveLength(1);
+    expect(chatState.liveRows[0].executionGroups[0].toolSteps).toHaveLength(1);
+    expect(chatState.liveRows[0].executionGroups[0].toolSteps[0]).toMatchObject({
+      toolCallId: 'call-1',
+      toolMessageId: 'tool-msg-1',
+      toolName: 'system_os/getEnv',
+      status: 'running'
+    });
+  });
+
+  it('later model execution merges into the same row after a tool event created it first', () => {
+    const chatState = { liveRows: [] };
+
+    applyToolStreamEvent(chatState, {
+      type: 'tool_call_started',
+      assistantMessageId: 'mc-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      toolCallId: 'call-1',
+      toolMessageId: 'tool-msg-1',
+      toolName: 'system_os/getEnv',
+      status: 'running',
+      createdAt: '2026-03-16T10:00:02Z'
+    }, 'conv-1');
+
+    applyExecutionStreamEvent(chatState, {
+      type: 'model_started',
+      assistantMessageId: 'mc-1',
+      conversationId: 'conv-1',
+      turnId: 'turn-1',
+      iteration: 1,
+      status: 'thinking',
+      narration: 'Checking environment details…',
+      createdAt: '2026-03-16T10:00:03Z',
+      model: { provider: 'openai', model: 'gpt-5.4' }
+    }, 'conv-1');
+
+    expect(chatState.liveRows).toHaveLength(1);
+    expect(chatState.liveRows[0]).toMatchObject({
+      id: 'mc-1',
+      role: 'assistant',
+      turnId: 'turn-1',
+      status: 'thinking',
+      narration: 'Checking environment details…'
+    });
+    expect(chatState.liveRows[0].executionGroups).toHaveLength(1);
+    expect(chatState.liveRows[0].executionGroups[0].modelSteps).toHaveLength(1);
+    expect(chatState.liveRows[0].executionGroups[0].toolSteps).toHaveLength(1);
+    expect(chatState.liveRows[0].executionGroups[0].toolSteps[0]).toMatchObject({
+      toolCallId: 'call-1',
+      toolName: 'system_os/getEnv',
+      status: 'running'
+    });
+    expect(chatState.liveRows[0].executionGroups[0].modelSteps[0]).toMatchObject({
+      assistantMessageId: 'mc-1',
+      provider: 'openai',
+      model: 'gpt-5.4',
+      status: 'thinking'
+    });
+  });
+
   it('tool_call bootstrap events merge into the bootstrap execution group by pageId', () => {
     const chatState = { liveRows: [] };
 

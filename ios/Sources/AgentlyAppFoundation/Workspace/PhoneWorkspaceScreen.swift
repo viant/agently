@@ -120,6 +120,51 @@ public struct PhoneWorkspaceScreen: View {
 
     public var body: some View {
         VStack(spacing: 0) {
+            nonComposerContent
+                .contentShape(Rectangle())
+                .simultaneousGesture(TapGesture().onEnded {
+                    requestAgentlyPlatformKeyboardDismissal()
+                })
+                .simultaneousGesture(DragGesture(minimumDistance: 3).onChanged { _ in
+                    requestAgentlyPlatformKeyboardDismissal()
+                })
+            ComposerScreen(
+                runtime: composerRuntime,
+                isSending: isSending,
+                density: .compact,
+                onSend: onSend
+            )
+        }
+        .onAppear {
+            syncPaneSelection(for: hasWorkspaceSurface)
+            syncHostedWorkspacePresentation(for: hostedWorkspaceWindowID)
+        }
+        .onChange(of: hasWorkspaceSurface) { _, newValue in
+            syncPaneSelection(for: newValue)
+        }
+        .onChange(of: hostedWorkspaceWindowID) { _, newValue in
+            syncHostedWorkspacePresentation(for: newValue)
+        }
+        .navigationDestination(isPresented: $isHostedWorkspacePresented) {
+            hostedWorkspaceDestination
+        }
+        .sheet(isPresented: Binding(
+            get: { pendingElicitation != nil },
+            set: { if !$0 { onDismissElicitation() } }
+        )) {
+            ElicitationOverlay(
+                pending: pendingElicitation,
+                errorMessage: elicitationError,
+                isResolving: isResolvingElicitation,
+                forgeRuntime: forgeRuntime,
+                onResolve: onResolveElicitation,
+                onDismiss: onDismissElicitation
+            )
+        }
+    }
+
+    private var nonComposerContent: some View {
+        VStack(spacing: 0) {
             ChatWorkspaceView(
                 metadata: metadata,
                 selectedAgentID: selectedAgentID,
@@ -177,33 +222,6 @@ public struct PhoneWorkspaceScreen: View {
                     conversationPane
                 }
             }
-            ComposerScreen(runtime: composerRuntime, isSending: isSending, onSend: onSend)
-        }
-        .onAppear {
-            syncPaneSelection(for: hasWorkspaceSurface)
-            syncHostedWorkspacePresentation(for: hostedWorkspaceWindowID)
-        }
-        .onChange(of: hasWorkspaceSurface) { _, newValue in
-            syncPaneSelection(for: newValue)
-        }
-        .onChange(of: hostedWorkspaceWindowID) { _, newValue in
-            syncHostedWorkspacePresentation(for: newValue)
-        }
-        .navigationDestination(isPresented: $isHostedWorkspacePresented) {
-            hostedWorkspaceDestination
-        }
-        .sheet(isPresented: Binding(
-            get: { pendingElicitation != nil },
-            set: { if !$0 { onDismissElicitation() } }
-        )) {
-            ElicitationOverlay(
-                pending: pendingElicitation,
-                errorMessage: elicitationError,
-                isResolving: isResolvingElicitation,
-                forgeRuntime: forgeRuntime,
-                onResolve: onResolveElicitation,
-                onDismiss: onDismissElicitation
-            )
         }
     }
 

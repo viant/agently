@@ -784,6 +784,104 @@ final class ChatRuntimeTests: XCTestCase {
         XCTAssertNil(restore)
     }
 
+    func testLatestTurnHostedWorkspaceRestoreStateMergesStoredWindowFormWithTranscriptPrefill() throws {
+        let json = """
+        {
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [
+              {
+                "turnId": "turn-1",
+                "execution": {
+                  "pages": [
+                    {
+                      "pageId": "page-1",
+                      "toolSteps": [
+                        {
+                          "toolCallId": "tool-open",
+                          "toolName": "ui/view/open",
+                          "status": "completed",
+                          "responsePayload": {
+                            "conversationId": "conv-1",
+                            "items": [
+                              {
+                                "conversationId": "conv-1",
+                                "parentKey": "chat/new",
+                                "presentation": "hosted",
+                                "region": "chat.top",
+                                "windowId": "reportBuilder__conv-1",
+                                "windowKey": "reportBuilder",
+                                "windowTitle": "Report Builder"
+                              }
+                            ],
+                            "selectedWindowId": "reportBuilder__conv-1"
+                          }
+                        },
+                        {
+                          "toolCallId": "tool-form",
+                          "toolName": "ui/window/setFormData",
+                          "status": "completed",
+                          "requestPayload": {
+                            "windowId": "reportBuilder__conv-1",
+                            "values": {
+                              "prefill": {
+                                "country": ["US"],
+                                "recordIds": [123]
+                              }
+                            }
+                          },
+                          "responsePayload": {
+                            "ok": true
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+        """
+        let response = try JSONDecoder.agently().decode(
+            ConversationStateResponse.self,
+            from: XCTUnwrap(json.data(using: .utf8))
+        )
+        let stored = HostedWorkspaceRestoreState(
+            windows: [
+                WorkspaceWindowSnapshot(
+                    windowId: "reportBuilder__conv-1",
+                    conversationId: "conv-1",
+                    windowKey: "reportBuilder",
+                    windowTitle: "Report Builder",
+                    presentation: "hosted",
+                    region: "chat.top",
+                    parentKey: "chat/new",
+                    windowForm: [
+                        "reportBuilder": .object([
+                            "viewMode": .string("table")
+                        ])
+                    ]
+                )
+            ],
+            selectedWindowId: "reportBuilder__conv-1"
+        )
+
+        let restore = AppRuntime.latestTurnHostedWorkspaceRestoreState(
+            transcriptState: response,
+            stored: stored
+        )
+
+        let windowForm = try XCTUnwrap(restore?.windows.first?.windowForm)
+        XCTAssertEqual(windowForm["reportBuilder"]?.objectValue?["viewMode"], .string("table"))
+        guard case .object(let prefill)? = windowForm["prefill"] else {
+            XCTFail("Expected transcript prefill to survive stored window form merge")
+            return
+        }
+        XCTAssertEqual(prefill["country"], .array([.string("US")]))
+        XCTAssertEqual(prefill["recordIds"], .array([.number(123)]))
+    }
+
     func testDeriveHostedWorkspaceRestoreStateUsesToolContentWhenViewOpenPayloadIsGzipEnvelope() throws {
         let json = """
         {

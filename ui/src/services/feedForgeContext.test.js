@@ -1,6 +1,24 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('./reportExportService', () => ({
+  submitReportExportRequest: vi.fn(async ({ request, source }) => ({
+    ok: true,
+    source,
+    title: request?.source?.title || '',
+  })),
+  getReportExportStatus: vi.fn(async ({ jobId }) => ({
+    jobId,
+    status: 'queued',
+  })),
+  getReportExportArtifact: vi.fn(async ({ artifactId }) => ({
+    artifactId,
+    bytes: new Uint8Array([9, 8, 7]),
+  })),
+}));
+
 import { createFeedContext } from './feedForgeContext';
 import { chatService } from './chatService';
+import { getReportExportArtifact, getReportExportStatus, submitReportExportRequest } from './reportExportService';
 
 describe('createFeedContext', () => {
   it('exposes Forge-compatible signals on the root and sub-contexts', () => {
@@ -92,5 +110,42 @@ describe('createFeedContext', () => {
       id: 'turn-q1',
       preview: 'queued follow-up',
     });
+  });
+
+  it('exposes a reportExport handler on root and sub-contexts', async () => {
+    const context = createFeedContext('reports', {
+      primary: {},
+      secondary: { dataSourceRef: 'primary' },
+    }, 'conv-1');
+
+    const request = {
+      version: 1,
+      kind: 'reportExportRequest',
+      target: { format: 'pdf' },
+      source: {
+        from: 'draft',
+        artifactRef: 'dashboard.reportBuilder://demo',
+        title: 'Demo Report',
+      },
+    };
+
+    const rootResult = await context.handlers.reportExport.submitRequest({ request, source: 'draft' });
+    expect(rootResult).toMatchObject({ ok: true, source: 'draft', title: 'Demo Report' });
+
+    const subContext = context.Context('secondary');
+    const subResult = await subContext.handlers.reportExport.submitRequest({ request, source: 'savedPayload' });
+    expect(subResult).toMatchObject({ ok: true, source: 'savedPayload', title: 'Demo Report' });
+
+    const status = await subContext.handlers.reportExport.getStatus({ jobId: 'job-1' });
+    expect(status).toMatchObject({ jobId: 'job-1', status: 'queued' });
+
+    const artifact = await subContext.handlers.reportExport.getArtifact({ artifactId: 'artifact-1' });
+    expect(Array.from(artifact.bytes)).toEqual([9, 8, 7]);
+
+    expect(submitReportExportRequest).toHaveBeenCalledTimes(2);
+    expect(submitReportExportRequest).toHaveBeenNthCalledWith(1, { request, source: 'draft' });
+    expect(submitReportExportRequest).toHaveBeenNthCalledWith(2, { request, source: 'savedPayload' });
+    expect(getReportExportStatus).toHaveBeenCalledWith({ jobId: 'job-1' });
+    expect(getReportExportArtifact).toHaveBeenCalledWith({ artifactId: 'artifact-1' });
   });
 });

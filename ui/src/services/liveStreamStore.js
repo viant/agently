@@ -759,24 +759,7 @@ function applyToolStreamEventToRows(rows = [], payload = {}, fallbackConversatio
   const turnId = String(payload?.turnId || '').trim();
   const existing = Array.isArray(rows) ? [...rows] : [];
   const index = findAssistantExecutionRowIndex(existing, turnId, assistantMessageId || executionGroupId);
-  if (index === -1) return existing;
-  const row = { ...existing[index] };
-  const groups = Array.isArray(row.executionGroups) ? row.executionGroups : [];
-  // Find the execution group by exact page/group identity first, then by the
-  // assistant message id. Bootstrap/systemContext tool events are grouped by
-  // pageId and do not carry assistant message ids.
-  let groupIdx = groups.findIndex((g) =>
-    String(g?.pageId || '').trim() === executionGroupId
-  );
-  if (groupIdx === -1 && assistantMessageId) {
-    groupIdx = groups.findIndex((g) =>
-      String(g?.assistantMessageId || '').trim() === assistantMessageId
-    );
-  }
-  if (groupIdx === -1) groupIdx = groups.length - 1;
-  if (groupIdx < 0 || !groups[groupIdx]) return existing;
-  const group = { ...groups[groupIdx] };
-    const toolStep = {
+  const toolStep = {
     toolMessageId: String(payload?.toolMessageId || payload?.messageId || payload?.id || '').trim(),
     toolCallId: String(payload?.toolCallId || '').trim(),
     toolName: String(payload?.toolName || '').trim(),
@@ -798,6 +781,67 @@ function applyToolStreamEventToRows(rows = [], payload = {}, fallbackConversatio
       ? (payload?.createdAt || undefined)
       : undefined
   };
+  if (index === -1) {
+    const conversationId = String(payload?.conversationId || fallbackConversationID || '').trim();
+    const rowID = assistantMessageId || executionGroupId || `assistant:${turnId || conversationId}:1`;
+    if (!rowID) {
+      return existing;
+    }
+    existing.push({
+      id: rowID,
+      conversationId,
+      turnId,
+      agentIdUsed: String(payload?.agentIdUsed || '').trim(),
+      agentName: String(payload?.agentName || '').trim(),
+      role: 'assistant',
+      mode: String(payload?.mode || '').trim().toLowerCase(),
+      type: 'text',
+      createdAt: String(payload?.createdAt || '').trim(),
+      startedAt: String(payload?.createdAt || '').trim() || undefined,
+      completedAt: undefined,
+      errorMessage: '',
+      sequence: payloadSequence(payload),
+      status: String(payload?.status || '').trim() || 'running',
+      turnStatus: String(payload?.status || '').trim() || 'running',
+      interim: 1,
+      content: '',
+      narration: '',
+      executionGroups: [{
+        pageId: executionGroupId || assistantMessageId || rowID,
+        assistantMessageId,
+        parentMessageId: String(payload?.parentMessageId || '').trim(),
+        phase: String(payload?.phase || '').trim() || undefined,
+        sequence: Number(payload?.pageIndex || payload?.iteration || payload?.eventSeq || 0) || undefined,
+        iteration: Number(payload?.iteration || 0) || undefined,
+        narration: '',
+        content: '',
+        finalResponse: false,
+        status: String(payload?.status || '').trim() || 'running',
+        errorMessage: '',
+        modelSteps: [],
+        toolSteps: mergeCanonicalToolCalls([], [toolStep]),
+        toolCallsPlanned: [],
+      }],
+    });
+    existing.sort(compareTemporalEntries);
+    return existing;
+  }
+  const row = { ...existing[index] };
+  const groups = Array.isArray(row.executionGroups) ? row.executionGroups : [];
+  // Find the execution group by exact page/group identity first, then by the
+  // assistant message id. Bootstrap/systemContext tool events are grouped by
+  // pageId and do not carry assistant message ids.
+  let groupIdx = groups.findIndex((g) =>
+    String(g?.pageId || '').trim() === executionGroupId
+  );
+  if (groupIdx === -1 && assistantMessageId) {
+    groupIdx = groups.findIndex((g) =>
+      String(g?.assistantMessageId || '').trim() === assistantMessageId
+    );
+  }
+  if (groupIdx === -1) groupIdx = groups.length - 1;
+  if (groupIdx < 0 || !groups[groupIdx]) return existing;
+  const group = { ...groups[groupIdx] };
   group.toolSteps = mergeCanonicalToolCalls(group.toolSteps, [toolStep]);
   const updatedGroups = [...groups];
   updatedGroups[groupIdx] = group;

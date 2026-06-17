@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 #if canImport(UIKit)
@@ -5,6 +6,25 @@ import UIKit
 #elseif canImport(AppKit)
 import AppKit
 #endif
+
+@MainActor
+func dismissAgentlyPlatformKeyboard() {
+    #if canImport(UIKit)
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    #elseif canImport(AppKit)
+    NSApp.keyWindow?.makeFirstResponder(nil)
+    #endif
+}
+
+@MainActor
+func requestAgentlyPlatformKeyboardDismissal() {
+    dismissAgentlyPlatformKeyboard()
+    NotificationCenter.default.post(name: .agentlyKeyboardDismissalRequested, object: nil)
+}
+
+extension Notification.Name {
+    static let agentlyKeyboardDismissalRequested = Notification.Name("com.viant.agently.keyboardDismissalRequested")
+}
 
 extension Color {
     static var agentlySystemBackground: Color {
@@ -56,6 +76,15 @@ extension View {
         self.searchable(text: text, placement: .navigationBarDrawer(displayMode: .always))
         #else
         self.searchable(text: text)
+        #endif
+    }
+
+    @ViewBuilder
+    func agentlyScrollDismissesKeyboard() -> some View {
+        #if os(iOS)
+        self.scrollDismissesKeyboard(.interactively)
+        #else
+        self
         #endif
     }
 }

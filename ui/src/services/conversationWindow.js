@@ -306,10 +306,24 @@ export function setScopedWorkspaceState(conversationId = '', win = null) {
       storage.removeItem(workspaceStateKey(convID));
       return;
     }
-    const liveWindows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
     const entries = Array.isArray(win) ? win : [win];
+    const savedSnapshotsByWindowId = new Map(
+      getScopedWorkspaceWindowsState(convID)
+        .map((entry) => [String(entry?.windowId || '').trim(), entry])
+        .filter(([windowId]) => !!windowId)
+    );
     const payloads = entries
-      .map((entry) => normalizeWorkspaceStateSnapshot(entry, { preferLiveSignals: true }))
+      .map((entry) => {
+        const windowKey = String(entry?.windowKey || '').trim();
+        const parameters = entry?.parameters && typeof entry.parameters === 'object' ? entry.parameters : {};
+        const computedWindowId = computeWorkspaceWindowId(windowKey, parameters);
+        const windowId = String(entry?.windowId || computedWindowId || '').trim();
+        const savedSnapshot = windowId ? savedSnapshotsByWindowId.get(windowId) : null;
+        const mergedEntry = savedSnapshot && entry && typeof entry === 'object'
+          ? mergeWorkspaceSnapshotValue(savedSnapshot, entry)
+          : entry;
+        return normalizeWorkspaceStateSnapshot(mergedEntry, { preferLiveSignals: true });
+      })
       .filter(Boolean);
     if (payloads.length === 0) {
       storage.removeItem(workspaceStateKey(convID));
@@ -456,6 +470,29 @@ export function ensureWorkspaceWindowForConversation(conversationId = '') {
   return restoreWorkspaceWindowForConversation(conversationId, { focus: false });
 }
 
+function isPlainObject(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeOptionalFiniteNumber(value) {
+  if (value == null) return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function mergeWorkspaceSnapshotValue(rawValue, liveValue) {
+  if (liveValue === undefined) return rawValue;
+  if (rawValue === undefined) return liveValue;
+  if (Array.isArray(liveValue) || Array.isArray(rawValue)) return liveValue;
+  if (!isPlainObject(rawValue) || !isPlainObject(liveValue)) return liveValue;
+  const merged = { ...rawValue };
+  const keys = new Set([...Object.keys(rawValue), ...Object.keys(liveValue)]);
+  keys.forEach((key) => {
+    merged[key] = mergeWorkspaceSnapshotValue(rawValue[key], liveValue[key]);
+  });
+  return merged;
+}
+
 function normalizeWorkspaceStateSnapshot(raw = null, { preferLiveSignals = true } = {}) {
   if (!raw || typeof raw !== 'object') return null;
   const windowKey = String(raw.windowKey || '').trim();
@@ -468,10 +505,10 @@ function normalizeWorkspaceStateSnapshot(raw = null, { preferLiveSignals = true 
   const rawWindowForm = raw.windowForm && typeof raw.windowForm === 'object' ? raw.windowForm : undefined;
   const rawViewState = raw.viewState && typeof raw.viewState === 'object' ? raw.viewState : undefined;
   const resolvedWindowForm = Object.keys(liveWindowForm).length > 0
-    ? liveWindowForm
+    ? mergeWorkspaceSnapshotValue(rawWindowForm, liveWindowForm)
     : rawWindowForm;
   const resolvedViewState = Object.keys(liveViewState).length > 0
-    ? liveViewState
+    ? mergeWorkspaceSnapshotValue(rawViewState, liveViewState)
     : rawViewState;
   return {
     windowId,
@@ -482,8 +519,8 @@ function normalizeWorkspaceStateSnapshot(raw = null, { preferLiveSignals = true 
     region: String(raw.region || '').trim() || null,
     parentKey: String(raw.parentKey || MAIN_CHAT_WINDOW_ID).trim() || MAIN_CHAT_WINDOW_ID,
     inTab: raw.inTab !== false,
-    workspaceSharePct: Number.isFinite(Number(raw.workspaceSharePct)) ? Number(raw.workspaceSharePct) : null,
-    workspaceMinHeight: Number.isFinite(Number(raw.workspaceMinHeight)) ? Number(raw.workspaceMinHeight) : null,
+    workspaceSharePct: normalizeOptionalFiniteNumber(raw.workspaceSharePct),
+    workspaceMinHeight: normalizeOptionalFiniteNumber(raw.workspaceMinHeight),
     workspaceCollapsed: raw.workspaceCollapsed === true,
     windowForm: resolvedWindowForm,
     viewState: resolvedViewState,

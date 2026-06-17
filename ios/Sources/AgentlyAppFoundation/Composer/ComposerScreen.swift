@@ -22,6 +22,8 @@ public struct ComposerScreen: View {
     @State private var lookupRows: [[String: JSONValue]] = []
     @State private var lookupErrorMessage: String?
     @State private var lookupRowsLoading = false
+    @State private var lastAutoPresentedLookupSignature = ""
+    @FocusState private var isEditorFocused: Bool
     #if os(iOS)
     @State private var isShowingCameraCapture = false
     #endif
@@ -44,6 +46,13 @@ public struct ComposerScreen: View {
                 composerLookupSection
             }
             TextEditor(text: $runtime.query)
+                .font(.body)
+                .focused($isEditorFocused)
+                .disabled(isSending)
+                .autocorrectionDisabled(true)
+                #if os(iOS)
+                .textInputAutocapitalization(.never)
+                #endif
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
                 .background(
@@ -52,7 +61,7 @@ public struct ComposerScreen: View {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 18)
-                        .stroke(Color(red: 0.72, green: 0.88, blue: 0.75).opacity(0.9), lineWidth: 1)
+                        .stroke(composerInputStroke, lineWidth: isEditorFocused ? 1.5 : 1)
                 )
                 .frame(height: editorHeight)
             if voiceRuntime.isRecording {
@@ -140,6 +149,21 @@ public struct ComposerScreen: View {
                 selectedPhotoItems = []
             }
         }
+        .onAppear {
+            presentFirstRequiredLookupIfNeeded()
+        }
+        .onChange(of: unresolvedRequiredLookupSignature) { _, _ in
+            presentFirstRequiredLookupIfNeeded()
+        }
+        .onChange(of: isSending) { _, newValue in
+            if newValue {
+                isEditorFocused = false
+                requestAgentlyPlatformKeyboardDismissal()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .agentlyKeyboardDismissalRequested)) { _ in
+            isEditorFocused = false
+        }
         .fullScreenCover(item: $activeLookupOccurrence) { occurrence in
             NavigationStack {
                 List {
@@ -224,50 +248,133 @@ public struct ComposerScreen: View {
     }
 
     private var editorHeight: CGFloat {
+        let minimum: CGFloat
+        let maximum: CGFloat
         switch density {
         case .compact:
-            return horizontalSizeClass == .compact ? 74 : 84
+            minimum = horizontalSizeClass == .compact ? 96 : 108
+            maximum = horizontalSizeClass == .compact ? 220 : 250
         case .regular:
-            return horizontalSizeClass == .compact ? 96 : 120
+            minimum = horizontalSizeClass == .compact ? 110 : 130
+            maximum = horizontalSizeClass == .compact ? 240 : 280
         }
+        let lineHeight: CGFloat = 23
+        let contentHeight = CGFloat(estimatedEditorLineCount) * lineHeight + 28
+        return min(max(minimum, contentHeight), maximum)
+    }
+
+    private var estimatedEditorLineCount: Int {
+        let charactersPerLine: Int
+        switch density {
+        case .compact:
+            charactersPerLine = horizontalSizeClass == .compact ? 30 : 42
+        case .regular:
+            charactersPerLine = horizontalSizeClass == .compact ? 34 : 56
+        }
+        let lines = runtime.query
+            .components(separatedBy: .newlines)
+            .map { line in
+                max(1, Int(ceil(Double(line.count) / Double(charactersPerLine))))
+            }
+            .reduce(0, +)
+        return max(3, lines)
     }
 
     private var composerInputBackground: Color {
-        Color(red: 0.94, green: 0.98, blue: 0.94)
+        if isEditorFocused {
+            return Color(red: 0.94, green: 0.98, blue: 0.94)
+        }
+        return Color.agentlySecondarySystemBackground.opacity(0.5)
     }
 
+    private var composerInputStroke: Color {
+        if isEditorFocused {
+            return Color(red: 0.42, green: 0.76, blue: 0.50).opacity(0.9)
+        }
+        return Color.secondary.opacity(0.16)
+    }
+
+    @ViewBuilder
     private var composerLookupSection: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+        if density == .compact {
+            VStack(alignment: .leading, spacing: 8) {
                 ForEach(runtime.lookupOccurrences) { occurrence in
-                    let selection = runtime.selectionForLookup(occurrence)
-                    Button {
-                        activeLookupOccurrence = occurrence
-                    } label: {
-                        HStack(spacing: 8) {
-                            Text(selection?.label ?? occurrence.title)
-                                .font(.footnote.weight(selection == nil ? .semibold : .medium))
-                                .foregroundStyle(selection == nil ? Color.accentColor : Color.primary)
-                                .lineLimit(1)
-                            Image(systemName: selection == nil ? "chevron.down.circle.fill" : "chevron.down")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(selection == nil ? Color.accentColor : .secondary)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(
-                            Capsule()
-                                .fill(selection == nil ? Color.accentColor.opacity(0.12) : Color.secondary.opacity(0.08))
-                        )
-                        .overlay(
-                            Capsule()
-                                .stroke(selection == nil ? Color.accentColor.opacity(0.28) : Color.black.opacity(0.06), lineWidth: 1)
-                        )
+                    compactLookupButton(occurrence)
+                }
+            }
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(runtime.lookupOccurrences) { occurrence in
+                        lookupChip(occurrence)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
+    }
+
+    private func lookupChip(_ occurrence: ComposerLookupOccurrence) -> some View {
+        let selection = runtime.selectionForLookup(occurrence)
+        return Button {
+            activeLookupOccurrence = occurrence
+        } label: {
+            HStack(spacing: 8) {
+                Text(selection?.label ?? occurrence.title)
+                    .font(.footnote.weight(selection == nil ? .semibold : .medium))
+                    .foregroundStyle(selection == nil ? Color.accentColor : Color.primary)
+                    .lineLimit(1)
+                Image(systemName: selection == nil ? "chevron.down.circle.fill" : "chevron.down")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(selection == nil ? Color.accentColor : Color.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(
+                Capsule()
+                    .fill(selection == nil ? Color.accentColor.opacity(0.12) : Color.secondary.opacity(0.08))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(selection == nil ? Color.accentColor.opacity(0.28) : Color.black.opacity(0.06), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func compactLookupButton(_ occurrence: ComposerLookupOccurrence) -> some View {
+        let selection = runtime.selectionForLookup(occurrence)
+        return Button {
+            activeLookupOccurrence = occurrence
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: selection == nil ? "magnifyingglass" : "checkmark.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(selection == nil ? Color.accentColor : Color.green)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(selection?.label ?? "Select \(occurrence.title)")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text(occurrence.required && selection == nil ? "Required" : occurrence.title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(Color.accentColor.opacity(selection == nil ? 0.10 : 0.06), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.accentColor.opacity(selection == nil ? 0.26 : 0.12), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     @MainActor
@@ -375,9 +482,57 @@ public struct ComposerScreen: View {
     }
 
     private var sendButton: some View {
-        Button(isSending ? "Sending" : "Send", action: onSend)
+        Button(sendButtonTitle, action: handleSendTap)
             .buttonStyle(.borderedProminent)
             .disabled(isSending || runtime.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    private var sendButtonTitle: String {
+        if isSending {
+            return "Sending"
+        }
+        if let occurrence = firstUnresolvedRequiredLookup {
+            return "Select \(occurrence.title)"
+        }
+        return "Send"
+    }
+
+    private var firstUnresolvedRequiredLookup: ComposerLookupOccurrence? {
+        runtime.lookupOccurrences.first { occurrence in
+            occurrence.required && runtime.selectionForLookup(occurrence) == nil
+        }
+    }
+
+    private var unresolvedRequiredLookupSignature: String {
+        runtime.lookupOccurrences
+            .filter { occurrence in
+                occurrence.required && runtime.selectionForLookup(occurrence) == nil
+            }
+            .map(\.key)
+            .joined(separator: "|")
+    }
+
+    private func handleSendTap() {
+        if let occurrence = firstUnresolvedRequiredLookup {
+            activeLookupOccurrence = occurrence
+            return
+        }
+        isEditorFocused = false
+        requestAgentlyPlatformKeyboardDismissal()
+        onSend()
+    }
+
+    private func presentFirstRequiredLookupIfNeeded() {
+        guard density == .compact else { return }
+        let signature = unresolvedRequiredLookupSignature
+        guard !signature.isEmpty,
+              signature != lastAutoPresentedLookupSignature,
+              activeLookupOccurrence == nil,
+              let occurrence = firstUnresolvedRequiredLookup else {
+            return
+        }
+        lastAutoPresentedLookupSignature = signature
+        activeLookupOccurrence = occurrence
     }
 }
 

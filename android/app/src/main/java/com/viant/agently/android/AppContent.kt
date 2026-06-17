@@ -45,6 +45,7 @@ internal fun AppBody(
     error: String?,
     authProviders: List<AuthProvider>,
     authUser: AuthUser?,
+    authSessionId: String?,
     authWebUrl: String?,
     showSavedLoginSettings: Boolean,
     recentConversations: List<Conversation>,
@@ -91,6 +92,7 @@ internal fun AppBody(
                     metadata = metadata,
                     currentPreferredAgentId = preferredAgentId,
                     savedLoginConfig = savedLoginConfig,
+                    authSessionId = authSessionId,
                     loading = loading,
                     error = authError ?: error,
                     onBack = callbacks.onBackFromSettings,
@@ -106,9 +108,11 @@ internal fun AppBody(
                 error = authError,
                 providers = authProviders,
                 user = authUser,
+                authSessionId = authSessionId,
                 savedLoginConfig = savedLoginConfig,
                 onSignIn = callbacks.onAuthSignIn,
                 onOobSignIn = callbacks.onAuthOobSignIn,
+                onDeveloperSessionSignIn = callbacks.onDeveloperSessionSignIn,
                 onManageSavedLogin = callbacks.onManageSavedLogin,
                 onOpenSettings = callbacks.onOpenSettings,
                 onRetry = callbacks.onAuthRetry
@@ -116,7 +120,7 @@ internal fun AppBody(
             authWebUrl?.let { authUrl ->
                 OAuthWebDialog(
                     authUrl = authUrl,
-                    callbackPrefix = "/v1/api/auth/oauth/callback",
+                    callbackPrefix = AndroidOAuthRedirectURI,
                     savedLoginConfig = savedLoginConfig,
                     onDismiss = callbacks.onDismissAuthWeb,
                     onCallback = callbacks.onOAuthCallback
@@ -235,6 +239,7 @@ internal fun AppBody(
                     metadata = metadata,
                     currentPreferredAgentId = preferredAgentId,
                     savedLoginConfig = savedLoginConfig,
+                    authSessionId = authSessionId,
                     loading = loading,
                     error = error,
                     onBack = callbacks.onBackFromSettings,

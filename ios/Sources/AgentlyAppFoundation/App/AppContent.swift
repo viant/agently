@@ -3,6 +3,7 @@ import SwiftUI
 public struct AppContent: View {
     @ObservedObject private var runtime: AppRuntime
     @State private var isShowingSettings = false
+    @State private var didCompleteInitialWorkspaceSelection = false
 
     public init(runtime: AppRuntime) {
         self.runtime = runtime
@@ -10,43 +11,51 @@ public struct AppContent: View {
 
     public var body: some View {
         NavigationStack {
-            switch runtime.state.authState {
-            case .checking:
-                LaunchingScreen(
-                    baseURL: runtime.state.bootstrapBaseURL,
-                    onRetry: {
-                        Task { await runtime.bootstrap() }
-                    },
-                    onOpenSettings: {
-                        isShowingSettings = true
-                    }
-                )
-            case .required:
-                AuthRequiredScreen(
-                    authRuntime: runtime.authRuntime,
-                    settingsRuntime: runtime.settingsRuntime,
-                    baseURL: runtime.state.bootstrapBaseURL,
-                    statusMessage: runtime.state.bootstrapErrorMessage,
-                    onOpenSettings: {
-                        isShowingSettings = true
-                    },
-                    onLoginSuccess: {
-                        Task { await runtime.bootstrap() }
-                    }
-                )
-            case .connectionFailed:
-                ConnectionFailureScreen(
-                    baseURL: runtime.state.bootstrapBaseURL,
-                    errorMessage: runtime.state.bootstrapErrorMessage,
-                    onRetry: {
-                        Task { await runtime.bootstrap() }
-                    },
-                    onOpenSettings: {
-                        isShowingSettings = true
-                    }
-                )
-            case .signedIn:
-                AppShellView(runtime: runtime)
+            if !runtime.settingsRuntime.hasWorkspaceEndpointSelection && !didCompleteInitialWorkspaceSelection {
+                WorkspaceSelectionScreen(settingsRuntime: runtime.settingsRuntime) { option in
+                    didCompleteInitialWorkspaceSelection = true
+                    runtime.settingsRuntime.selectWorkspaceEndpoint(option)
+                    Task { await runtime.applySettingsAndReload() }
+                }
+            } else {
+                switch runtime.state.authState {
+                case .checking:
+                    LaunchingScreen(
+                        baseURL: runtime.state.bootstrapBaseURL,
+                        onRetry: {
+                            Task { await runtime.bootstrap() }
+                        },
+                        onOpenSettings: {
+                            isShowingSettings = true
+                        }
+                    )
+                case .required:
+                    AuthRequiredScreen(
+                        authRuntime: runtime.authRuntime,
+                        settingsRuntime: runtime.settingsRuntime,
+                        baseURL: runtime.state.bootstrapBaseURL,
+                        statusMessage: runtime.state.bootstrapErrorMessage,
+                        onOpenSettings: {
+                            isShowingSettings = true
+                        },
+                        onLoginSuccess: {
+                            Task { await runtime.bootstrap() }
+                        }
+                    )
+                case .connectionFailed:
+                    ConnectionFailureScreen(
+                        baseURL: runtime.state.bootstrapBaseURL,
+                        errorMessage: runtime.state.bootstrapErrorMessage,
+                        onRetry: {
+                            Task { await runtime.bootstrap() }
+                        },
+                        onOpenSettings: {
+                            isShowingSettings = true
+                        }
+                    )
+                case .signedIn:
+                    AppShellView(runtime: runtime)
+                }
             }
         }
         .sheet(isPresented: $isShowingSettings) {
@@ -58,7 +67,8 @@ public struct AppContent: View {
                     availableAgents: runtime.availableAgentOptions,
                     agentAutoSelectionEnabled: runtime.state.workspaceMetadata?.capabilities?.agentAutoSelection == true,
                     oauthProviderLabels: runtime.authRuntime.authProviders.map { ($0.name ?? $0.type).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty },
-                    oauthScopes: runtime.authRuntime.oauthScopes
+                    oauthScopes: runtime.authRuntime.oauthScopes,
+                    authSessionID: runtime.authRuntime.lastAuthSessionID
                 ) {
                     Task {
                         isShowingSettings = false

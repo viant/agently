@@ -1,12 +1,19 @@
 import SwiftUI
 import AgentlySDK
 
+enum StarterTaskLayout {
+    case horizontalCards
+    case verticalList
+}
+
 struct ChatWorkspaceView: View {
     let metadata: WorkspaceMetadata?
     let selectedAgentID: String?
     let availableAgents: [WorkspaceAgentOption]
     let onSelectAgent: (String?) -> Void
     let showStarterTasks: Bool
+    let showWorkspaceHeader: Bool
+    let starterTaskLayout: StarterTaskLayout
     let onSelectStarterTask: (StarterTask) -> Void
 
     init(
@@ -15,6 +22,8 @@ struct ChatWorkspaceView: View {
         availableAgents: [WorkspaceAgentOption],
         onSelectAgent: @escaping (String?) -> Void,
         showStarterTasks: Bool = false,
+        showWorkspaceHeader: Bool = true,
+        starterTaskLayout: StarterTaskLayout = .horizontalCards,
         onSelectStarterTask: @escaping (StarterTask) -> Void = { _ in }
     ) {
         self.metadata = metadata
@@ -22,6 +31,8 @@ struct ChatWorkspaceView: View {
         self.availableAgents = availableAgents
         self.onSelectAgent = onSelectAgent
         self.showStarterTasks = showStarterTasks
+        self.showWorkspaceHeader = showWorkspaceHeader
+        self.starterTaskLayout = starterTaskLayout
         self.onSelectStarterTask = onSelectStarterTask
     }
 
@@ -86,27 +97,8 @@ struct ChatWorkspaceView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 12) {
-                Label(workspaceLabel, systemImage: "rectangle.topthird.inset.filled")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Spacer(minLength: 8)
-                if showsAgentSelection {
-                    Menu {
-                        Button("Workspace Default") {
-                            onSelectAgent(nil)
-                        }
-                        ForEach(availableAgents) { agent in
-                            Button(agent.displayName) {
-                                onSelectAgent(agent.id)
-                            }
-                        }
-                    } label: {
-                        Label(resolvedAgentLabel, systemImage: "person.crop.circle")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    .menuStyle(.borderlessButton)
-                }
+            if showWorkspaceHeader {
+                workspaceHeader
             }
 
             if showStarterTasks {
@@ -118,33 +110,7 @@ struct ChatWorkspaceView: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     } else {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(alignment: .top, spacing: 12) {
-                                ForEach(Array(starterTasks.enumerated()), id: \.offset) { _, task in
-                                    Button {
-                                        onSelectStarterTask(task)
-                                    } label: {
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            Text((task.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
-                                                .font(.subheadline.weight(.semibold))
-                                                .foregroundStyle(.primary)
-                                                .multilineTextAlignment(.leading)
-                                                .lineLimit(2)
-                                            Text((task.description ?? resolvedAgentLabel).trimmingCharacters(in: .whitespacesAndNewlines))
-                                                .font(.footnote)
-                                                .foregroundStyle(.secondary)
-                                                .multilineTextAlignment(.leading)
-                                                .lineLimit(3)
-                                        }
-                                        .frame(width: 220, alignment: .leading)
-                                        .frame(minHeight: 118, alignment: .topLeading)
-                                        .padding(14)
-                                        .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 18))
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                        }
+                        starterTaskList
                     }
                 }
             }
@@ -152,6 +118,83 @@ struct ChatWorkspaceView: View {
         .padding(.horizontal, 20)
         .padding(.top, 12)
         .padding(.bottom, showStarterTasks ? 12 : 4)
+    }
+
+    private var workspaceHeader: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Label(workspaceLabel, systemImage: "rectangle.topthird.inset.filled")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+            Spacer(minLength: 8)
+            if showsAgentSelection {
+                Menu {
+                    Button("Workspace Default") {
+                        onSelectAgent(nil)
+                    }
+                    ForEach(availableAgents) { agent in
+                        Button(agent.displayName) {
+                            onSelectAgent(agent.id)
+                        }
+                    }
+                } label: {
+                    Label(resolvedAgentLabel, systemImage: "person.crop.circle")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .menuStyle(.borderlessButton)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var starterTaskList: some View {
+        switch starterTaskLayout {
+        case .horizontalCards:
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(Array(starterTasks.enumerated()), id: \.offset) { _, task in
+                        starterTaskButton(task, width: 220, minHeight: 118)
+                    }
+                }
+            }
+        case .verticalList:
+            VStack(spacing: 10) {
+                ForEach(Array(starterTasks.enumerated()), id: \.offset) { _, task in
+                    starterTaskButton(task, width: nil, minHeight: 96)
+                }
+            }
+        }
+    }
+
+    private func starterTaskButton(
+        _ task: StarterTask,
+        width: CGFloat?,
+        minHeight: CGFloat
+    ) -> some View {
+        Button {
+            onSelectStarterTask(task)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                Text((task.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+                Text((task.description ?? resolvedAgentLabel).trimmingCharacters(in: .whitespacesAndNewlines))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(starterTaskLayout == .verticalList ? 4 : 3)
+            }
+            .frame(width: width, alignment: .leading)
+            .frame(maxWidth: width == nil ? .infinity : nil, minHeight: minHeight, alignment: .topLeading)
+            .padding(14)
+            .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.secondary.opacity(0.08), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 
