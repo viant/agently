@@ -610,6 +610,32 @@ describe('scheduleService saveSchedule', () => {
     expect(upsertSpy.mock.calls[0][0][0].taskPromptUri).toBe('gs://bucket/path/prompt.txt')
   })
 
+  it('sends blank strings for cleared optional URL fields so updates can remove them', async () => {
+    const { context } = saveContext({
+      id: 'sched-1',
+      name: 'nightly',
+      agentRef: 'chat',
+      enabled: true,
+      scheduleEditorKind: 'calendar',
+      calendarPattern: 'once',
+      calendarTime: '09:00 AM',
+      weekdays: ['mon'],
+      timezone: 'UTC',
+      taskPrompt: 'Run it',
+      taskPromptUri: '',
+      userCredUrl: ''
+    })
+    const upsertSpy = vi.spyOn(client, 'upsertSchedules').mockResolvedValue(undefined)
+    vi.spyOn(client, 'getSchedule').mockRejectedValue(new Error('skip refresh'))
+
+    const ok = await scheduleService.saveSchedule({ context })
+
+    expect(ok).toBe(true)
+    expect(upsertSpy).toHaveBeenCalledTimes(1)
+    expect(upsertSpy.mock.calls[0][0][0].taskPromptUri).toBe('')
+    expect(upsertSpy.mock.calls[0][0][0].userCredUrl).toBe('')
+  })
+
   it('rejects blank advanced cron expressions before calling the scheduler API', async () => {
     const { context, state } = saveContext({
       name: 'nightly',
@@ -969,7 +995,7 @@ describe('scheduleService saveSchedule', () => {
     await Promise.all([first, second])
   })
 
-  it('resets the editor subtab to general after a successful save', async () => {
+  it('keeps the current editor subtab after a successful save', async () => {
     vi.useFakeTimers()
     const { context } = saveContext({
       name: 'nightly',
@@ -1000,9 +1026,7 @@ describe('scheduleService saveSchedule', () => {
     const ok = await pending
 
     expect(ok).toBe(true)
-    expect(bus.value).toEqual([
-      { type: 'selectTab', tabId: 'general' }
-    ])
+    expect(bus.value).toEqual([])
   })
 
   it('clears only the edited field validation error', () => {
@@ -1032,7 +1056,7 @@ describe('scheduleService saveSchedule', () => {
     expect(state.formValues.name).toBe('nightly')
   })
 
-  it('shows a toast and routes invalid saves to the editor tab', async () => {
+  it('shows field names in the validation toast without changing tabs', async () => {
     vi.useFakeTimers()
     const { context, state } = saveContext({
       name: '',
@@ -1065,10 +1089,9 @@ describe('scheduleService saveSchedule', () => {
     expect(upsertSpy).not.toHaveBeenCalled()
     expect(toastSpy).toHaveBeenCalledTimes(1)
     expect(String(toastSpy.mock.calls[0][0] || '')).toContain("Schedule can't be saved")
-    expect(bus.value).toEqual([
-      { type: 'selectTab', tabId: 'scheduleEditor' },
-      { type: 'selectTab', tabId: 'general' }
-    ])
+    expect(String(toastSpy.mock.calls[0][0] || '')).toContain('Schedule Name')
+    expect(String(toastSpy.mock.calls[0][0] || '')).toContain('Agent')
+    expect(bus.value).toEqual([])
     expect(scheduleService._validationHookInstalled).toBe(true)
     expect(state.formValues.validationErrors?.name).toBe('Schedule Name is required')
     expect(state.formValues.validationErrors?.agentRef).toBe('Agent is required')
