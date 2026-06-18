@@ -1,0 +1,87 @@
+{
+  "baseUrl": "http://127.0.0.1:5173",
+  "requireSession": true,
+  "viewport": {
+    "width": 1400,
+    "height": 960
+  },
+  "steps": [
+    {
+      "type": "goto",
+      "url": "/mcp-ui/forge-window?windowKey=forecastingCubeBuilder"
+    },
+    {
+      "type": "waitForDomContains",
+      "text": "Quick chart",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "clickRole",
+      "role": "button",
+      "name": "Close"
+    },
+    {
+      "type": "clearRequestEntries"
+    },
+    {
+      "type": "clickSelector",
+      "selector": ".forge-report-builder__chart-action-button--quick"
+    },
+    {
+      "type": "clickSelectorContains",
+      "selector": "[role=\"menuitem\"]",
+      "text": "Overview · Avails by Date and Channel",
+      "index": 0
+    },
+    {
+      "type": "waitForRequestJsonEval",
+      "urlIncludes": "/v1/api/datasources/forecasting_cube_report/fetch",
+      "method": "POST",
+      "expression": "request?.inputs?.measures?.avails === true && request?.inputs?.dimensions?.eventDate === true && request?.inputs?.dimensions?.channelV2 === true",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForRequestJsonEval",
+      "urlIncludes": "/v1/api/datasources/forecasting_cube_report/fetch",
+      "method": "POST",
+      "expression": "request?.inputs?.limit === 1000 && request?.inputs?.offset === 0",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForEval",
+      "expression": "(() => { const header = document.querySelector('.forge-report-builder__result-header'); const text = (header?.innerText || header?.textContent || ''); return text.includes('Chart-first view for the active scope') && text.includes('Overview · Avails by Date and Channel'); })()",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForChartRender",
+      "selector": ".recharts-wrapper",
+      "minWidth": 200,
+      "minHeight": 160,
+      "minVisiblePaths": 1,
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForDomContains",
+      "text": "Display",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForDomContains",
+      "text": "CTV",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "assertConsoleNotContains",
+      "text": "Select at least one series to render the chart."
+    },
+    {
+      "type": "assertConsoleNotContains",
+      "text": "Failed to fetch data"
+    },
+    {
+      "type": "screenshot",
+      "file": "forecasting-window-live-quick-chart-multiseries-proof.png",
+      "fullPage": true
+    }
+  ]
+}

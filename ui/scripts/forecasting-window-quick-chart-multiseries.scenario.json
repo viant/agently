@@ -1,0 +1,126 @@
+{
+  "baseUrl": "http://127.0.0.1:5173",
+  "viewport": {
+    "width": 1400,
+    "height": 960
+  },
+  "routeMocks": [
+    {
+      "method": "POST",
+      "urlIncludes": "/v1/api/datasources/forecasting_cube_report/fetch",
+      "status": 200,
+      "json": {
+        "proofToken": "area-mock",
+        "rows": [
+          { "eventDate": "2026-05-01", "channelV2": 1, "channel": { "channel": "Display" }, "avails": 18000 },
+          { "eventDate": "2026-05-02", "channelV2": 1, "channel": { "channel": "Display" }, "avails": 19100 },
+          { "eventDate": "2026-05-03", "channelV2": 2, "channel": { "channel": "CTV" }, "avails": 13700 },
+          { "eventDate": "2026-05-04", "channelV2": 2, "channel": { "channel": "CTV" }, "avails": 14500 }
+        ],
+        "dataInfo": {
+          "hasMore": false
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "type": "goto",
+      "url": "/mcp-ui/forge-window?windowKey=forecastingCubeBuilder"
+    },
+    {
+      "type": "waitForResponseBodyContains",
+      "urlIncludes": "/v1/api/agently/forge/window/forecastingCubeBuilder",
+      "status": 200,
+      "text": "\"forecast_inventory\"",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForDomContains",
+      "text": "Quick chart",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "clickRole",
+      "role": "button",
+      "name": "Close"
+    },
+    {
+      "type": "clearResponseEntries"
+    },
+    {
+      "type": "clearRequestEntries"
+    },
+    {
+      "type": "clickSelector",
+      "selector": ".forge-report-builder__chart-action-button--quick"
+    },
+    {
+      "type": "clickSelectorContains",
+      "selector": "[role=\"menuitem\"]",
+      "text": "Overview · Avails by Date and Channel",
+      "index": 0
+    },
+    {
+      "type": "waitForRequestJsonEval",
+      "urlIncludes": "/v1/api/datasources/forecasting_cube_report/fetch",
+      "method": "POST",
+      "expression": "request?.inputs?.measures?.avails === true && request?.inputs?.dimensions?.eventDate === true && request?.inputs?.dimensions?.channelV2 === true",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForRequestJsonEval",
+      "urlIncludes": "/v1/api/datasources/forecasting_cube_report/fetch",
+      "method": "POST",
+      "expression": "request?.inputs?.limit === 1000 && request?.inputs?.offset === 0",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForResponseBodyContains",
+      "urlIncludes": "/v1/api/datasources/forecasting_cube_report/fetch",
+      "status": 200,
+      "text": "\"proofToken\":\"area-mock\"",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForEval",
+      "expression": "(() => { const header = document.querySelector('.forge-report-builder__result-header'); const text = (header?.innerText || header?.textContent || ''); return text.includes('Chart-first view for the active scope') && text.includes('Overview · Avails by Date and Channel'); })()",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForChartRender",
+      "selector": ".recharts-wrapper",
+      "minWidth": 200,
+      "minHeight": 160,
+      "minVisiblePaths": 1,
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForDomContains",
+      "text": "Display",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForDomContains",
+      "text": "CTV",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "assertConsoleNotContains",
+      "text": "Maximum update depth exceeded"
+    },
+    {
+      "type": "assertConsoleNotContains",
+      "text": "Select at least one series to render the chart."
+    },
+    {
+      "type": "assertConsoleNotContains",
+      "text": "Failed to fetch data"
+    },
+    {
+      "type": "screenshot",
+      "file": "forecasting-window-quick-chart-multiseries-proof.png",
+      "fullPage": true
+    }
+  ]
+}

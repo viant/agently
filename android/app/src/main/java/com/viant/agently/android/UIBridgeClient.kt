@@ -147,8 +147,12 @@ internal class AndroidUIBridgeClient(
         try {
             val commandResult = commandHandler(method, commandParams)
             updateSelectedWindow(method, commandParams, commandResult)
-            publishSnapshot(force = true, requireAck = true)
             rpcClient.respond(commandId = commandId, ok = true, result = commandResult)
+            try {
+                publishSnapshot(force = true)
+            } catch (_: Throwable) {
+                rpcClient.resetSession()
+            }
         } catch (err: Throwable) {
             rpcClient.respond(commandId = commandId, ok = false, error = err.message ?: err.toString())
         }

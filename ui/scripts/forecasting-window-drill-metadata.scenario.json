@@ -1,0 +1,56 @@
+{
+  "baseUrl": "http://127.0.0.1:5173",
+  "viewport": {
+    "width": 1400,
+    "height": 960
+  },
+  "steps": [
+    {
+      "type": "goto",
+      "url": "/mcp-ui/forge-window?windowKey=forecastingCubeBuilder"
+    },
+    {
+      "type": "waitForResponseBodyContains",
+      "urlIncludes": "/v1/api/agently/forge/window/forecastingCubeBuilder",
+      "status": 200,
+      "text": "\"drillMetadata\"",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "assertResponseJsonEval",
+      "urlIncludes": "/v1/api/agently/forge/window/forecastingCubeBuilder",
+      "status": 200,
+      "expression": "response?.data?.view?.content?.dashboard?.reportBuilder?.drillMetadata?.hierarchies?.[0]?.id === 'forecast_inventory' && JSON.stringify(response.data.view.content.dashboard.reportBuilder.drillMetadata.hierarchies[0].levels.map((level) => level.field)) === JSON.stringify(['channelV2','publisherId','siteType'])"
+    },
+    {
+      "type": "assertResponseJsonEval",
+      "urlIncludes": "/v1/api/agently/forge/window/forecastingCubeBuilder",
+      "status": 200,
+      "expression": "response?.data?.view?.content?.dashboard?.reportBuilder?.drillMetadata?.hierarchies?.[1]?.id === 'forecast_location' && JSON.stringify(response.data.view.content.dashboard.reportBuilder.drillMetadata.hierarchies[1].levels.map((level) => level.field)) === JSON.stringify(['country','region','metrocode'])"
+    },
+    {
+      "type": "waitForDomContains",
+      "text": "MEASURES",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForDomContains",
+      "text": "Avails",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForDomContains",
+      "text": "Metro Code",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "assertConsoleNotContains",
+      "text": "Maximum update depth exceeded"
+    },
+    {
+      "type": "screenshot",
+      "file": "forecasting-window-drill-metadata-proof.png",
+      "fullPage": true
+    }
+  ]
+}

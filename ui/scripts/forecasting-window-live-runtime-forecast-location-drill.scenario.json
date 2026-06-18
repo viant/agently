@@ -1,0 +1,109 @@
+{
+  "baseUrl": "http://127.0.0.1:5173",
+  "requireSession": true,
+  "viewport": {
+    "width": 1400,
+    "height": 1200
+  },
+  "steps": [
+    {
+      "type": "goto",
+      "url": "/mcp-ui/forge-window?windowKey=forecastingCubeBuilder"
+    },
+    {
+      "type": "waitForDomContains",
+      "text": "Quick chart",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "clickRole",
+      "role": "button",
+      "name": "Close"
+    },
+    {
+      "type": "fillSelector",
+      "selector": "input[type=\"date\"]",
+      "index": 0,
+      "value": "2026-06-10",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "fillSelector",
+      "selector": "input[type=\"date\"]",
+      "index": 1,
+      "value": "2026-06-12",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "clickSelectorContains",
+      "selector": ".forge-report-builder__dimension-pill",
+      "text": "Channel",
+      "index": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "type": "selectSelector",
+      "selector": ".forge-report-builder__dimension-picker select",
+      "value": "country",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForEval",
+      "expression": "(() => { const root = document.querySelector('.forge-report-builder__runtime-preview'); if (!root) return false; const text = root.innerText || root.textContent || ''; const rows = root.querySelectorAll('tbody tr').length; return rows > 0 && !text.includes('Refreshing authored runtime'); })()",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForEval",
+      "expression": "(() => { const labels = Array.from(document.querySelectorAll('.forge-report-builder__runtime-preview th')).map((node) => (node.innerText || node.textContent || '').trim()); return labels.includes('Country') && labels.includes('Actions'); })()",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForEval",
+      "expression": "document.querySelectorAll('.forge-report-builder__runtime-preview .forge-dashboard-row-action').length >= 1",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "eval",
+      "expression": "(() => { const rows = Array.from(document.querySelectorAll('.forge-report-builder__runtime-preview tbody tr')); const targetRow = rows.find((row) => /(^|\\s)GB(\\s|$)/.test((row.innerText || row.textContent || '').replace(/\\s+/g, ' '))); if (!targetRow) { throw new Error('No GB runtime preview row found for location drill.'); } const button = Array.from(targetRow.querySelectorAll('.forge-dashboard-row-action')).find((node) => (node.innerText || node.textContent || '').includes('Drill to Region')); if (!button) { throw new Error('No Drill to Region action found on the GB runtime preview row.'); } button.click(); })()",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForEval",
+      "expression": "Array.from(document.querySelectorAll('.forge-report-builder__runtime-preview .forge-report-runtime-refinement-chip')).some((node) => { const text = (node.innerText || node.textContent || '').trim(); const value = (text.split('=')[1] || '').trim(); return text.includes('Drill to Region =') && value.length > 0; })",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForEval",
+      "expression": "(() => { const labels = Array.from(document.querySelectorAll('.forge-report-builder__runtime-preview th')).map((node) => (node.innerText || node.textContent || '').trim()); return labels.includes('Region') && !labels.includes('Country'); })()",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "eval",
+      "expression": "(() => { const rows = Array.from(document.querySelectorAll('.forge-report-builder__runtime-preview tbody tr')); const targetRow = rows.find((row) => (row.innerText || row.textContent || '').includes('GB-HEF')); if (!targetRow) { throw new Error('No GB-HEF runtime preview row found for metro drill.'); } const button = Array.from(targetRow.querySelectorAll('.forge-dashboard-row-action')).find((node) => (node.innerText || node.textContent || '').includes('Drill to Metro Code')); if (!button) { throw new Error('No Drill to Metro Code action found on the GB-HEF runtime preview row.'); } button.click(); })()",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForEval",
+      "expression": "Array.from(document.querySelectorAll('.forge-report-builder__runtime-preview .forge-report-runtime-refinement-chip')).some((node) => { const text = (node.innerText || node.textContent || '').trim(); const value = (text.split('=')[1] || '').trim(); return text.includes('Drill to Metro Code =') && value.length > 0; })",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForEval",
+      "expression": "(() => { const labels = Array.from(document.querySelectorAll('.forge-report-builder__runtime-preview th')).map((node) => (node.innerText || node.textContent || '').trim()); return labels.includes('Metro Code') && !labels.includes('Region'); })()",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "assertConsoleNotContains",
+      "text": "Maximum update depth exceeded"
+    },
+    {
+      "type": "assertConsoleNotContains",
+      "text": "Failed to fetch data"
+    },
+    {
+      "type": "screenshot",
+      "file": "forecasting-window-live-runtime-forecast-location-drill-proof.png",
+      "fullPage": true
+    }
+  ]
+}
