@@ -26,6 +26,7 @@ const defaultConfirmState = {
   message: '',
   confirmText: 'Confirm',
   cancelText: 'Cancel',
+  loadingText: 'Working...',
   intent: 'danger',
   loading: false,
   onConfirm: null
@@ -93,13 +94,14 @@ export function updateFileViewDialog(patch) {
   fileViewStore.patch(patch);
 }
 
-export function openConfirmDialog({ title = 'Confirm', message = '', confirmText = 'Confirm', cancelText = 'Cancel', intent = 'danger', onConfirm = null } = {}) {
+export function openConfirmDialog({ title = 'Confirm', message = '', confirmText = 'Confirm', cancelText = 'Cancel', loadingText = 'Working...', intent = 'danger', onConfirm = null } = {}) {
   confirmStore.set({
     open: true,
     title,
     message,
     confirmText,
     cancelText,
+    loadingText,
     intent,
     loading: false,
     onConfirm

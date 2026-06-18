@@ -4,6 +4,7 @@ import { getLogger } from 'forge/utils/logger';
 import { registerDynamicEvaluator } from 'forge/runtime/binding';
 import { getBusSignal, sendBusMessage } from 'forge/core';
 import { openConfirmDialog } from '../utils/dialogBus';
+import { sdkBaseURL } from '../endpoint';
 import {
   filterLookupCollection,
   normalizeWorkspaceAgentInfos,
@@ -19,6 +20,8 @@ const DEFAULT_CALENDAR_INTERVAL_HOURS = 2;
 const DEFAULT_ELAPSED_INTERVAL_VALUE = 24;
 const DEFAULT_ELAPSED_INTERVAL_UNIT = 'hours';
 const DEFAULT_TIMEOUT_SECONDS = 300;
+const RUN_NOW_ERROR_TOAST_TTL_MS = 6200;
+const RUN_NOW_HISTORY_DELAY_MS = 1000;
 const ALL_WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const CALENDAR_BUILDER_FIELDS = new Set(['calendarPattern', 'calendarTime', 'calendarIntervalHours', 'weekdays']);
 const ELAPSED_BUILDER_FIELDS = new Set(['elapsedIntervalValue', 'elapsedIntervalUnit']);
@@ -59,6 +62,49 @@ function optionalTextPayloadValue(form = {}, field) {
   if (value === undefined) return undefined;
   if (value === null) return '';
   return String(value).trim();
+}
+
+function apiErrorText(err) {
+  const payload = err?.payload;
+  if (payload && typeof payload === 'object') {
+    const message = String(payload.error || payload.message || '').trim();
+    if (message) return message;
+  }
+  const body = String(err?.body || '').trim();
+  if (body) {
+    try {
+      const parsed = JSON.parse(body);
+      const message = String(parsed?.error || parsed?.message || '').trim();
+      if (message) return message;
+    } catch (_) {
+      return body;
+    }
+  }
+  return String(err?.message || '').trim();
+}
+
+async function runScheduleNowRequest(id) {
+  const base = String(sdkBaseURL || '').replace(/\/+$/, '');
+  const response = await fetch(`${base}/api/agently/scheduler/run-now/${encodeURIComponent(id)}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json'
+    },
+    body: '{}'
+  });
+  if (response.ok) return;
+  throw {
+    status: response.status,
+    statusText: response.statusText,
+    body: await response.text().catch(() => ''),
+    message: `Run Now failed (${response.status})`
+  };
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function normalizeScheduleRow(r = {}) {
@@ -1021,6 +1067,20 @@ function getFormState(ds) {
   return { ...selected, ...get, ...peekValues };
 }
 
+function resolveScheduleActionTarget(context, ds) {
+  const candidates = [
+    ds?.peekSelection?.()?.selected,
+    ds?.getSelection?.()?.selected,
+    getActiveSchedule(context),
+    getFormState(ds)
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeScheduleRow(candidate || {});
+    if (String(normalized?.id || '').trim()) return normalized;
+  }
+  return {};
+}
+
 function applyIncomingFieldValue(form = {}, item, value) {
   const fieldKey = item?.dataField || item?.bindingPath || item?.id;
   if (!fieldKey) return form;
@@ -1485,6 +1545,7 @@ async function deleteSchedule({ context }) {
       : 'Are you sure you want to delete this schedule?',
     confirmText: 'Delete',
     cancelText: 'Cancel',
+    loadingText: 'Deleting...',
     intent: 'danger',
     onConfirm: async () => {
       ds?.setLoading?.(true);
@@ -1689,25 +1750,56 @@ export const scheduleService = {
       log.error('scheduleService.runSelected: schedules context not found');
       return false;
     }
-    const id = ctx.handlers?.dataSource?.peekSelection?.()?.selected?.id;
+    const ds = ctx.handlers?.dataSource;
+    const selected = resolveScheduleActionTarget(context, ds);
+    const id = String(selected?.id || '').trim();
     if (!id) {
       ctx.handlers?.setError?.('Select a schedule first');
       return false;
     }
-    ctx.handlers?.setLoading?.(true);
-    scheduleService._runSelectedInFlight = true;
-    try {
-      await client.runScheduleNow(id);
-      try { context?.Context('runs')?.connector?.get?.({}); } catch (_) {}
-      return true;
-    } catch (err) {
-      log.error('scheduleService.runSelected error', err);
-      ctx.handlers?.setError?.(err);
-      return false;
-    } finally {
-      scheduleService._runSelectedInFlight = false;
-      ctx.handlers?.setLoading?.(false);
-    }
+    const name = String(selected?.name || '').trim();
+    openConfirmDialog({
+      title: 'Run Schedule Now',
+      message: name
+        ? `Start an immediate manual run for schedule "${name}"?`
+        : 'Start an immediate manual run for this schedule?',
+      confirmText: 'Run Now',
+      cancelText: 'Cancel',
+      loadingText: 'Starting...',
+      intent: 'primary',
+      onConfirm: async () => {
+        if (scheduleService._runSelectedInFlight) return true;
+        ctx.handlers?.setLoading?.(true);
+        scheduleService._runSelectedInFlight = true;
+        try {
+          setActiveSchedule(context, selected);
+          await runScheduleNowRequest(id);
+          await delay(RUN_NOW_HISTORY_DELAY_MS);
+          syncRunsToActiveSchedule(context, { fetch: true });
+          const windowId = getAutomationWindowID(context);
+          if (windowId) {
+            sendAutomationBusMessage(windowId, { type: 'selectTab', tabId: 'scheduleRuns' });
+          }
+          return true;
+        } catch (err) {
+          log.error('scheduleService.runSelected error', err);
+          const message = apiErrorText(err);
+          if (message) {
+            showToast(message, {
+              intent: Number(err?.status || 0) === 429 ? 'warning' : 'danger',
+              key: `schedule:run-now:${id}:${Number(err?.status || 0)}:${message}`,
+              ttlMs: RUN_NOW_ERROR_TOAST_TTL_MS
+            });
+          }
+          ctx.handlers?.setError?.(err);
+          return false;
+        } finally {
+          scheduleService._runSelectedInFlight = false;
+          ctx.handlers?.setLoading?.(false);
+        }
+      }
+    });
+    return true;
   },
   onFetchSchedules({ context, collection = [] }) {
     try {

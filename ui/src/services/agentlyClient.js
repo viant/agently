@@ -164,6 +164,17 @@ export async function beginLogin() {
   return true;
 }
 
+function apiErrorMessage(err) {
+  const body = String(err?.body || '').trim();
+  if (!body) return '';
+  try {
+    const parsed = JSON.parse(body);
+    return String(parsed?.error || parsed?.message || '').trim();
+  } catch (_) {
+    return body;
+  }
+}
+
 export const client = new AgentlyClient({
   baseURL: sdkBaseURL,
   useCookies: true,
@@ -181,12 +192,13 @@ export const client = new AgentlyClient({
   onError: (err) => {
     const status = err?.status || 0;
     const transient = [408, 425, 429, 500, 502, 503, 504].includes(status);
+    const message = apiErrorMessage(err);
     showToast(
-      status > 0
+      message || (status > 0
         ? (transient
             ? `Temporary API failure (${status}).`
             : `Request failed (${status}).`)
-        : 'Network error — check your connection.',
+        : 'Network error — check your connection.'),
       { intent: transient ? 'warning' : 'danger' }
     );
   },

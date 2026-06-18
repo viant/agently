@@ -1,6 +1,6 @@
 service:
   endpoint: agentlyAPI
-  uri: /v1/api/agently/scheduler/run/{scheduleId}
+  uri: /v1/api/agently/scheduler/run
   method: GET
 
 paging:
@@ -12,6 +12,7 @@ paging:
 
 parameters:
   - name: scheduleId
+    kind: query
     in: selection
     location: schedules.id
 
@@ -29,7 +30,13 @@ filterSet:
     template:
       - id: status
         label: Filter by status...
-        operator: eq
+        operator: contains
+      - id: conversationId
+        label: Filter by conversation ID...
+        operator: contains
+      - id: errorMessage
+        label: Filter by error message...
+        operator: contains
 
 quickFilterSet: default
 

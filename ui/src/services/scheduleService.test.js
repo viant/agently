@@ -125,11 +125,13 @@ function deleteContext({ selection, formValues, collection } = {}) {
 afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   scheduleService._saveScheduleInFlight = false
   scheduleService._visibilityHookInstalled = false
   scheduleService._validationHookInstalled = false
   scheduleService._automationStateByWindow = undefined
   scheduleService._suppressNextScheduleSelection = false
+  scheduleService._runSelectedInFlight = false
 })
 
 describe('scheduleService SDK lookups', () => {
@@ -350,6 +352,234 @@ describe('scheduleService SDK lookups', () => {
     expect(runsState.collection).toEqual([])
     expect(runsState.selection).toEqual({ selected: null, rowIndex: -1 })
     expect(runsState.fetches).toBe(1)
+  })
+
+  it('confirms Run Now before running, refreshes run history, and opens Run History after success', async () => {
+    vi.useFakeTimers()
+    const runsState = {
+      input: { parameters: {} },
+      collection: [{ id: 'old-run' }],
+      selection: { selected: { id: 'old-run' }, rowIndex: 0 },
+      fetches: 0
+    }
+    const schedulesDS = {
+      peekSelection() {
+        return { selected: { id: 'sched-1', name: 'Nightly', agentRef: 'chat' }, rowIndex: 0 }
+      },
+      getSelection() {
+        return { selected: { id: 'sched-1', name: 'Nightly', agentRef: 'chat' }, rowIndex: 0 }
+      }
+    }
+    const runsDS = {
+      peekInput() {
+        return runsState.input
+      },
+      setInputParameters(parameters) {
+        runsState.input = { ...runsState.input, parameters }
+      },
+      setCollection(records) {
+        runsState.collection = records
+      },
+      setSelected(selection) {
+        runsState.selection = selection
+      },
+      fetchCollection() {
+        runsState.fetches += 1
+      }
+    }
+    const bus = {
+      value: [],
+      peek() {
+        return this.value
+      }
+    }
+    const context = {
+      identity: { windowId: 'schedule-window-test' },
+      Context(name) {
+        if (name === 'schedules') return { handlers: { dataSource: schedulesDS, setLoading() {}, setError() {} } }
+        if (name === 'runs') return { handlers: { dataSource: runsDS }, identity: { windowId: 'schedule-window-test' } }
+        return null
+      }
+    }
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+    vi.spyOn(forgeCore, 'getBusSignal').mockReturnValue(bus)
+    let confirmOptions
+    const openSpy = vi.spyOn(dialogBus, 'openConfirmDialog').mockImplementation((options) => {
+      confirmOptions = options
+    })
+
+    const ok = await scheduleService.runSelected({ context })
+
+    expect(ok).toBe(true)
+    expect(openSpy).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Run Schedule Now',
+      message: 'Start an immediate manual run for schedule "Nightly"?',
+      confirmText: 'Run Now',
+      cancelText: 'Cancel',
+      loadingText: 'Starting...',
+      intent: 'primary'
+    }))
+    expect(fetchSpy).not.toHaveBeenCalled()
+
+    const confirmPromise = confirmOptions.onConfirm()
+    await Promise.resolve()
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/v1/api/agently/scheduler/run-now/sched-1',
+      expect.objectContaining({ method: 'POST', credentials: 'include' })
+    )
+    expect(runsState.fetches).toBe(0)
+    expect(bus.value).toEqual([])
+
+    await vi.advanceTimersByTimeAsync(999)
+
+    expect(runsState.fetches).toBe(0)
+    expect(bus.value).toEqual([])
+
+    await vi.advanceTimersByTimeAsync(1)
+    const confirmResult = await confirmPromise
+
+    expect(confirmResult).toBe(true)
+    expect(runsState.input.parameters.scheduleId).toBe('sched-1')
+    expect(runsState.collection).toEqual([])
+    expect(runsState.selection).toEqual({ selected: null, rowIndex: -1 })
+    expect(runsState.fetches).toBe(1)
+    expect(bus.value).toEqual([{ type: 'selectTab', tabId: 'scheduleRuns' }])
+  })
+
+  it('does not call Run Now when the confirmation is not accepted', async () => {
+    const schedulesDS = {
+      peekSelection() {
+        return { selected: { id: 'sched-1', name: 'Nightly', agentRef: 'chat' }, rowIndex: 0 }
+      },
+      getSelection() {
+        return { selected: { id: 'sched-1', name: 'Nightly', agentRef: 'chat' }, rowIndex: 0 }
+      }
+    }
+    const bus = {
+      value: [],
+      peek() {
+        return this.value
+      }
+    }
+    const context = {
+      identity: { windowId: 'schedule-window-test' },
+      Context(name) {
+        if (name === 'schedules') return { handlers: { dataSource: schedulesDS, setLoading() {}, setError() {} } }
+        return null
+      }
+    }
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    vi.spyOn(forgeCore, 'getBusSignal').mockReturnValue(bus)
+    const openSpy = vi.spyOn(dialogBus, 'openConfirmDialog').mockImplementation(() => {})
+
+    const ok = await scheduleService.runSelected({ context })
+
+    expect(ok).toBe(true)
+    expect(openSpy).toHaveBeenCalledTimes(1)
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(bus.value).toEqual([])
+  })
+
+  it('runs the schedule from form state when selection metadata is missing', async () => {
+    vi.useFakeTimers()
+    const schedulesDS = {
+      peekSelection() {
+        return { selected: {}, rowIndex: -1 }
+      },
+      getSelection() {
+        return { selected: {}, rowIndex: -1 }
+      },
+      peekFormData() {
+        return { values: { id: 'sched-form', name: 'From form', agentRef: 'chat' } }
+      },
+      getFormData() {
+        return {}
+      }
+    }
+    const context = {
+      Context(name) {
+        if (name === 'schedules') return { handlers: { dataSource: schedulesDS, setLoading() {}, setError() {} } }
+        return null
+      }
+    }
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+    let confirmOptions
+    vi.spyOn(dialogBus, 'openConfirmDialog').mockImplementation((options) => {
+      confirmOptions = options
+    })
+
+    const ok = await scheduleService.runSelected({ context })
+    const confirmPromise = confirmOptions.onConfirm()
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(1000)
+    const confirmResult = await confirmPromise
+
+    expect(ok).toBe(true)
+    expect(confirmResult).toBe(true)
+    expect(confirmOptions).toEqual(expect.objectContaining({
+      message: 'Start an immediate manual run for schedule "From form"?'
+    }))
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/v1/api/agently/scheduler/run-now/sched-form',
+      expect.objectContaining({ method: 'POST', credentials: 'include' })
+    )
+  })
+
+  it('shows the backend Run Now error message when rate limited', async () => {
+    const errors = []
+    const schedulesDS = {
+      peekSelection() {
+        return { selected: { id: 'sched-1', name: 'Nightly', agentRef: 'chat' }, rowIndex: 0 }
+      },
+      getSelection() {
+        return { selected: { id: 'sched-1', name: 'Nightly', agentRef: 'chat' }, rowIndex: 0 }
+      }
+    }
+    const bus = {
+      value: [],
+      peek() {
+        return this.value
+      }
+    }
+    const context = {
+      identity: { windowId: 'schedule-window-test' },
+      Context(name) {
+        if (name !== 'schedules') return null
+        return { handlers: { dataSource: schedulesDS, setLoading() {}, setError(err) { errors.push(err) } } }
+      }
+    }
+    const message = "You can't run this schedule more than once per minute. Please wait before using Run Now again."
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      statusText: 'Too Many Requests',
+      text: async () => JSON.stringify({ error: message })
+    }))
+    const toastSpy = vi.spyOn(httpClient, 'showToast').mockImplementation(() => {})
+    vi.spyOn(forgeCore, 'getBusSignal').mockReturnValue(bus)
+    let confirmOptions
+    vi.spyOn(dialogBus, 'openConfirmDialog').mockImplementation((options) => {
+      confirmOptions = options
+    })
+
+    const ok = await scheduleService.runSelected({ context })
+    const confirmResult = await confirmOptions.onConfirm()
+
+    expect(ok).toBe(true)
+    expect(confirmResult).toBe(false)
+    expect(toastSpy).toHaveBeenCalledWith(message, expect.objectContaining({ intent: 'warning', ttlMs: 6200 }))
+    expect(errors).toHaveLength(1)
+    expect(bus.value).toEqual([])
   })
 })
 
@@ -1125,7 +1355,8 @@ describe('scheduleService deleteSchedule', () => {
     expect(ok).toBe(true)
     expect(openSpy).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Delete Schedule',
-      confirmText: 'Delete'
+      confirmText: 'Delete',
+      loadingText: 'Deleting...'
     }))
     expect(deleteSpy).toHaveBeenCalledWith('sched-1')
     expect(state.collection).toEqual([{ id: 'sched-2', name: 'other' }])

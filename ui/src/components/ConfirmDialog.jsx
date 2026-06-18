@@ -37,7 +37,7 @@ export default function ConfirmDialog() {
             {state.cancelText}
           </Button>
           <Button intent={state.intent} onClick={handleConfirm} loading={state.loading} disabled={state.loading}>
-            {state.loading ? 'Deleting...' : state.confirmText}
+            {state.loading ? (state.loadingText || state.confirmText) : state.confirmText}
           </Button>
         </div>
       </div>
