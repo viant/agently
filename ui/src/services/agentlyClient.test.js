@@ -203,6 +203,28 @@ describe('getAuthProvidersSilently', () => {
   });
 });
 
+describe('client error toasts', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.restoreAllMocks();
+  });
+
+  it('uses API error body text when available', async () => {
+    const { client } = await import('./agentlyClient.js');
+    const { showToast } = await import('./httpClient');
+
+    client.options.onError({
+      status: 429,
+      body: JSON.stringify({ error: "You can't run this schedule more than once per minute. Please wait before using Run Now again." })
+    });
+
+    expect(showToast).toHaveBeenCalledWith(
+      "You can't run this schedule more than once per minute. Please wait before using Run Now again.",
+      { intent: 'warning' }
+    );
+  });
+});
+
 describe('beginLogin', () => {
   beforeEach(() => {
     vi.resetModules();

@@ -26,7 +26,7 @@ filterSet:
     template:
       - id: name
         label: Filter schedules...
-        operator: eq
+        operator: contains
 
 quickFilterSet: default
 

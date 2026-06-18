@@ -37,7 +37,13 @@ dataSource:
         template:
           - id: status
             label: Filter by status...
-            operator: eq
+            operator: contains
+          - id: conversationId
+            label: Filter by conversation ID...
+            operator: contains
+          - id: errorMessage
+            label: Filter by error message...
+            operator: contains
 
     quickFilterSet: default
 

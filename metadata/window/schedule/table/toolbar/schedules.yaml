@@ -29,8 +29,6 @@ items:
     align: right
     tooltip: Run now
     on:
-      - event: onReadonly
-        handler: dataSource.noSelection
       - event: onClick
         handler: schedule.runSelected
 

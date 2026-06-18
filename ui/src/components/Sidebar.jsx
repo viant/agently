@@ -282,6 +282,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
       title: 'Delete conversation',
       message: `Delete "${title}" and its conversation tree? Conversations still in progress cannot be deleted.`,
       confirmText: 'Delete',
+      loadingText: 'Deleting...',
       intent: 'danger',
       onConfirm: async () => {
         setDeletingID(id);
