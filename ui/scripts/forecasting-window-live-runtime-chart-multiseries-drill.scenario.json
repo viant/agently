@@ -1,0 +1,100 @@
+{
+  "baseUrl": "http://127.0.0.1:5173",
+  "requireSession": true,
+  "viewport": {
+    "width": 1400,
+    "height": 1200
+  },
+  "steps": [
+    {
+      "type": "goto",
+      "url": "/mcp-ui/forge-window?windowKey=forecastingCubeBuilder"
+    },
+    {
+      "type": "waitForDomContains",
+      "text": "Quick chart",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "clickRole",
+      "role": "button",
+      "name": "Close"
+    },
+    {
+      "type": "fillSelector",
+      "selector": "input[type=\"date\"]",
+      "index": 0,
+      "value": "2026-06-10",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "fillSelector",
+      "selector": "input[type=\"date\"]",
+      "index": 1,
+      "value": "2026-06-12",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "clickSelector",
+      "selector": ".forge-report-builder__chart-action-button--quick",
+      "force": true
+    },
+    {
+      "type": "clickText",
+      "text": "Overview · Avails by Date and Channel",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForEval",
+      "expression": "(() => { const root = document.querySelector('.forge-report-builder__runtime-preview'); if (!root) return false; const text = root.innerText || root.textContent || ''; return text.includes('Overview · Avails by Date and Channel') && text.includes('Click a chart mark or series legend to apply authored runtime actions.') && document.querySelectorAll('.forge-report-builder__runtime-preview .forge-chart-legend-action').length >= 2; })()",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "clickSelectorContains",
+      "selector": ".forge-report-builder__runtime-preview .forge-chart-legend-action",
+      "text": "Display",
+      "index": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForDomContains",
+      "text": "Selected value: Display",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForEval",
+      "expression": "(() => { const actions = Array.from(document.querySelectorAll('.forge-report-builder__runtime-preview .forge-report-runtime-chart-action')).map((node) => (node.innerText || node.textContent || '').trim()); return actions.includes('Drill to Publisher'); })()",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "clickSelectorContains",
+      "selector": ".forge-report-builder__runtime-preview .forge-report-runtime-chart-action",
+      "text": "Drill to Publisher",
+      "index": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForEval",
+      "expression": "Array.from(document.querySelectorAll('.forge-report-builder__runtime-preview .forge-report-runtime-refinement-chip')).some((node) => { const text = (node.innerText || node.textContent || '').trim(); return text.includes('Drill to Publisher = Display'); })",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForEval",
+      "expression": "(() => { const labels = Array.from(document.querySelectorAll('.forge-report-builder__runtime-preview th')).map((node) => (node.innerText || node.textContent || '').trim()); return labels.includes('Publisher') && !labels.includes('Channel'); })()",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "assertConsoleNotContains",
+      "text": "Maximum update depth exceeded"
+    },
+    {
+      "type": "assertConsoleNotContains",
+      "text": "Failed to fetch data"
+    },
+    {
+      "type": "screenshot",
+      "file": "forecasting-window-live-runtime-chart-multiseries-drill-proof.png",
+      "fullPage": true
+    }
+  ]
+}

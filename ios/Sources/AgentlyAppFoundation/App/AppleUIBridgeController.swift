@@ -168,12 +168,16 @@ final class AppleUIBridgeController {
         do {
             let result = try await commandHandler(method, commandParams)
             updateSelectedWindowID(method: method, params: commandParams, result: result)
-            try await publishSnapshot(force: true, requireAck: true)
             _ = try await rpcClient.respond(
                 commandID: commandID,
                 ok: true,
                 result: BridgeJSONValue.object(result)
             )
+            do {
+                try await publishSnapshot(force: true)
+            } catch {
+                await rpcClient.resetSession()
+            }
         } catch {
             _ = try? await rpcClient.respond(commandID: commandID, ok: false, error: error.localizedDescription)
         }

@@ -1,0 +1,77 @@
+{
+  "baseUrl": "http://127.0.0.1:5173",
+  "requireSession": true,
+  "viewport": {
+    "width": 1400,
+    "height": 960
+  },
+  "steps": [
+    {
+      "type": "goto",
+      "url": "/mcp-ui/forge-window?windowKey=forecastingCubeBuilder"
+    },
+    {
+      "type": "waitForDomContains",
+      "text": "Quick chart",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "clickRole",
+      "role": "button",
+      "name": "Close"
+    },
+    {
+      "type": "clearRequestEntries"
+    },
+    {
+      "type": "clickSelector",
+      "selector": ".forge-report-builder__chart-action-button--quick"
+    },
+    {
+      "type": "clickSelectorContains",
+      "selector": "[role=\"menuitem\"]",
+      "text": "Inventory · Site Types",
+      "index": 0
+    },
+    {
+      "type": "waitForRequestJsonEval",
+      "urlIncludes": "/v1/api/datasources/forecasting_cube_report/fetch",
+      "method": "POST",
+      "expression": "request?.inputs?.measures?.avails === true && request?.inputs?.dimensions?.siteType === true && !request?.inputs?.dimensions?.channelV2 && !request?.inputs?.dimensions?.siteId",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForRequestJsonEval",
+      "urlIncludes": "/v1/api/datasources/forecasting_cube_report/fetch",
+      "method": "POST",
+      "expression": "request?.inputs?.limit === 1000 && request?.inputs?.offset === 0",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForEval",
+      "expression": "(() => { const header = document.querySelector('.forge-report-builder__result-header'); const text = (header?.innerText || header?.textContent || ''); return text.includes('Chart-first view for the active scope') && text.includes('Inventory · Site Types'); })()",
+      "timeoutMs": 60000
+    },
+    {
+      "type": "waitForChartRender",
+      "selector": ".recharts-wrapper",
+      "minWidth": 200,
+      "minHeight": 160,
+      "minVisibleSectors": 1,
+      "timeoutMs": 60000
+    },
+    {
+      "type": "assertConsoleNotContains",
+      "text": "Maximum update depth exceeded"
+    },
+    {
+      "type": "assertConsoleNotContains",
+      "text": "Failed to fetch data"
+    },
+    {
+      "type": "screenshot",
+      "file": "forecasting-window-live-quick-chart-categorical-proof.png",
+      "fullPage": true
+    }
+  ]
+}
