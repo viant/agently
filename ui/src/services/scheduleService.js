@@ -1658,6 +1658,15 @@ function resolveRunConversationID(params = {}) {
 }
 
 export const scheduleService = {
+  refreshRunHistory({ context } = {}) {
+    try {
+      context?.handlers?.dataSource?.fetchCollection?.();
+      return true;
+    } catch (e) {
+      log.warn('schedule.refreshRunHistory error', e);
+      return false;
+    }
+  },
   onInit({ context }) {
     scheduleService._lastContext = context;
     installScheduleEmptyStateObserver();

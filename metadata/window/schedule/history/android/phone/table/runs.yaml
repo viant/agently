@@ -57,8 +57,12 @@ toolbar:
   items:
     - id: refresh
       icon: refresh
+      enabled: true
       align: left
       tooltip: Refresh run history
+      on:
+        - event: onClick
+          handler: schedule.refreshRunHistory
     - id: pagination
       type: pagination
       align: center

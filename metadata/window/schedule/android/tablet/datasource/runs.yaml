@@ -3,6 +3,8 @@ service:
   uri: /v1/api/agently/scheduler/run
   method: GET
 
+preserveParametersOnMissingDependencies: true
+
 paging:
   size: 12
   enabled: true
@@ -13,7 +15,7 @@ paging:
 parameters:
   - name: scheduleId
     kind: query
-    in: selection
+    in: dataSource
     location: schedules.id
 
 selectors:

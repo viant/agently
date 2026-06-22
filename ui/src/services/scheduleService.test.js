@@ -354,6 +354,25 @@ describe('scheduleService SDK lookups', () => {
     expect(runsState.fetches).toBe(1)
   })
 
+  it('keeps the top-level Runs window global when refreshing run history', () => {
+    const fetchCollection = vi.fn()
+    const context = {
+      Context(name) {
+        throw new Error(`DataSource not found: ${name}`)
+      },
+      handlers: {
+        dataSource: {
+          fetchCollection
+        }
+      }
+    }
+
+    const ok = scheduleService.refreshRunHistory({ context })
+
+    expect(ok).toBe(true)
+    expect(fetchCollection).toHaveBeenCalledTimes(1)
+  })
+
   it('confirms Run Now before running, refreshes run history, and opens Run History after success', async () => {
     vi.useFakeTimers()
     const runsState = {
