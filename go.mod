@@ -13,10 +13,10 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.17.0
-	github.com/viant/agently-core v0.1.14
+	github.com/viant/agently-core v0.1.15-0.20260624192846-bed2de4a90dd
 	github.com/viant/datly v0.37.1-0.20260409194131-e40dcc4467ab
 	github.com/viant/embedius v0.5.3 // indirect
-	github.com/viant/forge v0.3.7
+	github.com/viant/forge v0.3.8-0.20260624192255-7e838ccd8281
 	github.com/viant/jsonrpc v0.21.0 // indirect
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
 	github.com/viant/mcp v0.16.0 // indirect
@@ -49,6 +49,7 @@ require (
 	cloud.google.com/go/monitoring v1.21.2 // indirect
 	cloud.google.com/go/secretmanager v1.14.2 // indirect
 	cloud.google.com/go/storage v1.50.0 // indirect
+	codeberg.org/go-pdf/fpdf v0.10.0 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	firebase.google.com/go v3.13.0+incompatible // indirect
 	firebase.google.com/go/v4 v4.14.0 // indirect
@@ -185,12 +186,13 @@ require (
 	go.opentelemetry.io/otel/trace v1.38.0 // indirect
 	golang.org/x/crypto v0.43.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
+	golang.org/x/image v0.33.0 // indirect
 	golang.org/x/mod v0.29.0 // indirect
 	golang.org/x/net v0.46.1-0.20251013234738-63d1a5100f82 // indirect
 	golang.org/x/oauth2 v0.32.0 // indirect
-	golang.org/x/sync v0.17.0 // indirect
+	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect
-	golang.org/x/text v0.30.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
 	golang.org/x/time v0.8.0 // indirect
 	golang.org/x/tools v0.38.0 // indirect
 	google.golang.org/api v0.214.0 // indirect
@@ -208,3 +210,5 @@ require (
 	modernc.org/sqlite v1.45.0 // indirect
 )
 
+//replace github.com/viant/forge => ../forge
+//replace github.com/viant/agently-core => ../agently-core
