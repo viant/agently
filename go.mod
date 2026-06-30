@@ -13,7 +13,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.0
 	github.com/viant/afsc v1.17.0
-	github.com/viant/agently-core v0.1.15-0.20260624192846-bed2de4a90dd
+	github.com/viant/agently-core v0.1.15-0.20260630121733-707cbc2b0ec2
 	github.com/viant/datly v0.37.1-0.20260409194131-e40dcc4467ab
 	github.com/viant/embedius v0.5.3 // indirect
 	github.com/viant/forge v0.3.8-0.20260624192255-7e838ccd8281
@@ -33,8 +33,9 @@ require (
 )
 
 require (
-	github.com/google/gops v0.3.28
+	github.com/go-sql-driver/mysql v1.9.0
 	github.com/viant/bigquery v0.5.1
+	github.com/viant/sqlx v0.22.1-0.20260326175456-cec446e28372
 )
 
 require (
@@ -100,7 +101,6 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-sql-driver/mysql v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.1 // indirect
@@ -156,7 +156,6 @@ require (
 	github.com/viant/pgo v0.11.0 // indirect
 	github.com/viant/sqlite-vec v0.3.1-0.20260220164201-136574510a3f // indirect
 	github.com/viant/sqlparser v0.12.1-0.20260409013525-147f8fc299b7 // indirect
-	github.com/viant/sqlx v0.22.1-0.20260326175456-cec446e28372 // indirect
 	github.com/viant/structql v0.5.4 // indirect
 	github.com/viant/tagly v0.3.0 // indirect
 	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect
@@ -209,6 +208,3 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.45.0 // indirect
 )
-
-//replace github.com/viant/forge => ../forge
-//replace github.com/viant/agently-core => ../agently-core
