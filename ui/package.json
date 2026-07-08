@@ -34,6 +34,7 @@
     "proof:forecasting-window:runtime:live:table-action-labels": "node scripts/browser-proof-runner.mjs scripts/forecasting-window-live-runtime-table-action-labels.scenario.json test-results/forecasting-proof-harness-live-auth",
     "proof:forecasting-window:runtime:live:inventory-drill": "node scripts/browser-proof-runner.mjs scripts/forecasting-window-live-runtime-forecast-inventory-drill.scenario.json test-results/forecasting-proof-harness-live-auth",
     "proof:forecasting-window:runtime:live:location-drill": "node scripts/browser-proof-runner.mjs scripts/forecasting-window-live-runtime-forecast-location-drill.scenario.json test-results/forecasting-proof-harness-live-auth",
+    "proof:forecasting-window:export:live:pdf-download": "node scripts/browser-proof-runner.mjs scripts/forecasting-window-live-export-pdf-download.scenario.json test-results/forecasting-proof-harness-live-auth",
     "proof:forecasting-live": "node scripts/run-forecasting-live-proof.mjs",
     "sync:deployment": "./scripts/sync-deployment-ui.sh",
     "sync:deployment:v1": "./scripts/sync-deployment-ui.sh",

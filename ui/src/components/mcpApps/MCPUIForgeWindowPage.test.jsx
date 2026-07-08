@@ -49,6 +49,8 @@ describe('MCPUIForgeWindowPage helpers', () => {
     }, { reportId: 'capacityTrendQ3', conversationId: 'conv-123' })).toMatchObject({
       windowId: 'mcpui:metricReportBuilder',
       windowKey: 'metricReportBuilder',
+      id: 'metricReportBuilder',
+      stateKey: 'metricReportBuilder',
       windowTitle: 'Performance Metrics',
       presentation: 'hosted',
       region: 'chat.top',
@@ -198,6 +200,8 @@ describe('MCPUIForgeWindowPage helpers', () => {
     expect(buildWindowPayload('forecastingCubeBuilder', { data: {} }, null)).toMatchObject({
       windowId: 'mcpui:forecastingCubeBuilder',
       windowKey: 'forecastingCubeBuilder',
+      id: 'forecastingCubeBuilder',
+      stateKey: 'forecastingCubeBuilder',
       windowTitle: 'forecastingCubeBuilder',
       presentation: 'hosted',
       region: 'mcpui.bubble',
