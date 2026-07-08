@@ -1,0 +1,7 @@
+id: system/async
+title: System Async
+description: Async operation discovery tools
+iconRef: builtin:tools
+priority: 55
+match:
+  - name: "system/async:*"
