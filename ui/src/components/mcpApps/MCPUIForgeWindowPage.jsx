@@ -17,11 +17,20 @@ function parseJSONParam(raw = '') {
 
 function buildWindowPayload(windowKey, payload, parameters) {
   const data = payload?.data && typeof payload.data === 'object' ? payload.data : {};
+  const normalizedWindowKey = String(windowKey || '').trim();
+  const normalizedWindowId = `mcpui:${normalizedWindowKey}`;
   return {
     ...data,
-    windowId: `mcpui:${windowKey}`,
-    windowKey,
-    windowTitle: String(data?.namespace || windowKey || 'Workspace').trim() || 'Workspace',
+    windowId: normalizedWindowId,
+    windowKey: normalizedWindowKey,
+    // Forge report/export flows derive draft artifact identity from container
+    // ids. Hosted MCPUI windows historically only carried windowId/windowKey,
+    // which left reportBuilder draft export inactive even when runtime rows
+    // were visible. Mirror the hosted window identity onto Forge's conventional
+    // id/stateKey fields so draft export can build a stable artifactRef.
+    id: String(data?.id || normalizedWindowKey || normalizedWindowId).trim() || normalizedWindowId,
+    stateKey: String(data?.stateKey || data?.id || normalizedWindowKey || normalizedWindowId).trim() || normalizedWindowId,
+    windowTitle: String(data?.namespace || normalizedWindowKey || 'Workspace').trim() || 'Workspace',
     presentation: String(data?.presentation || 'hosted').trim() || 'hosted',
     region: String(data?.region || 'mcpui.bubble').trim() || 'mcpui.bubble',
     parameters: parameters && typeof parameters === 'object' ? parameters : {},

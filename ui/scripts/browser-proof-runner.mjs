@@ -224,6 +224,28 @@ async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true });
 }
 
+async function collectDownloadEntry(download, outputDir) {
+  const suggestedFilename = String(download?.suggestedFilename?.() || "").trim();
+  const safeFilename = suggestedFilename || `download-${Date.now()}.bin`;
+  const filePath = path.resolve(outputDir, "downloads", safeFilename);
+  await ensureDir(path.dirname(filePath));
+  let failure = "";
+  try {
+    await download.saveAs(filePath);
+  } catch (error) {
+    failure = String(error?.message || error || "").trim();
+  }
+  const reportedFailure = await download.failure().catch(() => null);
+  if (!failure && reportedFailure) {
+    failure = String(reportedFailure || "").trim();
+  }
+  return {
+    suggestedFilename: safeFilename,
+    path: failure ? "" : filePath,
+    failure,
+  };
+}
+
 async function writeFailureArtifacts(page, outputDir, error) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const screenshotPath = path.resolve(outputDir, `failure-${timestamp}.png`);
@@ -715,6 +737,11 @@ async function executeStep(page, step, outputDir, scenario = {}, runtime = {}) {
       runtime.requestEntries = [];
       return;
     }
+    case "clearDownloadEntries": {
+      runtime.downloadEntries = [];
+      runtime.downloadReads = [];
+      return;
+    }
     case "waitForText":
     case "waitRole": {
       const locator = await locatorForStep(page, step);
@@ -829,6 +856,28 @@ async function executeStep(page, step, outputDir, scenario = {}, runtime = {}) {
         await page.waitForTimeout(250);
       }
       throw new Error(`Timed out waiting for request JSON expression: ${expression}`);
+    }
+    case "waitForDownload": {
+      const timeoutMs = Number(step.timeoutMs || 30000);
+      const started = Date.now();
+      const filenameContains = String(step.filenameContains || "").trim();
+      while (Date.now() - started < timeoutMs) {
+        await Promise.allSettled(Array.isArray(runtime.downloadReads) ? runtime.downloadReads : []);
+        const matched = (Array.isArray(runtime.downloadEntries) ? runtime.downloadEntries : []).find((entry) => {
+          if (!entry || typeof entry !== "object") {
+            return false;
+          }
+          if (filenameContains && !String(entry.suggestedFilename || "").includes(filenameContains)) {
+            return false;
+          }
+          return !String(entry.failure || "").trim();
+        });
+        if (matched) {
+          return;
+        }
+        await page.waitForTimeout(250);
+      }
+      throw new Error(`Timed out waiting for download${filenameContains ? `: ${filenameContains}` : ""}`);
     }
     case "waitForChartRender": {
       const timeoutMs = Number(step.timeoutMs || 30000);
@@ -996,6 +1045,23 @@ async function executeStep(page, step, outputDir, scenario = {}, runtime = {}) {
       }
       return;
     }
+    case "assertDownload": {
+      await Promise.allSettled(Array.isArray(runtime.downloadReads) ? runtime.downloadReads : []);
+      const filenameContains = String(step.filenameContains || "").trim();
+      const matched = (Array.isArray(runtime.downloadEntries) ? runtime.downloadEntries : []).find((entry) => {
+        if (!entry || typeof entry !== "object") {
+          return false;
+        }
+        if (filenameContains && !String(entry.suggestedFilename || "").includes(filenameContains)) {
+          return false;
+        }
+        return !String(entry.failure || "").trim();
+      });
+      if (!matched) {
+        throw new Error(`Expected download not found${filenameContains ? `: ${filenameContains}` : ""}`);
+      }
+      return;
+    }
     case "screenshot": {
       const file = resolveStepFile(outputDir, step.file);
       await ensureDir(path.dirname(file));
@@ -1022,6 +1088,7 @@ async function main() {
 
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
+    acceptDownloads: true,
     viewport: {
       width: Number(scenario.viewport?.width || 1280),
       height: Number(scenario.viewport?.height || 720),
@@ -1061,6 +1128,8 @@ async function main() {
     responseEntries: [],
     responseReads: [],
     responseGeneration: 0,
+    downloadEntries: [],
+    downloadReads: [],
   };
   if (routeMocks.length > 0) {
     await page.route("**/*", async (route) => {
@@ -1148,6 +1217,13 @@ async function main() {
     })();
     runtime.responseReads.push(read);
   });
+  page.on("download", (download) => {
+    const read = (async () => {
+      const entry = await collectDownloadEntry(download, outputDir);
+      runtime.downloadEntries.push(entry);
+    })();
+    runtime.downloadReads.push(read);
+  });
   try {
     for (const step of scenario.steps || []) {
       await executeStep(page, step, outputDir, scenario, runtime);
@@ -1161,6 +1237,7 @@ async function main() {
     throw error;
   } finally {
     await Promise.allSettled(Array.isArray(runtime.responseReads) ? runtime.responseReads : []);
+    await Promise.allSettled(Array.isArray(runtime.downloadReads) ? runtime.downloadReads : []);
     await browser.close();
   }
 }
