@@ -1,0 +1,1 @@
+import{c as a,b7 as o}from"./index-DgNa12x2.js";var g=a((t,e)=>{let n;return e==="sandbox"&&(n=o("#i"+t)),(e==="sandbox"?o(n.nodes()[0].contentDocument.body):o("body")).select(`[id="${t}"]`)},"getDiagramElement");export{g};
