@@ -1,0 +1,2 @@
+import{c as e,aF as s,b8 as o,G as i}from"./index-DgNa12x2.js";import{p as g}from"./wardley-L42UT6IY-DwThv-kI.js";var p={parse:e(async r=>{const a=await g("info",r);s.debug(a)},"parse")},v={version:"11.15.0"},d=e(()=>v.version,"getVersion"),c={getVersion:d},m=e((r,a,n)=>{s.debug(`rendering info diagram
+`+r);const t=o(a);i(t,100,400,!0),t.append("g").append("text").attr("x",100).attr("y",40).attr("class","version").attr("font-size",32).style("text-anchor","middle").text(`v${n}`)},"draw"),f={draw:m},b={parser:p,db:c,renderer:f};export{b as diagram};

@@ -15,7 +15,7 @@ paging:
 parameters:
   - name: scheduleId
     kind: query
-    in: dataSource
+    in: selection
     location: schedules.id
 
 selectors:
