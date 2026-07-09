@@ -319,6 +319,55 @@ describe('MenuBar queue approval dialog', () => {
     expect(dialog.plannerMeta?.defaultRows).toEqual(argumentsPayload.rows);
     expect(dialog.plannerMeta?.field).toBe('rows');
   });
+
+  it('applies selector-based review seeds for nested recommendation fields', async () => {
+    const { normalizeQueueApprovalDialog } = await import('./MenuBar.jsx');
+    const item = {
+      arguments: {
+        Recommendation: {
+          change_summary: 'Extend target sitelist coverage for audience 7320456 with reusable sitelist 115989 containing 10 sites.',
+          change_reason: 'Objective=SCALE with bid fulfillment ratio 0.00; prepared deterministic sitelist artifact for safe target expansion.',
+          metadata: {
+            current_expression: 'location:["US"] AND ad.site.type:["app"]',
+            proposed_expression: 'location:["US"] AND ad.site.type:["app"] AND site.lists.v2:["115989"]',
+            site_list_id: 115989,
+            generated_sitelist_name: 'steward-sl-adv-110580-target-d50d3583197d',
+          },
+        },
+      },
+      metadata: {
+        review: {
+          requestedSchema: {
+            type: 'object',
+            properties: {
+              change_summary: { type: 'string', readOnly: true },
+              current_expression: { type: 'string', readOnly: true },
+              proposed_expression: { type: 'string', readOnly: true },
+              change_reason: { type: 'string', readOnly: true },
+              site_list_id: { type: 'integer', readOnly: true },
+              generated_sitelist_name: { type: 'string', readOnly: true },
+            },
+          },
+          seeds: [
+            { schemaPath: 'properties.change_summary.default', selector: 'Recommendation.change_summary' },
+            { schemaPath: 'properties.current_expression.default', selector: 'Recommendation.metadata.current_expression' },
+            { schemaPath: 'properties.proposed_expression.default', selector: 'Recommendation.metadata.proposed_expression' },
+            { schemaPath: 'properties.change_reason.default', selector: 'Recommendation.change_reason' },
+            { schemaPath: 'properties.site_list_id.default', selector: 'Recommendation.metadata.site_list_id' },
+            { schemaPath: 'properties.generated_sitelist_name.default', selector: 'Recommendation.metadata.generated_sitelist_name' },
+          ],
+        },
+      },
+    };
+
+    const dialog = normalizeQueueApprovalDialog(item);
+    expect(dialog.preparedSchema.properties.change_summary.default).toBe(item.arguments.Recommendation.change_summary);
+    expect(dialog.preparedSchema.properties.current_expression.default).toBe(item.arguments.Recommendation.metadata.current_expression);
+    expect(dialog.preparedSchema.properties.proposed_expression.default).toBe(item.arguments.Recommendation.metadata.proposed_expression);
+    expect(dialog.preparedSchema.properties.change_reason.default).toBe(item.arguments.Recommendation.change_reason);
+    expect(dialog.preparedSchema.properties.site_list_id.default).toBe(item.arguments.Recommendation.metadata.site_list_id);
+    expect(dialog.preparedSchema.properties.generated_sitelist_name.default).toBe(item.arguments.Recommendation.metadata.generated_sitelist_name);
+  });
 });
 
 describe('MenuBar MCP UI approval routing', () => {

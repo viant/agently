@@ -7,6 +7,7 @@ import { subscribeMCPUIApprovalRequests } from '../services/mcpApps/approvalEven
 import { MAIN_CHAT_WINDOW_ID, resolveConversationSelection } from '../services/conversationWindow';
 import { getWorkspaceMetadataSnapshot, resolveWorkspaceBranding, subscribeWorkspaceMetadata } from '../services/workspaceMetadata';
 import { extractPlannerElicitationMeta, prepareRenderableRequestedSchema } from './elicitationHelpers';
+import { selectPath } from '../services/feedForgeWiring';
 import logo from '../viant-logo.png';
 
 const remoteOrInlineImageRefPattern = /^(https?:\/\/|data:image\/|blob:|\/)/i;
@@ -172,6 +173,42 @@ function normalizeQueueJSON(value = null) {
   }
 }
 
+function setNestedPath(root, path, value) {
+  if (!root || typeof root !== 'object') return;
+  const normalized = String(path || '').trim().replace(/\[(\d+)\]/g, '.$1').replace(/^\./, '');
+  const parts = normalized.split('.').filter(Boolean);
+  if (parts.length === 0) return;
+  let cursor = root;
+  for (let index = 0; index < parts.length - 1; index += 1) {
+    const token = parts[index];
+    const nextToken = parts[index + 1];
+    if (!cursor[token] || typeof cursor[token] !== 'object') {
+      cursor[token] = /^\d+$/.test(nextToken) ? [] : {};
+    }
+    cursor = cursor[token];
+  }
+  cursor[parts[parts.length - 1]] = value;
+}
+
+function applyQueueReviewSeeds(requestedSchema = null, seeds = [], source = null) {
+  try {
+    if (!requestedSchema || typeof requestedSchema !== 'object') return requestedSchema;
+    if (!Array.isArray(seeds) || seeds.length === 0) return requestedSchema;
+    const clone = JSON.parse(JSON.stringify(requestedSchema));
+    seeds.forEach((seed) => {
+      const schemaPath = String(seed?.schemaPath || '').trim();
+      const selector = String(seed?.selector || '').trim();
+      if (!schemaPath || !selector) return;
+      const value = selectPath(selector, source);
+      if (value === null || value === undefined) return;
+      setNestedPath(clone, schemaPath, JSON.parse(JSON.stringify(value)));
+    });
+    return clone;
+  } catch (_) {
+    return requestedSchema;
+  }
+}
+
 export function normalizeQueueApprovalDialog(item = null) {
   const selected = item && typeof item === 'object' ? item : {};
   const metadata = normalizeQueueJSON(selected?.metadata);
@@ -181,7 +218,8 @@ export function normalizeQueueApprovalDialog(item = null) {
   const requestedSchema = review?.requestedSchema && typeof review.requestedSchema === 'object'
     ? review.requestedSchema
     : null;
-  const preparedSchema = prepareRenderableRequestedSchema(requestedSchema, argumentsPayload);
+  const seededSchema = applyQueueReviewSeeds(requestedSchema, review?.seeds, argumentsPayload);
+  const preparedSchema = prepareRenderableRequestedSchema(seededSchema, argumentsPayload);
   const plannerMeta = extractPlannerElicitationMeta(preparedSchema);
   const preparedFormSchema = (() => {
     if (!plannerMeta?.field || !preparedSchema?.properties || typeof preparedSchema.properties !== 'object') {
