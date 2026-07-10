@@ -418,7 +418,7 @@ async function proveWindow({
   const beforeInitialRun = requestEntries.length;
   await page.getByRole("button", { name: "Run report", exact: true }).click();
   await waitForRequestIncrease(requestEntries, beforeInitialRun, 120000);
-  await page.getByText("Chart presets", { exact: true }).waitFor({ timeout: 60000 });
+  await page.locator(".forge-report-builder__chart-action-button--quick").first().waitFor({ timeout: 60000 });
   const presets = await fetchWindowMetadata("http://127.0.0.1:9191", windowKey);
   const summary = [];
 

@@ -62,6 +62,14 @@ export const resolveProxyTarget = (env, options = {}) => {
   return '';
 };
 
+export const resolveDevHost = (env = {}) => {
+  return String(env.VITE_HOST || env.HOST || LOCAL_DEV_HOST).trim() || LOCAL_DEV_HOST;
+};
+
+export const resolveDevPort = (env = {}) => {
+  return Number(env.VITE_PORT || env.PORT || LOCAL_DEV_PORT) || LOCAL_DEV_PORT;
+};
+
 export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const safeEnv = pickEnv(env, ['AUTH_URL', 'DATA_URL', 'APP_URL', 'APPSERVER_URL', 'VITE_FORGE_LOG_LEVEL']);
@@ -69,8 +77,8 @@ export default defineConfig(({ mode, command }) => {
   const proxyTarget = command === 'serve'
     ? resolveProxyTarget(env, { requireExplicit: true })
     : resolveProxyTarget(env);
-  const devHost = String(env.VITE_HOST || LOCAL_DEV_HOST).trim() || LOCAL_DEV_HOST;
-  const devPort = Number(env.VITE_PORT || env.PORT || LOCAL_DEV_PORT) || LOCAL_DEV_PORT;
+  const devHost = resolveDevHost(env);
+  const devPort = resolveDevPort(env);
   const uiRoot = __dirname;
   const forgeRoot = resolve(__dirname, '../../forge');
   const forgeNodeModules = resolve(uiRoot, 'node_modules/forge');
