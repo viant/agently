@@ -1190,10 +1190,8 @@ github.com/viant/afs v1.30.1-0.20260707124824-0373fe4ae4cb h1:W7iN1WKagshu1XOInw
 github.com/viant/afs v1.30.1-0.20260707124824-0373fe4ae4cb/go.mod h1:rScbFd9LJPGTM8HOI8Kjwee0AZ+MZMupAvFpPg+Qdj4=
 github.com/viant/afsc v1.17.0 h1:JvQFYIOOPJY0JuL3DoocBbuut5tH0UwwFRYWh1EHfZg=
 github.com/viant/afsc v1.17.0/go.mod h1:Z6fP3VcmzS8Sg2lowctR6KkVEX7XxJ8aNaoHqhUiZkY=
-github.com/viant/agently-core v0.1.16-0.20260710213412-11d5c6b9fe8f h1:wjzMrFf6tn6Iha001obBKQtkwFWHlhjKaM6b/OR25zc=
-github.com/viant/agently-core v0.1.16-0.20260710213412-11d5c6b9fe8f/go.mod h1:up3Pr3gEC56qjkFg03PHCKiWvzZtGPcg3ZARlTlmWSU=
-github.com/viant/agently-core v0.1.16 h1:FzHa+SZiHBGg6a0mszjipOt6+4nBafex/NFzzB5W/8A=
-github.com/viant/agently-core v0.1.16/go.mod h1:up3Pr3gEC56qjkFg03PHCKiWvzZtGPcg3ZARlTlmWSU=
+github.com/viant/agently-core v0.1.17-0.20260713174628-48965e1e87e8 h1:7c4kc56Hl3QrXaj4YmUpZEnR63XjOs2XA7RL+zp4Smo=
+github.com/viant/agently-core v0.1.17-0.20260713174628-48965e1e87e8/go.mod h1:xOhlYQZEzSQfgD6fXlKN2jS5bP+NsiBc0/wjkcfgarg=
 github.com/viant/assertly v0.4.8/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.0/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.1-0.20220620174148-bab013f93a60 h1:VFJvCOHKXv4IqX8rJwn1otpHWQGgMDv2bXtAPgEzndM=
@@ -1234,8 +1232,8 @@ github.com/viant/jsonrpc v0.23.1-0.20260710212050-f1bb78063207 h1:S08fmocuFkVxZo
 github.com/viant/jsonrpc v0.23.1-0.20260710212050-f1bb78063207/go.mod h1:b214Lo4zBwLqbu6Tf2bRlgQkFfPMBW5ap4qS+I3zcJ8=
 github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 h1:OWMFweaKPIdh1tkbxgb0vJ6YPHoUlZR4yWf9CTntHB4=
 github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99/go.mod h1:7ovJ5fzlXnVcadUr9RjJVwVl2l3wbNvm5i4tSOj+VbE=
-github.com/viant/mcp v0.17.0 h1:CgHQN7DBOx3GdkxjnrhmIw/82doBFWO3LxF2G5DOI5o=
-github.com/viant/mcp v0.17.0/go.mod h1:5L84EaFQ8AE6stYzqD9onNFU2AdhR0W8eg7gAa3o2G8=
+github.com/viant/mcp v0.17.1-0.20260710212418-9a61149cc27d h1:+WD2MmCA58q/Mt9sFlih1fEjNTVpl/mpDg9jli7d7Oc=
+github.com/viant/mcp v0.17.1-0.20260710212418-9a61149cc27d/go.mod h1:1MaevPxDVcP5sAtYOodAGQtEef5l9B6P5v8fe/o+a8E=
 github.com/viant/mcp-protocol v0.14.0 h1:OCUQf66MwkOwBHbMsXATwevVf05538ZgXr9N86VtFdE=
 github.com/viant/mcp-protocol v0.14.0/go.mod h1:7GKbxslIL3V2CexnugD3I5eCCkzHIvg1OjX2IgIloVU=
 github.com/viant/mcp-ui v0.1.0 h1:0pfd9EYcjd4aQB75KR41ntixZpXK7x/NxUETKWERIDc=
