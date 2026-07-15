@@ -220,6 +220,41 @@ function resolveStepFile(outputDir, file) {
   return path.resolve(outputDir, String(file || "").trim());
 }
 
+export function resolveScenarioFilePaths(step = {}, outputDir = process.cwd()) {
+  const candidates = Array.isArray(step?.paths)
+    ? step.paths
+    : [step?.path];
+  const paths = candidates
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean)
+    .map((entry) => resolveStepFile(outputDir, entry));
+  if (paths.length === 0) {
+    throw new Error("setInputFiles requires path or paths.");
+  }
+  return paths;
+}
+
+export function resolveLatestDownloadedFilePaths(step = {}, runtime = {}, outputDir = process.cwd()) {
+  const entries = (Array.isArray(runtime?.downloadEntries) ? runtime.downloadEntries : [])
+    .filter((entry) => entry && typeof entry === "object" && !String(entry.failure || "").trim() && String(entry.path || "").trim());
+  const filenameContains = String(step?.filenameContains || "").trim();
+  const matchingEntries = filenameContains
+    ? entries.filter((entry) => String(entry.suggestedFilename || "").includes(filenameContains))
+    : entries;
+  if (matchingEntries.length === 0) {
+    throw new Error(`No matching downloaded file${filenameContains ? `: ${filenameContains}` : ""}.`);
+  }
+  const requestedIndex = step?.downloadIndex;
+  if (requestedIndex !== undefined && requestedIndex !== null && String(requestedIndex).trim() !== "") {
+    const index = Number(requestedIndex);
+    if (!Number.isInteger(index) || index < 0 || index >= matchingEntries.length) {
+      throw new Error(`Requested downloadIndex ${requestedIndex} is out of range.`);
+    }
+    return [path.resolve(outputDir, matchingEntries[index].path)];
+  }
+  return [path.resolve(outputDir, matchingEntries[matchingEntries.length - 1].path)];
+}
+
 async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true });
 }
@@ -932,6 +967,23 @@ async function executeStep(page, step, outputDir, scenario = {}, runtime = {}) {
       });
       return;
     }
+    case "setInputFiles": {
+      const locator = page.locator(String(step.selector || ""));
+      // File inputs are intentionally hidden and opened by visible toolbar actions.
+      const target = await waitForIndexedLocator(locator, Number(step.index || 0), step.timeoutMs || 30000, false);
+      const files = resolveScenarioFilePaths(step, outputDir);
+      await Promise.all(files.map((file) => fs.access(file)));
+      await target.setInputFiles(files);
+      return;
+    }
+    case "setInputFilesFromLatestDownload": {
+      const locator = page.locator(String(step.selector || ""));
+      const target = await waitForIndexedLocator(locator, Number(step.index || 0), step.timeoutMs || 30000, false);
+      const files = resolveLatestDownloadedFilePaths(step, runtime, outputDir);
+      await Promise.all(files.map((file) => fs.access(file)));
+      await target.setInputFiles(files);
+      return;
+    }
     case "selectSelector": {
       const locator = page.locator(String(step.selector || ""));
       const target = await waitForIndexedLocator(locator, Number(step.index || 0), step.timeoutMs || 30000, true);
@@ -1242,7 +1294,10 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+// Vitest imports this module to exercise helpers; only execute scenarios when Node runs this file.
+if (String(process.argv[1] || "").endsWith("browser-proof-runner.mjs")) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
