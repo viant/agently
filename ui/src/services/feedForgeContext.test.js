@@ -14,11 +14,25 @@ vi.mock('./reportExportService', () => ({
     artifactId,
     bytes: new Uint8Array([9, 8, 7]),
   })),
+  listReportExportJobs: vi.fn(async ({ artifactRef, limit }) => ({
+    jobs: [{ jobId: 'job-1', artifactRef }],
+    totalCount: limit || 1,
+  })),
+  listReportExportArtifacts: vi.fn(async ({ artifactRef, limit }) => ({
+    artifacts: [{ artifactId: 'artifact-1', artifactRef }],
+    totalCount: limit || 1,
+  })),
 }));
 
 import { createFeedContext } from './feedForgeContext';
 import { chatService } from './chatService';
-import { getReportExportArtifact, getReportExportStatus, submitReportExportRequest } from './reportExportService';
+import {
+  getReportExportArtifact,
+  getReportExportStatus,
+  listReportExportArtifacts,
+  listReportExportJobs,
+  submitReportExportRequest,
+} from './reportExportService';
 
 describe('createFeedContext', () => {
   it('exposes Forge-compatible signals on the root and sub-contexts', () => {
@@ -142,10 +156,18 @@ describe('createFeedContext', () => {
     const artifact = await subContext.handlers.reportExport.getArtifact({ artifactId: 'artifact-1' });
     expect(Array.from(artifact.bytes)).toEqual([9, 8, 7]);
 
+    const jobs = await subContext.handlers.reportExport.listJobs({ artifactRef: 'report://demo', limit: 2 });
+    expect(jobs).toMatchObject({ totalCount: 2 });
+
+    const artifacts = await subContext.handlers.reportExport.listArtifacts({ artifactRef: 'report://demo', limit: 3 });
+    expect(artifacts).toMatchObject({ totalCount: 3 });
+
     expect(submitReportExportRequest).toHaveBeenCalledTimes(2);
     expect(submitReportExportRequest).toHaveBeenNthCalledWith(1, { request, source: 'draft' });
     expect(submitReportExportRequest).toHaveBeenNthCalledWith(2, { request, source: 'savedPayload' });
     expect(getReportExportStatus).toHaveBeenCalledWith({ jobId: 'job-1' });
     expect(getReportExportArtifact).toHaveBeenCalledWith({ artifactId: 'artifact-1' });
+    expect(listReportExportJobs).toHaveBeenCalledWith({ artifactRef: 'report://demo', limit: 2 });
+    expect(listReportExportArtifacts).toHaveBeenCalledWith({ artifactRef: 'report://demo', limit: 3 });
   });
 });

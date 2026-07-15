@@ -104,3 +104,33 @@ export async function getReportExportArtifact({ artifactId } = {}) {
     bytes,
   };
 }
+
+function normalizeListResponse(result, itemKey) {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    throw new Error(`unexpected reporting export ${itemKey} response: ${JSON.stringify(result)}`);
+  }
+  const items = result?.[itemKey];
+  if (!Array.isArray(items)) {
+    throw new Error(`unexpected reporting export ${itemKey} response: ${JSON.stringify(result)}`);
+  }
+  return {
+    ...result,
+    totalCount: Number.isFinite(Number(result.totalCount)) ? Number(result.totalCount) : items.length,
+  };
+}
+
+export async function listReportExportJobs({ artifactRef = '', limit = 0 } = {}) {
+  const result = normalizeToolResult(await client.executeTool('reporting:list_export_jobs', {
+    ...(String(artifactRef || '').trim() ? { artifactRef: String(artifactRef || '').trim() } : {}),
+    ...(Number.isFinite(Number(limit)) && Number(limit) > 0 ? { limit: Number(limit) } : {}),
+  }));
+  return normalizeListResponse(result, 'jobs');
+}
+
+export async function listReportExportArtifacts({ artifactRef = '', limit = 0 } = {}) {
+  const result = normalizeToolResult(await client.executeTool('reporting:list_export_artifacts', {
+    ...(String(artifactRef || '').trim() ? { artifactRef: String(artifactRef || '').trim() } : {}),
+    ...(Number.isFinite(Number(limit)) && Number(limit) > 0 ? { limit: Number(limit) } : {}),
+  }));
+  return normalizeListResponse(result, 'artifacts');
+}

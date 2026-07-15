@@ -30,22 +30,65 @@ vi.mock('./reportExportService', () => ({
     artifactId,
     bytes: new Uint8Array([1, 2, 3]),
   })),
+  listReportExportJobs: vi.fn(async ({ artifactRef, limit }) => ({
+    jobs: [{ jobId: 'job-1', artifactRef }],
+    totalCount: limit || 1,
+  })),
+  listReportExportArtifacts: vi.fn(async ({ artifactRef, limit }) => ({
+    artifacts: [{ artifactId: 'artifact-1', artifactRef }],
+    totalCount: limit || 1,
+  })),
+}));
+
+vi.mock('./reportStoreService', () => ({
+  saveReport: vi.fn(async (request) => ({ ok: true, artifactId: 'report-1', ...request })),
+  getReport: vi.fn(async ({ artifactId }) => ({ artifactId, title: 'Stored Report' })),
+  listReports: vi.fn(async ({ limit }) => ({ reports: [{ artifactId: 'report-1', title: 'Stored Report' }], totalCount: limit || 1 })),
+  updateReport: vi.fn(async (request) => ({ ok: true, artifactId: request?.artifactId || 'report-1' })),
+}));
+
+vi.mock('./reportLifecycleService', () => ({
+  runReportLifecycleAction: vi.fn(async (request) => ({ ok: true, action: request?.action || 'share' })),
+}));
+
+vi.mock('./reportSharedArtifactService', () => ({
+  listReportSharedArtifacts: vi.fn(async ({ limit }) => ({ artifacts: [{ artifactId: 'shared-1', kind: 'reportBuilder.savedView' }], totalCount: limit || 1 })),
+  getReportSharedArtifact: vi.fn(async ({ artifactId }) => ({ artifactId, kind: 'reportBuilder.savedView' })),
 }));
 
 import { chatService } from './chatService';
 import { scheduleService } from './scheduleService';
 import { prepareAgentlyDataConnectorRequest } from './datasourceRequestContext';
-import { getReportExportArtifact, getReportExportStatus, submitReportExportRequest } from './reportExportService';
+import {
+  getReportExportArtifact,
+  getReportExportStatus,
+  listReportExportArtifacts,
+  listReportExportJobs,
+  submitReportExportRequest,
+} from './reportExportService';
+import { getReport, listReports, saveReport, updateReport } from './reportStoreService';
+import { runReportLifecycleAction } from './reportLifecycleService';
+import { getReportSharedArtifact, listReportSharedArtifacts } from './reportSharedArtifactService';
 import { forgeHostServices } from './forgeHostServices';
 
 describe('forgeHostServices', () => {
-  it('exposes the hosted Forge service bundle including reportExport', async () => {
+  it('exposes the hosted Forge service bundle including reporting services', async () => {
     expect(forgeHostServices.chat).toBe(chatService);
     expect(forgeHostServices.schedule).toBe(scheduleService);
     expect(forgeHostServices.prepareDataConnectorRequest).toBe(prepareAgentlyDataConnectorRequest);
     expect(typeof forgeHostServices.reportExport.submitRequest).toBe('function');
     expect(typeof forgeHostServices.reportExport.getStatus).toBe('function');
     expect(typeof forgeHostServices.reportExport.getArtifact).toBe('function');
+    expect(typeof forgeHostServices.reportExport.listJobs).toBe('function');
+    expect(typeof forgeHostServices.reportExport.listArtifacts).toBe('function');
+    expect(typeof forgeHostServices.reportStore.saveReport).toBe('function');
+    expect(typeof forgeHostServices.reportStore.getReport).toBe('function');
+    expect(typeof forgeHostServices.reportStore.listReports).toBe('function');
+    expect(typeof forgeHostServices.reportStore.updateReport).toBe('function');
+    expect(typeof forgeHostServices.reportLifecycle.shareArtifact).toBe('function');
+    expect(typeof forgeHostServices.reportLifecycle.transitionArtifact).toBe('function');
+    expect(typeof forgeHostServices.reportSharedArtifacts.listArtifacts).toBe('function');
+    expect(typeof forgeHostServices.reportSharedArtifacts.getArtifact).toBe('function');
 
     const request = {
       version: 1,
@@ -69,5 +112,45 @@ describe('forgeHostServices', () => {
     const artifact = await forgeHostServices.reportExport.getArtifact({ artifactId: 'artifact-1' });
     expect(getReportExportArtifact).toHaveBeenCalledWith({ artifactId: 'artifact-1' });
     expect(Array.from(artifact.bytes)).toEqual([1, 2, 3]);
+
+    const jobs = await forgeHostServices.reportExport.listJobs({ artifactRef: 'report://demo', limit: 2 });
+    expect(listReportExportJobs).toHaveBeenCalledWith({ artifactRef: 'report://demo', limit: 2 });
+    expect(jobs).toMatchObject({ totalCount: 2 });
+
+    const artifacts = await forgeHostServices.reportExport.listArtifacts({ artifactRef: 'report://demo', limit: 3 });
+    expect(listReportExportArtifacts).toHaveBeenCalledWith({ artifactRef: 'report://demo', limit: 3 });
+    expect(artifacts).toMatchObject({ totalCount: 3 });
+
+    const saved = await forgeHostServices.reportStore.saveReport({ reportId: 'demo-report' });
+    expect(saveReport).toHaveBeenCalledWith({ reportId: 'demo-report' });
+    expect(saved).toMatchObject({ ok: true, artifactId: 'report-1', reportId: 'demo-report' });
+
+    const got = await forgeHostServices.reportStore.getReport({ artifactId: 'report-1' });
+    expect(getReport).toHaveBeenCalledWith({ artifactId: 'report-1' });
+    expect(got).toMatchObject({ artifactId: 'report-1', title: 'Stored Report' });
+
+    const listed = await forgeHostServices.reportStore.listReports({ limit: 5 });
+    expect(listReports).toHaveBeenCalledWith({ limit: 5 });
+    expect(listed).toMatchObject({ totalCount: 5 });
+
+    const updated = await forgeHostServices.reportStore.updateReport({ artifactId: 'report-1', title: 'Updated' });
+    expect(updateReport).toHaveBeenCalledWith({ artifactId: 'report-1', title: 'Updated' });
+    expect(updated).toMatchObject({ ok: true, artifactId: 'report-1' });
+
+    const shared = await forgeHostServices.reportLifecycle.shareArtifact({ action: 'share', artifactRef: 'report://x' });
+    expect(runReportLifecycleAction).toHaveBeenCalledWith({ action: 'share', artifactRef: 'report://x' });
+    expect(shared).toMatchObject({ ok: true, action: 'share' });
+
+    const transitioned = await forgeHostServices.reportLifecycle.transitionArtifact({ action: 'publish', artifactRef: 'report://x' });
+    expect(runReportLifecycleAction).toHaveBeenCalledWith({ action: 'publish', artifactRef: 'report://x' });
+    expect(transitioned).toMatchObject({ ok: true, action: 'publish' });
+
+    const sharedList = await forgeHostServices.reportSharedArtifacts.listArtifacts({ limit: 2 });
+    expect(listReportSharedArtifacts).toHaveBeenCalledWith({ limit: 2 });
+    expect(sharedList).toMatchObject({ totalCount: 2 });
+
+    const sharedItem = await forgeHostServices.reportSharedArtifacts.getArtifact({ artifactId: 'shared-1' });
+    expect(getReportSharedArtifact).toHaveBeenCalledWith({ artifactId: 'shared-1' });
+    expect(sharedItem).toMatchObject({ artifactId: 'shared-1', kind: 'reportBuilder.savedView' });
   });
 });

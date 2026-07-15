@@ -5,11 +5,7 @@
  */
 import { getCollectionSignal, getControlSignal, getSelectionSignal, getFormSignal, getInputSignal } from 'forge/core';
 import { chatService } from './chatService';
-import {
-  getReportExportArtifact,
-  getReportExportStatus,
-  submitReportExportRequest,
-} from './reportExportService';
+import { reportingHostServices } from './reportingHostServices';
 
 function setPathValue(target = {}, path = '', value) {
   const key = String(path || '').trim();
@@ -309,11 +305,7 @@ export function createFeedContext(feedId, dataSources = {}, conversationId = '')
       signals,
       handlers: {
         dataSource: dataSourceHandlers,
-        reportExport: {
-          submitRequest: ({ request, source } = {}) => submitReportExportRequest({ request, source }),
-          getStatus: ({ jobId } = {}) => getReportExportStatus({ jobId }),
-          getArtifact: ({ artifactId } = {}) => getReportExportArtifact({ artifactId }),
-        },
+        ...reportingHostServices,
         on: () => () => {},
         emit: () => {},
       },
@@ -333,7 +325,7 @@ export function createFeedContext(feedId, dataSources = {}, conversationId = '')
     signals: getSignals(firstDS),
     handlers: {
       dataSource: rootSubContext.handlers.dataSource,
-      reportExport: rootSubContext.handlers.reportExport,
+      ...reportingHostServices,
       on: () => () => {},
       emit: () => {},
     },
