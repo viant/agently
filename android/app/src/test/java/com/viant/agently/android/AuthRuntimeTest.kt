@@ -41,6 +41,28 @@ class AuthRuntimeTest {
     }
 
     @Test
+    fun `matchesOAuthCallbackUrl requires the configured callback identity`() {
+        assertTrue(
+            matchesOAuthCallbackUrl(
+                "agently-android://oauth/callback?code=code-1&state=state-1",
+                AndroidOAuthRedirectURI
+            )
+        )
+        assertFalse(
+            matchesOAuthCallbackUrl(
+                "agently-android://untrusted/callback?code=code-1&state=state-1",
+                AndroidOAuthRedirectURI
+            )
+        )
+        assertFalse(
+            matchesOAuthCallbackUrl(
+                "https://idp.viantinc.com/v1/api/oauth2/authorize?code=code-1&state=state-1",
+                AndroidOAuthRedirectURI
+            )
+        )
+    }
+
+    @Test
     fun `normalizeDeveloperSessionCredential accepts common paste formats`() {
         assertEquals(
             "sess-1",

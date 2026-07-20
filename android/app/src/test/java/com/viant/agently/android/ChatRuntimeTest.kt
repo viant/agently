@@ -1,7 +1,11 @@
 package com.viant.agently.android
 
+import com.viant.agentlysdk.RenderedContent
+import com.viant.agentlysdk.RenderedReportAssembly
 import com.viant.agentlysdk.stream.BufferedMessage
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
+import com.viant.agentlysdk.stream.LiveExecutionGroup
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -151,6 +155,47 @@ class ChatRuntimeTest {
         assertEquals("history-1", transcript.single().id)
         assertEquals("existing history", transcript.single().markdown)
         assertEquals(transcript, displayTranscript)
+    }
+
+    @Test
+    fun transcriptWithActiveAssistant_preservesReportOnlyStreamingResponse() {
+        val rendered = RenderedContent(
+            schemaVersion = "1",
+            reports = listOf(
+                RenderedReportAssembly(
+                    scope = "order-1",
+                    id = "delivery",
+                    grammar = "report-document-v1",
+                    status = "committed",
+                    source = Json.parseToJsonElement(
+                        """{"title":"Delivery","blocks":[{"id":"note","kind":"markdownBlock","markdown":"Ready"}]}"""
+                    )
+                )
+            )
+        )
+        val snapshot = ConversationStreamSnapshot(
+            conversationId = "conv-1",
+            activeTurnId = "turn-1",
+            feeds = emptyList(),
+            pendingElicitation = null,
+            bufferedMessages = listOf(
+                BufferedMessage(id = "assistant-1", turnId = "turn-1", role = "assistant")
+            ),
+            liveExecutionGroupsById = mapOf(
+                "assistant-1" to LiveExecutionGroup(
+                    pageId = "page-1",
+                    assistantMessageId = "assistant-1",
+                    turnId = "turn-1",
+                    renderedContent = rendered
+                )
+            )
+        )
+
+        val displayTranscript = transcriptWithActiveAssistant(emptyList(), snapshot)
+
+        assertEquals(1, displayTranscript.size)
+        assertEquals("", displayTranscript.single().markdown)
+        assertEquals("delivery", displayTranscript.single().renderedReports?.single()?.id)
     }
 
     @Test

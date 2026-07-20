@@ -33,8 +33,6 @@ public struct AppContent: View {
                     AuthRequiredScreen(
                         authRuntime: runtime.authRuntime,
                         settingsRuntime: runtime.settingsRuntime,
-                        baseURL: runtime.state.bootstrapBaseURL,
-                        statusMessage: runtime.state.bootstrapErrorMessage,
                         onOpenSettings: {
                             isShowingSettings = true
                         },

@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.GeneratedFileEntry
+import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.forgeandroid.runtime.ForgeRuntime
 import kotlinx.serialization.json.Json
@@ -29,6 +30,7 @@ internal fun RenderTranscript(
     items: List<ChatEntry>,
     pendingApprovals: List<PendingToolApproval>,
     generatedFiles: List<GeneratedFileEntry>,
+    client: AgentlyClient,
     forgeRuntime: ForgeRuntime,
     approvalJson: Json,
     approvalEdits: Map<String, Map<String, JsonElement>>,
@@ -126,7 +128,10 @@ internal fun RenderTranscript(
                         }
                     }
                     TranscriptMessageContent(
-                        markdown = item.markdown.ifBlank { "(empty response)" },
+                        markdown = item.markdown,
+                        renderedParts = item.renderedParts,
+                        renderedReports = item.renderedReports,
+                        client = client,
                         forgeRuntime = forgeRuntime,
                         messageKey = item.id
                     )

@@ -49,8 +49,6 @@ internal fun SettingsScreen(
     val developerAuthEnabled = BuildConfig.DEBUG
     var endpointDraft by remember(currentAppApiBaseUrl) { mutableStateOf(currentAppApiBaseUrl) }
     var preferredAgentDraft by remember(currentPreferredAgentId) { mutableStateOf(currentPreferredAgentId) }
-    var idpUsernameDraft by remember(savedLoginConfig) { mutableStateOf(savedLoginConfig.username) }
-    var idpPasswordDraft by remember(savedLoginConfig) { mutableStateOf(savedLoginConfig.password) }
     var oobSecretRefDraft by remember(savedLoginConfig) { mutableStateOf(savedLoginConfig.oobSecretRef) }
     val discoveredAgents = remember(metadata) { workspaceAgentChoices(metadata) }
     val saveSettings = {
@@ -58,8 +56,6 @@ internal fun SettingsScreen(
             endpointDraft,
             preferredAgentDraft,
             SavedLoginConfig(
-                username = idpUsernameDraft.trim(),
-                password = idpPasswordDraft,
                 oobSecretRef = oobSecretRefDraft.trim()
             )
         )
@@ -232,9 +228,9 @@ internal fun SettingsScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text("OAuth Sign-In Helper", style = MaterialTheme.typography.titleMedium)
+                    Text("Developer OOB Sign-In", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Values are stored encrypted on-device for developer verification builds.",
+                        "Optional OOB reference for developer verification builds.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFF667085)
                     )
@@ -249,20 +245,6 @@ internal fun SettingsScreen(
                         value = oobSecretRefDraft,
                         onValueChange = { oobSecretRefDraft = it },
                         label = { Text("OOB secret reference") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = idpUsernameDraft,
-                        onValueChange = { idpUsernameDraft = it },
-                        label = { Text("IDP username") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = idpPasswordDraft,
-                        onValueChange = { idpPasswordDraft = it },
-                        label = { Text("IDP password") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )

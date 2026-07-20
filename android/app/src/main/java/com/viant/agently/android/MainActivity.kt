@@ -175,8 +175,6 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         val stored = savedLoginStore.load()
         if (BuildConfig.DEBUG) {
             stored.withBootstrapDefaults(
-                username = BuildConfig.BOOTSTRAP_IDP_USERNAME,
-                password = BuildConfig.BOOTSTRAP_IDP_PASSWORD,
                 oobSecretRef = BuildConfig.BOOTSTRAP_OOB_SECRET_REF
             )
         } else {
@@ -184,7 +182,6 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         }
     }
     var savedLoginConfig by remember { mutableStateOf(storedSavedLoginConfig) }
-    var showSavedLoginSettings by remember { mutableStateOf(false) }
     var authSessionId by remember { mutableStateOf<String?>(null) }
     val sessionCookieJar = remember { AppSessionCookieJar() }
     val appHttpClient = remember(sessionCookieJar) { appSessionHttpClient(sessionCookieJar) }
@@ -600,10 +597,6 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         savedLoginConfig = next
     }
 
-    fun setShowSavedLoginSettings(show: Boolean) {
-        showSavedLoginSettings = show
-    }
-
     fun setAuthBusy(busy: Boolean) {
         authBusy = busy
     }
@@ -624,14 +617,6 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         )
     }
 
-    fun openSavedLoginSettings() {
-        setShowSavedLoginSettings(true)
-    }
-
-    fun dismissSavedLoginSettings() {
-        setShowSavedLoginSettings(false)
-    }
-
     fun dismissAuthWeb() {
         setAuthWebUrl(null)
     }
@@ -642,8 +627,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
 
     fun savedLoginBindings(): SavedLoginBindings {
         return SavedLoginBindings(
-            onSavedLoginConfigChange = ::setSavedLoginConfig,
-            onShowSavedLoginSettingsChange = ::setShowSavedLoginSettings
+            onSavedLoginConfigChange = ::setSavedLoginConfig
         )
     }
 
@@ -1159,23 +1143,6 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         applySettingsTransition(transition)
     }
 
-    fun saveSavedLoginSettings(next: SavedLoginConfig) {
-        persistSavedLoginConfig(
-            store = savedLoginStore,
-            next = next,
-            bindings = savedLoginBindings(),
-            dismissSettings = true
-        )
-    }
-
-    fun clearSavedLoginSettings() {
-        clearSavedLoginConfig(
-            store = savedLoginStore,
-            bindings = savedLoginBindings(),
-            dismissSettings = true
-        )
-    }
-
     if (!hasWorkspaceEndpointSelection) {
         WorkspaceSelectionScreen(onContinue = ::selectWorkspaceEndpoint)
         return
@@ -1228,13 +1195,9 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         onAuthSignIn = ::startOAuthSignIn,
         onAuthOobSignIn = ::startOobSignIn,
         onDeveloperSessionSignIn = ::startDeveloperSessionSignIn,
-        onManageSavedLogin = ::openSavedLoginSettings,
         onAuthRetry = ::retryAuthConnection,
         onDismissAuthWeb = ::dismissAuthWeb,
-        onOAuthCallback = ::handleOAuthCallback,
-        onDismissSavedLoginSettings = ::dismissSavedLoginSettings,
-        onSaveSavedLoginSettings = ::saveSavedLoginSettings,
-        onClearSavedLoginSettings = ::clearSavedLoginSettings
+        onOAuthCallback = ::handleOAuthCallback
     )
 
     AppBody(
@@ -1250,11 +1213,8 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         authBusy = authBusy,
         authError = authError,
         error = error,
-        authProviders = authProviders,
-        authUser = authUser,
         authSessionId = authSessionId,
         authWebUrl = authWebUrl,
-        showSavedLoginSettings = showSavedLoginSettings,
         recentConversations = recentConversations,
         activeConversationId = activeConversationId,
         conversationState = conversationState,
@@ -1316,13 +1276,9 @@ internal fun buildApiCandidates(configuredBaseUrl: String): List<String> {
 }
 
 private fun SavedLoginConfig.withBootstrapDefaults(
-    username: String,
-    password: String,
     oobSecretRef: String
 ): SavedLoginConfig {
     return copy(
-        username = this.username.ifBlank { username.trim() },
-        password = this.password.ifBlank { password },
         oobSecretRef = this.oobSecretRef.ifBlank { oobSecretRef.trim() }
     )
 }

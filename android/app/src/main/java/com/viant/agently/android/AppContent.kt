@@ -16,8 +16,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.AgentlyClient
-import com.viant.agentlysdk.AuthProvider
-import com.viant.agentlysdk.AuthUser
 import com.viant.agentlysdk.Conversation
 import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.GeneratedFileEntry
@@ -43,11 +41,8 @@ internal fun AppBody(
     authBusy: Boolean,
     authError: String?,
     error: String?,
-    authProviders: List<AuthProvider>,
-    authUser: AuthUser?,
     authSessionId: String?,
     authWebUrl: String?,
-    showSavedLoginSettings: Boolean,
     recentConversations: List<Conversation>,
     activeConversationId: String?,
     conversationState: ConversationStateResponse?,
@@ -105,33 +100,17 @@ internal fun AppBody(
             }
             AuthRequiredScreen(
                 busy = authBusy,
-                error = authError,
-                providers = authProviders,
-                user = authUser,
-                authSessionId = authSessionId,
                 savedLoginConfig = savedLoginConfig,
                 onSignIn = callbacks.onAuthSignIn,
                 onOobSignIn = callbacks.onAuthOobSignIn,
-                onDeveloperSessionSignIn = callbacks.onDeveloperSessionSignIn,
-                onManageSavedLogin = callbacks.onManageSavedLogin,
-                onOpenSettings = callbacks.onOpenSettings,
-                onRetry = callbacks.onAuthRetry
+                onOpenSettings = callbacks.onOpenSettings
             )
             authWebUrl?.let { authUrl ->
                 OAuthWebDialog(
                     authUrl = authUrl,
                     callbackPrefix = AndroidOAuthRedirectURI,
-                    savedLoginConfig = savedLoginConfig,
                     onDismiss = callbacks.onDismissAuthWeb,
                     onCallback = callbacks.onOAuthCallback
-                )
-            }
-            if (showSavedLoginSettings) {
-                SavedLoginConfigDialog(
-                    initial = savedLoginConfig,
-                    onDismiss = callbacks.onDismissSavedLoginSettings,
-                    onSave = callbacks.onSaveSavedLoginSettings,
-                    onClear = callbacks.onClearSavedLoginSettings
                 )
             }
             return

@@ -6,22 +6,24 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -33,13 +35,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.viant.agentlysdk.AuthProvider
-import com.viant.agentlysdk.AuthUser
-import org.json.JSONObject
 
 internal enum class AuthState {
     Checking,
@@ -47,46 +44,16 @@ internal enum class AuthState {
     Ready
 }
 
-internal enum class AuthRequirementMode {
-    SignInRequired,
-    ConnectionProblem
-}
-
 @Composable
 internal fun AuthRequiredScreen(
     busy: Boolean,
-    error: String?,
-    providers: List<AuthProvider>,
-    user: AuthUser?,
-    authSessionId: String?,
     savedLoginConfig: SavedLoginConfig,
     onSignIn: () -> Unit,
     onOobSignIn: () -> Unit,
-    onDeveloperSessionSignIn: (String) -> Unit,
-    onManageSavedLogin: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onRetry: () -> Unit
+    onOpenSettings: () -> Unit
 ) {
-    var developerSessionCredential by remember { mutableStateOf("") }
     val developerAuthEnabled = BuildConfig.DEBUG
-    val providerLabel = resolveProviderLabel(providers)
-    val normalizedError = normalizeAuthError(error)
-    val authMode = resolveAuthRequirementMode(normalizedError)
-    val authTitle = resolveAuthRequiredTitle(authMode)
-    val authDescription = resolveAuthRequiredDescription(authMode, normalizedError)
-    val prefersRetry = authMode == AuthRequirementMode.ConnectionProblem
     val hasSavedOobSignIn = developerAuthEnabled && savedLoginConfig.hasStoredOobSecretRef
-    val showDeveloperSessionRecovery = shouldShowDeveloperSessionRecovery(
-        developerAuthEnabled = developerAuthEnabled,
-        error = normalizedError,
-        mode = authMode
-    )
-    val canSubmitDeveloperSessionCredential = !busy && developerSessionCredential.trim().isNotEmpty()
-    val submitDeveloperSessionCredential = {
-        if (canSubmitDeveloperSessionCredential) {
-            onDeveloperSessionSignIn(developerSessionCredential)
-        }
-    }
 
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -94,247 +61,77 @@ internal fun AuthRequiredScreen(
     ) {
         Card(
             modifier = Modifier
-                .fillMaxWidth(0.72f)
+                .fillMaxWidth()
                 .widthIn(max = 760.dp)
+                .wrapContentHeight()
         ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Text(authTitle, style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    authDescription,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF667085)
-                )
-                if (developerAuthEnabled && savedLoginConfig.hasStoredIdpCredential) {
-                    Text(
-                        "Saved sign-in helper credentials are available for $providerLabel.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF475467)
-                    )
-                }
-                if (developerAuthEnabled && savedLoginConfig.hasStoredOobSecretRef) {
-                    Text(
-                        "Saved OOB sign-in is available.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF475467)
-                    )
-                }
-                user?.displayName?.takeIf { it.isNotBlank() }?.let {
-                    Text("Current user: $it", style = MaterialTheme.typography.bodySmall)
-                }
-                if (developerAuthEnabled && !authSessionId.isNullOrBlank()) {
-                    Text(
-                        "Session ID: $authSessionId",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF475467)
-                    )
-                }
-                normalizedError?.takeIf { it.isNotBlank() }?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFB42318)
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    val primaryAction = when {
-                        prefersRetry -> onRetry
-                        hasSavedOobSignIn -> onOobSignIn
-                        else -> onSignIn
-                    }
-                    Button(onClick = primaryAction, enabled = !busy) {
+            BoxWithConstraints {
+                val isCompactWidth = maxWidth < 520.dp
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            when {
-                                busy && prefersRetry -> "Checking…"
-                                busy -> "Starting…"
-                                prefersRetry -> "Retry connection"
-                                hasSavedOobSignIn -> "Use saved OOB sign-in"
-                                else -> "Sign in with $providerLabel"
-                            }
+                            "This workspace requires authorization.",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f)
                         )
-                    }
-                    if (!prefersRetry && hasSavedOobSignIn) {
-                        OutlinedButton(onClick = onSignIn, enabled = !busy) {
-                            Text("Open workspace sign-in")
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(
+                                imageVector = Icons.Outlined.Settings,
+                                contentDescription = "Workspace settings"
+                            )
                         }
                     }
-                    if (!prefersRetry) {
-                        OutlinedButton(onClick = onRetry, enabled = !busy) {
-                            Text("Retry")
-                        }
-                    }
-                }
-                if (developerAuthEnabled) {
-                    TextButton(onClick = onManageSavedLogin, enabled = !busy) {
-                        Text(
-                            if (savedLoginConfig.hasStoredIdpCredential || savedLoginConfig.hasStoredOobSecretRef) {
-                                "Manage saved sign-in helper"
-                            } else {
-                                "Set up saved sign-in helper"
+                    if (isCompactWidth) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Button(
+                                onClick = onSignIn,
+                                enabled = !busy,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Sign in")
                             }
-                        )
-                    }
-                }
-                TextButton(onClick = onOpenSettings, enabled = !busy) {
-                    Text("Open client settings")
-                }
-                if (showDeveloperSessionRecovery) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedTextField(
-                            value = developerSessionCredential,
-                            onValueChange = { developerSessionCredential = it },
-                            label = { Text("Session ID or token") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                            keyboardActions = KeyboardActions(
-                                onDone = { submitDeveloperSessionCredential() }
-                            ),
-                            visualTransformation = PasswordVisualTransformation()
-                        )
-                        OutlinedButton(
-                            onClick = { submitDeveloperSessionCredential() },
-                            enabled = canSubmitDeveloperSessionCredential
-                        ) {
-                            Text("Use session")
+                            if (hasSavedOobSignIn) {
+                                OutlinedButton(
+                                    onClick = onOobSignIn,
+                                    enabled = !busy,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Developer OOB sign-in")
+                                }
+                            }
+                        }
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Button(onClick = onSignIn, enabled = !busy) {
+                                Text("Sign in")
+                            }
+                            if (hasSavedOobSignIn) {
+                                OutlinedButton(onClick = onOobSignIn, enabled = !busy) {
+                                    Text("Developer OOB sign-in")
+                                }
+                            }
                         }
                     }
                 }
             }
         }
     }
-}
-
-internal fun resolveAuthRequirementMode(error: String?): AuthRequirementMode {
-    val message = error.orEmpty().lowercase()
-    return when {
-        "could not reach the agently server" in message -> AuthRequirementMode.ConnectionProblem
-        "could not reach the configured endpoint" in message -> AuthRequirementMode.ConnectionProblem
-        "timed out" in message -> AuthRequirementMode.ConnectionProblem
-        else -> AuthRequirementMode.SignInRequired
-    }
-}
-
-internal fun resolveAuthRequiredTitle(mode: AuthRequirementMode): String =
-    when (mode) {
-        AuthRequirementMode.ConnectionProblem -> "Connection problem"
-        AuthRequirementMode.SignInRequired -> "Sign in required"
-    }
-
-internal fun resolveAuthRequiredDescription(
-    mode: AuthRequirementMode,
-    error: String?
-): String {
-    val message = error.orEmpty().lowercase()
-    return when (mode) {
-        AuthRequirementMode.ConnectionProblem ->
-            when {
-                "could not reach the agently server" in message ->
-                    "Agently cannot load conversations, approvals, or Forge content until the configured Agently endpoint is reachable from the emulator."
-                "could not reach the configured endpoint" in message ->
-                    "Agently cannot load conversations, approvals, or Forge content until the configured Agently endpoint is reachable from the emulator."
-                else ->
-                    "Agently reached the endpoint, but the sign-in flow timed out before the workspace could finish loading."
-            }
-        AuthRequirementMode.SignInRequired ->
-            "This Agently endpoint requires OAuth before conversations, approvals, and Forge-rendered content can load."
-    }
-}
-
-internal fun shouldShowDeveloperSessionRecovery(
-    developerAuthEnabled: Boolean,
-    error: String?,
-    mode: AuthRequirementMode
-): Boolean {
-    return developerAuthEnabled &&
-        !error.isNullOrBlank() &&
-        mode == AuthRequirementMode.SignInRequired
-}
-
-@Composable
-internal fun SavedLoginConfigDialog(
-    initial: SavedLoginConfig,
-    onDismiss: () -> Unit,
-    onSave: (SavedLoginConfig) -> Unit,
-    onClear: () -> Unit
-) {
-    var username by remember(initial.username) { mutableStateOf(initial.username) }
-    var password by remember(initial.password) { mutableStateOf(initial.password) }
-    var oobSecretRef by remember(initial.oobSecretRef) { mutableStateOf(initial.oobSecretRef) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Saved Sign-In Helper") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    "Store optional username and password encrypted on-device so Agently can autofill the OAuth web login when the identity provider page appears.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF667085)
-                )
-                OutlinedTextField(
-                    value = oobSecretRef,
-                    onValueChange = { oobSecretRef = it },
-                    label = { Text("OOB secret reference") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = username,
-                    onValueChange = { username = it },
-                    label = { Text("IDP username") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("IDP password") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    onSave(
-                        SavedLoginConfig(
-                            oobSecretRef = oobSecretRef.trim(),
-                            username = username.trim(),
-                            password = password
-                        )
-                    )
-                }
-            ) {
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onClear) {
-                    Text("Clear")
-                }
-                TextButton(onClick = onDismiss) {
-                    Text("Cancel")
-                }
-            }
-        }
-    )
 }
 
 @Composable
 internal fun OAuthWebDialog(
     authUrl: String,
     callbackPrefix: String,
-    savedLoginConfig: SavedLoginConfig,
     onDismiss: () -> Unit,
     onCallback: (String, String) -> Unit
 ) {
     val context = LocalContext.current
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var loadedAuthUrl by remember { mutableStateOf<String?>(null) }
     var pageStatus by remember { mutableStateOf("Opening sign-in page…") }
-    var autoFillTarget by remember { mutableStateOf<String?>(null) }
     var webError by remember { mutableStateOf<String?>(null) }
 
     Card(
@@ -368,17 +165,6 @@ internal fun OAuthWebDialog(
                     ) {
                         Text("Open in browser")
                     }
-                    if (savedLoginConfig.hasStoredIdpCredential) {
-                        TextButton(
-                            onClick = {
-                                webViewRef?.let {
-                                    injectIdpCredentials(it, savedLoginConfig.username, savedLoginConfig.password)
-                                }
-                            }
-                        ) {
-                            Text("Use saved helper")
-                        }
-                    }
                     TextButton(onClick = onDismiss) {
                         Text("Close")
                     }
@@ -402,7 +188,6 @@ internal fun OAuthWebDialog(
                         onClick = {
                             webError = null
                             pageStatus = "Retrying sign-in page…"
-                            autoFillTarget = null
                             webViewRef?.reload()
                         }
                     ) {
@@ -419,19 +204,10 @@ internal fun OAuthWebDialog(
                         settings.domStorageEnabled = true
                         webViewClient = object : WebViewClient() {
                             private fun intercept(url: String): Boolean {
-                                val uri = Uri.parse(url)
-                                val callback = callbackPrefix.trim()
-                                val matchesCallback = if (callback.contains("://")) {
-                                    val callbackUri = Uri.parse(callback)
-                                    uri.scheme == callbackUri.scheme &&
-                                        uri.host == callbackUri.host &&
-                                        uri.path.orEmpty() == callbackUri.path.orEmpty()
-                                } else {
-                                    uri.path.orEmpty().endsWith(callback)
-                                }
-                                if (!matchesCallback) {
+                                if (!matchesOAuthCallbackUrl(url, callbackPrefix)) {
                                     return false
                                 }
+                                val uri = Uri.parse(url)
                                 val code = uri.getQueryParameter("code").orEmpty()
                                 val state = uri.getQueryParameter("state").orEmpty()
                                 if (code.isBlank() || state.isBlank()) {
@@ -449,29 +225,10 @@ internal fun OAuthWebDialog(
                                 }
                                 webError = null
                                 pageStatus = when {
-                                    target.startsWith(callbackPrefix) || target.contains("/oauth/callback") ->
+                                    matchesOAuthCallbackUrl(target, callbackPrefix) ->
                                         "Finishing sign-in…"
-                                    isLikelyIdpPage(target) ->
-                                        if (savedLoginConfig.hasStoredIdpCredential) {
-                                            "Identity provider sign-in page ready. Saved helper credentials can be used here."
-                                        } else {
-                                            "Identity provider sign-in page ready."
-                                        }
                                     else ->
                                         Uri.parse(target).host?.let { "Loading $it…" } ?: "Loading sign-in page…"
-                                }
-                                if (savedLoginConfig.hasStoredIdpCredential &&
-                                    isLikelyIdpPage(target) &&
-                                    autoFillTarget != target
-                                ) {
-                                    autoFillTarget = target
-                                    val targetView = view ?: return
-                                    targetView.postDelayed(
-                                        {
-                                            injectIdpCredentials(targetView, savedLoginConfig.username, savedLoginConfig.password)
-                                        },
-                                        350
-                                    )
                                 }
                             }
 
@@ -510,13 +267,14 @@ internal fun OAuthWebDialog(
                             }
                         }
                         loadUrl(authUrl)
+                        loadedAuthUrl = authUrl
                     }
                 },
                 update = { webView ->
                     webViewRef = webView
-                    if (webView.url != authUrl) {
+                    if (loadedAuthUrl != authUrl) {
+                        loadedAuthUrl = authUrl
                         pageStatus = "Opening sign-in page…"
-                        autoFillTarget = null
                         webView.loadUrl(authUrl)
                     }
                 }
@@ -525,56 +283,20 @@ internal fun OAuthWebDialog(
     }
 }
 
-private fun injectIdpCredentials(webView: WebView, username: String, password: String) {
-    val escapedUsername = JSONObject.quote(username)
-    val escapedPassword = JSONObject.quote(password)
-    val script = """
-        (function() {
-          var username = $escapedUsername;
-          var password = $escapedPassword;
-          var userInput = document.querySelector('input[type="text"], input[name*="user"], input[id*="user"]');
-          var passInput = document.querySelector('input[type="password"]');
-          if (userInput) {
-            userInput.focus();
-            userInput.value = username;
-            userInput.dispatchEvent(new Event('input', { bubbles: true }));
-            userInput.dispatchEvent(new Event('change', { bubbles: true }));
-          }
-          if (passInput) {
-            passInput.focus();
-            passInput.value = password;
-            passInput.dispatchEvent(new Event('input', { bubbles: true }));
-            passInput.dispatchEvent(new Event('change', { bubbles: true }));
-          }
-          var button = Array.from(document.querySelectorAll('button')).find(function(item) {
-            return /log\s*in|sign\s*in/i.test((item.innerText || '').trim());
-          });
-          if (button) {
-            button.click();
-          } else if (passInput && passInput.form) {
-            passInput.form.submit();
-          }
-        })();
-    """.trimIndent()
-    webView.evaluateJavascript(script, null)
-}
-
-private fun isLikelyIdpPage(url: String): Boolean {
-    val lowered = url.lowercase()
-    return lowered.contains("/idp/") ||
-        lowered.contains("/login") ||
-        lowered.contains("authorize")
-}
-
-private fun resolveProviderLabel(
-    providers: List<AuthProvider>
-): String {
-    providers.firstOrNull { provider ->
-        val type = provider.type.trim().lowercase()
-        type == "oauth" || type == "bff" || type == "oidc" || type == "jwt"
-    }?.label?.takeIf { it.isNotBlank() }?.let { return it }
-
-    return "Identity Provider"
+internal fun matchesOAuthCallbackUrl(url: String, callbackPrefix: String): Boolean {
+    val callback = callbackPrefix.trim()
+    if (callback.isEmpty()) {
+        return false
+    }
+    val uri = Uri.parse(url)
+    return if (callback.contains("://")) {
+        val callbackUri = Uri.parse(callback)
+        uri.scheme == callbackUri.scheme &&
+            uri.host == callbackUri.host &&
+            uri.path.orEmpty() == callbackUri.path.orEmpty()
+    } else {
+        uri.path.orEmpty().endsWith(callback)
+    }
 }
 
 internal fun normalizeAuthError(raw: String?): String? {

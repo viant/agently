@@ -1,5 +1,6 @@
 import SwiftUI
 import ForgeIOSUI
+import AgentlySDK
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
@@ -8,15 +9,18 @@ import AppKit
 
 public struct TranscriptScreen: View {
     let items: [ChatTranscriptEntry]
+	let client: AgentlyClient?
     let onReusePrompt: ((String) -> Void)?
     let onReuseAndSendPrompt: ((String) -> Void)?
 
     public init(
         items: [ChatTranscriptEntry],
+		client: AgentlyClient? = nil,
         onReusePrompt: ((String) -> Void)? = nil,
         onReuseAndSendPrompt: ((String) -> Void)? = nil
     ) {
         self.items = items
+		self.client = client
         self.onReusePrompt = onReusePrompt
         self.onReuseAndSendPrompt = onReuseAndSendPrompt
     }
@@ -60,6 +64,7 @@ public struct TranscriptScreen: View {
             ForEach(items) { item in
                 TranscriptBubble(
                     item: item,
+					client: client,
                     onReusePrompt: onReusePrompt,
                     onReuseAndSendPrompt: onReuseAndSendPrompt
                 )
@@ -79,6 +84,7 @@ public struct TranscriptContentHeightPreferenceKey: PreferenceKey {
 
 private struct TranscriptBubble: View {
     let item: ChatTranscriptEntry
+	let client: AgentlyClient?
     let onReusePrompt: ((String) -> Void)?
     let onReuseAndSendPrompt: ((String) -> Void)?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -183,7 +189,12 @@ private struct TranscriptBubble: View {
                 }
             }
         } else {
-            TranscriptMessageContent(markdown: item.markdown)
+            TranscriptMessageContent(
+                markdown: item.markdown,
+                renderedParts: item.renderedParts,
+                renderedReports: item.renderedReports,
+				client: client
+            )
                 .transcriptTextSelection(allowsInlineTextSelection)
         }
     }

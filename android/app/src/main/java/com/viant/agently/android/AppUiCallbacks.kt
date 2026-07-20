@@ -26,13 +26,9 @@ internal data class AppUiCallbacks(
     val onAuthSignIn: () -> Unit,
     val onAuthOobSignIn: () -> Unit,
     val onDeveloperSessionSignIn: (String) -> Unit,
-    val onManageSavedLogin: () -> Unit,
     val onAuthRetry: () -> Unit,
     val onDismissAuthWeb: () -> Unit,
-    val onOAuthCallback: (String, String) -> Unit,
-    val onDismissSavedLoginSettings: () -> Unit,
-    val onSaveSavedLoginSettings: (SavedLoginConfig) -> Unit,
-    val onClearSavedLoginSettings: () -> Unit
+    val onOAuthCallback: (String, String) -> Unit
 )
 
 internal fun buildAppUiCallbacks(
@@ -55,13 +51,9 @@ internal fun buildAppUiCallbacks(
     onAuthSignIn: () -> Unit,
     onAuthOobSignIn: () -> Unit,
     onDeveloperSessionSignIn: (String) -> Unit,
-    onManageSavedLogin: () -> Unit,
     onAuthRetry: () -> Unit,
     onDismissAuthWeb: () -> Unit,
-    onOAuthCallback: (String, String) -> Unit,
-    onDismissSavedLoginSettings: () -> Unit,
-    onSaveSavedLoginSettings: (SavedLoginConfig) -> Unit,
-    onClearSavedLoginSettings: () -> Unit
+    onOAuthCallback: (String, String) -> Unit
 ): AppUiCallbacks = AppUiCallbacks(
     onRefreshWorkspace = onRefreshWorkspace,
     onNewConversation = onNewConversation,
@@ -86,11 +78,7 @@ internal fun buildAppUiCallbacks(
     onAuthSignIn = onAuthSignIn,
     onAuthOobSignIn = onAuthOobSignIn,
     onDeveloperSessionSignIn = onDeveloperSessionSignIn,
-    onManageSavedLogin = onManageSavedLogin,
     onAuthRetry = onAuthRetry,
     onDismissAuthWeb = onDismissAuthWeb,
-    onOAuthCallback = onOAuthCallback,
-    onDismissSavedLoginSettings = onDismissSavedLoginSettings,
-    onSaveSavedLoginSettings = onSaveSavedLoginSettings,
-    onClearSavedLoginSettings = onClearSavedLoginSettings
+    onOAuthCallback = onOAuthCallback
 )

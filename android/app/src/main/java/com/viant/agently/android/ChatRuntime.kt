@@ -1,9 +1,14 @@
 package com.viant.agently.android
 
 import androidx.compose.ui.graphics.Color
+import com.viant.agentlysdk.AssistantMessageState
 import com.viant.agentlysdk.ConversationStateResponse
+import com.viant.agentlysdk.RenderedContent
+import com.viant.agentlysdk.RenderedContentPart
 import com.viant.agentlysdk.stream.BufferedMessage
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
+import com.viant.forgeandroid.ui.TranscriptCanonicalData
+import com.viant.forgeandroid.ui.TranscriptCanonicalReport
 import kotlinx.coroutines.CancellationException
 import java.text.SimpleDateFormat
 import java.time.Instant
@@ -26,6 +31,8 @@ internal data class ChatEntry(
     val id: String,
     val role: String,
     val markdown: String,
+    val renderedParts: List<RenderedContentPart>? = null,
+    val renderedReports: List<TranscriptCanonicalReport>? = null,
     val streaming: Boolean = false,
     val deliveryState: String? = null,
     val timestampLabel: String? = null
@@ -76,14 +83,20 @@ private fun activeAssistantEntry(snapshot: ConversationStreamSnapshot): ChatEntr
         .firstOrNull { message ->
             message.role.equals("assistant", ignoreCase = true) &&
                 message.turnId?.trim() == activeTurnId &&
-                (!message.content.isNullOrBlank() || !message.narration.isNullOrBlank())
+                (!message.content.isNullOrBlank() ||
+                    !message.narration.isNullOrBlank() ||
+                    snapshot.liveExecutionGroupsById[message.id]?.renderedContent?.reports?.isNotEmpty() == true)
         }
         ?: return null
-    val markdown = combineAssistantMarkdown(latest) ?: return null
+    val markdown = combineAssistantMarkdown(latest).orEmpty()
+    val rendered = snapshot.liveExecutionGroupsById[latest.id]?.renderedContent
+    if (markdown.isBlank() && rendered?.reports.isNullOrEmpty()) return null
     return ChatEntry(
         id = latest.id,
         role = "assistant",
         markdown = markdown,
+        renderedParts = rendered?.parts,
+        renderedReports = rendered?.let(::canonicalReports)?.takeIf { it.isNotEmpty() },
         streaming = true,
         timestampLabel = formatTimestampLabel(latest.createdAt)
     )
@@ -129,6 +142,7 @@ internal fun transcriptFromState(state: ConversationStateResponse): List<ChatEnt
                 )
             )
         }
+        val assistantMessages = listOfNotNull(turn.assistant?.narration, turn.assistant?.final)
         val assistantId = turn.assistant?.final?.messageId ?: turn.assistant?.narration?.messageId
         val assistantContent = buildString {
             val narration = turn.assistant?.narration?.content?.trim().orEmpty()
@@ -141,12 +155,15 @@ internal fun transcriptFromState(state: ConversationStateResponse): List<ChatEnt
                 append(final)
             }
         }.trim()
-        if (!assistantId.isNullOrBlank() && assistantContent.isNotBlank()) {
+        val renderedReports = canonicalAssistantReports(assistantMessages)
+        if (!assistantId.isNullOrBlank() && (assistantContent.isNotBlank() || !renderedReports.isNullOrEmpty())) {
             entries.add(
                 ChatEntry(
                     id = assistantId,
                     role = "assistant",
                     markdown = assistantContent,
+                    renderedParts = canonicalAssistantParts(assistantMessages),
+                    renderedReports = renderedReports,
                     streaming = false,
                     timestampLabel = formatTimestampLabel(turn.createdAt)
                 )
@@ -155,6 +172,49 @@ internal fun transcriptFromState(state: ConversationStateResponse): List<ChatEnt
     }
     return entries
 }
+
+private fun canonicalAssistantParts(messages: List<AssistantMessageState>): List<RenderedContentPart>? {
+    if (messages.none { it.renderedContent != null }) return null
+    return messages.flatMap { message ->
+        message.renderedContent?.parts.orEmpty().ifEmpty {
+            message.content?.takeIf { it.isNotBlank() }
+                ?.let { listOf(RenderedContentPart(kind = "markdown", text = it)) }
+                .orEmpty()
+        }
+    }
+}
+
+private fun canonicalAssistantReports(messages: List<AssistantMessageState>): List<TranscriptCanonicalReport>? {
+    return messages.flatMap { message ->
+        message.renderedContent?.let(::canonicalReports).orEmpty()
+    }.takeIf { it.isNotEmpty() }
+}
+
+private fun canonicalReports(rendered: RenderedContent): List<TranscriptCanonicalReport> =
+    rendered.reports.mapNotNull { report ->
+        val source = report.source ?: return@mapNotNull null
+        TranscriptCanonicalReport(
+            scope = report.scope,
+            id = report.id,
+            grammar = report.grammar ?: "dashboard-v1",
+            status = report.status,
+            sequence = report.sequence,
+            resetVersion = report.resetVersion,
+            source = source,
+            dataSources = report.dataSources.mapValues { (_, data) ->
+                TranscriptCanonicalData(
+                    version = data.version,
+                    scope = data.scope,
+                    reportRef = data.reportRef,
+                    sequence = data.sequence,
+                    id = data.id,
+                    format = data.format,
+                    mode = data.mode,
+                    payload = data.payload
+                )
+            }
+        )
+    }
 
 private fun isBenignLifecycleCancellation(err: Throwable?): Boolean {
     if (err == null) {

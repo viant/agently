@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import RichContent, { normalizeDashboardPayload, normalizeLegacyForgeDescriptors, normalizeLegacyForgeFenceBlocks, parseFences, resolveForgeScope, scopeForgeDashboardPayload } from './RichContent';
+import RichContent, { inlineReportRuntimeKey, normalizeDashboardPayload, normalizeLegacyForgeDescriptors, normalizeLegacyForgeFenceBlocks, parseFences, resolveForgeScope, scopeForgeDashboardPayload } from './RichContent';
 import { renderMarkdownBlock } from 'agently-core-ui-sdk';
 
 describe('RichContent fence parsing', () => {
+  it('retains inline report runtime identity across snapshots and resets it on replace', () => {
+    const initial = { scope: 'campaign', id: 'delivery', sequence: 1, resetVersion: 0 };
+    expect(inlineReportRuntimeKey({ ...initial, sequence: 2 })).toBe(inlineReportRuntimeKey(initial));
+    expect(inlineReportRuntimeKey({ ...initial, resetVersion: 1 })).not.toBe(inlineReportRuntimeKey(initial));
+  });
   it('parses a closed fenced code block', () => {
     const parts = parseFences('Before\n```go\nfmt.Println("hi")\n```\nAfter');
 
@@ -60,6 +65,94 @@ describe('RichContent fence parsing', () => {
       lang: 'forge-ui',
     });
     expect(parts[2].body).toContain('"Review recommended site lists"');
+  });
+
+  it('renders progressive forge-report fences as one canonical report runtime', () => {
+    const content = [
+      '```forge-data',
+      '{"version":2,"reportRef":"brief","id":"delivery","sequence":1,"data":[{"channel":"CTV","spend":12}]}',
+      '```',
+      '```forge-report',
+      '{"version":1,"id":"brief","sequence":2,"mode":"start","title":"Delivery Brief","blocks":[{"id":"delivery_table","kind":"dashboard.table","title":"Channel Delivery","dataSourceRef":"delivery","columns":[{"key":"channel","label":"Channel"},{"key":"spend","label":"Spend","format":"currency"}]}]}',
+      '```',
+      '```forge-report',
+      '{"version":1,"id":"brief","sequence":3,"mode":"commit"}',
+      '```',
+    ].join('\n');
+
+    const html = renderToStaticMarkup(React.createElement(RichContent, { content, messageId: 'message-1' }));
+
+    expect(html).toContain('data-forge-report-id="brief"');
+    expect(html).toContain('data-forge-report-status="committed"');
+    expect(html).toContain('Channel Delivery');
+    expect(html).toContain('CTV');
+    expect(html).not.toContain('Save report');
+    expect(html).not.toContain('Export PDF');
+    expect(html).not.toContain('&quot;mode&quot;:&quot;start&quot;');
+  });
+
+  it('renders a server-canonical report once when raw fence placement is unavailable', () => {
+    const renderedContent = {
+      schemaVersion: '1',
+      parts: [{ kind: 'markdown', text: 'Delivery summary' }],
+      reports: [{
+        scope: 'message',
+        id: 'brief',
+        grammar: 'dashboard-v1',
+        status: 'committed',
+        sequence: 1,
+        resetVersion: 0,
+        source: {
+          title: 'Canonical Delivery',
+          blocks: [{
+            id: 'delivery_table',
+            kind: 'dashboard.table',
+            title: 'Canonical Delivery Rows',
+            dataSourceRef: 'delivery',
+            columns: [{ key: 'channel', label: 'Channel' }, { key: 'spend', label: 'Spend' }],
+          }],
+        },
+        dataSources: {
+          delivery: {
+            version: 2,
+            id: 'delivery',
+            format: 'json',
+            mode: 'replace',
+            payload: [{ channel: 'CTV', spend: 12 }],
+          },
+        },
+      }],
+      diagnostics: [],
+    };
+
+    const html = renderToStaticMarkup(React.createElement(RichContent, {
+      content: 'Delivery summary',
+      renderedContent,
+      messageId: 'message-1',
+    }));
+
+    expect(html.match(/data-forge-report-id="brief"/g)).toHaveLength(1);
+    expect(html).toContain('Canonical Delivery');
+    expect(html).toContain('Save report');
+    expect(html).toContain('Export PDF');
+  });
+
+  it('does not expose lifecycle actions for an uncommitted server snapshot', () => {
+    const renderedContent = {
+      schemaVersion: '1',
+      parts: [],
+      reports: [{
+        scope: 'message', id: 'brief', grammar: 'dashboard-v1', status: 'rendering',
+        sequence: 1, resetVersion: 0,
+        source: { title: 'Building', blocks: [{ id: 'note', kind: 'dashboard.report', sections: [{ id: 'status', body: ['Building'] }] }] },
+        dataSources: {},
+      }],
+      diagnostics: [],
+    };
+    const html = renderToStaticMarkup(React.createElement(RichContent, { content: 'Building report', renderedContent, messageId: 'message-1' }));
+    expect(html).toContain('Report rendering');
+    expect(html).not.toContain('Save report');
+    expect(html).not.toContain('Export PDF');
   });
 
   it('normalizes legacy forge marker plus json fence form into proper forge fences', () => {
