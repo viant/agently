@@ -1,2 +1,0 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/index-CgRtrsGI.js","assets/index-B-KxDG0e.css"])))=>i.map(i=>d[i]);
-import{p as r,I as s,_ as a}from"./index-CgRtrsGI.js";const c=async(o,_)=>{const i=r(o);let t;return _===s.STANDARD?t=await a(()=>import("./index-CgRtrsGI.js").then(e=>e.b$),__vite__mapDeps([0,1])):t=await a(()=>import("./index-CgRtrsGI.js").then(e=>e.c0),__vite__mapDeps([0,1])),t[i]};export{c as splitPathsBySizeLoader};
