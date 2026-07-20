@@ -61,6 +61,7 @@ export default function BubbleMessage({ message, messageIndex = 0 }) {
           <div className="app-narration-bubble-content">
             <RichContent
               content={String(message?.content || '').trim()}
+              renderedContent={message?.renderedContent || null}
               generatedFiles={Array.isArray(message?.generatedFiles) ? message.generatedFiles : []}
               messageId={String(message?.id || '').trim()}
             />
@@ -86,6 +87,7 @@ export default function BubbleMessage({ message, messageIndex = 0 }) {
         <div className="app-bubble-content">
           <RichContent
             content={String(message?.content || '').trim()}
+            renderedContent={message?.renderedContent || null}
             generatedFiles={Array.isArray(message?.generatedFiles) ? message.generatedFiles : []}
             messageId={String(message?.id || '').trim()}
           />

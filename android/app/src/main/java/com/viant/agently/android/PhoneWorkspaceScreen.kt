@@ -346,6 +346,7 @@ internal fun PhoneWorkspacePane(
                     items = displayTranscript,
                     pendingApprovals = pendingApprovals,
                     generatedFiles = generatedFiles,
+                    client = client,
                     forgeRuntime = forgeRuntime,
                     approvalJson = approvalJson,
                     approvalEdits = approvalEdits,

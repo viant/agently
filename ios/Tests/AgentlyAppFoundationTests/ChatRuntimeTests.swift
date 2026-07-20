@@ -217,6 +217,58 @@ final class ChatRuntimeTests: XCTestCase {
         XCTAssertEqual(displayTranscript, runtime.transcript)
     }
 
+    @MainActor
+    func testTranscriptWithActiveAssistantPreservesReportOnlyStreamingResponse() throws {
+        let runtime = ChatRuntime()
+        let rendered = try JSONDecoder().decode(RenderedContent.self, from: Data(#"""
+        {
+          "schemaVersion": "1",
+          "parts": [],
+          "reports": [{
+            "scope": "order-1",
+            "id": "delivery",
+            "grammar": "report-document-v1",
+            "status": "committed",
+            "resetVersion": 0,
+            "source": {
+              "title": "Delivery",
+              "blocks": [{"id":"note","kind":"markdownBlock","markdown":"Ready"}]
+            },
+            "dataSources": {}
+          }],
+          "diagnostics": []
+        }
+        """#.utf8))
+        let snapshot = ConversationStreamSnapshot(
+            conversationID: "conv-1",
+            activeTurnID: "turn-1",
+            feeds: [],
+            pendingElicitation: nil,
+            bufferedMessages: [
+                BufferedStreamMessage(
+                    id: "assistant-1",
+                    conversationID: "conv-1",
+                    turnID: "turn-1",
+                    status: "running"
+                )
+            ],
+            liveExecutionGroupsByID: [
+                "assistant-1": LiveExecutionGroup(
+                    pageID: "page-1",
+                    assistantMessageID: "assistant-1",
+                    turnID: "turn-1",
+                    renderedContent: rendered
+                )
+            ]
+        )
+
+        let displayTranscript = runtime.transcriptWithActiveAssistant(snapshot: snapshot)
+
+        XCTAssertEqual(displayTranscript.count, 1)
+        XCTAssertEqual(displayTranscript[0].markdown, "")
+        XCTAssertEqual(displayTranscript[0].renderedReports?.first?.id, "delivery")
+    }
+
     func testSanitizeVisibleAssistantTextStripsPureRouterPayload() {
         let raw = #"{"appendToolBundles":["analyst-baseline"],"suggestedProfileId":"diagnostic_baseline","scope":{"values":{"entityType":"Entity"}}}"#
         XCTAssertNil(sanitizeVisibleAssistantText(raw))

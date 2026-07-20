@@ -399,6 +399,7 @@ public struct PhoneWorkspaceScreen: View {
         } else {
             TranscriptScreen(
                 items: transcript,
+				client: client,
                 onReusePrompt: { prompt in
                     composerRuntime.query = prompt
                 },

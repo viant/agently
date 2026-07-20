@@ -338,6 +338,7 @@ public struct WorkspaceScreen: View {
             } else {
                 TranscriptScreen(
                     items: transcript,
+					client: client,
                     onReusePrompt: { prompt in
                         composerRuntime.query = prompt
                     },
@@ -395,6 +396,7 @@ public struct WorkspaceScreen: View {
         } else {
             TranscriptScreen(
                 items: transcript,
+				client: client,
                 onReusePrompt: { prompt in
                     composerRuntime.query = prompt
                 },

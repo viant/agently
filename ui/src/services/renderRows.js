@@ -574,6 +574,7 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
               ? 0
               : 1,
           content: suppressAssistantContent ? "" : renderedContent,
+          renderedContent: renderPage?.renderedContent || assistantFinal?.renderedContent || null,
           narration: renderPage?.narration || assistantPreamble?.content || "",
           turnId,
           turnStartedAt: turn?.createdAt || "",

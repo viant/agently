@@ -37,7 +37,8 @@ import {
   renderMarkdownCellHTML,
   describeFence,
 } from 'agently-core-ui-sdk';
-import { DashboardBlock } from 'forge/components';
+import { DashboardBlock, ReportRuntime } from 'forge/components';
+import { buildDraftReportExportRequest, compileInlineReport, materializeInlineReport } from 'forge/reporting';
 import {
   buildStandaloneDashboardDocument,
   captureDashboardChartSvgs,
@@ -46,9 +47,12 @@ import {
 import {
   FORGE_UI_FENCE,
   FORGE_DATA_FENCE,
+  FORGE_REPORT_FENCE,
   applyForgeDataBlocks,
+  assembleForgeReportEvents,
   createPlannerTableActionPayload,
   createPlannerTableSubmitPayload,
+  materializeForgeData,
   parseForgeFenceBody,
   rowsToCsv,
   validateForgeDataBlock,
@@ -56,6 +60,9 @@ import {
 } from '../../services/forgeFenceContract.js';
 import { isStreamDebugEnabled } from '../../services/debugFlags';
 import { dispatchForgeUIAction } from '../../services/forgeUIActions.js';
+import { submitReportExportRequest } from '../../services/reportExportService.js';
+import { saveReport } from '../../services/reportStoreService.js';
+import { fetchDatasource } from '../lookups/client.js';
 
 const DASHBOARD_BLOCK_KINDS = [
   'dashboard.summary',
@@ -63,12 +70,16 @@ const DASHBOARD_BLOCK_KINDS = [
   'dashboard.kpiTable',
   'dashboard.filters',
   'dashboard.timeline',
+  'dashboard.composition',
   'dashboard.dimensions',
+  'dashboard.geoMap',
   'dashboard.messages',
   'dashboard.status',
   'dashboard.feed',
+  'dashboard.table',
   'dashboard.report',
   'dashboard.detail',
+  'dashboard.badges',
 ];
 
 function isForgeUIFence(fence = {}) {
@@ -77,6 +88,21 @@ function isForgeUIFence(fence = {}) {
 
 function isForgeDataFence(fence = {}) {
   return String(fence?.lang || '').trim().toLowerCase() === FORGE_DATA_FENCE;
+}
+
+function isForgeReportFence(fence = {}) {
+  return String(fence?.lang || '').trim().toLowerCase() === FORGE_REPORT_FENCE;
+}
+
+function canonicalReportSource(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string' || !value.trim()) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) {
+    return {};
+  }
 }
 
 function hasTrailingOpenForgeFence(content = '', lang = '') {
@@ -95,6 +121,7 @@ function detectStreamingForgeFenceText(text = '') {
   const source = String(text || '');
   if (hasTrailingOpenForgeFence(source, FORGE_UI_FENCE)) return FORGE_UI_FENCE;
   if (hasTrailingOpenForgeFence(source, FORGE_DATA_FENCE)) return FORGE_DATA_FENCE;
+  if (hasTrailingOpenForgeFence(source, FORGE_REPORT_FENCE)) return FORGE_REPORT_FENCE;
   return '';
 }
 
@@ -1370,6 +1397,160 @@ function ForgeUIFence({ payload, dataBlocks = [], messageId = '' }) {
   );
 }
 
+export function inlineReportRuntimeKey(assembly = {}) {
+  return `report-runtime-${assembly?.scope || 'message'}-${assembly?.id || 'inlineReport'}-${assembly?.resetVersion || 0}`;
+}
+
+function ForgeReportFenceInner({ assembly, diagnostics = [] }) {
+
+  const [lifecycleState, setLifecycleState] = React.useState({ action: '', message: '', error: '' });
+  const compiledSource = React.useMemo(() => {
+    const materializedDataSources = Object.fromEntries(Object.entries(assembly?.dataSources || {}).map(([id, source]) => {
+      const materialized = materializeForgeData(source);
+      return [id, { ...source, id, rows: materialized.rows }];
+    }));
+    return compileInlineReport({
+      reportId: `${assembly?.scope || 'message'}:${assembly?.id || 'inlineReport'}`,
+      grammar: assembly?.grammar || 'dashboard-v1',
+      source: assembly?.source || {},
+      dataSources: materializedDataSources,
+    });
+  }, [assembly]);
+	const [materialization, setMaterialization] = React.useState({ compiled: compiledSource, loading: false, error: '' });
+	React.useEffect(() => {
+		let active = true;
+		setMaterialization({ compiled: compiledSource, loading: true, error: '' });
+		materializeInlineReport(compiledSource, {
+			fetchDataset: ({ dataSourceRef, request }) => fetchDatasource(dataSourceRef, request),
+		}).then((compiled) => {
+			if (active) setMaterialization({ compiled, loading: false, error: '' });
+		}).catch((error) => {
+			if (active) setMaterialization({ compiled: compiledSource, loading: false, error: error?.message || 'Live report data could not be loaded.' });
+		});
+		return () => { active = false; };
+	}, [compiledSource]);
+	const compiled = materialization.compiled || compiledSource;
+  const reportDiagnostics = diagnostics.filter((entry) => String(entry?.reportId || '') === String(assembly?.id || ''));
+  const lifecycleReady = assembly?.authoritative === true
+    && assembly?.status === 'committed'
+    && reportDiagnostics.length === 0
+		&& !materialization.loading
+		&& !materialization.error;
+  const reportID = `${assembly?.scope || 'message'}_${assembly?.id || 'inlineReport'}`
+    .replace(/[^A-Za-z0-9._-]+/g, '_');
+  const handleSave = async () => {
+    if (!lifecycleReady || lifecycleState.action) return;
+    setLifecycleState({ action: 'save', message: '', error: '' });
+    try {
+      await saveReport({
+        reportId: reportID,
+        title: compiled.reportDocument?.title || assembly?.source?.title || 'Inline report',
+        version: 1,
+        documentVersion: 1,
+        reportDocument: compiled.reportDocument,
+        reportSpec: compiled.reportSpec,
+        reportFill: compiled.reportFill,
+        reportPrint: compiled.reportPrint,
+        compileState: { status: 'clean', source: 'inline', sequence: Number(assembly?.sequence || 0) },
+        metadata: { source: 'inline', scope: assembly?.scope || 'message', reportId: assembly?.id || '' },
+      });
+      setLifecycleState({ action: '', message: 'Saved to My reports.', error: '' });
+    } catch (error) {
+      setLifecycleState({ action: '', message: '', error: error?.message || 'Report save failed.' });
+    }
+  };
+  const handleExport = async () => {
+    if (!lifecycleReady || lifecycleState.action) return;
+    setLifecycleState({ action: 'export', message: '', error: '' });
+    try {
+      const request = buildDraftReportExportRequest({
+        reportDocument: compiled.reportDocument,
+        reportSpec: compiled.reportSpec,
+        reportFill: compiled.reportFill,
+        reportPrint: compiled.reportPrint,
+        format: 'pdf',
+        metadata: { source: 'inline', scope: assembly?.scope || 'message', reportId: assembly?.id || '' },
+      });
+      if (!request) throw new Error('Inline report is not export-ready.');
+      const result = await submitReportExportRequest({ request, source: 'inline' });
+      setLifecycleState({
+        action: '',
+        message: result?.jobId ? `PDF export queued (${result.jobId}).` : 'PDF export queued.',
+        error: '',
+      });
+    } catch (error) {
+      setLifecycleState({ action: '', message: '', error: error?.message || 'Report export failed.' });
+    }
+  };
+
+  return (
+      <section
+        className="app-rich-inline-report"
+        data-forge-report-id={assembly?.id || ''}
+        data-forge-report-status={assembly?.status || ''}
+        style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+      >
+        {assembly?.status !== 'committed' || reportDiagnostics.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '8px 10px', border: '1px solid #d8e1ee', borderRadius: 10, background: '#f7faff', fontSize: 12, color: '#48607a' }}>
+            <strong>{assembly?.status === 'committed' ? 'Report assembled with diagnostics' : `Report ${assembly?.status || 'assembling'}`}</strong>
+            {reportDiagnostics.slice(0, 3).map((entry, index) => (
+              <span key={`${entry.code || 'diagnostic'}-${index}`}>{entry.message || entry.code}</span>
+            ))}
+          </div>
+        ) : null}
+				{materialization.loading ? (
+					<div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#48607a', fontSize: 12 }}>
+						<Spinner size={14} /> Loading live report data…
+					</div>
+				) : null}
+				{materialization.error ? <div role="alert" style={{ color: '#b42318', fontSize: 12 }}>{materialization.error}</div> : null}
+        {lifecycleReady ? (
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <Button small icon="floppy-disk" loading={lifecycleState.action === 'save'} disabled={!!lifecycleState.action} onClick={handleSave}>Save report</Button>
+            <Button small icon="document-share" loading={lifecycleState.action === 'export'} disabled={!!lifecycleState.action} onClick={handleExport}>Export PDF</Button>
+            {lifecycleState.message ? <span style={{ color: '#32704f', fontSize: 12 }}>{lifecycleState.message}</span> : null}
+            {lifecycleState.error ? <span role="alert" style={{ color: '#b42318', fontSize: 12 }}>{lifecycleState.error}</span> : null}
+          </div>
+        ) : null}
+        <ReportRuntime
+          key={inlineReportRuntimeKey(assembly)}
+          reportDocument={compiled.reportDocument}
+          reportSpec={compiled.reportSpec}
+          reportFill={compiled.reportFill}
+          title={compiled.reportDocument?.title || assembly?.source?.title || ''}
+          subtitle={compiled.reportDocument?.subtitle || assembly?.source?.subtitle || ''}
+          presentationMode="report"
+          showContextSummary={true}
+        />
+      </section>
+  );
+}
+
+function ForgeReportFence(props) {
+  return (
+    <ForgeRenderErrorBoundary>
+      <ForgeReportFenceInner {...props} />
+    </ForgeRenderErrorBoundary>
+  );
+}
+
+function ForgeReportAssemblyDiagnostic({ assembly, diagnostics = [] }) {
+  const reportDiagnostics = diagnostics.filter((entry) => String(entry?.reportId || '') === String(assembly?.id || ''));
+  return (
+    <section
+      className="app-rich-inline-report-diagnostic"
+      data-forge-report-id={assembly?.id || ''}
+      data-forge-report-status={assembly?.status || 'incomplete'}
+      style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '10px 12px', border: '1px solid #e4b8a9', borderRadius: 10, background: '#fff8f5', color: '#7d3927', fontSize: 12 }}
+    >
+      <strong>{assembly?.status === 'orphaned' ? 'Report data was not attached' : `Report ${assembly?.status || 'incomplete'}`}</strong>
+      {reportDiagnostics.slice(0, 3).map((entry, index) => (
+        <span key={`${entry.code || 'diagnostic'}-${index}`}>{entry.message || entry.code}</span>
+      ))}
+    </section>
+  );
+}
+
 function escapeHTMLAttr(value = '') {
   return String(value || '')
     .replace(/&/g, '&amp;')
@@ -1787,7 +1968,7 @@ function renderPipeTable(body = '', generatedFiles = []) {
 
 export function normalizeLegacyForgeFenceBlocks(content = '') {
   const source = String(content || '').replace(/\r\n/g, '\n');
-  const pattern = /(^|\n)(forge-(?:data|ui))\s*\n```json\s*\n?([\s\S]*?)\n```(?=\n|$)/gi;
+  const pattern = /(^|\n)(forge-(?:data|ui|report))\s*\n```json\s*\n?([\s\S]*?)\n```(?=\n|$)/gi;
   return source.replace(pattern, (_, prefix, marker, body) => {
     const normalizedBody = String(body || '').replace(/\n+$/, '');
     return `${prefix}\`\`\`${String(marker || '').toLowerCase()}\n${normalizedBody}\n\`\`\``;
@@ -1806,7 +1987,7 @@ export function normalizeLegacyForgeDescriptors(descriptors = []) {
       && String(next?.fence?.lang || '').trim().toLowerCase() === 'json'
     ) {
       const trimmed = String(part.value || '').trim().toLowerCase();
-      if (trimmed === FORGE_DATA_FENCE || trimmed === FORGE_UI_FENCE) {
+      if (trimmed === FORGE_DATA_FENCE || trimmed === FORGE_UI_FENCE || trimmed === FORGE_REPORT_FENCE) {
         normalized.push({
           kind: 'fence',
           fence: describeFence(trimmed, String(next?.fence?.body || ''))
@@ -1822,7 +2003,7 @@ export function normalizeLegacyForgeDescriptors(descriptors = []) {
 
 // ── Main component ──
 
-function RichContent({ content = '', generatedFiles = [], messageId = '' }) {
+function RichContent({ content = '', renderedContent = null, generatedFiles = [], messageId = '' }) {
   const textNorm = normalizeBrokenMarkdownLayout(
     normalizeLegacyForgeFenceBlocks(String(content || ''))
   );
@@ -1835,17 +2016,63 @@ function RichContent({ content = '', generatedFiles = [], messageId = '' }) {
     for (const part of descriptors) {
       if (part?.kind !== 'fence' || !isForgeDataFence(part.fence)) continue;
       try {
-        blocks.push(validateForgeDataBlock(parseForgeFenceBody(part.fence.body)));
+        const block = validateForgeDataBlock(parseForgeFenceBody(part.fence.body));
+        if (Number(block.version || 1) !== 2) blocks.push(block);
       } catch (_) {}
     }
     return blocks;
   }, [descriptors]);
+  const progressiveReports = React.useMemo(() => {
+    const events = [];
+    descriptors.forEach((part, index) => {
+      if (part?.kind !== 'fence') return;
+      try {
+        const payload = parseForgeFenceBody(part.fence.body);
+        if (isForgeReportFence(part.fence)) events.push({ kind: 'report', index, payload });
+        if (isForgeDataFence(part.fence) && Number(payload?.version) === 2) events.push({ kind: 'data', index, payload });
+      } catch (_) {}
+    });
+    const canonicalReports = Array.isArray(renderedContent?.reports) ? renderedContent.reports : [];
+    if (canonicalReports.length > 0) {
+      const lastIndexByKey = new Map();
+      events.forEach((event) => {
+        const payload = event?.payload || {};
+        const id = String(event.kind === 'data' ? payload.reportRef : payload.id || '').trim();
+        const scope = String(payload.scope || 'message').trim() || 'message';
+        if (id) lastIndexByKey.set(`${scope}:${id}`, event.index);
+      });
+      return {
+        assemblies: canonicalReports.map((assembly) => ({
+          ...assembly,
+          authoritative: true,
+          source: canonicalReportSource(assembly?.source),
+          dataSources: Object.fromEntries(Object.entries(assembly?.dataSources || {}).map(([id, source]) => [id, {
+            ...source,
+            id,
+            data: source?.data ?? source?.payload,
+          }])),
+          lastIndex: lastIndexByKey.get(`${assembly?.scope || 'message'}:${assembly?.id || ''}`) ?? -1,
+        })),
+        diagnostics: Array.isArray(renderedContent?.diagnostics) ? renderedContent.diagnostics : [],
+      };
+    }
+    const fallback = assembleForgeReportEvents(events);
+    return {
+      ...fallback,
+      assemblies: fallback.assemblies.map((assembly) => ({ ...assembly, authoritative: false })),
+    };
+  }, [descriptors, renderedContent]);
+  const progressiveReportByIndex = React.useMemo(() => new Map(
+    progressiveReports.assemblies.map((assembly) => [assembly.lastIndex, assembly])
+  ), [progressiveReports]);
 
   if (!descriptors.length) return <span>&nbsp;</span>;
 
   const out = [];
+  const renderedReportKeys = new Set();
   let idx = 0;
-  for (const part of descriptors) {
+  for (let descriptorIndex = 0; descriptorIndex < descriptors.length; descriptorIndex += 1) {
+    const part = descriptors[descriptorIndex];
     if (part.kind === 'text') {
       const chunk = normalizeBrokenMarkdownLayout(String(part.value || ''));
       // Skip chunks that have no visible content once markdown formatting markers
@@ -1860,6 +2087,8 @@ function RichContent({ content = '', generatedFiles = [], messageId = '' }) {
           out.push(<ForgeFenceLoading key={`forge-ui-loading-text-${idx++}`} label="Building UI" />);
         } else if (streamingForgeFence === FORGE_DATA_FENCE) {
           out.push(<ForgeFenceLoading key={`forge-data-loading-text-${idx++}`} label="Setting datasources" />);
+        } else if (streamingForgeFence === FORGE_REPORT_FENCE) {
+          out.push(<ForgeFenceLoading key={`forge-report-loading-text-${idx++}`} label="Building report" />);
         } else {
           out.push(<MinimalText key={`seg-${idx++}`} text={chunk} generatedFiles={generatedFiles} />);
         }
@@ -1874,8 +2103,23 @@ function RichContent({ content = '', generatedFiles = [], messageId = '' }) {
     const fence = part.fence;
     const body = fence.body;
     if (isForgeDataFence(fence)) {
+      const assembly = progressiveReportByIndex.get(descriptorIndex);
+      if (assembly?.status === 'orphaned') {
+        renderedReportKeys.add(`${assembly.scope}:${assembly.id}`);
+        out.push(<ForgeReportAssemblyDiagnostic key={`forge-report-diagnostic-${assembly.scope}-${assembly.id}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} />);
+      }
       if (hasTrailingOpenForgeFence(textNorm, FORGE_DATA_FENCE)) {
         out.push(<ForgeFenceLoading key={`forge-data-loading-${idx++}`} label="Setting datasources" />);
+      }
+      continue;
+    }
+    if (isForgeReportFence(fence)) {
+      const assembly = progressiveReportByIndex.get(descriptorIndex);
+      if (assembly) {
+        renderedReportKeys.add(`${assembly.scope}:${assembly.id}`);
+        out.push(<ForgeReportFence key={`forge-report-${assembly.scope}-${assembly.id}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} />);
+      } else if (hasTrailingOpenForgeFence(textNorm, FORGE_REPORT_FENCE)) {
+        out.push(<ForgeFenceLoading key={`forge-report-loading-${idx++}`} label="Building report" />);
       }
       continue;
     }
@@ -1928,11 +2172,23 @@ function RichContent({ content = '', generatedFiles = [], messageId = '' }) {
     }
   }
 
+  progressiveReports.assemblies.forEach((assembly) => {
+    const key = `${assembly?.scope || 'message'}:${assembly?.id || ''}`;
+    if (renderedReportKeys.has(key)) return;
+    renderedReportKeys.add(key);
+    if (assembly?.status === 'orphaned') {
+      out.push(<ForgeReportAssemblyDiagnostic key={`forge-report-diagnostic-${key}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} />);
+    } else {
+      out.push(<ForgeReportFence key={`forge-report-${key}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} />);
+    }
+  });
+
   return <div className="app-rich-content">{out}</div>;
 }
 
 export default React.memo(RichContent, (a, b) => (
   (a.content || '') === (b.content || '')
+  && a.renderedContent === b.renderedContent
   && generatedFileKey(a.generatedFiles) === generatedFileKey(b.generatedFiles)
 ));
 

@@ -80,6 +80,83 @@ final class AuthRuntimeTests: XCTestCase {
     }
 
     @MainActor
+    func testBeginOOBLoginDoesNotStartWhileAnotherSignInIsActive() async {
+        let client = AgentlyClient(endpoints: ["appAPI": EndpointConfig(baseURL: URL(string: "http://localhost:8585")!)])
+        let runtime = AuthRuntime(client: client)
+        runtime.isSubmittingOAuthLogin = true
+
+        let success = await runtime.beginOOBLogin(secretsURL: "~/.secret/app_oob.enc|blowfish://default")
+
+        XCTAssertFalse(success)
+        XCTAssertTrue(runtime.isSubmittingOAuthLogin)
+    }
+
+    @MainActor
+    func testBeginOOBLoginDoesNotExposeTransportDetails() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+        let runtime = AuthRuntime(client: client)
+
+        URLProtocolStub.requestHandler = { _ in
+            throw URLError(.timedOut)
+        }
+        defer { URLProtocolStub.requestHandler = nil }
+
+        let success = await runtime.beginOOBLogin(secretsURL: "~/.secret/app_oob.enc|blowfish://default")
+
+        XCTAssertFalse(success)
+        XCTAssertEqual(runtime.lastError, "Saved sign-in could not be completed. Check your connection and try again.")
+        XCTAssertFalse(runtime.lastError?.contains("secret") ?? true)
+        XCTAssertFalse(runtime.lastError?.contains("http") ?? true)
+    }
+
+    @MainActor
+    func testBeginOAuthLoginHidesCallbackConfigurationDetails() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+        let runtime = AuthRuntime(client: client)
+
+        URLProtocolStub.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            let body = #"{"authURL":"https://idp.example.test/authorize?redirect_uri=https%3A%2F%2Fworkspace.example.test%2Fcallback"}"#
+            return (response, body.data(using: .utf8)!)
+        }
+        defer { URLProtocolStub.requestHandler = nil }
+
+        let url = await runtime.beginOAuthLogin()
+
+        XCTAssertNil(url)
+        XCTAssertEqual(runtime.lastError, "This workspace is not configured for mobile sign-in. Contact the workspace administrator.")
+        XCTAssertFalse(runtime.lastError?.contains("agently-ios://") ?? true)
+        XCTAssertFalse(runtime.lastError?.contains("workspace.example.test") ?? true)
+    }
+
+    @MainActor
+    func testHandleOAuthCallbackDoesNotStartWhileAnotherSignInIsActive() async throws {
+        let client = AgentlyClient(endpoints: ["appAPI": EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))])
+        let runtime = AuthRuntime(client: client)
+        runtime.isSubmittingOAuthLogin = true
+
+        let success = await runtime.handleOAuthCallback(
+            try XCTUnwrap(URL(string: "agently-ios://oauth/callback?code=code&state=state"))
+        )
+
+        XCTAssertFalse(success)
+        XCTAssertTrue(runtime.isSubmittingOAuthLogin)
+    }
+
+    @MainActor
     func testBeginDeveloperSessionLoginAttachesCookieSession() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]

@@ -5,13 +5,8 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
 data class SavedLoginConfig(
-    val username: String = "",
-    val password: String = "",
     val oobSecretRef: String = ""
 ) {
-    val hasStoredIdpCredential: Boolean
-        get() = username.isNotBlank() && password.isNotBlank()
-
     val hasStoredOobSecretRef: Boolean
         get() = oobSecretRef.isNotBlank()
 }
@@ -33,17 +28,22 @@ class SavedLoginStoreImpl(context: Context) : SavedLoginStore {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
     )
 
-    override fun load(): SavedLoginConfig = SavedLoginConfig(
-        username = prefs.getString(KEY_USERNAME, "").orEmpty(),
-        password = prefs.getString(KEY_PASSWORD, "").orEmpty(),
-        oobSecretRef = prefs.getString(KEY_OOB_SECRET_REF, "").orEmpty()
-    )
+    override fun load(): SavedLoginConfig {
+        // One-time cleanup for the retired OAuth credential helper.
+        prefs.edit()
+            .remove(KEY_USERNAME)
+            .remove(KEY_PASSWORD)
+            .apply()
+        return SavedLoginConfig(
+            oobSecretRef = prefs.getString(KEY_OOB_SECRET_REF, "").orEmpty()
+        )
+    }
 
     override fun save(config: SavedLoginConfig) {
         prefs.edit()
-            .putString(KEY_USERNAME, config.username)
-            .putString(KEY_PASSWORD, config.password)
             .putString(KEY_OOB_SECRET_REF, config.oobSecretRef)
+            .remove(KEY_USERNAME)
+            .remove(KEY_PASSWORD)
             .apply()
     }
 

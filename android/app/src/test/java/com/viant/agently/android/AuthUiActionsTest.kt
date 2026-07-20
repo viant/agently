@@ -6,42 +6,30 @@ import org.junit.Test
 class AuthUiActionsTest {
 
     @Test
-    fun clearPersistedAuthSettings_resetsStoredConfigAndDismissesSettings() {
+    fun clearPersistedAuthSettings_resetsStoredConfig() {
         val store = RecordingSavedLoginStore()
-        var appliedConfig = SavedLoginConfig(
-            username = "user",
-            password = "pass"
-        )
-        var showSavedLoginSettings = true
+        var appliedConfig = SavedLoginConfig(oobSecretRef = "~/.secret/app_oob.enc|blowfish://default")
 
         clearSavedLoginConfig(
             store = store,
             bindings = SavedLoginBindings(
-                onSavedLoginConfigChange = { appliedConfig = it },
-                onShowSavedLoginSettingsChange = { showSavedLoginSettings = it }
-            ),
-            dismissSettings = true
+                onSavedLoginConfigChange = { appliedConfig = it }
+            )
         )
 
         assertEquals(1, store.clearCount)
         assertEquals(SavedLoginConfig(), appliedConfig)
-        assertEquals(false, showSavedLoginSettings)
     }
 
     @Test
     fun clearSavedAuthSecrets_resetsStoredConfig() {
         val store = RecordingSavedLoginStore()
-        var appliedConfig = SavedLoginConfig(
-            username = "user",
-            password = "pass",
-            oobSecretRef = "~/.secret/app_oob.enc|blowfish://default"
-        )
+        var appliedConfig = SavedLoginConfig(oobSecretRef = "~/.secret/app_oob.enc|blowfish://default")
 
         clearSavedAuthSecrets(
             store = store,
             bindings = SavedLoginBindings(
-                onSavedLoginConfigChange = { appliedConfig = it },
-                onShowSavedLoginSettingsChange = {}
+                onSavedLoginConfigChange = { appliedConfig = it }
             )
         )
 

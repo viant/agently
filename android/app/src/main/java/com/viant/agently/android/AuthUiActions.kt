@@ -11,8 +11,7 @@ internal fun normalizeAuthThrowable(
 }
 
 internal data class SavedLoginBindings(
-    val onSavedLoginConfigChange: (SavedLoginConfig) -> Unit,
-    val onShowSavedLoginSettingsChange: (Boolean) -> Unit
+    val onSavedLoginConfigChange: (SavedLoginConfig) -> Unit
 )
 
 internal data class AuthUiBindings(
@@ -24,26 +23,18 @@ internal data class AuthUiBindings(
 internal fun persistSavedLoginConfig(
     store: SavedLoginStore,
     next: SavedLoginConfig,
-    bindings: SavedLoginBindings,
-    dismissSettings: Boolean = false
+    bindings: SavedLoginBindings
 ) {
     store.save(next)
     bindings.onSavedLoginConfigChange(next)
-    if (dismissSettings) {
-        bindings.onShowSavedLoginSettingsChange(false)
-    }
 }
 
 internal fun clearSavedLoginConfig(
     store: SavedLoginStore,
-    bindings: SavedLoginBindings,
-    dismissSettings: Boolean = false
+    bindings: SavedLoginBindings
 ) {
     store.clear()
     bindings.onSavedLoginConfigChange(SavedLoginConfig())
-    if (dismissSettings) {
-        bindings.onShowSavedLoginSettingsChange(false)
-    }
 }
 
 internal fun clearSavedAuthSecrets(

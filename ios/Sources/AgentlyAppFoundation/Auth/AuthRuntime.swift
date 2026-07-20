@@ -29,6 +29,33 @@ public final class AuthRuntime: ObservableObject {
         guard !isSubmittingOAuthLogin else { return nil }
         isSubmittingOAuthLogin = true
         defer { isSubmittingOAuthLogin = false }
+        return await requestOAuthLoginURL()
+    }
+
+    public func beginOAuthWebAuthenticationSessionLogin() async -> Bool {
+        guard !isSubmittingOAuthLogin else { return false }
+        isSubmittingOAuthLogin = true
+        defer { isSubmittingOAuthLogin = false }
+
+        guard let authURL = await requestOAuthLoginURL() else {
+            return false
+        }
+
+        do {
+            logger.info("Starting ASWebAuthenticationSession sign-in")
+            let callbackURL = try await oauthSession.authenticate(
+                url: authURL,
+                callbackScheme: Self.oauthCallbackScheme
+            )
+            return await completeOAuthCallback(callbackURL)
+        } catch {
+            logger.error("ASWebAuthenticationSession sign-in failed: \(String(describing: error), privacy: .private)")
+            lastError = "Secure sign-in could not be completed. Check your connection and try again."
+            return false
+        }
+    }
+
+    private func requestOAuthLoginURL() async -> URL? {
         do {
             logger.info("Requesting OAuth initiation URL")
             let output = try await client.oauthMobileInitiate(
@@ -43,41 +70,21 @@ public final class AuthRuntime: ObservableObject {
             }
             guard Self.authURLUsesMobileRedirect(url, expectedRedirectURI: Self.mobileOAuthRedirectURI) else {
                 logger.error("OAuth initiation returned a web callback instead of the mobile callback")
-                lastError = "This workspace is returning a web sign-in callback. Mobile sign-in needs the workspace to allow \(Self.mobileOAuthRedirectURI)."
+                lastError = "This workspace is not configured for mobile sign-in. Contact the workspace administrator."
                 return nil
             }
             lastError = nil
             logger.info("OAuth initiation succeeded")
             return url
         } catch {
-            logger.error("OAuth initiation failed: \(String(describing: error), privacy: .public)")
-            lastError = error.localizedDescription
+            logger.error("OAuth initiation failed: \(String(describing: error), privacy: .private)")
+            lastError = "Secure sign-in could not be started. Check your connection and try again."
             return nil
         }
     }
 
-    public func beginOAuthWebAuthenticationSessionLogin() async -> Bool {
-        guard let authURL = await beginOAuthLogin() else {
-            return false
-        }
-
-        isSubmittingOAuthLogin = true
-        defer { isSubmittingOAuthLogin = false }
-        do {
-            logger.info("Starting ASWebAuthenticationSession sign-in")
-            let callbackURL = try await oauthSession.authenticate(
-                url: authURL,
-                callbackScheme: Self.oauthCallbackScheme
-            )
-            return await handleOAuthCallback(callbackURL)
-        } catch {
-            logger.error("ASWebAuthenticationSession sign-in failed: \(String(describing: error), privacy: .public)")
-            lastError = error.localizedDescription
-            return false
-        }
-    }
-
     public func beginOOBLogin(secretsURL: String) async -> Bool {
+        guard !isSubmittingOAuthLogin else { return false }
         let trimmedSecretsURL = secretsURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedSecretsURL.isEmpty else {
             lastError = "Add an OOB secret reference before starting out-of-band sign-in."
@@ -96,8 +103,8 @@ public final class AuthRuntime: ObservableObject {
             logger.info("OOB sign-in completed successfully")
             return currentUser != nil
         } catch {
-            logger.error("OOB sign-in failed: \(String(describing: error), privacy: .public)")
-            lastError = error.localizedDescription
+            logger.error("OOB sign-in failed: \(String(describing: error), privacy: .private)")
+            lastError = "Saved sign-in could not be completed. Check your connection and try again."
             return false
         }
     }
@@ -138,7 +145,7 @@ public final class AuthRuntime: ObservableObject {
         do {
             return try await createDeveloperTokenSession(accessToken: nil, idToken: credential)
         } catch {
-            logger.error("Developer session recovery failed: \(String(describing: error), privacy: .public)")
+            logger.error("Developer session recovery failed: \(String(describing: error), privacy: .private)")
             lastAuthSessionID = nil
             lastError = "Could not use that session ID or token."
             return false
@@ -158,13 +165,20 @@ public final class AuthRuntime: ObservableObject {
             lastError = nil
             return true
         } catch {
-            logger.error("Logout failed: \(String(describing: error), privacy: .public)")
-            lastError = error.localizedDescription
+            logger.error("Logout failed: \(String(describing: error), privacy: .private)")
+            lastError = "Unable to sign out right now. Please try again."
             return false
         }
     }
 
     public func handleOAuthCallback(_ url: URL) async -> Bool {
+        guard !isSubmittingOAuthLogin else { return false }
+        isSubmittingOAuthLogin = true
+        defer { isSubmittingOAuthLogin = false }
+        return await completeOAuthCallback(url)
+    }
+
+    private func completeOAuthCallback(_ url: URL) async -> Bool {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.scheme?.lowercased() == Self.oauthCallbackScheme,
               let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
@@ -174,9 +188,6 @@ public final class AuthRuntime: ObservableObject {
             logger.error("Rejected OAuth callback with missing code or state")
             return false
         }
-
-        isSubmittingOAuthLogin = true
-        defer { isSubmittingOAuthLogin = false }
         do {
             logger.info("Completing OAuth callback exchange")
             let output = try await client.oauthMobileCallback(
@@ -189,8 +200,8 @@ public final class AuthRuntime: ObservableObject {
             logger.info("OAuth callback exchange completed successfully")
             return true
         } catch {
-            logger.error("OAuth callback exchange failed: \(String(describing: error), privacy: .public)")
-            lastError = error.localizedDescription
+            logger.error("OAuth callback exchange failed: \(String(describing: error), privacy: .private)")
+            lastError = "Secure sign-in could not be completed. Check your connection and try again."
             return false
         }
     }
@@ -214,8 +225,8 @@ public final class AuthRuntime: ObservableObject {
                     let oauthConfig = try await client.getOAuthConfig()
                     oauthScopes = oauthConfig.scopes
                 } catch {
-                    logger.error("OAuth config fetch failed: \(String(describing: error), privacy: .public)")
-                    probeError = error.localizedDescription
+                    logger.error("OAuth config fetch failed: \(String(describing: error), privacy: .private)")
+                    probeError = "Unable to load sign-in options. Check your connection and try again."
                 }
             }
 
@@ -230,9 +241,9 @@ public final class AuthRuntime: ObservableObject {
                 if isAuthenticationError(error) {
                     logger.info("Authentication context indicates sign-in is still required")
                 } else {
-                    logger.error("authMe probe failed unexpectedly: \(String(describing: error), privacy: .public)")
+                    logger.error("authMe probe failed unexpectedly: \(String(describing: error), privacy: .private)")
                     probeMessage = nil
-                    probeError = error.localizedDescription
+                    probeError = "Unable to verify your sign-in status. Check your connection and try again."
                     currentUser = nil
                     return
                 }
@@ -249,12 +260,12 @@ public final class AuthRuntime: ObservableObject {
                 probeMessage = "Workspace is reachable. Available sign-in options: \(providers.map { $0.name ?? $0.type }.joined(separator: ", "))."
             }
         } catch {
-            logger.error("Authentication context refresh failed: \(String(describing: error), privacy: .public)")
+            logger.error("Authentication context refresh failed: \(String(describing: error), privacy: .private)")
             authProviders = []
             oauthScopes = []
             currentUser = nil
             probeMessage = nil
-            probeError = error.localizedDescription
+            probeError = "Unable to reach the sign-in service. Check your connection and try again."
         }
     }
 

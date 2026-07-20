@@ -347,23 +347,25 @@ internal fun TabletWorkspacePane(
                                         )
                                     }
                                 }
-                                RenderTranscript(
-                                    items = displayTranscript,
-                                    pendingApprovals = pendingApprovals,
-                                    generatedFiles = generatedFiles,
-                                    forgeRuntime = forgeRuntime,
-                                    approvalJson = approvalJson,
-                                    approvalEdits = approvalEdits,
-                                    onEditChange = onEditChange,
-                                    onDecision = onDecision,
-                                    artifactPreview = artifactPreview,
-                                    onClosePreview = onClosePreview,
-                                    onOpenFile = onOpenFile
-                                )
                                 if (showExecutionDetails) {
                                     ExecutionInspectorSection(
                                         state = conversationState,
                                         payloadPreviews = payloadPreviews
+                                    )
+                                } else {
+                                    RenderTranscript(
+                                        items = displayTranscript,
+                                        pendingApprovals = pendingApprovals,
+                                        generatedFiles = generatedFiles,
+                                        client = client,
+                                        forgeRuntime = forgeRuntime,
+                                        approvalJson = approvalJson,
+                                        approvalEdits = approvalEdits,
+                                        onEditChange = onEditChange,
+                                        onDecision = onDecision,
+                                        artifactPreview = artifactPreview,
+                                        onClosePreview = onClosePreview,
+                                        onOpenFile = onOpenFile
                                     )
                                 }
                                 Spacer(modifier = Modifier.padding(bottom = 24.dp))
