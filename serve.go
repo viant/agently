@@ -110,6 +110,11 @@ func Serve(options ServeOptions) error {
 	if err != nil {
 		return fmt.Errorf("failed to load workspace config: %w", err)
 	}
+	reportingRuntime, err := configureWorkspaceReporting(ctx, workspace.Root(), wsConfig)
+	if err != nil {
+		return err
+	}
+	defer reportingRuntime.Close()
 	defaults := (&wscfg.Root{}).DefaultsWithFallback(&execconfig.Defaults{
 		Model:    "openai_gpt-5.2",
 		Embedder: "openai_text",
@@ -156,7 +161,7 @@ func Serve(options ServeOptions) error {
 	forgeWindowRepo := forgewindowrepo.NewWithStore(rt.Store)
 	logLoadedForgeWindows(ctx, forgeWindowRepo)
 	if rt.Registry != nil {
-		if err := tool.AddInternalService(rt.Registry, uiview.New(forgeWindowRepo, uiBridge)); err != nil {
+		if err := tool.AddInternalService(rt.Registry, uiview.New(forgeWindowRepo, uiBridge, uiview.WithListItemEnricher(reportingRuntime.EnrichView))); err != nil {
 			log.Printf("agently-app: failed to register internal UI view service: %v", err)
 		}
 		if err := tool.AddInternalService(rt.Registry, uiwindow.New(uiBridge)); err != nil {
