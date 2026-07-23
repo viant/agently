@@ -243,6 +243,18 @@ export function normalizeQueueApprovalDialog(item = null) {
   };
 }
 
+export function extractSchemaDefaultValues(schema = null) {
+  if (!schema || typeof schema !== 'object') return {};
+  const properties = schema.properties && typeof schema.properties === 'object' ? schema.properties : {};
+  const values = {};
+  Object.entries(properties).forEach(([key, field]) => {
+    if (!field || typeof field !== 'object') return;
+    if (field.default === undefined) return;
+    values[key] = JSON.parse(JSON.stringify(field.default));
+  });
+  return values;
+}
+
 export function findApprovalItemById(items = [], approvalId = '') {
   const wanted = String(approvalId || '').trim();
   if (!wanted) return null;
@@ -351,6 +363,10 @@ export default function MenuBar({
   const selectedQueueArguments = selectedQueueDialog.argumentsPayload;
   const selectedQueueApproval = selectedQueueDialog.approval;
   const selectedQueuePlannerMeta = selectedQueueDialog.plannerMeta;
+  const selectedQueueDisplayData = useMemo(
+    () => extractSchemaDefaultValues(selectedQueueSchema),
+    [selectedQueueSchema],
+  );
   const canRenderQueueSchema = !!selectedQueueSchema && typeof selectedQueueSchema === 'object';
 
   useEffect(() => {
@@ -505,8 +521,10 @@ export default function MenuBar({
   const handleApprovalDecision = useCallback(async (item, action) => {
     if (!item || !decide) return;
     const payload = action === 'approve'
-      ? ((queueFormValuesRef.current && Object.keys(queueFormValuesRef.current).length > 0)
-          ? queueFormValuesRef.current
+      ? (selectedQueuePlannerMeta?.field
+          ? ((queueFormValuesRef.current && Object.keys(queueFormValuesRef.current).length > 0)
+              ? queueFormValuesRef.current
+              : (selectedQueueArguments && typeof selectedQueueArguments === 'object' ? selectedQueueArguments : null))
           : (selectedQueueArguments && typeof selectedQueueArguments === 'object' ? selectedQueueArguments : null))
       : null;
     setApprovalSubmitting(true);
@@ -518,7 +536,7 @@ export default function MenuBar({
     } finally {
       setApprovalSubmitting(false);
     }
-  }, [decide, selectedQueueArguments]);
+  }, [decide, selectedQueueArguments, selectedQueuePlannerMeta]);
 
   const toggleQueuePlannerRow = useCallback((rowIndex) => {
     if (!selectedQueuePlannerMeta?.field) return;
@@ -789,7 +807,7 @@ export default function MenuBar({
               <SchemaBasedForm
                 showSubmit={false}
                 schema={selectedQueueSchema}
-                data={{}}
+                data={selectedQueueDisplayData}
                 context={getWindowContext?.(selectedWindowId.value)}
                 onChange={(payload) => {
                   const values = payload?.values || payload?.data || payload || {};
