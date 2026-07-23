@@ -711,6 +711,7 @@ export function mapCanonicalExecutionGroups(groups = []) {
       errorMessage
     } : null);
     const finalContent = String(group?.content || group?.Content || '').trim();
+    const renderedContent = group?.renderedContent || group?.RenderedContent || null;
     const title = groupTitleFromSteps({
       narration: narrationContent ? { content: narrationContent } : null,
       modelStep: effectiveModelStep,
@@ -750,6 +751,7 @@ export function mapCanonicalExecutionGroups(groups = []) {
       errorMessage,
       finalResponse: Boolean(group?.finalResponse || group?.FinalResponse),
       finalContent,
+      renderedContent,
       elapsed: aggregateLatencyLabel([...(effectiveModelStep ? [effectiveModelStep] : []), ...toolSteps]),
       stepCount: (effectiveModelStep ? 1 : 0) + toolSteps.length
     };
@@ -831,6 +833,17 @@ export function resolveVisibleBubbleContent(visibleGroups = []) {
     }
   }
   return '';
+}
+
+export function resolveVisibleBubbleRenderedContent(visibleGroups = [], fallback = null) {
+  const groups = Array.isArray(visibleGroups) ? visibleGroups : [];
+  for (let index = groups.length - 1; index >= 0; index -= 1) {
+    const group = groups[index] || {};
+    if (group?.finalResponse && group?.renderedContent) {
+      return group.renderedContent;
+    }
+  }
+  return fallback || null;
 }
 
 function looksLikeStructuredJSON(text = '') {
@@ -1536,6 +1549,7 @@ export function buildIterationDataFromCanonicalRow(canonicalRow = null, message 
     phase: round?.phase || '',
     narration: round?.narration || '',
     content: round?.content || '',
+    renderedContent: round?.renderedContent || null,
     status: round?.status || '',
     finalResponse: !!round?.finalResponse,
     executionRole: (Array.isArray(round?.modelSteps) ? round.modelSteps[0]?.executionRole : '') || round?.executionRole || '',
@@ -1544,7 +1558,9 @@ export function buildIterationDataFromCanonicalRow(canonicalRow = null, message 
     toolCallsPlanned: [],
   }));
   const firstNarration = rounds.map((round) => String(round?.narration || '').trim()).find(Boolean) || '';
-  const finalContent = [...rounds].reverse().map((round) => String(round?.content || '').trim()).find(Boolean) || '';
+  const finalRound = [...rounds].reverse().find((round) => String(round?.content || '').trim()) || null;
+  const finalContent = String(finalRound?.content || '').trim();
+  const finalRenderedContent = finalRound?.renderedContent || null;
   return {
     ...(message?._iterationData || {}),
     turnId: canonicalRow?.turnId || message?._iterationData?.turnId || '',
@@ -1558,6 +1574,7 @@ export function buildIterationDataFromCanonicalRow(canonicalRow = null, message 
     response: {
       ...(message?._iterationData?.response || {}),
       content: finalContent || message?._iterationData?.response?.content || '',
+      renderedContent: finalRenderedContent || message?._iterationData?.response?.renderedContent || null,
       status: canonicalRow?.lifecycle || message?._iterationData?.response?.status || '',
       elicitation: canonicalElicitation || message?._iterationData?.response?.elicitation || null,
       elicitations,
@@ -1651,6 +1668,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
   const { showDetail } = useContext(DetailContext);
   const { showExecutionDetails = true, showIntakeDetails = false, toolFeedDock = 'inline' } = useContext(ConversationViewContext);
   const data = buildIterationDataFromCanonicalRow(canonicalRow, message);
+  const iterationConversationId = String(canonicalRow?.conversationId || data?.conversationId || message?.conversationId || '').trim() || currentConversationId();
   const toolCalls = Array.isArray(data.toolCalls) ? data.toolCalls : [];
   const displayToolCalls = useMemo(
     () => (Array.isArray(toolCalls) ? [...toolCalls] : []),
@@ -1947,6 +1965,13 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
     streamContent: data?.streamContent,
     errorMessage: data?.errorMessage
   }), [data?.errorMessage, data?.narration?.content, data?.response?.content, data?.streamContent, message?.content, visibleGroups]);
+  const visibleRenderedContent = useMemo(
+    () => resolveVisibleBubbleRenderedContent(
+      visibleGroups,
+      data?.response?.renderedContent || message?.renderedContent || null,
+    ),
+    [data?.response?.renderedContent, message?.renderedContent, visibleGroups],
+  );
   useEffect(() => {
     logIterationDebug('presentation-state', {
       messageId: message?.id || '',
@@ -2497,7 +2522,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
                   <summary className="app-iteration-summary-head">Summary</summary>
                   <div className="app-iteration-summary-body">
                     <div className="app-iteration-summary-content">
-                      <RichContent content={summaryContent} generatedFiles={generatedFiles} />
+                      <RichContent content={summaryContent} generatedFiles={generatedFiles} conversationId={iterationConversationId} messageId={String(message?.id || '').trim()} />
                     </div>
                   </div>
                 </details>
@@ -2509,10 +2534,12 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
       {showExecutionDetails && showToolFeedDetail && toolFeedDock !== 'right' ? <ToolFeedDetail context={context} /> : null}
       {!suppressBubble && !hasPendingVisibleElicitation && !hasPendingExecutionElicitation && shouldShowNarrationBubble(visibleGroups, visibleRenderedText, data?.response?.content) ? (
         <BubbleMessage
+          conversationId={iterationConversationId}
           message={{
             id: `${message?.id || 'iteration'}:narration`,
             role: 'assistant',
             content: visibleRenderedText,
+            renderedContent: visibleRenderedContent,
             generatedFiles
           }}
         />

@@ -831,7 +831,7 @@ export default function ExecutionWorkspace() {
                 {group.narration ? <div className="app-execution-response narration">{group.narration}</div> : null}
                 {group.content ? (
                   <div className="app-execution-response final">
-                    <RichContent content={group.content} />
+                    <RichContent content={group.content} conversationId={conversationId} messageId={firstString(group?.assistantMessageId)} />
                   </div>
                 ) : null}
                     </>

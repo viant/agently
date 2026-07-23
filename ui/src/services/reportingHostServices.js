@@ -16,6 +16,7 @@ import {
   getReportSharedArtifact,
   listReportSharedArtifacts,
 } from './reportSharedArtifactService';
+import { emitReportUIEvent } from './reportEventService';
 
 export function createReportingHostServices() {
   return {
@@ -40,6 +41,9 @@ export function createReportingHostServices() {
     reportSharedArtifacts: {
       listArtifacts: listReportSharedArtifacts,
       getArtifact: getReportSharedArtifact,
+    },
+    reportEvents: {
+      emit: emitReportUIEvent,
     },
   };
 }

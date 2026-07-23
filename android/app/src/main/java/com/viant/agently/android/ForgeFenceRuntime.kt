@@ -67,11 +67,23 @@ internal fun TranscriptMessageContent(
     forgeRuntime: ForgeRuntime,
     messageKey: String
 ) {
-    val parts = remember(markdown, renderedParts) {
-        renderedParts?.let(::canonicalTranscriptContentParts)
+    val parts = remember(markdown, renderedParts, renderedReports) {
+        val sourceParts = renderedParts?.let(::canonicalTranscriptContentParts)
             ?.let(ForgeTranscriptEnvelope::fromCanonical)
             ?.let(::displayTranscriptContentParts)
             ?: parseTranscriptContentParts(markdown)
+        if (renderedReports.isNullOrEmpty()) {
+            sourceParts
+        } else {
+            sourceParts.map { part ->
+                when (part) {
+                    is TranscriptContentPart.Markdown -> TranscriptContentPart.Markdown(
+                        ForgeTranscriptEnvelope.suppressProgressiveTransport(part.text)
+                    )
+                    is TranscriptContentPart.ForgeUi -> part
+                }
+            }
+        }
     }
     if (parts.isEmpty() && renderedReports.isNullOrEmpty()) {
         MarkdownRenderer(markdown = markdown.ifBlank { "(empty response)" }, modifier = Modifier.fillMaxWidth())

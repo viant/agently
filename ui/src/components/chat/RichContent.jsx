@@ -60,7 +60,8 @@ import {
 } from '../../services/forgeFenceContract.js';
 import { isStreamDebugEnabled } from '../../services/debugFlags';
 import { dispatchForgeUIAction } from '../../services/forgeUIActions.js';
-import { submitReportExportRequest } from '../../services/reportExportService.js';
+import { getReportExportArtifact, getReportExportStatus, submitReportExportRequest } from '../../services/reportExportService.js';
+import { emitReportUIEvent } from '../../services/reportEventService.js';
 import { saveReport } from '../../services/reportStoreService.js';
 import { fetchDatasource } from '../lookups/client.js';
 
@@ -1401,9 +1402,100 @@ export function inlineReportRuntimeKey(assembly = {}) {
   return `report-runtime-${assembly?.scope || 'message'}-${assembly?.id || 'inlineReport'}-${assembly?.resetVersion || 0}`;
 }
 
-function ForgeReportFenceInner({ assembly, diagnostics = [] }) {
+function inlineReportScopeValues(reportSpec = {}) {
+  return Object.fromEntries((Array.isArray(reportSpec?.scope?.params) ? reportSpec.scope.params : [])
+    .map((entry) => [String(entry?.id || '').trim(), entry?.value])
+    .filter(([id, value]) => id && value !== undefined));
+}
+
+export function buildInlineReportEventDetail({ assembly = {}, compiled = {}, conversationId = '', messageId = '', extra = {} } = {}) {
+  const scope = String(assembly?.scope || 'message').trim() || 'message';
+  const reportId = String(assembly?.id || 'inlineReport').trim() || 'inlineReport';
+  const title = String(compiled?.reportDocument?.title || assembly?.source?.title || 'Inline report').trim() || 'Inline report';
+  const normalizedConversationId = String(conversationId || '').trim();
+  const normalizedMessageId = String(messageId || '').trim();
+  return {
+    sourceKind: 'inline',
+    reportId,
+    reportName: title,
+    reportInstanceKey: [normalizedConversationId, normalizedMessageId, scope, reportId].filter(Boolean).join(':'),
+    requestId: reportId,
+    revision: Number(assembly?.sequence || 0),
+    scope: {
+      id: scope,
+      values: inlineReportScopeValues(compiled?.reportSpec),
+    },
+    ...extra,
+  };
+}
+
+export function resolveInlineReportExportTargetURL(result = {}, artifact = {}) {
+  return String(
+    result?.targetUrl
+    || result?.artifactUrl
+    || artifact?.sourceURL
+    || artifact?.artifactRef
+    || ''
+  ).trim();
+}
+
+const INLINE_EXPORT_TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled', 'canceled']);
+
+export async function waitForInlineReportExport(initialJob = {}, {
+  getStatus = getReportExportStatus,
+  delay = (milliseconds) => new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds)),
+  intervalMs = 750,
+  maxAttempts = 40,
+} = {}) {
+  let job = initialJob && typeof initialJob === 'object' && !Array.isArray(initialJob) ? initialJob : {};
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const status = String(job?.status || '').trim().toLowerCase();
+    if ((status === 'succeeded' && String(job?.artifactId || '').trim()) || INLINE_EXPORT_TERMINAL_STATES.has(status)) {
+      return job;
+    }
+    const jobId = String(job?.jobId || '').trim();
+    if (!jobId || typeof getStatus !== 'function') return job;
+    if (attempt > 0 || intervalMs > 0) await delay(intervalMs);
+    job = await getStatus({ jobId });
+  }
+  return job;
+}
+
+export function createInlineReportArtifactDownload(artifact = {}, {
+  filename = 'inline-report.pdf',
+  urlRef = typeof URL === 'undefined' ? null : URL,
+} = {}) {
+  const bytes = artifact?.bytes instanceof Uint8Array ? artifact.bytes : null;
+  if (!bytes?.length || typeof urlRef?.createObjectURL !== 'function') {
+    throw new Error('Inline PDF artifact did not contain downloadable data.');
+  }
+  const isPDF = bytes.length >= 5
+    && bytes[0] === 0x25
+    && bytes[1] === 0x50
+    && bytes[2] === 0x44
+    && bytes[3] === 0x46
+    && bytes[4] === 0x2d;
+  if (!isPDF) {
+    throw new Error('Inline PDF artifact is invalid and cannot be opened.');
+  }
+  const safeName = String(filename || 'inline-report.pdf')
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim() || 'inline-report.pdf';
+  const pdfName = safeName.toLowerCase().endsWith('.pdf') ? safeName : `${safeName}.pdf`;
+  const url = urlRef.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+  return {
+    url,
+    filename: pdfName,
+    revoke: () => urlRef.revokeObjectURL(url),
+  };
+}
+
+function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = '', messageId = '' }) {
 
   const [lifecycleState, setLifecycleState] = React.useState({ action: '', message: '', error: '' });
+  const [artifactDownload, setArtifactDownload] = React.useState(null);
+  React.useEffect(() => () => artifactDownload?.revoke?.(), [artifactDownload]);
   const compiledSource = React.useMemo(() => {
     const materializedDataSources = Object.fromEntries(Object.entries(assembly?.dataSources || {}).map(([id, source]) => {
       const materialized = materializeForgeData(source);
@@ -1416,7 +1508,11 @@ function ForgeReportFenceInner({ assembly, diagnostics = [] }) {
       dataSources: materializedDataSources,
     });
   }, [assembly]);
-	const [materialization, setMaterialization] = React.useState({ compiled: compiledSource, loading: false, error: '' });
+	const [materialization, setMaterialization] = React.useState({
+		compiled: compiledSource,
+		loading: Array.isArray(compiledSource?.workspaceDatasetRequests) && compiledSource.workspaceDatasetRequests.length > 0,
+		error: '',
+	});
 	React.useEffect(() => {
 		let active = true;
 		setMaterialization({ compiled: compiledSource, loading: true, error: '' });
@@ -1431,15 +1527,42 @@ function ForgeReportFenceInner({ assembly, diagnostics = [] }) {
 	}, [compiledSource]);
 	const compiled = materialization.compiled || compiledSource;
   const reportDiagnostics = diagnostics.filter((entry) => String(entry?.reportId || '') === String(assembly?.id || ''));
+  const emittedContextRevisionRef = React.useRef('');
+  React.useEffect(() => {
+    const normalizedConversationId = String(conversationId || '').trim();
+    const revision = Number(assembly?.sequence || 0);
+    const acceptedStatus = !['orphaned', 'incomplete'].includes(String(assembly?.status || '').trim().toLowerCase());
+    const eventKey = `${normalizedConversationId}:${assembly?.scope || 'message'}:${assembly?.id || 'inlineReport'}:${revision}`;
+    if (assembly?.authoritative !== true || !normalizedConversationId || !acceptedStatus || reportDiagnostics.length > 0 || revision <= 0 || emittedContextRevisionRef.current === eventKey) return;
+    emittedContextRevisionRef.current = eventKey;
+    emitReportUIEvent({
+      kind: 'report.context_updated',
+      conversationId: normalizedConversationId,
+      detail: buildInlineReportEventDetail({ assembly, compiled: compiledSource, conversationId: normalizedConversationId, messageId }),
+    }).catch(() => {
+      emittedContextRevisionRef.current = '';
+    });
+  }, [assembly, compiledSource, conversationId, messageId, reportDiagnostics.length]);
   const lifecycleReady = assembly?.authoritative === true
     && assembly?.status === 'committed'
     && reportDiagnostics.length === 0
 		&& !materialization.loading
 		&& !materialization.error;
+  const exportRequest = React.useMemo(() => buildDraftReportExportRequest({
+    reportDocument: compiled?.reportDocument,
+    reportSpec: compiled?.reportSpec,
+    reportFill: compiled?.reportFill,
+    reportPrint: compiled?.reportPrint,
+    format: 'pdf',
+    metadata: { source: 'inline', scope: assembly?.scope || 'message', reportId: assembly?.id || '' },
+  }), [assembly?.id, assembly?.scope, compiled?.reportDocument, compiled?.reportFill, compiled?.reportPrint, compiled?.reportSpec]);
+  const exportReady = lifecycleReady && !!exportRequest;
+  const promotionEligible = compiled?.promotion?.eligible === true;
+  const canSaveReport = lifecycleReady && promotionEligible;
   const reportID = `${assembly?.scope || 'message'}_${assembly?.id || 'inlineReport'}`
     .replace(/[^A-Za-z0-9._-]+/g, '_');
   const handleSave = async () => {
-    if (!lifecycleReady || lifecycleState.action) return;
+    if (!canSaveReport || lifecycleState.action) return;
     setLifecycleState({ action: 'save', message: '', error: '' });
     try {
       await saveReport({
@@ -1449,10 +1572,19 @@ function ForgeReportFenceInner({ assembly, diagnostics = [] }) {
         documentVersion: 1,
         reportDocument: compiled.reportDocument,
         reportSpec: compiled.reportSpec,
-        reportFill: compiled.reportFill,
-        reportPrint: compiled.reportPrint,
-        compileState: { status: 'clean', source: 'inline', sequence: Number(assembly?.sequence || 0) },
-        metadata: { source: 'inline', scope: assembly?.scope || 'message', reportId: assembly?.id || '' },
+        compileState: {
+          status: 'clean',
+          source: 'inline',
+          sequence: Number(assembly?.sequence || 0),
+          reusableDataSourceRefs: compiled.promotion.reusableDataSourceRefs,
+        },
+        metadata: {
+          source: 'inline',
+          scope: assembly?.scope || 'message',
+          reportId: assembly?.id || '',
+          reusableDataSources: true,
+          resolvedDataSourceRefs: compiled.promotion.reusableDataSourceRefs,
+        },
       });
       setLifecycleState({ action: '', message: 'Saved to My reports.', error: '' });
     } catch (error) {
@@ -1460,22 +1592,49 @@ function ForgeReportFenceInner({ assembly, diagnostics = [] }) {
     }
   };
   const handleExport = async () => {
-    if (!lifecycleReady || lifecycleState.action) return;
+    if (!exportReady || lifecycleState.action) return;
+    setArtifactDownload(null);
     setLifecycleState({ action: 'export', message: '', error: '' });
     try {
-      const request = buildDraftReportExportRequest({
-        reportDocument: compiled.reportDocument,
-        reportSpec: compiled.reportSpec,
-        reportFill: compiled.reportFill,
-        reportPrint: compiled.reportPrint,
-        format: 'pdf',
-        metadata: { source: 'inline', scope: assembly?.scope || 'message', reportId: assembly?.id || '' },
+      const exportId = globalThis.crypto?.randomUUID?.() || `${reportID}-${Date.now()}`;
+      const eventDetail = buildInlineReportEventDetail({
+        assembly,
+        compiled,
+        conversationId,
+        messageId,
+        extra: { exportId, format: 'pdf' },
       });
-      if (!request) throw new Error('Inline report is not export-ready.');
-      const result = await submitReportExportRequest({ request, source: 'inline' });
+      await emitReportUIEvent({
+        kind: 'report.export_start',
+        conversationId,
+        detail: eventDetail,
+      });
+      const submitted = await submitReportExportRequest({ request: exportRequest, source: 'inline' });
+      const result = await waitForInlineReportExport(submitted);
+      const status = String(result?.status || '').trim().toLowerCase();
+      const artifactId = String(result?.artifactId || '').trim();
+      if (status !== 'succeeded' || !artifactId) {
+        throw new Error(String(result?.error || '').trim() || 'Inline PDF export did not produce an artifact.');
+      }
+      const artifact = await getReportExportArtifact({ artifactId });
+      const download = createInlineReportArtifactDownload(artifact, {
+        filename: `${compiled.reportDocument?.title || assembly?.source?.title || 'inline-report'}.pdf`,
+      });
+      setArtifactDownload(download);
+      await emitReportUIEvent({
+        kind: 'report.export_complete',
+        conversationId,
+        detail: {
+          ...eventDetail,
+          jobId: String(result?.jobId || '').trim(),
+          artifactId,
+          targetUrl: resolveInlineReportExportTargetURL(result, artifact),
+          status: 'succeeded',
+        },
+      });
       setLifecycleState({
         action: '',
-        message: result?.jobId ? `PDF export queued (${result.jobId}).` : 'PDF export queued.',
+        message: '',
         error: '',
       });
     } catch (error) {
@@ -1505,9 +1664,36 @@ function ForgeReportFenceInner({ assembly, diagnostics = [] }) {
 				) : null}
 				{materialization.error ? <div role="alert" style={{ color: '#b42318', fontSize: 12 }}>{materialization.error}</div> : null}
         {lifecycleReady ? (
-          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-            <Button small icon="floppy-disk" loading={lifecycleState.action === 'save'} disabled={!!lifecycleState.action} onClick={handleSave}>Save report</Button>
-            <Button small icon="document-share" loading={lifecycleState.action === 'export'} disabled={!!lifecycleState.action} onClick={handleExport}>Export PDF</Button>
+          <div className="app-rich-inline-report__actions">
+            {canSaveReport ? (
+              <Button small icon="floppy-disk" loading={lifecycleState.action === 'save'} disabled={!!lifecycleState.action} onClick={handleSave}>Save report</Button>
+            ) : null}
+            {artifactDownload?.url ? (
+              <a
+                className="app-rich-inline-report__export-button app-rich-inline-report__download-link"
+                href={artifactDownload.url}
+                download={artifactDownload.filename}
+                title={`Download ${artifactDownload.filename}`}
+              >
+                <span className="bp6-icon bp6-icon-cloud-download" aria-hidden="true" />
+                Download PDF
+              </a>
+            ) : (
+              <Button
+                className="app-rich-inline-report__export-button"
+                intent="success"
+                icon="download"
+                loading={lifecycleState.action === 'export'}
+                disabled={!exportReady || !!lifecycleState.action}
+                title={!exportReady ? 'Resolve the report validation issues before exporting.' : 'Export this report as PDF.'}
+                onClick={handleExport}
+              >
+                <span>Export PDF</span>
+              </Button>
+            )}
+            {!exportReady ? (
+              <span role="alert" style={{ color: '#b42318', fontSize: 12 }}>Resolve the report validation issues before exporting.</span>
+            ) : null}
             {lifecycleState.message ? <span style={{ color: '#32704f', fontSize: 12 }}>{lifecycleState.message}</span> : null}
             {lifecycleState.error ? <span role="alert" style={{ color: '#b42318', fontSize: 12 }}>{lifecycleState.error}</span> : null}
           </div>
@@ -2003,7 +2189,7 @@ export function normalizeLegacyForgeDescriptors(descriptors = []) {
 
 // ── Main component ──
 
-function RichContent({ content = '', renderedContent = null, generatedFiles = [], messageId = '' }) {
+function RichContent({ content = '', renderedContent = null, generatedFiles = [], messageId = '', conversationId = '' }) {
   const textNorm = normalizeBrokenMarkdownLayout(
     normalizeLegacyForgeFenceBlocks(String(content || ''))
   );
@@ -2117,7 +2303,7 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
       const assembly = progressiveReportByIndex.get(descriptorIndex);
       if (assembly) {
         renderedReportKeys.add(`${assembly.scope}:${assembly.id}`);
-        out.push(<ForgeReportFence key={`forge-report-${assembly.scope}-${assembly.id}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} />);
+        out.push(<ForgeReportFence key={`forge-report-${assembly.scope}-${assembly.id}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} conversationId={conversationId} messageId={messageId} />);
       } else if (hasTrailingOpenForgeFence(textNorm, FORGE_REPORT_FENCE)) {
         out.push(<ForgeFenceLoading key={`forge-report-loading-${idx++}`} label="Building report" />);
       }
@@ -2179,7 +2365,7 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
     if (assembly?.status === 'orphaned') {
       out.push(<ForgeReportAssemblyDiagnostic key={`forge-report-diagnostic-${key}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} />);
     } else {
-      out.push(<ForgeReportFence key={`forge-report-${key}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} />);
+      out.push(<ForgeReportFence key={`forge-report-${key}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} conversationId={conversationId} messageId={messageId} />);
     }
   });
 
@@ -2189,6 +2375,8 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
 export default React.memo(RichContent, (a, b) => (
   (a.content || '') === (b.content || '')
   && a.renderedContent === b.renderedContent
+  && String(a.messageId || '') === String(b.messageId || '')
+  && String(a.conversationId || '') === String(b.conversationId || '')
   && generatedFileKey(a.generatedFiles) === generatedFileKey(b.generatedFiles)
 ));
 

@@ -23,7 +23,7 @@ import BubbleMessage from './BubbleMessage.jsx';
 import MCPUIBubble from './MCPUIBubble.jsx';
 import StarterTasks from './StarterTasks.jsx';
 
-function UserBubble({ row }) {
+function UserBubble({ row, conversationId = '' }) {
   return (
     <div
       data-render-key={row.renderKey}
@@ -31,6 +31,7 @@ function UserBubble({ row }) {
       data-client-request-id={row.clientRequestId || ''}
     >
       <BubbleMessage
+        conversationId={conversationId}
         message={{
           id: row.renderKey,
           role: 'user',
@@ -43,13 +44,14 @@ function UserBubble({ row }) {
   );
 }
 
-function AssistantBubble({ row }) {
+function AssistantBubble({ row, conversationId = '' }) {
   return (
     <div
       data-render-key={row.renderKey}
       data-message-id={row.messageId || ''}
     >
       <BubbleMessage
+        conversationId={conversationId}
         message={{
           id: row.messageId || row.renderKey,
           role: 'assistant',
@@ -65,12 +67,12 @@ function AssistantBubble({ row }) {
   );
 }
 
-function renderRow(row, context) {
+function renderRow(row, context, conversationId = '') {
   switch (row.kind) {
     case 'user':
-      return <UserBubble key={row.renderKey} row={row} />;
+      return <UserBubble key={row.renderKey} row={row} conversationId={conversationId} />;
     case 'assistant':
-      return <AssistantBubble key={row.renderKey} row={row} />;
+      return <AssistantBubble key={row.renderKey} row={row} conversationId={conversationId} />;
     case 'mcpui':
       return <MCPUIBubble key={row.renderKey} row={row} />;
     case 'iteration':
@@ -147,7 +149,7 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
     <div className="app-chat-feed" data-source="chatStore">
       {rows.map((row, index) => {
         if (row?.kind !== 'iteration') {
-          return renderRow(row, context);
+          return renderRow(row, context, conversationId);
         }
         const turnId = String(row?.turnId || '').trim();
         const suppressBubble = !!turnId && (lastIndexByTurn.get(turnId) ?? index) > index;
