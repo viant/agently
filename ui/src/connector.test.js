@@ -100,4 +100,20 @@ describe('snapshotConversationId', () => {
       global.window = previousWindow;
     }
   });
+
+  it('snapshot builder prefers the active conversation route over restored form state', () => {
+    const previousWindow = global.window;
+    global.window = {
+      location: {
+        pathname: '/conversation/conv-route'
+      }
+    };
+
+    try {
+      const snapshot = connectorConfig.uiBridge.snapshotBuilder();
+      expect(snapshot.conversationId).toBe('conv-route');
+    } finally {
+      global.window = previousWindow;
+    }
+  });
 });

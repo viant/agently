@@ -21,6 +21,7 @@ import IterationBlock, {
   resolveIterationAgentLabel,
   resolveIterationStatusDetail,
   resolveVisibleBubbleContent,
+  resolveVisibleBubbleRenderedContent,
   resolveIterationBubbleContent,
   buildIterationDataFromCanonicalRow,
   resolveCanonicalDetailStep,
@@ -40,6 +41,26 @@ import IterationBlock, {
 import { summarizeLinkedConversationTranscript } from 'agently-core-ui-sdk';
 
 describe('mapCanonicalExecutionGroups', () => {
+  it('preserves the canonical rendered report for the visible final response', () => {
+    const renderedContent = {
+      schemaVersion: '1',
+      parts: [],
+      reports: [{ id: 'delivery', status: 'committed' }],
+    };
+    const groups = mapCanonicalExecutionGroups([{
+      pageId: 'page-1',
+      status: 'completed',
+      finalResponse: true,
+      content: 'Delivery report',
+      renderedContent,
+      modelSteps: [],
+      toolSteps: [],
+    }]);
+
+    expect(groups[0]?.renderedContent).toBe(renderedContent);
+    expect(resolveVisibleBubbleRenderedContent(groups)).toBe(renderedContent);
+  });
+
   it('keeps tool rows and linked conversation cards on separate presentation helpers', () => {
     expect(displayItemRowTitle({
       toolName: 'llm/agents/run',
@@ -2167,5 +2188,76 @@ describe('mapCanonicalExecutionGroups', () => {
 
     expect(groups).toHaveLength(1);
     expect(groups[0].id).toBe('p1');
+  });
+
+  it('exposes export for a committed canonical inline report rendered from an iteration page', () => {
+    const content = [
+      '```forge-data',
+      '{"version":2,"reportRef":"brief","id":"delivery","sequence":1,"data":[{"channel":"CTV","spend":12}]}',
+      '```',
+      '```forge-report',
+      '{"version":1,"id":"brief","sequence":2,"mode":"start","title":"Delivery Brief","blocks":[{"id":"delivery_table","kind":"dashboard.table","title":"Channel Delivery","dataSourceRef":"delivery","columns":[{"key":"channel","label":"Channel"},{"key":"spend","label":"Spend","format":"currency"}]}]}',
+      '```',
+      '```forge-report',
+      '{"version":1,"id":"brief","sequence":3,"mode":"commit"}',
+      '```',
+    ].join('\n');
+    const renderedContent = {
+      schemaVersion: '1',
+      parts: [],
+      reports: [{
+        scope: 'message',
+        id: 'brief',
+        grammar: 'dashboard-v1',
+        status: 'committed',
+        sequence: 3,
+        resetVersion: 0,
+        source: {
+          title: 'Delivery Brief',
+          blocks: [{
+            id: 'delivery_table',
+            kind: 'dashboard.table',
+            title: 'Channel Delivery',
+            dataSourceRef: 'delivery',
+            columns: [{ key: 'channel', label: 'Channel' }, { key: 'spend', label: 'Spend', format: 'currency' }],
+          }],
+        },
+        dataSources: {
+          delivery: {
+            version: 2,
+            id: 'delivery',
+            format: 'json',
+            mode: 'replace',
+            payload: [{ channel: 'CTV', spend: 12 }],
+          },
+        },
+      }],
+      diagnostics: [],
+    };
+    const html = renderToStaticMarkup(React.createElement(IterationBlock, {
+      canonicalRow: {
+        kind: 'iteration',
+        conversationId: 'conversation-1',
+        turnId: 'turn-report',
+        lifecycle: 'completed',
+        isStreaming: false,
+        rounds: [{
+          pageId: 'page-report',
+          status: 'completed',
+          finalResponse: true,
+          content,
+          renderedContent,
+          modelSteps: [],
+          toolCalls: [],
+        }],
+      },
+      message: { id: 'message-report' },
+      context: null,
+      showToolFeedDetail: false,
+    }));
+
+    expect(html).toContain('Delivery Brief');
+    expect(html).toContain('Export PDF');
+    expect(html).not.toContain('Run report');
   });
 });

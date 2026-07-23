@@ -63,7 +63,9 @@ export const connectorConfig = {
       return {
         ...snapshot,
         clientId: uiBridgeClientId(),
-        conversationId: snapshotConversationId(snapshot) || resolveConversationSelection(MAIN_CHAT_WINDOW_ID),
+        // The active route is the authoritative workspace scope. Restored form
+        // state can briefly describe the previously selected conversation.
+        conversationId: resolveConversationSelection(MAIN_CHAT_WINDOW_ID) || snapshotConversationId(snapshot),
       };
     },
   }

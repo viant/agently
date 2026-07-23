@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import RichContent, { inlineReportRuntimeKey, normalizeDashboardPayload, normalizeLegacyForgeDescriptors, normalizeLegacyForgeFenceBlocks, parseFences, resolveForgeScope, scopeForgeDashboardPayload } from './RichContent';
+import RichContent, { buildInlineReportEventDetail, createInlineReportArtifactDownload, inlineReportRuntimeKey, normalizeDashboardPayload, normalizeLegacyForgeDescriptors, normalizeLegacyForgeFenceBlocks, parseFences, resolveForgeScope, resolveInlineReportExportTargetURL, scopeForgeDashboardPayload, waitForInlineReportExport } from './RichContent';
 import { renderMarkdownBlock } from 'agently-core-ui-sdk';
 
 describe('RichContent fence parsing', () => {
@@ -10,6 +10,77 @@ describe('RichContent fence parsing', () => {
     const initial = { scope: 'campaign', id: 'delivery', sequence: 1, resetVersion: 0 };
     expect(inlineReportRuntimeKey({ ...initial, sequence: 2 })).toBe(inlineReportRuntimeKey(initial));
     expect(inlineReportRuntimeKey({ ...initial, resetVersion: 1 })).not.toBe(inlineReportRuntimeKey(initial));
+  });
+  it('builds stable inline lifecycle context from the canonical report assembly', () => {
+    expect(buildInlineReportEventDetail({
+      conversationId: 'conversation-1',
+      messageId: 'message-1',
+      assembly: { scope: 'order_42', id: 'delivery', sequence: 7, source: { title: 'Delivery' } },
+      compiled: {
+        reportDocument: { title: 'Delivery Command Center' },
+        reportSpec: { scope: { params: [{ id: 'orderIds', value: [42] }, { id: 'optional', value: undefined }] } },
+      },
+    })).toMatchObject({
+      sourceKind: 'inline',
+      reportId: 'delivery',
+      reportName: 'Delivery Command Center',
+      reportInstanceKey: 'conversation-1:message-1:order_42:delivery',
+      requestId: 'delivery',
+      revision: 7,
+      scope: { id: 'order_42', values: { orderIds: [42] } },
+    });
+  });
+  it('polls an inline export until the canonical artifact is available', async () => {
+    const statuses = [
+      { jobId: 'job-1', status: 'running' },
+      { jobId: 'job-1', status: 'succeeded', artifactId: 'artifact-1', targetUrl: 'scratchpad://artifact/artifact-1' },
+    ];
+    const result = await waitForInlineReportExport({ jobId: 'job-1', status: 'queued' }, {
+      intervalMs: 0,
+      delay: async () => {},
+      getStatus: async () => statuses.shift(),
+    });
+    expect(result).toMatchObject({ status: 'succeeded', artifactId: 'artifact-1' });
+    expect(statuses).toHaveLength(0);
+  });
+  it('uses the materialized artifact source URL for the export-complete event', () => {
+    expect(resolveInlineReportExportTargetURL(
+      { artifactId: 'artifact-1' },
+      { sourceURL: 'scratchpad://artifact/artifact-1' },
+    )).toBe('scratchpad://artifact/artifact-1');
+    expect(resolveInlineReportExportTargetURL(
+      { targetUrl: 'scratchpad://artifact/result' },
+      { sourceURL: 'scratchpad://artifact/fallback' },
+    )).toBe('scratchpad://artifact/result');
+  });
+  it('creates a local download for a materialized inline PDF artifact', () => {
+    const revoked = [];
+    let downloadedBlob = null;
+    const download = createInlineReportArtifactDownload({
+      bytes: new Uint8Array([37, 80, 68, 70, 45, 49, 46, 55]),
+      contentType: 'application/octet-stream',
+    }, {
+      filename: 'Audience / Forecast.pdf',
+      urlRef: {
+        createObjectURL: (blob) => {
+          downloadedBlob = blob;
+          return 'blob:inline-forecast';
+        },
+        revokeObjectURL: (url) => revoked.push(url),
+      },
+    });
+
+    expect(download).toMatchObject({ url: 'blob:inline-forecast', filename: 'Audience - Forecast.pdf' });
+    expect(downloadedBlob?.type).toBe('application/pdf');
+    download.revoke();
+    expect(revoked).toEqual(['blob:inline-forecast']);
+  });
+  it('rejects an invalid inline PDF artifact instead of offering a broken file', () => {
+    expect(() => createInlineReportArtifactDownload({
+      bytes: new Uint8Array([123, 34, 101, 114, 114, 111, 114, 34, 125]),
+    }, {
+      urlRef: { createObjectURL: () => 'blob:invalid' },
+    })).toThrow('Inline PDF artifact is invalid and cannot be opened.');
   });
   it('parses a closed fenced code block', () => {
     const parts = parseFences('Before\n```go\nfmt.Println("hi")\n```\nAfter');
@@ -133,8 +204,114 @@ describe('RichContent fence parsing', () => {
 
     expect(html.match(/data-forge-report-id="brief"/g)).toHaveLength(1);
     expect(html).toContain('Canonical Delivery');
-    expect(html).toContain('Save report');
+    expect(html).not.toContain('Save report');
     expect(html).toContain('Export PDF');
+    expect(html).toContain('app-rich-inline-report__export-button');
+    expect(html).not.toContain('Materialized inline datasets must be mapped');
+    expect(html).not.toContain('Run report');
+    expect(html).not.toContain('Run the report');
+  });
+
+  it('blocks malformed collection presentation before export instead of rendering Item placeholders', () => {
+    const renderedContent = {
+      schemaVersion: '1',
+      parts: [],
+      reports: [{
+        scope: 'message',
+        id: 'findings',
+        grammar: 'report-document-v1',
+        status: 'committed',
+        sequence: 1,
+        resetVersion: 0,
+        source: {
+          title: 'Forecast findings',
+          blocks: [{
+            id: 'findings_collection',
+            kind: 'collectionBlock',
+            title: 'Actionable findings',
+            datasetRef: 'findings_data',
+            layout: 'grid',
+            columns: 2,
+            rowLimit: 4,
+          }],
+        },
+        dataSources: {
+          findings_data: {
+            version: 2,
+            id: 'findings_data',
+            format: 'json',
+            mode: 'replace',
+            payload: [{ title: 'Delivery evidence', detail: 'Line is delivering.' }],
+          },
+        },
+      }],
+      diagnostics: [],
+    };
+
+    const html = renderToStaticMarkup(React.createElement(RichContent, {
+      content: 'Forecast findings',
+      renderedContent,
+      messageId: 'message-findings',
+    }));
+
+    expect(html).toContain('Actionable findings does not define a collection title field.');
+    expect(html).not.toContain('Item 1');
+    expect(html).toContain('Resolve the report validation issues before exporting.');
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*title="Resolve the report validation issues before exporting\."/);
+  });
+
+  it('keeps the last valid report visible when a progressive patch is rejected', () => {
+    const renderedContent = {
+      schemaVersion: '1',
+      parts: [],
+      reports: [{
+        scope: 'message',
+        id: 'delivery',
+        grammar: 'dashboard-v1',
+        status: 'incomplete',
+        sequence: 2,
+        resetVersion: 0,
+        source: {
+          title: 'Delivery before rejected patch',
+          blocks: [{
+            id: 'delivery_table',
+            kind: 'dashboard.table',
+            title: 'Last valid delivery rows',
+            dataSourceRef: 'delivery_rows',
+            columns: [{ key: 'channel', label: 'Channel' }, { key: 'spend', label: 'Spend' }],
+          }],
+        },
+        dataSources: {
+          delivery_rows: {
+            version: 2,
+            id: 'delivery_rows',
+            format: 'json',
+            mode: 'replace',
+            payload: [{ channel: 'CTV', spend: 12 }],
+          },
+        },
+      }],
+      diagnostics: [{
+        code: 'REPORT_TRANSACTION_INVALID',
+        message: 'The progressive patch references an unavailable block.',
+        reportId: 'delivery',
+        sequence: 2,
+      }],
+    };
+
+    const html = renderToStaticMarkup(React.createElement(RichContent, {
+      content: 'Updating delivery report',
+      renderedContent,
+      messageId: 'message-rejected-patch',
+    }));
+
+    expect(html).toContain('data-forge-report-status="incomplete"');
+    expect(html).toContain('The progressive patch references an unavailable block.');
+    expect(html).toContain('Delivery before rejected patch');
+    expect(html).toContain('Last valid delivery rows');
+    expect(html).toContain('CTV');
+    expect(html).not.toContain('Export PDF');
+    expect(html).not.toContain('Save report');
   });
 
   it('does not expose lifecycle actions for an uncommitted server snapshot', () => {

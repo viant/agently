@@ -102,6 +102,7 @@ export default defineConfig(({ mode, command }) => {
         react: resolve(appNodeModules, 'react'),
         'react-dom': resolve(appNodeModules, 'react-dom'),
         '@preact/signals-react': resolve(appNodeModules, '@preact/signals-react'),
+        '@phosphor-icons/react': resolve(appNodeModules, '@phosphor-icons/react'),
         '@uiw/react-codemirror': resolve(__dirname, 'node_modules/@uiw/react-codemirror'),
         '@codemirror/state': resolve(__dirname, 'node_modules/@codemirror/state'),
         '@codemirror/view': resolve(__dirname, 'node_modules/@codemirror/view'),

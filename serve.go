@@ -40,7 +40,6 @@ import (
 	coremeta "github.com/viant/agently/metadata"
 	agentlyrt "github.com/viant/agently/runtime"
 	"github.com/viant/agently/server"
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
 )
 
 // shutdownTimeout bounds how long Serve will wait for in-flight HTTP and MCP
@@ -110,7 +109,7 @@ func Serve(options ServeOptions) error {
 	if err != nil {
 		return fmt.Errorf("failed to load workspace config: %w", err)
 	}
-	reportingRuntime, err := configureWorkspaceReporting(ctx, workspace.Root(), wsConfig)
+	reportingRuntime, err := configureWorkspaceReporting(ctx, workspace.Root(), wsConfig, debugEnabled)
 	if err != nil {
 		return err
 	}
@@ -157,7 +156,10 @@ func Serve(options ServeOptions) error {
 		log.Printf("scheduler: max concurrent runs capped at %d", cap)
 	}
 	schedulerSvc := svcscheduler.New(scheduleStore, rt.Agent, schedulerSvcOpts...)
-	uiBridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	uiBridge := rt.UIBridge
+	if uiBridge == nil {
+		return fmt.Errorf("runtime Forge UI bridge is not configured")
+	}
 	forgeWindowRepo := forgewindowrepo.NewWithStore(rt.Store)
 	logLoadedForgeWindows(ctx, forgeWindowRepo)
 	if rt.Registry != nil {
@@ -179,9 +181,6 @@ func Serve(options ServeOptions) error {
 		if err := tool.AddInternalService(rt.Registry, uievents.New(uiBridge)); err != nil {
 			log.Printf("agently-app: failed to register internal UI events service: %v", err)
 		}
-	}
-	if rt.Agent != nil {
-		rt.Agent.SetUIBridge(uiBridge)
 	}
 	agentWatchdog := agentsvc.NewWatchdog(rt.Data, rt.Agent, agentsvc.WithWatchdogTokenProvider(rt.TokenProvider))
 	go agentWatchdog.Start(ctx)

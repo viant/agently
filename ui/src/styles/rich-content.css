@@ -3,6 +3,77 @@
   gap: 10px;
 }
 
+.app-rich-inline-report__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.app-rich-inline-report__export-button.bp6-button,
+.app-rich-inline-report__export-button.bp5-button,
+.app-rich-inline-report__export-button.app-rich-inline-report__download-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid #147d57;
+  background: linear-gradient(135deg, #159667 0%, #0f7652 100%);
+  box-shadow: 0 7px 16px rgba(15, 118, 82, 0.2);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  text-decoration: none;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.app-rich-inline-report__export-button.bp6-button:not(:disabled):hover,
+.app-rich-inline-report__export-button.bp5-button:not(:disabled):hover,
+.app-rich-inline-report__export-button.app-rich-inline-report__download-link:hover {
+  background: linear-gradient(135deg, #18a875 0%, #11835c 100%);
+  border-color: #147d57;
+  color: #ffffff;
+  box-shadow: 0 9px 20px rgba(15, 118, 82, 0.27);
+  transform: translateY(-1px);
+  text-decoration: none;
+}
+
+.app-rich-inline-report__export-button .bp6-icon,
+.app-rich-inline-report__export-button .bp5-icon {
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+  padding: 3px;
+}
+
+.app-rich-inline-report__download-link:not(.app-rich-inline-report__export-button) {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 1px solid #a8d8c3;
+  border-radius: 10px;
+  background: #f0fbf6;
+  color: #0d6848;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.app-rich-inline-report__download-link:not(.app-rich-inline-report__export-button):hover {
+  border-color: #65ba93;
+  background: #e5f8ef;
+  color: #095c3f;
+  text-decoration: none;
+}
+
 .app-rich-prose,
 .app-rich-markdown {
   line-height: 1.6;

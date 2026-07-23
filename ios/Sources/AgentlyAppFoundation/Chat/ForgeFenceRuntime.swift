@@ -14,9 +14,17 @@ struct TranscriptMessageContent: View {
 	let client: AgentlyClient?
 
     var body: some View {
-        let parts = renderedParts
+        let sourceParts = renderedParts
             .map(TranscriptEnvelope.fromCanonical)
             ?? parseTranscriptContentParts(markdown)
+        let parts = renderedReports?.isEmpty == false
+            ? sourceParts.map { part in
+                if case .markdown(let text) = part {
+                    return .markdown(TranscriptEnvelope.suppressProgressiveTransport(in: text))
+                }
+                return part
+            }
+            : sourceParts
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
                 switch part {
