@@ -623,6 +623,8 @@ export function assembleForgeReportEvents(events = []) {
     state.sequence = state.maxSequence;
     state.fragments += 1;
     if (state.fragments > FORGE_REPORT_LIMITS.fragments) {
+      state.seen.delete(sequence);
+      state.fragments -= 1;
       diagnostics.push(reportDiagnostic('REPORT_FRAGMENT_LIMIT_EXCEEDED', `An inline report may contain at most ${FORGE_REPORT_LIMITS.fragments} transactions.`, state, event, 'sequence'));
       return;
     }
@@ -642,6 +644,8 @@ export function assembleForgeReportEvents(events = []) {
       }
       Object.assign(state, candidate);
     } catch (error) {
+      state.seen.delete(sequence);
+      state.fragments = Math.max(0, state.fragments - 1);
       if (event.kind === 'report' && String(payload.mode || '').toLowerCase() === 'commit') state.status = 'incomplete';
       diagnostics.push(reportDiagnostic(event.kind === 'data' ? 'REPORT_DATA_INVALID' : 'REPORT_TRANSACTION_INVALID', error?.message || 'Invalid progressive report transaction.', state, event));
     }

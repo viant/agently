@@ -116,8 +116,8 @@ test('assembleForgeReportEvents preserves committed sequence and compares raw re
   assert.equal(committed.diagnostics.some((entry) => entry.code === 'REPORT_ALREADY_COMMITTED'), true);
 
   const replay = assembleForgeReportEvents([
-    { kind: 'data', index: 0, payload: { version: 2, reportRef: 'brief', id: 'rows', sequence: 1, extension: 'one', data: [] } },
-    { kind: 'data', index: 1, payload: { version: 2, reportRef: 'brief', id: 'rows', sequence: 1, extension: 'two', data: [] } },
+    { kind: 'data', index: 0, payload: { version: 2, reportRef: 'brief', id: 'rows', sequence: 1, data: [{ id: 1 }] } },
+    { kind: 'data', index: 1, payload: { version: 2, reportRef: 'brief', id: 'rows', sequence: 1, data: [{ id: 2 }] } },
     { kind: 'report', index: 2, payload: { version: 1, id: 'brief', sequence: 2, mode: 'start', blocks: [] } },
   ]);
   assert.equal(replay.diagnostics.some((entry) => entry.code === 'REPORT_SEQUENCE_CONFLICT'), true);
@@ -162,6 +162,20 @@ test('assembleForgeReportEvents treats explicit and implicit sequence gaps ident
     assert.equal(result.assemblies[0].status, 'incomplete');
     assert.equal(result.diagnostics.some((entry) => entry.code === 'REPORT_SEQUENCE_GAP'), true);
   });
+});
+
+test('assembleForgeReportEvents does not commit after a rejected report fragment', () => {
+  const result = assembleForgeReportEvents([
+    { kind: 'report', index: 0, payload: { version: 1, id: 'brief', sequence: 1, mode: 'start', grammar: 'dashboard-v1', blocks: [] } },
+    { kind: 'report', index: 1, payload: { version: 1, id: 'brief', sequence: 2, mode: 'append', blocks: [{ kind: 'dashboard.report', title: 'Missing stable id' }] } },
+    { kind: 'report', index: 2, payload: { version: 1, id: 'brief', sequence: 3, mode: 'commit' } },
+  ]);
+
+  assert.equal(result.assemblies[0].status, 'incomplete');
+  assert.equal(result.assemblies[0].source.blocks.length, 0);
+  assert.equal(result.diagnostics.some((entry) => entry.code === 'REPORT_TRANSACTION_INVALID' && entry.sequence === 2), true);
+  assert.equal(result.diagnostics.some((entry) => entry.code === 'REPORT_TRANSACTION_INVALID' && entry.sequence === 3), true);
+  assert.equal(result.diagnostics.some((entry) => entry.code === 'REPORT_SEQUENCE_GAP' && entry.sequence === 2), true);
 });
 
 test('assembleForgeReportEvents resolves targets against the prior snapshot and permits replace id reuse', () => {

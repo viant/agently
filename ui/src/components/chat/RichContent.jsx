@@ -2290,7 +2290,7 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
     const body = fence.body;
     if (isForgeDataFence(fence)) {
       const assembly = progressiveReportByIndex.get(descriptorIndex);
-      if (assembly?.status === 'orphaned') {
+      if (assembly?.status === 'orphaned' || (assembly?.status === 'incomplete' && !assembly?.source?.blocks?.length)) {
         renderedReportKeys.add(`${assembly.scope}:${assembly.id}`);
         out.push(<ForgeReportAssemblyDiagnostic key={`forge-report-diagnostic-${assembly.scope}-${assembly.id}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} />);
       }
@@ -2303,7 +2303,11 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
       const assembly = progressiveReportByIndex.get(descriptorIndex);
       if (assembly) {
         renderedReportKeys.add(`${assembly.scope}:${assembly.id}`);
-        out.push(<ForgeReportFence key={`forge-report-${assembly.scope}-${assembly.id}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} conversationId={conversationId} messageId={messageId} />);
+        if (assembly?.status === 'orphaned' || (assembly?.status === 'incomplete' && !assembly?.source?.blocks?.length)) {
+          out.push(<ForgeReportAssemblyDiagnostic key={`forge-report-diagnostic-${assembly.scope}-${assembly.id}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} />);
+        } else {
+          out.push(<ForgeReportFence key={`forge-report-${assembly.scope}-${assembly.id}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} conversationId={conversationId} messageId={messageId} />);
+        }
       } else if (hasTrailingOpenForgeFence(textNorm, FORGE_REPORT_FENCE)) {
         out.push(<ForgeFenceLoading key={`forge-report-loading-${idx++}`} label="Building report" />);
       }
@@ -2362,7 +2366,7 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
     const key = `${assembly?.scope || 'message'}:${assembly?.id || ''}`;
     if (renderedReportKeys.has(key)) return;
     renderedReportKeys.add(key);
-    if (assembly?.status === 'orphaned') {
+    if (assembly?.status === 'orphaned' || (assembly?.status === 'incomplete' && !assembly?.source?.blocks?.length)) {
       out.push(<ForgeReportAssemblyDiagnostic key={`forge-report-diagnostic-${key}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} />);
     } else {
       out.push(<ForgeReportFence key={`forge-report-${key}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} conversationId={conversationId} messageId={messageId} />);

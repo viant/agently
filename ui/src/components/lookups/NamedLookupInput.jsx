@@ -206,10 +206,6 @@ function syncEditorContent(root, segments, options = {}) {
           name: segment.name,
           value: input.value,
         });
-        if (skipChipBlurRef.current) {
-          skipChipBlurRef.current = false;
-          return;
-        }
         onChipEditCommit?.(input.value, segment);
       });
 
