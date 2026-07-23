@@ -321,7 +321,7 @@ describe('MenuBar queue approval dialog', () => {
   });
 
   it('applies selector-based review seeds for nested recommendation fields', async () => {
-    const { normalizeQueueApprovalDialog } = await import('./MenuBar.jsx');
+    const { extractSchemaDefaultValues, normalizeQueueApprovalDialog } = await import('./MenuBar.jsx');
     const item = {
       arguments: {
         Recommendation: {
@@ -367,6 +367,14 @@ describe('MenuBar queue approval dialog', () => {
     expect(dialog.preparedSchema.properties.change_reason.default).toBe(item.arguments.Recommendation.change_reason);
     expect(dialog.preparedSchema.properties.site_list_id.default).toBe(item.arguments.Recommendation.metadata.site_list_id);
     expect(dialog.preparedSchema.properties.generated_sitelist_name.default).toBe(item.arguments.Recommendation.metadata.generated_sitelist_name);
+    expect(extractSchemaDefaultValues(dialog.preparedSchema)).toEqual({
+      change_summary: item.arguments.Recommendation.change_summary,
+      current_expression: item.arguments.Recommendation.metadata.current_expression,
+      proposed_expression: item.arguments.Recommendation.metadata.proposed_expression,
+      change_reason: item.arguments.Recommendation.change_reason,
+      site_list_id: item.arguments.Recommendation.metadata.site_list_id,
+      generated_sitelist_name: item.arguments.Recommendation.metadata.generated_sitelist_name,
+    });
   });
 });
 
