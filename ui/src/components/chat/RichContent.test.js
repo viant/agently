@@ -314,6 +314,26 @@ describe('RichContent fence parsing', () => {
     expect(html).not.toContain('Save report');
   });
 
+  it('shows the rejected-fragment diagnostic instead of compiling an empty report', () => {
+    const content = [
+      '```forge-report',
+      '{"version":1,"id":"brief","sequence":1,"mode":"start","grammar":"dashboard-v1","title":"Delivery","blocks":[]}',
+      '```',
+      '```forge-report',
+      '{"version":1,"id":"brief","sequence":2,"mode":"append","blocks":[{"kind":"dashboard.report","title":"Missing stable id"}]}',
+      '```',
+      '```forge-report',
+      '{"version":1,"id":"brief","sequence":3,"mode":"commit"}',
+      '```',
+    ].join('\n');
+
+    const html = renderToStaticMarkup(React.createElement(RichContent, { content, messageId: 'message-invalid-report' }));
+
+    expect(html).toContain('data-forge-report-status="incomplete"');
+    expect(html).toContain('Every progressive block requires a stable id.');
+    expect(html).not.toContain('Component cannot be loaded');
+  });
+
   it('does not expose lifecycle actions for an uncommitted server snapshot', () => {
     const renderedContent = {
       schemaVersion: '1',
