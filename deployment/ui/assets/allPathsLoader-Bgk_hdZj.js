@@ -1,0 +1,2 @@
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/allPaths-D_ruhP0H.js","assets/index-wb1ac0j6.js","assets/index-HQeWHVYo.js","assets/index-fq3zGa6S.js","assets/index-Bfo0l0Xk.css"])))=>i.map(i=>d[i]);
+import{_ as e}from"./index-fq3zGa6S.js";const s=async(t,a)=>{const{getIconPaths:o}=await e(async()=>{const{getIconPaths:r}=await import("./allPaths-D_ruhP0H.js");return{getIconPaths:r}},__vite__mapDeps([0,1,2,3,4]));return o(t,a)};export{s as allPathsLoader};
