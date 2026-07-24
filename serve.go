@@ -27,6 +27,7 @@ import (
 	uicontrol "github.com/viant/agently-core/protocol/tool/service/ui/control"
 	uidatasource "github.com/viant/agently-core/protocol/tool/service/ui/datasource"
 	uievents "github.com/viant/agently-core/protocol/tool/service/ui/events"
+	uireport "github.com/viant/agently-core/protocol/tool/service/ui/report"
 	uiview "github.com/viant/agently-core/protocol/tool/service/ui/view"
 	uiwindow "github.com/viant/agently-core/protocol/tool/service/ui/window"
 	agentsvc "github.com/viant/agently-core/service/agent"
@@ -180,6 +181,9 @@ func Serve(options ServeOptions) error {
 		}
 		if err := tool.AddInternalService(rt.Registry, uievents.New(uiBridge)); err != nil {
 			log.Printf("agently-app: failed to register internal UI events service: %v", err)
+		}
+		if err := tool.AddInternalService(rt.Registry, uireport.New(uiBridge)); err != nil {
+			log.Printf("agently-app: failed to register internal UI report service: %v", err)
 		}
 	}
 	agentWatchdog := agentsvc.NewWatchdog(rt.Data, rt.Agent, agentsvc.WithWatchdogTokenProvider(rt.TokenProvider))

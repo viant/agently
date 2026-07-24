@@ -1,2 +1,0 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/index---mJp4TZ.js","assets/index-CwSO7iRH.css"])))=>i.map(i=>d[i]);
-import{aW as s,I as _,f as a}from"./index---mJp4TZ.js";const n=async(o,i)=>{const r=s(o);let t;return i===_.STANDARD?t=await a(()=>import("./index---mJp4TZ.js").then(e=>e.c),__vite__mapDeps([0,1])):t=await a(()=>import("./index---mJp4TZ.js").then(e=>e.d),__vite__mapDeps([0,1])),t[r]};export{n as splitPathsBySizeLoader};
