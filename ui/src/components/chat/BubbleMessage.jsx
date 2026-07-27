@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import RichContent from './RichContent';
+import RichContent from './LazyRichContent';
 import { AvatarIcon } from 'forge/components';
 
 const AUTO_SCROLL_THRESHOLD_PX = 96;

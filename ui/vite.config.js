@@ -165,10 +165,20 @@ export default defineConfig(({ mode, command }) => {
     },
     build: {
       sourcemap: false,
-      assetsInlineLimit: 100000000,
+      assetsInlineLimit: 4096,
       cssCodeSplit: true,
       brotliSize: false,
-      chunkSizeWarningLimit: 1200
+      chunkSizeWarningLimit: 1200,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('/node_modules/mermaid/')) return 'mermaid';
+            if (id.includes('/node_modules/@codemirror/') || id.includes('/node_modules/codemirror/')) return 'code-editor';
+            if (id.includes('/forge/src/reporting/') || id.includes('/forge/src/components/dashboard/')) return 'forge-reporting';
+            return undefined;
+          }
+        }
+      }
     }
   };
 });

@@ -2565,6 +2565,10 @@ export async function switchConversation(context, conversationID = '') {
       chatState.stream.close();
       chatState.stream = null;
     }
+    // Do not leave the previous transcript visible under the newly selected route.
+    messagesDS.setCollection?.([]);
+    messagesDS.setError?.('');
+    resetConversationSnapshotState(context);
   }
   const existing = await fetchConversation(targetID);
   if (!existing) {
@@ -2606,9 +2610,6 @@ export async function switchConversation(context, conversationID = '') {
   conversationsDS.setFormData?.({
     values: applyConversationFormSnapshot(form, existing)
   });
-  messagesDS.setCollection?.([]);
-  messagesDS.setError?.('');
-  resetConversationSnapshotState(context);
   chatState.switchingConversationID = '';
   const conversationLiveish = isConversationLiveish(existing);
   const initialTransportActive = syncConversationTransport(context, targetID);

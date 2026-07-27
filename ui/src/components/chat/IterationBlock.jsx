@@ -12,7 +12,7 @@ import { client } from '../../services/agentlyClient';
 import { isStreamDebugEnabled } from '../../services/debugFlags';
 import { displayStepIcon, displayStepTitle, executionRoleLabel, isAgentRunTool, humanizeAgentId } from '../../services/toolPresentation';
 import BubbleMessage from './BubbleMessage';
-import RichContent from './RichContent';
+import RichContent from './LazyRichContent';
 import ToolFeedDetail from '../ToolFeedDetail';
 
 function statusLabel(value) {

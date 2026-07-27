@@ -1374,7 +1374,7 @@ describe('RichContent fence parsing', () => {
     expect(html).toContain('Submit changes');
   });
 
-  it('renders a loading placeholder for an unterminated trailing forge-ui fence', () => {
+  it('renders one report-level loading status for an unterminated trailing forge-ui fence', () => {
     const content = [
       '```forge-data',
       '{"version":1,"id":"sales_data","format":"json","mode":"replace","data":[]}',
@@ -1388,12 +1388,12 @@ describe('RichContent fence parsing', () => {
       React.createElement(RichContent, { content })
     );
 
-    expect(html).toContain('Building UI');
+    expect(html).toContain('Building report');
     expect(html).not.toContain('```forge-ui');
     expect(html).not.toContain('Invalid forge-ui block');
   });
 
-  it('renders a loading placeholder for an unterminated trailing forge-data fence', () => {
+  it('renders one report-level loading status for an unterminated trailing forge-data fence', () => {
     const content = [
       '```forge-data',
       '{"version":1,"id":"sales_data","format":"json","mode":"replace","data":['
@@ -1403,7 +1403,7 @@ describe('RichContent fence parsing', () => {
       React.createElement(RichContent, { content })
     );
 
-    expect(html).toContain('Setting datasources');
+    expect(html).toContain('Building report');
     expect(html).not.toContain('```forge-data');
   });
 
