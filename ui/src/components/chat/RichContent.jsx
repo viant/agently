@@ -1515,6 +1515,13 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
 	});
 	React.useEffect(() => {
 		let active = true;
+		const requests = Array.isArray(compiledSource?.workspaceDatasetRequests)
+			? compiledSource.workspaceDatasetRequests
+			: [];
+		if (requests.length === 0) {
+			setMaterialization({ compiled: compiledSource, loading: false, error: '' });
+			return () => { active = false; };
+		}
 		setMaterialization({ compiled: compiledSource, loading: true, error: '' });
 		materializeInlineReport(compiledSource, {
 			fetchDataset: ({ dataSourceRef, request }) => fetchDatasource(dataSourceRef, request),
@@ -2190,11 +2197,15 @@ export function normalizeLegacyForgeDescriptors(descriptors = []) {
 // ── Main component ──
 
 function RichContent({ content = '', renderedContent = null, generatedFiles = [], messageId = '', conversationId = '' }) {
-  const textNorm = normalizeBrokenMarkdownLayout(
+  const textNorm = React.useMemo(() => normalizeBrokenMarkdownLayout(
     normalizeLegacyForgeFenceBlocks(String(content || ''))
-  );
+  ), [content]);
   const descriptors = React.useMemo(
     () => normalizeLegacyForgeDescriptors(describeContent(textNorm)),
+    [textNorm]
+  );
+  const trailingForgeFence = React.useMemo(
+    () => detectStreamingForgeFenceText(textNorm),
     [textNorm]
   );
   const forgeDataBlocks = React.useMemo(() => {
@@ -2251,10 +2262,22 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
   const progressiveReportByIndex = React.useMemo(() => new Map(
     progressiveReports.assemblies.map((assembly) => [assembly.lastIndex, assembly])
   ), [progressiveReports]);
+  const progressLabel = React.useMemo(() => {
+    const assembly = progressiveReports.assemblies[progressiveReports.assemblies.length - 1];
+    const dataSourceCount = Object.keys(assembly?.dataSources || {}).length;
+    const blockCount = Array.isArray(assembly?.source?.blocks) ? assembly.source.blocks.length : 0;
+    const details = [];
+    if (dataSourceCount > 0) details.push(`${dataSourceCount} data source${dataSourceCount === 1 ? '' : 's'}`);
+    if (blockCount > 0) details.push(`${blockCount} block${blockCount === 1 ? '' : 's'}`);
+    return details.length > 0 ? `Building report · ${details.join(' · ')}` : 'Building report';
+  }, [progressiveReports.assemblies]);
 
   if (!descriptors.length) return <span>&nbsp;</span>;
 
   const out = [];
+  if (trailingForgeFence) {
+    out.push(<ForgeFenceLoading key="forge-report-progress" label={progressLabel} />);
+  }
   const renderedReportKeys = new Set();
   let idx = 0;
   for (let descriptorIndex = 0; descriptorIndex < descriptors.length; descriptorIndex += 1) {
@@ -2269,13 +2292,7 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
       const visible = chunk ? chunk.replace(/[\s>*#\-]+/g, '') : '';
       if (visible.length > 0) {
         const streamingForgeFence = detectStreamingForgeFenceText(chunk);
-        if (streamingForgeFence === FORGE_UI_FENCE) {
-          out.push(<ForgeFenceLoading key={`forge-ui-loading-text-${idx++}`} label="Building UI" />);
-        } else if (streamingForgeFence === FORGE_DATA_FENCE) {
-          out.push(<ForgeFenceLoading key={`forge-data-loading-text-${idx++}`} label="Setting datasources" />);
-        } else if (streamingForgeFence === FORGE_REPORT_FENCE) {
-          out.push(<ForgeFenceLoading key={`forge-report-loading-text-${idx++}`} label="Building report" />);
-        } else {
+        if (!streamingForgeFence) {
           out.push(<MinimalText key={`seg-${idx++}`} text={chunk} generatedFiles={generatedFiles} />);
         }
       }
@@ -2294,9 +2311,6 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
         renderedReportKeys.add(`${assembly.scope}:${assembly.id}`);
         out.push(<ForgeReportAssemblyDiagnostic key={`forge-report-diagnostic-${assembly.scope}-${assembly.id}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} />);
       }
-      if (hasTrailingOpenForgeFence(textNorm, FORGE_DATA_FENCE)) {
-        out.push(<ForgeFenceLoading key={`forge-data-loading-${idx++}`} label="Setting datasources" />);
-      }
       continue;
     }
     if (isForgeReportFence(fence)) {
@@ -2308,8 +2322,6 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
         } else {
           out.push(<ForgeReportFence key={`forge-report-${assembly.scope}-${assembly.id}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} conversationId={conversationId} messageId={messageId} />);
         }
-      } else if (hasTrailingOpenForgeFence(textNorm, FORGE_REPORT_FENCE)) {
-        out.push(<ForgeFenceLoading key={`forge-report-loading-${idx++}`} label="Building report" />);
       }
       continue;
     }
@@ -2318,9 +2330,7 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
         const payload = parseForgeFenceBody(body);
         out.push(<ForgeUIFence key={`forge-ui-${idx++}`} payload={payload} dataBlocks={forgeDataBlocks} messageId={messageId} />);
       } catch (_) {
-        if (hasTrailingOpenForgeFence(textNorm, FORGE_UI_FENCE)) {
-          out.push(<ForgeFenceLoading key={`forge-ui-loading-${idx++}`} label="Building UI" />);
-        } else {
+        if (!trailingForgeFence) {
           out.push(
             <div key={`forge-ui-error-${idx++}`} style={{ color: '#c23030', fontSize: 13 }}>
               Invalid forge-ui block

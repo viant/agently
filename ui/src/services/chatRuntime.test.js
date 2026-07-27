@@ -2883,6 +2883,64 @@ describe('switchConversation', () => {
     clearFeedState();
   });
 
+  it('clears the previous transcript before the target conversation request settles', async () => {
+    const messageState = { collection: [{ id: 'old-msg', role: 'assistant', content: 'stale report' }] };
+    const conversationState = { values: { id: 'conv-old', queuedTurns: [] } };
+    let resolveConversation;
+    const pendingConversation = new Promise((resolve) => {
+      resolveConversation = resolve;
+    });
+    const context = {
+      resources: {
+        chat: {
+          lastSinceCursor: 'old-msg',
+          lastConversationID: 'conv-old',
+          transcriptRows: [{ id: 'old-msg', role: 'assistant', content: 'stale report' }],
+          renderRows: [],
+          liveRows: [],
+          lastQueuedTurns: [],
+          lastHasRunning: false,
+          runningTurnId: '',
+          activeConversationID: 'conv-old',
+        }
+      },
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => conversationState.values,
+                setFormData: ({ values }) => { conversationState.values = values; }
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    client.getConversation.mockReturnValueOnce(pendingConversation);
+
+    const switching = switchConversation(context, 'conv-target');
+    await Promise.resolve();
+
+    expect(messageState.collection).toEqual([]);
+    expect(context.resources.chat.switchingConversationID).toBe('conv-target');
+
+    resolveConversation(null);
+    await switching;
+  });
+
   it('resets stale transcript cursor when bootstrap already set the target conversation id', async () => {
     const messageState = { collection: [{ id: 'old-msg', role: 'assistant', content: 'stale' }] };
     const conversationState = { values: { id: 'conv-target', queuedTurns: [] } };

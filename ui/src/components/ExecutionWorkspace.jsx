@@ -10,7 +10,7 @@ import {
   plannedExecutionToolCalls,
 } from 'agently-core-ui-sdk';
 import { DetailContext } from '../context/DetailContext';
-import RichContent from './chat/RichContent';
+import RichContent from './chat/LazyRichContent';
 import { client } from '../services/agentlyClient';
 import { setStage } from '../services/stageBus';
 import { publishActiveConversation } from '../services/chatRuntime';
