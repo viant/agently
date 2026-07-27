@@ -17,6 +17,7 @@ import (
 // ChatCmd handles interactive/chat queries.
 type ChatCmd struct {
 	AgentID   string   `short:"a" long:"agent-id" description:"agent id"`
+	Model     string   `long:"model" description:"single-turn model override"`
 	Query     []string `short:"q" long:"query"    description:"user query (repeatable)"`
 	ConvID    string   `short:"c" long:"conv"     description:"conversation ID (optional)"`
 	ResetLogs bool     `long:"reset-logs" description:"truncate/clean log files before each run"`
@@ -109,6 +110,9 @@ func (c *ChatCmd) Execute(_ []string) error {
 		c.AgentID = strings.TrimSpace(defaultAgent)
 	}
 	modelOverride := pickModel(defaultModel, models)
+	if explicitModel := strings.TrimSpace(c.Model); explicitModel != "" {
+		modelOverride = explicitModel
+	}
 
 	if strings.TrimSpace(workspaceRoot) != "" {
 		fmt.Printf("[workspace] %s\n", workspaceRoot)
@@ -141,6 +145,7 @@ func (c *ChatCmd) Execute(_ []string) error {
 			ConversationID: convID,
 			Query:          query,
 			UserId:         strings.TrimSpace(c.User),
+			ModelOverride:  modelOverride,
 			Context:        buildQueryContext(contextData, defaultElicitationPayload, lastElicitationPayload),
 		}
 		if !sentAttachments && len(attachments) > 0 {
