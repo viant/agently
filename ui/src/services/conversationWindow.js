@@ -161,11 +161,20 @@ function isChatOwnedWindow(win = null) {
   return false;
 }
 
-function removeNonChatTopLevelWindows() {
+function removeWindowsForConversationChange(nextConversationId = '') {
+  const nextID = String(nextConversationId || '').trim();
   const windows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
   for (const win of windows) {
     const windowId = String(win?.windowId || '').trim();
     if (!windowId) continue;
+    if (
+      String(win?.presentation || '').trim().toLowerCase() === 'hosted'
+      && String(win?.region || '').trim().toLowerCase() === 'chat.top'
+      && String(win?.conversationId || '').trim() !== nextID
+    ) {
+      removeWindow(windowId);
+      continue;
+    }
     if (isChatOwnedWindow(win)) continue;
     removeWindow(windowId);
   }
@@ -641,7 +650,7 @@ export function publishConversationSelection(windowId = '', conversationId = '',
 
 export function openConversationInMainWindow(conversationId = '') {
   const targetID = String(conversationId || '').trim();
-  removeNonChatTopLevelWindows();
+  removeWindowsForConversationChange(targetID);
   const mainWindow = ensureMainChatWindow();
   focusWindow(mainWindow);
   updateMainChatWindowParameters(targetID);
@@ -660,7 +669,7 @@ export function openConversationInMainWindow(conversationId = '') {
 }
 
 export function requestNewConversationInMainWindow() {
-  removeNonChatTopLevelWindows();
+  removeWindowsForConversationChange('');
   const mainWindow = ensureMainChatWindow();
   updateMainChatWindowParameters('');
   publishConversationSelection(mainWindow?.windowId || MAIN_CHAT_WINDOW_ID, '', {

@@ -18,7 +18,7 @@ vi.mock('./elicitationBus', () => ({
   replacePendingElicitationsForConversation: replacePendingElicitationsForConversationMock,
 }));
 
-import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, connectStream, createNewConversation, dsTick, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, handleStreamEvent, hydrateMeta, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
+import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, connectStream, createNewConversation, dsTick, enqueueConversationSwitch, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, handleStreamEvent, hydrateMeta, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
 import { client } from './agentlyClient';
 import { applyFeedEvent, clearFeedState, getFeedData } from './toolFeedBus';
 
@@ -2939,6 +2939,54 @@ describe('switchConversation', () => {
 
     resolveConversation(null);
     await switching;
+  });
+
+  it('starts the latest conversation switch without waiting for the previous request', async () => {
+    const pending = new Map();
+    const messageState = { collection: [] };
+    const conversationState = { values: { id: 'conv-old', queuedTurns: [] } };
+    const context = {
+      resources: { chat: {} },
+      Context(name) {
+        if (name === 'messages') {
+          return {
+            handlers: {
+              dataSource: {
+                setCollection: (rows) => { messageState.collection = rows; },
+                setError: vi.fn()
+              }
+            }
+          };
+        }
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => conversationState.values,
+                setFormData: ({ values }) => { conversationState.values = values; }
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+    client.getConversation.mockImplementation((conversationID) => new Promise((resolve) => {
+      pending.set(conversationID, resolve);
+    }));
+
+    const first = enqueueConversationSwitch(context, 'conv-first');
+    const latest = enqueueConversationSwitch(context, 'conv-latest');
+    await Promise.resolve();
+
+    expect(client.getConversation).toHaveBeenCalledWith('conv-first');
+    expect(client.getConversation).toHaveBeenCalledWith('conv-latest');
+    expect(context.resources.chat.requestedConversationID).toBe('conv-latest');
+
+    pending.get('conv-first')?.(null);
+    pending.get('conv-latest')?.(null);
+    await Promise.all([first, latest]);
+    expect(context.resources.chat.requestedConversationID).toBe('');
   });
 
   it('resets stale transcript cursor when bootstrap already set the target conversation id', async () => {

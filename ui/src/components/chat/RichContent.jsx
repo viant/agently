@@ -6,7 +6,7 @@ import React from 'react';
 import { autoType, csvParse } from 'd3-dsv';
 import CodeBlock from './CodeBlock.jsx';
 import Mermaid from './Mermaid';
-import { Button, Dialog, Tooltip, Spinner } from '@blueprintjs/core';
+import { Button, Dialog, Icon, Tooltip } from '@blueprintjs/core';
 import { Table as BpTable, Column as BpColumn, Cell as BpCell, ColumnHeaderCell as BpColumnHeaderCell } from '@blueprintjs/table';
 import {
   ResponsiveContainer,
@@ -126,7 +126,7 @@ function detectStreamingForgeFenceText(text = '') {
   return '';
 }
 
-function ForgeFenceLoading({ label = 'Forge content' }) {
+function ForgeFenceLoading({ dataSourceCount = 0, blockCount = 0 }) {
   return (
     <div
       className="app-forge-fence-loading"
@@ -144,8 +144,22 @@ function ForgeFenceLoading({ label = 'Forge content' }) {
         margin: '6px 0'
       }}
     >
-      <Spinner size={14} />
-      <span>{label}</span>
+      <Icon icon="time" size={14} />
+      <span>Building report</span>
+      {dataSourceCount > 0 ? (
+        <>
+          <span aria-hidden="true">·</span>
+          <Icon icon="database" size={13} />
+          <span>{dataSourceCount} data source{dataSourceCount === 1 ? '' : 's'}</span>
+        </>
+      ) : null}
+      {blockCount > 0 ? (
+        <>
+          <span aria-hidden="true">·</span>
+          <Icon icon="layout-grid" size={13} />
+          <span>{blockCount} block{blockCount === 1 ? '' : 's'}</span>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -2262,21 +2276,19 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
   const progressiveReportByIndex = React.useMemo(() => new Map(
     progressiveReports.assemblies.map((assembly) => [assembly.lastIndex, assembly])
   ), [progressiveReports]);
-  const progressLabel = React.useMemo(() => {
+  const progressCounts = React.useMemo(() => {
     const assembly = progressiveReports.assemblies[progressiveReports.assemblies.length - 1];
-    const dataSourceCount = Object.keys(assembly?.dataSources || {}).length;
-    const blockCount = Array.isArray(assembly?.source?.blocks) ? assembly.source.blocks.length : 0;
-    const details = [];
-    if (dataSourceCount > 0) details.push(`${dataSourceCount} data source${dataSourceCount === 1 ? '' : 's'}`);
-    if (blockCount > 0) details.push(`${blockCount} block${blockCount === 1 ? '' : 's'}`);
-    return details.length > 0 ? `Building report · ${details.join(' · ')}` : 'Building report';
+    return {
+      dataSourceCount: Object.keys(assembly?.dataSources || {}).length,
+      blockCount: Array.isArray(assembly?.source?.blocks) ? assembly.source.blocks.length : 0,
+    };
   }, [progressiveReports.assemblies]);
 
   if (!descriptors.length) return <span>&nbsp;</span>;
 
   const out = [];
   if (trailingForgeFence) {
-    out.push(<ForgeFenceLoading key="forge-report-progress" label={progressLabel} />);
+    out.push(<ForgeFenceLoading key="forge-report-progress" {...progressCounts} />);
   }
   const renderedReportKeys = new Set();
   let idx = 0;

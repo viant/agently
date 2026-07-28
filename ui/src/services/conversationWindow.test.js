@@ -166,6 +166,41 @@ describe('conversationWindow', () => {
     expect(selectedTabId.value).toBe('order_1527048368');
   });
 
+  it('removes a previous conversation workspace while preserving the target workspace', () => {
+    activeWindows.value = [
+      {
+        windowId: MAIN_CHAT_WINDOW_ID,
+        windowKey: CHAT_WINDOW_KEY,
+        parameters: {}
+      },
+      {
+        windowId: 'forecast_previous',
+        windowKey: 'forecastingCubeBuilder',
+        conversationId: 'conv-previous',
+        presentation: 'hosted',
+        region: 'chat.top',
+        parentKey: MAIN_CHAT_WINDOW_ID,
+        inTab: true
+      },
+      {
+        windowId: 'forecast_target',
+        windowKey: 'forecastingCubeBuilder',
+        conversationId: 'conv-target',
+        presentation: 'hosted',
+        region: 'chat.top',
+        parentKey: MAIN_CHAT_WINDOW_ID,
+        inTab: true
+      }
+    ];
+    setScopedWorkspaceSelection('conv-target', 'forecast_target');
+
+    const selected = openConversationInMainWindow('conv-target');
+
+    expect(activeWindows.value.some((entry) => entry.windowId === 'forecast_previous')).toBe(false);
+    expect(activeWindows.value.some((entry) => entry.windowId === 'forecast_target')).toBe(true);
+    expect(selected?.windowId).toBe('forecast_target');
+  });
+
   it('resolves a live hosted workspace window for the current conversation before consulting saved browser state', () => {
     activeWindows.value = [
       {
@@ -827,6 +862,7 @@ describe('conversationWindow', () => {
     requestNewConversationInMainWindow();
 
     expect(activeWindows.value.some((entry) => entry.windowKey === 'schedule')).toBe(false);
+    expect(activeWindows.value.some((entry) => entry.windowId === 'order_1527048368')).toBe(false);
     expect(activeWindows.value.some((entry) => entry.windowId === MAIN_CHAT_WINDOW_ID)).toBe(true);
   });
 
