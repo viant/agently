@@ -2506,6 +2506,8 @@ export async function switchConversation(context, conversationID = '') {
   const targetID = String(conversationID || '').trim();
   if (!targetID) return;
   const chatState = ensureContextResources(context);
+  chatState.requestedConversationID = targetID;
+  const isCurrentRequest = () => String(chatState.requestedConversationID || '').trim() === targetID;
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const messagesDS = context?.Context?.('messages')?.handlers?.dataSource;
   if (!conversationsDS || !messagesDS) return;
@@ -2571,6 +2573,7 @@ export async function switchConversation(context, conversationID = '') {
     resetConversationSnapshotState(context);
   }
   const existing = await fetchConversation(targetID);
+  if (!isCurrentRequest()) return;
   if (!existing) {
     chatState.switchingConversationID = '';
     await createNewConversation(context);
@@ -2595,6 +2598,7 @@ export async function switchConversation(context, conversationID = '') {
         includeExecutionDetails: !conversationLiveish,
       },
     });
+    if (!isCurrentRequest()) return;
     if ((snapshot?.hasRunning || conversationLiveish) && !initialTransportActive) {
       syncConversationTransport(context, targetID);
     } else {
@@ -2602,8 +2606,8 @@ export async function switchConversation(context, conversationID = '') {
         disconnectStream(context);
       }
     }
-    await refreshGoalFeed(targetID);
     publishActiveConversation(targetID, context);
+    void refreshGoalFeed(targetID);
     return;
   }
 
@@ -2619,6 +2623,7 @@ export async function switchConversation(context, conversationID = '') {
       includeExecutionDetails: !conversationLiveish,
     },
   });
+  if (!isCurrentRequest()) return;
   if ((snapshot?.hasRunning || conversationLiveish) && !initialTransportActive) {
     syncConversationTransport(context, targetID);
   } else {
@@ -2626,19 +2631,18 @@ export async function switchConversation(context, conversationID = '') {
       disconnectStream(context);
     }
   }
-  await refreshGoalFeed(targetID);
   publishActiveConversation(targetID, context);
+  void refreshGoalFeed(targetID);
 }
 
 export function enqueueConversationSwitch(context, conversationID = '') {
   const chatState = ensureContextResources(context);
   const targetID = String(conversationID || '').trim();
   if (!targetID) return Promise.resolve();
-  const queue = chatState.switchQueue || Promise.resolve();
-  chatState.switchQueue = queue
-    .catch(() => {})
-    .then(() => switchConversation(context, targetID));
-  return chatState.switchQueue;
+  chatState.requestedConversationID = targetID;
+  const request = switchConversation(context, targetID);
+  chatState.switchQueue = request.catch(() => {});
+  return request;
 }
 
 export function applyIterationVisibility(context) {
@@ -2745,6 +2749,7 @@ export async function createNewConversation(context) {
   chatState.activeConversationID = '';
   chatState.lastConversationID = '';
   chatState.switchingConversationID = '';
+  chatState.requestedConversationID = '';
   chatState.explicitNewConversationRequested = true;
   const current = conversationsDS.peekFormData?.() || {};
   if (typeof window !== 'undefined') {
