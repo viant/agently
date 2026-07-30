@@ -19,6 +19,27 @@ import { listLookupRegistry, fetchDatasource } from './client.js';
 import { applyResolvedChipToken, createEditingChipState, shouldSkipEditorSync } from './chipEditing.js';
 
 const DEFAULT_TRIGGER = '/';
+const DATE_CHIP_NAMES = new Set(['date_from', 'date_to']);
+
+function isDateChipName(name = '') {
+  return DATE_CHIP_NAMES.has(String(name || '').trim().toLowerCase());
+}
+
+function isValidISODate(value = '') {
+  const match = String(value || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(year, month - 1, day);
+  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
+}
+
+function serializeDateChip(name, value) {
+  const normalizedName = String(name || '').trim().toLowerCase();
+  const label = normalizedName === 'date_from' ? 'From' : 'To';
+  return `@{${normalizedName}:${value} "${label}: ${value}"}`;
+}
 
 function displaySegments(storedValue = '') {
   return rehydrate(storedValue);
@@ -161,7 +182,7 @@ function syncEditorContent(root, segments, options = {}) {
       if (typeof setChipEditInputElement === 'function') {
         setChipEditInputElement(input);
       }
-      input.type = 'text';
+      input.type = isDateChipName(segment.name) ? 'date' : 'text';
       input.setAttribute('data-testid', `named-lookup-inline-editor-${segment.name}`);
       input.value = String(editingChip.value || '');
       input.placeholder = unresolvedChipLabel(segment.name);
@@ -241,7 +262,9 @@ function syncEditorContent(root, segments, options = {}) {
       });
 
       wrap.appendChild(input);
-      wrap.appendChild(button);
+      if (!isDateChipName(segment.name)) {
+        wrap.appendChild(button);
+      }
       root.appendChild(wrap);
       continue;
     }
@@ -837,14 +860,21 @@ export default function NamedLookupInput({
         }
       : editingChipRef.current;
     const entry = (registryRef.current || []).find((item) => item.name === current?.name) || null;
-    if (!current || !entry) return false;
+    if (!current) return false;
     const raw = String(options.valueOverride ?? current.value ?? '').trim();
     if (!raw) {
       chipEditFocusedRef.current = false;
       setEditingChip(null);
       return true;
     }
-    const token = serializeManualToken(current.name, raw);
+    if (isDateChipName(current.name) && !isValidISODate(raw)) {
+      setEditingChip((prev) => prev ? { ...prev, error: 'Choose a valid date.' } : prev);
+      return false;
+    }
+    if (!entry && !isDateChipName(current.name)) return false;
+    const token = isDateChipName(current.name)
+      ? serializeDateChip(current.name, raw)
+      : serializeManualToken(current.name, raw);
     const resolved = applyResolvedChipToken(value, current.raw, token);
     if (!resolved.ok) {
       setEditingChip((prev) => prev ? { ...prev, error: resolved.error } : prev);
@@ -1163,6 +1193,7 @@ export default function NamedLookupInput({
                     >
                       <InputGroup
                         inputRef={chipEditInputRef}
+                        type={isDateChipName(chip.name) ? 'date' : 'text'}
                         value={editingChip?.value || ''}
                         onChange={(event) => {
                           const nextValue = event?.target?.value ?? '';
@@ -1193,7 +1224,7 @@ export default function NamedLookupInput({
                             setEditingChip(null);
                           }
                         }}
-                        rightElement={(
+                        rightElement={isDateChipName(chip.name) ? undefined : (
                           <Button
                             icon="caret-down"
                             minimal
