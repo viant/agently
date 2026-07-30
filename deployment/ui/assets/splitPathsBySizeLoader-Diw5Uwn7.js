@@ -1,1 +1,0 @@
-import{_ as o}from"./forge-reporting-DjPuaiX2.js";import{p as _,I as s}from"./index-BBp28xU7.js";import"./code-editor-D5k8MIvU.js";const c=async(a,r)=>{const i=_(a);let t;return r===s.STANDARD?t=await o(()=>import("./index-Bp4RqK05.js").then(e=>e.I),[]):t=await o(()=>import("./index-Uc4Xhv31.js").then(e=>e.I),[]),t[i]};export{c as splitPathsBySizeLoader};

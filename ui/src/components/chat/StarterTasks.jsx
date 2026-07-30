@@ -22,6 +22,7 @@ import {
   TreeStructure,
   Wrench,
 } from '@phosphor-icons/react';
+import { resolveStarterPromptMacros } from './starterPromptMacros.js';
 
 const ICONS = {
   bug: BugBeetle,
@@ -102,7 +103,7 @@ export default function StarterTasks({ message, context }) {
   };
 
   const onSelectTask = (task, event) => {
-    const prompt = String(task?.prompt || '').trim();
+    const prompt = resolveStarterPromptMacros(task?.prompt, new Date(), { dateTokens: true }).trim();
     if (!prompt || typeof document === 'undefined') return;
     const conversationId = currentConversationId();
     persistStarterPrompt(prompt, conversationId);
