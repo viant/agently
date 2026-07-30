@@ -5,6 +5,7 @@ import { activeWindows, getFormSignal, selectedTabId, selectedWindowId } from 'f
 import {
   CHAT_WINDOW_KEY,
   deriveWorkspaceStateFromTranscriptTurns,
+  hydrateWorkspaceTranscriptTurns,
   ensureWorkspaceWindowForConversation,
   MAIN_CHAT_WINDOW_ID,
   getScopedWorkspaceWindowsState,
@@ -633,6 +634,68 @@ describe('conversationWindow', () => {
         }
       }
     });
+  });
+
+  it('repairs truncated live report-definition arrays from the complete transcript state', () => {
+    const transcriptBlocks = [{
+      id: 'status_badges',
+      kind: 'badgesBlock',
+      items: [
+        { label: 'Daily lines behind', valueField: 'dailyPacingBehind', valueFormat: 'number' },
+        { label: 'Flight shortfall', valueField: 'flightSpendShortfall', valueFormat: 'currency' },
+      ],
+    }];
+    setScopedWorkspaceState('conv-report-depth', {
+      windowId: 'reportBuilder__conv-report-depth',
+      windowKey: 'reportBuilder',
+      windowTitle: 'Performance Metrics',
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      presentation: 'hosted',
+      region: 'chat.top',
+      inTab: true,
+      parameters: {},
+      windowForm: {
+        reportDefinition: {
+          documentPatch: {
+            blocks: transcriptBlocks,
+          },
+        },
+      },
+    });
+    getFormSignal('reportBuilder__conv-report-depth:windowForm').value = {
+      reportDefinition: {
+        documentPatch: {
+          blocks: [{
+            id: 'status_badges',
+            kind: 'badgesBlock',
+            items: [
+              { label: '[MaxDepth]', valueField: '[MaxDepth]', valueFormat: '[MaxDepth]' },
+              { label: '[MaxDepth]', valueField: '[MaxDepth]', valueFormat: '[MaxDepth]' },
+            ],
+          }],
+        },
+      },
+    };
+
+    setScopedWorkspaceState('conv-report-depth', {
+      windowId: 'reportBuilder__conv-report-depth',
+      windowKey: 'reportBuilder',
+      windowTitle: 'Performance Metrics',
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      presentation: 'hosted',
+      region: 'chat.top',
+      inTab: true,
+      parameters: {},
+      windowForm: {
+        reportDefinition: {
+          documentPatch: {
+            blocks: transcriptBlocks,
+          },
+        },
+      },
+    });
+
+    expect(getScopedWorkspaceState('conv-report-depth')?.windowForm?.reportDefinition?.documentPatch?.blocks).toEqual(transcriptBlocks);
   });
 
   it('preserves saved reportBuilder reopen session state when the live windowForm only has partial builder values', () => {
@@ -1391,5 +1454,67 @@ describe('conversationWindow', () => {
         }
       })
     ]);
+  });
+
+  it('hydrates a compressed setFormData request before deriving restored report state', async () => {
+    const turns = [{
+      turnId: 'turn-compressed-report',
+      execution: {
+        pages: [{
+          toolSteps: [
+            {
+              toolName: 'ui/view/open',
+              status: 'completed',
+              responsePayload: {
+                items: [{
+                  conversationId: 'conv-compressed-report',
+                  parentKey: MAIN_CHAT_WINDOW_ID,
+                  presentation: 'hosted',
+                  region: 'chat.top',
+                  windowId: 'reportBuilder__conv-compressed-report',
+                  windowKey: 'reportBuilder',
+                  windowTitle: 'Report Builder',
+                }],
+                selectedWindowId: 'reportBuilder__conv-compressed-report',
+              },
+            },
+            {
+              toolName: 'ui/window:setFormData',
+              status: 'completed',
+              requestPayloadId: 'payload-report-definition',
+              requestPayload: {
+                Id: 'payload-report-definition',
+                Compression: 'gzip',
+                InlineBody: '\u001f�compressed',
+              },
+              responsePayload: { ok: true },
+            },
+          ],
+        }],
+      },
+    }];
+
+    expect(deriveWorkspaceStateFromTranscriptTurns(turns)?.windows?.[0]?.windowForm).toBeUndefined();
+
+    const hydrated = await hydrateWorkspaceTranscriptTurns(turns, async (payloadId) => {
+      expect(payloadId).toBe('payload-report-definition');
+      return {
+        windowId: 'reportBuilder__conv-compressed-report',
+        replace: false,
+        values: {
+          reportBuilder: {
+            reportDocumentTitle: 'Order 2672373 Delivery & Performance',
+            reportDocumentBlocks: [{ id: 'overview' }, { id: 'bid-funnel' }],
+          },
+        },
+      };
+    });
+
+    expect(deriveWorkspaceStateFromTranscriptTurns(hydrated)?.windows?.[0]?.windowForm).toEqual({
+      reportBuilder: {
+        reportDocumentTitle: 'Order 2672373 Delivery & Performance',
+        reportDocumentBlocks: [{ id: 'overview' }, { id: 'bid-funnel' }],
+      },
+    });
   });
 });

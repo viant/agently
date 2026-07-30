@@ -2389,7 +2389,7 @@ describe('handleStreamEvent', () => {
     expect(toolStep?.status).toBe('completed');
   });
 
-  it('preserves the active conversation render after terminal events and then forces a settling transcript refetch', async () => {
+  it('preserves the active conversation render after terminal events without re-fetching transcript', async () => {
     vi.useFakeTimers();
     client.getConversation.mockReset();
     client.getTranscript.mockReset();
@@ -2496,7 +2496,7 @@ describe('handleStreamEvent', () => {
       );
       expect(conversationState.values.running).toBe(false);
       expect(client.getConversation).not.toHaveBeenCalled();
-      expect(client.getTranscript).toHaveBeenCalled();
+      expect(client.getTranscript).not.toHaveBeenCalled();
     } finally {
       globalThis.window = originalWindow;
       globalThis.CustomEvent = originalCustomEvent;

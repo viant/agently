@@ -1,7 +1,7 @@
 import { mergeRowSnapshots } from './rowMerge';
 import { isFeedInactive as defaultIsFeedInactive } from './toolFeedBus';
 import { isStreamDebugEnabled } from './debugFlags';
-import { syncScopedWorkspaceStateFromTranscriptTurns } from './conversationWindow';
+import { syncHydratedWorkspaceStateFromTranscriptTurns } from './conversationWindow';
 
 const RUNNING_TURN_STATUSES = new Set(['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress']);
 
@@ -295,21 +295,36 @@ export function syncTranscriptSnapshot({
   chatState.lastHasRunning = effectiveHasRunning;
   chatState.lastConversationID = conversationID;
   if (conversationID && !effectiveHasRunning) {
-    syncScopedWorkspaceStateFromTranscriptTurns(conversationID, turns, {
+    Promise.resolve(syncHydratedWorkspaceStateFromTranscriptTurns(conversationID, turns, {
       reopen: true,
       announce: true,
-    });
+    })).catch(() => {});
   }
   chatState.runningTurnId = effectiveHasRunning
     ? (runningTurnId || findLatestRunningTurnId(finalMergedRows) || chatState.runningTurnId || '')
     : (runningTurnId || findLatestRunningTurnId(finalMergedRows));
 
   const transcriptEmpty = !Array.isArray(turns) || turns.length === 0;
-  const shouldPreserveTerminalLiveRows = transcriptEmpty && normalizedLiveRows.length > 0;
+  const terminalLiveUserRowsMissingFromTranscript = normalizedLiveRows.filter((liveRow) => {
+    if (String(liveRow?.role || '').trim().toLowerCase() !== 'user') return false;
+    const turnId = String(liveRow?.turnId || '').trim();
+    if (!turnId) return false;
+    return !rows.some((transcriptRow) => (
+      String(transcriptRow?.role || '').trim().toLowerCase() === 'user'
+      && String(transcriptRow?.turnId || '').trim() === turnId
+    ));
+  });
+  const shouldPreserveTerminalLiveRows = (transcriptEmpty && normalizedLiveRows.length > 0)
+    || terminalLiveUserRowsMissingFromTranscript.length > 0;
   const shouldFinalizeActiveStream = !liveOwnsLatestTurn
     && !effectiveHasRunning
     && !activeStreamRow
     && !shouldPreserveTerminalLiveRows;
+  const nextLiveRows = shouldFinalizeActiveStream
+    ? []
+    : terminalLiveUserRowsMissingFromTranscript.length > 0 && !effectiveHasRunning
+      ? terminalLiveUserRowsMissingFromTranscript
+      : normalizedLiveRows;
   if (shouldFinalizeActiveStream) {
     chatState.liveRows = [];
     chatState.liveOwnedConversationID = '';
@@ -317,6 +332,8 @@ export function syncTranscriptSnapshot({
     chatState.activeStreamPrompt = '';
     chatState.activeStreamTurnId = '';
     chatState.activeStreamStartedAt = 0;
+  } else {
+    chatState.liveRows = nextLiveRows;
   }
 
   if (effectiveHasRunning) {
@@ -333,7 +350,7 @@ export function syncTranscriptSnapshot({
 
   return {
     transcriptRows: finalMergedRows,
-    liveRows: shouldFinalizeActiveStream ? [] : normalizedLiveRows,
+    liveRows: nextLiveRows,
     queuedTurns,
     hasRunning,
     runningTurnId: chatState.runningTurnId,

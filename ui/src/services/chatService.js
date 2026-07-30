@@ -76,7 +76,7 @@ import { openCodeDiffDialog, openFileViewDialog, updateCodeDiffDialog, updateFil
 import ChatFeedFromChatStore from '../components/chat/ChatFeedFromChatStore.jsx';
 import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore } from './chatStore.js';
 import { conversationIDFromPath } from './chatRuntime';
-import { getScopedConversationSelection, MAIN_CHAT_WINDOW_ID, openConversationInMainWindow, syncScopedWorkspaceStateFromTranscriptTurns } from './conversationWindow';
+import { getScopedConversationSelection, MAIN_CHAT_WINDOW_ID, openConversationInMainWindow, syncHydratedWorkspaceStateFromTranscriptTurns } from './conversationWindow';
 
 const DEFAULT_VISIBLE_ITERATIONS = Number.MAX_SAFE_INTEGER;
 const ITERATION_STEP = 1;
@@ -898,7 +898,7 @@ export async function submitMessage({ context, message, model, agent }) {
       if (canonicalConversation?.conversationId) {
         applyTranscriptToChatStore(canonicalConversation.conversationId, canonicalConversation);
         prefetchedTranscriptTurns = Array.isArray(canonicalConversation?.turns) ? canonicalConversation.turns : [];
-        syncScopedWorkspaceStateFromTranscriptTurns(canonicalConversation.conversationId, prefetchedTranscriptTurns, {
+        await syncHydratedWorkspaceStateFromTranscriptTurns(canonicalConversation.conversationId, prefetchedTranscriptTurns, {
           reopen: false,
           announce: true,
         });
