@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import RichContent, { buildInlineReportEventDetail, createInlineReportArtifactDownload, inlineReportRuntimeKey, normalizeDashboardPayload, normalizeLegacyForgeDescriptors, normalizeLegacyForgeFenceBlocks, parseFences, resolveForgeScope, resolveInlineReportExportTargetURL, scopeForgeDashboardPayload, waitForInlineReportExport } from './RichContent';
+import RichContent, { buildInlineReportEventDetail, buildInlineReportSaveKey, createInlineReportArtifactDownload, inlineReportRuntimeKey, normalizeDashboardPayload, normalizeLegacyForgeDescriptors, normalizeLegacyForgeFenceBlocks, parseFences, resolveForgeScope, resolveInlineReportExportTargetURL, scopeForgeDashboardPayload, waitForInlineReportExport } from './RichContent';
 import { renderMarkdownBlock } from 'agently-core-ui-sdk';
 
 describe('RichContent fence parsing', () => {
@@ -29,6 +29,17 @@ describe('RichContent fence parsing', () => {
       revision: 7,
       scope: { id: 'order_42', values: { orderIds: [42] } },
     });
+  });
+  it('builds a stable save identity that distinguishes report revisions and conversations', () => {
+    const base = {
+      conversationId: 'conversation-1',
+      scope: 'order_42',
+      reportId: 'delivery',
+      sequence: 7,
+    };
+    expect(buildInlineReportSaveKey(base)).toBe('conversation-1:order_42:delivery:7');
+    expect(buildInlineReportSaveKey({ ...base, sequence: 8 })).not.toBe(buildInlineReportSaveKey(base));
+    expect(buildInlineReportSaveKey({ ...base, conversationId: 'conversation-2' })).not.toBe(buildInlineReportSaveKey(base));
   });
   it('polls an inline export until the canonical artifact is available', async () => {
     const statuses = [
@@ -204,7 +215,8 @@ describe('RichContent fence parsing', () => {
 
     expect(html.match(/data-forge-report-id="brief"/g)).toHaveLength(1);
     expect(html).toContain('Canonical Delivery');
-    expect(html).not.toContain('Save report');
+    expect(html).toContain('Save report');
+    expect(html).toContain('bp6-icon-bookmark');
     expect(html).toContain('Export PDF');
     expect(html).toContain('app-rich-inline-report__export-button');
     expect(html).not.toContain('Materialized inline datasets must be mapped');
@@ -347,7 +359,9 @@ describe('RichContent fence parsing', () => {
       diagnostics: [],
     };
     const html = renderToStaticMarkup(React.createElement(RichContent, { content: 'Building report', renderedContent, messageId: 'message-1' }));
-    expect(html).toContain('Report rendering');
+    expect(html).toContain('aria-label="Building report"');
+    expect(html).toContain('bp6-spinner');
+    expect(html).not.toContain('Report rendering');
     expect(html).not.toContain('Save report');
     expect(html).not.toContain('Export PDF');
   });

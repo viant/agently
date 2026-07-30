@@ -327,7 +327,8 @@ export function mergeRenderedRows({
     .map((row) => ({
       ...row,
       _rowSource: 'live',
-      _bubbleSource: ownedTurnIds.has(String(row?.turnId || '').trim()) ? 'stream' : ''
+      _bubbleSource: String(row?._bubbleSource || '').trim()
+        || (ownedTurnIds.has(String(row?.turnId || '').trim()) ? 'stream' : '')
     }));
   const liveTurnIds = new Set(
     canonicalLiveRows

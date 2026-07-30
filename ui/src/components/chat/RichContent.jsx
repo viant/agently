@@ -6,7 +6,7 @@ import React from 'react';
 import { autoType, csvParse } from 'd3-dsv';
 import CodeBlock from './CodeBlock.jsx';
 import Mermaid from './Mermaid';
-import { Button, Dialog, Icon, Tooltip } from '@blueprintjs/core';
+import { Button, Dialog, Icon, Spinner, Tooltip } from '@blueprintjs/core';
 import { Table as BpTable, Column as BpColumn, Cell as BpCell, ColumnHeaderCell as BpColumnHeaderCell } from '@blueprintjs/table';
 import {
   ResponsiveContainer,
@@ -130,6 +130,9 @@ function ForgeFenceLoading({ dataSourceCount = 0, blockCount = 0 }) {
   return (
     <div
       className="app-forge-fence-loading"
+      role="status"
+      aria-live="polite"
+      aria-label="Building report"
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -144,7 +147,7 @@ function ForgeFenceLoading({ dataSourceCount = 0, blockCount = 0 }) {
         margin: '6px 0'
       }}
     >
-      <Icon icon="time" size={14} />
+      <Spinner size={14} aria-hidden="true" />
       <span>Building report</span>
       {dataSourceCount > 0 ? (
         <>
@@ -1505,10 +1508,36 @@ export function createInlineReportArtifactDownload(artifact = {}, {
   };
 }
 
+const savedInlineReportKeys = new Set();
+
+export function buildInlineReportSaveKey({
+  conversationId = '',
+  scope = '',
+  reportId = '',
+  sequence = 0,
+} = {}) {
+  return [
+    String(conversationId || '').trim(),
+    String(scope || 'message').trim(),
+    String(reportId || 'inlineReport').trim(),
+    String(Number(sequence || 0)),
+  ].join(':');
+}
+
 function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = '', messageId = '' }) {
 
   const [lifecycleState, setLifecycleState] = React.useState({ action: '', message: '', error: '' });
   const [artifactDownload, setArtifactDownload] = React.useState(null);
+  const reportSaveKey = buildInlineReportSaveKey({
+    conversationId,
+    scope: assembly?.scope,
+    reportId: assembly?.id,
+    sequence: assembly?.sequence,
+  });
+  const [reportSaved, setReportSaved] = React.useState(() => savedInlineReportKeys.has(reportSaveKey));
+  React.useEffect(() => {
+    setReportSaved(savedInlineReportKeys.has(reportSaveKey));
+  }, [reportSaveKey]);
   React.useEffect(() => () => artifactDownload?.revoke?.(), [artifactDownload]);
   const compiledSource = React.useMemo(() => {
     const materializedDataSources = Object.fromEntries(Object.entries(assembly?.dataSources || {}).map(([id, source]) => {
@@ -1579,6 +1608,7 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
   }), [assembly?.id, assembly?.scope, compiled?.reportDocument, compiled?.reportFill, compiled?.reportPrint, compiled?.reportSpec]);
   const exportReady = lifecycleReady && !!exportRequest;
   const promotionEligible = compiled?.promotion?.eligible === true;
+  const saveMode = compiled?.promotion?.mode === 'snapshot' ? 'inline_snapshot' : 'inline';
   const canSaveReport = lifecycleReady && promotionEligible;
   const reportID = `${assembly?.scope || 'message'}_${assembly?.id || 'inlineReport'}`
     .replace(/[^A-Za-z0-9._-]+/g, '_');
@@ -1595,18 +1625,22 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
         reportSpec: compiled.reportSpec,
         compileState: {
           status: 'clean',
-          source: 'inline',
+          source: saveMode,
           sequence: Number(assembly?.sequence || 0),
           reusableDataSourceRefs: compiled.promotion.reusableDataSourceRefs,
+          materializedDatasetIds: compiled.promotion.materializedDatasetIds,
         },
         metadata: {
-          source: 'inline',
+          source: saveMode,
           scope: assembly?.scope || 'message',
           reportId: assembly?.id || '',
-          reusableDataSources: true,
+          reusableDataSources: saveMode === 'inline',
           resolvedDataSourceRefs: compiled.promotion.reusableDataSourceRefs,
+          materializedDatasetIds: compiled.promotion.materializedDatasetIds,
         },
       });
+      savedInlineReportKeys.add(reportSaveKey);
+      setReportSaved(true);
       setLifecycleState({ action: '', message: 'Saved to My reports.', error: '' });
     } catch (error) {
       setLifecycleState({ action: '', message: '', error: error?.message || 'Report save failed.' });
@@ -1670,9 +1704,9 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
         data-forge-report-status={assembly?.status || ''}
         style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
       >
-        {assembly?.status !== 'committed' || reportDiagnostics.length > 0 ? (
+        {reportDiagnostics.length > 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '8px 10px', border: '1px solid #d8e1ee', borderRadius: 10, background: '#f7faff', fontSize: 12, color: '#48607a' }}>
-            <strong>{assembly?.status === 'committed' ? 'Report assembled with diagnostics' : `Report ${assembly?.status || 'assembling'}`}</strong>
+            <strong>Report assembled with diagnostics</strong>
             {reportDiagnostics.slice(0, 3).map((entry, index) => (
               <span key={`${entry.code || 'diagnostic'}-${index}`}>{entry.message || entry.code}</span>
             ))}
@@ -1687,7 +1721,16 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
         {lifecycleReady ? (
           <div className="app-rich-inline-report__actions">
             {canSaveReport ? (
-              <Button small icon="floppy-disk" loading={lifecycleState.action === 'save'} disabled={!!lifecycleState.action} onClick={handleSave}>Save report</Button>
+              <Button
+                className={`app-rich-inline-report__save-button${reportSaved ? ' is-saved' : ''}`}
+                icon={reportSaved ? 'tick-circle' : 'bookmark'}
+                loading={lifecycleState.action === 'save'}
+                disabled={!!lifecycleState.action || reportSaved}
+                title={reportSaved ? 'This report is saved in My reports.' : 'Save this live report to My reports.'}
+                onClick={handleSave}
+              >
+                {reportSaved ? 'Saved' : 'Save report'}
+              </Button>
             ) : null}
             {artifactDownload?.url ? (
               <a
@@ -2283,11 +2326,14 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
       blockCount: Array.isArray(assembly?.source?.blocks) ? assembly.source.blocks.length : 0,
     };
   }, [progressiveReports.assemblies]);
+  const reportIsBuilding = trailingForgeFence || progressiveReports.assemblies.some(
+    (assembly) => String(assembly?.status || '').trim().toLowerCase() === 'rendering'
+  );
 
   if (!descriptors.length) return <span>&nbsp;</span>;
 
   const out = [];
-  if (trailingForgeFence) {
+  if (reportIsBuilding) {
     out.push(<ForgeFenceLoading key="forge-report-progress" {...progressCounts} />);
   }
   const renderedReportKeys = new Set();

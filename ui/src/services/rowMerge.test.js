@@ -607,4 +607,53 @@ describe('mergeRenderedRows', () => {
     expect(merged[0].content).toBe('first');
     expect(merged[1].content).toBe('second');
   });
+
+  it('keeps a message:add Markdown bubble separate from later model streaming in the same turn', () => {
+    const preliminary = [
+      '### Preliminary finding',
+      '- **Primary causal family:** bid competitiveness.',
+    ].join('\n');
+    const merged = mergeRenderedRows({
+      transcriptRows: [],
+      liveRows: [
+        {
+          id: 'preliminary-1',
+          _bubbleSource: 'message_add',
+          role: 'assistant',
+          mode: 'task',
+          turnId: 'turn-1',
+          createdAt: '2026-07-29T22:10:35Z',
+          interim: 0,
+          content: preliminary,
+        },
+        {
+          id: 'model-2',
+          role: 'assistant',
+          turnId: 'turn-1',
+          createdAt: '2026-07-29T22:10:36Z',
+          interim: 1,
+          content: '{"feature":"Fraud filtering","estimatedGapCoverage":0.155}',
+          executionGroups: [{ assistantMessageId: 'model-2', iteration: 2, status: 'running' }],
+        },
+      ],
+      runningTurnId: 'turn-1',
+      hasRunning: true,
+      findLatestRunningTurnId,
+      currentConversationID: 'conv-1',
+      liveOwnedConversationID: 'conv-1',
+      liveOwnedTurnIds: ['turn-1'],
+    });
+
+    expect(merged).toHaveLength(2);
+    expect(merged[0]).toMatchObject({
+      id: 'preliminary-1',
+      _bubbleSource: 'message_add',
+      content: preliminary,
+    });
+    expect(merged[0].content).not.toContain('Fraud filtering');
+    expect(merged[1]).toMatchObject({
+      id: 'model-2',
+      _bubbleSource: 'stream',
+    });
+  });
 });
