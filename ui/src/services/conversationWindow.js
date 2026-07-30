@@ -10,6 +10,7 @@ import {
 } from 'forge/core';
 import { deriveHostedWorkspaceRestoreStateFromTranscriptTurns } from 'agently-core-ui-sdk/workspaceRestore';
 import { generateIntHash } from '../../../../forge/src/utils/hash.js';
+import { client } from './agentlyClient';
 
 export const CHAT_WINDOW_KEY = 'chat/new';
 export const MAIN_CHAT_WINDOW_ID = CHAT_WINDOW_KEY;
@@ -489,10 +490,27 @@ function normalizeOptionalFiniteNumber(value) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function isWorkspaceSnapshotTruncation(value) {
+  return value === '[MaxDepth]' || value === '[Circular]';
+}
+
+function containsWorkspaceSnapshotTruncation(value) {
+  if (isWorkspaceSnapshotTruncation(value)) return true;
+  if (Array.isArray(value)) return value.some((entry) => containsWorkspaceSnapshotTruncation(entry));
+  if (!isPlainObject(value)) return false;
+  return Object.values(value).some((entry) => containsWorkspaceSnapshotTruncation(entry));
+}
+
 function mergeWorkspaceSnapshotValue(rawValue, liveValue) {
   if (liveValue === undefined) return rawValue;
   if (rawValue === undefined) return liveValue;
-  if (Array.isArray(liveValue) || Array.isArray(rawValue)) return liveValue;
+  if (isWorkspaceSnapshotTruncation(liveValue)) return rawValue;
+  if (Array.isArray(liveValue) || Array.isArray(rawValue)) {
+    if (!Array.isArray(liveValue) || !Array.isArray(rawValue)) return liveValue;
+    if (!containsWorkspaceSnapshotTruncation(liveValue)) return liveValue;
+    const length = Math.max(rawValue.length, liveValue.length);
+    return Array.from({ length }, (_, index) => mergeWorkspaceSnapshotValue(rawValue[index], liveValue[index]));
+  }
   if (!isPlainObject(rawValue) || !isPlainObject(liveValue)) return liveValue;
   const merged = { ...rawValue };
   const keys = new Set([...Object.keys(rawValue), ...Object.keys(liveValue)]);
@@ -553,6 +571,92 @@ export function deriveWorkspaceStateFromTranscriptTurns(turns = []) {
   };
 }
 
+function workspaceToolPayloadReference(step = {}, field = 'requestPayload') {
+  const payload = step?.[field];
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return '';
+  const inlineBody = payload.inlineBody ?? payload.InlineBody;
+  const compression = String(payload.compression ?? payload.Compression ?? '').trim().toLowerCase();
+  if (!compression && typeof inlineBody !== 'string') return '';
+  if ((!compression || compression === 'none') && typeof inlineBody === 'string') {
+    try {
+      JSON.parse(inlineBody);
+      return '';
+    } catch (_) {}
+  }
+  return String(
+    payload.id
+    || payload.Id
+    || step?.[field === 'requestPayload' ? 'requestPayloadId' : 'responsePayloadId']
+    || ''
+  ).trim();
+}
+
+function workspaceToolName(step = {}) {
+  return String(step?.toolName || '').trim().toLowerCase().replace(/:/g, '/');
+}
+
+function workspacePayloadTargets(turns = []) {
+  const list = Array.isArray(turns) ? turns : [];
+  const turn = list[list.length - 1];
+  const pages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
+  const targets = [];
+  pages.forEach((page, pageIndex) => {
+    const steps = Array.isArray(page?.toolSteps) ? page.toolSteps : [];
+    steps.forEach((step, stepIndex) => {
+      const toolName = workspaceToolName(step);
+      if (!['ui/view/open', 'ui/window/list', 'ui/window/show', 'ui/window/setformdata'].includes(toolName)) return;
+      ['requestPayload', 'responsePayload'].forEach((field) => {
+        const payloadId = workspaceToolPayloadReference(step, field);
+        if (payloadId) targets.push({ pageIndex, stepIndex, field, payloadId });
+      });
+    });
+  });
+  return targets;
+}
+
+async function loadWorkspacePayload(payloadId = '') {
+  const result = await client.getPayload(payloadId, { raw: true });
+  const text = new TextDecoder().decode(result?.data);
+  if (!text || !text.trim()) return null;
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    return null;
+  }
+}
+
+export async function hydrateWorkspaceTranscriptTurns(turns = [], payloadLoader = loadWorkspacePayload) {
+  const targets = workspacePayloadTargets(turns);
+  if (targets.length === 0) return turns;
+  const list = Array.isArray(turns) ? turns : [];
+  const latestIndex = list.length - 1;
+  const latestTurn = list[latestIndex];
+  const execution = latestTurn?.execution || {};
+  const pages = Array.isArray(execution?.pages) ? execution.pages : [];
+  const nextPages = pages.map((page) => ({
+    ...page,
+    toolSteps: Array.isArray(page?.toolSteps) ? page.toolSteps.map((step) => ({ ...step })) : [],
+  }));
+  const loaded = await Promise.all(targets.map(async (target) => ({
+    ...target,
+    payload: await payloadLoader(target.payloadId),
+  })));
+  loaded.forEach(({ pageIndex, stepIndex, field, payload }) => {
+    if (!payload || typeof payload !== 'object') return;
+    const step = nextPages[pageIndex]?.toolSteps?.[stepIndex];
+    if (step) step[field] = payload;
+  });
+  const nextTurns = list.slice();
+  nextTurns[latestIndex] = {
+    ...latestTurn,
+    execution: {
+      ...execution,
+      pages: nextPages,
+    },
+  };
+  return nextTurns;
+}
+
 export function syncScopedWorkspaceStateFromTranscriptTurns(
   conversationId = '',
   turns = [],
@@ -587,6 +691,18 @@ export function syncScopedWorkspaceStateFromTranscriptTurns(
   }
   nudgeWorkspaceRestore(convID, 4);
   return derived;
+}
+
+export function syncHydratedWorkspaceStateFromTranscriptTurns(
+  conversationId = '',
+  turns = [],
+  options = {}
+) {
+  if (workspacePayloadTargets(turns).length === 0) {
+    return syncScopedWorkspaceStateFromTranscriptTurns(conversationId, turns, options);
+  }
+  return hydrateWorkspaceTranscriptTurns(turns)
+    .then((hydratedTurns) => syncScopedWorkspaceStateFromTranscriptTurns(conversationId, hydratedTurns, options));
 }
 
 export function ensureMainChatWindow() {

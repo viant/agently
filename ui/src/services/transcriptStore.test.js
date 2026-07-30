@@ -299,6 +299,80 @@ describe('syncTranscriptSnapshot', () => {
     expect(chatState.liveOwnedConversationID).toBe('');
   });
 
+  it('preserves the optimistic user bubble until the completed transcript contains it', () => {
+    const optimisticUser = {
+      id: 'user-live',
+      role: 'user',
+      turnId: 'turn-1',
+      createdAt: '2026-07-30T17:28:00Z',
+      content: 'Build me a report for order 2672373.'
+    };
+    const chatState = {
+      transcriptRows: [],
+      liveRows: [
+        optimisticUser,
+        {
+          id: 'assistant-live',
+          role: 'assistant',
+          turnId: 'turn-1',
+          createdAt: '2026-07-30T17:28:13Z',
+          interim: 0,
+          status: 'completed',
+          content: 'The editable report is built.'
+        }
+      ],
+      renderRows: [],
+      liveOwnedConversationID: '',
+      liveOwnedTurnIds: [],
+      lastConversationID: 'conv-1',
+      lastQueuedTurns: [],
+      lastHasRunning: false,
+      runningTurnId: '',
+      activeStreamTurnId: '',
+      activeStreamStartedAt: 0
+    };
+    const conversationsDS = {
+      peekFormData: () => ({ id: 'conv-1' }),
+      setFormData: vi.fn()
+    };
+    const context = {
+      Context: (name) => {
+        if (name === 'conversations') {
+          return { handlers: { dataSource: conversationsDS } };
+        }
+        return null;
+      }
+    };
+
+    const result = syncTranscriptSnapshot({
+      context,
+      turns: [{ turnId: 'turn-1', status: 'completed' }],
+      ensureContextResources: () => chatState,
+      resolveActiveStreamTurnId: () => '',
+      mapTranscriptToRows: () => ({
+        rows: [{
+          id: 'assistant-1',
+          role: 'assistant',
+          turnId: 'turn-1',
+          createdAt: '2026-07-30T17:28:13Z',
+          interim: 0,
+          status: 'completed',
+          content: 'The editable report is built.'
+        }],
+        queuedTurns: [],
+        runningTurnId: ''
+      }),
+      findLatestRunningTurnIdFromTurns: () => '',
+      findLatestRunningTurnId: () => '',
+      setStage: vi.fn(),
+      liveRows: chatState.liveRows
+    });
+
+    expect(result?.shouldFinalizeActiveStream).toBe(false);
+    expect(result?.liveRows).toEqual([optimisticUser]);
+    expect(chatState.liveRows).toEqual([optimisticUser]);
+  });
+
   it('releases live ownership once a newer turn exists in transcript history', () => {
     const chatState = {
       transcriptRows: [],

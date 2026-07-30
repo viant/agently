@@ -53,7 +53,7 @@ import {
   getScopedConversationSelection,
   isMainChatWindowId,
   publishConversationSelection,
-  syncScopedWorkspaceStateFromTranscriptTurns
+  syncHydratedWorkspaceStateFromTranscriptTurns
 } from './conversationWindow';
 import { setStage } from './stageBus';
 import { client } from './agentlyClient';
@@ -1346,7 +1346,7 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
   } catch (_) { /* best-effort mirror */ }
   try {
     if (canonicalConversation?.conversationId && Array.isArray(canonicalTurns) && canonicalTurns.length > 0 && !canonicalHasRunning) {
-      syncScopedWorkspaceStateFromTranscriptTurns(canonicalConversation.conversationId, canonicalTurns, {
+      await syncHydratedWorkspaceStateFromTranscriptTurns(canonicalConversation.conversationId, canonicalTurns, {
         reopen: false,
         announce: true,
       });
@@ -2142,56 +2142,20 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       } else {
         setStage({ phase: 'done', text: 'Done', completedAt: stageCompletedAtValue(payload) });
       }
-      const prefetchedTerminalConversationID = String(chatState.prefetchedTerminalConversationID || '').trim();
-      const prefetchedTerminalTurnID = String(chatState.prefetchedTerminalTurnID || '').trim();
-      const pendingTerminalHydrationConversationID = String(chatState.pendingTerminalHydrationConversationID || '').trim();
-      const pendingTerminalRefreshSuppressionConversationID = String(chatState.pendingTerminalRefreshSuppressionConversationID || '').trim();
-      const pendingTerminalRefreshSuppressionTurnID = String(chatState.pendingTerminalRefreshSuppressionTurnID || '').trim();
-      const pendingConversationBootstrap = hasPendingConversationBootstrap(resolvedConversationID);
-      const skipForcedTranscriptRefresh = !!(
-        (
-          pendingTerminalRefreshSuppressionConversationID
-          && pendingTerminalRefreshSuppressionConversationID === resolvedConversationID
-          && pendingTerminalRefreshSuppressionTurnID
-          && pendingTerminalRefreshSuppressionTurnID === completedTurnID
-        )
-        ||
-        (
-          pendingConversationBootstrap
-          && finalContent !== ''
-        )
-        ||
-        (pendingTerminalHydrationConversationID && pendingTerminalHydrationConversationID === resolvedConversationID)
-        || (
-          completedTurnID
-          && prefetchedTerminalTurnID
-          && prefetchedTerminalTurnID === completedTurnID
-          && prefetchedTerminalConversationID
-          && prefetchedTerminalConversationID === resolvedConversationID
-        )
-      );
-      logExecutorDebug('turn-terminal-refresh-decision', {
+      logExecutorDebug('turn-terminal-stream-settled', {
         conversationId: resolvedConversationID,
         turnId: completedTurnID,
-        skipForcedTranscriptRefresh,
-        pendingConversationBootstrap,
-        pendingTerminalRefreshSuppressionConversationID,
-        pendingTerminalRefreshSuppressionTurnID,
-        pendingTerminalHydrationConversationID,
-        prefetchedTerminalConversationID,
-        prefetchedTerminalTurnID
+        hasFinalContent: finalContent !== ''
       });
-      // Once the live turn is terminal, force a transcript refresh so the
-      // settled persisted execution pages replace any stale live placeholders.
-      if (!skipForcedTranscriptRefresh) {
-        queueTranscriptRefresh(context, { delay: 0, force: true });
-      }
-      if (skipForcedTranscriptRefresh) {
-        chatState.prefetchedTerminalConversationID = '';
-        chatState.prefetchedTerminalTurnID = '';
-        chatState.pendingTerminalRefreshSuppressionConversationID = '';
-        chatState.pendingTerminalRefreshSuppressionTurnID = '';
-      }
+      // Active conversation rendering remains SSE-owned through the terminal
+      // event. Re-fetching the transcript here replaces stable live entities,
+      // remounts progressive reports, and can overwrite a newer streamed
+      // snapshot with a stale persisted one. Transcript hydration is reserved
+      // for explicit conversation navigation/recovery.
+      chatState.prefetchedTerminalConversationID = '';
+      chatState.prefetchedTerminalTurnID = '';
+      chatState.pendingTerminalRefreshSuppressionConversationID = '';
+      chatState.pendingTerminalRefreshSuppressionTurnID = '';
       if (resolvedConversationID) {
         clearPendingConversationBootstrap(resolvedConversationID);
       }
