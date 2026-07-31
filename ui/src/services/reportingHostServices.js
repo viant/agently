@@ -4,10 +4,14 @@ import {
   listReportExportArtifacts,
   listReportExportJobs,
   submitReportExportRequest,
+  submitReportExportSource,
 } from './reportExportService';
 import {
+  deleteReport,
+  duplicateReport,
   getReport,
   listReports,
+  recordReportRun,
   saveReport,
   updateReport,
 } from './reportStoreService';
@@ -22,6 +26,7 @@ export function createReportingHostServices() {
   return {
     reportExport: {
       submitRequest: submitReportExportRequest,
+      submitSource: submitReportExportSource,
       getStatus: getReportExportStatus,
       getArtifact: getReportExportArtifact,
       listJobs: listReportExportJobs,
@@ -32,6 +37,9 @@ export function createReportingHostServices() {
       getReport,
       listReports,
       updateReport,
+      duplicateReport,
+      deleteReport,
+      recordReportRun,
     },
     reportLifecycle: {
       runAction: runReportLifecycleAction,

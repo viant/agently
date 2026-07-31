@@ -7,7 +7,12 @@ vi.mock('./agentlyClient', () => ({
 }));
 
 import { client } from './agentlyClient';
-import { getReportExportArtifact, getReportExportStatus, submitReportExportRequest } from './reportExportService';
+import {
+  getReportExportArtifact,
+  getReportExportStatus,
+  submitReportExportRequest,
+  submitReportExportSource,
+} from './reportExportService';
 
 describe('reportExportService', () => {
   beforeEach(() => {
@@ -53,6 +58,28 @@ describe('reportExportService', () => {
   it('rejects missing requests', async () => {
     await expect(submitReportExportRequest({ request: null })).rejects.toThrow('report export request is required');
     expect(client.executeTool).not.toHaveBeenCalled();
+  });
+
+  it('submits a persisted report identity for export', async () => {
+    client.executeTool.mockResolvedValue({
+      jobId: 'job-saved',
+      status: 'queued',
+    });
+
+    const result = await submitReportExportSource({
+      source: { kind: 'report', reportId: 'saved-report' },
+      format: 'pdf',
+      conversationId: 'conversation-1',
+      workspaceId: 'metricReportBuilder',
+    });
+
+    expect(client.executeTool).toHaveBeenCalledWith('reporting:submit_export', {
+      source: { kind: 'report', reportId: 'saved-report' },
+      format: 'pdf',
+      conversationId: 'conversation-1',
+      workspaceId: 'metricReportBuilder',
+    });
+    expect(result).toMatchObject({ ok: true, jobId: 'job-saved' });
   });
 
   it('passes through object results without requiring JSON strings', async () => {

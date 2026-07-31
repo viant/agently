@@ -40,6 +40,7 @@ import {
 import { DashboardBlock, ReportRuntime } from 'forge/components';
 import { buildDraftReportExportRequest, compileInlineReport, materializeInlineReport } from 'forge/reporting';
 import {
+  addWindow,
   buildStandaloneDashboardDocument,
   captureDashboardChartSvgs,
   downloadDashboardHtml,
@@ -1623,6 +1624,8 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
         documentVersion: 1,
         reportDocument: compiled.reportDocument,
         reportSpec: compiled.reportSpec,
+        reportFill: compiled.reportFill,
+        reportPrint: compiled.reportPrint,
         compileState: {
           status: 'clean',
           source: saveMode,
@@ -1646,6 +1649,16 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
       setLifecycleState({ action: '', message: '', error: error?.message || 'Report save failed.' });
     }
   };
+  const openMyReports = React.useCallback(() => {
+    addWindow('My reports', null, 'reports', '', true, {}, {
+      presentation: 'hosted',
+      region: 'chat.top',
+      conversationId: String(conversationId || '').trim(),
+      replaceHostedRegion: true,
+      workspaceSharePct: 82,
+      workspaceMinHeight: 640,
+    });
+  }, [conversationId]);
   const handleExport = async () => {
     if (!exportReady || lifecycleState.action) return;
     setArtifactDownload(null);
@@ -1729,7 +1742,17 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
                 title={reportSaved ? 'This report is saved in My reports.' : 'Save this live report to My reports.'}
                 onClick={handleSave}
               >
-                {reportSaved ? 'Saved' : 'Save report'}
+                {reportSaved ? 'Saved to My reports' : 'Save to My reports'}
+              </Button>
+            ) : null}
+            {reportSaved ? (
+              <Button
+                className="app-rich-inline-report__view-reports-button"
+                icon="folder-open"
+                title="Open My reports."
+                onClick={openMyReports}
+              >
+                View in Reports
               </Button>
             ) : null}
             {artifactDownload?.url ? (
