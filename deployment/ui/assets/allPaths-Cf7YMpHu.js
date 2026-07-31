@@ -1,1 +1,0 @@
-import{I as a}from"./index-wb1ac0j6.js";import{I as s}from"./index-HQeWHVYo.js";import{a as m}from"./index-CEcbsKkN.js";import{d as n}from"./forge-reporting-Cm7n4EnA.js";import"./code-editor-D5k8MIvU.js";function f(t,r){const o=n(t);return r===m.STANDARD?a[o]:s[o]}export{a as IconSvgPaths16,s as IconSvgPaths20,f as getIconPaths};
