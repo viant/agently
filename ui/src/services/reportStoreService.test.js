@@ -8,7 +8,15 @@ vi.mock('./reportingToolClient', () => ({
 }));
 
 import { executeReportingTool } from './reportingToolClient';
-import { getReport, listReports, saveReport, updateReport } from './reportStoreService';
+import {
+  deleteReport,
+  duplicateReport,
+  getReport,
+  listReports,
+  recordReportRun,
+  saveReport,
+  updateReport,
+} from './reportStoreService';
 
 describe('reportStoreService', () => {
   beforeEach(() => {
@@ -81,5 +89,38 @@ describe('reportStoreService', () => {
       'report update request failed',
     );
     expect(result).toMatchObject({ ok: true, artifactId: 'report-1' });
+  });
+
+  it('routes duplicate_report through the reporting tool client', async () => {
+    executeReportingTool.mockResolvedValueOnce({ artifactId: 'report-copy', reportId: 'copy' });
+    const result = await duplicateReport({ artifactId: 'report-1' });
+    expect(executeReportingTool).toHaveBeenCalledWith(
+      'reporting:duplicate_report',
+      { artifactId: 'report-1' },
+      'report duplicate request failed',
+    );
+    expect(result).toMatchObject({ ok: true, artifactId: 'report-copy' });
+  });
+
+  it('routes delete_report through the reporting tool client', async () => {
+    executeReportingTool.mockResolvedValueOnce({ artifactId: 'report-1', reportId: 'delivery', deleted: true });
+    const result = await deleteReport({ artifactId: 'report-1' });
+    expect(executeReportingTool).toHaveBeenCalledWith(
+      'reporting:delete_report',
+      { artifactId: 'report-1' },
+      'report delete request failed',
+    );
+    expect(result).toMatchObject({ ok: true, deleted: true });
+  });
+
+  it('routes record_report_run through the reporting tool client', async () => {
+    executeReportingTool.mockResolvedValueOnce({ artifactId: 'report-1', reportId: 'delivery' });
+    const result = await recordReportRun({ artifactId: 'report-1' });
+    expect(executeReportingTool).toHaveBeenCalledWith(
+      'reporting:record_report_run',
+      { artifactId: 'report-1' },
+      'report run record request failed',
+    );
+    expect(result).toMatchObject({ artifactId: 'report-1' });
   });
 });

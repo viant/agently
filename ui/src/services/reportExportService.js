@@ -68,6 +68,27 @@ export async function submitReportExportRequest({ request, source = '' } = {}) {
   };
 }
 
+export async function submitReportExportSource({
+  source,
+  format = 'pdf',
+  conversationId = '',
+  workspaceId = '',
+} = {}) {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    throw new Error('report export source is required');
+  }
+  const result = normalizeToolResult(await client.executeTool('reporting:submit_export', {
+    source,
+    format: String(format || 'pdf').trim().toLowerCase(),
+    ...(String(conversationId || '').trim() ? { conversationId: String(conversationId).trim() } : {}),
+    ...(String(workspaceId || '').trim() ? { workspaceId: String(workspaceId).trim() } : {}),
+  }));
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    throw new Error(`unexpected reporting export response: ${JSON.stringify(result)}`);
+  }
+  return { ...result, ok: true };
+}
+
 export async function getReportExportStatus({ jobId } = {}) {
   const normalizedJobId = String(jobId || '').trim();
   if (!normalizedJobId) {

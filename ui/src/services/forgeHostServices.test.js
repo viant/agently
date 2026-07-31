@@ -22,6 +22,12 @@ vi.mock('./reportExportService', () => ({
     source,
     title: request?.source?.title || '',
   })),
+  submitReportExportSource: vi.fn(async ({ source, format }) => ({
+    ok: true,
+    source,
+    format,
+    jobId: 'job-source',
+  })),
   getReportExportStatus: vi.fn(async ({ jobId }) => ({
     jobId,
     status: 'queued',
@@ -45,6 +51,9 @@ vi.mock('./reportStoreService', () => ({
   getReport: vi.fn(async ({ artifactId }) => ({ artifactId, title: 'Stored Report' })),
   listReports: vi.fn(async ({ limit }) => ({ reports: [{ artifactId: 'report-1', title: 'Stored Report' }], totalCount: limit || 1 })),
   updateReport: vi.fn(async (request) => ({ ok: true, artifactId: request?.artifactId || 'report-1' })),
+  duplicateReport: vi.fn(async (request) => ({ ok: true, artifactId: 'report-copy', ...request })),
+  deleteReport: vi.fn(async (request) => ({ ok: true, deleted: true, ...request })),
+  recordReportRun: vi.fn(async (request) => ({ ok: true, ...request })),
 }));
 
 vi.mock('./reportLifecycleService', () => ({
@@ -65,8 +74,17 @@ import {
   listReportExportArtifacts,
   listReportExportJobs,
   submitReportExportRequest,
+  submitReportExportSource,
 } from './reportExportService';
-import { getReport, listReports, saveReport, updateReport } from './reportStoreService';
+import {
+  deleteReport,
+  duplicateReport,
+  getReport,
+  listReports,
+  recordReportRun,
+  saveReport,
+  updateReport,
+} from './reportStoreService';
 import { runReportLifecycleAction } from './reportLifecycleService';
 import { getReportSharedArtifact, listReportSharedArtifacts } from './reportSharedArtifactService';
 import { forgeHostServices } from './forgeHostServices';
@@ -77,6 +95,7 @@ describe('forgeHostServices', () => {
     expect(forgeHostServices.schedule).toBe(scheduleService);
     expect(forgeHostServices.prepareDataConnectorRequest).toBe(prepareAgentlyDataConnectorRequest);
     expect(typeof forgeHostServices.reportExport.submitRequest).toBe('function');
+    expect(typeof forgeHostServices.reportExport.submitSource).toBe('function');
     expect(typeof forgeHostServices.reportExport.getStatus).toBe('function');
     expect(typeof forgeHostServices.reportExport.getArtifact).toBe('function');
     expect(typeof forgeHostServices.reportExport.listJobs).toBe('function');
@@ -85,6 +104,9 @@ describe('forgeHostServices', () => {
     expect(typeof forgeHostServices.reportStore.getReport).toBe('function');
     expect(typeof forgeHostServices.reportStore.listReports).toBe('function');
     expect(typeof forgeHostServices.reportStore.updateReport).toBe('function');
+    expect(typeof forgeHostServices.reportStore.duplicateReport).toBe('function');
+    expect(typeof forgeHostServices.reportStore.deleteReport).toBe('function');
+    expect(typeof forgeHostServices.reportStore.recordReportRun).toBe('function');
     expect(typeof forgeHostServices.reportLifecycle.shareArtifact).toBe('function');
     expect(typeof forgeHostServices.reportLifecycle.transitionArtifact).toBe('function');
     expect(typeof forgeHostServices.reportSharedArtifacts.listArtifacts).toBe('function');
@@ -104,6 +126,16 @@ describe('forgeHostServices', () => {
 
     expect(submitReportExportRequest).toHaveBeenCalledWith({ request, source: 'draft' });
     expect(result).toMatchObject({ ok: true, source: 'draft', title: 'Demo Report' });
+
+    const sourceResult = await forgeHostServices.reportExport.submitSource({
+      source: { kind: 'report', reportId: 'demo-report' },
+      format: 'pdf',
+    });
+    expect(submitReportExportSource).toHaveBeenCalledWith({
+      source: { kind: 'report', reportId: 'demo-report' },
+      format: 'pdf',
+    });
+    expect(sourceResult).toMatchObject({ ok: true, jobId: 'job-source' });
 
     const status = await forgeHostServices.reportExport.getStatus({ jobId: 'job-1' });
     expect(getReportExportStatus).toHaveBeenCalledWith({ jobId: 'job-1' });
@@ -136,6 +168,15 @@ describe('forgeHostServices', () => {
     const updated = await forgeHostServices.reportStore.updateReport({ artifactId: 'report-1', title: 'Updated' });
     expect(updateReport).toHaveBeenCalledWith({ artifactId: 'report-1', title: 'Updated' });
     expect(updated).toMatchObject({ ok: true, artifactId: 'report-1' });
+
+    await forgeHostServices.reportStore.duplicateReport({ artifactId: 'report-1' });
+    expect(duplicateReport).toHaveBeenCalledWith({ artifactId: 'report-1' });
+
+    await forgeHostServices.reportStore.deleteReport({ artifactId: 'report-copy' });
+    expect(deleteReport).toHaveBeenCalledWith({ artifactId: 'report-copy' });
+
+    await forgeHostServices.reportStore.recordReportRun({ artifactId: 'report-1' });
+    expect(recordReportRun).toHaveBeenCalledWith({ artifactId: 'report-1' });
 
     const shared = await forgeHostServices.reportLifecycle.shareArtifact({ action: 'share', artifactRef: 'report://x' });
     expect(runReportLifecycleAction).toHaveBeenCalledWith({ action: 'share', artifactRef: 'report://x' });
