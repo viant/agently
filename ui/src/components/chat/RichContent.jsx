@@ -1853,10 +1853,14 @@ function resolveMarkdownHref(url = '', generatedFiles = []) {
 }
 
 function rewriteSandboxMarkdownLinks(text = '', generatedFiles = []) {
-  return String(text || '').replace(/\[([^\]]+)\]\((sandbox:[^)]+)\)/gi, (match, label, url) => {
+  const withGeneratedFiles = String(text || '').replace(/\[([^\]]+)\]\((sandbox:[^)]+)\)/gi, (match, label, url) => {
     const href = resolveMarkdownHref(url, generatedFiles);
     return `[${label}](${href})`;
   });
+  return withGeneratedFiles.replace(
+    /\[([^\]]+)\]\(scratchpad:\/\/artifact\/([a-z0-9_-]+)\)/gi,
+    (match, label, artifactId) => `[${label}](/__report_artifact__/${encodeURIComponent(artifactId)})`
+  );
 }
 
 function rewriteSandboxHrefInHTML(html = '', generatedFiles = []) {
@@ -1864,6 +1868,46 @@ function rewriteSandboxHrefInHTML(html = '', generatedFiles = []) {
     const href = resolveMarkdownHref(url, generatedFiles);
     return `href=${quote}${escapeHTMLAttr(href)}${quote}`;
   });
+}
+
+export function resolveScratchpadArtifactId(href = '') {
+  const match = String(href || '').trim().match(/^\/__report_artifact__\/([a-z0-9_-]+)$/i);
+  if (!match?.[1]) return '';
+  try {
+    return decodeURIComponent(match[1]).trim();
+  } catch (_) {
+    return match[1].trim();
+  }
+}
+
+async function handleScratchpadArtifactLinkClick(event) {
+  const anchor = event?.target?.closest?.('a');
+  const artifactId = resolveScratchpadArtifactId(anchor?.getAttribute?.('href'));
+  if (!artifactId) return;
+  event.preventDefault();
+  const priorText = anchor.textContent;
+  anchor.setAttribute('aria-busy', 'true');
+  anchor.textContent = 'Downloading…';
+  try {
+    const artifact = await getReportExportArtifact({ artifactId });
+    const download = createInlineReportArtifactDownload(artifact, {
+      filename: artifact?.filename || `report-${artifactId}.pdf`,
+    });
+    const trigger = document.createElement('a');
+    trigger.href = download.url;
+    trigger.download = download.filename;
+    document.body.appendChild(trigger);
+    trigger.click();
+    document.body.removeChild(trigger);
+    download.revoke();
+  } catch (error) {
+    anchor.title = error?.message || 'Report download failed.';
+    anchor.textContent = 'Download failed';
+    return;
+  } finally {
+    anchor.removeAttribute('aria-busy');
+  }
+  anchor.textContent = priorText;
 }
 
 function normalizeBrokenMarkdownLayout(text = '') {
@@ -1958,7 +2002,7 @@ function MinimalText({ text = '', generatedFiles = [] }) {
     generatedFiles
   );
   const html = rewriteSandboxHrefInHTML(renderMarkdownBlock(cleaned), generatedFiles);
-  return <div className="app-rich-prose" dangerouslySetInnerHTML={{ __html: html }} />;
+  return <div className="app-rich-prose" onClick={handleScratchpadArtifactLinkClick} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 function ChartSpecPanel({ spec = {} }) {
@@ -2417,7 +2461,7 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
           renderMarkdownBlock(rewriteSandboxMarkdownLinks(body, generatedFiles)),
           generatedFiles
         );
-        out.push(<div key={`md-${idx++}`} className="app-rich-markdown" dangerouslySetInnerHTML={{ __html: html }} />);
+        out.push(<div key={`md-${idx++}`} className="app-rich-markdown" onClick={handleScratchpadArtifactLinkClick} dangerouslySetInnerHTML={{ __html: html }} />);
         break;
       }
       default:

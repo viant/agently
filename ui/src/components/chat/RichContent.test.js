@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import RichContent, { buildInlineReportEventDetail, buildInlineReportSaveKey, createInlineReportArtifactDownload, inlineReportRuntimeKey, normalizeDashboardPayload, normalizeLegacyForgeDescriptors, normalizeLegacyForgeFenceBlocks, parseFences, resolveForgeScope, resolveInlineReportExportTargetURL, scopeForgeDashboardPayload, waitForInlineReportExport } from './RichContent';
+import RichContent, { buildInlineReportEventDetail, buildInlineReportSaveKey, createInlineReportArtifactDownload, inlineReportRuntimeKey, normalizeDashboardPayload, normalizeLegacyForgeDescriptors, normalizeLegacyForgeFenceBlocks, parseFences, resolveForgeScope, resolveInlineReportExportTargetURL, resolveScratchpadArtifactId, scopeForgeDashboardPayload, waitForInlineReportExport } from './RichContent';
 import { renderMarkdownBlock } from 'agently-core-ui-sdk';
 
 describe('RichContent fence parsing', () => {
@@ -63,6 +63,16 @@ describe('RichContent fence parsing', () => {
       { targetUrl: 'scratchpad://artifact/result' },
       { sourceURL: 'scratchpad://artifact/fallback' },
     )).toBe('scratchpad://artifact/result');
+  });
+  it('renders scratchpad artifact links as safe report-download actions', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RichContent, {
+        content: '[Download](scratchpad://artifact/artifact-123)',
+      })
+    );
+    expect(html).toContain('href="/__report_artifact__/artifact-123"');
+    expect(resolveScratchpadArtifactId('/__report_artifact__/artifact-123')).toBe('artifact-123');
+    expect(resolveScratchpadArtifactId('#other')).toBe('');
   });
   it('creates a local download for a materialized inline PDF artifact', () => {
     const revoked = [];
