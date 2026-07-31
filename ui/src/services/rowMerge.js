@@ -335,6 +335,18 @@ export function mergeRenderedRows({
       .map((row) => String(row?.turnId || '').trim())
       .filter(Boolean)
   );
+  const liveUserMessageIds = new Set(
+    canonicalLiveRows
+      .filter((row) => String(row?.role || '').trim().toLowerCase() === 'user')
+      .map((row) => String(row?.messageId || row?.id || '').trim())
+      .filter(Boolean)
+  );
+  const liveUserTurnIds = new Set(
+    canonicalLiveRows
+      .filter((row) => String(row?.role || '').trim().toLowerCase() === 'user')
+      .map((row) => String(row?.turnId || '').trim())
+      .filter(Boolean)
+  );
   const transcriptBase = transcriptList
     .map((row) => {
       const turnId = String(row?.turnId || '').trim();
@@ -346,6 +358,14 @@ export function mergeRenderedRows({
       if (hasLiveSession && !turnId) return null;
       if (!hasLiveSession || !ownedTurnIds.has(turnId)) {
         return { ...row, _rowSource: 'transcript' };
+      }
+      if (String(row?.role || '').trim().toLowerCase() === 'user') {
+        const messageId = String(row?.messageId || row?.id || '').trim();
+        const hasLiveEquivalent = (messageId && liveUserMessageIds.has(messageId))
+          || (turnId && liveUserTurnIds.has(turnId));
+        if (!hasLiveEquivalent) {
+          return { ...row, _rowSource: 'transcript' };
+        }
       }
       return null;
     })
