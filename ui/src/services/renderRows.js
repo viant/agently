@@ -8,6 +8,7 @@ function filterLiveOwnedTranscriptRows(
   currentConversationID = "",
   ownedConversationID = "",
   ownedTurnIds = [],
+  liveRows = [],
 ) {
   const currentID = String(currentConversationID || "").trim();
   const liveID = String(ownedConversationID || "").trim();
@@ -22,9 +23,43 @@ function filterLiveOwnedTranscriptRows(
   if (owned.size === 0) {
     return Array.isArray(rows) ? rows : [];
   }
-  return (Array.isArray(rows) ? rows : []).filter(
-    (row) => !owned.has(String(row?.turnId || "").trim()),
-  );
+  const liveUserMessageIds = new Set();
+  const liveUserTurnIds = new Set();
+  for (const row of Array.isArray(liveRows) ? liveRows : []) {
+    if (
+      String(row?.role || "")
+        .trim()
+        .toLowerCase() !== "user"
+    ) {
+      continue;
+    }
+    const messageId = String(row?.messageId || row?.id || "").trim();
+    const turnId = String(row?.turnId || "").trim();
+    if (messageId) liveUserMessageIds.add(messageId);
+    if (turnId) liveUserTurnIds.add(turnId);
+  }
+  return (Array.isArray(rows) ? rows : []).filter((row) => {
+    const turnId = String(row?.turnId || "").trim();
+    if (!owned.has(turnId)) return true;
+
+    // Live ownership suppresses transcript execution/assistant rows while SSE
+    // is authoritative. A user prompt is different: keep the persisted prompt
+    // unless the live projection actually contains its equivalent optimistic
+    // user row. Otherwise a stale ownership marker can make the initiating
+    // prompt disappear while leaving only execution details and the answer.
+    if (
+      String(row?.role || "")
+        .trim()
+        .toLowerCase() !== "user"
+    ) {
+      return false;
+    }
+    const messageId = String(row?.messageId || row?.id || "").trim();
+    const hasLiveEquivalent =
+      (messageId && liveUserMessageIds.has(messageId)) ||
+      (turnId && liveUserTurnIds.has(turnId));
+    return !hasLiveEquivalent;
+  });
 }
 
 function isVisibleExecutionPage(page = {}) {
@@ -891,6 +926,7 @@ export function buildConversationRenderRows({
             ]),
           )
         : liveOwnedTurnIds,
+      effectiveLiveRows,
     ),
     liveRows: effectiveLiveRows,
     runningTurnId: String(runningTurnId || "").trim(),

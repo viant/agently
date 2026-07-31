@@ -516,6 +516,80 @@ describe('buildCanonicalTranscriptRows', () => {
 });
 
 describe('buildConversationRenderRows', () => {
+  it('preserves a transcript user prompt when a live-owned turn has no live user row', () => {
+    const { mergedRows } = buildConversationRenderRows({
+      currentConversationID: 'conv-1',
+      liveOwnedConversationID: 'conv-1',
+      liveOwnedTurnIds: ['turn-1'],
+      transcriptRows: [
+        {
+          id: 'user-1',
+          messageId: 'user-1',
+          role: 'user',
+          turnId: 'turn-1',
+          content: 'Export my saved report as PDF.'
+        },
+        {
+          id: 'assistant-transcript',
+          role: 'assistant',
+          turnId: 'turn-1',
+          content: 'Persisted answer'
+        }
+      ],
+      liveRows: [
+        {
+          id: 'assistant-live',
+          role: 'assistant',
+          turnId: 'turn-1',
+          content: 'Live answer',
+          interim: 0
+        }
+      ]
+    });
+
+    expect(mergedRows).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'user-1',
+        role: 'user',
+        content: 'Export my saved report as PDF.'
+      }),
+      expect.objectContaining({
+        id: 'assistant-live',
+        role: 'assistant',
+        content: 'Live answer'
+      })
+    ]));
+    expect(mergedRows.some((row) => row?.id === 'assistant-transcript')).toBe(false);
+  });
+
+  it('uses the optimistic live user row without duplicating the transcript prompt', () => {
+    const { mergedRows } = buildConversationRenderRows({
+      currentConversationID: 'conv-1',
+      liveOwnedConversationID: 'conv-1',
+      liveOwnedTurnIds: ['turn-1'],
+      transcriptRows: [{
+        id: 'user-1',
+        messageId: 'user-1',
+        role: 'user',
+        turnId: 'turn-1',
+        content: 'Export my saved report as PDF.'
+      }],
+      liveRows: [{
+        id: 'user-1',
+        messageId: 'user-1',
+        role: 'user',
+        turnId: 'turn-1',
+        content: 'Export my saved report as PDF.'
+      }]
+    });
+
+    expect(mergedRows.filter((row) => row?.role === 'user')).toHaveLength(1);
+    expect(mergedRows[0]).toEqual(expect.objectContaining({
+      id: 'user-1',
+      content: 'Export my saved report as PDF.'
+    }));
+  });
+
   it('drops empty interim assistant placeholders that only carry internal model steps', () => {
     const { mergedRows } = buildConversationRenderRows({
       transcriptRows: [],

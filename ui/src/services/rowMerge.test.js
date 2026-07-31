@@ -207,8 +207,9 @@ describe('mergeRenderedRows', () => {
       liveOwnedTurnIds: ['turn-1']
     });
 
-    // Stream row should be dropped when transcript already has a final assistant for that message/turn.
-    expect(merged.map((row) => row.id)).toEqual(['assistant-1']);
+    // The duplicate stream row is dropped, but the persisted prompt remains
+    // because this live projection has no equivalent user row.
+    expect(merged.map((row) => row.id)).toEqual(['user-1', 'assistant-1']);
   });
 
   it('keeps the active turn entirely on the live side when the turn is owned by SSE', () => {
