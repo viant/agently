@@ -3,6 +3,7 @@ import {
   getReportExportStatus,
   listReportExportArtifacts,
   listReportExportJobs,
+  submitReportExportRun,
   submitReportExportRequest,
   submitReportExportSource,
 } from './reportExportService';
@@ -21,11 +22,19 @@ import {
   listReportSharedArtifacts,
 } from './reportSharedArtifactService';
 import { emitReportUIEvent } from './reportEventService';
+import {
+  activateReportRun,
+  adoptReportRun,
+  beginReportRun,
+  completeReportRun,
+  failReportRun,
+} from './reportRunService';
 
 export function createReportingHostServices() {
   return {
     reportExport: {
       submitRequest: submitReportExportRequest,
+      submitRun: submitReportExportRun,
       submitSource: submitReportExportSource,
       getStatus: getReportExportStatus,
       getArtifact: getReportExportArtifact,
@@ -52,6 +61,13 @@ export function createReportingHostServices() {
     },
     reportEvents: {
       emit: emitReportUIEvent,
+    },
+    reportRuns: {
+      begin: beginReportRun,
+      complete: completeReportRun,
+      fail: failReportRun,
+      activate: activateReportRun,
+      adopt: adoptReportRun,
     },
   };
 }

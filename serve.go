@@ -124,6 +124,10 @@ func Serve(options ServeOptions) error {
 		defaults = wsConfig.DefaultsWithFallback(defaults)
 	}
 	wscfg.ApplyPathDefaults(defaults)
+	if err := defaults.Reporting.ValidateOrchestrationPrerequisites(); err != nil {
+		return fmt.Errorf("invalid reporting orchestration configuration: %w", err)
+	}
+	orchestrationEnabled := defaults.Reporting.OrchestrationEnabled()
 
 	rt, client, agentFndr, err := appserver.BuildWorkspaceRuntime(ctx, appserver.RuntimeOptions{
 		WorkspaceRoot: workspace.Root(),
@@ -134,6 +138,16 @@ func Serve(options ServeOptions) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
+	}
+	if orchestrationEnabled {
+		switch {
+		case rt.Registry == nil:
+			return fmt.Errorf("reporting orchestration requires a tool registry")
+		case rt.Reporting == nil:
+			return fmt.Errorf("reporting orchestration requires the reporting service")
+		case rt.ReportRuns == nil:
+			return fmt.Errorf("reporting orchestration requires the durable report-run service")
+		}
 	}
 
 	authRuntime, err := svcauthctx.NewRuntime(ctx, workspace.Root(), rt.DAO)
@@ -179,10 +193,21 @@ func Serve(options ServeOptions) error {
 		if err := tool.AddInternalService(rt.Registry, uicontext.New(uiBridge)); err != nil {
 			log.Printf("agently-app: failed to register internal UI context service: %v", err)
 		}
-		if err := tool.AddInternalService(rt.Registry, uievents.New(uiBridge)); err != nil {
+		uiEventsService := uievents.New(uiBridge)
+		if rt.Defaults != nil && rt.Defaults.Reporting.BrowserRunPersistenceEnabled() && rt.ReportRuns != nil {
+			uiEventsService = uievents.New(uiBridge, uievents.WithDurableReportRuns(rt.ReportRuns))
+		}
+		if err := tool.AddInternalService(rt.Registry, uiEventsService); err != nil {
 			log.Printf("agently-app: failed to register internal UI events service: %v", err)
 		}
-		if err := tool.AddInternalService(rt.Registry, uireport.New(uiBridge)); err != nil {
+		uiReportService := uireport.New(uiBridge)
+		if orchestrationEnabled {
+			uiReportService = uireport.New(uiBridge, uireport.WithOrchestration(rt.ReportRuns))
+		}
+		if err := tool.AddInternalService(rt.Registry, uiReportService); err != nil {
+			if orchestrationEnabled {
+				return fmt.Errorf("register orchestration-enabled UI report service: %w", err)
+			}
 			log.Printf("agently-app: failed to register internal UI report service: %v", err)
 		}
 	}
