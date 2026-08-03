@@ -22,6 +22,7 @@ import {
   listReportSharedArtifacts,
 } from './reportSharedArtifactService';
 import { emitReportUIEvent } from './reportEventService';
+import { fetchDatasource } from '../components/lookups/client';
 import {
   activateReportRun,
   adoptReportRun,
@@ -29,6 +30,22 @@ import {
   completeReportRun,
   failReportRun,
 } from './reportRunService';
+
+export async function fetchReportBuilderPreviewByRef({
+  dataSourceRef = '',
+  parameters = {},
+} = {}) {
+  const normalizedDataSourceRef = String(dataSourceRef || '').trim();
+  if (!normalizedDataSourceRef) {
+    throw new Error('Report preview requires a data source reference.');
+  }
+  return fetchDatasource(
+    normalizedDataSourceRef,
+    parameters && typeof parameters === 'object' && !Array.isArray(parameters)
+      ? parameters
+      : {},
+  );
+}
 
 export function createReportingHostServices() {
   return {
@@ -61,6 +78,9 @@ export function createReportingHostServices() {
     },
     reportEvents: {
       emit: emitReportUIEvent,
+    },
+    reportBuilderPreview: {
+      fetchByRef: fetchReportBuilderPreviewByRef,
     },
     reportRuns: {
       begin: beginReportRun,

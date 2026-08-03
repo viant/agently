@@ -120,6 +120,7 @@ describe('forgeHostServices', () => {
     expect(typeof forgeHostServices.reportLifecycle.transitionArtifact).toBe('function');
     expect(typeof forgeHostServices.reportSharedArtifacts.listArtifacts).toBe('function');
     expect(typeof forgeHostServices.reportSharedArtifacts.getArtifact).toBe('function');
+    expect(typeof forgeHostServices.reportBuilderPreview.fetchByRef).toBe('function');
     expect(typeof forgeHostServices.reportRuns.begin).toBe('function');
     expect(typeof forgeHostServices.reportRuns.complete).toBe('function');
     expect(typeof forgeHostServices.reportRuns.fail).toBe('function');
