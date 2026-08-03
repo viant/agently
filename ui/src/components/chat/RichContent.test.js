@@ -1,9 +1,29 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import RichContent, { buildInlineReportEventDetail, buildInlineReportSaveKey, createInlineReportArtifactDownload, inlineReportRuntimeKey, normalizeDashboardPayload, normalizeLegacyForgeDescriptors, normalizeLegacyForgeFenceBlocks, parseFences, resolveForgeScope, resolveInlineReportExportTargetURL, resolveScratchpadArtifactId, scopeForgeDashboardPayload, waitForInlineReportExport } from './RichContent';
+const { getReportExportArtifactMock } = vi.hoisted(() => ({ getReportExportArtifactMock: vi.fn() }));
+
+vi.mock('../../services/reportExportService.js', async () => ({
+  ...await vi.importActual('../../services/reportExportService.js'),
+  getReportExportArtifact: getReportExportArtifactMock,
+}));
+
+import RichContent, { buildInlineReportEventDetail, buildInlineReportSaveKey, createInlineReportArtifactDownload, handleScratchpadArtifactLinkClick, inlineReportRuntimeKey, normalizeDashboardPayload, normalizeLegacyForgeDescriptors, normalizeLegacyForgeFenceBlocks, parseFences, resolveForgeScope, resolveInlineReportExportTargetURL, resolveScratchpadArtifactId, scopeForgeDashboardPayload, waitForInlineReportExport } from './RichContent';
 import { renderMarkdownBlock } from 'agently-core-ui-sdk';
+
+function createScratchpadClickEvent(artifactId) {
+  const anchor = {
+    textContent: 'Download',
+    getAttribute: () => `/__report_artifact__/${artifactId}`,
+    setAttribute: vi.fn(),
+    removeAttribute: vi.fn(),
+  };
+  return {
+    target: { closest: () => anchor },
+    preventDefault: vi.fn(),
+  };
+}
 
 describe('RichContent fence parsing', () => {
   it('retains inline report runtime identity across snapshots and resets it on replace', () => {
@@ -54,6 +74,20 @@ describe('RichContent fence parsing', () => {
     expect(result).toMatchObject({ status: 'succeeded', artifactId: 'artifact-1' });
     expect(statuses).toHaveLength(0);
   });
+  it('propagates conversation context through inline export status polling', async () => {
+    const getStatus = vi.fn().mockResolvedValue({
+      jobId: 'job-1',
+      status: 'succeeded',
+      artifactId: 'artifact-1',
+    });
+    await waitForInlineReportExport({ jobId: 'job-1', status: 'queued' }, {
+      conversationId: 'conversation-1',
+      intervalMs: 0,
+      delay: async () => {},
+      getStatus,
+    });
+    expect(getStatus).toHaveBeenCalledWith({ jobId: 'job-1', conversationId: 'conversation-1' });
+  });
   it('uses the materialized artifact source URL for the export-complete event', () => {
     expect(resolveInlineReportExportTargetURL(
       { artifactId: 'artifact-1' },
@@ -73,6 +107,19 @@ describe('RichContent fence parsing', () => {
     expect(html).toContain('href="/__report_artifact__/artifact-123"');
     expect(resolveScratchpadArtifactId('/__report_artifact__/artifact-123')).toBe('artifact-123');
     expect(resolveScratchpadArtifactId('#other')).toBe('');
+  });
+  it('uses the current conversation when resolving a scratchpad artifact download', async () => {
+    getReportExportArtifactMock.mockReset().mockRejectedValueOnce(new Error('stop after lookup'));
+    await handleScratchpadArtifactLinkClick(createScratchpadClickEvent('artifact-123'), 'conversation-1');
+    expect(getReportExportArtifactMock).toHaveBeenCalledWith({
+      artifactId: 'artifact-123',
+      conversationId: 'conversation-1',
+    });
+  });
+  it('preserves scratchpad artifact downloads without conversation context', async () => {
+    getReportExportArtifactMock.mockReset().mockRejectedValueOnce(new Error('stop after lookup'));
+    await handleScratchpadArtifactLinkClick(createScratchpadClickEvent('artifact-legacy'));
+    expect(getReportExportArtifactMock).toHaveBeenCalledWith({ artifactId: 'artifact-legacy' });
   });
   it('creates a local download for a materialized inline PDF artifact', () => {
     const revoked = [];
