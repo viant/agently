@@ -3,6 +3,7 @@ import {
   getReportExportStatus,
   listReportExportArtifacts,
   listReportExportJobs,
+  submitReportExportRun,
   submitReportExportRequest,
   submitReportExportSource,
 } from './reportExportService';
@@ -23,6 +24,13 @@ import {
 import { emitReportUIEvent } from './reportEventService';
 import { fetchDatasource } from '../components/lookups/client';
 import { getProjection } from './chatStore';
+import {
+  activateReportRun,
+  adoptReportRun,
+  beginReportRun,
+  completeReportRun,
+  failReportRun,
+} from './reportRunService';
 
 function normalizeText(value = '') {
   return typeof value === 'string' ? value.trim() : '';
@@ -90,6 +98,7 @@ export function createReportingHostServices() {
   return {
     reportExport: {
       submitRequest: submitReportExportRequest,
+      submitRun: submitReportExportRun,
       submitSource: submitReportExportSource,
       getStatus: getReportExportStatus,
       getArtifact: getReportExportArtifact,
@@ -122,6 +131,13 @@ export function createReportingHostServices() {
     },
     reportBuilderPreview: {
       fetchByRef: fetchReportBuilderPreviewByRef,
+    },
+    reportRuns: {
+      begin: beginReportRun,
+      complete: completeReportRun,
+      fail: failReportRun,
+      activate: activateReportRun,
+      adopt: adoptReportRun,
     },
   };
 }

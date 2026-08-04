@@ -1459,11 +1459,17 @@ export function resolveInlineReportExportTargetURL(result = {}, artifact = {}) {
 
 const INLINE_EXPORT_TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled', 'canceled']);
 
+function withReportExportConversation(args = {}, conversationId = '') {
+  const normalizedConversationId = String(conversationId || '').trim();
+  return normalizedConversationId ? { ...args, conversationId: normalizedConversationId } : args;
+}
+
 export async function waitForInlineReportExport(initialJob = {}, {
   getStatus = getReportExportStatus,
   delay = (milliseconds) => new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds)),
   intervalMs = 750,
   maxAttempts = 40,
+  conversationId = '',
 } = {}) {
   let job = initialJob && typeof initialJob === 'object' && !Array.isArray(initialJob) ? initialJob : {};
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -1474,7 +1480,7 @@ export async function waitForInlineReportExport(initialJob = {}, {
     const jobId = String(job?.jobId || '').trim();
     if (!jobId || typeof getStatus !== 'function') return job;
     if (attempt > 0 || intervalMs > 0) await delay(intervalMs);
-    job = await getStatus({ jobId });
+    job = await getStatus(withReportExportConversation({ jobId }, conversationId));
   }
   return job;
 }
@@ -1678,13 +1684,13 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
         detail: eventDetail,
       });
       const submitted = await submitReportExportRequest({ request: exportRequest, source: 'inline' });
-      const result = await waitForInlineReportExport(submitted);
+      const result = await waitForInlineReportExport(submitted, { conversationId });
       const status = String(result?.status || '').trim().toLowerCase();
       const artifactId = String(result?.artifactId || '').trim();
       if (status !== 'succeeded' || !artifactId) {
         throw new Error(String(result?.error || '').trim() || 'Inline PDF export did not produce an artifact.');
       }
-      const artifact = await getReportExportArtifact({ artifactId });
+      const artifact = await getReportExportArtifact(withReportExportConversation({ artifactId }, conversationId));
       const download = createInlineReportArtifactDownload(artifact, {
         filename: `${compiled.reportDocument?.title || assembly?.source?.title || 'inline-report'}.pdf`,
       });
@@ -1903,7 +1909,7 @@ export function resolveScratchpadArtifactId(href = '') {
   }
 }
 
-async function handleScratchpadArtifactLinkClick(event) {
+export async function handleScratchpadArtifactLinkClick(event, conversationId = '') {
   const anchor = event?.target?.closest?.('a');
   const artifactId = resolveScratchpadArtifactId(anchor?.getAttribute?.('href'));
   if (!artifactId) return;
@@ -1912,7 +1918,7 @@ async function handleScratchpadArtifactLinkClick(event) {
   anchor.setAttribute('aria-busy', 'true');
   anchor.textContent = 'Downloading…';
   try {
-    const artifact = await getReportExportArtifact({ artifactId });
+    const artifact = await getReportExportArtifact(withReportExportConversation({ artifactId }, conversationId));
     const download = createInlineReportArtifactDownload(artifact, {
       filename: artifact?.filename || `report-${artifactId}.pdf`,
     });
@@ -2019,13 +2025,13 @@ function useMeasuredContainer() {
   return [ref, size];
 }
 
-function MinimalText({ text = '', generatedFiles = [] }) {
+function MinimalText({ text = '', generatedFiles = [], conversationId = '' }) {
   const cleaned = rewriteSandboxMarkdownLinks(
     normalizeBrokenMarkdownLayout(String(text || '').replace(/^\s*<!--\s*CHART_SPEC:v1\s*-->\s*$/gim, '').trim()),
     generatedFiles
   );
   const html = rewriteSandboxHrefInHTML(renderMarkdownBlock(cleaned), generatedFiles);
-  return <div className="app-rich-prose" onClick={handleScratchpadArtifactLinkClick} dangerouslySetInnerHTML={{ __html: html }} />;
+  return <div className="app-rich-prose" onClick={(event) => handleScratchpadArtifactLinkClick(event, conversationId)} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 function ChartSpecPanel({ spec = {} }) {
@@ -2418,7 +2424,7 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
       if (visible.length > 0) {
         const streamingForgeFence = detectStreamingForgeFenceText(chunk);
         if (!streamingForgeFence) {
-          out.push(<MinimalText key={`seg-${idx++}`} text={chunk} generatedFiles={generatedFiles} />);
+          out.push(<MinimalText key={`seg-${idx++}`} text={chunk} generatedFiles={generatedFiles} conversationId={conversationId} />);
         }
       }
       continue;
@@ -2484,7 +2490,7 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
           renderMarkdownBlock(rewriteSandboxMarkdownLinks(body, generatedFiles)),
           generatedFiles
         );
-        out.push(<div key={`md-${idx++}`} className="app-rich-markdown" onClick={handleScratchpadArtifactLinkClick} dangerouslySetInnerHTML={{ __html: html }} />);
+        out.push(<div key={`md-${idx++}`} className="app-rich-markdown" onClick={(event) => handleScratchpadArtifactLinkClick(event, conversationId)} dangerouslySetInnerHTML={{ __html: html }} />);
         break;
       }
       default:
