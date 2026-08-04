@@ -125,6 +125,7 @@ describe('forgeHostServices', () => {
     expect(typeof forgeHostServices.reportRuns.complete).toBe('function');
     expect(typeof forgeHostServices.reportRuns.fail).toBe('function');
     expect(typeof forgeHostServices.reportRuns.activate).toBe('function');
+    expect(typeof forgeHostServices.reportRuns.getContext).toBe('function');
     expect(typeof forgeHostServices.reportRuns.adopt).toBe('function');
 
     const request = {
