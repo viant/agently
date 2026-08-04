@@ -23,7 +23,7 @@ import {
 } from './reportSharedArtifactService';
 import { emitReportUIEvent } from './reportEventService';
 import { fetchDatasource } from '../components/lookups/client';
-import { getProjection } from './chatStore';
+import { getProjection, subscribe as subscribeToChatStore } from './chatStore';
 import {
   activateReportRun,
   adoptReportRun,
@@ -45,9 +45,14 @@ export function buildReportProvenanceFromRows(rows = []) {
   const events = [];
   const seen = new Set();
   normalizedRows.forEach((row) => {
-    const groups = Array.isArray(row?.executionGroups) ? row.executionGroups : [];
-    groups.forEach((group, groupIndex) => {
-      const steps = Array.isArray(group?.toolSteps) ? group.toolSteps : [];
+    const executionGroups = Array.isArray(row?.executionGroups) ? row.executionGroups : [];
+    const rounds = Array.isArray(row?.rounds) ? row.rounds : [];
+    const toolCollections = [
+      ...executionGroups.map((group) => group?.toolSteps),
+      ...rounds.map((round) => round?.toolCalls),
+    ];
+    toolCollections.forEach((collection, groupIndex) => {
+      const steps = Array.isArray(collection) ? collection : [];
       steps.forEach((step, stepIndex) => {
         const label = normalizeText(step?.toolName || step?.name);
         if (!label) return;
@@ -76,6 +81,15 @@ export function buildReportProvenanceFromRows(rows = []) {
 export function getReportBuildProvenance({ conversationId = '' } = {}) {
   const id = normalizeText(conversationId);
   return id ? buildReportProvenanceFromRows(getProjection(id)) : { initialPrompt: '', events: [] };
+}
+
+export function subscribeReportBuildProvenance({ conversationId = '' } = {}, listener) {
+  const id = normalizeText(conversationId);
+  if (!id || typeof listener !== 'function') return () => {};
+  listener(buildReportProvenanceFromRows(getProjection(id)));
+  return subscribeToChatStore(() => {
+    listener(buildReportProvenanceFromRows(getProjection(id)));
+  });
 }
 
 export async function fetchReportBuilderPreviewByRef({
@@ -128,6 +142,7 @@ export function createReportingHostServices() {
     },
     reportProvenance: {
       getBuildContext: getReportBuildProvenance,
+      subscribeBuildContext: subscribeReportBuildProvenance,
     },
     reportBuilderPreview: {
       fetchByRef: fetchReportBuilderPreviewByRef,
