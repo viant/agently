@@ -1,24 +1,92 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getProjectionMock } = vi.hoisted(() => ({
-  getProjectionMock: vi.fn(),
+const { fetchDatasource } = vi.hoisted(() => ({
+  fetchDatasource: vi.fn(),
+}));
+const chatStore = vi.hoisted(() => ({
+  getProjection: vi.fn(),
+  subscribe: vi.fn(),
 }));
 
-vi.mock('./chatStore', () => ({
-  getProjection: getProjectionMock,
+vi.mock('../components/lookups/client', () => ({
+  fetchDatasource,
 }));
+vi.mock('./chatStore', () => chatStore);
 
 import {
   buildReportProvenanceFromRows,
   createReportingHostServices,
+  fetchReportBuilderPreviewByRef,
   getReportBuildProvenance,
+  subscribeReportBuildProvenance,
 } from './reportingHostServices';
 
-beforeEach(() => {
-  getProjectionMock.mockReset();
-});
+describe('reportingHostServices report-builder preview adapter', () => {
+  beforeEach(() => {
+    fetchDatasource.mockReset();
+    chatStore.getProjection.mockReset();
+    chatStore.subscribe.mockReset();
+  });
 
-describe('reportingHostServices provenance', () => {
+  it('routes each logical report dataset request through the authenticated datasource API', async () => {
+    fetchDatasource.mockResolvedValue({ rows: [{ totalSpend: 42 }] });
+    const services = createReportingHostServices();
+    const request = {
+      measures: { totalSpend: true },
+      dimensions: { eventDate: true },
+      filters: { orderIds: [2672373] },
+    };
+
+    await expect(services.reportBuilderPreview.fetchByRef({
+      dataSourceRef: 'metrics_ad_cube_report',
+      parameters: request,
+      omitConversationId: true,
+      builderContext: { conversationId: 'not-forwarded' },
+    })).resolves.toEqual({ rows: [{ totalSpend: 42 }] });
+
+    expect(fetchDatasource).toHaveBeenCalledOnce();
+    expect(fetchDatasource).toHaveBeenCalledWith('metrics_ad_cube_report', request);
+  });
+
+  it('rejects an authored dataset without a registered data source reference', async () => {
+    await expect(fetchReportBuilderPreviewByRef({
+      parameters: { measures: { impressions: true } },
+    })).rejects.toThrow('Report preview requires a data source reference.');
+    expect(fetchDatasource).not.toHaveBeenCalled();
+  });
+
+  it('projects the initial request and deduplicated tool history without interpreting it', () => {
+    expect(buildReportProvenanceFromRows([
+      { kind: 'user', content: 'Build a delivery report.' },
+      {
+        role: 'assistant',
+        turnId: 'turn-1',
+        executionGroups: [{
+          toolSteps: [
+            { toolCallId: 'call-1', toolName: 'steward/MetricsAdCube', status: 'completed', completedAt: '2026-08-04T12:00:00Z' },
+            { toolCallId: 'call-1', toolName: 'steward/MetricsAdCube', status: 'completed' },
+            { toolCallId: 'call-2', toolName: 'ui/window/setFormData', status: 'failed' },
+          ],
+        }],
+      },
+    ])).toEqual({
+      initialPrompt: 'Build a delivery report.',
+      events: [
+        {
+          id: 'call-1',
+          label: 'steward/MetricsAdCube',
+          status: 'completed',
+          completedAt: '2026-08-04T12:00:00Z',
+        },
+        {
+          id: 'call-2',
+          label: 'ui/window/setFormData',
+          status: 'failed',
+        },
+      ],
+    });
+  });
+
   it('projects the first non-empty user prompt and unique tool events with fallbacks', () => {
     const provenance = buildReportProvenanceFromRows([
       { kind: 'user', content: '   ' },
@@ -52,9 +120,7 @@ describe('reportingHostServices provenance', () => {
           },
           {
             toolSteps: [
-              {
-                name: 'publish/report',
-              },
+              { name: 'publish/report' },
               {
                 toolName: 'duplicate should be ignored',
                 toolCallId: 'call-1',
@@ -111,7 +177,7 @@ describe('reportingHostServices provenance', () => {
   });
 
   it('builds provenance from the trimmed conversation projection', () => {
-    getProjectionMock.mockReturnValue([
+    chatStore.getProjection.mockReturnValue([
       { kind: 'user', content: 'Projected prompt' },
       {
         turnId: 'turn-projected',
@@ -129,22 +195,72 @@ describe('reportingHostServices provenance', () => {
         status: 'completed',
       }],
     });
-    expect(getProjectionMock).toHaveBeenCalledOnce();
-    expect(getProjectionMock).toHaveBeenCalledWith('conv-42');
+    expect(chatStore.getProjection).toHaveBeenCalledOnce();
+    expect(chatStore.getProjection).toHaveBeenCalledWith('conv-42');
 
-    getProjectionMock.mockClear();
+    chatStore.getProjection.mockClear();
     expect(getReportBuildProvenance({ conversationId: '   ' })).toEqual({
       initialPrompt: '',
       events: [],
     });
-    expect(getProjectionMock).not.toHaveBeenCalled();
+    expect(chatStore.getProjection).not.toHaveBeenCalled();
   });
 
-  it('exposes the build provenance getter through reporting host services', () => {
+  it('publishes provenance again when the conversation projection hydrates', () => {
+    let notifyStore;
+    const unsubscribe = vi.fn();
+    chatStore.getProjection
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce([
+        { kind: 'user', content: 'Build the hydrated report.' },
+        {
+          kind: 'iteration',
+          turnId: 'turn-1',
+          rounds: [{
+            toolCalls: [{
+              toolCallId: 'call-1',
+              toolName: 'ui/view/open',
+              status: 'completed',
+              startedAt: '2026-08-04T12:00:00Z',
+              completedAt: '2026-08-04T12:00:01Z',
+            }],
+          }],
+        },
+      ]);
+    chatStore.subscribe.mockImplementation((listener) => {
+      notifyStore = listener;
+      return unsubscribe;
+    });
+    const listener = vi.fn();
+    const services = createReportingHostServices();
+
+    const stop = services.reportProvenance.subscribeBuildContext(
+      { conversationId: 'conversation-1' },
+      listener,
+    );
+    notifyStore();
+    stop();
+
+    expect(listener).toHaveBeenNthCalledWith(1, { initialPrompt: '', events: [] });
+    expect(listener).toHaveBeenNthCalledWith(2, {
+      initialPrompt: 'Build the hydrated report.',
+      events: [{
+        id: 'call-1',
+        label: 'ui/view/open',
+        status: 'completed',
+        startedAt: '2026-08-04T12:00:00Z',
+        completedAt: '2026-08-04T12:00:01Z',
+      }],
+    });
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it('exposes both provenance getters through reporting host services', () => {
     const services = createReportingHostServices();
 
     expect(services.reportProvenance).toEqual({
       getBuildContext: getReportBuildProvenance,
+      subscribeBuildContext: subscribeReportBuildProvenance,
     });
   });
 });
