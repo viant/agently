@@ -22,6 +22,13 @@ vi.mock('./reportExportService', () => ({
     source,
     title: request?.source?.title || '',
   })),
+  submitReportExportRun: vi.fn(async ({ reportRunId, format, conversationId, source }) => ({
+    ok: true,
+    reportRunId,
+    format,
+    conversationId,
+    source,
+  })),
   submitReportExportSource: vi.fn(async ({ source, format }) => ({
     ok: true,
     source,
@@ -73,6 +80,7 @@ import {
   getReportExportStatus,
   listReportExportArtifacts,
   listReportExportJobs,
+  submitReportExportRun,
   submitReportExportRequest,
   submitReportExportSource,
 } from './reportExportService';
@@ -95,6 +103,7 @@ describe('forgeHostServices', () => {
     expect(forgeHostServices.schedule).toBe(scheduleService);
     expect(forgeHostServices.prepareDataConnectorRequest).toBe(prepareAgentlyDataConnectorRequest);
     expect(typeof forgeHostServices.reportExport.submitRequest).toBe('function');
+    expect(typeof forgeHostServices.reportExport.submitRun).toBe('function');
     expect(typeof forgeHostServices.reportExport.submitSource).toBe('function');
     expect(typeof forgeHostServices.reportExport.getStatus).toBe('function');
     expect(typeof forgeHostServices.reportExport.getArtifact).toBe('function');
@@ -112,6 +121,11 @@ describe('forgeHostServices', () => {
     expect(typeof forgeHostServices.reportSharedArtifacts.listArtifacts).toBe('function');
     expect(typeof forgeHostServices.reportSharedArtifacts.getArtifact).toBe('function');
     expect(typeof forgeHostServices.reportBuilderPreview.fetchByRef).toBe('function');
+    expect(typeof forgeHostServices.reportRuns.begin).toBe('function');
+    expect(typeof forgeHostServices.reportRuns.complete).toBe('function');
+    expect(typeof forgeHostServices.reportRuns.fail).toBe('function');
+    expect(typeof forgeHostServices.reportRuns.activate).toBe('function');
+    expect(typeof forgeHostServices.reportRuns.adopt).toBe('function');
 
     const request = {
       version: 1,
@@ -127,6 +141,20 @@ describe('forgeHostServices', () => {
 
     expect(submitReportExportRequest).toHaveBeenCalledWith({ request, source: 'draft' });
     expect(result).toMatchObject({ ok: true, source: 'draft', title: 'Demo Report' });
+
+    const runResult = await forgeHostServices.reportExport.submitRun({
+      reportRunId: 'run-1',
+      format: 'pdf',
+      conversationId: 'conversation-1',
+      source: 'draft',
+    });
+    expect(submitReportExportRun).toHaveBeenCalledWith({
+      reportRunId: 'run-1',
+      format: 'pdf',
+      conversationId: 'conversation-1',
+      source: 'draft',
+    });
+    expect(runResult).toMatchObject({ ok: true, reportRunId: 'run-1', format: 'pdf' });
 
     const sourceResult = await forgeHostServices.reportExport.submitSource({
       source: { kind: 'report', reportId: 'demo-report' },
