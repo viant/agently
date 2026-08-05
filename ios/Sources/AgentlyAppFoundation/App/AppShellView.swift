@@ -42,12 +42,14 @@ public struct AppShellView: View {
                 } label: {
                     Label("New Chat", systemImage: "square.and.pencil")
                 }
+                .accessibilityIdentifier("agently-new-chat")
 
                 Button {
                     Task { await runtime.refreshConversationList() }
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
+                .accessibilityIdentifier("agently-refresh-conversations")
             }
         }
         .settingsSheet(isPresented: $isShowingSettings, runtime: runtime)
@@ -706,12 +708,11 @@ internal func resolveWorkspaceBrandTitle(
     guard !normalized.isEmpty else {
         return fallbackTitle
     }
-    let stripped = normalized.replacingOccurrences(
-        of: #"^viant\s+"#,
-        with: "",
-        options: [.regularExpression, .caseInsensitive]
-    ).trimmingCharacters(in: .whitespacesAndNewlines)
-    return stripped.isEmpty ? fallbackTitle : stripped
+    let lowercased = normalized.lowercased()
+    if lowercased == "viant" || lowercased.hasPrefix("viant ") {
+        return normalized
+    }
+    return "Viant \(normalized)"
 }
 
 internal func resolveWorkspaceBrandLabel(

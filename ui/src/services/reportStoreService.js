@@ -1,10 +1,12 @@
 import { executeReportingTool } from './reportingToolClient';
 
+const REPORT_STORE_CHANGED_EVENT = 'forge:report-store-changed';
+
 function notifyReportStoreChanged(detail = {}) {
   if (typeof globalThis?.dispatchEvent !== 'function' || typeof globalThis?.CustomEvent !== 'function') {
     return;
   }
-  globalThis.dispatchEvent(new globalThis.CustomEvent('agently:report-store-changed', {
+  globalThis.dispatchEvent(new globalThis.CustomEvent(REPORT_STORE_CHANGED_EVENT, {
     detail,
   }));
 }

@@ -42,9 +42,28 @@ internal class AppSessionCookieJar : CookieJar {
 }
 
 internal fun appSessionHttpClient(cookieJar: CookieJar = AppSessionCookieJar()): OkHttpClient {
+    return appSessionHttpClientBuilder(cookieJar)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(45, TimeUnit.SECONDS)
+        .build()
+}
+
+internal fun appLongRunningHttpClient(cookieJar: CookieJar = AppSessionCookieJar()): OkHttpClient {
+    return appSessionHttpClientBuilder(cookieJar)
+        .readTimeout(0, TimeUnit.SECONDS)
+        .callTimeout(0, TimeUnit.SECONDS)
+        .build()
+}
+
+internal fun appStreamHttpClient(cookieJar: CookieJar = AppSessionCookieJar()): OkHttpClient {
+    return appSessionHttpClientBuilder(cookieJar)
+        .readTimeout(0, TimeUnit.SECONDS)
+        .callTimeout(0, TimeUnit.SECONDS)
+        .build()
+}
+
+private fun appSessionHttpClientBuilder(cookieJar: CookieJar): OkHttpClient.Builder {
     return OkHttpClient.Builder()
         .cookieJar(cookieJar)
-        .readTimeout(0, TimeUnit.MILLISECONDS)
-        .callTimeout(0, TimeUnit.MILLISECONDS)
-        .build()
+        .connectTimeout(10, TimeUnit.SECONDS)
 }

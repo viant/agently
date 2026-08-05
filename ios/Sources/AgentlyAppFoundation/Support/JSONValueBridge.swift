@@ -5,6 +5,11 @@ public typealias AppJSONValue = AgentlySDK.JSONValue
 public typealias ForgeJSONValue = ForgeIOSRuntime.JSONValue
 
 extension AgentlySDK.JSONValue {
+    var objectValue: [String: AgentlySDK.JSONValue]? {
+        guard case .object(let value) = self else { return nil }
+        return value
+    }
+
     var forgeValue: ForgeIOSRuntime.JSONValue {
         switch self {
         case .string(let value):

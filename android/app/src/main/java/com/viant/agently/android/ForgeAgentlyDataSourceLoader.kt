@@ -1,13 +1,10 @@
 package com.viant.agently.android
 
-import android.util.Log
 import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.FetchDatasourceInput
 import com.viant.agentlysdk.fetchDatasource
 import com.viant.forgeandroid.runtime.ForgeRuntime
 import com.viant.forgeandroid.runtime.JsonUtil
-
-private const val DATA_SOURCE_LOG_TAG = "ForgeAgentlyDS"
 
 internal fun makeForgeAgentlyDataSourceLoader(
     client: AgentlyClient
@@ -60,13 +57,6 @@ internal fun makeForgeAgentlyDataSourceLoader(
             }
         }
 
-        if (datasourceId in setOf("line_header_lookup", "campaign_header_lookup", "order_header_lookup")) {
-            Log.d(
-                DATA_SOURCE_LOG_TAG,
-                "fetch start id=$datasourceId conversation=${request.conversationId.orEmpty()} resolvedInputs=${request.resolvedInputs} inputs=$inputs window=${request.windowId}"
-            )
-        }
-
         val response = client.fetchDatasource(
             FetchDatasourceInput(
                 id = datasourceId,
@@ -74,13 +64,6 @@ internal fun makeForgeAgentlyDataSourceLoader(
                 conversationId = request.conversationId?.takeIf { it.isNotBlank() }
             )
         )
-        if (datasourceId in setOf("line_header_lookup", "campaign_header_lookup", "order_header_lookup")) {
-            val firstRow = response.rows.firstOrNull()
-            Log.d(
-                DATA_SOURCE_LOG_TAG,
-                "fetch done id=$datasourceId rows=${response.rows.size} firstRow=$firstRow metrics=${response.metrics}"
-            )
-        }
         ForgeRuntime.DataSourceFetchResult(
             rows = response.rows.map { row -> row.mapValues { JsonUtil.elementToAny(it.value) } },
             metrics = response.metrics?.mapValues { JsonUtil.elementToAny(it.value) } ?: emptyMap()

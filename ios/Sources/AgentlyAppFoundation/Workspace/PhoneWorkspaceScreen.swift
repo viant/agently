@@ -121,13 +121,7 @@ public struct PhoneWorkspaceScreen: View {
     public var body: some View {
         VStack(spacing: 0) {
             nonComposerContent
-                .contentShape(Rectangle())
-                .simultaneousGesture(TapGesture().onEnded {
-                    requestAgentlyPlatformKeyboardDismissal()
-                })
-                .simultaneousGesture(DragGesture(minimumDistance: 3).onChanged { _ in
-                    requestAgentlyPlatformKeyboardDismissal()
-                })
+                .agentlyDismissKeyboardOnInteraction()
             ComposerScreen(
                 runtime: composerRuntime,
                 isSending: isSending,

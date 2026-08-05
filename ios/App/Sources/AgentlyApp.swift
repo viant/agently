@@ -102,7 +102,7 @@ enum AppBootstrap {
         if !candidate.isEmpty {
             return candidate
         }
-        return "http://127.0.0.1:9191"
+        return "http://127.0.0.1:9292"
     }
 
     private static func developerOverridesEnabled() -> Bool {

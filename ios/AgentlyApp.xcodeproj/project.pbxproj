@@ -9,10 +9,23 @@
 /* Begin PBXBuildFile section */
 		0E122708033FF9D155DBB90E /* AgentlyAppFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = F0EE3BFDCBDF459405E2E664 /* AgentlyAppFoundation */; };
 		40143AAD886AD20509AD7A9C /* AgentlyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54B14961D6A4507F32CBC7D /* AgentlyApp.swift */; };
+		7C083DC2273F6FE5DF7F69A0 /* ForecastingPrefillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91E8795F12F3D76FDAE5F7DC /* ForecastingPrefillUITests.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		15C0381E4813121109C7D2EF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0732386CA79601E6D98A5355 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BADA8F9AC9789B464366A87A;
+			remoteInfo = AgentlyApp;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		25F809D4CEBC765DAD010885 /* AgentlyApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AgentlyApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		285194AF4DD1D1314861F793 /* AgentlyAppUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AgentlyAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		91E8795F12F3D76FDAE5F7DC /* ForecastingPrefillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForecastingPrefillUITests.swift; sourceTree = "<group>"; };
 		B54B14961D6A4507F32CBC7D /* AgentlyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentlyApp.swift; sourceTree = "<group>"; };
 		D54098DCED9F43327E19B190 /* ios */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ios; path = .; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
@@ -32,6 +45,7 @@
 		73FC1966FBBA0A44C2641836 = {
 			isa = PBXGroup;
 			children = (
+				B1603CB29C93922AE525E686 /* AgentlyAppUITests */,
 				78A5FAACCB6E814FBE1CE1B8 /* Packages */,
 				CEE1ED6C417E20BB9CA07CC9 /* Sources */,
 				9B4F5F5B927E8D5E3D114863 /* Products */,
@@ -50,8 +64,18 @@
 			isa = PBXGroup;
 			children = (
 				25F809D4CEBC765DAD010885 /* AgentlyApp.app */,
+				285194AF4DD1D1314861F793 /* AgentlyAppUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		B1603CB29C93922AE525E686 /* AgentlyAppUITests */ = {
+			isa = PBXGroup;
+			children = (
+				91E8795F12F3D76FDAE5F7DC /* ForecastingPrefillUITests.swift */,
+			);
+			name = AgentlyAppUITests;
+			path = UITests/AgentlyAppUITests;
 			sourceTree = "<group>";
 		};
 		CEE1ED6C417E20BB9CA07CC9 /* Sources */ = {
@@ -66,6 +90,24 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		2B82F87229787B1CB8A45FEC /* AgentlyAppUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7F6DB8B72ADAF3C713859718 /* Build configuration list for PBXNativeTarget "AgentlyAppUITests" */;
+			buildPhases = (
+				D76096EB751E2C0CF59EFD2D /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F1B75B4ED9B63454E24A68A7 /* PBXTargetDependency */,
+			);
+			name = AgentlyAppUITests;
+			packageProductDependencies = (
+			);
+			productName = AgentlyAppUITests;
+			productReference = 285194AF4DD1D1314861F793 /* AgentlyAppUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		BADA8F9AC9789B464366A87A /* AgentlyApp */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = C45DD42CABD9BB37E4DAB354 /* Build configuration list for PBXNativeTarget "AgentlyApp" */;
@@ -94,6 +136,9 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					2B82F87229787B1CB8A45FEC = {
+						TestTargetID = BADA8F9AC9789B464366A87A;
+					};
 					BADA8F9AC9789B464366A87A = {
 						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
@@ -118,6 +163,7 @@
 			projectRoot = "";
 			targets = (
 				BADA8F9AC9789B464366A87A /* AgentlyApp */,
+				2B82F87229787B1CB8A45FEC /* AgentlyAppUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -131,9 +177,45 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D76096EB751E2C0CF59EFD2D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7C083DC2273F6FE5DF7F69A0 /* ForecastingPrefillUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		F1B75B4ED9B63454E24A68A7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BADA8F9AC9789B464366A87A /* AgentlyApp */;
+			targetProxy = 15C0381E4813121109C7D2EF /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		5A1A557A9D1D2DBA2B93FFCF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.viant.agently.ios.uitests;
+				PRODUCT_MODULE_NAME = AgentlyAppUITests;
+				PRODUCT_NAME = AgentlyAppUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = AgentlyApp;
+			};
+			name = Debug;
+		};
 		6CD9FF8FA870404BD64172A3 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -257,6 +339,26 @@
 			};
 			name = Debug;
 		};
+		9362DCC9B88A61A13D4D796C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.viant.agently.ios.uitests;
+				PRODUCT_MODULE_NAME = AgentlyAppUITests;
+				PRODUCT_NAME = AgentlyAppUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = AgentlyApp;
+			};
+			name = Release;
+		};
 		DD82B533CC64562BF8247618 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -266,25 +368,25 @@
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Agently;
-				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLName\": \"com.viant.agently.ios.oauth\", \"CFBundleTypeRole\": \"Editor\", \"CFBundleURLSchemes\": [\"agently-ios\"]]]";
-					INFOPLIST_KEY_NSCameraUsageDescription = "Capture a photo to attach it to your Agently conversation.";
-					INFOPLIST_KEY_NSMicrophoneUsageDescription = "Record your voice to dictate a message into Agently.";
-					INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Convert your voice into text for the Agently composer.";
-					INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-					INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-					INFOPLIST_KEY_UISupportedInterfaceOrientations = (
-						UIInterfaceOrientationPortrait,
-						UIInterfaceOrientationLandscapeLeft,
-						UIInterfaceOrientationLandscapeRight,
-						UIInterfaceOrientationPortraitUpsideDown,
-					);
-					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = (
-						UIInterfaceOrientationPortrait,
-						UIInterfaceOrientationLandscapeLeft,
-						UIInterfaceOrientationLandscapeRight,
-						UIInterfaceOrientationPortraitUpsideDown,
-					);
-					IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleTypeRole\": \"Editor\", \"CFBundleURLName\": \"com.viant.agently.ios.oauth\", \"CFBundleURLSchemes\": [\"agently-ios\"]]]";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Capture a photo to attach it to your Agently conversation.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Record your voice to dictate a message into Agently.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Convert your voice into text for the Agently composer.";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = (
+					UIInterfaceOrientationPortrait,
+					UIInterfaceOrientationLandscapeLeft,
+					UIInterfaceOrientationLandscapeRight,
+					UIInterfaceOrientationPortraitUpsideDown,
+				);
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = (
+					UIInterfaceOrientationPortrait,
+					UIInterfaceOrientationLandscapeLeft,
+					UIInterfaceOrientationLandscapeRight,
+					UIInterfaceOrientationPortraitUpsideDown,
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -305,25 +407,25 @@
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Agently;
-				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLName\": \"com.viant.agently.ios.oauth\", \"CFBundleTypeRole\": \"Editor\", \"CFBundleURLSchemes\": [\"agently-ios\"]]]";
-					INFOPLIST_KEY_NSCameraUsageDescription = "Capture a photo to attach it to your Agently conversation.";
-					INFOPLIST_KEY_NSMicrophoneUsageDescription = "Record your voice to dictate a message into Agently.";
-					INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Convert your voice into text for the Agently composer.";
-					INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-					INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-					INFOPLIST_KEY_UISupportedInterfaceOrientations = (
-						UIInterfaceOrientationPortrait,
-						UIInterfaceOrientationLandscapeLeft,
-						UIInterfaceOrientationLandscapeRight,
-						UIInterfaceOrientationPortraitUpsideDown,
-					);
-					INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = (
-						UIInterfaceOrientationPortrait,
-						UIInterfaceOrientationLandscapeLeft,
-						UIInterfaceOrientationLandscapeRight,
-						UIInterfaceOrientationPortraitUpsideDown,
-					);
-					IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleTypeRole\": \"Editor\", \"CFBundleURLName\": \"com.viant.agently.ios.oauth\", \"CFBundleURLSchemes\": [\"agently-ios\"]]]";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Capture a photo to attach it to your Agently conversation.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Record your voice to dictate a message into Agently.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Convert your voice into text for the Agently composer.";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = (
+					UIInterfaceOrientationPortrait,
+					UIInterfaceOrientationLandscapeLeft,
+					UIInterfaceOrientationLandscapeRight,
+					UIInterfaceOrientationPortraitUpsideDown,
+				);
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = (
+					UIInterfaceOrientationPortrait,
+					UIInterfaceOrientationLandscapeLeft,
+					UIInterfaceOrientationLandscapeRight,
+					UIInterfaceOrientationPortraitUpsideDown,
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -343,6 +445,15 @@
 			buildConfigurations = (
 				6FFF31D5790C891CE3106642 /* Debug */,
 				6CD9FF8FA870404BD64172A3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7F6DB8B72ADAF3C713859718 /* Build configuration list for PBXNativeTarget "AgentlyAppUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5A1A557A9D1D2DBA2B93FFCF /* Debug */,
+				9362DCC9B88A61A13D4D796C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

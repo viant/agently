@@ -100,9 +100,7 @@ internal fun AppBody(
             }
             AuthRequiredScreen(
                 busy = authBusy,
-                savedLoginConfig = savedLoginConfig,
                 onSignIn = callbacks.onAuthSignIn,
-                onOobSignIn = callbacks.onAuthOobSignIn,
                 onOpenSettings = callbacks.onOpenSettings
             )
             authWebUrl?.let { authUrl ->

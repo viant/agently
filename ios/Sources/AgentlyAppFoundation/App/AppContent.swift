@@ -32,7 +32,6 @@ public struct AppContent: View {
                 case .required:
                     AuthRequiredScreen(
                         authRuntime: runtime.authRuntime,
-                        settingsRuntime: runtime.settingsRuntime,
                         onOpenSettings: {
                             isShowingSettings = true
                         },

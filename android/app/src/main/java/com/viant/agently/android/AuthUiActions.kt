@@ -1,7 +1,10 @@
 package com.viant.agently.android
 
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+
+private const val AUTH_UI_LOG_TAG = "AgentlyAuth"
 
 internal fun normalizeAuthThrowable(
     err: Throwable?,
@@ -69,6 +72,7 @@ internal fun launchAuthSignIn(
         try {
             authBindings.onAuthWebUrlChange(requestAuthWebUrl())
         } catch (err: Throwable) {
+            Log.w(AUTH_UI_LOG_TAG, "Auth sign-in failed: ${err.javaClass.simpleName}: ${err.message}")
             authBindings.onAuthErrorChange(normalizeAuthThrowable(err, normalizeAuthError))
         } finally {
             authBindings.onAuthBusyChange(false)
@@ -88,6 +92,7 @@ internal fun launchAuthOperation(
         try {
             runOperation()
         } catch (err: Throwable) {
+            Log.w(AUTH_UI_LOG_TAG, "Auth operation failed: ${err.javaClass.simpleName}: ${err.message}")
             authBindings.onAuthErrorChange(normalizeAuthThrowable(err, normalizeAuthError))
         } finally {
             authBindings.onAuthBusyChange(false)

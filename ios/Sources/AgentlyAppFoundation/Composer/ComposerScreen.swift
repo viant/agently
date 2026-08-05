@@ -49,6 +49,7 @@ public struct ComposerScreen: View {
                 .font(.body)
                 .focused($isEditorFocused)
                 .disabled(isSending)
+                .accessibilityIdentifier("agently-composer-editor")
                 .autocorrectionDisabled(true)
                 #if os(iOS)
                 .textInputAutocapitalization(.never)
@@ -164,7 +165,7 @@ public struct ComposerScreen: View {
         .onReceive(NotificationCenter.default.publisher(for: .agentlyKeyboardDismissalRequested)) { _ in
             isEditorFocused = false
         }
-        .fullScreenCover(item: $activeLookupOccurrence) { occurrence in
+        .agentlyLookupPresentation(item: $activeLookupOccurrence) { occurrence in
             NavigationStack {
                 List {
                     if let lookupErrorMessage, !lookupErrorMessage.isEmpty {
@@ -198,8 +199,8 @@ public struct ComposerScreen: View {
                     }
                 }
                 .navigationTitle(occurrence.title)
-                .navigationBarTitleDisplayMode(.inline)
-                .searchable(text: $lookupSearchText, placement: .navigationBarDrawer(displayMode: .always))
+                .agentlyInlineTitleMode()
+                .agentlyLookupSearchable(text: $lookupSearchText)
                 .task(id: occurrence.key) {
                     lookupSearchText = ""
                     await reloadLookupRows(for: occurrence)
@@ -208,13 +209,13 @@ public struct ComposerScreen: View {
                     await reloadLookupRows(for: occurrence)
                 }
                 .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
+                    ToolbarItem(placement: .cancellationAction) {
                         Button("Close") {
                             activeLookupOccurrence = nil
                         }
                     }
                     if runtime.selectionForLookup(occurrence) != nil {
-                        ToolbarItem(placement: .topBarTrailing) {
+                        ToolbarItem(placement: .primaryAction) {
                             Button("Clear") {
                                 runtime.clearLookupSelection(for: occurrence)
                                 activeLookupOccurrence = nil
@@ -248,36 +249,11 @@ public struct ComposerScreen: View {
     }
 
     private var editorHeight: CGFloat {
-        let minimum: CGFloat
-        let maximum: CGFloat
-        switch density {
-        case .compact:
-            minimum = horizontalSizeClass == .compact ? 96 : 108
-            maximum = horizontalSizeClass == .compact ? 220 : 250
-        case .regular:
-            minimum = horizontalSizeClass == .compact ? 110 : 130
-            maximum = horizontalSizeClass == .compact ? 240 : 280
-        }
-        let lineHeight: CGFloat = 23
-        let contentHeight = CGFloat(estimatedEditorLineCount) * lineHeight + 28
-        return min(max(minimum, contentHeight), maximum)
-    }
-
-    private var estimatedEditorLineCount: Int {
-        let charactersPerLine: Int
-        switch density {
-        case .compact:
-            charactersPerLine = horizontalSizeClass == .compact ? 30 : 42
-        case .regular:
-            charactersPerLine = horizontalSizeClass == .compact ? 34 : 56
-        }
-        let lines = runtime.query
-            .components(separatedBy: .newlines)
-            .map { line in
-                max(1, Int(ceil(Double(line.count) / Double(charactersPerLine))))
-            }
-            .reduce(0, +)
-        return max(3, lines)
+        composerEditorHeight(
+            query: runtime.query,
+            density: density,
+            horizontalSizeClass: horizontalSizeClass
+        )
     }
 
     private var composerInputBackground: Color {
@@ -352,7 +328,7 @@ public struct ComposerScreen: View {
                     .foregroundStyle(selection == nil ? Color.accentColor : Color.green)
                     .frame(width: 24)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(selection?.label ?? "Select \(occurrence.title)")
+                    Text(composerLookupControlLabel(title: occurrence.title, selection: selection))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
@@ -484,6 +460,7 @@ public struct ComposerScreen: View {
     private var sendButton: some View {
         Button(sendButtonTitle, action: handleSendTap)
             .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("agently-composer-send")
             .disabled(isSending || runtime.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
@@ -534,6 +511,56 @@ public struct ComposerScreen: View {
         lastAutoPresentedLookupSignature = signature
         activeLookupOccurrence = occurrence
     }
+}
+
+internal func composerEditorHeight(
+    query: String,
+    density: ComposerScreenDensity,
+    horizontalSizeClass: UserInterfaceSizeClass?
+) -> CGFloat {
+    let horizontalCompact = horizontalSizeClass == .compact
+    let minimum: CGFloat
+    let maximum: CGFloat
+    switch density {
+    case .compact:
+        minimum = horizontalCompact ? 54 : 58
+        maximum = horizontalCompact ? 220 : 250
+    case .regular:
+        minimum = horizontalCompact ? 72 : 82
+        maximum = horizontalCompact ? 240 : 280
+    }
+    let lineHeight: CGFloat = 23
+    let contentHeight = CGFloat(estimatedComposerEditorLineCount(
+        query: query,
+        density: density,
+        horizontalCompact: horizontalCompact
+    )) * lineHeight + 28
+    return min(max(minimum, contentHeight), maximum)
+}
+
+private func estimatedComposerEditorLineCount(
+    query: String,
+    density: ComposerScreenDensity,
+    horizontalCompact: Bool
+) -> Int {
+    let charactersPerLine: Int
+    switch density {
+    case .compact:
+        charactersPerLine = horizontalCompact ? 30 : 42
+    case .regular:
+        charactersPerLine = horizontalCompact ? 34 : 56
+    }
+    let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedQuery.isEmpty else {
+        return 1
+    }
+    let lines = trimmedQuery
+        .components(separatedBy: .newlines)
+        .map { line in
+            max(1, Int(ceil(Double(line.count) / Double(charactersPerLine))))
+        }
+        .reduce(0, +)
+    return max(1, lines)
 }
 
 private func composerLookupRowLabel(row: [String: JSONValue], entry: LookupRegistryEntry) -> String {

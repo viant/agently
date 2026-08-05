@@ -34,4 +34,27 @@ class HostedWorkspacePresentationTest {
         assertEquals("Order", presentation?.title)
         assertEquals(null, presentation?.subtitle)
     }
+
+    @Test
+    fun `resolve hosted workspace presentation splits camel case window keys`() {
+        val reportBuilder = resolveHostedWorkspacePresentation(
+            WorkspaceWindowSnapshot(
+                windowId = "reportBuilder_1",
+                windowKey = "reportBuilder",
+                windowTitle = "reportBuilder"
+            )
+        )
+        val forecasting = resolveHostedWorkspacePresentation(
+            WorkspaceWindowSnapshot(
+                windowId = "forecastingCubeBuilder_1",
+                windowKey = "forecastingCubeBuilder",
+                windowTitle = "forecastingCubeBuilder"
+            )
+        )
+
+        assertEquals("Report Builder", reportBuilder?.badgeLabel)
+        assertEquals("Report Builder", reportBuilder?.title)
+        assertEquals("Forecasting Cube Builder", forecasting?.badgeLabel)
+        assertEquals("Forecasting Cube Builder", forecasting?.title)
+    }
 }

@@ -163,7 +163,8 @@ public final class AppRuntime: ObservableObject {
             let restoredConversationID = resolvedBootstrapActiveConversationID(
                 storedValue: settingsStore.loadActiveConversationID(),
                 environmentValue: ProcessInfo.processInfo.environment["AGENTLY_IOS_ACTIVE_CONVERSATION_ID"],
-                launchArguments: CommandLine.arguments
+                launchArguments: CommandLine.arguments,
+                developerAuthEnabled: developerAuthFeaturesEnabled()
             )
             let selectedConversationID: String?
             if !restoredConversationID.isEmpty,
@@ -608,7 +609,7 @@ public final class AppRuntime: ObservableObject {
         )
     }
 
-    static func latestTurnHostedWorkspaceRestoreState(
+    nonisolated static func latestTurnHostedWorkspaceRestoreState(
         transcriptState: ConversationStateResponse,
         stored: HostedWorkspaceRestoreState?
     ) -> HostedWorkspaceRestoreState? {
@@ -644,7 +645,7 @@ public final class AppRuntime: ObservableObject {
         state.isLoadingArtifacts = false
     }
 
-    private static func mergeHostedWorkspaceRestoreState(
+    nonisolated private static func mergeHostedWorkspaceRestoreState(
         base: HostedWorkspaceRestoreState,
         overlay: HostedWorkspaceRestoreState?
     ) -> HostedWorkspaceRestoreState {
@@ -680,7 +681,7 @@ public final class AppRuntime: ObservableObject {
         )
     }
 
-    private static func mergeWindowForm(
+    nonisolated private static func mergeWindowForm(
         base: [String: AgentlySDK.JSONValue]?,
         overlay: [String: AgentlySDK.JSONValue]?
     ) -> [String: AgentlySDK.JSONValue]? {
@@ -693,7 +694,7 @@ public final class AppRuntime: ObservableObject {
         return mergeJSONObjects(base: base, overlay: overlay)
     }
 
-    private static func mergeJSONObjects(
+    nonisolated private static func mergeJSONObjects(
         base: [String: AgentlySDK.JSONValue],
         overlay: [String: AgentlySDK.JSONValue]
     ) -> [String: AgentlySDK.JSONValue] {
@@ -1173,7 +1174,7 @@ private func makeComposerLookupRegistryLoader(
 private func makeComposerLookupRowsLoader(
     client: AgentlyClient
 ) -> ComposerRuntime.LookupRowsLoader {
-    return { entry, searchQuery in
+    return { entry, searchQuery, _ in
         var inputs: [String: JSONValue] = [:]
         let queryKey = entry.token?.queryInput?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !queryKey.isEmpty, !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -1192,20 +1193,19 @@ private func makeComposerLookupRowsLoader(
 internal func resolvedBootstrapActiveConversationID(
     storedValue: String,
     environmentValue: String?,
-    launchArguments: [String]
+    launchArguments: [String],
+    developerAuthEnabled: Bool = false
 ) -> String {
-    if developerAuthFeaturesEnabled() {
-        let override = environmentValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !override.isEmpty {
-            return override
-        }
-        let launchOverrideArgument = launchArguments.first { $0.hasPrefix("--activeConversationID=") }
-        let launchOverride = launchOverrideArgument
-            .flatMap { $0.split(separator: "=", maxSplits: 1).last.map(String.init) }?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !launchOverride.isEmpty {
-            return launchOverride
-        }
+    let override = environmentValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if developerAuthEnabled, !override.isEmpty {
+        return override
+    }
+    let launchOverrideArgument = launchArguments.first { $0.hasPrefix("--activeConversationID=") }
+    let launchOverride = launchOverrideArgument
+        .flatMap { $0.split(separator: "=", maxSplits: 1).last.map(String.init) }?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if developerAuthEnabled, !launchOverride.isEmpty {
+        return launchOverride
     }
     return storedValue.trimmingCharacters(in: .whitespacesAndNewlines)
 }

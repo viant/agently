@@ -11,9 +11,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
@@ -32,11 +34,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
@@ -58,6 +64,7 @@ private enum class WorkspacePanelMode {
 }
 
 @Composable
+@OptIn(ExperimentalComposeUiApi::class)
 internal fun TabletWorkspacePane(
     loading: Boolean,
     activeConversationId: String?,
@@ -376,12 +383,26 @@ internal fun TabletWorkspacePane(
                     if (workspacePanelMode != WorkspacePanelMode.Expanded) {
                         val compactComposer = !activeConversationId.isNullOrBlank()
                         val composerWidthFraction = if (compactComposer) 0.82f else 0.9f
+                        val inputContentDescription = "Message"
+                        val sendContentDescription = "Send"
+                        val inputTestTag = if (activeConversationId.isNullOrBlank()) {
+                            "new_conversation_composer_input"
+                        } else {
+                            "reply_composer_input"
+                        }
+                        val sendTestTag = if (activeConversationId.isNullOrBlank()) {
+                            "send_new_conversation"
+                        } else {
+                            "send_reply"
+                        }
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth(composerWidthFraction)
                                 .widthIn(max = if (compactComposer) 1040.dp else 1200.dp)
                                 .align(Alignment.CenterHorizontally)
-                                .navigationBarsPadding(),
+                                .imePadding()
+                                .navigationBarsPadding()
+                                .semantics { testTagsAsResourceId = true },
                             color = Color(0xFFFDFDFE),
                             border = BorderStroke(1.dp, Color(0xFFDDE4F1)),
                             shape = MaterialTheme.shapes.large
@@ -404,9 +425,15 @@ internal fun TabletWorkspacePane(
                                             onValueChange = onQueryChange,
                                             label = { Text("Message") },
                                             placeholder = { Text("Follow up") },
-                                            modifier = Modifier.weight(1f),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .testTag(inputTestTag)
+                                                .semantics { contentDescription = inputContentDescription },
                                             minLines = 1,
-                                            maxLines = 2,
+                                            maxLines = composerInputMaxLines(compactComposer, query),
+                                            keyboardOptions = KeyboardOptions(
+                                                capitalization = KeyboardCapitalization.None
+                                            ),
                                             colors = OutlinedTextFieldDefaults.colors(
                                                 focusedContainerColor = ComposerInputFill,
                                                 unfocusedContainerColor = ComposerInputFill,
@@ -418,7 +445,10 @@ internal fun TabletWorkspacePane(
                                         )
                                         Button(
                                             onClick = onRunQuery,
-                                            enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty())
+                                            enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty()),
+                                            modifier = Modifier
+                                                .testTag(sendTestTag)
+                                                .semantics { contentDescription = sendContentDescription }
                                         ) {
                                             Text("Send")
                                         }
@@ -454,9 +484,15 @@ internal fun TabletWorkspacePane(
                                         onValueChange = onQueryChange,
                                         label = { Text("Message") },
                                         placeholder = { Text("Ask a follow-up or start a new task") },
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag(inputTestTag)
+                                            .semantics { contentDescription = inputContentDescription },
                                         minLines = 1,
-                                        maxLines = 4,
+                                        maxLines = composerInputMaxLines(compactComposer, query),
+                                        keyboardOptions = KeyboardOptions(
+                                            capitalization = KeyboardCapitalization.None
+                                        ),
                                         colors = OutlinedTextFieldDefaults.colors(
                                             focusedContainerColor = ComposerInputFill,
                                             unfocusedContainerColor = ComposerInputFill,
@@ -473,7 +509,10 @@ internal fun TabletWorkspacePane(
                                     ) {
                                         Button(
                                             onClick = onRunQuery,
-                                            enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty())
+                                            enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty()),
+                                            modifier = Modifier
+                                                .testTag(sendTestTag)
+                                                .semantics { contentDescription = sendContentDescription }
                                         ) {
                                             Text("Send")
                                         }

@@ -40,7 +40,7 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
         URLProtocolStub.requestHandler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
             XCTAssertEqual(request.url?.path, "/v1/api/datasources/account_lookup/fetch")
-            let body = try XCTUnwrap(request.httpBody)
+            let body = try XCTUnwrap(Self.requestBodyData(request))
             let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
             let inputs = payload?["inputs"] as? [String: Any]
             XCTAssertEqual(inputs?["AccountId"] as? Double, 13579)
@@ -96,7 +96,7 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
         URLProtocolStub.requestHandler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
             XCTAssertEqual(request.url?.path, "/v1/api/datasources/metrics_cube_report/fetch")
-            let body = try XCTUnwrap(request.httpBody)
+            let body = try XCTUnwrap(Self.requestBodyData(request))
             let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
             let inputs = payload?["inputs"] as? [String: Any]
             let input = inputs?["input"] as? [String: Any]
@@ -153,7 +153,7 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
         URLProtocolStub.requestHandler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
             XCTAssertEqual(request.url?.path, "/v1/api/datasources/order_performance_period_today/fetch")
-            let body = try XCTUnwrap(request.httpBody)
+            let body = try XCTUnwrap(Self.requestBodyData(request))
             let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
             let inputs = payload?["inputs"] as? [String: Any]
             XCTAssertEqual(inputs?["order_id"] as? Double, 2673453)
@@ -238,5 +238,31 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
 
         XCTAssertTrue(result?.metrics.isEmpty == true)
         URLProtocolStub.requestHandler = nil
+    }
+
+    private static func requestBodyData(_ request: URLRequest) -> Data? {
+        if let body = request.httpBody {
+            return body
+        }
+        guard let stream = request.httpBodyStream else {
+            return nil
+        }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let bufferSize = 4096
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+        while stream.hasBytesAvailable {
+            let read = stream.read(buffer, maxLength: bufferSize)
+            if read < 0 {
+                return nil
+            }
+            if read == 0 {
+                break
+            }
+            data.append(buffer, count: read)
+        }
+        return data
     }
 }

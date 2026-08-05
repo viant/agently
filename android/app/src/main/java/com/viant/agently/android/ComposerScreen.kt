@@ -1,11 +1,13 @@
 package com.viant.agently.android
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -29,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -61,6 +64,7 @@ internal fun PhoneComposerDock(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .imePadding()
             .navigationBarsPadding()
             .onGloballyPositioned { coordinates ->
                 onMeasuredHeight(with(density) { coordinates.size.height.toDp() })
@@ -116,7 +120,10 @@ internal fun PhoneComposerDock(
                         placeholder = { Text("Reply in the workspace") },
                         modifier = Modifier.weight(1f),
                         minLines = 1,
-                        maxLines = 2,
+                        maxLines = composerInputMaxLines(compactConversationDock, query),
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.None
+                        ),
                         shape = RoundedCornerShape(20.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedContainerColor = ComposerInputFill,
@@ -197,7 +204,10 @@ internal fun PhoneComposerDock(
                     placeholder = { Text("Ask anything") },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 3,
-                    maxLines = 6,
+                    maxLines = composerInputMaxLines(compactConversationDock, query),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.None
+                    ),
                     shape = RoundedCornerShape(22.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = ComposerInputFill,
@@ -230,6 +240,29 @@ internal fun PhoneComposerDock(
         }
     }
 }
+
+internal fun composerInputMaxLines(compactConversationDock: Boolean, query: String): Int {
+    if (!compactConversationDock) {
+        return 6
+    }
+    val explicitLines = query.lineSequence().count().coerceAtLeast(1)
+    val wrappedLines = ((query.trim().length + 23) / 24).coerceAtLeast(1)
+    return maxOf(explicitLines, wrappedLines).coerceIn(2, 6)
+}
+
+internal fun firstUnresolvedRequiredComposerLookup(
+    occurrences: List<ComposerLookupOccurrence>,
+    selections: Map<String, ComposerLookupSelection>
+): ComposerLookupOccurrence? =
+    occurrences.firstOrNull { occurrence ->
+        occurrence.required && selections[occurrence.key] == null
+    }
+
+internal fun composerSendButtonLabel(unresolvedRequiredLookup: ComposerLookupOccurrence?): String =
+    unresolvedRequiredLookup?.let { composerLookupControlLabel(it.title, null) } ?: "Send"
+
+internal fun composerLookupControlLabel(title: String, selection: ComposerLookupSelection?): String =
+    selection?.label?.takeIf { it.isNotBlank() } ?: "Select $title"
 
 @Composable
 private fun CompactComposerIconButton(

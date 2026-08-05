@@ -7,7 +7,7 @@ val agentlyAndroidBaseUrlProvider = providers
     .gradleProperty("agently.android.baseUrl")
     .orElse(providers.environmentVariable("AGENTLY_ANDROID_BASE_URL"))
 val agentlyAndroidBaseUrl = agentlyAndroidBaseUrlProvider
-    .orElse("http://10.0.2.2:9191")
+    .orElse("http://10.0.2.2:9292")
     .get()
     .replace("\\", "\\\\")
     .replace("\"", "\\\"")
@@ -27,6 +27,14 @@ val agentlyAndroidOobSecret = agentlyAndroidOobSecretProvider
     .get()
     .replace("\\", "\\\\")
     .replace("\"", "\\\"")
+val agentlyAndroidAutoOobProvider = providers
+    .gradleProperty("agently.android.autoOobSignIn")
+    .orElse(providers.environmentVariable("AGENTLY_ANDROID_AUTO_OOB_SIGN_IN"))
+val agentlyAndroidAutoOob = if (agentlyAndroidAutoOobProvider.orElse("false").get().trim().equals("true", ignoreCase = true)) {
+    "true"
+} else {
+    "false"
+}
 val agentlyAndroidIdpUserProvider = providers
     .gradleProperty("agently.android.idpUsername")
     .orElse(providers.environmentVariable("AGENTLY_ANDROID_IDP_USERNAME"))
@@ -57,6 +65,7 @@ android {
         buildConfigField("String", "APP_API_BASE_URL", "\"$agentlyAndroidBaseUrl\"")
         buildConfigField("String", "BOOTSTRAP_OAUTH_CONFIG_URL", "\"$agentlyAndroidOauthConfig\"")
         buildConfigField("String", "BOOTSTRAP_OOB_SECRET_REF", "\"$agentlyAndroidOobSecret\"")
+        buildConfigField("boolean", "BOOTSTRAP_AUTO_OOB_SIGN_IN", agentlyAndroidAutoOob)
         buildConfigField("String", "BOOTSTRAP_IDP_USERNAME", "\"$agentlyAndroidIdpUser\"")
         buildConfigField("String", "BOOTSTRAP_IDP_PASSWORD", "\"$agentlyAndroidIdpPassword\"")
     }

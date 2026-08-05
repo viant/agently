@@ -99,6 +99,29 @@ final class ComposerRuntimeTests: XCTestCase {
         )
     }
 
+    func testComposerEditorHeightStartsCompactAndExpandsForPromptLength() {
+        XCTAssertEqual(
+            composerEditorHeight(query: "", density: .compact, horizontalSizeClass: .compact),
+            54
+        )
+        XCTAssertEqual(
+            composerEditorHeight(query: "", density: .regular, horizontalSizeClass: .regular),
+            82
+        )
+
+        let longPrompt = """
+        Troubleshoot ad order delivery issues and identify the primary causal blocker family such as setup, supply, bid competitiveness, or change pressure.
+        """
+        XCTAssertGreaterThan(
+            composerEditorHeight(query: longPrompt, density: .compact, horizontalSizeClass: .compact),
+            54
+        )
+        XCTAssertGreaterThan(
+            composerEditorHeight(query: longPrompt, density: .regular, horizontalSizeClass: .regular),
+            82
+        )
+    }
+
     @MainActor
     func testLookupRowsLoaderReceivesTrimmedConversationID() async throws {
         let runtime = ComposerRuntime()

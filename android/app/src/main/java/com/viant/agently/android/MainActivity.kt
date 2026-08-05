@@ -4,6 +4,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.net.Uri
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
@@ -141,6 +142,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private const val AUTH_LOG_TAG = "AgentlyAuth"
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
@@ -185,12 +188,16 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     var authSessionId by remember { mutableStateOf<String?>(null) }
     val sessionCookieJar = remember { AppSessionCookieJar() }
     val appHttpClient = remember(sessionCookieJar) { appSessionHttpClient(sessionCookieJar) }
+    val appLongRunningHttpClient = remember(sessionCookieJar) { appLongRunningHttpClient(sessionCookieJar) }
+    val appStreamHttpClient = remember(sessionCookieJar) { appStreamHttpClient(sessionCookieJar) }
     val forgeTargetContext = remember(formFactor) { buildForgeTargetContext(formFactor) }
     fun buildClient(baseUrl: String): AgentlyClient = AgentlyClient(
         endpoints = mapOf(
             "appAPI" to EndpointConfig(
                 baseUrl = baseUrl,
-                httpClient = appHttpClient
+                httpClient = appHttpClient,
+                longRunningHttpClient = appLongRunningHttpClient,
+                streamHttpClient = appStreamHttpClient
             )
         )
     )
@@ -263,6 +270,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     var authError by remember { mutableStateOf<String?>(null) }
     val pendingOAuthCallback by oauthCallbackUriFlow.collectAsState()
     var workspaceBootstrapRequested by remember { mutableStateOf(false) }
+    var bootstrapOobSignInAttempted by remember { mutableStateOf(false) }
     val effectiveAgentId = resolvePreferredAgentId(preferredAgentId, metadata)
 
     DisposableEffect(uiBridge) {
@@ -550,10 +558,16 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     suspend fun runOobSignIn() {
         val secretRef = savedLoginConfig.oobSecretRef.trim()
         require(secretRef.isNotBlank()) { "Add an OOB secret reference in Settings before starting OOB sign-in." }
+        if (BuildConfig.DEBUG) {
+            Log.d(AUTH_LOG_TAG, "Starting OOB sign-in against ${appApiBaseUrl.trim()} with configured secret ref")
+        }
         val output = resolveAuthClient().oobLogin(
             com.viant.agentlysdk.OOBLoginInput(secretsURL = secretRef)
         )
         authSessionId = output.sessionId?.trim()?.takeIf { it.isNotBlank() }
+        if (BuildConfig.DEBUG) {
+            Log.d(AUTH_LOG_TAG, "OOB sign-in completed sessionPresent=${authSessionId != null}")
+        }
         refreshAuthAfterSuccessfulLogin()
     }
 
@@ -691,6 +705,30 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
             handleOAuthCallback(code, state)
         }
         oauthCallbackUriFlow.value = null
+    }
+
+    LaunchedEffect(authState, authBusy, savedLoginConfig) {
+        if (BuildConfig.DEBUG && BuildConfig.BOOTSTRAP_AUTO_OOB_SIGN_IN) {
+            Log.d(
+                AUTH_LOG_TAG,
+                "Bootstrap OOB check state=$authState busy=$authBusy attempted=$bootstrapOobSignInAttempted hasSecret=${savedLoginConfig.hasStoredOobSecretRef}"
+            )
+        }
+        if (shouldAttemptBootstrapOobSignIn(
+                debugBuild = BuildConfig.DEBUG,
+                bootstrapAutoOobSignIn = BuildConfig.BOOTSTRAP_AUTO_OOB_SIGN_IN,
+                authState = authState,
+                authBusy = authBusy,
+                alreadyAttempted = bootstrapOobSignInAttempted,
+                savedLoginConfig = savedLoginConfig
+            )
+        ) {
+            bootstrapOobSignInAttempted = true
+            if (BuildConfig.DEBUG) {
+                Log.d(AUTH_LOG_TAG, "Bootstrap OOB sign-in triggered")
+            }
+            startOobSignIn()
+        }
     }
 
     fun retryAuthConnection() {
@@ -1237,7 +1275,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
 }
 
 internal fun buildApiCandidates(configuredBaseUrl: String): List<String> {
-    val trimmed = configuredBaseUrl.trim().ifBlank { "http://10.0.2.2:9191" }
+    val trimmed = configuredBaseUrl.trim().ifBlank { "http://10.0.2.2:9292" }
     val parsed = runCatching { URI(trimmed) }.getOrNull()
     val scheme = parsed?.scheme?.takeIf { it.isNotBlank() } ?: "http"
     val host = parsed?.host?.trim().orEmpty()
@@ -1253,9 +1291,7 @@ internal fun buildApiCandidates(configuredBaseUrl: String): List<String> {
     if (prefersDeviceLoopback) {
         candidates += listOf(
             "$scheme://localhost:$port$path",
-            "$scheme://127.0.0.1:$port$path",
-            "$scheme://10.0.2.2:$port$path",
-            "$scheme://10.0.3.2:$port$path"
+            "$scheme://127.0.0.1:$port$path"
         )
     } else {
         candidates += listOf(
@@ -1282,6 +1318,21 @@ private fun SavedLoginConfig.withBootstrapDefaults(
         oobSecretRef = this.oobSecretRef.ifBlank { oobSecretRef.trim() }
     )
 }
+
+internal fun shouldAttemptBootstrapOobSignIn(
+    debugBuild: Boolean,
+    bootstrapAutoOobSignIn: Boolean,
+    authState: AuthState,
+    authBusy: Boolean,
+    alreadyAttempted: Boolean,
+    savedLoginConfig: SavedLoginConfig
+): Boolean =
+    debugBuild &&
+        bootstrapAutoOobSignIn &&
+        authState == AuthState.Required &&
+        !authBusy &&
+        !alreadyAttempted &&
+        savedLoginConfig.hasStoredOobSecretRef
 
 internal fun mergeApiCandidates(
     currentBaseUrl: String,

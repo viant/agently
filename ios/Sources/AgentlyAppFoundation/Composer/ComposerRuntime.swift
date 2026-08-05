@@ -36,17 +36,25 @@ public struct ComposerLookupSelection: Equatable, Sendable {
 
 @MainActor
 public final class ComposerRuntime: ObservableObject {
-    @Published public var query: String = ""
+    @Published public var query: String = "" {
+        didSet {
+            if query != oldValue {
+                pruneLookupSelections()
+            }
+        }
+    }
     @Published public var attachments: [ComposerAttachmentDraft] = []
     @Published public var attachmentError: String?
+    @Published public private(set) var focusRequestID: Int = 0
     @Published public private(set) var lookupRegistry: [LookupRegistryEntry] = []
     @Published public private(set) var lookupSelections: [String: ComposerLookupSelection] = [:]
 
     public var lookupContextKind: String = "chat-composer"
     public var lookupContextID: String = ""
+    public var lookupConversationID: String = ""
 
     public typealias LookupRegistryLoader = @Sendable (String, String) async throws -> [LookupRegistryEntry]
-    public typealias LookupRowsLoader = @Sendable (LookupRegistryEntry, String) async throws -> [[String: JSONValue]]
+    public typealias LookupRowsLoader = @Sendable (LookupRegistryEntry, String, String) async throws -> [[String: JSONValue]]
 
     private var lookupRegistryLoader: LookupRegistryLoader?
     private var lookupRowsLoader: LookupRowsLoader?
@@ -60,14 +68,20 @@ public final class ComposerRuntime: ObservableObject {
     public func configureLookupSupport(
         contextKind: String = "chat-composer",
         contextID: String,
+        conversationID: String? = nil,
         registryLoader: LookupRegistryLoader?,
         rowsLoader: LookupRowsLoader?
     ) async {
         lookupContextKind = contextKind
         lookupContextID = contextID
+        lookupConversationID = conversationID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         lookupRegistryLoader = registryLoader
         lookupRowsLoader = rowsLoader
         await refreshLookupRegistry()
+    }
+
+    public func requestFocus() {
+        focusRequestID += 1
     }
 
     public func refreshLookupRegistry() async {
@@ -93,7 +107,7 @@ public final class ComposerRuntime: ObservableObject {
 
     public func loadLookupRows(for occurrence: ComposerLookupOccurrence, query: String) async throws -> [[String: JSONValue]] {
         guard let lookupRowsLoader else { return [] }
-        return try await lookupRowsLoader(occurrence.entry, query)
+        return try await lookupRowsLoader(occurrence.entry, query, lookupConversationID)
     }
 
     public func setLookupSelection(for occurrence: ComposerLookupOccurrence, row: [String: JSONValue]) {
@@ -257,6 +271,11 @@ private func composerLookupTitle(for entry: LookupRegistryEntry) -> String {
             token.prefix(1).uppercased() + token.dropFirst().lowercased()
         }
         .joined(separator: " ")
+}
+
+internal func composerLookupControlLabel(title: String, selection: ComposerLookupSelection?) -> String {
+    let label = selection?.label.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return label.isEmpty ? "Select \(title)" : label
 }
 
 private extension JSONValue {

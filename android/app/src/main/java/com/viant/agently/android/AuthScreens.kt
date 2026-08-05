@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import java.net.URI
 
 internal enum class AuthState {
     Checking,
@@ -47,14 +48,9 @@ internal enum class AuthState {
 @Composable
 internal fun AuthRequiredScreen(
     busy: Boolean,
-    savedLoginConfig: SavedLoginConfig,
     onSignIn: () -> Unit,
-    onOobSignIn: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
-    val developerAuthEnabled = BuildConfig.DEBUG
-    val hasSavedOobSignIn = developerAuthEnabled && savedLoginConfig.hasStoredOobSecretRef
-
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -93,25 +89,11 @@ internal fun AuthRequiredScreen(
                             ) {
                                 Text("Sign in")
                             }
-                            if (hasSavedOobSignIn) {
-                                OutlinedButton(
-                                    onClick = onOobSignIn,
-                                    enabled = !busy,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("Developer OOB sign-in")
-                                }
-                            }
                         }
                     } else {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Button(onClick = onSignIn, enabled = !busy) {
                                 Text("Sign in")
-                            }
-                            if (hasSavedOobSignIn) {
-                                OutlinedButton(onClick = onOobSignIn, enabled = !busy) {
-                                    Text("Developer OOB sign-in")
-                                }
                             }
                         }
                     }
@@ -288,11 +270,11 @@ internal fun matchesOAuthCallbackUrl(url: String, callbackPrefix: String): Boole
     if (callback.isEmpty()) {
         return false
     }
-    val uri = Uri.parse(url)
+    val uri = runCatching { URI(url) }.getOrNull() ?: return false
     return if (callback.contains("://")) {
-        val callbackUri = Uri.parse(callback)
-        uri.scheme == callbackUri.scheme &&
-            uri.host == callbackUri.host &&
+        val callbackUri = runCatching { URI(callback) }.getOrNull() ?: return false
+        uri.scheme.equals(callbackUri.scheme, ignoreCase = true) &&
+            uri.host.equals(callbackUri.host, ignoreCase = true) &&
             uri.path.orEmpty() == callbackUri.path.orEmpty()
     } else {
         uri.path.orEmpty().endsWith(callback)
