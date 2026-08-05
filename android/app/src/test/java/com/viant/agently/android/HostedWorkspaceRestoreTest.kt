@@ -11,6 +11,8 @@ import com.viant.agentlysdk.stream.LiveExecutionGroup
 import com.viant.agentlysdk.stream.LiveToolStepState
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -57,6 +59,84 @@ class HostedWorkspaceRestoreTest {
         assertNotNull(restore)
         assertEquals("reportWindow__conv-1", restore?.selectedWindowId)
         assertEquals("reportWindow", restore?.windows?.singleOrNull()?.windowKey)
+    }
+
+    @Test
+    fun `deriveHostedWorkspaceRestoreState seeds parameters into window form`() {
+        val state = ConversationStateResponse(
+            conversation = ConversationState(
+                conversationId = "conv-1",
+                turns = listOf(
+                    TurnState(
+                        turnId = "turn-1",
+                        execution = ExecutionState(
+                            pages = listOf(
+                                ExecutionPageState(
+                                    pageId = "page-1",
+                                    toolSteps = listOf(
+                                        ToolStepState(
+                                            toolCallId = "tool-1",
+                                            toolName = "ui/view:open",
+                                            status = "completed",
+                                            requestPayload = json.parseToJsonElement(
+                                                """
+                                                {
+                                                  "id": "reportBuilder",
+                                                  "parameters": {
+                                                    "reportBuilderRef": "capacityBuilder",
+                                                    "prefill": {
+                                                      "recordIds": [12345],
+                                                      "scope": {
+                                                        "targetKey": "record:12345",
+                                                        "source": "parameter"
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                                """.trimIndent()
+                                            ),
+                                            responsePayload = json.parseToJsonElement(
+                                                """
+                                                {
+                                                  "windowId": "reportBuilder__conv-1",
+                                                  "conversationId": "conv-1",
+                                                  "windowKey": "reportBuilder",
+                                                  "windowTitle": "Capacity Builder",
+                                                  "presentation": "hosted",
+                                                  "region": "chat.top",
+                                                  "parentKey": "chat/new",
+                                                  "windowForm": {
+                                                    "prefill": {
+                                                      "scope": {
+                                                        "source": "windowForm"
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                                """.trimIndent()
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val windowForm = deriveAgentlyHostedWorkspaceRestoreState(state)
+            ?.windows
+            ?.singleOrNull()
+            ?.windowForm
+
+        assertNotNull(windowForm)
+        assertEquals(JsonPrimitive("capacityBuilder"), windowForm?.get("reportBuilderRef"))
+        val prefill = windowForm?.get("prefill") as? JsonObject
+        assertEquals(JsonArray(listOf(JsonPrimitive(12345))), prefill?.get("recordIds"))
+        val scope = prefill?.get("scope") as? JsonObject
+        assertEquals(JsonPrimitive("record:12345"), scope?.get("targetKey"))
+        assertEquals(JsonPrimitive("windowForm"), scope?.get("source"))
     }
 
     @Test

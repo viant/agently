@@ -92,7 +92,8 @@ final class AppStateTargetingTests: XCTestCase {
             resolvedBootstrapActiveConversationID(
                 storedValue: "stored-conversation",
                 environmentValue: "env-conversation",
-                launchArguments: []
+                launchArguments: [],
+                developerAuthEnabled: true
             ),
             "env-conversation"
         )
@@ -108,9 +109,22 @@ final class AppStateTargetingTests: XCTestCase {
             resolvedBootstrapActiveConversationID(
                 storedValue: "stored-conversation",
                 environmentValue: nil,
-                launchArguments: ["Agently", "--activeConversationID=launch-conversation"]
+                launchArguments: ["Agently", "--activeConversationID=launch-conversation"],
+                developerAuthEnabled: true
             ),
             "launch-conversation"
+        )
+    }
+
+    func testResolvedBootstrapActiveConversationIDIgnoresOverridesOutsideDevMode() {
+        XCTAssertEqual(
+            resolvedBootstrapActiveConversationID(
+                storedValue: "stored-conversation",
+                environmentValue: "env-conversation",
+                launchArguments: ["Agently", "--activeConversationID=launch-conversation"],
+                developerAuthEnabled: false
+            ),
+            "stored-conversation"
         )
     }
 
@@ -139,18 +153,18 @@ final class AppStateTargetingTests: XCTestCase {
         XCTAssertEqual(
             resolvedBootstrapAPIBaseURL(
                 storedValue: "http://127.0.0.1:9294",
-                environmentValue: "http://127.0.0.1:9191",
+                environmentValue: "http://127.0.0.1:9292",
                 launchArguments: ["Agently", "--enableDevAuth=1"]
             ),
-            "http://127.0.0.1:9191"
+            "http://127.0.0.1:9292"
         )
         XCTAssertEqual(
             resolvedBootstrapAPIBaseURL(
                 storedValue: "http://127.0.0.1:9294",
                 environmentValue: "   ",
-                launchArguments: ["Agently", "--enableDevAuth=1", "--apiBaseURL=http://localhost:9191"]
+                launchArguments: ["Agently", "--enableDevAuth=1", "--apiBaseURL=http://localhost:9292"]
             ),
-            "http://localhost:9191"
+            "http://localhost:9292"
         )
         XCTAssertEqual(
             resolvedBootstrapAPIBaseURL(

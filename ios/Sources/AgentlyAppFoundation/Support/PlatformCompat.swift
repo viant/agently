@@ -49,6 +49,17 @@ extension Color {
 }
 
 extension View {
+    func agentlyDismissKeyboardOnInteraction() -> some View {
+        self
+            .contentShape(Rectangle())
+            .simultaneousGesture(TapGesture().onEnded {
+                requestAgentlyPlatformKeyboardDismissal()
+            })
+            .simultaneousGesture(DragGesture(minimumDistance: 3).onChanged { _ in
+                requestAgentlyPlatformKeyboardDismissal()
+            })
+    }
+
     @ViewBuilder
     func agentlyLookupPresentation<Item: Identifiable, Content: View>(
         item: Binding<Item?>,

@@ -78,7 +78,8 @@ private fun normalizeWindowMetadataCollections(element: JsonElement): JsonElemen
                 "properties",
                 "style",
                 "dataInfoSelectors",
-                "selectors"
+                "selectors",
+                "reportBuilders"
             )
             for ((key, value) in element) {
                 val replacement = when (key) {

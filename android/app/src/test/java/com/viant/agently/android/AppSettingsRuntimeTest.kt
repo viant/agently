@@ -140,11 +140,11 @@ class AppSettingsRuntimeTest {
 
     @Test
     fun selectedWorkspaceEndpointOption_resolvesLocalhostPreset() {
-        val localhost = workspaceEndpointOptions.first { it.value == "http://localhost:9191" }
+        val localhost = workspaceEndpointOptions.first { it.value == "http://localhost:9292" }
 
         assertEquals(
             localhost,
-            selectedWorkspaceEndpointOption("http://localhost:9191/v1/api/")
+            selectedWorkspaceEndpointOption("http://localhost:9292/v1/api/")
         )
     }
 

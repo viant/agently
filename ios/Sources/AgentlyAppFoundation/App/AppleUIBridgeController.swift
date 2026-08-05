@@ -235,6 +235,12 @@ final class AppleUIBridgeController {
     }
 
     private static func loadOrCreateClientID(defaults: UserDefaults = .standard) -> String {
+        let launchOverride = CommandLine.arguments.first { $0.hasPrefix("--uiBridgeClientID=") }?
+            .dropFirst("--uiBridgeClientID=".count)
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !launchOverride.isEmpty {
+            return launchOverride
+        }
         let existing = defaults.string(forKey: uiBridgeClientIDDefaultsKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !existing.isEmpty {
@@ -462,7 +468,7 @@ func handleAppleUIBridgeCommand(
             throw AgentlySDKError.invalidResponse
         }
         let existingWindows = await forgeRuntime.windows
-        guard existingWindows.contains(where: { $0.id == windowID }) else {
+        guard let existingWindow = existingWindows.first(where: { $0.id == windowID }) else {
             throw AgentlySDKError.invalidResponse
         }
         guard let values = params["values"]?.objectValue ?? params["parameters"]?.objectValue,
@@ -470,9 +476,13 @@ func handleAppleUIBridgeCommand(
             throw AgentlySDKError.invalidResponse
         }
         let replace = params["replace"]?.boolValue == true
+        let nextValues = mergeBridgeJSONObjects(
+            base: existingWindow.parameters,
+            override: values.mapValues(\.forgeValue)
+        )
         await forgeRuntime.setWindowFormValue(
             windowID: windowID,
-            values: values.mapValues(\.forgeValue),
+            values: nextValues,
             replace: replace
         )
         let windowForm = await forgeRuntime.windowFormJSONValue(windowID: windowID).mapValues(\.appValue)
@@ -526,11 +536,6 @@ private extension BridgeJSONValue {
         return value
     }
 
-    var objectValue: [String: BridgeJSONValue]? {
-        guard case .object(let value) = self else { return nil }
-        return value
-    }
-
     var boolValue: Bool? {
         guard case .bool(let value) = self else { return nil }
         return value
@@ -545,6 +550,22 @@ private extension BridgeJSONValue {
         guard case .array(let value) = self else { return nil }
         return value
     }
+}
+
+private func mergeBridgeJSONObjects(
+    base: [String: ForgeIOSRuntime.JSONValue],
+    override: [String: ForgeIOSRuntime.JSONValue]
+) -> [String: ForgeIOSRuntime.JSONValue] {
+    var merged = base
+    for (key, value) in override {
+        if case .object(let baseObject)? = merged[key],
+           case .object(let overrideObject) = value {
+            merged[key] = .object(mergeBridgeJSONObjects(base: baseObject, override: overrideObject))
+        } else {
+            merged[key] = value
+        }
+    }
+    return merged
 }
 
 private func normalizeBridgeHostedWorkspaceWindow(_ raw: [String: BridgeJSONValue]?) -> WorkspaceWindowSnapshot? {

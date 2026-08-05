@@ -13,14 +13,14 @@ internal val workspaceEndpointOptions = listOf(
         value = "https://steward.agently.viantinc.com"
     ),
     WorkspaceEndpointOption(
-        title = "Localhost 9191",
+        title = "Localhost 9292",
         subtitle = "Local Agently server on this device",
-        value = "http://localhost:9191"
+        value = "http://localhost:9292"
     ),
     WorkspaceEndpointOption(
-        title = "Android Host 9191",
+        title = "Android Host 9292",
         subtitle = "Local Agently server on the emulator host",
-        value = "http://10.0.2.2:9191"
+        value = "http://10.0.2.2:9292"
     )
 )
 

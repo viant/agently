@@ -37,9 +37,17 @@ public final class ApprovalRuntime: ObservableObject {
         decidingApprovalID = id
         do {
             logger.info("Submitting approval decision \(action, privacy: .public) for \(id, privacy: .public)")
-            try await client.decideToolApproval(
+            let approval = approvals.first { $0.id == id }
+            let request = if let approval {
+                await buildApprovalDecisionRequest(
+                    approval: approval,
+                    action: action,
+                    editedFields: editedFields
+                )
+            } else {
                 DecideToolApprovalInput(id: id, action: action, editedFields: editedFields)
-            )
+            }
+            _ = try await client.decideToolApproval(request)
             approvals.removeAll { $0.id == id }
             lastError = nil
         } catch {

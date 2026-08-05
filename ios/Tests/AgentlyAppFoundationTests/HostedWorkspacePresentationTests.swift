@@ -30,4 +30,26 @@ final class HostedWorkspacePresentationTests: XCTestCase {
         XCTAssertEqual(presentation?.title, "Order")
         XCTAssertNil(presentation?.subtitle)
     }
+
+    func testResolveHostedWorkspacePresentationSplitsCamelCaseWindowKeys() {
+        let reportBuilder = resolveHostedWorkspacePresentation(
+            window: WorkspaceWindowSnapshot(
+                windowId: "reportBuilder_1",
+                windowKey: "reportBuilder",
+                windowTitle: "reportBuilder"
+            )
+        )
+        let forecasting = resolveHostedWorkspacePresentation(
+            window: WorkspaceWindowSnapshot(
+                windowId: "forecastingCubeBuilder_1",
+                windowKey: "forecastingCubeBuilder",
+                windowTitle: "forecastingCubeBuilder"
+            )
+        )
+
+        XCTAssertEqual(reportBuilder?.badgeLabel, "Report Builder")
+        XCTAssertEqual(reportBuilder?.title, "Report Builder")
+        XCTAssertEqual(forecasting?.badgeLabel, "Forecasting Cube Builder")
+        XCTAssertEqual(forecasting?.title, "Forecasting Cube Builder")
+    }
 }

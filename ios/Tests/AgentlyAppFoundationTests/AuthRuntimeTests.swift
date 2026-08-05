@@ -233,12 +233,12 @@ final class AuthRuntimeTests: XCTestCase {
         let store = AppSettingsStore(defaults: defaults)
         let runtime = SettingsRuntime(store: store)
 
-        runtime.apiBaseURL = "http://localhost:9191/v1"
+        runtime.apiBaseURL = "http://localhost:9292/v1"
         runtime.preferredAgentID = "agent-1"
         runtime.oobSecretReference = "~/.secret/app_oob.enc|blowfish://default"
         runtime.save()
 
-        XCTAssertEqual(store.loadAPIBaseURL(), "http://localhost:9191")
+        XCTAssertEqual(store.loadAPIBaseURL(), "http://localhost:9292")
         XCTAssertEqual(store.loadPreferredAgentID(), "agent-1")
         XCTAssertEqual(store.loadOOBSecretReference(), "~/.secret/app_oob.enc|blowfish://default")
     }
@@ -268,14 +268,14 @@ final class AuthRuntimeTests: XCTestCase {
         defaults.removePersistentDomain(forName: #function)
         let store = AppSettingsStore(defaults: defaults)
         let runtime = SettingsRuntime(store: store)
-        let local = SettingsRuntime.workspacePresets.first { $0.value == "http://localhost:9191" }
+        let local = SettingsRuntime.workspacePresets.first { $0.value == "http://localhost:9292" }
 
         runtime.selectWorkspaceEndpoint(try! XCTUnwrap(local))
 
         XCTAssertTrue(runtime.hasWorkspaceEndpointSelection)
-        XCTAssertEqual(runtime.normalizedAPIBaseURL, "http://localhost:9191")
-        XCTAssertEqual(store.loadAPIBaseURL(), "http://localhost:9191")
-        XCTAssertEqual(runtime.selectedWorkspacePreset?.title, "Localhost 9191")
+        XCTAssertEqual(runtime.normalizedAPIBaseURL, "http://localhost:9292")
+        XCTAssertEqual(store.loadAPIBaseURL(), "http://localhost:9292")
+        XCTAssertEqual(runtime.selectedWorkspacePreset?.title, "Localhost 9292")
     }
 
     @MainActor

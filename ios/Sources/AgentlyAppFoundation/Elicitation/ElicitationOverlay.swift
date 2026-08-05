@@ -1013,7 +1013,7 @@ public struct ElicitationOverlay: View {
     }
 }
 
-private struct SchemaField {
+struct SchemaField {
     let name: String
     let title: String
     let description: String?
@@ -1054,7 +1054,7 @@ private struct SchemaField {
     let multipleOf: Double?
 }
 
-private struct SchemaFieldValidator {
+struct SchemaFieldValidator {
     let field: SchemaField
     let text: String
     let parseStructuredJSON: (String) -> AppJSONValue?
@@ -1392,7 +1392,86 @@ private struct SchemaFieldValidator {
     }
 }
 
-private final class ArrayItemConstraint {
+func schemaPayloadValidationMessage(
+    fields: [SchemaField],
+    payload: [String: AppJSONValue],
+    parseStructuredJSON: @escaping (String) -> AppJSONValue?
+) -> String? {
+    let missingRequired = fields
+        .filter { field in
+            field.isRequired && !schemaPayloadValueHasContent(payload[field.name], field: field)
+        }
+        .map(\.title)
+    if !missingRequired.isEmpty {
+        return "Complete required fields: \(missingRequired.joined(separator: ", "))"
+    }
+
+    for field in fields {
+        guard let value = payload[field.name],
+              let text = schemaPayloadText(value) else {
+            continue
+        }
+        if let message = SchemaFieldValidator(
+            field: field,
+            text: text,
+            parseStructuredJSON: parseStructuredJSON
+        ).validationMessage() {
+            return message
+        }
+    }
+    return nil
+}
+
+func elicitationTerminalStatusMessage(_ status: String?) -> String? {
+    let normalized = status?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+        .replacingOccurrences(of: "_", with: "-") ?? ""
+    switch normalized {
+    case "resolved", "complete", "completed":
+        return "This elicitation has already been resolved."
+    case "canceled", "cancelled":
+        return "This elicitation has been canceled."
+    case "timed-out", "timeout", "timedout":
+        return "This elicitation has timed out."
+    default:
+        return nil
+    }
+}
+
+private func schemaPayloadValueHasContent(_ value: AppJSONValue?, field: SchemaField) -> Bool {
+    guard let value else { return false }
+    switch value {
+    case .null:
+        return field.allowsNull
+    case .string(let string):
+        return !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    case .array(let values):
+        return !values.isEmpty
+    case .object(let object):
+        return !object.isEmpty
+    case .number, .bool:
+        return true
+    }
+}
+
+private func schemaPayloadText(_ value: AppJSONValue) -> String? {
+    switch value {
+    case .null:
+        return nil
+    case .string(let string):
+        return string
+    case .number(let number):
+        return String(number)
+    case .bool(let bool):
+        return bool ? "true" : "false"
+    case .array, .object:
+        guard let data = try? JSONEncoder().encode(value) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+}
+
+final class ArrayItemConstraint {
     let typeNames: [String]
     let format: String?
     let options: [String]
@@ -1810,7 +1889,7 @@ private final class ArrayItemConstraint {
     }
 }
 
-private final class ObjectPropertyConstraint {
+final class ObjectPropertyConstraint {
     let name: String
     let typeNames: [String]
     let format: String?
@@ -2009,7 +2088,7 @@ private final class ObjectPropertyConstraint {
     }
 }
 
-private enum SchemaFieldKind {
+enum SchemaFieldKind {
     case text
     case multiline
     case choice
@@ -2058,7 +2137,7 @@ private struct ElicitationForgeForm: View {
     }
 }
 
-private enum JSONContainerKind {
+enum JSONContainerKind {
     case object
     case array
 

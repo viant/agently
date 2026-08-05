@@ -30,20 +30,20 @@ public final class SettingsRuntime: ObservableObject {
             value: "https://steward.agently.viantinc.com/"
         ),
         WorkspaceEndpointOption(
-            title: "Localhost 9191",
+            title: "Localhost 9292",
             subtitle: "Local Agently server on this Mac",
-            value: "http://localhost:9191"
+            value: "http://localhost:9292"
         ),
         WorkspaceEndpointOption(
-            title: "Loopback 9191",
+            title: "Loopback 9292",
             subtitle: "Local Agently server via loopback",
-            value: "http://127.0.0.1:9191"
+            value: "http://127.0.0.1:9292"
         )
     ]
 
     public static let localPresets: [(title: String, value: String)] = [
-        ("Loopback 9191", "http://127.0.0.1:9191"),
-        ("Localhost 9191", "http://localhost:9191")
+        ("Loopback 9292", "http://127.0.0.1:9292"),
+        ("Localhost 9292", "http://localhost:9292")
     ]
 
     public init(store: AppSettingsStore = AppSettingsStore()) {

@@ -48,17 +48,37 @@ private func humanizeHostedWorkspaceKey(_ key: String) -> String? {
     let normalized = key
         .replacingOccurrences(of: "/", with: " ")
         .replacingOccurrences(of: "_", with: " ")
+        .replacingOccurrences(
+            of: "([a-z0-9])([A-Z])",
+            with: "$1 $2",
+            options: .regularExpression
+        )
+        .replacingOccurrences(
+            of: "([A-Z]+)([A-Z][a-z])",
+            with: "$1 $2",
+            options: .regularExpression
+        )
         .trimmingCharacters(in: .whitespacesAndNewlines)
     guard !normalized.isEmpty else {
         return nil
     }
     return normalized
         .split(whereSeparator: \.isWhitespace)
-        .map { token in
-            let lower = token.lowercased()
-            return lower.prefix(1).uppercased() + lower.dropFirst()
-        }
+        .map { humanizeHostedWorkspaceToken(String($0)) }
         .joined(separator: " ")
+}
+
+private func humanizeHostedWorkspaceToken(_ token: String) -> String {
+    let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+        return trimmed
+    }
+    let hasLowercase = trimmed.rangeOfCharacter(from: .lowercaseLetters) != nil
+    guard hasLowercase else {
+        return trimmed
+    }
+    let lower = trimmed.lowercased()
+    return lower.prefix(1).uppercased() + lower.dropFirst()
 }
 
 private func normalizeHostedWorkspaceText(_ value: String?) -> String? {

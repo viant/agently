@@ -283,6 +283,7 @@ public struct WorkspaceScreen: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .agentlyDismissKeyboardOnInteraction()
 
             if !usesWorkspaceFocusedLayout {
                 ComposerScreen(

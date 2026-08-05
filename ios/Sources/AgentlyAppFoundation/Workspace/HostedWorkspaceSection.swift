@@ -406,7 +406,7 @@ private struct HostedWorkspaceChromeModifier: ViewModifier {
         if applyChrome {
             content
                 .padding(10)
-                .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 22))
+                .background(Color.agentlySystemBackground, in: RoundedRectangle(cornerRadius: 22))
                 .overlay(
                     RoundedRectangle(cornerRadius: 22)
                         .stroke(Color.black.opacity(0.06), lineWidth: 1)

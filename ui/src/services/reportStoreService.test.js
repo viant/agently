@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./reportingToolClient', () => ({
   executeReportingTool: vi.fn(async (name, args) => ({
@@ -23,6 +23,10 @@ describe('reportStoreService', () => {
     executeReportingTool.mockClear();
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('routes save_report through the reporting tool client', async () => {
     const request = {
       reportId: 'forecastingQ3',
@@ -38,6 +42,31 @@ describe('reportStoreService', () => {
       'report save request failed',
     );
     expect(result).toMatchObject({ ok: true, tool: 'reporting:save_report' });
+  });
+
+  it('notifies Forge report catalog listeners after saving a report', async () => {
+    const dispatchEvent = vi.fn(() => true);
+    vi.stubGlobal('dispatchEvent', dispatchEvent);
+    vi.stubGlobal('CustomEvent', class {
+      constructor(type, init = {}) {
+        this.type = type;
+        this.detail = init.detail;
+      }
+    });
+
+    await saveReport({
+      reportId: 'forecastingQ3',
+      title: 'Forecasting Q3',
+      reportDocument: { kind: 'reportDocument', id: 'forecastingQ3' },
+    });
+
+    expect(dispatchEvent).toHaveBeenCalledTimes(1);
+    expect(dispatchEvent.mock.calls[0][0]).toMatchObject({
+      type: 'forge:report-store-changed',
+      detail: {
+        action: 'saved',
+      },
+    });
   });
 
   it('routes get_report through the reporting tool client', async () => {

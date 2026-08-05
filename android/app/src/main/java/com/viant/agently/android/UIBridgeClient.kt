@@ -377,12 +377,16 @@ internal suspend fun handleAndroidUIBridgeCommand(
             val windowId = jsonString(params["windowId"]).ifBlank {
                 throw IllegalArgumentException("windowId is required")
             }
-            if (forgeRuntime.windows.value.none { it.windowId == windowId }) {
+            val existingWindow = forgeRuntime.windows.value.firstOrNull { it.windowId == windowId }
+            if (existingWindow == null) {
                 throw IllegalArgumentException("window not found: $windowId")
             }
             val values = ((params["values"] as? JsonObject) ?: (params["parameters"] as? JsonObject))
                 ?: throw IllegalArgumentException("values must be an object")
-            val valuesMap = values.toMapValue()
+            val valuesMap = mergeBridgeMaps(
+                base = existingWindow.parameters,
+                overlay = values.toMapValue()
+            )
             if (valuesMap.isEmpty()) {
                 throw IllegalArgumentException("values are required")
             }
@@ -457,6 +461,33 @@ private fun Map<String, Any?>.toJsonObject(): JsonObject {
 
 private fun JsonObject?.toMapValue(): Map<String, Any?> {
     return this?.entries?.associate { (key, value) -> key to value.toKotlinValue() } ?: emptyMap()
+}
+
+private fun mergeBridgeMaps(
+    base: Map<String, Any?>,
+    overlay: Map<String, Any?>
+): Map<String, Any?> {
+    if (base.isEmpty()) {
+        return overlay
+    }
+    if (overlay.isEmpty()) {
+        return base
+    }
+    val merged = LinkedHashMap<String, Any?>()
+    merged.putAll(base)
+    overlay.forEach { (key, value) ->
+        val baseMap = merged[key] as? Map<*, *>
+        val overlayMap = value as? Map<*, *>
+        merged[key] = if (baseMap != null && overlayMap != null) {
+            mergeBridgeMaps(
+                base = baseMap.entries.associate { it.key.toString() to it.value },
+                overlay = overlayMap.entries.associate { it.key.toString() to it.value }
+            )
+        } else {
+            value
+        }
+    }
+    return merged
 }
 
 private fun JsonElement?.toKotlinValue(): Any? {

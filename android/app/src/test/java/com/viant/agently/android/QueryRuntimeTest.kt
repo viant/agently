@@ -32,11 +32,22 @@ import java.util.concurrent.atomic.AtomicInteger
 class QueryRuntimeTest {
 
     @Test
-    fun `app session client allows long lived reads for query stream and ui bridge`() {
+    fun `app session client bounds network waits`() {
         val client = appSessionHttpClient()
+        val longRunningClient = appLongRunningHttpClient()
+        val streamClient = appStreamHttpClient()
 
-        assertEquals(0, client.readTimeoutMillis)
-        assertEquals(0, client.callTimeoutMillis)
+        assertEquals(10_000, client.connectTimeoutMillis)
+        assertEquals(30_000, client.readTimeoutMillis)
+        assertEquals(45_000, client.callTimeoutMillis)
+
+        assertEquals(10_000, longRunningClient.connectTimeoutMillis)
+        assertEquals(0, longRunningClient.readTimeoutMillis)
+        assertEquals(0, longRunningClient.callTimeoutMillis)
+
+        assertEquals(10_000, streamClient.connectTimeoutMillis)
+        assertEquals(0, streamClient.readTimeoutMillis)
+        assertEquals(0, streamClient.callTimeoutMillis)
     }
 
     @Test
@@ -236,13 +247,29 @@ class QueryRuntimeTest {
             val runtime = ForgeRuntime(endpoints = emptyMap(), scope = scope)
 
             try {
-                val state = runtime.openWindowInline(
-                    windowKey = "report-builder",
-                    title = "Report Builder",
-                    metadata = WindowMetadata()
+                handleAndroidUIBridgeCommand(
+                    method = "ui.window.open",
+                    params = buildJsonObject {
+                        put("windowKey", JsonPrimitive("report-builder"))
+                        put("windowTitle", JsonPrimitive("Report Builder"))
+                        put("windowId", JsonPrimitive("report-builder-1"))
+                        put(
+                            "parameters",
+                            buildJsonObject {
+                                put("reportBuilderRef", JsonPrimitive("forecastingCubeBuilder"))
+                                put(
+                                    "prefill",
+                                    buildJsonObject {
+                                        put("accountId", JsonPrimitive(7))
+                                    }
+                                )
+                            }
+                        )
+                    },
+                    forgeRuntime = runtime
                 )
                 runtime.setWindowFormValues(
-                    state.windowId,
+                    "report-builder-1",
                     mapOf(
                         "prefill" to mapOf(
                             "accountId" to 7
@@ -254,7 +281,8 @@ class QueryRuntimeTest {
                 val response = handleAndroidUIBridgeCommand(
                     method = "ui.window.setFormData",
                     params = buildJsonObject {
-                        put("windowId", JsonPrimitive(state.windowId))
+                        put("windowId", JsonPrimitive("report-builder-1"))
+                        put("replace", JsonPrimitive(true))
                         put(
                             "values",
                             buildJsonObject {
@@ -272,11 +300,14 @@ class QueryRuntimeTest {
 
                 assertEquals(true, (response["ok"] as? JsonPrimitive)?.booleanOrNull)
                 val responseWindowForm = response["windowForm"] as JsonObject
+                assertEquals("forecastingCubeBuilder", (responseWindowForm["reportBuilderRef"] as? JsonPrimitive)?.contentOrNull)
                 val responsePrefill = responseWindowForm["prefill"] as JsonObject
                 assertEquals(7L, (responsePrefill["accountId"] as? JsonPrimitive)?.longOrNull)
                 assertEquals(9L, (responsePrefill["segmentId"] as? JsonPrimitive)?.longOrNull)
-                val runtimePrefill = runtime.windowContext(state.windowId).peekWindowForm()["prefill"] as Map<*, *>
-                assertEquals(7, runtimePrefill["accountId"])
+                val runtimeForm = runtime.windowContext("report-builder-1").peekWindowForm()
+                assertEquals("forecastingCubeBuilder", runtimeForm["reportBuilderRef"])
+                val runtimePrefill = runtimeForm["prefill"] as Map<*, *>
+                assertEquals(7L, runtimePrefill["accountId"])
                 assertEquals(9L, runtimePrefill["segmentId"])
             } finally {
                 scope.cancel()

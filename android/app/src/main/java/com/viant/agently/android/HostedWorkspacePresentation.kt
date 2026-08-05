@@ -41,6 +41,8 @@ private fun humanizeHostedWorkspaceKey(windowKey: String): String? {
     val normalized = windowKey
         .replace("/", " ")
         .replace("_", " ")
+        .replace(Regex("([a-z0-9])([A-Z])"), "$1 $2")
+        .replace(Regex("([A-Z]+)([A-Z][a-z])"), "$1 $2")
         .trim()
     if (normalized.isEmpty()) {
         return null
@@ -48,11 +50,20 @@ private fun humanizeHostedWorkspaceKey(windowKey: String): String? {
     return normalized
         .split(Regex("\\s+"))
         .filter { it.isNotBlank() }
-        .joinToString(" ") { token ->
-            token.lowercase().replaceFirstChar { ch ->
-                if (ch.isLowerCase()) ch.titlecase() else ch.toString()
-            }
-        }
+        .joinToString(" ") { token -> humanizeHostedWorkspaceToken(token) }
+}
+
+private fun humanizeHostedWorkspaceToken(token: String): String {
+    val trimmed = token.trim()
+    if (trimmed.isEmpty()) {
+        return trimmed
+    }
+    if (trimmed.all { !it.isLetter() || it.isUpperCase() }) {
+        return trimmed
+    }
+    return trimmed.lowercase().replaceFirstChar { ch ->
+        if (ch.isLowerCase()) ch.titlecase() else ch.toString()
+    }
 }
 
 private fun normalizeHostedWorkspaceText(value: String?): String? {

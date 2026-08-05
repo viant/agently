@@ -1,6 +1,7 @@
 package com.viant.agently.android
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -95,6 +96,92 @@ class MainActivityHelpersTest {
 
         assertEquals("android-ui-123", (context["uiClientId"] as JsonPrimitive).content)
         assertEquals("android", context.getValue("client").jsonObject["platform"]?.let { (it as JsonPrimitive).content })
+    }
+
+    @Test
+    fun `bootstrap oob is debug gated and one shot`() {
+        val config = SavedLoginConfig(oobSecretRef = "~/.secret/app_oob.enc|blowfish://default")
+
+        assertTrue(
+            shouldAttemptBootstrapOobSignIn(
+                debugBuild = true,
+                bootstrapAutoOobSignIn = true,
+                authState = AuthState.Required,
+                authBusy = false,
+                alreadyAttempted = false,
+                savedLoginConfig = config
+            )
+        )
+        assertFalse(
+            shouldAttemptBootstrapOobSignIn(
+                debugBuild = false,
+                bootstrapAutoOobSignIn = true,
+                authState = AuthState.Required,
+                authBusy = false,
+                alreadyAttempted = false,
+                savedLoginConfig = config
+            )
+        )
+        assertFalse(
+            shouldAttemptBootstrapOobSignIn(
+                debugBuild = true,
+                bootstrapAutoOobSignIn = true,
+                authState = AuthState.Required,
+                authBusy = false,
+                alreadyAttempted = true,
+                savedLoginConfig = config
+            )
+        )
+        assertFalse(
+            shouldAttemptBootstrapOobSignIn(
+                debugBuild = true,
+                bootstrapAutoOobSignIn = false,
+                authState = AuthState.Required,
+                authBusy = false,
+                alreadyAttempted = false,
+                savedLoginConfig = config
+            )
+        )
+        assertFalse(
+            shouldAttemptBootstrapOobSignIn(
+                debugBuild = true,
+                bootstrapAutoOobSignIn = true,
+                authState = AuthState.Required,
+                authBusy = true,
+                alreadyAttempted = false,
+                savedLoginConfig = config
+            )
+        )
+        assertFalse(
+            shouldAttemptBootstrapOobSignIn(
+                debugBuild = true,
+                bootstrapAutoOobSignIn = true,
+                authState = AuthState.Ready,
+                authBusy = false,
+                alreadyAttempted = false,
+                savedLoginConfig = config
+            )
+        )
+        assertFalse(
+            shouldAttemptBootstrapOobSignIn(
+                debugBuild = true,
+                bootstrapAutoOobSignIn = true,
+                authState = AuthState.Checking,
+                authBusy = false,
+                alreadyAttempted = false,
+                savedLoginConfig = config
+            )
+        )
+        assertFalse(
+            shouldAttemptBootstrapOobSignIn(
+                debugBuild = true,
+                bootstrapAutoOobSignIn = true,
+                authState = AuthState.Required,
+                authBusy = false,
+                alreadyAttempted = false,
+                savedLoginConfig = SavedLoginConfig()
+            )
+        )
     }
 
 }

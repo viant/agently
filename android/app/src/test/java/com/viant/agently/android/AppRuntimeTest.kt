@@ -81,8 +81,8 @@ class AppRuntimeTest {
         val error = kotlin.runCatching {
             kotlinx.coroutines.runBlocking {
                 resolveAuthCapableClient(
-                    currentBaseUrl = "http://10.0.2.2:9191",
-                    candidates = listOf("http://10.0.2.2:9191", "http://127.0.0.1:9191"),
+                    currentBaseUrl = "http://10.0.2.2:9292",
+                    candidates = listOf("http://10.0.2.2:9292", "http://127.0.0.1:9292"),
                     currentClient = currentClient,
                     buildClient = { currentClient }
                 )

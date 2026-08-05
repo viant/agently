@@ -56,3 +56,31 @@ targets:
         product: AgentlyAppFoundation
     scheme:
       testTargets: []
+
+  AgentlyAppUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: UITests/AgentlyAppUITests
+    settings:
+      base:
+        PRODUCT_NAME: AgentlyAppUITests
+        PRODUCT_MODULE_NAME: AgentlyAppUITests
+        PRODUCT_BUNDLE_IDENTIFIER: com.viant.agently.ios.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: AgentlyApp
+    dependencies:
+      - target: AgentlyApp
+
+schemes:
+  AgentlyAppLiveUITests:
+    build:
+      targets:
+        AgentlyApp: all
+        AgentlyAppUITests: test
+    test:
+      targets:
+        - AgentlyAppUITests
+      environmentVariables:
+        AGENTLY_IOS_LIVE_UI_TESTS: "1"
