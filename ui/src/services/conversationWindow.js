@@ -452,6 +452,7 @@ function restoreWorkspaceWindowForConversation(conversationId = '', { focus = tr
         workspaceSharePct: saved.workspaceSharePct ?? undefined,
         workspaceMinHeight: saved.workspaceMinHeight ?? undefined,
         workspaceCollapsed: saved.workspaceCollapsed === true,
+        hostOpenState: 'historical_replay',
       }
     );
     if (restored?.windowId && saved?.windowForm && typeof saved.windowForm === 'object') {

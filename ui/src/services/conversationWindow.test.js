@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { activeWindows, getFormSignal, selectedTabId, selectedWindowId } from 'forge/core';
+import { resolveHostedExecuteOnOpenHostAction } from '../../../../forge/src/components/dashboard/reportBuilderHooks.js';
 
 import {
   CHAT_WINDOW_KEY,
@@ -320,6 +321,57 @@ describe('conversationWindow', () => {
     expect(activeWindows.value.some((entry) => entry.windowKey === 'order')).toBe(true);
     expect(selectedWindowId.value).toBe(MAIN_CHAT_WINDOW_ID);
     expect(selectedTabId.value).toBe(MAIN_CHAT_WINDOW_ID);
+  });
+
+  it('classifies an execute-on-open window restored from conversation workspace state as historical replay', () => {
+    activeWindows.value = [
+      {
+        windowId: MAIN_CHAT_WINDOW_ID,
+        windowKey: CHAT_WINDOW_KEY,
+        parameters: {}
+      },
+      {
+        windowId: 'reportBuilder__conv-other',
+        windowKey: 'reportBuilder',
+        conversationId: 'conv-other',
+        parentKey: MAIN_CHAT_WINDOW_ID,
+        presentation: 'hosted',
+        region: 'chat.top',
+        inTab: true,
+        parameters: { executeOnOpen: true }
+      }
+    ];
+    selectedTabId.value = 'reportBuilder__conv-other';
+    selectedWindowId.value = 'reportBuilder__conv-other';
+
+    setScopedWorkspaceState('conv-report-replay', {
+      windowId: 'reportBuilder__conv-report-replay',
+      windowKey: 'reportBuilder',
+      windowTitle: 'Performance Inventory Brief',
+      conversationId: 'conv-report-replay',
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      presentation: 'hosted',
+      region: 'chat.top',
+      inTab: true,
+      hostOpenState: 'fresh',
+      parameters: {
+        executeOnOpen: true,
+        reportStarterId: 'performance_inventory_brief'
+      }
+    });
+
+    expect(getScopedWorkspaceState('conv-report-replay')).not.toHaveProperty('hostOpenState');
+
+    const restored = openConversationInMainWindow('conv-report-replay');
+
+    expect(restored?.hostOpenState).toBe('historical_replay');
+    expect(resolveHostedExecuteOnOpenHostAction({
+      executeOnOpen: true,
+      windowState: restored
+    })).toBe('restore');
+    expect(activeWindows.value.some((entry) => entry.windowId === 'reportBuilder__conv-other')).toBe(false);
+    expect(selectedWindowId.value).toBe(restored?.windowId);
+    expect(selectedTabId.value).toBe(restored?.windowId);
   });
 
   it('restores persisted hosted workspace windowForm state', () => {
