@@ -386,6 +386,36 @@ internal fun resolveAuthState(
     }
 }
 
+internal fun isAuthRequiredFailure(err: Throwable?): Boolean {
+    val message = err?.message ?: return false
+    return message.contains("401") || message.contains("403")
+}
+
+internal fun shouldPreserveAuthenticatedSessionOnAuthRefreshFailure(
+    previousAuthState: AuthState,
+    previousUser: AuthUser?,
+    previousSessionId: String?,
+    err: Throwable?
+): Boolean {
+    return err != null &&
+        previousAuthState != AuthState.Required &&
+        previousUser != null &&
+        !previousSessionId.isNullOrBlank() &&
+        !isAuthRequiredFailure(err)
+}
+
+internal fun shouldIgnoreStaleAuthRefreshFailure(
+    startedSessionId: String?,
+    currentSessionId: String?,
+    currentUser: AuthUser?,
+    err: Throwable?
+): Boolean {
+    return err != null &&
+        currentUser != null &&
+        !currentSessionId.isNullOrBlank() &&
+        startedSessionId != currentSessionId
+}
+
 internal suspend fun refreshAuthSession(
     currentBaseUrl: String,
     candidates: List<String>,
@@ -468,8 +498,7 @@ internal suspend fun loadWorkspaceSession(
         val snapshot = loadWorkspaceSnapshot(resolveClient(), targetContext)
         WorkspaceLoadResult(snapshot = snapshot)
     } catch (err: Throwable) {
-        val message = err.message ?: err.toString()
-        if (message.contains("401") || message.contains("403")) {
+        if (isAuthRequiredFailure(err)) {
             WorkspaceLoadResult(authRequiredError = err)
         } else {
             WorkspaceLoadResult(visibleError = visibleAppError(err))

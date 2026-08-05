@@ -421,6 +421,12 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     }
 
     fun applyAuthRequiredErrorState(err: Throwable?) {
+        if (BuildConfig.DEBUG) {
+            Log.w(
+                AUTH_LOG_TAG,
+                "Auth state demoted to Required: ${err?.javaClass?.simpleName ?: "unknown"}: ${err?.message.orEmpty()}"
+            )
+        }
         setAuthState(AuthState.Required)
         setVisibleError(null)
         authError = normalizeAuthThrowable(err, ::normalizeAuthError)
@@ -448,6 +454,15 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     fun applyAuthRefreshResult(authRefreshResult: AuthRefreshResult) {
         if (authRefreshResult.resolvedBaseUrl != appApiBaseUrl) {
             setAppApiBaseUrl(authRefreshResult.resolvedBaseUrl)
+        }
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                AUTH_LOG_TAG,
+                "Auth refresh result state=${authRefreshResult.authState} userPresent=${authRefreshResult.user != null} " +
+                    "providers=${authRefreshResult.providers.joinToString(",") { it.type }} " +
+                    "hasWorkspace=${authRefreshResult.workspaceSnapshot != null} " +
+                    "authError=${authRefreshResult.authRequiredError?.message.orEmpty()}"
+            )
         }
         if (authRefreshResult.authRequiredError != null) {
             setAuthRequired(authRefreshResult.authRequiredError)
@@ -509,6 +524,9 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     }
 
     suspend fun refreshAuthState(loadOnSuccess: Boolean = false) {
+        val previousAuthState = authState
+        val previousAuthUser = authUser
+        val previousSessionId = authSessionId
         enterAuthCheckingState()
         val authRefreshResult = refreshAuthSession(
             currentBaseUrl = appApiBaseUrl,
@@ -518,6 +536,40 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
             loadOnSuccess = loadOnSuccess,
             targetContext = buildMetadataTargetContext(formFactor)
         )
+        if (shouldIgnoreStaleAuthRefreshFailure(
+                startedSessionId = previousSessionId,
+                currentSessionId = authSessionId,
+                currentUser = authUser,
+                err = authRefreshResult.authRequiredError
+            )
+        ) {
+            if (BuildConfig.DEBUG) {
+                Log.w(
+                    AUTH_LOG_TAG,
+                    "Ignoring stale auth refresh failure after session changed: " +
+                        authRefreshResult.authRequiredError?.message.orEmpty()
+                )
+            }
+            setAuthState(AuthState.Ready)
+            return
+        }
+        if (shouldPreserveAuthenticatedSessionOnAuthRefreshFailure(
+                previousAuthState = previousAuthState,
+                previousUser = previousAuthUser,
+                previousSessionId = previousSessionId,
+                err = authRefreshResult.authRequiredError
+            )
+        ) {
+            if (BuildConfig.DEBUG) {
+                Log.w(
+                    AUTH_LOG_TAG,
+                    "Preserving authenticated session after transient auth refresh failure: " +
+                        authRefreshResult.authRequiredError?.message.orEmpty()
+                )
+            }
+            setAuthState(previousAuthState)
+            return
+        }
         applyAuthRefreshResult(authRefreshResult)
     }
 
@@ -530,6 +582,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     fun resetWorkspaceForBaseUrl(baseUrl: String) {
         val resetState = buildWorkspaceSessionReset()
         authSessionId = null
+        bootstrapOobSignInAttempted = false
         setAppApiBaseUrl(baseUrl)
         applyWorkspaceSessionReset(resetState)
         refreshAuthAfterSuccessfulLogin()
@@ -1191,7 +1244,6 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         isTablet = isTablet,
         authState = authState,
         metadataLoaded = metadata != null,
-        recentConversationCount = recentConversations.size,
         loading = loading,
         workspaceBootstrapRequested = workspaceBootstrapRequested,
         onWorkspaceBootstrapRequestedChange = ::setWorkspaceBootstrapRequested,

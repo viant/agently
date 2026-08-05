@@ -3,12 +3,14 @@ package com.viant.agently.android
 import com.viant.agentlysdk.ActiveFeedState
 import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.AuthProvider
+import com.viant.agentlysdk.AuthUser
 import com.viant.agentlysdk.Conversation
 import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.MetadataTargetContext
 import com.viant.agentlysdk.PendingToolApproval
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -116,6 +118,114 @@ class AppRuntimeTest {
         assertNull(result.snapshot)
         assertNotNull(result.authRequiredError)
         assertNull(result.visibleError)
+    }
+
+    @Test
+    fun `auth refresh preserves existing session on transient connectivity failure`() {
+        assertTrue(
+            shouldPreserveAuthenticatedSessionOnAuthRefreshFailure(
+                previousAuthState = AuthState.Ready,
+                previousUser = AuthUser(username = "test-user"),
+                previousSessionId = "session-1",
+                err = java.net.SocketTimeoutException("failed to connect")
+            )
+        )
+    }
+
+    @Test
+    fun `auth refresh preserves existing session while checking stale refresh result`() {
+        assertTrue(
+            shouldPreserveAuthenticatedSessionOnAuthRefreshFailure(
+                previousAuthState = AuthState.Checking,
+                previousUser = AuthUser(username = "test-user"),
+                previousSessionId = "session-1",
+                err = java.net.SocketTimeoutException("failed to connect")
+            )
+        )
+    }
+
+    @Test
+    fun `auth refresh does not preserve session on credential rejection`() {
+        assertFalse(
+            shouldPreserveAuthenticatedSessionOnAuthRefreshFailure(
+                previousAuthState = AuthState.Ready,
+                previousUser = AuthUser(username = "test-user"),
+                previousSessionId = "session-1",
+                err = IllegalStateException("GET /v1/api/auth/me failed: 401")
+            )
+        )
+    }
+
+    @Test
+    fun `stale auth refresh failure is ignored after session changes`() {
+        assertTrue(
+            shouldIgnoreStaleAuthRefreshFailure(
+                startedSessionId = null,
+                currentSessionId = "session-1",
+                currentUser = AuthUser(username = "test-user"),
+                err = java.net.SocketTimeoutException("failed to connect")
+            )
+        )
+    }
+
+    @Test
+    fun `stale auth refresh failure is not ignored without current session`() {
+        assertFalse(
+            shouldIgnoreStaleAuthRefreshFailure(
+                startedSessionId = null,
+                currentSessionId = null,
+                currentUser = null,
+                err = java.net.SocketTimeoutException("failed to connect")
+            )
+        )
+    }
+
+    @Test
+    fun `workspace bootstrap starts only after auth is ready and metadata is missing`() {
+        assertTrue(
+            shouldBootstrapWorkspace(
+                authState = AuthState.Ready,
+                metadataLoaded = false,
+                loading = false,
+                workspaceBootstrapRequested = false
+            )
+        )
+        assertFalse(
+            shouldBootstrapWorkspace(
+                authState = AuthState.Required,
+                metadataLoaded = false,
+                loading = false,
+                workspaceBootstrapRequested = false
+            )
+        )
+        assertFalse(
+            shouldBootstrapWorkspace(
+                authState = AuthState.Ready,
+                metadataLoaded = false,
+                loading = true,
+                workspaceBootstrapRequested = false
+            )
+        )
+        assertFalse(
+            shouldBootstrapWorkspace(
+                authState = AuthState.Ready,
+                metadataLoaded = false,
+                loading = false,
+                workspaceBootstrapRequested = true
+            )
+        )
+    }
+
+    @Test
+    fun `workspace bootstrap does not repeat when metadata loaded with empty recents`() {
+        assertFalse(
+            shouldBootstrapWorkspace(
+                authState = AuthState.Ready,
+                metadataLoaded = true,
+                loading = false,
+                workspaceBootstrapRequested = false
+            )
+        )
     }
 
     @Test

@@ -11,7 +11,6 @@ internal fun AppEffects(
     isTablet: Boolean,
     authState: AuthState,
     metadataLoaded: Boolean,
-    recentConversationCount: Int,
     loading: Boolean,
     workspaceBootstrapRequested: Boolean,
     onWorkspaceBootstrapRequestedChange: (Boolean) -> Unit,
@@ -23,11 +22,13 @@ internal fun AppEffects(
     onInitialAuthRefresh: suspend () -> Unit,
     onSetAuthRequired: (Throwable?) -> Unit
 ) {
-    LaunchedEffect(authState, metadataLoaded, recentConversationCount, loading) {
-        if (authState != AuthState.Ready ||
-            loading ||
-            workspaceBootstrapRequested ||
-            metadataLoaded && recentConversationCount > 0
+    LaunchedEffect(authState, metadataLoaded, loading, workspaceBootstrapRequested) {
+        if (!shouldBootstrapWorkspace(
+                authState = authState,
+                metadataLoaded = metadataLoaded,
+                loading = loading,
+                workspaceBootstrapRequested = workspaceBootstrapRequested
+            )
         ) {
             return@LaunchedEffect
         }
@@ -71,4 +72,16 @@ internal fun AppEffects(
             onSetAuthRequired(err)
         }
     }
+}
+
+internal fun shouldBootstrapWorkspace(
+    authState: AuthState,
+    metadataLoaded: Boolean,
+    loading: Boolean,
+    workspaceBootstrapRequested: Boolean
+): Boolean {
+    return authState == AuthState.Ready &&
+        !metadataLoaded &&
+        !loading &&
+        !workspaceBootstrapRequested
 }
