@@ -4,10 +4,45 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestApplyScratchpadRootURI(t *testing.T) {
+	const envName = "AGENTLY_SCRATCHPAD_URI"
+
+	t.Run("flag overrides environment", func(t *testing.T) {
+		t.Setenv(envName, "mem://localhost/from-env/${userID}")
+
+		applyScratchpadRootURI("  gs://scratchpad-bucket/from-flag/${userID}  ")
+
+		if got, want := os.Getenv(envName), "gs://scratchpad-bucket/from-flag/${userID}"; got != want {
+			t.Fatalf("AGENTLY_SCRATCHPAD_URI = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("omitted flag preserves environment", func(t *testing.T) {
+		t.Setenv(envName, "mem://localhost/from-env/${userID}")
+
+		applyScratchpadRootURI("")
+
+		if got, want := os.Getenv(envName), "mem://localhost/from-env/${userID}"; got != want {
+			t.Fatalf("AGENTLY_SCRATCHPAD_URI = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("whitespace-only flag preserves environment", func(t *testing.T) {
+		t.Setenv(envName, "mem://localhost/from-env/${userID}")
+
+		applyScratchpadRootURI("   ")
+
+		if got, want := os.Getenv(envName), "mem://localhost/from-env/${userID}"; got != want {
+			t.Fatalf("AGENTLY_SCRATCHPAD_URI = %q, want %q", got, want)
+		}
+	})
+}
 
 func TestFinalizeServeResult_CancelsOnServeError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

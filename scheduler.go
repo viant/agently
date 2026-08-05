@@ -24,11 +24,14 @@ import (
 )
 
 type SchedulerRunOptions struct {
-	Interval time.Duration
-	Once     bool
+	Interval          time.Duration
+	Once              bool
+	ScratchpadRootURI string
 }
 
 func RunScheduler(options SchedulerRunOptions) error {
+	applyScratchpadRootURI(options.ScratchpadRootURI)
+
 	interval := options.Interval
 	if interval <= 0 {
 		interval = 30 * time.Second

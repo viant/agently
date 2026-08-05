@@ -55,12 +55,13 @@ type servedUIBundle struct {
 }
 
 type ServeOptions struct {
-	Addr          string
-	WorkspacePath string
-	UIDist        string
-	Debug         bool
-	Policy        string // tool policy: auto|ask|deny
-	ExposeMCP     bool   // expose tools over MCP HTTP server
+	Addr              string
+	WorkspacePath     string
+	ScratchpadRootURI string
+	UIDist            string
+	Debug             bool
+	Policy            string // tool policy: auto|ask|deny
+	ExposeMCP         bool   // expose tools over MCP HTTP server
 }
 
 const (
@@ -77,6 +78,8 @@ const (
 )
 
 func Serve(options ServeOptions) error {
+	applyScratchpadRootURI(options.ScratchpadRootURI)
+
 	addr := envOr("AGENTLY_ADDR", ":8080")
 	if value := strings.TrimSpace(options.Addr); value != "" {
 		addr = value
@@ -307,6 +310,12 @@ func Serve(options ServeOptions) error {
 	log.Printf("agently serve listening on %s (workspace=%s ui=%s)", addr, workspace.Root(), uiBundle.Name)
 	serveErr := srv.ListenAndServe()
 	return finalizeServeResult(cancel, &shutdownWG, serveErr, mcpSrv)
+}
+
+func applyScratchpadRootURI(value string) {
+	if value = strings.TrimSpace(value); value != "" {
+		_ = os.Setenv("AGENTLY_SCRATCHPAD_URI", value)
+	}
 }
 
 func logLoadedForgeWindows(ctx context.Context, repository *forgewindowrepo.Repository) {
