@@ -317,7 +317,11 @@ internal fun ConversationHistoryScreen(
         }
         conversations.forEach { conversation ->
             val isActive = conversation.id == activeConversationId
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelectConversation(conversation.id) }
+            ) {
                 Column(
                     modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -338,10 +342,9 @@ internal fun ConversationHistoryScreen(
                     )
                     OutlinedButton(
                         onClick = { onSelectConversation(conversation.id) },
-                        enabled = !isActive,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(if (isActive) "Active" else "Open conversation")
+                        Text(if (isActive) "Return to conversation" else "Open conversation")
                     }
                 }
             }
@@ -384,7 +387,9 @@ internal fun RecentConversationsSection(
                         if (isActive) Color(0xFFB2CCFF) else Color(0xFFE4E7EC)
                     ),
                     shape = MaterialTheme.shapes.large,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelectConversation(conversation.id) }
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -415,10 +420,9 @@ internal fun RecentConversationsSection(
                             )
                         }
                         OutlinedButton(
-                            onClick = { onSelectConversation(conversation.id) },
-                            enabled = !isActive
+                            onClick = { onSelectConversation(conversation.id) }
                         ) {
-                            Text(if (isActive) "Open" else "View")
+                            Text(if (isActive) "Current" else "View")
                         }
                     }
                 }

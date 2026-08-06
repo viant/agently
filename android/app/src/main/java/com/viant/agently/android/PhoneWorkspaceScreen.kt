@@ -180,26 +180,24 @@ internal fun PhoneWorkspacePane(
                     }
                 }
             }
-            if (!workspaceFocused) {
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                TextButton(onClick = onNewConversation, enabled = !loading) {
+                    Text("New chat")
+                }
+                TextButton(
+                    onClick = onOpenHistory,
+                    enabled = recentConversations.isNotEmpty()
                 ) {
-                    TextButton(onClick = onNewConversation, enabled = !loading) {
-                        Text("New chat")
-                    }
-                    TextButton(
-                        onClick = onOpenHistory,
-                        enabled = recentConversations.isNotEmpty()
-                    ) {
-                        Text("History")
-                    }
-                    TextButton(onClick = onRefresh, enabled = !loading) {
-                        Text("Refresh")
-                    }
-                    if (loading) {
-                        CircularProgressIndicator(modifier = Modifier.height(24.dp))
-                    }
+                    Text("History")
+                }
+                TextButton(onClick = onRefresh, enabled = !loading) {
+                    Text("Refresh")
+                }
+                if (loading) {
+                    CircularProgressIndicator(modifier = Modifier.height(24.dp))
                 }
             }
             if (loading || streamSnapshot?.activeTurnId != null) {

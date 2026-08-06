@@ -25,17 +25,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.KeyboardHide
 import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 
 internal val ComposerInputFill = Color(0xFFF0FAF1)
@@ -61,6 +66,12 @@ internal fun PhoneComposerDock(
 ) {
     val compactConversationDock = !activeConversationId.isNullOrBlank()
     val density = LocalDensity.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    fun hideKeyboard() {
+        focusManager.clearFocus(force = true)
+        keyboardController?.hide()
+    }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -122,8 +133,10 @@ internal fun PhoneComposerDock(
                         minLines = 1,
                         maxLines = composerInputMaxLines(compactConversationDock, query),
                         keyboardOptions = KeyboardOptions(
-                            capitalization = KeyboardCapitalization.None
+                            capitalization = KeyboardCapitalization.None,
+                            imeAction = ImeAction.Done
                         ),
+                        keyboardActions = KeyboardActions(onDone = { hideKeyboard() }),
                         shape = RoundedCornerShape(20.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedContainerColor = ComposerInputFill,
@@ -145,6 +158,11 @@ internal fun PhoneComposerDock(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    CompactComposerIconButton(
+                        contentDescription = "Hide keyboard",
+                        icon = { Icon(Icons.Outlined.KeyboardHide, contentDescription = "Hide keyboard") },
+                        onClick = ::hideKeyboard
+                    )
                     CompactComposerIconButton(
                         contentDescription = "Add photo",
                         icon = { Icon(Icons.Outlined.Image, contentDescription = "Add photo") },
@@ -189,6 +207,11 @@ internal fun PhoneComposerDock(
                             onClick = onVoiceInput
                         )
                     }
+                    ComposerActionButton(
+                        label = "Hide",
+                        icon = { Icon(Icons.Outlined.KeyboardHide, contentDescription = "Hide keyboard") },
+                        onClick = ::hideKeyboard
+                    )
                 }
             }
             if (composerAttachments.isNotEmpty()) {
@@ -206,8 +229,10 @@ internal fun PhoneComposerDock(
                     minLines = 3,
                     maxLines = composerInputMaxLines(compactConversationDock, query),
                     keyboardOptions = KeyboardOptions(
-                        capitalization = KeyboardCapitalization.None
+                        capitalization = KeyboardCapitalization.None,
+                        imeAction = ImeAction.Done
                     ),
+                    keyboardActions = KeyboardActions(onDone = { hideKeyboard() }),
                     shape = RoundedCornerShape(22.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = ComposerInputFill,
