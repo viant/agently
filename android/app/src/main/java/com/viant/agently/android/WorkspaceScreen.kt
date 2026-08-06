@@ -92,6 +92,9 @@ internal fun TabletWorkspacePane(
     query: String,
     onQueryChange: (String) -> Unit,
     composerAttachments: List<ComposerAttachmentDraft>,
+    lookupOccurrences: List<ComposerLookupOccurrence> = emptyList(),
+    lookupSelections: Map<String, ComposerLookupSelection> = emptyMap(),
+    onLookupClick: (ComposerLookupOccurrence) -> Unit = {},
     canCapturePhoto: Boolean,
     canUseVoiceInput: Boolean,
     onAddPhoto: () -> Unit,
@@ -416,6 +419,11 @@ internal fun TabletWorkspacePane(
                                 ),
                                 verticalArrangement = Arrangement.spacedBy(if (compactComposer) 8.dp else 10.dp)
                             ) {
+                                val unresolvedRequiredLookup = firstUnresolvedRequiredComposerLookup(
+                                    lookupOccurrences,
+                                    lookupSelections
+                                )
+                                val sendButtonLabel = composerSendButtonLabel(unresolvedRequiredLookup)
                                 if (compactComposer) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -452,8 +460,15 @@ internal fun TabletWorkspacePane(
                                                 .testTag(sendTestTag)
                                                 .semantics { contentDescription = sendContentDescription }
                                         ) {
-                                            Text("Send")
+                                            Text(sendButtonLabel)
                                         }
+                                    }
+                                    if (lookupOccurrences.isNotEmpty()) {
+                                        ComposerLookupChipsRow(
+                                            occurrences = lookupOccurrences,
+                                            selections = lookupSelections,
+                                            onLookupClick = onLookupClick
+                                        )
                                     }
                                 } else {
                                     ComposerHeader(
@@ -504,6 +519,13 @@ internal fun TabletWorkspacePane(
                                             disabledBorderColor = ComposerInputBorder.copy(alpha = 0.6f)
                                         )
                                     )
+                                    if (lookupOccurrences.isNotEmpty()) {
+                                        ComposerLookupChipsRow(
+                                            occurrences = lookupOccurrences,
+                                            selections = lookupSelections,
+                                            onLookupClick = onLookupClick
+                                        )
+                                    }
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.End,
@@ -516,7 +538,7 @@ internal fun TabletWorkspacePane(
                                                 .testTag(sendTestTag)
                                                 .semantics { contentDescription = sendContentDescription }
                                         ) {
-                                            Text("Send")
+                                            Text(sendButtonLabel)
                                         }
                                     }
                                 }

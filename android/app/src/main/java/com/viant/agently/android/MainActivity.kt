@@ -1134,19 +1134,17 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
                     handleGoalCommand(goalCommand)
                     return@launchAppOperation
                 }
-                firstUnresolvedRequiredComposerLookup(
-                    parseComposerLookupOccurrences(rawPrompt, composerLookupRegistry),
-                    composerLookupSelections
-                )?.let { occurrence ->
+                val lookupResolution = resolveComposerLookupSubmission(
+                    query = rawPrompt,
+                    registry = composerLookupRegistry,
+                    selections = composerLookupSelections
+                )
+                lookupResolution.unresolvedRequiredLookup?.let { occurrence ->
                     activeComposerLookupOccurrence = occurrence
                     return@launchAppOperation
                 }
                 val resolvedDraft = currentDraft.copy(
-                    prompt = resolveComposerQuery(
-                        query = rawPrompt,
-                        registry = composerLookupRegistry,
-                        selections = composerLookupSelections
-                    )
+                    prompt = lookupResolution.resolvedQuery ?: rawPrompt
                 )
                 val resolvedClient = resolveClient()
                 streamJob?.cancelAndJoin()
