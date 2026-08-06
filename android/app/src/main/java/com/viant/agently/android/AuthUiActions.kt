@@ -20,7 +20,8 @@ internal data class SavedLoginBindings(
 internal data class AuthUiBindings(
     val onAuthBusyChange: (Boolean) -> Unit,
     val onAuthErrorChange: (String?) -> Unit,
-    val onAuthWebUrlChange: (String?) -> Unit
+    val onAuthWebUrlChange: (String?) -> Unit,
+    val onInteractiveAuthFailureChange: (Boolean) -> Unit = {}
 )
 
 internal fun persistSavedLoginConfig(
@@ -69,11 +70,14 @@ internal fun launchAuthSignIn(
     scope.launch {
         authBindings.onAuthBusyChange(true)
         authBindings.onAuthErrorChange(null)
+        authBindings.onInteractiveAuthFailureChange(false)
         try {
             authBindings.onAuthWebUrlChange(requestAuthWebUrl())
         } catch (err: Throwable) {
             Log.w(AUTH_UI_LOG_TAG, "Auth sign-in failed: ${err.javaClass.simpleName}: ${err.message}")
-            authBindings.onAuthErrorChange(normalizeAuthThrowable(err, normalizeAuthError))
+            val normalized = normalizeAuthThrowable(err, normalizeAuthError)
+            authBindings.onAuthErrorChange(normalized)
+            authBindings.onInteractiveAuthFailureChange(normalized != null)
         } finally {
             authBindings.onAuthBusyChange(false)
         }
@@ -89,11 +93,15 @@ internal fun launchAuthOperation(
     scope.launch {
         authBindings.onAuthBusyChange(true)
         authBindings.onAuthErrorChange(null)
+        authBindings.onInteractiveAuthFailureChange(false)
         try {
             runOperation()
+            authBindings.onInteractiveAuthFailureChange(false)
         } catch (err: Throwable) {
             Log.w(AUTH_UI_LOG_TAG, "Auth operation failed: ${err.javaClass.simpleName}: ${err.message}")
-            authBindings.onAuthErrorChange(normalizeAuthThrowable(err, normalizeAuthError))
+            val normalized = normalizeAuthThrowable(err, normalizeAuthError)
+            authBindings.onAuthErrorChange(normalized)
+            authBindings.onInteractiveAuthFailureChange(normalized != null)
         } finally {
             authBindings.onAuthBusyChange(false)
         }

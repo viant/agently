@@ -40,6 +40,7 @@ internal fun AppBody(
     savedLoginConfig: SavedLoginConfig,
     authBusy: Boolean,
     authError: String?,
+    authInteractiveFailure: Boolean,
     error: String?,
     authSessionId: String?,
     authWebUrl: String?,
@@ -100,7 +101,10 @@ internal fun AppBody(
             }
             AuthRequiredScreen(
                 busy = authBusy,
-                developerSessionEnabled = BuildConfig.DEBUG,
+                developerSessionEnabled = shouldShowDeveloperSessionEntry(
+                    debugBuild = BuildConfig.DEBUG,
+                    interactiveAuthFailure = authInteractiveFailure
+                ),
                 onSignIn = callbacks.onAuthSignIn,
                 onOpenSettings = callbacks.onOpenSettings,
                 onDeveloperSessionSignIn = callbacks.onDeveloperSessionSignIn

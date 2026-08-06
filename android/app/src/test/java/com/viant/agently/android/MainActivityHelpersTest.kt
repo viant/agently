@@ -184,4 +184,26 @@ class MainActivityHelpersTest {
         )
     }
 
+    @Test
+    fun `developer session entry is debug only after an interactive auth failure`() {
+        assertFalse(
+            shouldShowDeveloperSessionEntry(
+                debugBuild = false,
+                interactiveAuthFailure = true
+            )
+        )
+        assertFalse(
+            shouldShowDeveloperSessionEntry(
+                debugBuild = true,
+                interactiveAuthFailure = false
+            )
+        )
+        assertTrue(
+            shouldShowDeveloperSessionEntry(
+                debugBuild = true,
+                interactiveAuthFailure = true
+            )
+        )
+    }
+
 }
