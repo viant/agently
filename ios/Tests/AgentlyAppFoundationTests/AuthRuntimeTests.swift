@@ -262,7 +262,7 @@ final class AuthRuntimeTests: XCTestCase {
         XCTAssertEqual(restored.selectedWorkspacePreset, local)
     }
 
-    func testConfiguredWorkspaceEndpointOptionsCanInjectSteward() {
+    func testConfiguredWorkspaceEndpointOptionsDeduplicatesStewardDefault() {
         let options = mergeWorkspaceEndpointOptions(
             parseWorkspaceEndpointOptions(
                 """
@@ -285,24 +285,36 @@ final class AuthRuntimeTests: XCTestCase {
                 value: "https://steward.agently.viantinc.com"
             )
         )
-        XCTAssertTrue(options.contains { $0.value == "http://localhost:9292" })
-        XCTAssertFalse(SettingsRuntime.workspacePresets.contains { $0.value == "https://steward.agently.viantinc.com" })
+        XCTAssertEqual(options.count { $0.value == "https://steward.agently.viantinc.com" }, 1)
+        XCTAssertFalse(options.contains { $0.value == "http://localhost:9292" })
+        XCTAssertTrue(SettingsRuntime.workspacePresets.contains { $0.value == "https://steward.agently.viantinc.com" })
     }
 
     @MainActor
-    func testSettingsRuntimeIncludesLocalhostWorkspaceEndpointSelection() {
+    func testWorkspaceEndpointOptionsDefaultToPublicStewardOnly() {
+        XCTAssertEqual(SettingsRuntime.workspacePresets.first?.title, "Steward")
+        XCTAssertEqual(SettingsRuntime.workspacePresets.first?.value, "https://steward.agently.viantinc.com")
+        XCTAssertFalse(SettingsRuntime.workspacePresets.contains { $0.value == "http://localhost:9292" })
+    }
+
+    @MainActor
+    func testSettingsRuntimeCanSelectConfiguredLocalhostWorkspaceEndpoint() {
         let defaults = UserDefaults(suiteName: #function)!
         defaults.removePersistentDomain(forName: #function)
         let store = AppSettingsStore(defaults: defaults)
         let runtime = SettingsRuntime(store: store)
-        let local = SettingsRuntime.workspacePresets.first { $0.value == "http://localhost:9292" }
+        let options = mergeWorkspaceEndpointOptions(
+            SettingsRuntime.localWorkspacePresets,
+            defaults: SettingsRuntime.defaultWorkspacePresets
+        )
+        let local = options.first { $0.value == "http://localhost:9292" }
 
         runtime.selectWorkspaceEndpoint(try! XCTUnwrap(local))
 
         XCTAssertTrue(runtime.hasWorkspaceEndpointSelection)
         XCTAssertEqual(runtime.normalizedAPIBaseURL, "http://localhost:9292")
         XCTAssertEqual(store.loadAPIBaseURL(), "http://localhost:9292")
-        XCTAssertEqual(runtime.selectedWorkspacePreset?.title, "Localhost 9292")
+        XCTAssertNil(runtime.selectedWorkspacePreset)
     }
 
     @MainActor

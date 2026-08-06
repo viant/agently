@@ -23,6 +23,14 @@ public final class SettingsRuntime: ObservableObject {
 
     private let store: AppSettingsStore
 
+    nonisolated public static let defaultWorkspacePresets: [WorkspaceEndpointOption] = [
+        WorkspaceEndpointOption(
+            title: "Steward",
+            subtitle: "Viant Steward workspace",
+            value: "https://steward.agently.viantinc.com"
+        )
+    ]
+
     nonisolated public static let workspacePresets: [WorkspaceEndpointOption] = mergeWorkspaceEndpointOptions(
         configuredWorkspaceEndpointOptions(
             environmentValue: ProcessInfo.processInfo.environment["AGENTLY_WORKSPACE_ENDPOINTS_JSON"],
@@ -138,10 +146,10 @@ public func parseWorkspaceEndpointOptions(_ raw: String) -> [WorkspaceEndpointOp
 
 public func mergeWorkspaceEndpointOptions(
     _ configured: [WorkspaceEndpointOption],
-    local: [WorkspaceEndpointOption] = SettingsRuntime.localWorkspacePresets
+    defaults: [WorkspaceEndpointOption] = SettingsRuntime.defaultWorkspacePresets
 ) -> [WorkspaceEndpointOption] {
     var seen = Set<String>()
-    return (configured + local).filter { option in
+    return (configured + defaults).filter { option in
         seen.insert(AppSettingsStore.normalizeAPIBaseURL(option.value)).inserted
     }
 }
