@@ -63,27 +63,27 @@ final class AppStateTargetingTests: XCTestCase {
     func testResolvedBootstrapOOBSecretReferencePrefersStoredValueThenEnvironment() {
         XCTAssertEqual(
             resolvedBootstrapOOBSecretReference(
-                storedValue: "~/.secret/stored.enc|blowfish://default",
-                environmentValue: "~/.secret/env.enc|blowfish://default",
+                storedValue: "stored-oob-reference|blowfish://default",
+                environmentValue: "env-oob-reference|blowfish://default",
                 launchArguments: ["Agently", "--enableDevAuth=1"]
             ),
-            "~/.secret/stored.enc|blowfish://default"
+            "stored-oob-reference|blowfish://default"
         )
         XCTAssertEqual(
             resolvedBootstrapOOBSecretReference(
                 storedValue: "   ",
-                environmentValue: "~/.secret/env.enc|blowfish://default",
+                environmentValue: "env-oob-reference|blowfish://default",
                 launchArguments: ["Agently", "--enableDevAuth=1"]
             ),
-            "~/.secret/env.enc|blowfish://default"
+            "env-oob-reference|blowfish://default"
         )
         XCTAssertEqual(
             resolvedBootstrapOOBSecretReference(
                 storedValue: "   ",
                 environmentValue: "   ",
-                launchArguments: ["Agently", "--enableDevAuth=1", "--oobSecretReference=~/.secret/launch.enc|blowfish://default"]
+                launchArguments: ["Agently", "--enableDevAuth=1", "--oobSecretReference=launch-oob-reference|blowfish://default"]
             ),
-            "~/.secret/launch.enc|blowfish://default"
+            "launch-oob-reference|blowfish://default"
         )
     }
 

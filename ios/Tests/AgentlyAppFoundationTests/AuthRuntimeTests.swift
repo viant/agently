@@ -59,7 +59,7 @@ final class AuthRuntimeTests: XCTestCase {
             return (response, body.data(using: .utf8)!)
         }
 
-        let success = await runtime.beginOOBLogin(secretsURL: "~/.secret/app_oob.enc|blowfish://default")
+        let success = await runtime.beginOOBLogin(secretsURL: "app-oob-reference|blowfish://default")
 
         XCTAssertTrue(success)
         XCTAssertEqual(runtime.currentUser?.displayName, "Test User")
@@ -85,7 +85,7 @@ final class AuthRuntimeTests: XCTestCase {
         let runtime = AuthRuntime(client: client)
         runtime.isSubmittingOAuthLogin = true
 
-        let success = await runtime.beginOOBLogin(secretsURL: "~/.secret/app_oob.enc|blowfish://default")
+        let success = await runtime.beginOOBLogin(secretsURL: "app-oob-reference|blowfish://default")
 
         XCTAssertFalse(success)
         XCTAssertTrue(runtime.isSubmittingOAuthLogin)
@@ -105,7 +105,7 @@ final class AuthRuntimeTests: XCTestCase {
         }
         defer { URLProtocolStub.requestHandler = nil }
 
-        let success = await runtime.beginOOBLogin(secretsURL: "~/.secret/app_oob.enc|blowfish://default")
+        let success = await runtime.beginOOBLogin(secretsURL: "app-oob-reference|blowfish://default")
 
         XCTAssertFalse(success)
         XCTAssertEqual(runtime.lastError, "Saved sign-in could not be completed. Check your connection and try again.")
@@ -235,12 +235,12 @@ final class AuthRuntimeTests: XCTestCase {
 
         runtime.apiBaseURL = "http://localhost:9292/v1"
         runtime.preferredAgentID = "agent-1"
-        runtime.oobSecretReference = "~/.secret/app_oob.enc|blowfish://default"
+        runtime.oobSecretReference = "app-oob-reference|blowfish://default"
         runtime.save()
 
         XCTAssertEqual(store.loadAPIBaseURL(), "http://localhost:9292")
         XCTAssertEqual(store.loadPreferredAgentID(), "agent-1")
-        XCTAssertEqual(store.loadOOBSecretReference(), "~/.secret/app_oob.enc|blowfish://default")
+        XCTAssertEqual(store.loadOOBSecretReference(), "app-oob-reference|blowfish://default")
     }
 
     @MainActor
