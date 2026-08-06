@@ -153,23 +153,50 @@ class AppSettingsRuntimeTest {
             ),
             steward
         )
-        assertEquals("Android Host 9292", options[1].title)
+        assertEquals(1, options.size)
     }
 
     @Test
-    fun workspaceEndpointOptions_keepGenericLocalDefaultsInSource() {
-        assertEquals("Android Host 9292", workspaceEndpointOptions.first().title)
-        assertEquals("http://10.0.2.2:9292", workspaceEndpointOptions.first().value)
-        assertNull(selectedWorkspaceEndpointOption("https://steward.agently.viantinc.com/v1/api/"))
-    }
-
-    @Test
-    fun selectedWorkspaceEndpointOption_resolvesLocalhostPreset() {
-        val localhost = workspaceEndpointOptions.first { it.value == "http://localhost:9292" }
-
+    fun workspaceEndpointOptions_defaultToPublicStewardOnly() {
+        assertEquals(1, workspaceEndpointOptions.size)
+        assertEquals("Steward", workspaceEndpointOptions.first().title)
+        assertEquals("https://steward.agently.viantinc.com", workspaceEndpointOptions.first().value)
         assertEquals(
-            localhost,
-            selectedWorkspaceEndpointOption("http://localhost:9292/v1/api/")
+            workspaceEndpointOptions.first(),
+            selectedWorkspaceEndpointOption("https://steward.agently.viantinc.com/v1/api/")
+        )
+    }
+
+    @Test
+    fun selectedWorkspaceEndpointOption_returnsNullForUnconfiguredLocalhost() {
+        assertNull(selectedWorkspaceEndpointOption("http://localhost:9292/v1/api/"))
+    }
+
+    @Test
+    fun mergeWorkspaceEndpointOptions_allowsExplicitDevEndpoints() {
+        val options = mergeWorkspaceEndpointOptions(
+            configured = listOf(
+                WorkspaceEndpointOption(
+                    title = "Android Host 9292",
+                    subtitle = "Local Agently server on the emulator host",
+                    value = "http://10.0.2.2:9292"
+                )
+            )
+        )
+        assertEquals(
+            listOf(
+                WorkspaceEndpointOption(
+                    title = "Android Host 9292",
+                    subtitle = "Local Agently server on the emulator host",
+                    value = "http://10.0.2.2:9292"
+                ),
+                WorkspaceEndpointOption(
+                    title = "Steward",
+                    subtitle = "Viant Steward workspace",
+                    value = "https://steward.agently.viantinc.com"
+                )
+            ),
+            options
         )
     }
 
