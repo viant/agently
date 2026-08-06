@@ -61,6 +61,8 @@ internal fun AppBody(
     approvalEdits: Map<String, Map<String, JsonElement>>,
     query: String,
     composerAttachments: List<ComposerAttachmentDraft>,
+    lookupOccurrences: List<ComposerLookupOccurrence> = emptyList(),
+    lookupSelections: Map<String, ComposerLookupSelection> = emptyMap(),
     mediaController: ComposerMediaController,
     callbacks: AppUiCallbacks
 ) {
@@ -253,6 +255,9 @@ internal fun AppBody(
                     query = query,
                     onQueryChange = callbacks.onQueryChange,
                     composerAttachments = composerAttachments,
+                    lookupOccurrences = lookupOccurrences,
+                    lookupSelections = lookupSelections,
+                    onLookupClick = callbacks.onComposerLookupSelected,
                     canCapturePhoto = mediaController.canCapturePhoto,
                     canUseVoiceInput = mediaController.canUseVoiceInput,
                     onAddPhoto = mediaController.launchPhotoPicker,

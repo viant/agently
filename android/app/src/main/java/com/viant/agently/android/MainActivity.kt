@@ -70,6 +70,8 @@ import com.viant.agentlysdk.EndpointConfig
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.Goal
 import com.viant.agentlysdk.ListPendingToolApprovalsInput
+import com.viant.agentlysdk.ListLookupRegistryInput
+import com.viant.agentlysdk.LookupRegistryEntry
 import com.viant.agentlysdk.MetadataTargetContext
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.agentlysdk.QueryAttachment
@@ -79,6 +81,7 @@ import com.viant.agentlysdk.OAuthCallbackInput
 import com.viant.agentlysdk.OAuthInitiateInput
 import com.viant.agentlysdk.UploadFileInput
 import com.viant.agentlysdk.WorkspaceMetadata
+import com.viant.agentlysdk.listLookupRegistry
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import com.viant.forgeandroid.runtime.ContentDef
 import com.viant.forgeandroid.runtime.ContainerDef
@@ -212,6 +215,9 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     var metadata by remember { mutableStateOf<WorkspaceMetadata?>(null) }
     var query by remember { mutableStateOf("") }
     var composerAttachments by remember { mutableStateOf<List<ComposerAttachmentDraft>>(emptyList()) }
+    var composerLookupRegistry by remember { mutableStateOf<List<LookupRegistryEntry>>(emptyList()) }
+    var composerLookupSelections by remember { mutableStateOf<Map<String, ComposerLookupSelection>>(emptyMap()) }
+    var activeComposerLookupOccurrence by remember { mutableStateOf<ComposerLookupOccurrence?>(null) }
     var result by remember { mutableStateOf<QueryOutput?>(null) }
     var streamSnapshot by remember { mutableStateOf<ConversationStreamSnapshot?>(null) }
     var streamedMarkdown by remember { mutableStateOf<String?>(null) }
@@ -277,6 +283,9 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     var workspaceBootstrapRequested by remember { mutableStateOf(false) }
     var bootstrapOobSignInAttempted by remember { mutableStateOf(false) }
     val effectiveAgentId = resolvePreferredAgentId(preferredAgentId, metadata)
+    val composerLookupOccurrences = remember(query, composerLookupRegistry) {
+        parseComposerLookupOccurrences(query, composerLookupRegistry)
+    }
 
     DisposableEffect(uiBridge) {
         onDispose {
@@ -298,6 +307,11 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
 
     fun setQueryText(value: String) {
         query = value
+        composerLookupSelections = pruneComposerLookupSelections(
+            query = value,
+            registry = composerLookupRegistry,
+            selections = composerLookupSelections
+        )
     }
 
     fun setVisibleError(message: String?) {
@@ -335,6 +349,30 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
             buildClient = ::buildClient,
             onResolvedBaseUrl = ::setAppApiBaseUrl
         )
+    }
+
+    LaunchedEffect(authState, effectiveAgentId, client) {
+        val agentId = effectiveAgentId?.trim().orEmpty()
+        if (authState != AuthState.Ready || agentId.isBlank()) {
+            composerLookupRegistry = emptyList()
+            composerLookupSelections = emptyMap()
+            activeComposerLookupOccurrence = null
+            return@LaunchedEffect
+        }
+        try {
+            composerLookupRegistry = resolveClient()
+                .listLookupRegistry(ListLookupRegistryInput(context = "chat-composer:$agentId"))
+                .entries
+            composerLookupSelections = pruneComposerLookupSelections(
+                query = query,
+                registry = composerLookupRegistry,
+                selections = composerLookupSelections
+            )
+        } catch (_: Throwable) {
+            composerLookupRegistry = emptyList()
+            composerLookupSelections = emptyMap()
+            activeComposerLookupOccurrence = null
+        }
     }
 
     fun applyConversationResetState(resetState: ConversationResetState) {
@@ -1096,11 +1134,25 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
                     handleGoalCommand(goalCommand)
                     return@launchAppOperation
                 }
+                firstUnresolvedRequiredComposerLookup(
+                    parseComposerLookupOccurrences(rawPrompt, composerLookupRegistry),
+                    composerLookupSelections
+                )?.let { occurrence ->
+                    activeComposerLookupOccurrence = occurrence
+                    return@launchAppOperation
+                }
+                val resolvedDraft = currentDraft.copy(
+                    prompt = resolveComposerQuery(
+                        query = rawPrompt,
+                        registry = composerLookupRegistry,
+                        selections = composerLookupSelections
+                    )
+                )
                 val resolvedClient = resolveClient()
                 streamJob?.cancelAndJoin()
                 resetQueryResponseState()
                 val preparedQuerySubmission = prepareQuerySubmission(
-                    draft = currentDraft,
+                    draft = resolvedDraft,
                     timestampMs = System.currentTimeMillis()
                 )
                 userEntryId = preparedQuerySubmission.entryId
@@ -1113,7 +1165,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
                     activeConversationId = activeConversationId,
                     effectiveAgentId = effectiveAgentId,
                     prompt = preparedQuerySubmission.effectivePrompt,
-                    attachments = currentDraft.attachments,
+                    attachments = resolvedDraft.attachments,
                     queryContext = buildClientQueryContext(
                         formFactor = formFactor,
                         uiClientId = uiBridge.ensureConnected()
@@ -1260,12 +1312,16 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     }
 
     fun updateQuery(value: String) {
-        query = value
+        setQueryText(value)
     }
 
     fun selectStarterTask(prompt: String) {
-        query = prompt
+        setQueryText(prompt)
         showChatScreen()
+    }
+
+    fun selectComposerLookup(occurrence: ComposerLookupOccurrence) {
+        activeComposerLookupOccurrence = occurrence
     }
 
     fun applySavedLoginSettings(next: SavedLoginConfig) {
@@ -1358,6 +1414,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         onOpenInlineReportPdf = ::openInlineReportPdf,
         onClosePreview = ::closeArtifactPreview,
         onQueryChange = ::updateQuery,
+        onComposerLookupSelected = ::selectComposerLookup,
         onStarterTaskSelected = ::selectStarterTask,
         onRunQuery = ::runQuery,
         onRefreshAuth = ::refreshAuthFromUi,
@@ -1405,9 +1462,32 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         approvalEdits = approvalEdits,
         query = query,
         composerAttachments = composerAttachments,
+        lookupOccurrences = composerLookupOccurrences,
+        lookupSelections = composerLookupSelections,
         mediaController = mediaController,
         callbacks = callbacks
     )
+    activeComposerLookupOccurrence?.let { occurrence ->
+        ComposerLookupDialog(
+            client = client,
+            occurrence = occurrence,
+            activeConversationId = activeConversationId,
+            onDismiss = { activeComposerLookupOccurrence = null },
+            onSelect = { row ->
+                val selection = composerLookupSelection(occurrence, row)
+                composerLookupSelections = composerLookupSelections + (occurrence.key to selection)
+                activeComposerLookupOccurrence = null
+            },
+            onClear = if (composerLookupSelections.containsKey(occurrence.key)) {
+                {
+                    composerLookupSelections = composerLookupSelections - occurrence.key
+                    activeComposerLookupOccurrence = null
+                }
+            } else {
+                null
+            }
+        )
+    }
 }
 
 internal fun buildApiCandidates(configuredBaseUrl: String): List<String> {
