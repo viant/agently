@@ -69,6 +69,42 @@ class ComposerLookupRuntimeTest {
     }
 
     @Test
+    fun `submission resolution returns unresolved required lookup before sending`() {
+        val registry = listOf(orderLookupEntry())
+
+        val resolution = resolveComposerLookupSubmission(
+            query = "Troubleshoot /order",
+            registry = registry,
+            selections = emptyMap()
+        )
+
+        assertEquals(null, resolution.resolvedQuery)
+        assertEquals("Order", resolution.unresolvedRequiredLookup?.title)
+    }
+
+    @Test
+    fun `submission resolution returns flattened prompt after lookup selection`() {
+        val registry = listOf(orderLookupEntry())
+        val occurrence = parseComposerLookupOccurrences("Troubleshoot /order", registry).single()
+        val selection = composerLookupSelection(
+            occurrence = occurrence,
+            row = mapOf(
+                "id" to JsonPrimitive("fixture-order-1"),
+                "name" to JsonPrimitive("Fixture Order")
+            )
+        )
+
+        val resolution = resolveComposerLookupSubmission(
+            query = "Troubleshoot /order",
+            registry = registry,
+            selections = mapOf(occurrence.key to selection)
+        )
+
+        assertEquals("Troubleshoot order fixture-order-1", resolution.resolvedQuery)
+        assertEquals(null, resolution.unresolvedRequiredLookup)
+    }
+
+    @Test
     fun `lookup selections are pruned when prompt no longer contains occurrence`() {
         val registry = listOf(orderLookupEntry())
         val occurrence = parseComposerLookupOccurrences("Troubleshoot /order", registry).single()

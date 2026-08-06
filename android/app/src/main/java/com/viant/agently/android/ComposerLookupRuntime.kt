@@ -29,6 +29,30 @@ internal data class ComposerLookupSelection(
 internal class ComposerLookupUnresolvedRequiredException(title: String) :
     IllegalStateException("Resolve required lookup $title before sending.")
 
+internal data class ComposerLookupSubmissionResolution(
+    val resolvedQuery: String?,
+    val unresolvedRequiredLookup: ComposerLookupOccurrence?
+)
+
+internal fun resolveComposerLookupSubmission(
+    query: String,
+    registry: List<LookupRegistryEntry>,
+    selections: Map<String, ComposerLookupSelection>
+): ComposerLookupSubmissionResolution {
+    val occurrences = parseComposerLookupOccurrences(query, registry)
+    val unresolved = firstUnresolvedRequiredComposerLookup(occurrences, selections)
+    if (unresolved != null) {
+        return ComposerLookupSubmissionResolution(
+            resolvedQuery = null,
+            unresolvedRequiredLookup = unresolved
+        )
+    }
+    return ComposerLookupSubmissionResolution(
+        resolvedQuery = resolveComposerQuery(query, registry, selections),
+        unresolvedRequiredLookup = null
+    )
+}
+
 internal fun parseComposerLookupOccurrences(
     query: String,
     registry: List<LookupRegistryEntry>

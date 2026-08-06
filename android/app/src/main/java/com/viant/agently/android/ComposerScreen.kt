@@ -306,7 +306,7 @@ internal fun composerLookupControlLabel(title: String, selection: ComposerLookup
     selection?.label?.takeIf { it.isNotBlank() } ?: "Select $title"
 
 @Composable
-private fun ComposerLookupChipsRow(
+internal fun ComposerLookupChipsRow(
     occurrences: List<ComposerLookupOccurrence>,
     selections: Map<String, ComposerLookupSelection>,
     onLookupClick: (ComposerLookupOccurrence) -> Unit
