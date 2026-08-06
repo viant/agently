@@ -54,6 +54,7 @@ internal fun PhoneWorkspacePane(
     loading: Boolean,
     recentConversations: List<Conversation>,
     activeConversationId: String?,
+    openingConversationId: String?,
     conversationState: ConversationStateResponse?,
     activeGoal: Goal?,
     error: String?,
@@ -191,7 +192,7 @@ internal fun PhoneWorkspacePane(
                     onClick = onOpenHistory,
                     enabled = recentConversations.isNotEmpty()
                 ) {
-                    Text("History")
+                    Text(if (!activeConversationId.isNullOrBlank()) "Conversation list" else "History")
                 }
                 TextButton(onClick = onRefresh, enabled = !loading) {
                     Text("Refresh")
@@ -270,6 +271,12 @@ internal fun PhoneWorkspacePane(
                             color = Color(0xFF344054)
                         )
                     }
+                    TextButton(
+                        onClick = onOpenHistory,
+                        enabled = recentConversations.isNotEmpty()
+                    ) {
+                        Text("Back to conversation list")
+                    }
                     streamSnapshot?.activeTurnId?.let { turnId ->
                         Text(
                             "Streaming turn ${turnId.take(12)}",
@@ -337,6 +344,7 @@ internal fun PhoneWorkspacePane(
                     RecentConversationsSection(
                         conversations = recentConversations,
                         activeConversationId = activeConversationId,
+                        openingConversationId = openingConversationId,
                         onSelectConversation = onSelectConversation
                     )
                 }

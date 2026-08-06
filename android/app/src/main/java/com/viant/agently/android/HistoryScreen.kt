@@ -265,6 +265,7 @@ internal fun ConversationHistoryScreen(
     workspaceTitle: String,
     conversations: List<Conversation>,
     activeConversationId: String?,
+    openingConversationId: String?,
     loading: Boolean,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
@@ -317,10 +318,11 @@ internal fun ConversationHistoryScreen(
         }
         conversations.forEach { conversation ->
             val isActive = conversation.id == activeConversationId
+            val isOpening = conversation.id == openingConversationId
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onSelectConversation(conversation.id) }
+                    .clickable(enabled = !isOpening) { onSelectConversation(conversation.id) }
             ) {
                 Column(
                     modifier = Modifier.padding(14.dp),
@@ -342,9 +344,20 @@ internal fun ConversationHistoryScreen(
                     )
                     OutlinedButton(
                         onClick = { onSelectConversation(conversation.id) },
+                        enabled = !isOpening,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(if (isActive) "Return to conversation" else "Open conversation")
+                        if (isOpening) {
+                            CircularProgressIndicator(modifier = Modifier.width(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                        Text(
+                            when {
+                                isOpening -> "Opening..."
+                                isActive -> "Return to conversation"
+                                else -> "Open conversation"
+                            }
+                        )
                     }
                 }
             }
@@ -357,6 +370,7 @@ internal fun ConversationHistoryScreen(
 internal fun RecentConversationsSection(
     conversations: List<Conversation>,
     activeConversationId: String?,
+    openingConversationId: String?,
     onSelectConversation: (String) -> Unit
 ) {
     if (conversations.isEmpty()) {
@@ -379,6 +393,7 @@ internal fun RecentConversationsSection(
         ) {
             conversations.forEach { conversation ->
                 val isActive = conversation.id == activeConversationId
+                val isOpening = conversation.id == openingConversationId
                 val summary = conversation.summary?.takeIf { it.isNotBlank() } ?: "Conversation ${conversation.id.take(12)}"
                 Surface(
                     color = if (isActive) Color(0xFFF2F6FF) else Color(0xFFFFFFFF),
@@ -389,7 +404,7 @@ internal fun RecentConversationsSection(
                     shape = MaterialTheme.shapes.large,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onSelectConversation(conversation.id) }
+                        .clickable(enabled = !isOpening) { onSelectConversation(conversation.id) }
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -420,9 +435,20 @@ internal fun RecentConversationsSection(
                             )
                         }
                         OutlinedButton(
-                            onClick = { onSelectConversation(conversation.id) }
+                            onClick = { onSelectConversation(conversation.id) },
+                            enabled = !isOpening
                         ) {
-                            Text(if (isActive) "Current" else "View")
+                            if (isOpening) {
+                                CircularProgressIndicator(modifier = Modifier.width(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            Text(
+                                when {
+                                    isOpening -> "Opening..."
+                                    isActive -> "Current"
+                                    else -> "View"
+                                }
+                            )
                         }
                     }
                 }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -161,11 +162,11 @@ internal fun WorkspaceTaskStartSection(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     starterTasks.forEach { task ->
+                        val prompt = task.prompt?.trim().orEmpty()
                         ElevatedCard(
                             modifier = Modifier
                                 .widthIn(min = 220.dp, max = 280.dp)
                                 .clickable {
-                                    val prompt = task.prompt?.trim().orEmpty()
                                     if (prompt.isNotBlank()) {
                                         onSelectStarterTask(prompt)
                                     }
@@ -190,6 +191,12 @@ internal fun WorkspaceTaskStartSection(
                                     maxLines = 3,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                TextButton(
+                                    onClick = { onSelectStarterTask(prompt) },
+                                    enabled = prompt.isNotBlank()
+                                ) {
+                                    Text("Use task")
+                                }
                             }
                         }
                     }
