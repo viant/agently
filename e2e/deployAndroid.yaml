@@ -1,7 +1,7 @@
 init:
   repoPath: $WorkingDirectory(./..)
   androidHome: '$androidHome ? $androidHome : /Users/awitas/Library/Android/sdk'
-  appBaseURL: '$appBaseURL ? $appBaseURL : http://10.0.2.2:9292'
+  appBaseURL: '$appBaseURL ? $appBaseURL : https://steward.agently.viantinc.com/'
   appPackage: '$appPackage ? $appPackage : com.viant.agently.android'
   appActivity: '$appActivity ? $appActivity : com.viant.agently.android/.MainActivity'
   deviceSerial: '$deviceSerial ? $deviceSerial : '
