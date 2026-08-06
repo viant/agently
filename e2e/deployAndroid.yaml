@@ -1,0 +1,42 @@
+init:
+  repoPath: $WorkingDirectory(./..)
+  androidHome: '$androidHome ? $androidHome : /Users/awitas/Library/Android/sdk'
+  appBaseURL: '$appBaseURL ? $appBaseURL : http://10.0.2.2:9292'
+  appPackage: '$appPackage ? $appPackage : com.viant.agently.android'
+  appActivity: '$appActivity ? $appActivity : com.viant.agently.android/.MainActivity'
+  deviceSerial: '$deviceSerial ? $deviceSerial : '
+  gradleTask: '$gradleTask ? $gradleTask : :app:installDebug'
+  clearData: '$clearData ? $clearData : false'
+
+pipeline:
+
+  deploy:
+    action: exec:run
+    description: build, install, and launch Agently Android app on an attached emulator/device
+    TimeoutMs: 240000
+    checkError: true
+    commands:
+      - |
+        cd ${repoPath}/android
+        export ANDROID_HOME="${androidHome}"
+        export PATH="${androidHome}/platform-tools:${androidHome}/emulator:$PATH"
+        adb devices -l
+      - |
+        cd ${repoPath}/android
+        export ANDROID_HOME="${androidHome}"
+        export PATH="${androidHome}/platform-tools:${androidHome}/emulator:$PATH"
+        AGENTLY_ANDROID_BASE_URL="${appBaseURL}" ./gradlew ${gradleTask} --console=plain
+      - |
+        cd ${repoPath}/android
+        export ANDROID_HOME="${androidHome}"
+        export PATH="${androidHome}/platform-tools:${androidHome}/emulator:$PATH"
+        if [ -n "${deviceSerial}" ]; then
+          ADB="adb -s ${deviceSerial}"
+        else
+          ADB="adb"
+        fi
+        if [ "${clearData}" = "true" ]; then
+          $ADB shell pm clear "${appPackage}"
+        fi
+        $ADB shell am force-stop "${appPackage}"
+        $ADB shell am start -n "${appActivity}"
