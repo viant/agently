@@ -17,13 +17,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -62,14 +63,20 @@ internal fun AuthRequiredScreen(
     val canUseDeveloperSession = !busy && developerSessionDraft.trim().isNotBlank()
 
     Box(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 28.dp),
         contentAlignment = Alignment.Center
     ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .widthIn(max = 760.dp)
-                .wrapContentHeight()
+                .wrapContentHeight(),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF1ECF4))
         ) {
             BoxWithConstraints {
                 val isCompactWidth = maxWidth < 520.dp
@@ -169,138 +176,133 @@ internal fun OAuthWebDialog(
 ) {
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var loadedAuthUrl by remember { mutableStateOf<String?>(null) }
-    var pageStatus by remember { mutableStateOf("Opening sign-in page…") }
     var webError by remember { mutableStateOf<String?>(null) }
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { viewContext ->
-                WebView(viewContext).apply {
-                    webViewRef = this
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.useWideViewPort = true
-                    settings.loadWithOverviewMode = true
-                    settings.textZoom = 100
-                    webViewClient = object : WebViewClient() {
-                        private fun intercept(url: String): Boolean {
-                            if (!matchesOAuthCallbackUrl(url, callbackPrefix)) {
-                                return false
-                            }
-                            val uri = Uri.parse(url)
-                            val code = uri.getQueryParameter("code").orEmpty()
-                            val state = uri.getQueryParameter("state").orEmpty()
-                            if (code.isBlank() || state.isBlank()) {
-                                return false
-                            }
-                            onCallback(code, state)
-                            return true
-                        }
-
-                        private fun updatePageState(view: WebView?, url: String?) {
-                            val target = url.orEmpty().ifBlank { view?.url.orEmpty() }
-                            if (target.isBlank()) {
-                                pageStatus = "Opening sign-in page…"
-                                return
-                            }
-                            webError = null
-                            pageStatus = when {
-                                matchesOAuthCallbackUrl(target, callbackPrefix) ->
-                                    "Finishing sign-in…"
-                                else ->
-                                    Uri.parse(target).host?.let { "Loading $it…" } ?: "Loading sign-in page…"
-                            }
-                        }
-
-                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                            return intercept(request?.url?.toString().orEmpty())
-                        }
-
-                        @Deprecated("Deprecated in Android API 24")
-                        override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                            return intercept(url.orEmpty())
-                        }
-
-                        override fun onPageFinished(view: WebView?, url: String?) {
-                            super.onPageFinished(view, url)
-                            updatePageState(view, url)
-                        }
-
-                        override fun onReceivedError(
-                            view: WebView?,
-                            request: WebResourceRequest?,
-                            error: WebResourceError?
-                        ) {
-                            super.onReceivedError(view, request, error)
-                            if (request?.isForMainFrame != true) {
-                                return
-                            }
-                            val code = error?.errorCode ?: 0
-                            val description = error?.description?.toString().orEmpty()
-                            pageStatus = "Sign-in page failed to load."
-                            webError = when {
-                                code == -2 || description.contains("ERR_NAME_NOT_RESOLVED", ignoreCase = true) ->
-                                    "The emulator could not resolve the login host. Reload or open the page in the system browser."
-                                else ->
-                                    "The identity provider sign-in page could not be loaded${if (description.isNotBlank()) ": $description" else "."}"
-                            }
-                        }
-                    }
-                    loadUrl(authUrl)
-                    loadedAuthUrl = authUrl
-                }
-            },
-            update = { webView ->
-                webViewRef = webView
-                if (loadedAuthUrl != authUrl) {
-                    loadedAuthUrl = authUrl
-                    pageStatus = "Opening sign-in page…"
-                    webView.loadUrl(authUrl)
-                }
-            }
-        )
-        TextButton(
-            onClick = onDismiss,
+        Row(
             modifier = Modifier
-                .align(Alignment.TopEnd)
-                .offset(x = (-8).dp, y = 8.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Close")
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
         }
-        webError?.let { message ->
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFFB42318),
-                    modifier = Modifier.weight(1f)
-                )
-                TextButton(
-                    onClick = {
-                        webError = null
-                        pageStatus = "Retrying sign-in page…"
-                        webViewRef?.reload()
+        Box(modifier = Modifier.weight(1f)) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { viewContext ->
+                    WebView(viewContext).apply {
+                        webViewRef = this
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.useWideViewPort = true
+                        settings.loadWithOverviewMode = true
+                        settings.textZoom = 100
+                        webViewClient = object : WebViewClient() {
+                            private fun intercept(url: String): Boolean {
+                                if (!matchesOAuthCallbackUrl(url, callbackPrefix)) {
+                                    return false
+                                }
+                                val uri = Uri.parse(url)
+                                val code = uri.getQueryParameter("code").orEmpty()
+                                val state = uri.getQueryParameter("state").orEmpty()
+                                if (code.isBlank() || state.isBlank()) {
+                                    return false
+                                }
+                                onCallback(code, state)
+                                return true
+                            }
+
+                            private fun updatePageState(view: WebView?, url: String?) {
+                                val target = url.orEmpty().ifBlank { view?.url.orEmpty() }
+                                if (target.isBlank()) {
+                                    return
+                                }
+                                webError = null
+                            }
+
+                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                return intercept(request?.url?.toString().orEmpty())
+                            }
+
+                            @Deprecated("Deprecated in Android API 24")
+                            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                                return intercept(url.orEmpty())
+                            }
+
+                            override fun onPageFinished(view: WebView?, url: String?) {
+                                super.onPageFinished(view, url)
+                                updatePageState(view, url)
+                            }
+
+                            override fun onReceivedError(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                                error: WebResourceError?
+                            ) {
+                                super.onReceivedError(view, request, error)
+                                if (request?.isForMainFrame != true) {
+                                    return
+                                }
+                                val code = error?.errorCode ?: 0
+                                val description = error?.description?.toString().orEmpty()
+                                webError = when {
+                                    code == -2 || description.contains("ERR_NAME_NOT_RESOLVED", ignoreCase = true) ->
+                                        "The emulator could not resolve the login host. Reload or open the page in the system browser."
+                                    else ->
+                                        "The identity provider sign-in page could not be loaded${if (description.isNotBlank()) ": $description" else "."}"
+                                }
+                            }
+                        }
+                        loadUrl(authUrl)
+                        loadedAuthUrl = authUrl
                     }
+                },
+                update = { webView ->
+                    webViewRef = webView
+                    if (loadedAuthUrl != authUrl) {
+                        loadedAuthUrl = authUrl
+                        webView.loadUrl(authUrl)
+                    }
+                }
+            )
+            webError?.let { message ->
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Reload")
+                    Text(
+                        message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFB42318),
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(
+                        onClick = {
+                            webError = null
+                            webViewRef?.reload()
+                        }
+                    ) {
+                        Text("Reload")
+                    }
                 }
             }
         }
     }
 }
+
 
 internal fun matchesOAuthCallbackUrl(url: String, callbackPrefix: String): Boolean {
     val callback = callbackPrefix.trim()
