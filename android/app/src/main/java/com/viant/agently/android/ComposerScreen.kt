@@ -15,6 +15,7 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -60,6 +61,9 @@ internal fun PhoneComposerDock(
     onTakePhoto: () -> Unit,
     onVoiceInput: () -> Unit,
     onRemoveAttachment: (String) -> Unit,
+    lookupOccurrences: List<ComposerLookupOccurrence> = emptyList(),
+    lookupSelections: Map<String, ComposerLookupSelection> = emptyMap(),
+    onLookupClick: (ComposerLookupOccurrence) -> Unit = {},
     onOpenSettings: () -> Unit,
     onRunQuery: () -> Unit,
     onMeasuredHeight: (androidx.compose.ui.unit.Dp) -> Unit = {}
@@ -72,6 +76,11 @@ internal fun PhoneComposerDock(
         focusManager.clearFocus(force = true)
         keyboardController?.hide()
     }
+    val unresolvedRequiredLookup = firstUnresolvedRequiredComposerLookup(
+        lookupOccurrences,
+        lookupSelections
+    )
+    val sendLabel = composerSendButtonLabel(unresolvedRequiredLookup)
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -151,7 +160,7 @@ internal fun PhoneComposerDock(
                         onClick = onRunQuery,
                         enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty())
                     ) {
-                        Text("Send")
+                        Text(sendLabel)
                     }
                 }
                 Row(
@@ -220,6 +229,13 @@ internal fun PhoneComposerDock(
                     onRemoveAttachment = onRemoveAttachment
                 )
             }
+            if (lookupOccurrences.isNotEmpty()) {
+                ComposerLookupChipsRow(
+                    occurrences = lookupOccurrences,
+                    selections = lookupSelections,
+                    onLookupClick = onLookupClick
+                )
+            }
             if (!compactConversationDock) {
                 OutlinedTextField(
                     value = query,
@@ -258,7 +274,7 @@ internal fun PhoneComposerDock(
                         onClick = onRunQuery,
                         enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty())
                     ) {
-                        Text("Send")
+                        Text(sendLabel)
                     }
                 }
             }
@@ -288,6 +304,33 @@ internal fun composerSendButtonLabel(unresolvedRequiredLookup: ComposerLookupOcc
 
 internal fun composerLookupControlLabel(title: String, selection: ComposerLookupSelection?): String =
     selection?.label?.takeIf { it.isNotBlank() } ?: "Select $title"
+
+@Composable
+private fun ComposerLookupChipsRow(
+    occurrences: List<ComposerLookupOccurrence>,
+    selections: Map<String, ComposerLookupSelection>,
+    onLookupClick: (ComposerLookupOccurrence) -> Unit
+) {
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        occurrences.forEach { occurrence ->
+            val selection = selections[occurrence.key]
+            InputChip(
+                selected = selection != null,
+                onClick = { onLookupClick(occurrence) },
+                label = {
+                    Text(
+                        composerLookupControlLabel(occurrence.title, selection),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            )
+        }
+    }
+}
 
 @Composable
 private fun CompactComposerIconButton(
