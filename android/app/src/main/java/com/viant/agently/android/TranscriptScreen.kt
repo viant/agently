@@ -38,7 +38,8 @@ internal fun RenderTranscript(
     onDecision: (PendingToolApproval, String) -> Unit,
     artifactPreview: ArtifactPreview?,
     onClosePreview: () -> Unit,
-    onOpenFile: (GeneratedFileEntry) -> Unit
+    onOpenFile: (GeneratedFileEntry) -> Unit,
+    onOpenInlineReportPdf: (Map<String, Any?>) -> Unit
 ) {
     if (items.isEmpty()) {
         return
@@ -133,7 +134,8 @@ internal fun RenderTranscript(
                         renderedReports = item.renderedReports,
                         client = client,
                         forgeRuntime = forgeRuntime,
-                        messageKey = item.id
+                        messageKey = item.id,
+                        onOpenInlineReportPdf = onOpenInlineReportPdf
                     )
                     if (messageApprovals.isNotEmpty()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -119,6 +119,60 @@ final class ForecastingPrefillUITests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(45))
     }
 
+    func testPhoneShellCanReturnToConversationsAndHideKeyboard() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["AGENTLY_IOS_LIVE_UI_TESTS"] == "1",
+            "Set AGENTLY_IOS_LIVE_UI_TESTS=1 to run live local Steward UI verification."
+        )
+
+        let baseURL = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_BASE_URL"] ?? "http://127.0.0.1:9292"
+        let oobSecret = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_OOB_SECRET"] ?? ""
+        try XCTSkipUnless(
+            !oobSecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            "Set AGENTLY_IOS_UI_TEST_OOB_SECRET to run live local OOB UI verification."
+        )
+
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--enableDevAuth=1",
+            "--apiBaseURL=\(baseURL)",
+            "--oobSecretReference=\(oobSecret)",
+            "--autoOOBSignIn=1",
+            "--uiBridgeClientID=ios-ui-shell-\(UUID().uuidString)"
+        ]
+        app.launch()
+
+        let continueButton = app.buttons["workspace-selection-continue"]
+        if continueButton.waitForExistence(timeout: 15) {
+            continueButton.tap()
+        }
+
+        let newChatButton = app.buttons["agently-new-chat"]
+        XCTAssertTrue(newChatButton.waitForExistence(timeout: 90), "New Chat button did not appear")
+        newChatButton.tap()
+
+        let editor = app.textViews["agently-composer-editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 30), "Composer editor did not appear")
+        editor.tap()
+        editor.typeText("hello")
+
+        let hideKeyboardButton = app.buttons["agently-composer-hide-keyboard"]
+        XCTAssertTrue(hideKeyboardButton.waitForExistence(timeout: 10), "Hide Keyboard action did not appear after focusing composer")
+        hideKeyboardButton.tap()
+        XCTAssertFalse(hideKeyboardButton.waitForExistence(timeout: 5), "Hide Keyboard action should disappear after keyboard dismissal")
+
+        let backButton = app.navigationBars.buttons.element(boundBy: 0)
+        XCTAssertTrue(backButton.waitForExistence(timeout: 10), "Conversation detail back button did not appear")
+        backButton.tap()
+
+        XCTAssertTrue(app.navigationBars["Conversations"].waitForExistence(timeout: 10), "Back navigation did not return to Conversations")
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Phone shell conversations and keyboard"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
     private func waitForReportBuilderFilterBody(in app: XCUIApplication) -> Bool {
         let requiredIdentifiers = [
             "forge-report-builder-filter-summary",

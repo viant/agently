@@ -2,9 +2,11 @@ package com.viant.agently.android
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -42,6 +44,7 @@ import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.FetchDatasourceInput
 import com.viant.agentlysdk.fetchDatasource
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -65,7 +68,8 @@ internal fun TranscriptMessageContent(
     renderedReports: List<ForgeTranscriptCanonicalReport>? = null,
     client: AgentlyClient,
     forgeRuntime: ForgeRuntime,
-    messageKey: String
+    messageKey: String,
+    onOpenInlineReportPdf: (Map<String, Any?>) -> Unit = {}
 ) {
     val parts = remember(markdown, renderedParts, renderedReports) {
         val sourceParts = renderedParts?.let(::canonicalTranscriptContentParts)
@@ -115,7 +119,8 @@ internal fun TranscriptMessageContent(
             TranscriptInlineReportBlock(
                 report = report,
                 client = client,
-                forgeRuntime = forgeRuntime
+                forgeRuntime = forgeRuntime,
+                onOpenInlineReportPdf = onOpenInlineReportPdf
             )
         }
     }
@@ -125,7 +130,8 @@ internal fun TranscriptMessageContent(
 private fun TranscriptInlineReportBlock(
     report: ForgeTranscriptCanonicalReport,
     client: AgentlyClient,
-    forgeRuntime: ForgeRuntime
+    forgeRuntime: ForgeRuntime,
+    onOpenInlineReportPdf: (Map<String, Any?>) -> Unit
 ) {
     val stableIdentity = "${report.scope}:${report.id}:${report.resetVersion}"
     var artifactResult by remember(stableIdentity, report) {
@@ -185,16 +191,37 @@ private fun TranscriptInlineReportBlock(
         shape = MaterialTheme.shapes.large,
         modifier = Modifier.fillMaxWidth()
     ) {
-        WindowContentView(
-            runtime = forgeRuntime,
-            windowId = windowContext.windowId,
-            windowKey = title,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = inlinePresentation.maximumHeight),
-            scrollEnabled = true,
-            showWindowHeader = false
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (report.status.trim().lowercase().let { it.isEmpty() || it == "committed" || it == "ready" }) {
+                Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                    Button(
+                        onClick = {
+                            onOpenInlineReportPdf(
+                                mapOf(
+                                    "title" to title,
+                                    "artifactRef" to "report://inline/${report.scope}/${report.id}",
+                                    "reportSpec" to artifact.reportSpec,
+                                    "reportFill" to artifact.reportFill,
+                                    "reportPrint" to JsonNull
+                                )
+                            )
+                        }
+                    ) {
+                        Text("Open PDF")
+                    }
+                }
+            }
+            WindowContentView(
+                runtime = forgeRuntime,
+                windowId = windowContext.windowId,
+                windowKey = title,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = inlinePresentation.maximumHeight),
+                scrollEnabled = true,
+                showWindowHeader = false
+            )
+        }
     }
 }
 

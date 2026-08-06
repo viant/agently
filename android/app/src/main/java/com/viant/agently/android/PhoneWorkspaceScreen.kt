@@ -76,6 +76,7 @@ internal fun PhoneWorkspacePane(
     onEditChange: (String, String, JsonElement) -> Unit,
     onDecision: (PendingToolApproval, String) -> Unit,
     onOpenFile: (GeneratedFileEntry) -> Unit,
+    onOpenInlineReportPdf: (Map<String, Any?>) -> Unit,
     onClosePreview: () -> Unit,
     onStarterTaskSelected: (String) -> Unit,
     bottomComposerInset: androidx.compose.ui.unit.Dp = 232.dp
@@ -360,7 +361,8 @@ internal fun PhoneWorkspacePane(
                     onDecision = onDecision,
                     artifactPreview = artifactPreview,
                     onClosePreview = onClosePreview,
-                    onOpenFile = onOpenFile
+                    onOpenFile = onOpenFile,
+                    onOpenInlineReportPdf = onOpenInlineReportPdf
                 )
             }
         }
