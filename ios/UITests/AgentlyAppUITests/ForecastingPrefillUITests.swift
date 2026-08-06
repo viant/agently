@@ -1,6 +1,50 @@
 import XCTest
 
 final class ForecastingPrefillUITests: XCTestCase {
+    func testNormalAuthRequiredScreenIsQuietWithoutDevAuth() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["AGENTLY_IOS_AUTH_SCREEN_LIVE_TESTS"] == "1"
+                || ProcessInfo.processInfo.environment["AGENTLY_IOS_LIVE_UI_TESTS"] == "1",
+            "Set AGENTLY_IOS_AUTH_SCREEN_LIVE_TESTS=1 or AGENTLY_IOS_LIVE_UI_TESTS=1 to run live local auth-screen verification."
+        )
+
+        let app = XCUIApplication()
+        app.launch()
+
+        let continueButton = app.buttons["workspace-selection-continue"]
+        if continueButton.waitForExistence(timeout: 15) {
+            continueButton.tap()
+        }
+
+        let authMessage = app.staticTexts["This workspace requires authorization."]
+        XCTAssertTrue(authMessage.waitForExistence(timeout: 60), "Quiet required-auth message did not appear")
+        XCTAssertTrue(app.buttons["Sign in"].waitForExistence(timeout: 5), "Sign in action did not appear")
+        XCTAssertTrue(app.buttons["Workspace settings"].waitForExistence(timeout: 5), "Workspace settings action did not appear")
+
+        let bannedLabels = [
+            "Use developer session",
+            "Hide developer session sign-in",
+            "Session ID or token",
+            "OOB",
+            "Use saved",
+            "Open workspace sign-in",
+            "Developer OOB",
+            "Developer Connection",
+            "Sign-In Helpers",
+            "OOB Secret Reference"
+        ]
+        for label in bannedLabels {
+            XCTAssertFalse(app.staticTexts[label].exists, "Unexpected auth noise appeared: \(label)")
+            XCTAssertFalse(app.buttons[label].exists, "Unexpected auth noise appeared: \(label)")
+            XCTAssertFalse(app.textFields[label].exists, "Unexpected auth noise appeared: \(label)")
+        }
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Quiet required auth screen"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
     func testOpenForecastBuilderPromptCanBeSentFromComposer() throws {
         try XCTSkipUnless(
             ProcessInfo.processInfo.environment["AGENTLY_IOS_LIVE_UI_TESTS"] == "1",
