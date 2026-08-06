@@ -186,7 +186,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     }
     var savedLoginConfig by remember { mutableStateOf(storedSavedLoginConfig) }
     var authSessionId by remember { mutableStateOf<String?>(null) }
-    val sessionCookieJar = remember { AppSessionCookieJar() }
+    val sessionCookieJar = remember(context) { AppSessionCookieJar(context.applicationContext) }
     val appHttpClient = remember(sessionCookieJar) { appSessionHttpClient(sessionCookieJar) }
     val appLongRunningHttpClient = remember(sessionCookieJar) { appLongRunningHttpClient(sessionCookieJar) }
     val appStreamHttpClient = remember(sessionCookieJar) { appStreamHttpClient(sessionCookieJar) }
@@ -216,6 +216,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     var conversationState by remember { mutableStateOf<ConversationStateResponse?>(null) }
     var activeGoal by remember { mutableStateOf<Goal?>(null) }
     var recentConversations by remember { mutableStateOf<List<Conversation>>(emptyList()) }
+    var openingConversationId by remember { mutableStateOf<String?>(null) }
     var currentScreen by remember { mutableStateOf(AppScreen.Chat) }
     var pendingApprovals by remember { mutableStateOf<List<PendingToolApproval>>(emptyList()) }
     var generatedFiles by remember { mutableStateOf<List<GeneratedFileEntry>>(emptyList()) }
@@ -583,6 +584,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     fun resetWorkspaceForBaseUrl(baseUrl: String) {
         val resetState = buildWorkspaceSessionReset()
         authSessionId = null
+        sessionCookieJar.clear()
         bootstrapOobSignInAttempted = false
         setAppApiBaseUrl(baseUrl)
         applyWorkspaceSessionReset(resetState)
@@ -706,6 +708,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
 
     fun clearAuthSecrets() {
         authSessionId = null
+        sessionCookieJar.clear()
         clearSavedAuthSecrets(
             store = savedLoginStore,
             bindings = savedLoginBindings()
@@ -1199,6 +1202,11 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         query = value
     }
 
+    fun selectStarterTask(prompt: String) {
+        query = prompt
+        showChatScreen()
+    }
+
     fun applySavedLoginSettings(next: SavedLoginConfig) {
         persistSavedLoginConfig(
             store = savedLoginStore,
@@ -1263,10 +1271,15 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     )
 
     fun selectConversation(conversationId: String, navigateToChat: Boolean = false) {
+        openingConversationId = conversationId
         launchVisibleErrorOperation(showLoading = true) {
-            bindConversation(conversationId, replaceTranscript = true)
-            if (navigateToChat) {
-                showChatScreen()
+            try {
+                bindConversation(conversationId, replaceTranscript = true)
+                if (navigateToChat) {
+                    showChatScreen()
+                }
+            } finally {
+                openingConversationId = null
             }
         }
     }
@@ -1283,6 +1296,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         onOpenFile = ::openGeneratedFile,
         onClosePreview = ::closeArtifactPreview,
         onQueryChange = ::updateQuery,
+        onStarterTaskSelected = ::selectStarterTask,
         onRunQuery = ::runQuery,
         onRefreshAuth = ::refreshAuthFromUi,
         onSaveSettings = ::applySettings,
@@ -1314,6 +1328,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         authWebUrl = authWebUrl,
         recentConversations = recentConversations,
         activeConversationId = activeConversationId,
+        openingConversationId = openingConversationId,
         conversationState = conversationState,
         activeGoal = activeGoal,
         streamSnapshot = streamSnapshot,

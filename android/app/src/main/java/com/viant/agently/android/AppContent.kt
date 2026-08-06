@@ -46,6 +46,7 @@ internal fun AppBody(
     authWebUrl: String?,
     recentConversations: List<Conversation>,
     activeConversationId: String?,
+    openingConversationId: String?,
     conversationState: ConversationStateResponse?,
     activeGoal: Goal?,
     streamSnapshot: ConversationStreamSnapshot?,
@@ -174,6 +175,7 @@ internal fun AppBody(
                         loading = loading,
                         recentConversations = recentConversations,
                         activeConversationId = activeConversationId,
+                        openingConversationId = openingConversationId,
                         conversationState = conversationState,
                         activeGoal = activeGoal,
                         error = error,
@@ -196,7 +198,7 @@ internal fun AppBody(
                         onDecision = callbacks.onApprovalDecision,
                         onOpenFile = callbacks.onOpenFile,
                         onClosePreview = callbacks.onClosePreview,
-                        onStarterTaskSelected = callbacks.onQueryChange,
+                        onStarterTaskSelected = callbacks.onStarterTaskSelected,
                         bottomComposerInset = phoneComposerInset
                     )
                 }
@@ -209,6 +211,7 @@ internal fun AppBody(
                     ),
                     conversations = recentConversations,
                     activeConversationId = activeConversationId,
+                    openingConversationId = openingConversationId,
                     loading = loading,
                     onBack = callbacks.onBackFromHistory,
                     onRefresh = callbacks.onRefreshWorkspace,
