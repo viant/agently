@@ -1184,6 +1184,16 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         }
     }
 
+    LaunchedEffect(forgeRuntime, client, activeConversationId) {
+        registerReportRuntimeExportHandler(
+            forgeRuntime = forgeRuntime,
+            client = client,
+            conversationIdProvider = { activeConversationId },
+            onError = { error = it },
+            openPdf = ::openDownloadedArtifactExternally
+        )
+    }
+
     fun setCurrentScreen(screen: AppScreen) {
         currentScreen = screen
     }
