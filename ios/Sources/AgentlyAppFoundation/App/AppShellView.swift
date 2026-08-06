@@ -7,6 +7,7 @@ public struct AppShellView: View {
     @State private var isShowingSettings = false
     @State private var conversationSearchText = ""
     @State private var compactNavigationPath: [String] = []
+    @State private var compactUserReturnedToListConversationID: String?
     @State private var compactShowsStarterSurface = false
     @State private var regularColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var pendingConversationDeletion: Conversation?
@@ -32,6 +33,7 @@ public struct AppShellView: View {
                 }
 
                 Button {
+                    compactUserReturnedToListConversationID = nil
                     compactNavigationPath = []
                     conversationSearchText = ""
                     compactShowsStarterSurface = true
@@ -183,6 +185,7 @@ public struct AppShellView: View {
                 onSelectConversation: { conversationID in
                     let normalized = conversationID.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !normalized.isEmpty {
+                        compactUserReturnedToListConversationID = nil
                         compactNavigationPath = [normalized]
                     }
                     compactShowsStarterSurface = false
@@ -206,7 +209,13 @@ public struct AppShellView: View {
             .navigationDestination(for: String.self) { conversationID in
                 CompactConversationDestination(
                     conversationID: conversationID,
-                    runtime: runtime
+                    runtime: runtime,
+                    onReturnToList: {
+                        compactUserReturnedToListConversationID = normalizedCompactConversationID(runtime.state.activeConversationID)
+                            ?? normalizedCompactConversationID(conversationID)
+                        compactShowsStarterSurface = false
+                        compactNavigationPath = []
+                    }
                 )
             }
             .task(id: runtime.state.activeConversationID) {
@@ -214,22 +223,26 @@ public struct AppShellView: View {
             }
             .onChange(of: compactNavigationPath) { _, newValue in
                 if newValue.isEmpty, runtime.state.activeConversationID != nil {
+                    compactUserReturnedToListConversationID = normalizedCompactConversationID(runtime.state.activeConversationID)
                     compactShowsStarterSurface = false
+                } else if !newValue.isEmpty {
+                    compactUserReturnedToListConversationID = nil
                 }
             }
         }
     }
 
     private func syncCompactNavigationPath() {
-        let activeConversationID = runtime.state.activeConversationID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if activeConversationID.isEmpty {
-            if !compactNavigationPath.isEmpty {
-                compactNavigationPath = []
-            }
-            return
+        let nextPath = resolvedCompactNavigationPath(
+            activeConversationID: runtime.state.activeConversationID,
+            navigationPath: compactNavigationPath,
+            userReturnedToListConversationID: compactUserReturnedToListConversationID
+        )
+        if nextPath != compactNavigationPath {
+            compactNavigationPath = nextPath
         }
-        if compactNavigationPath.last != activeConversationID || compactNavigationPath.count != 1 {
-            compactNavigationPath = [activeConversationID]
+        if nextPath.isEmpty, normalizedCompactConversationID(runtime.state.activeConversationID) == nil {
+            compactUserReturnedToListConversationID = nil
         }
     }
 
@@ -247,6 +260,7 @@ private extension ToolbarItemPlacement {
         .automatic
         #endif
     }
+
 }
 
 private extension SearchFieldPlacement {
@@ -393,15 +407,15 @@ private struct ConversationListView: View {
                 .id("selected-list-\(activeConversationID ?? "none")")
             } else if usesNavigationDestination {
                 List(filteredConversations, id: \.id) { conversation in
-                    NavigationLink(value: conversation.id) {
+                    Button {
+                        onSelectConversation(conversation.id)
+                    } label: {
                         ConversationRowView(
                             conversation: conversation,
                             isActive: conversation.id == activeConversationID
                         )
                     }
-                    .simultaneousGesture(TapGesture().onEnded {
-                        onSelectConversation(conversation.id)
-                    })
+                    .buttonStyle(.plain)
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
                             onRequestDeleteConversation(conversation)
@@ -497,22 +511,43 @@ private struct ConversationListNavigationTitleMode: ViewModifier {
 private struct CompactConversationDestination: View {
     let conversationID: String
     @ObservedObject var runtime: AppRuntime
+    let onReturnToList: () -> Void
 
     private var isActiveConversationLoaded: Bool {
         runtime.state.activeConversationID?.trimmingCharacters(in: .whitespacesAndNewlines) == conversationID
     }
 
     var body: some View {
-        Group {
-            if isActiveConversationLoaded {
-                ChatScreens(runtime: runtime)
-                    .id(conversationID)
-            } else {
-                ConversationLoadingDetailView()
+        VStack(spacing: 0) {
+            HStack {
+                Button(action: onReturnToList) {
+                    Label("Conversations", systemImage: "chevron.left")
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("agently-conversations-back")
+                Spacer()
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
+
+            Group {
+                if isActiveConversationLoaded {
+                    ChatScreens(
+                        runtime: runtime,
+                        onReturnToConversationList: onReturnToList
+                    )
+                        .id(conversationID)
+                } else {
+                    ConversationLoadingDetailView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle("Conversation")
         .modifier(ConversationListNavigationTitleMode(useInlineTitle: true))
+        .navigationBarBackButtonHidden(true)
         .task(id: conversationID) {
             if !isActiveConversationLoaded {
                 await runtime.selectConversation(conversationID)
@@ -772,6 +807,29 @@ internal func resolveWorkspaceBrandLabel(
         return defaultLabel
     }
     return fallbackLabel
+}
+
+internal func normalizedCompactConversationID(_ conversationID: String?) -> String? {
+    let normalized = conversationID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return normalized.isEmpty ? nil : normalized
+}
+
+internal func resolvedCompactNavigationPath(
+    activeConversationID: String?,
+    navigationPath: [String],
+    userReturnedToListConversationID: String?
+) -> [String] {
+    guard let activeConversationID = normalizedCompactConversationID(activeConversationID) else {
+        return []
+    }
+    if navigationPath.isEmpty,
+       normalizedCompactConversationID(userReturnedToListConversationID) == activeConversationID {
+        return []
+    }
+    if navigationPath.count == 1, navigationPath.last == activeConversationID {
+        return navigationPath
+    }
+    return [activeConversationID]
 }
 
 private extension View {

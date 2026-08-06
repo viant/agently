@@ -76,7 +76,7 @@ final class ForecastingPrefillUITests: XCTestCase {
 
         var newChatButton = app.buttons["agently-new-chat"]
         for _ in 0..<3 where !newChatButton.waitForExistence(timeout: 10) {
-            let backButton = app.buttons["BackButton"]
+            let backButton = preferredConversationBackButton(in: app)
             if backButton.waitForExistence(timeout: 5) {
                 backButton.tap()
                 newChatButton = app.buttons["agently-new-chat"]
@@ -147,8 +147,16 @@ final class ForecastingPrefillUITests: XCTestCase {
             continueButton.tap()
         }
 
-        let newChatButton = app.buttons["agently-new-chat"]
+        var newChatButton = app.buttons["agently-new-chat"]
+        if !newChatButton.waitForExistence(timeout: 10) {
+            let backButton = preferredConversationBackButton(in: app)
+            if backButton.waitForExistence(timeout: 5) {
+                backButton.tap()
+                newChatButton = app.buttons["agently-new-chat"]
+            }
+        }
         XCTAssertTrue(newChatButton.waitForExistence(timeout: 90), "New Chat button did not appear")
+        XCTAssertTrue(app.navigationBars["Conversations"].waitForExistence(timeout: 10), "Back navigation did not return to Conversations")
         newChatButton.tap()
 
         let editor = app.textViews["agently-composer-editor"]
@@ -160,12 +168,7 @@ final class ForecastingPrefillUITests: XCTestCase {
         XCTAssertTrue(hideKeyboardButton.waitForExistence(timeout: 10), "Hide Keyboard action did not appear after focusing composer")
         hideKeyboardButton.tap()
         XCTAssertFalse(hideKeyboardButton.waitForExistence(timeout: 5), "Hide Keyboard action should disappear after keyboard dismissal")
-
-        let backButton = app.navigationBars.buttons.element(boundBy: 0)
-        XCTAssertTrue(backButton.waitForExistence(timeout: 10), "Conversation detail back button did not appear")
-        backButton.tap()
-
-        XCTAssertTrue(app.navigationBars["Conversations"].waitForExistence(timeout: 10), "Back navigation did not return to Conversations")
+        XCTAssertTrue(app.buttons["agently-new-chat"].waitForExistence(timeout: 10), "New chat action should remain reachable")
 
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Phone shell conversations and keyboard"
@@ -195,6 +198,14 @@ final class ForecastingPrefillUITests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         observedIdentifiers.formUnion(app.visibleReportBuilderIdentifiers(matching: requiredIdentifiers))
         return requiredIdentifiers.allSatisfy { observedIdentifiers.contains($0) }
+    }
+
+    private func preferredConversationBackButton(in app: XCUIApplication) -> XCUIElement {
+        let contentBackButton = app.buttons["agently-conversations-back"]
+        if contentBackButton.exists {
+            return contentBackButton
+        }
+        return app.buttons["BackButton"]
     }
 }
 
