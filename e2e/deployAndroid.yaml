@@ -20,21 +20,59 @@ pipeline:
         cd ${repoPath}/android
         export ANDROID_HOME="${androidHome}"
         export PATH="${androidHome}/platform-tools:${androidHome}/emulator:$PATH"
-        adb devices -l
-      - |
-        cd ${repoPath}/android
-        export ANDROID_HOME="${androidHome}"
-        export PATH="${androidHome}/platform-tools:${androidHome}/emulator:$PATH"
-        AGENTLY_ANDROID_BASE_URL="${appBaseURL}" ./gradlew ${gradleTask} --console=plain
-      - |
-        cd ${repoPath}/android
-        export ANDROID_HOME="${androidHome}"
-        export PATH="${androidHome}/platform-tools:${androidHome}/emulator:$PATH"
+        select_device() {
+          devices="$(adb devices -l | awk 'NR > 1 && $2 == "device" {print $0}')"
+          physical="$(printf '%s\n' "$devices" | awk '$1 !~ /^emulator-/ {print $1; exit}')"
+          emulator="$(printf '%s\n' "$devices" | awk '$1 ~ /^emulator-/ {print $1; exit}')"
+          selected="${deviceSerial:-${physical:-$emulator}}"
+        }
+        select_device
+        echo "$devices"
         if [ -n "${deviceSerial}" ]; then
-          ADB="adb -s ${deviceSerial}"
-        else
-          ADB="adb"
+          if ! printf '%s\n' "$devices" | awk '{print $1}' | grep -qx "${deviceSerial}"; then
+            echo "Requested Android device is not connected: ${deviceSerial}"
+            exit 1
+          fi
+          echo "Using requested Android device: ${deviceSerial}"
+          exit 0
         fi
+        if [ -z "$selected" ]; then
+          echo "No connected Android device or emulator is available."
+          exit 1
+        fi
+        echo "Selected Android device: $selected"
+      - |
+        cd ${repoPath}/android
+        export ANDROID_HOME="${androidHome}"
+        export PATH="${androidHome}/platform-tools:${androidHome}/emulator:$PATH"
+        select_device() {
+          devices="$(adb devices -l | awk 'NR > 1 && $2 == "device" {print $0}')"
+          physical="$(printf '%s\n' "$devices" | awk '$1 !~ /^emulator-/ {print $1; exit}')"
+          emulator="$(printf '%s\n' "$devices" | awk '$1 ~ /^emulator-/ {print $1; exit}')"
+          selected="${deviceSerial:-${physical:-$emulator}}"
+        }
+        select_device
+        if [ -z "$selected" ]; then
+          echo "No connected Android device or emulator is available."
+          exit 1
+        fi
+        AGENTLY_ANDROID_BASE_URL="${appBaseURL}" ./gradlew ${gradleTask} -Pandroid.injected.adb.device.serial="$selected" --console=plain
+      - |
+        cd ${repoPath}/android
+        export ANDROID_HOME="${androidHome}"
+        export PATH="${androidHome}/platform-tools:${androidHome}/emulator:$PATH"
+        select_device() {
+          devices="$(adb devices -l | awk 'NR > 1 && $2 == "device" {print $0}')"
+          physical="$(printf '%s\n' "$devices" | awk '$1 !~ /^emulator-/ {print $1; exit}')"
+          emulator="$(printf '%s\n' "$devices" | awk '$1 ~ /^emulator-/ {print $1; exit}')"
+          selected="${deviceSerial:-${physical:-$emulator}}"
+        }
+        select_device
+        if [ -z "$selected" ]; then
+          echo "No connected Android device or emulator is available."
+          exit 1
+        fi
+        ADB="adb -s $selected"
         if [ "${clearData}" = "true" ]; then
           $ADB shell pm clear "${appPackage}"
         fi
