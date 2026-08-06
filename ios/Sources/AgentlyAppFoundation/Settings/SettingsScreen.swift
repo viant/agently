@@ -89,7 +89,7 @@ public struct SettingsScreen: View {
                 Section("Sign-In Helpers") {
                     TextField("OOB Secret Reference", text: $runtime.oobSecretReference)
                         .autocorrectionDisabled()
-                    Text("Example: `~/.secret/app_oob.enc|blowfish://default`.")
+                    Text("Example: `<encrypted-oob-reference>|blowfish://default`.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     if let authSessionID,
