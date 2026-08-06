@@ -100,8 +100,10 @@ internal fun AppBody(
             }
             AuthRequiredScreen(
                 busy = authBusy,
+                developerSessionEnabled = BuildConfig.DEBUG,
                 onSignIn = callbacks.onAuthSignIn,
-                onOpenSettings = callbacks.onOpenSettings
+                onOpenSettings = callbacks.onOpenSettings,
+                onDeveloperSessionSignIn = callbacks.onDeveloperSessionSignIn
             )
             authWebUrl?.let { authUrl ->
                 OAuthWebDialog(

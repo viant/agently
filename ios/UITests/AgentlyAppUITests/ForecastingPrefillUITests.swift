@@ -9,7 +9,11 @@ final class ForecastingPrefillUITests: XCTestCase {
 
         let baseURL = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_BASE_URL"] ?? "http://127.0.0.1:9292"
         let oobSecret = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_OOB_SECRET"]
-            ?? "~/.secret/awitas_dsp_ui.enc|blowfish://default"
+            ?? ""
+        try XCTSkipUnless(
+            !oobSecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            "Set AGENTLY_IOS_UI_TEST_OOB_SECRET to run live local OOB UI verification."
+        )
         let activeConversationID = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_ACTIVE_CONVERSATION_ID"] ?? ""
 
         let app = XCUIApplication()
@@ -59,7 +63,55 @@ final class ForecastingPrefillUITests: XCTestCase {
         waitForExpectations(timeout: 10)
 
         let forecastingTitle = app.staticTexts["Forecasting"].firstMatch
-        XCTAssertTrue(forecastingTitle.waitForExistence(timeout: 180), "Forecasting pane did not open")
+        XCTAssertTrue(forecastingTitle.waitForExistence(timeout: 300), "Forecasting pane did not open")
+        XCTAssertTrue(
+            waitForReportBuilderFilterBody(in: app),
+            "Forecasting filter body did not render predicate-derived controls"
+        )
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Forecasting predicate filters"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
         RunLoop.current.run(until: Date().addingTimeInterval(45))
+    }
+
+    private func waitForReportBuilderFilterBody(in app: XCUIApplication) -> Bool {
+        let requiredIdentifiers = [
+            "forge-report-builder-filter-summary",
+            "forge-report-builder-static-filter-dateRange",
+            "forge-report-builder-dynamic-filters",
+            "forge-report-builder-dynamic-family-inventory",
+            "forge-report-builder-add-line-inventory"
+        ]
+        let deadline = Date().addingTimeInterval(120)
+        var observedIdentifiers = Set<String>()
+        while Date() < deadline {
+            observedIdentifiers.formUnion(app.visibleReportBuilderIdentifiers(matching: requiredIdentifiers))
+            if requiredIdentifiers.allSatisfy({ observedIdentifiers.contains($0) }) {
+                return true
+            }
+            app.swipeUp()
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+        }
+        app.swipeDown()
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        observedIdentifiers.formUnion(app.visibleReportBuilderIdentifiers(matching: requiredIdentifiers))
+        return requiredIdentifiers.allSatisfy { observedIdentifiers.contains($0) }
+    }
+}
+
+private extension XCUIApplication {
+    func visibleReportBuilderIdentifiers(matching expectedIdentifiers: [String]) -> Set<String> {
+        let visibleFrame = windows.firstMatch.frame
+        let elements = descendants(matching: .any).allElementsBoundByIndex
+        var matched = Set<String>()
+        for element in elements {
+            guard element.exists, element.frame.intersects(visibleFrame) else { continue }
+            let identifier = element.identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+            if expectedIdentifiers.contains(identifier) {
+                matched.insert(identifier)
+            }
+        }
+        return matched
     }
 }

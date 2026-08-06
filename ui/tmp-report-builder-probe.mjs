@@ -1,9 +1,14 @@
 import { chromium } from 'playwright';
 
-const baseUrl = 'http://127.0.0.1:5174';
+const baseUrl = process.env.AGENTLY_PROBE_BASE_URL || 'http://127.0.0.1:5174';
+const secretsURL = process.env.AGENTLY_PROBE_OOB_SECRET_REF || '';
+const configURL = process.env.AGENTLY_PROBE_AUTH_CONFIG_REF || '';
+if (!secretsURL || !configURL) {
+  throw new Error('Set AGENTLY_PROBE_OOB_SECRET_REF and AGENTLY_PROBE_AUTH_CONFIG_REF before running this probe.');
+}
 const oobBody = {
-  secretsURL: '/Users/awitas/.secret/awitas_dsp_ui.enc|blowfish://default',
-  configURL: '/Users/awitas/.secret/idp_viant.enc|blowfish://default'
+  secretsURL,
+  configURL
 };
 const authResp = await fetch(`${baseUrl}/v1/api/auth/oob`, {
   method: 'POST',

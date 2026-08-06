@@ -129,13 +129,38 @@ class AppSettingsRuntimeTest {
     }
 
     @Test
-    fun selectedWorkspaceEndpointOption_resolvesStewardPreset() {
-        val steward = workspaceEndpointOptions.first()
+    fun configuredWorkspaceEndpointOptions_resolveStewardPreset() {
+        val options = mergeWorkspaceEndpointOptions(
+            parseWorkspaceEndpointOptions(
+                """
+                [
+                  {
+                    "title": "Steward",
+                    "subtitle": "Viant Steward workspace",
+                    "value": "https://steward.agently.viantinc.com"
+                  }
+                ]
+                """.trimIndent()
+            )
+        )
+        val steward = options.first()
 
         assertEquals(
-            steward,
-            selectedWorkspaceEndpointOption("https://steward.agently.viantinc.com/v1/api/")
+            WorkspaceEndpointOption(
+                title = "Steward",
+                subtitle = "Viant Steward workspace",
+                value = "https://steward.agently.viantinc.com"
+            ),
+            steward
         )
+        assertEquals("Android Host 9292", options[1].title)
+    }
+
+    @Test
+    fun workspaceEndpointOptions_keepGenericLocalDefaultsInSource() {
+        assertEquals("Android Host 9292", workspaceEndpointOptions.first().title)
+        assertEquals("http://10.0.2.2:9292", workspaceEndpointOptions.first().value)
+        assertNull(selectedWorkspaceEndpointOption("https://steward.agently.viantinc.com/v1/api/"))
     }
 
     @Test

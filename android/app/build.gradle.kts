@@ -51,6 +51,14 @@ val agentlyAndroidIdpPassword = agentlyAndroidIdpPasswordProvider
     .get()
     .replace("\\", "\\\\")
     .replace("\"", "\\\"")
+val agentlyAndroidWorkspaceEndpointsProvider = providers
+    .gradleProperty("agently.android.workspaceEndpointsJson")
+    .orElse(providers.environmentVariable("AGENTLY_WORKSPACE_ENDPOINTS_JSON"))
+val agentlyAndroidWorkspaceEndpoints = agentlyAndroidWorkspaceEndpointsProvider
+    .orElse("")
+    .get()
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
 
 android {
     namespace = "com.viant.agently.android"
@@ -68,6 +76,7 @@ android {
         buildConfigField("boolean", "BOOTSTRAP_AUTO_OOB_SIGN_IN", agentlyAndroidAutoOob)
         buildConfigField("String", "BOOTSTRAP_IDP_USERNAME", "\"$agentlyAndroidIdpUser\"")
         buildConfigField("String", "BOOTSTRAP_IDP_PASSWORD", "\"$agentlyAndroidIdpPassword\"")
+        buildConfigField("String", "WORKSPACE_ENDPOINTS_JSON", "\"$agentlyAndroidWorkspaceEndpoints\"")
     }
 
     buildFeatures {

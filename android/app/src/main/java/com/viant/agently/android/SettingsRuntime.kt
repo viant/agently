@@ -1,16 +1,22 @@
 package com.viant.agently.android
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+
 internal data class WorkspaceEndpointOption(
     val title: String,
     val subtitle: String,
     val value: String
 )
 
-internal val workspaceEndpointOptions = listOf(
+private val localWorkspaceEndpointOptions = listOf(
     WorkspaceEndpointOption(
-        title = "Steward",
-        subtitle = "Viant Steward workspace",
-        value = "https://steward.agently.viantinc.com"
+        title = "Android Host 9292",
+        subtitle = "Local Agently server on the emulator host",
+        value = "http://10.0.2.2:9292"
     ),
     WorkspaceEndpointOption(
         title = "Localhost 9292",
@@ -18,11 +24,53 @@ internal val workspaceEndpointOptions = listOf(
         value = "http://localhost:9292"
     ),
     WorkspaceEndpointOption(
-        title = "Android Host 9292",
-        subtitle = "Local Agently server on the emulator host",
-        value = "http://10.0.2.2:9292"
+        title = "Loopback 9292",
+        subtitle = "Local Agently server on loopback",
+        value = "http://127.0.0.1:9292"
     )
 )
+
+internal val workspaceEndpointOptions = mergeWorkspaceEndpointOptions(
+    parseWorkspaceEndpointOptions(BuildConfig.WORKSPACE_ENDPOINTS_JSON),
+    localWorkspaceEndpointOptions
+)
+
+internal fun parseWorkspaceEndpointOptions(raw: String): List<WorkspaceEndpointOption> {
+    val trimmed = raw.trim()
+    if (trimmed.isEmpty()) return emptyList()
+    val root = runCatching { Json.parseToJsonElement(trimmed) }.getOrNull() ?: return emptyList()
+    val entries = when (root) {
+        is JsonObject -> runCatching { root["endpoints"]?.jsonArray }.getOrNull() ?: return emptyList()
+        else -> runCatching { root.jsonArray }.getOrNull() ?: return emptyList()
+    }
+    return entries.mapNotNull { entry ->
+        val item = runCatching { entry.jsonObject }.getOrNull() ?: return@mapNotNull null
+        val value = item.stringValue("value") ?: item.stringValue("url") ?: return@mapNotNull null
+        val normalizedValue = normalizeApiBaseUrl(value)
+        if (normalizedValue.isBlank()) return@mapNotNull null
+        WorkspaceEndpointOption(
+            title = item.stringValue("title") ?: item.stringValue("name") ?: normalizedValue,
+            subtitle = item.stringValue("subtitle") ?: item.stringValue("description") ?: "",
+            value = normalizedValue
+        )
+    }
+}
+
+internal fun mergeWorkspaceEndpointOptions(
+    configured: List<WorkspaceEndpointOption>,
+    local: List<WorkspaceEndpointOption> = localWorkspaceEndpointOptions
+): List<WorkspaceEndpointOption> {
+    return (configured + local)
+        .filter { it.value.isNotBlank() }
+        .distinctBy { normalizeApiBaseUrl(it.value) }
+}
+
+private fun JsonObject.stringValue(key: String): String? {
+    return (this[key] as? JsonPrimitive)
+        ?.content
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+}
 
 internal data class SettingsApplyTransition(
     val resolvedBaseUrl: String,

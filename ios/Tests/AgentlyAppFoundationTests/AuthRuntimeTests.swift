@@ -249,17 +249,44 @@ final class AuthRuntimeTests: XCTestCase {
         defaults.removePersistentDomain(forName: #function)
         let store = AppSettingsStore(defaults: defaults)
         let runtime = SettingsRuntime(store: store)
-        let steward = SettingsRuntime.workspacePresets[0]
+        let local = SettingsRuntime.workspacePresets[0]
 
-        runtime.selectWorkspaceEndpoint(steward)
+        runtime.selectWorkspaceEndpoint(local)
 
         XCTAssertTrue(runtime.hasWorkspaceEndpointSelection)
-        XCTAssertEqual(runtime.normalizedAPIBaseURL, "https://steward.agently.viantinc.com")
-        XCTAssertEqual(store.loadAPIBaseURL(), "https://steward.agently.viantinc.com")
+        XCTAssertEqual(runtime.normalizedAPIBaseURL, local.value)
+        XCTAssertEqual(store.loadAPIBaseURL(), local.value)
 
         let restored = SettingsRuntime(store: store)
         XCTAssertTrue(restored.hasWorkspaceEndpointSelection)
-        XCTAssertEqual(restored.selectedWorkspacePreset, steward)
+        XCTAssertEqual(restored.selectedWorkspacePreset, local)
+    }
+
+    func testConfiguredWorkspaceEndpointOptionsCanInjectSteward() {
+        let options = mergeWorkspaceEndpointOptions(
+            parseWorkspaceEndpointOptions(
+                """
+                [
+                  {
+                    "title": "Steward",
+                    "subtitle": "Viant Steward workspace",
+                    "value": "https://steward.agently.viantinc.com/v1/api/"
+                  }
+                ]
+                """
+            )
+        )
+
+        XCTAssertEqual(
+            options.first,
+            WorkspaceEndpointOption(
+                title: "Steward",
+                subtitle: "Viant Steward workspace",
+                value: "https://steward.agently.viantinc.com"
+            )
+        )
+        XCTAssertTrue(options.contains { $0.value == "http://localhost:9292" })
+        XCTAssertFalse(SettingsRuntime.workspacePresets.contains { $0.value == "https://steward.agently.viantinc.com" })
     }
 
     @MainActor
