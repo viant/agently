@@ -1,6 +1,5 @@
 package com.viant.agently.android
 
-import android.content.Intent
 import android.net.Uri
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -17,7 +16,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Button
@@ -37,7 +39,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import java.net.URI
@@ -166,157 +167,137 @@ internal fun OAuthWebDialog(
     onDismiss: () -> Unit,
     onCallback: (String, String) -> Unit
 ) {
-    val context = LocalContext.current
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var loadedAuthUrl by remember { mutableStateOf<String?>(null) }
     var pageStatus by remember { mutableStateOf("Opening sign-in page…") }
     var webError by remember { mutableStateOf<String?>(null) }
 
-    Card(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(12.dp)
+            .statusBarsPadding()
+            .navigationBarsPadding()
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { viewContext ->
+                WebView(viewContext).apply {
+                    webViewRef = this
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.useWideViewPort = true
+                    settings.loadWithOverviewMode = true
+                    settings.textZoom = 100
+                    webViewClient = object : WebViewClient() {
+                        private fun intercept(url: String): Boolean {
+                            if (!matchesOAuthCallbackUrl(url, callbackPrefix)) {
+                                return false
+                            }
+                            val uri = Uri.parse(url)
+                            val code = uri.getQueryParameter("code").orEmpty()
+                            val state = uri.getQueryParameter("state").orEmpty()
+                            if (code.isBlank() || state.isBlank()) {
+                                return false
+                            }
+                            onCallback(code, state)
+                            return true
+                        }
+
+                        private fun updatePageState(view: WebView?, url: String?) {
+                            val target = url.orEmpty().ifBlank { view?.url.orEmpty() }
+                            if (target.isBlank()) {
+                                pageStatus = "Opening sign-in page…"
+                                return
+                            }
+                            webError = null
+                            pageStatus = when {
+                                matchesOAuthCallbackUrl(target, callbackPrefix) ->
+                                    "Finishing sign-in…"
+                                else ->
+                                    Uri.parse(target).host?.let { "Loading $it…" } ?: "Loading sign-in page…"
+                            }
+                        }
+
+                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                            return intercept(request?.url?.toString().orEmpty())
+                        }
+
+                        @Deprecated("Deprecated in Android API 24")
+                        override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                            return intercept(url.orEmpty())
+                        }
+
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            super.onPageFinished(view, url)
+                            updatePageState(view, url)
+                        }
+
+                        override fun onReceivedError(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                            error: WebResourceError?
+                        ) {
+                            super.onReceivedError(view, request, error)
+                            if (request?.isForMainFrame != true) {
+                                return
+                            }
+                            val code = error?.errorCode ?: 0
+                            val description = error?.description?.toString().orEmpty()
+                            pageStatus = "Sign-in page failed to load."
+                            webError = when {
+                                code == -2 || description.contains("ERR_NAME_NOT_RESOLVED", ignoreCase = true) ->
+                                    "The emulator could not resolve the login host. Reload or open the page in the system browser."
+                                else ->
+                                    "The identity provider sign-in page could not be loaded${if (description.isNotBlank()) ": $description" else "."}"
+                            }
+                        }
+                    }
+                    loadUrl(authUrl)
+                    loadedAuthUrl = authUrl
+                }
+            },
+            update = { webView ->
+                webViewRef = webView
+                if (loadedAuthUrl != authUrl) {
+                    loadedAuthUrl = authUrl
+                    pageStatus = "Opening sign-in page…"
+                    webView.loadUrl(authUrl)
+                }
+            }
+        )
+        TextButton(
+            onClick = onDismiss,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset(x = (-8).dp, y = 8.dp)
+        ) {
+            Text("Close")
+        }
+        webError?.let { message ->
             Row(
                 modifier = Modifier
+                    .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("OAuth Sign In", style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        pageStatus,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF667085)
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(
-                        onClick = {
-                            runCatching {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)))
-                            }
-                        }
-                    ) {
-                        Text("Open in browser")
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFB42318),
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(
+                    onClick = {
+                        webError = null
+                        pageStatus = "Retrying sign-in page…"
+                        webViewRef?.reload()
                     }
-                    TextButton(onClick = onDismiss) {
-                        Text("Close")
-                    }
-                }
-            }
-            webError?.let { message ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFB42318),
-                        modifier = Modifier.weight(1f)
-                    )
-                    TextButton(
-                        onClick = {
-                            webError = null
-                            pageStatus = "Retrying sign-in page…"
-                            webViewRef?.reload()
-                        }
-                    ) {
-                        Text("Reload")
-                    }
+                    Text("Reload")
                 }
             }
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { viewContext ->
-                    WebView(viewContext).apply {
-                        webViewRef = this
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        webViewClient = object : WebViewClient() {
-                            private fun intercept(url: String): Boolean {
-                                if (!matchesOAuthCallbackUrl(url, callbackPrefix)) {
-                                    return false
-                                }
-                                val uri = Uri.parse(url)
-                                val code = uri.getQueryParameter("code").orEmpty()
-                                val state = uri.getQueryParameter("state").orEmpty()
-                                if (code.isBlank() || state.isBlank()) {
-                                    return false
-                                }
-                                onCallback(code, state)
-                                return true
-                            }
-
-                            private fun updatePageState(view: WebView?, url: String?) {
-                                val target = url.orEmpty().ifBlank { view?.url.orEmpty() }
-                                if (target.isBlank()) {
-                                    pageStatus = "Opening sign-in page…"
-                                    return
-                                }
-                                webError = null
-                                pageStatus = when {
-                                    matchesOAuthCallbackUrl(target, callbackPrefix) ->
-                                        "Finishing sign-in…"
-                                    else ->
-                                        Uri.parse(target).host?.let { "Loading $it…" } ?: "Loading sign-in page…"
-                                }
-                            }
-
-                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                                return intercept(request?.url?.toString().orEmpty())
-                            }
-
-                            @Deprecated("Deprecated in Android API 24")
-                            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-                                return intercept(url.orEmpty())
-                            }
-
-                            override fun onPageFinished(view: WebView?, url: String?) {
-                                super.onPageFinished(view, url)
-                                updatePageState(view, url)
-                            }
-
-                            override fun onReceivedError(
-                                view: WebView?,
-                                request: WebResourceRequest?,
-                                error: WebResourceError?
-                            ) {
-                                super.onReceivedError(view, request, error)
-                                if (request?.isForMainFrame != true) {
-                                    return
-                                }
-                                val code = error?.errorCode ?: 0
-                                val description = error?.description?.toString().orEmpty()
-                                pageStatus = "Sign-in page failed to load."
-                                webError = when {
-                                    code == -2 || description.contains("ERR_NAME_NOT_RESOLVED", ignoreCase = true) ->
-                                        "The emulator could not resolve the login host. Reload or open the page in the system browser."
-                                    else ->
-                                        "The identity provider sign-in page could not be loaded${if (description.isNotBlank()) ": $description" else "."}"
-                                }
-                            }
-                        }
-                        loadUrl(authUrl)
-                        loadedAuthUrl = authUrl
-                    }
-                },
-                update = { webView ->
-                    webViewRef = webView
-                    if (loadedAuthUrl != authUrl) {
-                        loadedAuthUrl = authUrl
-                        pageStatus = "Opening sign-in page…"
-                        webView.loadUrl(authUrl)
-                    }
-                }
-            )
         }
     }
 }
