@@ -1,12 +1,5 @@
 init:
-  repoPath: $WorkingDirectory(./..)
-  androidHome: '$androidHome ? $androidHome : /Users/awitas/Library/Android/sdk'
-  appBaseURL: '$appBaseURL ? $appBaseURL : https://steward.agently.viantinc.com/'
-  appPackage: '$appPackage ? $appPackage : com.viant.agently.android'
-  appActivity: '$appActivity ? $appActivity : com.viant.agently.android/.MainActivity'
-  deviceSerial: '$deviceSerial ? $deviceSerial : '
-  gradleTask: '$gradleTask ? $gradleTask : :app:installDebug'
-  clearData: '$clearData ? $clearData : false'
+  repoPath: $WorkingDirectory(.)
 
 pipeline:
 
@@ -15,66 +8,61 @@ pipeline:
     description: build, install, and launch Agently Android app on an attached emulator/device
     TimeoutMs: 240000
     checkError: true
+    errors:
+      - No connected Android device or emulator is available.
+      - Requested Android device is not connected
     commands:
       - |
+        set -e
         cd ${repoPath}/android
-        export ANDROID_HOME="${androidHome}"
-        export PATH="${androidHome}/platform-tools:${androidHome}/emulator:$PATH"
+        if [ -z "$ANDROID_HOME" ]; then
+          ANDROID_HOME="/Users/awitas/Library/Android/sdk"
+        fi
+        if [ -z "$AGENTLY_ANDROID_BASE_URL" ]; then
+          AGENTLY_ANDROID_BASE_URL="https://steward.agently.viantinc.com/"
+        fi
+        if [ -z "$GRADLE_TASK" ]; then
+          GRADLE_TASK=":app:installDebug"
+        fi
+        if [ -z "$APP_PACKAGE" ]; then
+          APP_PACKAGE="com.viant.agently.android"
+        fi
+        if [ -z "$APP_ACTIVITY" ]; then
+          APP_ACTIVITY="com.viant.agently.android/.MainActivity"
+        fi
+        export ANDROID_HOME
+        export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
         select_device() {
           devices="$(adb devices -l | awk 'NR > 1 && $2 == "device" {print $0}')"
           physical="$(printf '%s\n' "$devices" | awk '$1 !~ /^emulator-/ {print $1; exit}')"
           emulator="$(printf '%s\n' "$devices" | awk '$1 ~ /^emulator-/ {print $1; exit}')"
-          selected="${deviceSerial:-${physical:-$emulator}}"
+          if [ -n "$DEVICE_SERIAL" ]; then
+            selected="$DEVICE_SERIAL"
+          elif [ -n "$physical" ]; then
+            selected="$physical"
+          else
+            selected="$emulator"
+          fi
         }
         select_device
         echo "$devices"
-        if [ -n "${deviceSerial}" ]; then
-          if ! printf '%s\n' "$devices" | awk '{print $1}' | grep -qx "${deviceSerial}"; then
-            echo "Requested Android device is not connected: ${deviceSerial}"
+        if [ -n "$DEVICE_SERIAL" ]; then
+          if ! printf '%s\n' "$devices" | awk '{print $1}' | grep -qx "$DEVICE_SERIAL"; then
+            echo "Requested Android device is not connected: $DEVICE_SERIAL"
             exit 1
           fi
-          echo "Using requested Android device: ${deviceSerial}"
-          exit 0
+          echo "Using requested Android device: $DEVICE_SERIAL"
         fi
         if [ -z "$selected" ]; then
           echo "No connected Android device or emulator is available."
           exit 1
         fi
         echo "Selected Android device: $selected"
-      - |
-        cd ${repoPath}/android
-        export ANDROID_HOME="${androidHome}"
-        export PATH="${androidHome}/platform-tools:${androidHome}/emulator:$PATH"
-        select_device() {
-          devices="$(adb devices -l | awk 'NR > 1 && $2 == "device" {print $0}')"
-          physical="$(printf '%s\n' "$devices" | awk '$1 !~ /^emulator-/ {print $1; exit}')"
-          emulator="$(printf '%s\n' "$devices" | awk '$1 ~ /^emulator-/ {print $1; exit}')"
-          selected="${deviceSerial:-${physical:-$emulator}}"
-        }
-        select_device
-        if [ -z "$selected" ]; then
-          echo "No connected Android device or emulator is available."
-          exit 1
-        fi
-        AGENTLY_ANDROID_BASE_URL="${appBaseURL}" ./gradlew ${gradleTask} -Pandroid.injected.adb.device.serial="$selected" --console=plain
-      - |
-        cd ${repoPath}/android
-        export ANDROID_HOME="${androidHome}"
-        export PATH="${androidHome}/platform-tools:${androidHome}/emulator:$PATH"
-        select_device() {
-          devices="$(adb devices -l | awk 'NR > 1 && $2 == "device" {print $0}')"
-          physical="$(printf '%s\n' "$devices" | awk '$1 !~ /^emulator-/ {print $1; exit}')"
-          emulator="$(printf '%s\n' "$devices" | awk '$1 ~ /^emulator-/ {print $1; exit}')"
-          selected="${deviceSerial:-${physical:-$emulator}}"
-        }
-        select_device
-        if [ -z "$selected" ]; then
-          echo "No connected Android device or emulator is available."
-          exit 1
-        fi
+        export ANDROID_HOME AGENTLY_ANDROID_BASE_URL
+        ./gradlew "$GRADLE_TASK" -Pandroid.injected.adb.device.serial="$selected" --console=plain
         ADB="adb -s $selected"
-        if [ "${clearData}" = "true" ]; then
-          $ADB shell pm clear "${appPackage}"
+        if [ "$CLEAR_DATA" = "true" ]; then
+          $ADB shell pm clear "$APP_PACKAGE"
         fi
-        $ADB shell am force-stop "${appPackage}"
-        $ADB shell am start -n "${appActivity}"
+        $ADB shell am force-stop "$APP_PACKAGE"
+        $ADB shell am start -n "$APP_ACTIVITY"
