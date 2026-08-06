@@ -16,4 +16,37 @@ final class AppShellBrandingTests: XCTestCase {
         XCTAssertEqual(resolveWorkspaceBrandTitle(workspaceTitle: "Viant Workspace"), "Viant Workspace")
         XCTAssertEqual(resolveWorkspaceBrandTitle(workspaceTitle: "viant"), "Viant")
     }
+
+    func testResolvedCompactNavigationPathOpensPersistedConversation() {
+        XCTAssertEqual(
+            resolvedCompactNavigationPath(
+                activeConversationID: " conversation-1 ",
+                navigationPath: [],
+                userReturnedToListConversationID: nil
+            ),
+            ["conversation-1"]
+        )
+    }
+
+    func testResolvedCompactNavigationPathHonorsUserReturnedToList() {
+        XCTAssertEqual(
+            resolvedCompactNavigationPath(
+                activeConversationID: "conversation-1",
+                navigationPath: [],
+                userReturnedToListConversationID: " conversation-1 "
+            ),
+            []
+        )
+    }
+
+    func testResolvedCompactNavigationPathOpensDifferentActiveConversation() {
+        XCTAssertEqual(
+            resolvedCompactNavigationPath(
+                activeConversationID: "conversation-2",
+                navigationPath: [],
+                userReturnedToListConversationID: "conversation-1"
+            ),
+            ["conversation-2"]
+        )
+    }
 }

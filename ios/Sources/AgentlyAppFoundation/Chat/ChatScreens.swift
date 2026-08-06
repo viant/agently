@@ -5,9 +5,14 @@ import ForgeIOSRuntime
 public struct ChatScreens: View {
     @ObservedObject private var runtime: AppRuntime
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    private let onReturnToConversationList: (() -> Void)?
 
-    public init(runtime: AppRuntime) {
+    public init(
+        runtime: AppRuntime,
+        onReturnToConversationList: (() -> Void)? = nil
+    ) {
         self.runtime = runtime
+        self.onReturnToConversationList = onReturnToConversationList
     }
 
     public var body: some View {
@@ -64,6 +69,7 @@ public struct ChatScreens: View {
                     onSelectAgent: { agentID in
                         runtime.selectPreferredAgent(agentID)
                     },
+                    onReturnToConversationList: onReturnToConversationList,
                     forgeRuntime: runtime.state.forgeRuntime
                 )
             } else {

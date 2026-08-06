@@ -46,6 +46,7 @@ public struct PhoneWorkspaceScreen: View {
     let onResolveElicitation: (String, [String: AppJSONValue]) -> Void
     let onDismissElicitation: () -> Void
     let onSelectAgent: (String?) -> Void
+    let onReturnToConversationList: (() -> Void)?
     let forgeRuntime: ForgeRuntime?
 
     public init(
@@ -81,6 +82,7 @@ public struct PhoneWorkspaceScreen: View {
         onResolveElicitation: @escaping (String, [String: AppJSONValue]) -> Void = { _, _ in },
         onDismissElicitation: @escaping () -> Void = {},
         onSelectAgent: @escaping (String?) -> Void = { _ in },
+        onReturnToConversationList: (() -> Void)? = nil,
         forgeRuntime: ForgeRuntime? = nil
     ) {
         self.metadata = metadata
@@ -115,6 +117,7 @@ public struct PhoneWorkspaceScreen: View {
         self.onResolveElicitation = onResolveElicitation
         self.onDismissElicitation = onDismissElicitation
         self.onSelectAgent = onSelectAgent
+        self.onReturnToConversationList = onReturnToConversationList
         self.forgeRuntime = forgeRuntime
     }
 
@@ -324,6 +327,9 @@ public struct PhoneWorkspaceScreen: View {
     private var hostedWorkspaceDestination: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
+                if onReturnToConversationList != nil {
+                    phoneHostedConversationListButton
+                }
                 WorkspaceStatusSection(
                     isSending: isSending,
                     isLoadingArtifacts: isLoadingArtifacts,
@@ -376,6 +382,20 @@ public struct PhoneWorkspaceScreen: View {
         }
         .navigationTitle(hostedWorkspaceTitle ?? "Workspace")
         .modifier(InlineNavigationTitleDisplayMode())
+    }
+
+    @ViewBuilder
+    private var phoneHostedConversationListButton: some View {
+        Button {
+            isHostedWorkspacePresented = false
+            onReturnToConversationList?()
+        } label: {
+            Label("Conversations", systemImage: "chevron.left")
+                .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityIdentifier("agently-conversations-back")
     }
 
     @ViewBuilder
