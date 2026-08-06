@@ -181,6 +181,10 @@ public struct AppShellView: View {
                     await runtime.refreshConversationList()
                 },
                 onSelectConversation: { conversationID in
+                    let normalized = conversationID.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !normalized.isEmpty {
+                        compactNavigationPath = [normalized]
+                    }
                     compactShowsStarterSurface = false
                     Task { await runtime.selectConversation(conversationID) }
                 },
@@ -200,13 +204,10 @@ public struct AppShellView: View {
                 onSend: { Task { await runtime.sendCurrentQuery() } }
             )
             .navigationDestination(for: String.self) { conversationID in
-                ChatScreens(runtime: runtime)
-                    .id(conversationID)
-                    .task(id: conversationID) {
-                        if runtime.state.activeConversationID != conversationID {
-                            await runtime.selectConversation(conversationID)
-                        }
-                    }
+                CompactConversationDestination(
+                    conversationID: conversationID,
+                    runtime: runtime
+                )
             }
             .task(id: runtime.state.activeConversationID) {
                 syncCompactNavigationPath()
@@ -490,6 +491,49 @@ private struct ConversationListNavigationTitleMode: ViewModifier {
         #else
         content
         #endif
+    }
+}
+
+private struct CompactConversationDestination: View {
+    let conversationID: String
+    @ObservedObject var runtime: AppRuntime
+
+    private var isActiveConversationLoaded: Bool {
+        runtime.state.activeConversationID?.trimmingCharacters(in: .whitespacesAndNewlines) == conversationID
+    }
+
+    var body: some View {
+        Group {
+            if isActiveConversationLoaded {
+                ChatScreens(runtime: runtime)
+                    .id(conversationID)
+            } else {
+                ConversationLoadingDetailView()
+            }
+        }
+        .navigationTitle("Conversation")
+        .modifier(ConversationListNavigationTitleMode(useInlineTitle: true))
+        .task(id: conversationID) {
+            if !isActiveConversationLoaded {
+                await runtime.selectConversation(conversationID)
+            }
+        }
+    }
+}
+
+private struct ConversationLoadingDetailView: View {
+    var body: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+                .controlSize(.large)
+            Text("Opening conversation")
+                .font(.headline)
+            Text("Loading the selected workspace thread.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
     }
 }
 

@@ -405,6 +405,18 @@ public struct ComposerScreen: View {
     private var actionButtons: some View {
         Group {
             #if os(iOS)
+            if isEditorFocused {
+                Button {
+                    isEditorFocused = false
+                    requestAgentlyPlatformKeyboardDismissal()
+                } label: {
+                    Label("Hide Keyboard", systemImage: "keyboard.chevron.compact.down")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("agently-composer-hide-keyboard")
+            }
+            #endif
+            #if os(iOS)
             if UIImagePickerController.isSourceTypeAvailable(.camera) {
                 Button {
                     isShowingCameraCapture = true
