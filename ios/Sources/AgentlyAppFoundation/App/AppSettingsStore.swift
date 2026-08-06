@@ -94,6 +94,11 @@ public final class AppSettingsStore {
     public static func normalizeAPIBaseURL(_ value: String) -> String {
         var candidate = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !candidate.isEmpty else { return "" }
+        if candidate.hasPrefix("http:/"), !candidate.hasPrefix("http://") {
+            candidate = "http://" + candidate.dropFirst("http:/".count)
+        } else if candidate.hasPrefix("https:/"), !candidate.hasPrefix("https://") {
+            candidate = "https://" + candidate.dropFirst("https:/".count)
+        }
         if !candidate.contains("://") {
             candidate = "http://\(candidate)"
         }

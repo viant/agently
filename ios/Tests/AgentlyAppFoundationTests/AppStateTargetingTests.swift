@@ -175,4 +175,15 @@ final class AppStateTargetingTests: XCTestCase {
             "http://127.0.0.1:9294"
         )
     }
+
+    func testNormalizeAPIBaseURLRepairsSingleSlashScheme() {
+        XCTAssertEqual(
+            AppSettingsStore.normalizeAPIBaseURL("http:/127.0.0.1:9292"),
+            "http://127.0.0.1:9292"
+        )
+        XCTAssertEqual(
+            AppSettingsStore.normalizeAPIBaseURL("https:/steward.agently.viantinc.com/v1/api"),
+            "https://steward.agently.viantinc.com"
+        )
+    }
 }
