@@ -99,6 +99,7 @@ public final class AppRuntime: ObservableObject {
         bindChildObjectChanges()
         Task { [weak self] in
             guard let self else { return }
+            await self.configureReportRuntimeExportHandler(client: client)
             await self.composerRuntime.configureLookupSupport(
                 contextID: self.selectedAgentID ?? "",
                 registryLoader: makeComposerLookupRegistryLoader(client: client),
@@ -904,11 +905,63 @@ public final class AppRuntime: ObservableObject {
                     targetContext: state.forgeRuntime.targetContext
                 )
             )
+            await configureReportRuntimeExportHandler(client: client)
         }
         authRuntime = AuthRuntime(client: client)
         queryRuntime = QueryRuntime(client: client)
         approvalRuntime = ApprovalRuntime(client: client)
         elicitationRuntime = ElicitationRuntime(client: client)
+    }
+
+    private func configureReportRuntimeExportHandler(client: AgentlyClient) async {
+        await registerReportRuntimeExportHandler(
+            forgeRuntime: state.forgeRuntime,
+            client: client,
+            conversationIDProvider: { @MainActor [weak self] in
+                self?.state.activeConversationID
+            },
+            onComplete: { @MainActor [weak self] artifact in
+                self?.selectExportedReportArtifact(artifact)
+            },
+            onError: { @MainActor [weak self] message in
+                self?.state.artifactErrorMessage = message
+            }
+        )
+    }
+
+    private func selectExportedReportArtifact(_ artifact: ReportRuntimeExportArtifact) {
+        let localPath = persistReportRuntimeExportArtifact(artifact)
+        let preview = ArtifactPreview(
+            id: "report-export:\(artifact.id)",
+            name: artifact.name,
+            contentType: artifact.contentType,
+            uri: nil,
+            localFilePath: localPath,
+            conversationID: state.activeConversationID,
+            generatedFileID: nil,
+            fileID: nil,
+            sourceLabel: "Report export",
+            text: nil
+        )
+        if let index = state.artifacts.firstIndex(where: { $0.id == preview.id }) {
+            state.artifacts[index] = preview
+        } else {
+            state.artifacts.insert(preview, at: 0)
+        }
+        state.selectedArtifact = preview
+    }
+
+    private func persistReportRuntimeExportArtifact(_ artifact: ReportRuntimeExportArtifact) -> String? {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agently-artifacts", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let fileURL = directory.appendingPathComponent("\(UUID().uuidString)-\(artifact.name)")
+            try artifact.data.write(to: fileURL, options: .atomic)
+            return fileURL.path
+        } catch {
+            return nil
+        }
     }
 
     private func loadRecentConversations(client: AgentlyClient) async throws -> [Conversation] {
