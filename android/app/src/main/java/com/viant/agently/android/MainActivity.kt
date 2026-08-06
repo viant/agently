@@ -7,6 +7,7 @@ import android.net.Uri
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.core.content.FileProvider
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -64,6 +65,7 @@ import com.viant.agentlysdk.CreateConversationInput
 import com.viant.agentlysdk.CreateSessionInput
 import com.viant.agentlysdk.DecideToolApprovalInput
 import com.viant.agentlysdk.ConversationStateResponse
+import com.viant.agentlysdk.DownloadFileOutput
 import com.viant.agentlysdk.EndpointConfig
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.Goal
@@ -109,6 +111,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import java.text.SimpleDateFormat
 import java.net.URI
+import java.io.File
 import java.util.Date
 import java.util.Locale
 import java.time.OffsetDateTime
@@ -1139,9 +1142,44 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         }
     }
 
+    fun openDownloadedArtifactExternally(
+        file: GeneratedFileEntry,
+        downloaded: DownloadFileOutput
+    ): Boolean {
+        val name = downloaded.name ?: file.filename ?: "${file.id.take(12)}.pdf"
+        val contentType = downloaded.contentType ?: file.mimeType
+        val isPdf = contentType.equals("application/pdf", ignoreCase = true) ||
+            name.endsWith(".pdf", ignoreCase = true)
+        if (!isPdf) {
+            return false
+        }
+        val downloadsDir = File(context.cacheDir, "downloads").apply { mkdirs() }
+        val sanitizedName = sanitizeDownloadFileName(name).ifBlank { file.id.take(12) }
+        val safeName = if (sanitizedName.endsWith(".pdf", ignoreCase = true)) {
+            sanitizedName
+        } else {
+            "$sanitizedName.pdf"
+        }
+        val target = File(downloadsDir, safeName)
+        target.writeBytes(downloaded.data)
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", target)
+        val intent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, "application/pdf")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        return runCatching {
+            context.startActivity(Intent.createChooser(intent, "Open PDF"))
+            true
+        }.getOrElse {
+            false
+        }
+    }
+
     fun openGeneratedFile(file: GeneratedFileEntry) {
         launchVisibleErrorOperation {
             val downloaded = resolveClient().downloadGeneratedFile(file.id)
+            if (openDownloadedArtifactExternally(file, downloaded)) {
+                return@launchVisibleErrorOperation
+            }
             artifactPreview = buildArtifactPreview(file, downloaded)
         }
     }
@@ -1380,6 +1418,13 @@ internal fun buildApiCandidates(configuredBaseUrl: String): List<String> {
         candidates += "$scheme://$host:$port$path"
     }
     return candidates.distinct()
+}
+
+internal fun sanitizeDownloadFileName(value: String): String {
+    val name = value.substringAfterLast('/').substringAfterLast('\\').trim()
+    return name.replace(Regex("[^A-Za-z0-9._ -]"), "_")
+        .trim()
+        .take(96)
 }
 
 private fun SavedLoginConfig.withBootstrapDefaults(
