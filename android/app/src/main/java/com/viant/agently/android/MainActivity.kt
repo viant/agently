@@ -268,6 +268,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     var authWebUrl by remember { mutableStateOf<String?>(null) }
     var authBusy by remember { mutableStateOf(false) }
     var authError by remember { mutableStateOf<String?>(null) }
+    var authInteractiveFailure by remember { mutableStateOf(false) }
     val pendingOAuthCallback by oauthCallbackUriFlow.collectAsState()
     var workspaceBootstrapRequested by remember { mutableStateOf(false) }
     var bootstrapOobSignInAttempted by remember { mutableStateOf(false) }
@@ -672,6 +673,10 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         authError = message
     }
 
+    fun setInteractiveAuthFailure(failed: Boolean) {
+        authInteractiveFailure = failed
+    }
+
     fun setAuthWebUrl(url: String?) {
         authWebUrl = url
     }
@@ -680,7 +685,8 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         return AuthUiBindings(
             onAuthBusyChange = ::setAuthBusy,
             onAuthErrorChange = ::setAuthError,
-            onAuthWebUrlChange = ::setAuthWebUrl
+            onAuthWebUrlChange = ::setAuthWebUrl,
+            onInteractiveAuthFailureChange = ::setInteractiveAuthFailure
         )
     }
 
@@ -1302,6 +1308,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         savedLoginConfig = savedLoginConfig,
         authBusy = authBusy,
         authError = authError,
+        authInteractiveFailure = authInteractiveFailure,
         error = error,
         authSessionId = authSessionId,
         authWebUrl = authWebUrl,
@@ -1385,6 +1392,12 @@ internal fun shouldAttemptBootstrapOobSignIn(
         !authBusy &&
         !alreadyAttempted &&
         savedLoginConfig.hasStoredOobSecretRef
+
+internal fun shouldShowDeveloperSessionEntry(
+    debugBuild: Boolean,
+    interactiveAuthFailure: Boolean
+): Boolean =
+    debugBuild && interactiveAuthFailure
 
 internal fun mergeApiCandidates(
     currentBaseUrl: String,
