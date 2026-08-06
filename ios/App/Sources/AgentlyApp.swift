@@ -57,8 +57,20 @@ enum AppBootstrap {
             endpoints: [
                 "appAPI": EndpointConfig(baseURL: baseURL)
             ],
-            session: URLSession(configuration: configuration)
+            session: URLSession(configuration: configuration),
+            sessionCookieStore: AgentlyPersistentSessionCookieStore(
+                namespace: sessionCookieNamespace(for: baseURL)
+            )
         )
+    }
+
+    static func sessionCookieNamespace(for baseURL: URL) -> String {
+        let host = baseURL.host?.lowercased() ?? "default"
+        let port = baseURL.port.map { ":\($0)" } ?? ""
+        let scheme = baseURL.scheme?.lowercased() ?? "http"
+        return "\(scheme)://\(host)\(port)"
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: ":", with: "_")
     }
 
     static func resolvedBaseURLString(

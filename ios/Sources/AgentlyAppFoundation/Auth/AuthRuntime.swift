@@ -159,6 +159,7 @@ public final class AuthRuntime: ObservableObject {
         do {
             logger.info("Logging out current session")
             try await client.logout()
+            client.clearSessionCookies()
             currentUser = nil
             lastAuthSessionID = nil
             await refreshConnectionContext()
