@@ -1334,7 +1334,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
 }
 
 internal fun buildApiCandidates(configuredBaseUrl: String): List<String> {
-    val trimmed = configuredBaseUrl.trim().ifBlank { "http://10.0.2.2:9292" }
+    val trimmed = configuredBaseUrl.trim().ifBlank { "https://steward.agently.viantinc.com" }
     val parsed = runCatching { URI(trimmed) }.getOrNull()
     val scheme = parsed?.scheme?.takeIf { it.isNotBlank() } ?: "http"
     val host = parsed?.host?.trim().orEmpty()
@@ -1346,24 +1346,21 @@ internal fun buildApiCandidates(configuredBaseUrl: String): List<String> {
     val path = parsed?.rawPath?.takeIf { it.isNotBlank() && it != "/" }.orEmpty()
     val prefersDeviceLoopback =
         host.equals("localhost", ignoreCase = true) || host == "127.0.0.1"
+    val prefersAndroidHostAlias = host == "10.0.2.2" || host == "10.0.3.2"
     val candidates = mutableListOf(trimmed)
     if (prefersDeviceLoopback) {
         candidates += listOf(
             "$scheme://localhost:$port$path",
             "$scheme://127.0.0.1:$port$path"
         )
-    } else {
+    } else if (prefersAndroidHostAlias) {
         candidates += listOf(
             "$scheme://10.0.2.2:$port$path",
             "$scheme://10.0.3.2:$port$path"
         )
-    }
-    if (
+    } else if (
         host.isNotBlank() &&
-        !host.equals("localhost", ignoreCase = true) &&
-        host != "127.0.0.1" &&
-        host != "10.0.2.2" &&
-        host != "10.0.3.2"
+        !trimmed.equals("$scheme://$host:$port$path", ignoreCase = true)
     ) {
         candidates += "$scheme://$host:$port$path"
     }

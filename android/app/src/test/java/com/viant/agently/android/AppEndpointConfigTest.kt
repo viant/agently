@@ -8,11 +8,12 @@ import org.junit.Test
 class AppEndpointConfigTest {
 
     @Test
-    fun `buildApiCandidates prefers host alias by default`() {
+    fun `buildApiCandidates prefers public steward by default`() {
         val candidates = buildApiCandidates("")
 
-        assertEquals("http://10.0.2.2:9292", candidates.first())
-        assertTrue(candidates.contains("http://10.0.3.2:9292"))
+        assertEquals("https://steward.agently.viantinc.com", candidates.first())
+        assertFalse(candidates.contains("http://10.0.2.2:9292"))
+        assertFalse(candidates.contains("http://10.0.3.2:9292"))
     }
 
     @Test

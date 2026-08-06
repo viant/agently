@@ -12,27 +12,17 @@ internal data class WorkspaceEndpointOption(
     val value: String
 )
 
-private val localWorkspaceEndpointOptions = listOf(
+private val defaultWorkspaceEndpointOptions = listOf(
     WorkspaceEndpointOption(
-        title = "Android Host 9292",
-        subtitle = "Local Agently server on the emulator host",
-        value = "http://10.0.2.2:9292"
-    ),
-    WorkspaceEndpointOption(
-        title = "Localhost 9292",
-        subtitle = "Local Agently server on this device",
-        value = "http://localhost:9292"
-    ),
-    WorkspaceEndpointOption(
-        title = "Loopback 9292",
-        subtitle = "Local Agently server on loopback",
-        value = "http://127.0.0.1:9292"
+        title = "Steward",
+        subtitle = "Viant Steward workspace",
+        value = "https://steward.agently.viantinc.com"
     )
 )
 
 internal val workspaceEndpointOptions = mergeWorkspaceEndpointOptions(
     parseWorkspaceEndpointOptions(BuildConfig.WORKSPACE_ENDPOINTS_JSON),
-    localWorkspaceEndpointOptions
+    defaultWorkspaceEndpointOptions
 )
 
 internal fun parseWorkspaceEndpointOptions(raw: String): List<WorkspaceEndpointOption> {
@@ -58,9 +48,9 @@ internal fun parseWorkspaceEndpointOptions(raw: String): List<WorkspaceEndpointO
 
 internal fun mergeWorkspaceEndpointOptions(
     configured: List<WorkspaceEndpointOption>,
-    local: List<WorkspaceEndpointOption> = localWorkspaceEndpointOptions
+    defaults: List<WorkspaceEndpointOption> = defaultWorkspaceEndpointOptions
 ): List<WorkspaceEndpointOption> {
-    return (configured + local)
+    return (configured + defaults)
         .filter { it.value.isNotBlank() }
         .distinctBy { normalizeApiBaseUrl(it.value) }
 }
