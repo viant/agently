@@ -23,21 +23,23 @@ public final class SettingsRuntime: ObservableObject {
 
     private let store: AppSettingsStore
 
-    public static let workspacePresets: [WorkspaceEndpointOption] = [
+    nonisolated public static let workspacePresets: [WorkspaceEndpointOption] = mergeWorkspaceEndpointOptions(
+        configuredWorkspaceEndpointOptions(
+            environmentValue: ProcessInfo.processInfo.environment["AGENTLY_WORKSPACE_ENDPOINTS_JSON"],
+            launchArguments: CommandLine.arguments
+        )
+    )
+
+    nonisolated public static let localWorkspacePresets: [WorkspaceEndpointOption] = [
         WorkspaceEndpointOption(
-            title: "Steward",
-            subtitle: "Viant Steward workspace",
-            value: "https://steward.agently.viantinc.com/"
+            title: "Loopback 9292",
+            subtitle: "Local Agently server via loopback",
+            value: "http://127.0.0.1:9292"
         ),
         WorkspaceEndpointOption(
             title: "Localhost 9292",
             subtitle: "Local Agently server on this Mac",
             value: "http://localhost:9292"
-        ),
-        WorkspaceEndpointOption(
-            title: "Loopback 9292",
-            subtitle: "Local Agently server via loopback",
-            value: "http://127.0.0.1:9292"
         )
     ]
 
@@ -93,6 +95,61 @@ public final class SettingsRuntime: ObservableObject {
         let normalized = normalizedAPIBaseURL
         return Self.workspacePresets.first { $0.value == normalized }
     }
+}
+
+public func configuredWorkspaceEndpointOptions(
+    environmentValue: String?,
+    launchArguments: [String]
+) -> [WorkspaceEndpointOption] {
+    let launchValue = launchArguments.first { $0.hasPrefix("--workspaceEndpointsJSON=") }
+        .flatMap { $0.split(separator: "=", maxSplits: 1).last.map(String.init) }?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let raw = launchValue.isEmpty
+        ? environmentValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        : launchValue
+    return parseWorkspaceEndpointOptions(raw)
+}
+
+public func parseWorkspaceEndpointOptions(_ raw: String) -> [WorkspaceEndpointOption] {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, let data = trimmed.data(using: .utf8) else {
+        return []
+    }
+    let decoded = try? JSONSerialization.jsonObject(with: data)
+    let entries: [[String: Any]]
+    if let array = decoded as? [[String: Any]] {
+        entries = array
+    } else if let object = decoded as? [String: Any], let array = object["endpoints"] as? [[String: Any]] {
+        entries = array
+    } else {
+        entries = []
+    }
+    return entries.compactMap { item in
+        let value = stringValue(item["value"]) ?? stringValue(item["url"]) ?? ""
+        let normalizedValue = AppSettingsStore.normalizeAPIBaseURL(value)
+        guard !normalizedValue.isEmpty else { return nil }
+        return WorkspaceEndpointOption(
+            title: stringValue(item["title"]) ?? stringValue(item["name"]) ?? normalizedValue,
+            subtitle: stringValue(item["subtitle"]) ?? stringValue(item["description"]) ?? "",
+            value: normalizedValue
+        )
+    }
+}
+
+public func mergeWorkspaceEndpointOptions(
+    _ configured: [WorkspaceEndpointOption],
+    local: [WorkspaceEndpointOption] = SettingsRuntime.localWorkspacePresets
+) -> [WorkspaceEndpointOption] {
+    var seen = Set<String>()
+    return (configured + local).filter { option in
+        seen.insert(AppSettingsStore.normalizeAPIBaseURL(option.value)).inserted
+    }
+}
+
+private func stringValue(_ value: Any?) -> String? {
+    let trimmed = (value as? String)?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return trimmed.isEmpty ? nil : trimmed
 }
 
 internal func resolvedBootstrapOOBSecretReference(

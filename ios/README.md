@@ -1,7 +1,8 @@
 # Agently iOS Foundation
 
-This directory starts the iOS implementation described in
-`../ios-app.md`.
+This directory contains the iOS app implementation. Current mobile parity
+status, verification evidence, and cross-platform ownership rules live in
+`../../agently-core/mobile_sdk-progress/README.md`.
 
 Current scope:
 

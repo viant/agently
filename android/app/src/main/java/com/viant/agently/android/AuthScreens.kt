@@ -6,6 +6,8 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.foundation.layout.Arrangement
@@ -23,7 +25,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -34,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -48,9 +51,15 @@ internal enum class AuthState {
 @Composable
 internal fun AuthRequiredScreen(
     busy: Boolean,
+    developerSessionEnabled: Boolean = false,
     onSignIn: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onDeveloperSessionSignIn: (String) -> Unit = {}
 ) {
+    var showDeveloperSession by remember { mutableStateOf(false) }
+    var developerSessionDraft by remember { mutableStateOf("") }
+    val canUseDeveloperSession = !busy && developerSessionDraft.trim().isNotBlank()
+
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -94,6 +103,53 @@ internal fun AuthRequiredScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Button(onClick = onSignIn, enabled = !busy) {
                                 Text("Sign in")
+                            }
+                        }
+                    }
+                    if (developerSessionEnabled) {
+                        TextButton(
+                            onClick = { showDeveloperSession = !showDeveloperSession },
+                            enabled = !busy
+                        ) {
+                            Text(if (showDeveloperSession) "Hide developer session sign-in" else "Use developer session")
+                        }
+                        if (showDeveloperSession) {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                OutlinedTextField(
+                                    value = developerSessionDraft,
+                                    onValueChange = { developerSessionDraft = it },
+                                    label = { Text("Session ID or token") },
+                                    trailingIcon = {
+                                        TextButton(
+                                            onClick = { onDeveloperSessionSignIn(developerSessionDraft) },
+                                            enabled = canUseDeveloperSession
+                                        ) {
+                                            Text("Use")
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    enabled = !busy,
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                    keyboardActions = KeyboardActions(
+                                        onDone = {
+                                            if (canUseDeveloperSession) {
+                                                onDeveloperSessionSignIn(developerSessionDraft)
+                                            }
+                                        }
+                                    )
+                                )
+                                Button(
+                                    onClick = { onDeveloperSessionSignIn(developerSessionDraft) },
+                                    enabled = canUseDeveloperSession,
+                                    modifier = if (isCompactWidth) {
+                                        Modifier.fillMaxWidth()
+                                    } else {
+                                        Modifier.widthIn(min = 160.dp)
+                                    }
+                                ) {
+                                    Text("Use session")
+                                }
                             }
                         }
                     }
