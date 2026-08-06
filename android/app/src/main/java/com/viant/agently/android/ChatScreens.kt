@@ -86,6 +86,7 @@ internal fun PhoneChatScreen(
     onEditChange: (String, String, JsonElement) -> Unit,
     onDecision: (PendingToolApproval, String) -> Unit,
     onOpenFile: (GeneratedFileEntry) -> Unit,
+    onOpenInlineReportPdf: (Map<String, Any?>) -> Unit,
     onClosePreview: () -> Unit,
     onStarterTaskSelected: (String) -> Unit,
     bottomComposerInset: Dp = 232.dp
@@ -119,6 +120,7 @@ internal fun PhoneChatScreen(
         onEditChange = onEditChange,
         onDecision = onDecision,
         onOpenFile = onOpenFile,
+        onOpenInlineReportPdf = onOpenInlineReportPdf,
         onClosePreview = onClosePreview,
         onStarterTaskSelected = onStarterTaskSelected,
         bottomComposerInset = bottomComposerInset
@@ -155,6 +157,7 @@ internal fun TabletChatScreen(
     onEditChange: (String, String, JsonElement) -> Unit,
     onDecision: (PendingToolApproval, String) -> Unit,
     onOpenFile: (GeneratedFileEntry) -> Unit,
+    onOpenInlineReportPdf: (Map<String, Any?>) -> Unit,
     onClosePreview: () -> Unit,
     query: String,
     onQueryChange: (String) -> Unit,
@@ -219,6 +222,7 @@ internal fun TabletChatScreen(
                 onEditChange = onEditChange,
                 onDecision = onDecision,
                 onOpenFile = onOpenFile,
+                onOpenInlineReportPdf = onOpenInlineReportPdf,
                 onClosePreview = onClosePreview,
                 onSelectAgent = onSelectAgent,
                 query = query,

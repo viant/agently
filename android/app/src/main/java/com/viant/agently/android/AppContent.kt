@@ -155,6 +155,7 @@ internal fun AppBody(
                         onEditChange = callbacks.onApprovalEditChange,
                         onDecision = callbacks.onApprovalDecision,
                         onOpenFile = callbacks.onOpenFile,
+                        onOpenInlineReportPdf = callbacks.onOpenInlineReportPdf,
                         onClosePreview = callbacks.onClosePreview,
                         query = query,
                         onQueryChange = callbacks.onQueryChange,
@@ -197,6 +198,7 @@ internal fun AppBody(
                         onEditChange = callbacks.onApprovalEditChange,
                         onDecision = callbacks.onApprovalDecision,
                         onOpenFile = callbacks.onOpenFile,
+                        onOpenInlineReportPdf = callbacks.onOpenInlineReportPdf,
                         onClosePreview = callbacks.onClosePreview,
                         onStarterTaskSelected = callbacks.onStarterTaskSelected,
                         bottomComposerInset = phoneComposerInset

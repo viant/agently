@@ -86,6 +86,7 @@ internal fun TabletWorkspacePane(
     onEditChange: (String, String, JsonElement) -> Unit,
     onDecision: (PendingToolApproval, String) -> Unit,
     onOpenFile: (GeneratedFileEntry) -> Unit,
+    onOpenInlineReportPdf: (Map<String, Any?>) -> Unit,
     onClosePreview: () -> Unit,
     onSelectAgent: (String?) -> Unit,
     query: String,
@@ -372,7 +373,8 @@ internal fun TabletWorkspacePane(
                                         onDecision = onDecision,
                                         artifactPreview = artifactPreview,
                                         onClosePreview = onClosePreview,
-                                        onOpenFile = onOpenFile
+                                        onOpenFile = onOpenFile,
+                                        onOpenInlineReportPdf = onOpenInlineReportPdf
                                     )
                                 }
                                 Spacer(modifier = Modifier.padding(bottom = 24.dp))

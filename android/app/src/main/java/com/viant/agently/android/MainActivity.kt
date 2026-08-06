@@ -1184,6 +1184,19 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         }
     }
 
+    fun openInlineReportPdf(exportRequest: Map<String, Any?>) {
+        launchVisibleErrorOperation {
+            val artifact = exportReportRuntimePdf(
+                client = resolveClient(),
+                exportRequest = exportRequest,
+                conversationId = activeConversationId.orEmpty()
+            )
+            if (!openDownloadedArtifactExternally(artifact.file, artifact.downloaded)) {
+                error("PDF export completed, but no PDF viewer was available.")
+            }
+        }
+    }
+
     LaunchedEffect(forgeRuntime, client, activeConversationId) {
         registerReportRuntimeExportHandler(
             forgeRuntime = forgeRuntime,
@@ -1342,6 +1355,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         onApprovalEditChange = ::handleApprovalEditChange,
         onApprovalDecision = ::handleApprovalDecision,
         onOpenFile = ::openGeneratedFile,
+        onOpenInlineReportPdf = ::openInlineReportPdf,
         onClosePreview = ::closeArtifactPreview,
         onQueryChange = ::updateQuery,
         onStarterTaskSelected = ::selectStarterTask,

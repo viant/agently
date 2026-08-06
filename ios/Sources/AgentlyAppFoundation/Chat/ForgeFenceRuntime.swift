@@ -2,6 +2,9 @@ import SwiftUI
 import ForgeIOSRuntime
 import ForgeIOSUI
 import AgentlySDK
+#if os(iOS) && canImport(QuickLook)
+import QuickLook
+#endif
 
 typealias TranscriptContentPart = TranscriptEnvelopePart
 typealias ForgeUIPayload = TranscriptForgeUIPayload
@@ -61,24 +64,32 @@ private struct TranscriptInlineReportView: View {
     @State private var metadata: WindowMetadata?
     @State private var windowContext: WindowContext?
     @State private var errorMessage: String?
+    @State private var exportErrorMessage: String?
+    @State private var isExportingPDF = false
+    #if os(iOS) && canImport(QuickLook)
+    @State private var quickLookURL: URL?
+    #endif
     @State private var runtime = ForgeRuntime()
 
     var body: some View {
         Group {
             if let metadata, let windowContext {
-                WindowContentView(
-                    runtime: runtime,
-                    window: windowContext,
-                    metadata: metadata,
-                    scrollEnabled: true,
-                    contentPadding: 4
-                )
-                .environment(\.forgePresentationDensity, .compact)
-                .frame(maxHeight: TranscriptInlinePresentationPolicy.resolve(
-                    metadata: metadata,
-                    horizontalSizeClass: horizontalSizeClass
-                ).maximumHeight)
-                .clipped()
+                VStack(alignment: .leading, spacing: 8) {
+                    inlineReportExportAction
+                    WindowContentView(
+                        runtime: runtime,
+                        window: windowContext,
+                        metadata: metadata,
+                        scrollEnabled: true,
+                        contentPadding: 4
+                    )
+                    .environment(\.forgePresentationDensity, .compact)
+                    .frame(maxHeight: TranscriptInlinePresentationPolicy.resolve(
+                        metadata: metadata,
+                        horizontalSizeClass: horizontalSizeClass
+                    ).maximumHeight)
+                    .clipped()
+                }
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(report.id).font(.headline)
@@ -109,7 +120,83 @@ private struct TranscriptInlineReportView: View {
                 errorMessage = error.localizedDescription
             }
         }
+        #if os(iOS) && canImport(QuickLook)
+        .quickLookPreview($quickLookURL)
+        #endif
     }
+
+    @ViewBuilder
+    private var inlineReportExportAction: some View {
+        if report.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().isEmpty ||
+            ["committed", "ready"].contains(report.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+            HStack(spacing: 8) {
+                Button {
+                    exportInlineReportPDF()
+                } label: {
+                    Label(isExportingPDF ? "Opening PDF…" : "Open PDF", systemImage: "doc.richtext")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isExportingPDF)
+
+                if let exportErrorMessage, !exportErrorMessage.isEmpty {
+                    Text(exportErrorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+
+    private func exportInlineReportPDF() {
+        guard !isExportingPDF else { return }
+        guard let client else {
+            exportErrorMessage = "Sign in before opening the report PDF."
+            return
+        }
+        isExportingPDF = true
+        exportErrorMessage = nil
+        Task {
+            do {
+                let hydrated = try await hydrateInlineReport(report, client: client)
+                let artifact = try InlineReportRuntimeCompiler.compile(hydrated)
+                let title = artifact.reportSpec.objectValue?["title"]?.stringValue ?? report.id
+                let exportRequest: [String: ForgeIOSRuntime.JSONValue] = [
+                    "title": .string(title),
+                    "artifactRef": .string("report://inline/\(report.scope)/\(report.id)"),
+                    "reportSpec": artifact.reportSpec,
+                    "reportFill": artifact.reportFill,
+                    "reportPrint": .null
+                ]
+                let exported = try await exportReportRuntimePDF(
+                    client: client,
+                    exportRequest: exportRequest
+                )
+                let fileURL = try persistInlineReportExportArtifact(exported)
+                await MainActor.run {
+                    isExportingPDF = false
+                    #if os(iOS) && canImport(QuickLook)
+                    quickLookURL = fileURL
+                    #endif
+                }
+            } catch {
+                await MainActor.run {
+                    isExportingPDF = false
+                    exportErrorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+}
+
+private func persistInlineReportExportArtifact(_ artifact: ReportRuntimeExportArtifact) throws -> URL {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("agently-inline-reports", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let fileURL = directory.appendingPathComponent("\(UUID().uuidString)-\(artifact.name)")
+    try artifact.data.write(to: fileURL, options: .atomic)
+    return fileURL
 }
 
 private func hydrateInlineReport(
