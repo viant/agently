@@ -21,6 +21,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -309,6 +310,89 @@ class QueryRuntimeTest {
                 val runtimePrefill = runtimeForm["prefill"] as Map<*, *>
                 assertEquals(7L, runtimePrefill["accountId"])
                 assertEquals(9L, runtimePrefill["segmentId"])
+            } finally {
+                scope.cancel()
+            }
+        }
+    }
+
+    @Test
+    fun `ui bridge set form data preserves forecasting prefill contract`() {
+        runBlocking {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val runtime = ForgeRuntime(endpoints = emptyMap(), scope = scope)
+
+            try {
+                handleAndroidUIBridgeCommand(
+                    method = "ui.window.open",
+                    params = buildJsonObject {
+                        put("windowKey", JsonPrimitive("reportBuilder"))
+                        put("windowTitle", JsonPrimitive("Forecasting"))
+                        put("windowId", JsonPrimitive("forecastingCubeBuilder__conv-1"))
+                        put(
+                            "options",
+                            buildJsonObject {
+                                put("conversationId", JsonPrimitive("conv-1"))
+                                put("presentation", JsonPrimitive("hosted"))
+                                put("region", JsonPrimitive("chat.top"))
+                            }
+                        )
+                        put(
+                            "parameters",
+                            buildJsonObject {
+                                put("reportBuilderRef", JsonPrimitive("forecastingCubeBuilder"))
+                            }
+                        )
+                    },
+                    forgeRuntime = runtime
+                )
+
+                val response = handleAndroidUIBridgeCommand(
+                    method = "ui.window.setFormData",
+                    params = buildJsonObject {
+                        put("windowId", JsonPrimitive("forecastingCubeBuilder__conv-1"))
+                        put(
+                            "values",
+                            buildJsonObject {
+                                put(
+                                    "prefill",
+                                    buildJsonObject {
+                                        put("includeCountry", JsonArray(listOf(JsonPrimitive("US"))))
+                                        put("includeDealsPmp", JsonArray(listOf(JsonPrimitive(90473), JsonPrimitive(90476))))
+                                        put("includePostalCodeList", JsonArray(listOf(JsonPrimitive(70731))))
+                                        put(
+                                            "scope",
+                                            buildJsonObject {
+                                                put("adOrderIds", JsonArray(listOf(JsonPrimitive(2664518))))
+                                                put("audienceIds", JsonArray(listOf(JsonPrimitive(7288336))))
+                                                put("targetKey", JsonPrimitive("audience:7288336"))
+                                            }
+                                        )
+                                    }
+                                )
+                            }
+                        )
+                    },
+                    forgeRuntime = runtime
+                )
+
+                assertEquals(true, (response["ok"] as? JsonPrimitive)?.booleanOrNull)
+                val runtimeForm = runtime.windowContext("forecastingCubeBuilder__conv-1").peekWindowForm()
+                assertEquals("forecastingCubeBuilder", runtimeForm["reportBuilderRef"])
+                val runtimePrefill = runtimeForm["prefill"] as Map<*, *>
+                assertEquals(listOf("US"), runtimePrefill["includeCountry"])
+                assertEquals(listOf(90473L, 90476L), runtimePrefill["includeDealsPmp"])
+                assertEquals(listOf(70731L), runtimePrefill["includePostalCodeList"])
+                val runtimeScope = runtimePrefill["scope"] as Map<*, *>
+                assertEquals(listOf(2664518L), runtimeScope["adOrderIds"])
+                assertEquals(listOf(7288336L), runtimeScope["audienceIds"])
+                assertEquals("audience:7288336", runtimeScope["targetKey"])
+
+                val responseWindowForm = response["windowForm"] as JsonObject
+                val responsePrefill = responseWindowForm["prefill"] as JsonObject
+                assertEquals("US", ((responsePrefill["includeCountry"] as JsonArray).first() as JsonPrimitive).contentOrNull)
+                assertEquals(90473L, ((responsePrefill["includeDealsPmp"] as JsonArray).first() as JsonPrimitive).longOrNull)
+                assertEquals(70731L, ((responsePrefill["includePostalCodeList"] as JsonArray).first() as JsonPrimitive).longOrNull)
             } finally {
                 scope.cancel()
             }
