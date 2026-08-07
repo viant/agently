@@ -1,0 +1,11 @@
+id: bedrock_qwen3-coder-next
+name: Qwen3 Coder Next
+description: Qwen open-weight coding model served through Amazon Bedrock Converse
+intelligence: 0.9
+speed: 0.75
+options:
+  provider: bedrock
+  model: qwen.qwen3-coder-next
+  region: us-east-1
+  credentialsURL: aws-bedrock-qwen|blowfish://default
+  maxTokens: 16384

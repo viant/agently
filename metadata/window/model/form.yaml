@@ -19,6 +19,8 @@
       label: Provider
       type: select
       options:
+        - value: bedrock
+          label: AWS Bedrock (Converse)
         - value: bedrock/claude
           label: AWS Bedrock (Claude)
         - value: gemini
