@@ -158,6 +158,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     val configuration = LocalConfiguration.current
     val formFactor = if (configuration.smallestScreenWidthDp >= 600) "tablet" else "phone"
     val isTablet = formFactor == "tablet"
+    val conversationPolicy = remember(formFactor) { conversationLoadPolicy(formFactor) }
     val configuredAppApiBaseUrl = BuildConfig.APP_API_BASE_URL
     val appSettingsStore = remember(context) { AppSettingsStore(context.applicationContext) }
     val storedAppSettings = remember(appSettingsStore) { appSettingsStore.load() }
@@ -896,6 +897,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
             val preparedBinding = prepareConversationBinding(
                 client = resolvedClient,
                 conversationId = conversationId,
+                policy = conversationPolicy,
                 replaceTranscript = true,
                 approvalEdits = approvalEdits,
                 transcriptBuilder = ::transcriptFromState
@@ -913,7 +915,10 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         streamJob = scope.launch {
             var sawActiveTurn = false
             try {
-                client.trackConversation(conversationId).collect { snapshot ->
+                client.trackConversation(
+                    conversationId,
+                    maxResponseBytes = conversationPolicy.maxTranscriptResponseBytes
+                ).collect { snapshot ->
                     val previousActiveTurnId = streamSnapshot?.activeTurnId
                     applyConversationSnapshot(snapshot)
                     if (!snapshot.activeTurnId.isNullOrBlank()) {
@@ -943,6 +948,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         val preparedBinding = prepareConversationBinding(
             client = resolvedClient,
             conversationId = conversationId,
+            policy = conversationPolicy,
             replaceTranscript = replaceTranscript,
             approvalEdits = approvalEdits,
             transcriptBuilder = ::transcriptFromState

@@ -3,6 +3,7 @@ package com.viant.agently.android
 import com.viant.agentlysdk.DownloadFileOutput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.util.zip.GZIPOutputStream
@@ -35,6 +36,15 @@ class PayloadPreviewRuntimeTest {
         assertEquals("payload-1", preview.artifactId)
         assertEquals("llm.request", preview.name)
         assertTrue(preview.text?.contains("hello") == true)
+    }
+
+    @Test
+    fun `decodePreviewBytes stops highly compressible payloads at inflated limit`() {
+        val gzipped = gzip(ByteArray(1024 * 1024) { 'A'.code.toByte() })
+
+        assertThrows(PayloadPreviewTooLargeException::class.java) {
+            decodePreviewBytes(gzipped, maxInflatedBytes = 64 * 1024)
+        }
     }
 
     private fun gzip(data: ByteArray): ByteArray {
