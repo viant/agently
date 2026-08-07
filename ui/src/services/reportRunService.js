@@ -76,15 +76,16 @@ async function parseResponse(response) {
   return payload;
 }
 
-async function request(path, body) {
+async function request(path, body, { method = 'POST' } = {}) {
+  const normalizedMethod = String(method || 'POST').trim().toUpperCase() || 'POST';
   const response = await fetch(`${RUNS_PATH}${path}`, {
-    method: 'POST',
+    method: normalizedMethod,
     credentials: 'include',
     headers: {
       Accept: 'application/json',
-      'Content-Type': 'application/json',
+      ...(normalizedMethod === 'GET' ? {} : { 'Content-Type': 'application/json' }),
     },
-    body: JSON.stringify(body || {}),
+    ...(normalizedMethod === 'GET' ? {} : { body: JSON.stringify(body || {}) }),
   });
   return parseResponse(response);
 }
@@ -132,11 +133,39 @@ export function activateReportRun(input = {}) {
   );
 }
 
+export function getReportRunContext(input = {}) {
+  const conversationId = normalizeId(input.conversationId);
+  if (!conversationId) throw new Error('conversationId is required');
+  return request(
+    `/context/${encodeURIComponent(conversationId)}`,
+    undefined,
+    { method: 'GET' },
+  ).then((context) => ({ enabled: true, context })).catch((error) => {
+    if (error?.status === 404 && typeof error?.payload === 'string') {
+      return { enabled: false, context: null };
+    }
+    // Core deliberately uses the same scoped JSON 404 for an absent context
+    // and an inaccessible conversation. Adoption performs the authoritative
+    // exact conversation/owner check before any mutation.
+    if (error?.status === 404 && error?.payload && typeof error.payload === 'object') {
+      return { enabled: true, context: null };
+    }
+    throw error;
+  });
+}
+
 export function adoptReportRun(input = {}) {
   const reportRunId = normalizeId(input.reportRunId);
   if (!reportRunId) throw new Error('reportRunId is required');
   return request(
     `/${encodeURIComponent(reportRunId)}/adopt`,
     normalizeRequestBody(input, ACTIVATE_FIELDS, reportRunId),
-  );
+  ).catch((error) => {
+    // The default-closed adopt route is unmounted as a plain 404. A mounted
+    // route always returns structured JSON, including scoped not-found errors.
+    if (error?.status === 404 && typeof error?.payload === 'string') {
+      return { enabled: false };
+    }
+    throw error;
+  });
 }
