@@ -30,6 +30,7 @@ import {
   beginReportRun,
   completeReportRun,
   failReportRun,
+  getReportRunContext,
 } from './reportRunService';
 
 function normalizeText(value = '') {
@@ -152,6 +153,7 @@ export function createReportingHostServices() {
       complete: completeReportRun,
       fail: failReportRun,
       activate: activateReportRun,
+      getContext: getReportRunContext,
       adopt: adoptReportRun,
     },
   };

@@ -6,6 +6,7 @@ import {
   beginReportRun,
   completeReportRun,
   failReportRun,
+  getReportRunContext,
 } from './reportRunService';
 
 afterEach(() => {
@@ -47,6 +48,94 @@ describe('reportRunService', () => {
       message: 'database unavailable',
       status: 500,
     });
+  });
+
+  it('treats only an unmounted plain-text adopt 404 as feature off', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 404,
+      text: async () => '404 page not found\n',
+    })));
+
+    await expect(adoptReportRun({
+      reportRunId: 'run-server-1',
+      conversationId: 'conv-2',
+      expectedRunRevision: 3,
+      expectedContextRevision: 4,
+      source: 'manual',
+    })).resolves.toEqual({ enabled: false });
+  });
+
+  it.each([
+    [404, 'report run: not found'],
+    [401, 'authorization required'],
+    [403, 'forbidden'],
+    [409, 'report run revision conflict'],
+    [500, 'database unavailable'],
+  ])('surfaces structured adopt error %s', async (status, message) => {
+    vi.stubGlobal('fetch', vi.fn(async () => response(status, { error: message })));
+
+    await expect(adoptReportRun({
+      reportRunId: 'run-server-1',
+      conversationId: 'conv-2',
+      expectedRunRevision: 3,
+      expectedContextRevision: 4,
+      source: 'manual',
+    })).rejects.toMatchObject({ message, status });
+  });
+
+  it('reads the exact authenticated conversation context without a request body', async () => {
+    const fetchMock = vi.fn(async () => response(200, {
+      conversationId: 'conv/2',
+      activeReportRunId: 'run-existing',
+      revision: 7,
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(getReportRunContext({ conversationId: ' conv/2 ' })).resolves.toEqual({
+      enabled: true,
+      context: {
+        conversationId: 'conv/2',
+        activeReportRunId: 'run-existing',
+        revision: 7,
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledWith('/v1/api/report-runs/context/conv%2F2', {
+      method: 'GET',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    });
+  });
+
+  it('distinguishes an unavailable context route from a scoped context 404', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: async () => '404 page not found\n',
+      })
+      .mockResolvedValueOnce(response(404, { error: 'report run: not found' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(getReportRunContext({ conversationId: 'conv-2' })).resolves.toEqual({
+      enabled: false,
+      context: null,
+    });
+    await expect(getReportRunContext({ conversationId: 'conv-2' })).resolves.toEqual({
+      enabled: true,
+      context: null,
+    });
+  });
+
+  it.each([
+    [401, 'authorization required'],
+    [403, 'forbidden'],
+    [500, 'database unavailable'],
+  ])('surfaces exact context-read error %s', async (status, message) => {
+    vi.stubGlobal('fetch', vi.fn(async () => response(status, { error: message })));
+
+    await expect(getReportRunContext({ conversationId: 'conv-2' }))
+      .rejects.toMatchObject({ message, status });
   });
 
   it('omits Forge-only correlation fields from exact Core request bodies', async () => {
