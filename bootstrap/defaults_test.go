@@ -56,6 +56,34 @@ func TestDefaultWorkspaceConfigEnablesSystemGoal(t *testing.T) {
 	}
 }
 
+func TestDefaultWorkspaceIncludesGenericBedrockQwen(t *testing.T) {
+	data, err := DefaultsFS.ReadFile("defaults/models/bedrock_qwen3-coder-next.yaml")
+	if err != nil {
+		t.Fatalf("read Bedrock Qwen default: %v", err)
+	}
+	var cfg struct {
+		Options struct {
+			Provider       string `yaml:"provider"`
+			Model          string `yaml:"model"`
+			Region         string `yaml:"region"`
+			CredentialsURL string `yaml:"credentialsURL"`
+			MaxTokens      int    `yaml:"maxTokens"`
+		} `yaml:"options"`
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("parse Bedrock Qwen default: %v", err)
+	}
+	if cfg.Options.Provider != "bedrock" || cfg.Options.Model != "qwen.qwen3-coder-next" || cfg.Options.Region != "us-east-1" {
+		t.Fatalf("unexpected Bedrock Qwen options: provider=%q model=%q region=%q", cfg.Options.Provider, cfg.Options.Model, cfg.Options.Region)
+	}
+	if cfg.Options.CredentialsURL != "aws-bedrock-qwen|blowfish://default" {
+		t.Fatalf("expected generic scy resource reference, got %q", cfg.Options.CredentialsURL)
+	}
+	if cfg.Options.MaxTokens != 16384 {
+		t.Fatalf("expected Qwen3 Coder Next 16K output limit, got %d", cfg.Options.MaxTokens)
+	}
+}
+
 func hasToolItem(items []struct {
 	Name string `yaml:"name"`
 }, name string) bool {
