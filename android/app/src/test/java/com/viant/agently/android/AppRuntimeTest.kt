@@ -25,6 +25,34 @@ class AppRuntimeTest {
     )
 
     @Test
+    fun `phone conversation policy omits model calls and payload previews`() {
+        val policy = conversationLoadPolicy("phone")
+
+        assertFalse(policy.includeModelCalls)
+        assertTrue(policy.includeToolCalls)
+        assertTrue(policy.includeFeeds)
+        assertFalse(policy.includePayloadPreviews)
+        assertEquals(8L * 1024 * 1024, policy.maxTranscriptResponseBytes)
+        assertEquals(0, policy.maxPayloadPreviewCount)
+        assertEquals(0, policy.maxPayloadDownloadBytes)
+        assertEquals(0, policy.maxPayloadInflatedBytes)
+    }
+
+    @Test
+    fun `tablet conversation policy retains execution diagnostics`() {
+        val policy = conversationLoadPolicy("tablet")
+
+        assertTrue(policy.includeModelCalls)
+        assertTrue(policy.includeToolCalls)
+        assertTrue(policy.includeFeeds)
+        assertTrue(policy.includePayloadPreviews)
+        assertEquals(16L * 1024 * 1024, policy.maxTranscriptResponseBytes)
+        assertEquals(8, policy.maxPayloadPreviewCount)
+        assertEquals(1L * 1024 * 1024, policy.maxPayloadDownloadBytes)
+        assertEquals(512 * 1024, policy.maxPayloadInflatedBytes)
+    }
+
+    @Test
     fun `resolveAuthState requires sign in when oauth provider exists without user`() {
         val state = resolveAuthState(
             providers = listOf(AuthProvider(name = "oauth", type = "oauth", label = "OIDC")),

@@ -20,6 +20,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.util.zip.GZIPInputStream
 
 internal data class QueryExecutionResult(
@@ -159,9 +160,10 @@ internal fun buildArtifactPreview(
 internal fun buildPayloadPreview(
     payloadId: String,
     title: String,
-    downloaded: DownloadFileOutput
+    downloaded: DownloadFileOutput,
+    maxInflatedBytes: Int = DEFAULT_MAX_PAYLOAD_INFLATED_BYTES
 ): ArtifactPreview {
-    val body = decodePreviewBytes(downloaded.data)
+    val body = decodePreviewBytes(downloaded.data, maxInflatedBytes)
     val previewText = if (isPreviewableText(downloaded.contentType, downloaded.name) || body.isLikelyText()) {
         body.toString(Charsets.UTF_8)
     } else {
@@ -213,14 +215,36 @@ private fun addPayloadTitle(
     }
 }
 
-internal fun decodePreviewBytes(data: ByteArray): ByteArray {
+internal class PayloadPreviewTooLargeException(
+    val maxInflatedBytes: Int
+) : IllegalStateException("Payload preview exceeds the $maxInflatedBytes byte inflated limit")
+
+internal fun decodePreviewBytes(
+    data: ByteArray,
+    maxInflatedBytes: Int = DEFAULT_MAX_PAYLOAD_INFLATED_BYTES
+): ByteArray {
     if (data.size < 2 || data[0] != 0x1f.toByte() || data[1] != 0x8b.toByte()) {
         return data
     }
-    return runCatching {
-        GZIPInputStream(ByteArrayInputStream(data)).use { it.readBytes() }
-    }.getOrDefault(data)
+    require(maxInflatedBytes >= 0) { "maxInflatedBytes must not be negative" }
+    return GZIPInputStream(ByteArrayInputStream(data)).use { input ->
+        val output = ByteArrayOutputStream(minOf(maxInflatedBytes, 32 * 1024))
+        val buffer = ByteArray(8 * 1024)
+        var total = 0
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            total += count
+            if (total > maxInflatedBytes) {
+                throw PayloadPreviewTooLargeException(maxInflatedBytes)
+            }
+            output.write(buffer, 0, count)
+        }
+        output.toByteArray()
+    }
 }
+
+internal const val DEFAULT_MAX_PAYLOAD_INFLATED_BYTES = 512 * 1024
 
 private fun ByteArray.isLikelyText(): Boolean {
     if (isEmpty()) {

@@ -14,6 +14,8 @@ import com.viant.agentlysdk.ListPendingToolApprovalsInput
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.agentlysdk.WorkspaceMetadata
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.JsonElement
 
 internal data class ResolvedClient(
@@ -33,6 +35,29 @@ internal data class ConversationBindingData(
     val generatedFiles: List<GeneratedFileEntry>,
     val payloadPreviews: Map<String, ArtifactPreview>
 )
+
+internal data class ConversationLoadPolicy(
+    val includeModelCalls: Boolean,
+    val includeToolCalls: Boolean,
+    val includeFeeds: Boolean,
+    val includePayloadPreviews: Boolean,
+    val maxTranscriptResponseBytes: Long,
+    val maxPayloadPreviewCount: Int,
+    val maxPayloadDownloadBytes: Long,
+    val maxPayloadInflatedBytes: Int
+)
+
+internal fun conversationLoadPolicy(formFactor: String): ConversationLoadPolicy =
+    ConversationLoadPolicy(
+        includeModelCalls = formFactor == "tablet",
+        includeToolCalls = true,
+        includeFeeds = true,
+        includePayloadPreviews = formFactor == "tablet",
+        maxTranscriptResponseBytes = if (formFactor == "tablet") 16L * 1024 * 1024 else 8L * 1024 * 1024,
+        maxPayloadPreviewCount = if (formFactor == "tablet") 8 else 0,
+        maxPayloadDownloadBytes = if (formFactor == "tablet") 1L * 1024 * 1024 else 0,
+        maxPayloadInflatedBytes = if (formFactor == "tablet") 512 * 1024 else 0
+    )
 
 internal data class WorkspaceAgentChoice(
     val id: String,
@@ -203,42 +228,54 @@ internal suspend fun loadRecentConversations(
 
 internal suspend fun loadConversationBindingData(
     client: AgentlyClient,
-    conversationId: String
-): ConversationBindingData {
-    val state = client.getTranscript(
-        GetTranscriptInput(
-            conversationId = conversationId,
-            includeModelCalls = true,
-            includeToolCalls = true,
-            includeFeeds = true
+    conversationId: String,
+    policy: ConversationLoadPolicy
+): ConversationBindingData = coroutineScope {
+    val stateDeferred = async {
+        client.getTranscript(
+            GetTranscriptInput(
+                conversationId = conversationId,
+                includeModelCalls = policy.includeModelCalls,
+                includeToolCalls = policy.includeToolCalls,
+                includeFeeds = policy.includeFeeds
+            ),
+            maxResponseBytes = policy.maxTranscriptResponseBytes
         )
-    )
-    val goal = client.getGoal(conversationId)
-    val approvals = client.listPendingToolApprovals(
-        ListPendingToolApprovalsInput(
-            conversationId = conversationId,
-            status = "pending",
-            limit = 20
+    }
+    val goalDeferred = async { client.getGoal(conversationId) }
+    val approvalsDeferred = async {
+        client.listPendingToolApprovals(
+            ListPendingToolApprovalsInput(
+                conversationId = conversationId,
+                status = "pending",
+                limit = 20
+            )
         )
-    )
-    val generatedFiles = client.listGeneratedFiles(conversationId)
-    return ConversationBindingData(
+    }
+    val generatedFilesDeferred = async { client.listGeneratedFiles(conversationId) }
+    val state = stateDeferred.await()
+    ConversationBindingData(
         state = state,
-        goal = goal,
-        approvals = approvals,
-        generatedFiles = generatedFiles,
-        payloadPreviews = loadExecutionPayloadPreviews(client, state)
+        goal = goalDeferred.await(),
+        approvals = approvalsDeferred.await(),
+        generatedFiles = generatedFilesDeferred.await(),
+        payloadPreviews = if (policy.includePayloadPreviews) {
+            loadExecutionPayloadPreviews(client, state, policy)
+        } else {
+            emptyMap()
+        }
     )
 }
 
 internal suspend fun prepareConversationBinding(
     client: AgentlyClient,
     conversationId: String,
+    policy: ConversationLoadPolicy,
     replaceTranscript: Boolean,
     approvalEdits: Map<String, Map<String, JsonElement>>,
     transcriptBuilder: (ConversationStateResponse) -> List<ChatEntry>
 ): PreparedConversationBinding {
-    val binding = loadConversationBindingData(client, conversationId)
+    val binding = loadConversationBindingData(client, conversationId, policy)
     return PreparedConversationBinding(
         conversationId = conversationId,
         state = binding.state,
@@ -303,17 +340,25 @@ internal fun mergeConversationIntoRecentList(
 
 private suspend fun loadExecutionPayloadPreviews(
     client: AgentlyClient,
-    state: ConversationStateResponse
+    state: ConversationStateResponse,
+    policy: ConversationLoadPolicy
 ): Map<String, ArtifactPreview> {
     val payloadTitles = executionPayloadTitles(state)
+        .entries
+        .take(policy.maxPayloadPreviewCount)
     if (payloadTitles.isEmpty()) {
         return emptyMap()
     }
     val result = linkedMapOf<String, ArtifactPreview>()
     payloadTitles.forEach { (payloadId, title) ->
         runCatching {
-            val downloaded = client.downloadPayload(payloadId)
-            buildPayloadPreview(payloadId = payloadId, title = title, downloaded = downloaded)
+            val downloaded = client.downloadPayload(payloadId, policy.maxPayloadDownloadBytes)
+            buildPayloadPreview(
+                payloadId = payloadId,
+                title = title,
+                downloaded = downloaded,
+                maxInflatedBytes = policy.maxPayloadInflatedBytes
+            )
         }.getOrNull()?.let { preview ->
             result[payloadId] = preview
         }
