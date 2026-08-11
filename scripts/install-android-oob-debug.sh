@@ -20,6 +20,43 @@ if [[ -z "$OAUTH_CONFIG_URL" ]]; then
   exit 2
 fi
 
+# A hosted Agently server cannot resolve a file on the developer's Mac. Embed
+# only the encrypted resource in debug builds; the server still performs the
+# normal decryption and returns the persistent session cookie. This preserves
+# OOB auth when the same APK is pointed at either localhost or a hosted server.
+inline_local_secret_ref() {
+  local raw="$1"
+  local resource_url="${raw%%|*}"
+  local resource_key=""
+  if [[ "$raw" == *"|"* ]]; then
+    resource_key="${raw#*|}"
+  fi
+  case "$resource_url" in
+    inlined://*|http://*|https://*|gcp://*|aws://*|s3://*|gs://*)
+      printf '%s' "$raw"
+      return
+      ;;
+  esac
+  local local_path="$resource_url"
+  if [[ "$local_path" == "~"* ]]; then
+    local_path="$HOME${local_path:1}"
+  elif [[ "$local_path" == file://* ]]; then
+    local_path="${local_path#file://}"
+  fi
+  if [[ ! -f "$local_path" ]]; then
+    echo "OOB encrypted resource was not found: $resource_url" >&2
+    exit 2
+  fi
+  local encoded
+  encoded="$(base64 < "$local_path" | tr -d '\r\n')"
+  printf 'inlined://base64/%s' "$encoded"
+  if [[ -n "$resource_key" ]]; then
+    printf '|%s' "$resource_key"
+  fi
+}
+
+OOB_SECRET_REF="$(inline_local_secret_ref "$OOB_SECRET_REF")"
+
 if [[ ! -x "$ADB" ]]; then
   ADB="$(command -v adb || true)"
 fi

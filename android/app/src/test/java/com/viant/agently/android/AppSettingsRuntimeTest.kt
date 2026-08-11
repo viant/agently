@@ -211,4 +211,34 @@ class AppSettingsRuntimeTest {
             normalizeApiBaseUrl("https://steward.agently.viantinc.com/v1")
         )
     }
+
+    @Test
+    fun resolveInitialApiBaseUrl_explicitDebugEndpointOverridesStaleStoredEndpoint() {
+        assertEquals(
+            "http://127.0.0.1:8080",
+            resolveInitialApiBaseUrl(
+                configuredBaseUrl = "http://127.0.0.1:8080/",
+                storedSettings = AppSettings(
+                    baseUrlOverride = "http://127.0.0.1:18080",
+                    hasWorkspaceEndpointSelection = true
+                ),
+                preferExplicitBuildEndpoint = true
+            )
+        )
+    }
+
+    @Test
+    fun resolveInitialApiBaseUrl_preservesStoredEndpointForNormalBuild() {
+        assertEquals(
+            "http://127.0.0.1:18080",
+            resolveInitialApiBaseUrl(
+                configuredBaseUrl = "https://steward.agently.viantinc.com",
+                storedSettings = AppSettings(
+                    baseUrlOverride = "http://127.0.0.1:18080",
+                    hasWorkspaceEndpointSelection = true
+                ),
+                preferExplicitBuildEndpoint = false
+            )
+        )
+    }
 }

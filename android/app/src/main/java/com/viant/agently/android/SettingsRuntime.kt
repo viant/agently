@@ -78,6 +78,22 @@ internal fun normalizeApiBaseUrl(value: String): String {
     return normalized.trimEnd('/')
 }
 
+internal fun resolveInitialApiBaseUrl(
+    configuredBaseUrl: String,
+    storedSettings: AppSettings,
+    preferExplicitBuildEndpoint: Boolean
+): String {
+    val configured = normalizeApiBaseUrl(configuredBaseUrl)
+    if (preferExplicitBuildEndpoint && configured.isNotBlank()) return configured
+
+    return normalizeApiBaseUrl(
+        storedSettings.baseUrlOverride.trim().ifBlank {
+            if (storedSettings.hasWorkspaceEndpointSelection) configured
+            else workspaceEndpointOptions.first().value
+        }
+    )
+}
+
 internal fun selectedWorkspaceEndpointOption(baseUrl: String): WorkspaceEndpointOption? {
     val normalized = normalizeApiBaseUrl(baseUrl)
     return workspaceEndpointOptions.firstOrNull { option -> option.value == normalized }

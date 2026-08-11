@@ -171,11 +171,10 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     }
     var appApiBaseUrl by remember {
         mutableStateOf(
-            normalizeApiBaseUrl(
-                storedAppSettings.baseUrlOverride.trim().ifBlank {
-                    if (initialHasWorkspaceEndpointSelection) configuredAppApiBaseUrl
-                    else workspaceEndpointOptions.first().value
-                }
+            resolveInitialApiBaseUrl(
+                configuredBaseUrl = configuredAppApiBaseUrl,
+                storedSettings = storedAppSettings,
+                preferExplicitBuildEndpoint = BuildConfig.DEBUG && BuildConfig.APP_API_BASE_URL_EXPLICIT
             )
         )
     }
