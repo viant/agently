@@ -73,7 +73,7 @@ internal fun ComposerLookupDialog(
             throw cancelled
         } catch (err: Throwable) {
             rows = emptyList()
-            error = err.message ?: "Lookup failed."
+            error = composerLookupErrorMessage(err)
         }
         loading = false
     }
@@ -197,6 +197,16 @@ internal fun ComposerLookupDialog(
             }
         }
     )
+}
+
+internal fun composerLookupErrorMessage(error: Throwable): String {
+    val detail = error.message.orEmpty().trim()
+    if (detail.contains("timeout", ignoreCase = true) ||
+        detail.contains("timed out", ignoreCase = true)
+    ) {
+        return "The lookup service did not respond. Try again."
+    }
+    return detail.ifBlank { "Unable to load lookup results. Try again." }
 }
 
 internal suspend fun loadComposerLookupRows(

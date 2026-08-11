@@ -18,6 +18,22 @@ import org.junit.Test
 class ComposerLookupRuntimeTest {
 
     @Test
+    fun `lookup timeout is presented as an actionable service message`() {
+        assertEquals(
+            "The lookup service did not respond. Try again.",
+            composerLookupErrorMessage(java.net.SocketTimeoutException("timeout"))
+        )
+    }
+
+    @Test
+    fun `blank lookup failure does not expose an empty error`() {
+        assertEquals(
+            "Unable to load lookup results. Try again.",
+            composerLookupErrorMessage(IllegalStateException())
+        )
+    }
+
+    @Test
     fun `parses registered slash lookup occurrences only`() {
         val registry = listOf(orderLookupEntry())
 

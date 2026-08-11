@@ -11,6 +11,7 @@ val agentlyAndroidBaseUrl = agentlyAndroidBaseUrlProvider
     .get()
     .replace("\\", "\\\\")
     .replace("\"", "\\\"")
+val agentlyAndroidBaseUrlExplicit = agentlyAndroidBaseUrlProvider.isPresent
 val agentlyAndroidOauthConfigProvider = providers
     .gradleProperty("agently.android.oauthConfigUrl")
     .orElse(providers.environmentVariable("AGENTLY_ANDROID_OAUTH_CONFIG_URL"))
@@ -71,6 +72,7 @@ android {
         versionCode = 1
         versionName = "1.0"
         buildConfigField("String", "APP_API_BASE_URL", "\"$agentlyAndroidBaseUrl\"")
+        buildConfigField("boolean", "APP_API_BASE_URL_EXPLICIT", agentlyAndroidBaseUrlExplicit.toString())
         buildConfigField("String", "BOOTSTRAP_OAUTH_CONFIG_URL", "\"$agentlyAndroidOauthConfig\"")
         buildConfigField("String", "BOOTSTRAP_OOB_SECRET_REF", "\"$agentlyAndroidOobSecret\"")
         buildConfigField("boolean", "BOOTSTRAP_AUTO_OOB_SIGN_IN", agentlyAndroidAutoOob)
