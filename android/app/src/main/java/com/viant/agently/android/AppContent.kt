@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,6 +68,10 @@ internal fun AppBody(
     callbacks: AppUiCallbacks
 ) {
     var phoneComposerInset by remember { mutableStateOf(232.dp) }
+    var phoneComposerVisible by remember { mutableStateOf(activeConversationId.isNullOrBlank()) }
+    LaunchedEffect(activeConversationId) {
+        phoneComposerVisible = activeConversationId.isNullOrBlank()
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -206,7 +211,13 @@ internal fun AppBody(
                         onOpenInlineReportPdf = callbacks.onOpenInlineReportPdf,
                         onClosePreview = callbacks.onClosePreview,
                         onStarterTaskSelected = callbacks.onStarterTaskSelected,
-                        bottomComposerInset = phoneComposerInset
+                        bottomComposerInset = if (phoneComposerVisible || activeConversationId.isNullOrBlank()) {
+                            phoneComposerInset
+                        } else {
+                            0.dp
+                        },
+                        composerVisible = phoneComposerVisible || activeConversationId.isNullOrBlank(),
+                        onToggleComposer = { phoneComposerVisible = !phoneComposerVisible }
                     )
                 }
             }
@@ -216,6 +227,7 @@ internal fun AppBody(
                         workspaceRoot = metadata?.workspaceRoot,
                         defaultAgent = metadata?.defaultAgent
                     ),
+                    client = client,
                     conversations = recentConversations,
                     activeConversationId = activeConversationId,
                     openingConversationId = openingConversationId,
@@ -243,7 +255,9 @@ internal fun AppBody(
                 )
             }
         }
-        if (currentScreen == AppScreen.Chat && !isTablet) {
+        if (currentScreen == AppScreen.Chat && !isTablet &&
+            (phoneComposerVisible || activeConversationId.isNullOrBlank())
+        ) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)

@@ -39,7 +39,7 @@ internal fun RenderTranscript(
     artifactPreview: ArtifactPreview?,
     onClosePreview: () -> Unit,
     onOpenFile: (GeneratedFileEntry) -> Unit,
-    onOpenInlineReportPdf: (Map<String, Any?>) -> Unit
+    onOpenInlineReportPdf: (Map<String, Any?>, () -> Unit) -> Unit
 ) {
     if (items.isEmpty()) {
         return

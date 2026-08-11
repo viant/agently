@@ -86,7 +86,7 @@ internal fun TabletWorkspacePane(
     onEditChange: (String, String, JsonElement) -> Unit,
     onDecision: (PendingToolApproval, String) -> Unit,
     onOpenFile: (GeneratedFileEntry) -> Unit,
-    onOpenInlineReportPdf: (Map<String, Any?>) -> Unit,
+    onOpenInlineReportPdf: (Map<String, Any?>, () -> Unit) -> Unit,
     onClosePreview: () -> Unit,
     onSelectAgent: (String?) -> Unit,
     query: String,
@@ -361,7 +361,7 @@ internal fun TabletWorkspacePane(
                                 if (showExecutionDetails) {
                                     ExecutionInspectorSection(
                                         state = conversationState,
-                                        payloadPreviews = payloadPreviews
+                                        client = client
                                     )
                                 } else {
                                     RenderTranscript(

@@ -32,6 +32,24 @@ class ChatRuntimeTest {
     }
 
     @Test
+    fun latestActiveNarration_usesNewestNarrationFromActiveTurn() {
+        val snapshot = ConversationStreamSnapshot(
+            conversationId = "conv-1",
+            activeTurnId = "turn-2",
+            feeds = emptyList(),
+            pendingElicitation = null,
+            bufferedMessages = listOf(
+                BufferedMessage(id = "m1", turnId = "turn-2", role = "assistant", narration = "Checking order details"),
+                BufferedMessage(id = "m2", turnId = "turn-1", role = "assistant", narration = "Old status"),
+                BufferedMessage(id = "m3", turnId = "turn-2", role = "assistant", narration = "Comparing delivery signals")
+            ),
+            liveExecutionGroupsById = emptyMap()
+        )
+
+        assertEquals("Comparing delivery signals", latestActiveNarration(snapshot))
+    }
+
+    @Test
     fun visibleAppError_hidesLifecycleCancellationNoise() {
         assertNull(visibleAppError(IllegalStateException("left the composition")))
     }

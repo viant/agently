@@ -19,7 +19,7 @@ require (
 	github.com/viant/forge v0.3.14-0.20260806085450-9fc306afc2c3
 	github.com/viant/jsonrpc v0.24.0 // indirect
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
-	github.com/viant/mcp v0.19.1-0.20260805081153-2519dab26d67 // indirect
+	github.com/viant/mcp v0.19.1-0.20260810230811-de146552d03f // indirect
 	github.com/viant/mcp-protocol v0.15.0
 	github.com/viant/mcp-ui v0.2.0 // indirect
 	github.com/viant/scy v0.30.0

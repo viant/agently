@@ -60,14 +60,14 @@ final class AppStateTargetingTests: XCTestCase {
         }
     }
 
-    func testResolvedBootstrapOOBSecretReferencePrefersStoredValueThenEnvironment() {
+    func testResolvedBootstrapOOBSecretReferencePrefersDeveloperOverrides() {
         XCTAssertEqual(
             resolvedBootstrapOOBSecretReference(
                 storedValue: "stored-oob-reference|blowfish://default",
                 environmentValue: "env-oob-reference|blowfish://default",
                 launchArguments: ["Agently", "--enableDevAuth=1"]
             ),
-            "stored-oob-reference|blowfish://default"
+            "env-oob-reference|blowfish://default"
         )
         XCTAssertEqual(
             resolvedBootstrapOOBSecretReference(
@@ -84,6 +84,25 @@ final class AppStateTargetingTests: XCTestCase {
                 launchArguments: ["Agently", "--enableDevAuth=1", "--oobSecretReference=launch-oob-reference|blowfish://default"]
             ),
             "launch-oob-reference|blowfish://default"
+        )
+        XCTAssertEqual(
+            resolvedBootstrapOOBSecretReference(
+                storedValue: "stored-oob-reference|blowfish://default",
+                environmentValue: "   ",
+                launchArguments: ["Agently", "--enableDevAuth=1", "--oobSecretReference=launch-oob-reference|blowfish://default"]
+            ),
+            "launch-oob-reference|blowfish://default"
+        )
+    }
+
+    func testResolvedBootstrapOOBSecretReferenceIgnoresOverridesOutsideDevMode() {
+        XCTAssertEqual(
+            resolvedBootstrapOOBSecretReference(
+                storedValue: "stored-oob-reference|blowfish://default",
+                environmentValue: "env-oob-reference|blowfish://default",
+                launchArguments: ["Agently", "--oobSecretReference=launch-oob-reference|blowfish://default"]
+            ),
+            "stored-oob-reference|blowfish://default"
         )
     }
 

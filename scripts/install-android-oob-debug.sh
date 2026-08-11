@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ANDROID_DIR="$ROOT_DIR/android"
 API_BASE_URL="${AGENTLY_ANDROID_BASE_URL:-http://10.0.2.2:9292}"
 OOB_SECRET_REF="${AGENTLY_ANDROID_OOB_SECRET_REF:-}"
+OAUTH_CONFIG_URL="${AGENTLY_ANDROID_OAUTH_CONFIG_URL:-}"
 APP_ID="${APP_ID:-com.viant.agently.android}"
 ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
 ADB="${ADB:-$ANDROID_SDK_ROOT/platform-tools/adb}"
@@ -12,6 +13,10 @@ ANDROID_SERIAL="${ANDROID_SERIAL:-}"
 
 if [[ -z "$OOB_SECRET_REF" ]]; then
   echo "AGENTLY_ANDROID_OOB_SECRET_REF is required" >&2
+  exit 2
+fi
+if [[ -z "$OAUTH_CONFIG_URL" ]]; then
+  echo "AGENTLY_ANDROID_OAUTH_CONFIG_URL is required" >&2
   exit 2
 fi
 
@@ -28,6 +33,7 @@ fi
   clean \
   :app:assembleDebug \
   "-Pagently.android.baseUrl=$API_BASE_URL" \
+  "-Pagently.android.oauthConfigUrl=$OAUTH_CONFIG_URL" \
   "-Pagently.android.oobSecretRef=$OOB_SECRET_REF" \
   "-Pagently.android.autoOobSignIn=true"
 

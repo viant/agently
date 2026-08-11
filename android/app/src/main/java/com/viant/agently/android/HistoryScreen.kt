@@ -22,13 +22,22 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Clear
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,7 +48,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.Conversation
+import com.viant.agentlysdk.AgentlyClient
+import com.viant.agentlysdk.ListConversationsInput
+import com.viant.agentlysdk.PageInput
 import com.viant.agentlysdk.WorkspaceMetadata
+import kotlinx.coroutines.delay
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 
@@ -208,7 +221,7 @@ internal fun TabletConversationSidebar(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            conversation.title?.takeIf { it.isNotBlank() } ?: conversation.id.take(12),
+                                            conversationHistoryTitle(conversation),
                                             style = MaterialTheme.typography.titleSmall,
                                             modifier = Modifier.weight(1f),
                                             maxLines = 1,
@@ -229,7 +242,7 @@ internal fun TabletConversationSidebar(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        conversation.summary?.takeIf { it.isNotBlank() } ?: "Conversation ${conversation.id.take(12)}",
+                                        conversationHistorySummary(conversation),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Color(0xFF667085),
                                         maxLines = 1,
@@ -263,6 +276,7 @@ internal fun TabletConversationSidebar(
 @Composable
 internal fun ConversationHistoryScreen(
     workspaceTitle: String,
+    client: AgentlyClient,
     conversations: List<Conversation>,
     activeConversationId: String?,
     openingConversationId: String?,
@@ -271,6 +285,48 @@ internal fun ConversationHistoryScreen(
     onRefresh: () -> Unit,
     onSelectConversation: (String) -> Unit
 ) {
+    var query by remember { mutableStateOf("") }
+    var remoteQuery by remember { mutableStateOf("") }
+    var remoteConversations by remember { mutableStateOf<List<Conversation>>(emptyList()) }
+    var remoteSearching by remember { mutableStateOf(false) }
+    LaunchedEffect(query, client) {
+        val normalized = query.trim()
+        if (normalized.length < 2) {
+            remoteQuery = ""
+            remoteConversations = emptyList()
+            remoteSearching = false
+            return@LaunchedEffect
+        }
+        remoteSearching = true
+        delay(300)
+        runCatching {
+            val exactId = conversationIdFromHistorySearch(normalized)
+            if (exactId != null) {
+                listOf(client.getConversation(exactId))
+            } else {
+                val direct = client.listConversations(
+                    ListConversationsInput(query = normalized, page = PageInput(limit = 100))
+                ).rows
+                if (direct.isNotEmpty() || normalized.none(Char::isDigit)) {
+                    direct
+                } else {
+                    searchOlderConversationsByLoadedFields(client, normalized)
+                }
+            }
+        }.onSuccess { rows ->
+            remoteQuery = normalized
+            remoteConversations = rows
+        }
+        remoteSearching = false
+    }
+    val filteredConversations = remember(conversations, query, remoteQuery, remoteConversations) {
+        val normalized = query.trim()
+        if (normalized.length >= 2 && remoteQuery == normalized) {
+            remoteConversations
+        } else {
+            filterPhoneConversationHistory(conversations, query)
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -293,15 +349,57 @@ internal fun ConversationHistoryScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFF667085)
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onBack) {
-                        Text("Back")
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = if (activeConversationId.isNullOrBlank()) {
+                                Icons.AutoMirrored.Outlined.ArrowBack
+                            } else {
+                                Icons.Outlined.ChatBubbleOutline
+                            },
+                            contentDescription = if (activeConversationId.isNullOrBlank()) {
+                                "Back"
+                            } else {
+                                "Back to open conversation"
+                            }
+                        )
                     }
-                    Button(onClick = onRefresh, enabled = !loading) {
-                        Text("Refresh")
+                    IconButton(onClick = onRefresh, enabled = !loading) {
+                        Icon(Icons.Outlined.Refresh, contentDescription = "Refresh conversations")
                     }
                     if (loading) {
                         CircularProgressIndicator(modifier = Modifier.width(24.dp))
+                    }
+                }
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("Search conversations") },
+                    leadingIcon = {
+                        Icon(Icons.Outlined.Search, contentDescription = null)
+                    },
+                    trailingIcon = if (query.isNotEmpty()) {
+                        {
+                            IconButton(onClick = { query = "" }) {
+                                Icon(Icons.Outlined.Clear, contentDescription = "Clear conversation search")
+                            }
+                        }
+                    } else {
+                        null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                if (remoteSearching) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.width(18.dp))
+                        Text("Searching all conversations…", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -316,7 +414,16 @@ internal fun ConversationHistoryScreen(
             }
             return
         }
-        conversations.forEach { conversation ->
+        if (filteredConversations.isEmpty()) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "No conversations match your search.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        }
+        filteredConversations.forEach { conversation ->
             val isActive = conversation.id == activeConversationId
             val isOpening = conversation.id == openingConversationId
             Card(
@@ -329,14 +436,16 @@ internal fun ConversationHistoryScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        conversation.title?.takeIf { it.isNotBlank() } ?: conversation.id.take(12),
+                        conversationHistoryTitle(conversation),
                         style = MaterialTheme.typography.titleMedium
                     )
-                    Text(
-                        conversation.summary?.takeIf { it.isNotBlank() } ?: "Conversation ${conversation.id.take(12)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF667085)
-                    )
+                    conversationHistorySummary(conversation).takeIf { it.isNotBlank() }?.let { summary ->
+                        Text(
+                            summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF667085)
+                        )
+                    }
                     Text(
                         formatTimestampLabel(conversation.lastActivity ?: conversation.createdAt) ?: "Recent conversation",
                         style = MaterialTheme.typography.labelSmall,
@@ -366,6 +475,64 @@ internal fun ConversationHistoryScreen(
     }
 }
 
+internal fun conversationIdFromHistorySearch(value: String): String? {
+    return Regex("""(?i)([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})""")
+        .find(value.trim())
+        ?.groupValues
+        ?.getOrNull(1)
+}
+
+private suspend fun searchOlderConversationsByLoadedFields(
+    client: AgentlyClient,
+    query: String,
+    maxPages: Int = 10
+): List<Conversation> {
+    var cursor: String? = null
+    repeat(maxPages) {
+        val page = client.listConversations(
+            ListConversationsInput(page = PageInput(limit = 100, cursor = cursor))
+        )
+        val matches = filterPhoneConversationHistory(page.rows, query)
+        if (matches.isNotEmpty()) return matches
+        cursor = page.nextCursor?.takeIf { it.isNotBlank() }
+        if (!page.hasMore || cursor == null) return emptyList()
+    }
+    return emptyList()
+}
+
+internal fun filterPhoneConversationHistory(
+    conversations: List<Conversation>,
+    query: String
+): List<Conversation> {
+    val terms = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotBlank() }
+    if (terms.isEmpty()) {
+        return conversations
+    }
+    return conversations.filter { conversation ->
+        val searchable = listOfNotNull(
+            conversation.title,
+            conversation.summary,
+            conversation.agentId
+        ).joinToString(" ") { decodeConversationLabel(it) }.lowercase()
+        terms.all(searchable::contains)
+    }
+}
+
+internal fun conversationHistoryTitle(conversation: Conversation): String =
+    conversation.title
+        ?.takeIf { it.isNotBlank() }
+        ?.let(::decodeConversationLabel)
+        ?: conversation.agentId
+            ?.takeIf { it.isNotBlank() }
+            ?.let { "${decodeConversationLabel(it)} conversation" }
+        ?: "Untitled conversation"
+
+internal fun conversationHistorySummary(conversation: Conversation): String =
+    conversation.summary
+        ?.takeIf { it.isNotBlank() }
+        ?.let(::decodeConversationLabel)
+        .orEmpty()
+
 @Composable
 internal fun RecentConversationsSection(
     conversations: List<Conversation>,
@@ -394,7 +561,7 @@ internal fun RecentConversationsSection(
             conversations.forEach { conversation ->
                 val isActive = conversation.id == activeConversationId
                 val isOpening = conversation.id == openingConversationId
-                val summary = conversation.summary?.takeIf { it.isNotBlank() } ?: "Conversation ${conversation.id.take(12)}"
+                val summary = conversationHistorySummary(conversation)
                 Surface(
                     color = if (isActive) Color(0xFFF2F6FF) else Color(0xFFFFFFFF),
                     border = BorderStroke(
@@ -416,18 +583,20 @@ internal fun RecentConversationsSection(
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                conversation.title?.takeIf { it.isNotBlank() }?.let(::decodeConversationLabel) ?: conversation.id.take(12),
+                                conversationHistoryTitle(conversation),
                                 style = MaterialTheme.typography.titleSmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            Text(
-                                decodeConversationLabel(summary),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFF667085),
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            summary.takeIf { it.isNotBlank() }?.let {
+                                Text(
+                                    it,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF667085),
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                             Text(
                                 formatConversationRecency(conversation.lastActivity ?: conversation.createdAt) ?: "Recent",
                                 style = MaterialTheme.typography.labelSmall,

@@ -571,10 +571,11 @@ public final class AppRuntime: ObservableObject {
             let transcriptState = try await state.client.getTranscript(
                 GetTranscriptInput(
                     conversationID: conversationID,
-                    includeModelCalls: true,
+                    includeModelCalls: false,
                     includeToolCalls: true,
                     includeFeeds: true
-                )
+                ),
+                maxResponseBytes: 8 * 1024 * 1024
             )
             let goal = try await state.client.getGoal(conversationID: conversationID)
             state.activeConversationState = transcriptState

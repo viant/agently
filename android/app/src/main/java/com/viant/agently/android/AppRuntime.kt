@@ -52,11 +52,14 @@ internal fun conversationLoadPolicy(formFactor: String): ConversationLoadPolicy 
         includeModelCalls = formFactor == "tablet",
         includeToolCalls = true,
         includeFeeds = true,
-        includePayloadPreviews = formFactor == "tablet",
+        // Execution payloads can be multi-megabyte model/tool bodies. They are
+        // fetched by the inspector only after an explicit tap on every form
+        // factor, rather than retained while a conversation opens.
+        includePayloadPreviews = false,
         maxTranscriptResponseBytes = if (formFactor == "tablet") 16L * 1024 * 1024 else 8L * 1024 * 1024,
-        maxPayloadPreviewCount = if (formFactor == "tablet") 8 else 0,
-        maxPayloadDownloadBytes = if (formFactor == "tablet") 1L * 1024 * 1024 else 0,
-        maxPayloadInflatedBytes = if (formFactor == "tablet") 512 * 1024 else 0
+        maxPayloadPreviewCount = 0,
+        maxPayloadDownloadBytes = 0,
+        maxPayloadInflatedBytes = 0
     )
 
 internal data class WorkspaceAgentChoice(

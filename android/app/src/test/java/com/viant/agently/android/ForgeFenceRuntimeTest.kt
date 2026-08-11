@@ -1,10 +1,120 @@
 package com.viant.agently.android
 
+import com.viant.forgeandroid.ui.TranscriptCanonicalData
+import com.viant.forgeandroid.ui.TranscriptCanonicalReport
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ForgeFenceRuntimeTest {
+
+    @Test
+    fun `inline report export fences preserve report and hydrated data without ids leaking into labels`() {
+        val report = TranscriptCanonicalReport(
+            scope = "message",
+            id = "performance",
+            grammar = "report-document-v1",
+            status = "committed",
+            source = JsonObject(
+                mapOf(
+                    "title" to JsonPrimitive("Performance"),
+                    "scope" to JsonPrimitive("authored-scope"),
+                    "blocks" to JsonArray(emptyList())
+                )
+            ),
+            dataSources = mapOf(
+                "rows" to TranscriptCanonicalData(
+                    version = 2,
+                    id = "rows",
+                    format = "json",
+                    payload = JsonArray(listOf(JsonObject(mapOf("spend" to JsonPrimitive(12)))))
+                )
+            )
+        )
+
+        val fences = inlineReportExportFences(report)
+
+        assertEquals(listOf("forge-report", "forge-data", "forge-report"), fences.map { it["kind"] })
+        assertEquals(JsonPrimitive("start"), (fences[0]["payload"] as JsonObject)["mode"])
+        assertEquals(JsonPrimitive("replace"), (fences[1]["payload"] as JsonObject)["mode"])
+        assertEquals(JsonPrimitive("commit"), (fences[2]["payload"] as JsonObject)["mode"])
+        assertEquals(JsonPrimitive("authored-scope"), (fences[0]["payload"] as JsonObject)["scope"])
+        assertEquals(JsonPrimitive("authored-scope"), (fences[1]["payload"] as JsonObject)["scope"])
+        assertEquals(JsonPrimitive("authored-scope"), (fences[2]["payload"] as JsonObject)["scope"])
+    }
+
+    @Test
+    fun `inline report PDF source normalizes legacy KPI and timeline fields for Go compiler`() {
+        val source = JsonObject(mapOf(
+            "blocks" to JsonArray(listOf(
+                JsonObject(mapOf(
+                    "id" to JsonPrimitive("spend"),
+                    "kind" to JsonPrimitive("kpiBlock"),
+                    "subtitle" to JsonPrimitive("Last seven days"),
+                    "suffix" to JsonPrimitive("x"),
+                    "tone" to JsonPrimitive("warning")
+                )),
+                JsonObject(mapOf(
+                    "id" to JsonPrimitive("changes"),
+                    "kind" to JsonPrimitive("timelineBlock"),
+                    "datasetRef" to JsonPrimitive("change_rows"),
+                    "timeField" to JsonPrimitive("timestamp"),
+                    "titleField" to JsonPrimitive("event"),
+                    "descriptionField" to JsonPrimitive("detail")
+                )),
+                JsonObject(mapOf(
+                    "id" to JsonPrimitive("posture"),
+                    "kind" to JsonPrimitive("badgesBlock"),
+                    "items" to JsonArray(listOf(JsonObject(mapOf("label" to JsonPrimitive("Setup")))))
+                )),
+                JsonObject(mapOf(
+                    "id" to JsonPrimitive("capacity"),
+                    "kind" to JsonPrimitive("infoPanelBlock"),
+                    "title" to JsonPrimitive("Capacity"),
+                    "body" to JsonPrimitive("Capacity detail")
+                )),
+                JsonObject(mapOf(
+                    "id" to JsonPrimitive("delivery"),
+                    "kind" to JsonPrimitive("tableBlock"),
+                    "title" to JsonPrimitive("Daily delivery"),
+                    "description" to JsonPrimitive("Delivery by date"),
+                    "datasetRef" to JsonPrimitive("daily_rows"),
+                    "columns" to JsonArray(listOf(JsonObject(mapOf(
+                        "key" to JsonPrimitive("spend"),
+                        "label" to JsonPrimitive("Spend"),
+                        "cellVisual" to JsonObject(mapOf("kind" to JsonPrimitive("dataBar")))
+                    ))))
+                ))
+            ))
+        ))
+
+        val normalized = inlineReportPdfSource(source)
+        val blocks = normalized["blocks"] as JsonArray
+        val kpi = blocks[0] as JsonObject
+        val timeline = blocks[1] as JsonObject
+        val badges = blocks[2] as JsonObject
+        val infoPanel = blocks[3] as JsonObject
+        val table = blocks[4] as JsonObject
+
+        assertEquals(JsonPrimitive("Last seven days"), kpi["description"])
+        assertEquals(null, kpi["subtitle"])
+        assertEquals(null, kpi["suffix"])
+        assertEquals(JsonPrimitive("tableBlock"), timeline["kind"])
+        assertEquals(listOf("timestamp", "event", "detail"), (timeline["columns"] as JsonArray).map {
+            ((it as JsonObject)["key"] as JsonPrimitive).content
+        })
+        assertEquals(JsonPrimitive("badge_1"), (((badges["items"] as JsonArray)[0] as JsonObject)["id"]))
+        assertEquals(JsonPrimitive("markdownBlock"), infoPanel["kind"])
+        assertEquals(JsonPrimitive("Capacity detail"), infoPanel["markdown"])
+        assertEquals(null, table["description"])
+        assertEquals(
+            JsonPrimitive("dataBar"),
+            (((table["columns"] as JsonArray)[0] as JsonObject)["cellVisual"] as JsonObject)["kind"]
+        )
+    }
 
     @Test
     fun `parseTranscriptContentParts extracts forge ui blocks with preceding forge data`() {

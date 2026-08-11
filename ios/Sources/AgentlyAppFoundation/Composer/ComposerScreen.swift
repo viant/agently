@@ -23,6 +23,7 @@ public struct ComposerScreen: View {
     @State private var lookupErrorMessage: String?
     @State private var lookupRowsLoading = false
     @State private var lastAutoPresentedLookupSignature = ""
+    @State private var isCompactComposerExpanded = false
     @FocusState private var isEditorFocused: Bool
     #if os(iOS)
     @State private var isShowingCameraCapture = false
@@ -42,6 +43,9 @@ public struct ComposerScreen: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: density == .compact ? 8 : 10) {
+            if density == .compact && canShowCollapsedCompactComposer && !isCompactComposerExpanded {
+                collapsedCompactComposer
+            } else {
             if !runtime.lookupOccurrences.isEmpty {
                 composerLookupSection
             }
@@ -65,6 +69,16 @@ public struct ComposerScreen: View {
                         .stroke(composerInputStroke, lineWidth: isEditorFocused ? 1.5 : 1)
                 )
                 .frame(height: editorHeight)
+                .overlay(alignment: .topLeading) {
+                    if runtime.query.isEmpty {
+                        Text("Reply in the workspace")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 15)
+                            .padding(.vertical, 17)
+                            .allowsHitTesting(false)
+                    }
+                }
             if voiceRuntime.isRecording {
                 Label(
                     voiceRuntime.liveTranscript.isEmpty ? "Listening..." : voiceRuntime.liveTranscript,
@@ -115,6 +129,7 @@ public struct ComposerScreen: View {
                 }
             }
             actionSection
+            }
         }
         .padding(density == .compact ? 10 : 16)
         .fileImporter(
@@ -154,7 +169,20 @@ public struct ComposerScreen: View {
             presentFirstRequiredLookupIfNeeded()
         }
         .onChange(of: unresolvedRequiredLookupSignature) { _, _ in
+            if !unresolvedRequiredLookupSignature.isEmpty {
+                isCompactComposerExpanded = true
+            }
             presentFirstRequiredLookupIfNeeded()
+        }
+        .onChange(of: runtime.query) { _, newValue in
+            if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                isCompactComposerExpanded = true
+            }
+        }
+        .onChange(of: runtime.attachments.count) { _, count in
+            if count > 0 {
+                isCompactComposerExpanded = true
+            }
         }
         .onChange(of: isSending) { _, newValue in
             if newValue {
@@ -246,6 +274,52 @@ public struct ComposerScreen: View {
             )
         }
         #endif
+    }
+
+    private var canShowCollapsedCompactComposer: Bool {
+        runtime.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && runtime.attachments.isEmpty
+            && runtime.lookupOccurrences.isEmpty
+            && !voiceRuntime.isRecording
+            && !isSending
+    }
+
+    private var collapsedCompactComposer: some View {
+        HStack(spacing: 8) {
+            Button {
+                isCompactComposerExpanded = true
+                isEditorFocused = true
+            } label: {
+                Image(systemName: "bubble.left")
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("Write a reply")
+            .accessibilityIdentifier("agently-composer-expand")
+
+            Button {
+                isCompactComposerExpanded = true
+                isEditorFocused = true
+            } label: {
+                Text("Reply in the workspace")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Reply in the workspace")
+
+            Button {
+                isCompactComposerExpanded = true
+                voiceRuntime.toggleDictation { recognizedText in
+                    runtime.appendRecognizedText(recognizedText)
+                }
+            } label: {
+                Image(systemName: "waveform")
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("Voice input")
+        }
     }
 
     private var editorHeight: CGFloat {
@@ -404,6 +478,18 @@ public struct ComposerScreen: View {
 
     private var actionButtons: some View {
         Group {
+            if density == .compact {
+                Button {
+                    isEditorFocused = false
+                    requestAgentlyPlatformKeyboardDismissal()
+                    isCompactComposerExpanded = false
+                } label: {
+                    Label("Collapse", systemImage: "chevron.down")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!canShowCollapsedCompactComposer)
+                .accessibilityIdentifier("agently-composer-collapse")
+            }
             #if os(iOS)
             if isEditorFocused {
                 Button {
