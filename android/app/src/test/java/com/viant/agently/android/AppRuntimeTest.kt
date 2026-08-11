@@ -39,17 +39,17 @@ class AppRuntimeTest {
     }
 
     @Test
-    fun `tablet conversation policy retains execution diagnostics`() {
+    fun `tablet conversation policy retains diagnostics but lazily loads payload bodies`() {
         val policy = conversationLoadPolicy("tablet")
 
         assertTrue(policy.includeModelCalls)
         assertTrue(policy.includeToolCalls)
         assertTrue(policy.includeFeeds)
-        assertTrue(policy.includePayloadPreviews)
+        assertFalse(policy.includePayloadPreviews)
         assertEquals(16L * 1024 * 1024, policy.maxTranscriptResponseBytes)
-        assertEquals(8, policy.maxPayloadPreviewCount)
-        assertEquals(1L * 1024 * 1024, policy.maxPayloadDownloadBytes)
-        assertEquals(512 * 1024, policy.maxPayloadInflatedBytes)
+        assertEquals(0, policy.maxPayloadPreviewCount)
+        assertEquals(0, policy.maxPayloadDownloadBytes)
+        assertEquals(0, policy.maxPayloadInflatedBytes)
     }
 
     @Test

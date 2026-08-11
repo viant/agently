@@ -34,6 +34,12 @@ class ComposerLookupRuntimeTest {
     }
 
     @Test
+    fun `legacy lookup list suffix is removed from user facing title`() {
+        assertEquals("Order", composerLookupUserFacingTitle("Order list"))
+        assertEquals("Campaign", composerLookupUserFacingTitle("Campaign LIST"))
+    }
+
+    @Test
     fun `required lookup must be selected before resolving prompt`() {
         val registry = listOf(orderLookupEntry())
 
@@ -66,6 +72,19 @@ class ComposerLookupRuntimeTest {
 
         assertEquals("Troubleshoot order fixture-order-1", resolved)
         assertEquals("Fixture Order", selection.label)
+        assertEquals("fixture-order-1", selection.detail)
+        assertEquals("fixture-order-1 · Fixture Order", composerLookupSelectionLabel(selection))
+    }
+
+    @Test
+    fun `lookup display template resolves Android-safe placeholder syntax`() {
+        assertEquals(
+            "Order 2676237",
+            composerLookupApplyTemplate(
+                "Order \${id}",
+                mapOf("id" to JsonPrimitive("2676237"))
+            )
+        )
     }
 
     @Test
@@ -153,6 +172,32 @@ class ComposerLookupRuntimeTest {
         }
     }
 
+    @Test
+    fun `numeric order search uses identifier input while text uses name input`() {
+        val entry = orderLookupEntry()
+
+        assertEquals(
+            "2688386",
+            composerLookupSearchInputs(entry, " 2688386 ")
+                ?.get("orderId")?.jsonPrimitive?.content
+        )
+        assertEquals(
+            "Delivery Troubleshoot",
+            composerLookupSearchInputs(entry, "Delivery Troubleshoot")
+                ?.get("q")?.jsonPrimitive?.content
+        )
+    }
+
+    @Test
+    fun `order lookup row exposes ad order id in details column`() {
+        assertEquals(
+            "2688386",
+            composerLookupRowSecondaryText(
+                mapOf("adOrderId" to JsonPrimitive(2688386))
+            )
+        )
+    }
+
     private fun orderLookupEntry(): LookupRegistryEntry {
         return LookupRegistryEntry(
             name = "order",
@@ -163,7 +208,8 @@ class ComposerLookupRuntimeTest {
                 store = "\${id}",
                 display = "\${name}",
                 modelForm = "order \${id}",
-                queryInput = "q"
+                queryInput = "q",
+                resolveInput = "orderId"
             )
         )
     }

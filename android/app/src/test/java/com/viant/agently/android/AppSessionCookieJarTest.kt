@@ -35,4 +35,25 @@ class AppSessionCookieJarTest {
 
         assertTrue(decodeSessionCookies(raw).isEmpty())
     }
+
+    @Test
+    fun localOobSessionCanBeInstalledAsHostedWorkspaceCookie() {
+        val jar = AppSessionCookieJar()
+
+        assertTrue(
+            jar.installSession(
+                "https://steward.agently.viantinc.com/",
+                "f78ae791-2a4d-4961-8d00-session"
+            )
+        )
+
+        val cookies = jar.loadForRequest(
+            "https://steward.agently.viantinc.com/v1/api/auth/me".toHttpUrl()
+        )
+        assertEquals(1, cookies.size)
+        assertEquals("agently_session", cookies.single().name)
+        assertEquals("f78ae791-2a4d-4961-8d00-session", cookies.single().value)
+        assertTrue(cookies.single().secure)
+        assertTrue(cookies.single().httpOnly)
+    }
 }

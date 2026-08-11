@@ -10,12 +10,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
+import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -23,11 +26,19 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CameraAlt
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.KeyboardHide
 import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,7 +79,16 @@ internal fun PhoneComposerDock(
     onRunQuery: () -> Unit,
     onMeasuredHeight: (androidx.compose.ui.unit.Dp) -> Unit = {}
 ) {
-    val compactConversationDock = !activeConversationId.isNullOrBlank()
+    val hasActiveConversation = !activeConversationId.isNullOrBlank()
+    val compactConversationDock = true
+    var composerExpanded by remember(activeConversationId) {
+        mutableStateOf(query.isNotBlank() || composerAttachments.isNotEmpty())
+    }
+    LaunchedEffect(query, composerAttachments.size) {
+        if (query.isNotBlank() || composerAttachments.isNotEmpty()) {
+            composerExpanded = true
+        }
+    }
     val density = LocalDensity.current
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -123,12 +143,46 @@ internal fun PhoneComposerDock(
                     agentLabel?.takeIf { it.isNotBlank() }?.let {
                         AssistChip(onClick = {}, enabled = false, label = { Text(it) })
                     }
-                    TextButton(onClick = onOpenSettings) {
-                        Text("Settings")
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Outlined.Settings, contentDescription = "Settings")
                     }
                 }
             }
-            if (compactConversationDock) {
+            if (compactConversationDock && !composerExpanded) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilledTonalIconButton(onClick = { composerExpanded = true }) {
+                        Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = "Write a reply")
+                    }
+                    Surface(
+                        onClick = { composerExpanded = true },
+                        color = ComposerInputFill,
+                        border = BorderStroke(1.dp, ComposerInputBorder),
+                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            if (hasActiveConversation) "Reply in the workspace" else "Start a conversation",
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFF667085)
+                        )
+                    }
+                    if (canUseVoiceInput) {
+                        CompactComposerIconButton(
+                            contentDescription = "Voice input",
+                            icon = { Icon(Icons.Outlined.Mic, contentDescription = null) },
+                            onClick = {
+                                composerExpanded = true
+                                onVoiceInput()
+                            }
+                        )
+                    }
+                }
+            } else if (compactConversationDock) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -137,10 +191,19 @@ internal fun PhoneComposerDock(
                     OutlinedTextField(
                         value = query,
                         onValueChange = onQueryChange,
-                        placeholder = { Text("Reply in the workspace") },
+                        placeholder = {
+                            Text(if (hasActiveConversation) "Reply in the workspace" else "Ask anything")
+                        },
                         modifier = Modifier.weight(1f),
                         minLines = 1,
-                        maxLines = composerInputMaxLines(compactConversationDock, query),
+                        // Starter prompts are often intentionally verbose. Keep the
+                        // lookup action and media controls reachable above the IME;
+                        // the text field remains scrollable for editing the full prompt.
+                        maxLines = if (lookupOccurrences.isNotEmpty()) {
+                            3
+                        } else {
+                            composerInputMaxLines(compactConversationDock, query)
+                        },
                         keyboardOptions = KeyboardOptions(
                             capitalization = KeyboardCapitalization.None,
                             imeAction = ImeAction.Done
@@ -168,9 +231,12 @@ internal fun PhoneComposerDock(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     CompactComposerIconButton(
-                        contentDescription = "Hide keyboard",
-                        icon = { Icon(Icons.Outlined.KeyboardHide, contentDescription = "Hide keyboard") },
-                        onClick = ::hideKeyboard
+                        contentDescription = "Collapse composer",
+                        icon = { Icon(Icons.Outlined.ExpandMore, contentDescription = null) },
+                        onClick = {
+                            hideKeyboard()
+                            composerExpanded = false
+                        }
                     )
                     CompactComposerIconButton(
                         contentDescription = "Add photo",
@@ -299,11 +365,24 @@ internal fun firstUnresolvedRequiredComposerLookup(
         occurrence.required && selections[occurrence.key] == null
     }
 
-internal fun composerSendButtonLabel(unresolvedRequiredLookup: ComposerLookupOccurrence?): String =
-    unresolvedRequiredLookup?.let { composerLookupControlLabel(it.title, null) } ?: "Send"
+internal fun composerSendButtonLabel(
+    @Suppress("UNUSED_PARAMETER") unresolvedRequiredLookup: ComposerLookupOccurrence?
+): String =
+    "Send"
 
 internal fun composerLookupControlLabel(title: String, selection: ComposerLookupSelection?): String =
-    selection?.label?.takeIf { it.isNotBlank() } ?: "Select $title"
+    selection?.let(::composerLookupSelectionLabel) ?: "Select $title"
+
+internal fun composerLookupSelectionLabel(selection: ComposerLookupSelection): String {
+    val label = selection.label.trim()
+    val detail = selection.detail?.trim().orEmpty()
+    return when {
+        detail.isBlank() -> label
+        label.isBlank() -> detail
+        label.contains(detail, ignoreCase = true) -> label
+        else -> "$detail · $label"
+    }
+}
 
 @Composable
 internal fun ComposerLookupChipsRow(
@@ -320,6 +399,11 @@ internal fun ComposerLookupChipsRow(
             InputChip(
                 selected = selection != null,
                 onClick = { onLookupClick(occurrence) },
+                modifier = Modifier.widthIn(max = 320.dp),
+                colors = InputChipDefaults.inputChipColors(
+                    selectedContainerColor = Color(0xFFEAF2FF),
+                    selectedLabelColor = Color(0xFF1849A9)
+                ),
                 label = {
                     Text(
                         composerLookupControlLabel(occurrence.title, selection),

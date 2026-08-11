@@ -1,5 +1,6 @@
 package com.viant.agently.android
 
+import android.util.Log
 import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.FetchDatasourceInput
 import com.viant.agentlysdk.fetchDatasource
@@ -57,13 +58,22 @@ internal fun makeForgeAgentlyDataSourceLoader(
             }
         }
 
-        val response = client.fetchDatasource(
-            FetchDatasourceInput(
-                id = datasourceId,
-                inputs = inputs.takeIf { it.isNotEmpty() }?.mapValues { JsonUtil.anyToElement(it.value) },
-                conversationId = request.conversationId?.takeIf { it.isNotBlank() }
+        val response = try {
+            client.fetchDatasource(
+                FetchDatasourceInput(
+                    id = datasourceId,
+                    inputs = inputs.takeIf { it.isNotEmpty() }?.mapValues { JsonUtil.anyToElement(it.value) },
+                    conversationId = request.conversationId?.takeIf { it.isNotBlank() }
+                )
             )
-        )
+        } catch (err: Throwable) {
+            Log.e(
+                "ForgeDataSource",
+                "fetch failed id=$datasourceId conversationId=${request.conversationId.orEmpty()}",
+                err
+            )
+            throw err
+        }
         ForgeRuntime.DataSourceFetchResult(
             rows = response.rows.map { row -> row.mapValues { JsonUtil.elementToAny(it.value) } },
             metrics = response.metrics?.mapValues { JsonUtil.elementToAny(it.value) } ?: emptyMap()

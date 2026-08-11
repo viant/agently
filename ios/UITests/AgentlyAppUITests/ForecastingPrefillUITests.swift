@@ -176,6 +176,55 @@ final class ForecastingPrefillUITests: XCTestCase {
         add(screenshot)
     }
 
+    func testLiveAuthoredReportSectionsRenderOnPhone() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["AGENTLY_IOS_LIVE_UI_TESTS"] == "1",
+            "Set AGENTLY_IOS_LIVE_UI_TESTS=1 to run live Steward UI verification."
+        )
+        let baseURL = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_BASE_URL"] ?? ""
+        let oobSecret = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_OOB_SECRET"] ?? ""
+        let conversationID = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_ACTIVE_CONVERSATION_ID"] ?? ""
+        try XCTSkipUnless(!baseURL.isEmpty && !oobSecret.isEmpty && !conversationID.isEmpty)
+
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--enableDevAuth=1",
+            "--apiBaseURL=\(baseURL)",
+            "--oobSecretReference=\(oobSecret)",
+            "--autoOOBSignIn=1",
+            "--activeConversationID=\(conversationID)",
+            "--uiBridgeClientID=ios-ui-report-\(UUID().uuidString)"
+        ]
+        app.launch()
+
+        XCTAssertTrue(
+            app.staticTexts["Order 2676237 Delivery Troubleshoot"].firstMatch.waitForExistence(timeout: 90),
+            "Live authored report did not render"
+        )
+        XCTAssertTrue(app.buttons["agently-composer-expand"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Photos"].exists, "Collapsed one-line composer should not show media actions")
+        XCTAssertFalse(app.buttons["Attach"].exists, "Collapsed one-line composer should not show attachment actions")
+        let selector = app.descendants(matching: .any)["forge-report-runtime-section-selector"].firstMatch
+        XCTAssertTrue(selector.waitForExistence(timeout: 30), "Compact report section selector did not render")
+        selector.tap()
+        let causalEvidence = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Causal evidence"))
+            .firstMatch
+        XCTAssertTrue(causalEvidence.waitForExistence(timeout: 10), "Causal Evidence section was not offered")
+        causalEvidence.tap()
+        XCTAssertTrue(
+            app.buttons.matching(
+                NSPredicate(format: "identifier == %@ AND label CONTAINS[c] %@", "forge-report-runtime-section-selector", "Causal evidence")
+            ).firstMatch.waitForExistence(timeout: 10),
+            "Causal Evidence did not become the selected full report view"
+        )
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Order 2676237 Causal Evidence iPhone"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
     private func waitForReportBuilderFilterBody(in app: XCUIApplication) -> Bool {
         let requiredIdentifiers = [
             "forge-report-builder-filter-summary",

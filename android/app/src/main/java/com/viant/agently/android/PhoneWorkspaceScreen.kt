@@ -10,21 +10,31 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.AddComment
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.KeyboardHide
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,10 +86,12 @@ internal fun PhoneWorkspacePane(
     onEditChange: (String, String, JsonElement) -> Unit,
     onDecision: (PendingToolApproval, String) -> Unit,
     onOpenFile: (GeneratedFileEntry) -> Unit,
-    onOpenInlineReportPdf: (Map<String, Any?>) -> Unit,
+    onOpenInlineReportPdf: (Map<String, Any?>, () -> Unit) -> Unit,
     onClosePreview: () -> Unit,
     onStarterTaskSelected: (String) -> Unit,
-    bottomComposerInset: androidx.compose.ui.unit.Dp = 232.dp
+    bottomComposerInset: androidx.compose.ui.unit.Dp = 232.dp,
+    composerVisible: Boolean = true,
+    onToggleComposer: () -> Unit = {}
 ) {
     val brandLabel = resolveWorkspaceBrandLabel(metadata)
     val hostedWorkspaceState = deriveAgentlyHostedWorkspaceRestoreState(conversationState, streamSnapshot)
@@ -143,8 +155,8 @@ internal fun PhoneWorkspacePane(
                             )
                         }
                     }
-                    TextButton(onClick = onOpenSettings) {
-                        Text("Settings")
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Outlined.Settings, contentDescription = "Settings")
                     }
                 }
             } else {
@@ -177,32 +189,49 @@ internal fun PhoneWorkspacePane(
                             color = Color(0xFF667085)
                         )
                     }
-                    TextButton(onClick = onOpenSettings) {
-                        Text("Settings")
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Outlined.Settings, contentDescription = "Settings")
                     }
                 }
             }
             Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                TextButton(onClick = onNewConversation, enabled = !loading) {
-                    Text("New chat")
+                IconButton(onClick = onNewConversation, enabled = !loading) {
+                    Icon(Icons.Outlined.AddComment, contentDescription = "New chat")
                 }
-                TextButton(
+                IconButton(
                     onClick = onOpenHistory,
                     enabled = recentConversations.isNotEmpty()
                 ) {
-                    Text(if (!activeConversationId.isNullOrBlank()) "Conversation list" else "History")
+                    Icon(Icons.Outlined.History, contentDescription = "Conversation history")
                 }
-                TextButton(onClick = onRefresh, enabled = !loading) {
-                    Text("Refresh")
+                if (!activeConversationId.isNullOrBlank()) {
+                    IconButton(
+                        onClick = onOpenHistory,
+                        enabled = recentConversations.isNotEmpty()
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Outlined.ArrowBack,
+                            contentDescription = "Back to conversation list"
+                        )
+                    }
                 }
-                if (loading) {
-                    CircularProgressIndicator(modifier = Modifier.height(24.dp))
+                IconButton(onClick = onRefresh, enabled = !loading) {
+                    Icon(Icons.Outlined.Refresh, contentDescription = "Refresh workspace")
+                }
+                if (!activeConversationId.isNullOrBlank()) {
+                    IconButton(onClick = onToggleComposer) {
+                        Icon(
+                            if (composerVisible) Icons.Outlined.KeyboardHide else Icons.Outlined.ChatBubbleOutline,
+                            contentDescription = if (composerVisible) "Hide chat composer" else "Show chat composer"
+                        )
+                    }
                 }
             }
-            if (loading || streamSnapshot?.activeTurnId != null) {
+            if (loading && streamSnapshot?.activeTurnId == null) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
         }
@@ -254,7 +283,8 @@ internal fun PhoneWorkspacePane(
                 onSelectStarterTask = onStarterTaskSelected
             )
         }
-        if ((!activeConversationId.isNullOrBlank() || streamSnapshot?.activeTurnId != null) && hostedWorkspaceState == null) {
+        if (streamSnapshot?.activeTurnId != null && hostedWorkspaceState == null) {
+            val liveNarration = latestActiveNarration(streamSnapshot)
             Surface(
                 color = Color(0xFFFFFFFF),
                 border = BorderStroke(1.dp, Color(0xFFE2E8F3)),
@@ -263,28 +293,15 @@ internal fun PhoneWorkspacePane(
             ) {
                 Column(
                     modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    activeConversationId?.let {
-                        Text(
-                            "Conversation ${it.take(12)}",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = Color(0xFF344054)
-                        )
-                    }
-                    TextButton(
-                        onClick = onOpenHistory,
-                        enabled = recentConversations.isNotEmpty()
-                    ) {
-                        Text("Back to conversation list")
-                    }
-                    streamSnapshot?.activeTurnId?.let { turnId ->
-                        Text(
-                            "Streaming turn ${turnId.take(12)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF667085)
-                        )
-                    }
+                    Text(
+                        liveNarration ?: "Preparing response…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF475467),
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }
@@ -305,7 +322,11 @@ internal fun PhoneWorkspacePane(
                     restoreState = hostedWorkspaceState,
                     forgeRuntime = forgeRuntime,
                     maxBodyHeight = hostedWorkspaceMinHeight.dp,
-                    showTitle = true
+                    // The report/dashboard owns its title and section navigation.
+                    // A second hosted-workspace card wastes scarce phone width and
+                    // makes a selected report tab look like a nested preview.
+                    showTitle = false,
+                    flatPresentation = true
                 )
                 if (pendingApprovals.isNotEmpty()) {
                     PendingApprovalsSection(

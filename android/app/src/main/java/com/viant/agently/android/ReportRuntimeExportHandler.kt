@@ -39,7 +39,7 @@ internal fun registerReportRuntimeExportHandler(
                 conversationId = conversationId
             )
         } catch (err: Throwable) {
-            onError(err.message ?: "Unable to export report PDF.")
+            onError(reportRuntimeExportErrorMessage(err))
             throw err
         }
         val opened = openPdf(artifact.file, artifact.downloaded)
@@ -62,19 +62,35 @@ internal suspend fun exportReportRuntimePdf(
     exportRequest: Map<String, Any?>,
     conversationId: String = ""
 ): ReportRuntimeExportArtifact {
-    val request = normalizeReportRuntimeExportRequest(exportRequest)
-    val submitResult = executeReportingToolObject(
-        client = client,
-        toolName = "reporting:submit_export",
-        args = request,
-        conversationId = conversationId
-    )
-    val initialJob = normalizeReportExportJob(submitResult)
-    val completedJob = waitForReportExportArtifact(
-        client = client,
-        initialJob = initialJob,
-        conversationId = conversationId
-    )
+	val fences = JsonUtil.anyToElement(exportRequest["fences"]) as? JsonArray
+	val completedJob = if (fences != null && fences.isNotEmpty()) {
+		val result = executeReportingToolObject(
+			client = client,
+			toolName = "reporting:compile_and_export_fenced_report",
+			args = mapOf(
+				"reportId" to JsonPrimitive(stringValue(exportRequest["reportId"])),
+				"format" to JsonPrimitive("pdf"),
+				"fences" to fences,
+				"conversationId" to JsonPrimitive(conversationId)
+			),
+			conversationId = conversationId
+		)
+		val job = normalizeReportExportJob(result["job"] as? JsonObject ?: JsonObject(emptyMap()))
+		val artifactId = stringValue((result["artifact"] as? JsonObject)?.get("artifactId"))
+		job.copy(artifactId = job.artifactId.ifBlank { artifactId })
+	} else {
+		val submitResult = executeReportingToolObject(
+			client = client,
+			toolName = "reporting:submit_export",
+			args = normalizeReportRuntimeExportRequest(exportRequest),
+			conversationId = conversationId
+		)
+		waitForReportExportArtifact(
+			client = client,
+			initialJob = normalizeReportExportJob(submitResult),
+			conversationId = conversationId
+		)
+	}
     val artifactId = completedJob.artifactId.ifBlank {
         error("Report PDF export completed without an artifact id.")
     }
@@ -214,5 +230,33 @@ private fun stringValue(value: Any?): String {
         is JsonPrimitive -> value.contentOrNull?.trim().orEmpty()
         is JsonElement -> (value as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
         else -> value.toString().trim()
+    }
+}
+
+internal fun reportRuntimeExportErrorMessage(error: Throwable): String {
+    val raw = error.message.orEmpty()
+    val serverDetail = raw.indexOf('{')
+        .takeIf { it >= 0 }
+        ?.let { start ->
+            runCatching {
+                val response = Json.parseToJsonElement(raw.substring(start)) as? JsonObject
+                (response?.get("error") as? JsonPrimitive)?.contentOrNull
+            }.getOrNull()
+        }
+        ?.replace("\n", " ")
+        ?.trim()
+	val detail = serverDetail
+		?.removePrefix("reporting export:")
+		?.trim()
+		?.takeIf { it.isNotBlank() }
+	val diagnostic = (detail ?: raw).lowercase()
+	if (diagnostic.contains("scratchpad") || diagnostic.contains("storage.googleapis.com") ||
+		diagnostic.contains("unable to generate access token")) {
+		return "The PDF was created, but report storage is temporarily unavailable. Please try again."
+	}
+    return if (detail == null) {
+        "Unable to create the report PDF. Please try again."
+    } else {
+        "Unable to create the report PDF: $detail"
     }
 }

@@ -63,6 +63,25 @@ internal class AppSessionCookieJar(context: Context? = null) : CookieJar {
         persistentStore?.clear()
     }
 
+    /** Installs a session produced by the local OOB flow into this app's jar. */
+    fun installSession(baseUrl: String, sessionId: String): Boolean {
+        val value = sessionId.trim()
+        if (value.isEmpty()) return false
+        val url = runCatching { baseUrl.trim().trimEnd('/').plus("/").toHttpUrl() }.getOrNull()
+            ?: return false
+        val builder = Cookie.Builder()
+            .name("agently_session")
+            .value(value)
+            .hostOnlyDomain(url.host)
+            .path("/")
+            .httpOnly()
+            .expiresAt(System.currentTimeMillis() + TimeUnit.DAYS.toMillis(7))
+        if (url.isHttps) builder.secure()
+        putCookie(builder.build())
+        persist(url)
+        return true
+    }
+
     private fun putCookie(incoming: Cookie) {
         val key = incoming.domain
         val existing = store.computeIfAbsent(key) { mutableListOf() }

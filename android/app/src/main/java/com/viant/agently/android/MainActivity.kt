@@ -684,6 +684,40 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
             return
         }
 
+        // Local OOB tooling returns the session cookie value itself. Some hosted
+        // deployments intentionally do not expose the optional session/attach
+        // endpoint, so honor the cookie formats accepted by the developer UI by
+        // installing the value in the app's persistent cookie jar and verifying it.
+        val cookieResult = runCatching {
+            val candidateEndpoints = mergeApiCandidates(appApiBaseUrl, appApiCandidates)
+            val installedEndpoints = candidateEndpoints.filter { endpoint ->
+                sessionCookieJar.installSession(endpoint, credential)
+            }
+            require(installedEndpoints.isNotEmpty()) {
+                "Invalid workspace endpoint or session cookie"
+            }
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    AUTH_LOG_TAG,
+                    "Installed local OOB session cookie for ${installedEndpoints.joinToString()}"
+                )
+            }
+            authClient.authMe()
+        }
+        if (cookieResult.isSuccess) {
+            authSessionId = credential
+            refreshAuthAfterSuccessfulLogin()
+            return
+        }
+        if (BuildConfig.DEBUG) {
+            Log.w(
+                AUTH_LOG_TAG,
+                "Local OOB session cookie verification failed: " +
+                    cookieResult.exceptionOrNull()?.message.orEmpty()
+            )
+        }
+        sessionCookieJar.clear()
+
         val accessTokenResult = runCatching {
             authClient.createAuthSession(CreateSessionInput(accessToken = credential))
         }
@@ -1240,15 +1274,23 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         }
     }
 
-    fun openInlineReportPdf(exportRequest: Map<String, Any?>) {
+    fun openInlineReportPdf(exportRequest: Map<String, Any?>, onComplete: () -> Unit) {
         launchVisibleErrorOperation {
-            val artifact = exportReportRuntimePdf(
-                client = resolveClient(),
-                exportRequest = exportRequest,
-                conversationId = activeConversationId.orEmpty()
-            )
-            if (!openDownloadedArtifactExternally(artifact.file, artifact.downloaded)) {
-                error("PDF export completed, but no PDF viewer was available.")
+            try {
+                val artifact = try {
+                    exportReportRuntimePdf(
+                        client = resolveClient(),
+                        exportRequest = exportRequest,
+                        conversationId = activeConversationId.orEmpty()
+                    )
+                } catch (err: Throwable) {
+                    error(reportRuntimeExportErrorMessage(err))
+                }
+                if (!openDownloadedArtifactExternally(artifact.file, artifact.downloaded)) {
+                    error("PDF export completed, but no PDF viewer was available.")
+                }
+            } finally {
+                onComplete()
             }
         }
     }
@@ -1475,6 +1517,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         ComposerLookupDialog(
             client = client,
             occurrence = occurrence,
+            currentSelection = composerLookupSelections[occurrence.key],
             activeConversationId = activeConversationId,
             onDismiss = { activeComposerLookupOccurrence = null },
             onSelect = { row ->

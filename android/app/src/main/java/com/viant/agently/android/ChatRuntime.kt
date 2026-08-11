@@ -50,6 +50,21 @@ internal fun latestAssistantMarkdown(snapshot: ConversationStreamSnapshot): Stri
     return activeAssistantEntry(snapshot)?.markdown
 }
 
+internal fun latestActiveNarration(snapshot: ConversationStreamSnapshot?): String? {
+    val activeTurnId = snapshot?.activeTurnId?.trim().orEmpty()
+    if (activeTurnId.isBlank()) return null
+    return snapshot?.bufferedMessages
+        ?.asReversed()
+        ?.firstOrNull { message ->
+            message.role.equals("assistant", ignoreCase = true) &&
+                message.turnId?.trim() == activeTurnId &&
+                !message.narration.isNullOrBlank()
+        }
+        ?.narration
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+}
+
 internal fun transcriptWithActiveAssistant(
     transcript: List<ChatEntry>,
     snapshot: ConversationStreamSnapshot?

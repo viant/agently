@@ -23,7 +23,8 @@ internal data class ComposerLookupOccurrence(
 
 internal data class ComposerLookupSelection(
     val token: String,
-    val label: String
+    val label: String,
+    val detail: String? = null
 )
 
 internal class ComposerLookupUnresolvedRequiredException(title: String) :
@@ -116,7 +117,11 @@ internal fun composerLookupSelection(
 ): ComposerLookupSelection {
     val token = LookupTokens.serializeToken(occurrence.entry, row.mapValues { jsonElementToLookupValue(it.value) })
     val label = LookupTokens.parseTokens(token).firstOrNull()?.label ?: occurrence.title
-    return ComposerLookupSelection(token = token, label = label)
+    return ComposerLookupSelection(
+        token = token,
+        label = label,
+        detail = composerLookupRowSecondaryText(row)
+    )
 }
 
 internal fun composerLookupRowLabel(row: Map<String, JsonElement>, entry: LookupRegistryEntry): String {
@@ -135,6 +140,9 @@ internal fun composerLookupRowLabel(row: Map<String, JsonElement>, entry: Lookup
 internal fun composerLookupRowSecondaryText(row: Map<String, JsonElement>): String? {
     val group = jsonElementDisplayString(row["groupName"]).orEmpty()
     val identifier = jsonElementDisplayString(row["entityId"])
+        ?: jsonElementDisplayString(row["adOrderId"])
+        ?: jsonElementDisplayString(row["orderId"])
+        ?: jsonElementDisplayString(row["order_id"])
         ?: jsonElementDisplayString(row["id"])
         ?: ""
     return listOf(group, identifier)
@@ -144,7 +152,7 @@ internal fun composerLookupRowSecondaryText(row: Map<String, JsonElement>): Stri
 }
 
 private fun composerLookupTitle(entry: LookupRegistryEntry): String {
-    entry.title?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
+    entry.title?.trim()?.takeIf { it.isNotBlank() }?.let { return composerLookupUserFacingTitle(it) }
     return entry.name
         .replace("_", " ")
         .replace("-", " ")
@@ -159,8 +167,14 @@ private fun composerLookupTitle(entry: LookupRegistryEntry): String {
         .ifBlank { entry.name }
 }
 
-private fun composerLookupApplyTemplate(template: String, row: Map<String, JsonElement>): String {
-    return Regex("""\$\{(\w+)}""").replace(template) { match ->
+internal fun composerLookupUserFacingTitle(title: String): String {
+    val normalized = title.trim()
+    return normalized.replace(Regex("""\s+list$""", RegexOption.IGNORE_CASE), "").ifBlank { normalized }
+}
+
+internal fun composerLookupApplyTemplate(template: String, row: Map<String, JsonElement>): String {
+    // Android's ICU regex parser requires the closing brace to be escaped.
+    return Regex("""\$\{(\w+)\}""").replace(template) { match ->
         jsonElementDisplayString(row[match.groupValues[1]]).orEmpty()
     }
 }

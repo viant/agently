@@ -166,18 +166,23 @@ internal func resolvedBootstrapOOBSecretReference(
     launchArguments: [String]
 ) -> String {
     let stored = storedValue.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !stored.isEmpty {
-        return stored
+    if developerAuthFeaturesEnabled(
+        environmentValue: ProcessInfo.processInfo.environment["AGENTLY_ENABLE_DEV_AUTH"],
+        launchArguments: launchArguments
+    ) {
+        let environmentOverride = environmentValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !environmentOverride.isEmpty {
+            return environmentOverride
+        }
+        let launchOverrideArgument = launchArguments.first { $0.hasPrefix("--oobSecretReference=") }
+        let launchOverride = launchOverrideArgument
+            .flatMap { $0.split(separator: "=", maxSplits: 1).last.map(String.init) }?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !launchOverride.isEmpty {
+            return launchOverride
+        }
     }
-    let environmentOverride = environmentValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    if !environmentOverride.isEmpty {
-        return environmentOverride
-    }
-    let launchOverrideArgument = launchArguments.first { $0.hasPrefix("--oobSecretReference=") }
-    let launchOverride = launchOverrideArgument
-        .flatMap { $0.split(separator: "=", maxSplits: 1).last.map(String.init) }?
-        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    return launchOverride
+    return stored
 }
 
 internal func resolvedBootstrapAPIBaseURL(

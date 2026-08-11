@@ -86,10 +86,12 @@ internal fun PhoneChatScreen(
     onEditChange: (String, String, JsonElement) -> Unit,
     onDecision: (PendingToolApproval, String) -> Unit,
     onOpenFile: (GeneratedFileEntry) -> Unit,
-    onOpenInlineReportPdf: (Map<String, Any?>) -> Unit,
+    onOpenInlineReportPdf: (Map<String, Any?>, () -> Unit) -> Unit,
     onClosePreview: () -> Unit,
     onStarterTaskSelected: (String) -> Unit,
-    bottomComposerInset: Dp = 232.dp
+    bottomComposerInset: Dp = 232.dp,
+    composerVisible: Boolean = true,
+    onToggleComposer: () -> Unit = {}
 ) {
     PhoneWorkspacePane(
         workspaceTitle = workspaceTitle,
@@ -123,7 +125,9 @@ internal fun PhoneChatScreen(
         onOpenInlineReportPdf = onOpenInlineReportPdf,
         onClosePreview = onClosePreview,
         onStarterTaskSelected = onStarterTaskSelected,
-        bottomComposerInset = bottomComposerInset
+        bottomComposerInset = bottomComposerInset,
+        composerVisible = composerVisible,
+        onToggleComposer = onToggleComposer
     )
 }
 
@@ -157,7 +161,7 @@ internal fun TabletChatScreen(
     onEditChange: (String, String, JsonElement) -> Unit,
     onDecision: (PendingToolApproval, String) -> Unit,
     onOpenFile: (GeneratedFileEntry) -> Unit,
-    onOpenInlineReportPdf: (Map<String, Any?>) -> Unit,
+    onOpenInlineReportPdf: (Map<String, Any?>, () -> Unit) -> Unit,
     onClosePreview: () -> Unit,
     query: String,
     onQueryChange: (String) -> Unit,

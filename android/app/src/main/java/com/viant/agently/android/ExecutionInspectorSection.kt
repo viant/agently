@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -16,20 +17,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.ConversationStateResponse
+import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.ExecutionPageState
 import com.viant.agentlysdk.ModelStepState
 import com.viant.agentlysdk.ToolStepState
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun ExecutionInspectorSection(
     state: ConversationStateResponse?,
-    payloadPreviews: Map<String, ArtifactPreview>
+    client: AgentlyClient
 ) {
     val turn = state?.conversation?.turns
         ?.lastOrNull { it.execution?.pages?.isNotEmpty() == true }
@@ -38,6 +42,38 @@ internal fun ExecutionInspectorSection(
     if (pages.isEmpty()) {
         return
     }
+    val payloadTitles = remember(state) { state?.let(::executionPayloadTitles).orEmpty() }
+    var payloadPreviews by remember(state) { mutableStateOf<Map<String, ArtifactPreview>>(emptyMap()) }
+    var loadingPayloadId by remember(state) { mutableStateOf<String?>(null) }
+    var payloadError by remember(state) { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val loadPayload: (String) -> Unit = { payloadId ->
+        if (payloadPreviews[payloadId] == null && loadingPayloadId != payloadId) {
+            loadingPayloadId = payloadId
+            payloadError = null
+            scope.launch {
+                runCatching {
+                    val downloaded = client.downloadPayload(payloadId, 1L * 1024 * 1024)
+                    buildPayloadPreview(
+                        payloadId = payloadId,
+                        title = payloadTitles[payloadId] ?: "Execution payload",
+                        downloaded = downloaded,
+                        maxInflatedBytes = 512 * 1024
+                    )
+                }.onSuccess { preview ->
+                    // Retain only the two most recently inspected payloads.
+                    payloadPreviews = (payloadPreviews + (payloadId to preview))
+                        .entries
+                        .toList()
+                        .takeLast(2)
+                        .associate { it.key to it.value }
+                }.onFailure {
+                    payloadError = it.message?.takeIf(String::isNotBlank) ?: "Unable to load payload preview."
+                }
+                loadingPayloadId = null
+            }
+        }
+    }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -45,11 +81,15 @@ internal fun ExecutionInspectorSection(
         ) {
             Text("Execution", style = MaterialTheme.typography.titleMedium)
             pages.forEachIndexed { index, page ->
-                val payloads = payloadPreviewSources(page, payloadPreviews)
+                val payloads = payloadPreviewSources(page, payloadTitles)
                 ExecutionPageCard(
                     title = "Page ${index + 1}",
                     subtitle = buildPageSubtitle(page),
                     payloads = payloads,
+                    payloadPreviews = payloadPreviews,
+                    loadingPayloadId = loadingPayloadId,
+                    payloadError = payloadError,
+                    onLoadPayload = loadPayload,
                     content = { onSelectPayload ->
                         page.modelSteps.forEachIndexed { modelIndex, step ->
                             ModelStepCard(
@@ -77,12 +117,16 @@ private fun ExecutionPageCard(
     title: String,
     subtitle: String?,
     payloads: List<PayloadPreviewSource>,
+    payloadPreviews: Map<String, ArtifactPreview>,
+    loadingPayloadId: String?,
+    payloadError: String?,
+    onLoadPayload: (String) -> Unit,
     content: @Composable ((String) -> Unit) -> Unit
 ) {
     var selectedPayloadId by remember(payloads.map { it.id }) {
-        mutableStateOf(payloads.firstOrNull()?.id)
+        mutableStateOf<String?>(null)
     }
-    val selectedPreview = payloads.firstOrNull { it.id == selectedPayloadId }?.preview
+    val selectedPreview = selectedPayloadId?.let(payloadPreviews::get)
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = MaterialTheme.shapes.medium,
@@ -102,7 +146,18 @@ private fun ExecutionPageCard(
                     onClose = { selectedPayloadId = null }
                 )
             }
-            content { selectedPayloadId = it }
+            if (selectedPayloadId == loadingPayloadId) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CircularProgressIndicator()
+                    Text("Loading payload preview…", style = MaterialTheme.typography.bodySmall)
+                }
+            } else if (selectedPayloadId != null && selectedPreview == null && !payloadError.isNullOrBlank()) {
+                Text(payloadError, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
+            content { payloadId ->
+                selectedPayloadId = payloadId
+                onLoadPayload(payloadId)
+            }
         }
     }
 }
@@ -200,23 +255,23 @@ private fun buildPageSubtitle(page: ExecutionPageState): String? {
 
 private data class PayloadPreviewSource(
     val id: String,
-    val preview: ArtifactPreview
+    val title: String
 )
 
 private fun payloadPreviewSources(
     page: ExecutionPageState,
-    payloadPreviews: Map<String, ArtifactPreview>
+    payloadTitles: Map<String, String>
 ): List<PayloadPreviewSource> {
     val result = mutableListOf<PayloadPreviewSource>()
     page.modelSteps.forEach { step ->
-        addPayloadSource(result, step.requestPayloadId, payloadPreviews)
-        addPayloadSource(result, step.providerRequestPayloadId, payloadPreviews)
-        addPayloadSource(result, step.responsePayloadId, payloadPreviews)
-        addPayloadSource(result, step.providerResponsePayloadId, payloadPreviews)
+        addPayloadSource(result, step.requestPayloadId, payloadTitles)
+        addPayloadSource(result, step.providerRequestPayloadId, payloadTitles)
+        addPayloadSource(result, step.responsePayloadId, payloadTitles)
+        addPayloadSource(result, step.providerResponsePayloadId, payloadTitles)
     }
     page.toolSteps.forEach { step ->
-        addPayloadSource(result, step.requestPayloadId, payloadPreviews)
-        addPayloadSource(result, step.responsePayloadId, payloadPreviews)
+        addPayloadSource(result, step.requestPayloadId, payloadTitles)
+        addPayloadSource(result, step.responsePayloadId, payloadTitles)
     }
     return result
 }
@@ -224,11 +279,11 @@ private fun payloadPreviewSources(
 private fun addPayloadSource(
     result: MutableList<PayloadPreviewSource>,
     payloadId: String?,
-    payloadPreviews: Map<String, ArtifactPreview>
+    payloadTitles: Map<String, String>
 ) {
     val id = payloadId?.trim().orEmpty()
-    val preview = payloadPreviews[id] ?: return
+    if (id.isBlank()) return
     if (result.none { it.id == id }) {
-        result += PayloadPreviewSource(id = id, preview = preview)
+        result += PayloadPreviewSource(id = id, title = payloadTitles[id] ?: "Execution payload")
     }
 }

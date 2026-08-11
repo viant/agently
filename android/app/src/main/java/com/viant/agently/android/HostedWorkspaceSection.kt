@@ -58,6 +58,7 @@ internal fun HostedWorkspaceSection(
     modifier: Modifier = Modifier,
     maxBodyHeight: androidx.compose.ui.unit.Dp = 420.dp,
     showTitle: Boolean = true,
+    flatPresentation: Boolean = false,
     headerActions: (@Composable () -> Unit)? = null
 ) {
     val resolvedRestoreState = restoreState ?: return
@@ -88,15 +89,12 @@ internal fun HostedWorkspaceSection(
         resolveHostedWorkspacePresentation(selectedWindow)
     }
 
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
-    ) {
+    val content: @Composable () -> Unit = {
         Column(
-            modifier = Modifier.padding(14.dp),
+            modifier = if (flatPresentation) Modifier.fillMaxWidth() else Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            if (showTitle || headerActions != null || presentation != null) {
+            if (showTitle || headerActions != null) {
                 HostedWorkspaceHeader(
                     presentation = presentation,
                     showTitle = showTitle,
@@ -144,6 +142,18 @@ internal fun HostedWorkspaceSection(
                         .heightIn(min = minBodyHeight, max = maxBodyHeight)
                 )
             }
+        }
+    }
+    if (flatPresentation) {
+        Box(modifier = modifier.fillMaxWidth()) {
+            content()
+        }
+    } else {
+        Card(
+            modifier = modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            content()
         }
     }
 }
