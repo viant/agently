@@ -3,6 +3,28 @@ import AgentlySDK
 @testable import AgentlyAppFoundation
 
 final class ChatRuntimeTests: XCTestCase {
+    func testTranscriptWindowStartsWithLatestFortyAndExpands() {
+        XCTAssertEqual(transcriptWindowStart(totalItemCount: 100, visibleItemCount: 40), 60)
+        XCTAssertEqual(transcriptWindowStart(totalItemCount: 32, visibleItemCount: 40), 0)
+        XCTAssertEqual(transcriptWindowStart(totalItemCount: 80, visibleItemCount: 80), 0)
+        XCTAssertEqual(transcriptWindowStart(totalItemCount: 12, visibleItemCount: -1), 12)
+    }
+
+    func testVisibleQueryErrorHidesBackendAndEndpointDetails() {
+        XCTAssertEqual(
+            visibleQueryError(AgentlySDKError.httpStatus(500, "failed to stream: API key is required")),
+            "The workspace model is not configured. Ask an administrator to add the model API key, then try again."
+        )
+        XCTAssertEqual(
+            visibleQueryError(AgentlySDKError.httpStatus(500, "POST /v1/agent/query failed")),
+            "The assistant could not start this request. Try again, or contact the workspace administrator if it continues."
+        )
+        XCTAssertEqual(
+            visibleQueryError(NSError(domain: NSCocoaErrorDomain, code: 0, userInfo: [NSLocalizedDescriptionKey: "EOFException"])),
+            "The connection ended before the report finished loading. Refresh to try again."
+        )
+    }
+
     @MainActor
     func testLatestAssistantMarkdownPrefersNewestActiveAssistantMessage() {
         let runtime = ChatRuntime()

@@ -691,6 +691,36 @@ export function buildCanonicalTranscriptRows(turns = [], options = {}) {
 
     if (
       !hasExplicitAssistantRow &&
+      ["failed", "error", "terminated"].includes(turnStatus) &&
+      String(turn?.errorMessage || "").trim() !== ""
+    ) {
+      // A provider can fail before creating the first execution page/model
+      // call. Preserve a synthetic assistant iteration so the transcript can
+      // render the failed state and expose its diagnostic details instead of
+      // leaving the conversation body empty.
+      rows.push(
+        normalizeOne({
+          id: `turn:${turnId}:failure`,
+          role: "assistant",
+          interim: 0,
+          content: "",
+          narration: "",
+          turnId,
+          turnStartedAt: turn?.createdAt || "",
+          turnStatus,
+          status: turnStatus,
+          createdAt: turn?.createdAt || "",
+          errorMessage: turn?.errorMessage || "",
+          linkedConversations,
+          executionGroup: null,
+          executionGroups: [],
+        }),
+      );
+      hasExplicitAssistantRow = true;
+    }
+
+    if (
+      !hasExplicitAssistantRow &&
       assistantFinal &&
       String(assistantFinal?.content || "").trim() !== ""
     ) {

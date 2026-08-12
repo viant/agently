@@ -1986,6 +1986,23 @@ describe('mapCanonicalExecutionGroups', () => {
     })).toBe('Canceled by user request');
   });
 
+  it('maps a canonical turn-level failure diagnostic into expandable iteration data', () => {
+    const data = buildIterationDataFromCanonicalRow({
+      kind: 'iteration',
+      turnId: 'turn-auth-failed',
+      lifecycle: 'failed',
+      errorMessage: 'failed to start Stream: API key is required',
+      rounds: [],
+      linkedConversations: []
+    });
+
+    expect(data).toMatchObject({
+      turnId: 'turn-auth-failed',
+      status: 'failed',
+      errorMessage: 'failed to start Stream: API key is required'
+    });
+  });
+
   it('keeps the iteration header running while turn_started exists without a terminal turn event', () => {
     expect(resolveIterationDisplayStatus({}, [
       {

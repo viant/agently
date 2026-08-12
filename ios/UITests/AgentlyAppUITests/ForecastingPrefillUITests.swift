@@ -159,6 +159,10 @@ final class ForecastingPrefillUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Conversations"].waitForExistence(timeout: 10), "Back navigation did not return to Conversations")
         newChatButton.tap()
 
+        let expandComposerButton = app.buttons["agently-composer-expand"]
+        XCTAssertTrue(expandComposerButton.waitForExistence(timeout: 30), "Collapsed composer activation did not appear")
+        expandComposerButton.tap()
+
         let editor = app.textViews["agently-composer-editor"]
         XCTAssertTrue(editor.waitForExistence(timeout: 30), "Composer editor did not appear")
         editor.tap()
@@ -221,6 +225,58 @@ final class ForecastingPrefillUITests: XCTestCase {
 
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Order 2676237 Causal Evidence iPhone"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    func testLivePerformanceReportCanSwitchBetweenChartAndTable() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["AGENTLY_IOS_LIVE_UI_TESTS"] == "1",
+            "Set AGENTLY_IOS_LIVE_UI_TESTS=1 to run live Steward UI verification."
+        )
+        let baseURL = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_BASE_URL"] ?? ""
+        let oobSecret = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_OOB_SECRET"] ?? ""
+        let conversationID = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_ACTIVE_CONVERSATION_ID"] ?? ""
+        try XCTSkipUnless(!baseURL.isEmpty && !oobSecret.isEmpty && !conversationID.isEmpty)
+
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--enableDevAuth=1",
+            "--apiBaseURL=\(baseURL)",
+            "--oobSecretReference=\(oobSecret)",
+            "--autoOOBSignIn=1",
+            "--activeConversationID=\(conversationID)",
+            "--uiBridgeClientID=ios-ui-chart-table-\(UUID().uuidString)"
+        ]
+        app.launch()
+
+        let modePicker = app.descendants(matching: .any)["forge-report-builder-view-mode"].firstMatch
+        let hideFilters = app.buttons["Hide Body"]
+        if hideFilters.waitForExistence(timeout: 30) {
+            hideFilters.tap()
+        }
+        if !modePicker.waitForExistence(timeout: 10) {
+            let spendByDatePreset = app.buttons.matching(
+                NSPredicate(format: "label CONTAINS[c] %@", "Overview · Spend by Date")
+            ).firstMatch
+            XCTAssertTrue(spendByDatePreset.waitForExistence(timeout: 30), "Default Spend by Date chart preset did not render")
+            spendByDatePreset.tap()
+        }
+        XCTAssertTrue(modePicker.waitForExistence(timeout: 90), "Report view selector did not restore or apply")
+        XCTAssertTrue(app.descendants(matching: .any)["forge-report-builder-chart"].firstMatch.waitForExistence(timeout: 30), "Chart did not render")
+
+        let tableSegment = app.buttons["Table"]
+        XCTAssertTrue(tableSegment.waitForExistence(timeout: 10), "Table segment did not render")
+        tableSegment.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["forge-report-builder-table"].firstMatch.waitForExistence(timeout: 30), "Table did not render after switching")
+
+        let chartSegment = app.buttons["Chart"]
+        XCTAssertTrue(chartSegment.waitForExistence(timeout: 10), "Chart segment did not render")
+        chartSegment.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["forge-report-builder-chart"].firstMatch.waitForExistence(timeout: 30), "Chart did not return after switching")
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Performance report chart and table parity"
         screenshot.lifetime = .keepAlways
         add(screenshot)
     }

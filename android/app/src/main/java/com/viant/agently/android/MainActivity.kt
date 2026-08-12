@@ -162,9 +162,12 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     val configuredAppApiBaseUrl = BuildConfig.APP_API_BASE_URL
     val appSettingsStore = remember(context) { AppSettingsStore(context.applicationContext) }
     val storedAppSettings = remember(appSettingsStore) { appSettingsStore.load() }
-    val initialHasWorkspaceEndpointSelection = remember(storedAppSettings) {
-        storedAppSettings.hasWorkspaceEndpointSelection ||
-            storedAppSettings.baseUrlOverride.trim().isNotBlank()
+    val preferExplicitBuildEndpoint = BuildConfig.DEBUG && BuildConfig.APP_API_BASE_URL_EXPLICIT
+    val initialHasWorkspaceEndpointSelection = remember(storedAppSettings, preferExplicitBuildEndpoint) {
+        hasInitialWorkspaceEndpointSelection(
+            storedSettings = storedAppSettings,
+            preferExplicitBuildEndpoint = preferExplicitBuildEndpoint
+        )
     }
     var hasWorkspaceEndpointSelection by remember {
         mutableStateOf(initialHasWorkspaceEndpointSelection)
@@ -174,7 +177,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
             resolveInitialApiBaseUrl(
                 configuredBaseUrl = configuredAppApiBaseUrl,
                 storedSettings = storedAppSettings,
-                preferExplicitBuildEndpoint = BuildConfig.DEBUG && BuildConfig.APP_API_BASE_URL_EXPLICIT
+                preferExplicitBuildEndpoint = preferExplicitBuildEndpoint
             )
         )
     }

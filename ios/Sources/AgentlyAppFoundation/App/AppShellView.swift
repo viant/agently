@@ -275,22 +275,16 @@ private extension SearchFieldPlacement {
 
 private struct AppBrandView: View {
     let workspaceTitle: String?
-    let brandLabel: String
+    let metadata: WorkspaceMetadata?
 
     var body: some View {
         let displayTitle = resolveWorkspaceBrandTitle(workspaceTitle: workspaceTitle)
-        HStack(spacing: 8) {
-            Text(brandLabel)
-                .font(.caption.weight(.black))
-                .tracking(0.4)
-                .foregroundStyle(Color(red: 0.86, green: 0.12, blue: 0.17))
-            Text(displayTitle)
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(.primary)
-        }
+        let headerTitle = resolveWorkspaceHeaderTitle(metadata: metadata, workspaceTitle: displayTitle)
+        Text(headerTitle)
+            .font(.headline.weight(.semibold))
+            .foregroundStyle(.primary)
         .fixedSize(horizontal: true, vertical: false)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(brandLabel) \(displayTitle)")
+        .accessibilityLabel(headerTitle)
     }
 }
 
@@ -351,7 +345,7 @@ private struct ConversationListView: View {
         VStack(spacing: 0) {
             AppBrandView(
                 workspaceTitle: workspaceTitle,
-                brandLabel: resolveWorkspaceBrandLabel(metadata: metadata)
+                metadata: metadata
             )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20)
@@ -807,6 +801,23 @@ internal func resolveWorkspaceBrandLabel(
         return defaultLabel
     }
     return fallbackLabel
+}
+
+internal func resolveWorkspaceHeaderTitle(
+    metadata: WorkspaceMetadata?,
+    workspaceTitle: String,
+    fallbackTitle: String = "Agently"
+) -> String {
+    let configuredAppName = metadata?.appName?.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let configuredAppName, !configuredAppName.isEmpty {
+        return configuredAppName
+    }
+    let defaultAppName = metadata?.defaults?.appName?.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let defaultAppName, !defaultAppName.isEmpty {
+        return defaultAppName
+    }
+    let workspace = workspaceTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    return workspace.isEmpty ? fallbackTitle : workspace
 }
 
 internal func normalizedCompactConversationID(_ conversationID: String?) -> String? {

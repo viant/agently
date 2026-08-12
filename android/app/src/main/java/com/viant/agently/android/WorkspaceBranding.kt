@@ -16,6 +16,15 @@ internal fun resolveWorkspaceBrandLabel(
     return explicit
 }
 
+internal fun resolveWorkspaceHeaderTitle(
+    metadata: WorkspaceMetadata?,
+    workspaceTitle: String,
+    fallbackTitle: String = "Agently"
+): String = metadata?.appName?.trim()?.takeIf { it.isNotEmpty() }
+    ?: metadata?.defaults?.appName?.trim()?.takeIf { it.isNotEmpty() }
+    ?: workspaceTitle.trim().takeIf { it.isNotEmpty() }
+    ?: fallbackTitle
+
 internal fun resolveWorkspaceBrandTitle(
     workspaceRoot: String?,
     defaultAgent: String?,

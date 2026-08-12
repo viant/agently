@@ -5,9 +5,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -58,6 +62,7 @@ import androidx.compose.ui.unit.dp
 internal val ComposerInputFill = Color(0xFFF0FAF1)
 internal val ComposerInputBorder = Color(0xFFB9DBBD)
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun PhoneComposerDock(
     loading: Boolean,
@@ -90,6 +95,7 @@ internal fun PhoneComposerDock(
         }
     }
     val density = LocalDensity.current
+    val keyboardVisible = WindowInsets.isImeVisible
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     fun hideKeyboard() {
@@ -104,7 +110,9 @@ internal fun PhoneComposerDock(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .imePadding()
+            // The activity already resizes for the IME. Applying imePadding here
+            // subtracts the keyboard twice and pushes the composer up the screen;
+            // retain only the system navigation inset for edge-to-edge layouts.
             .navigationBarsPadding()
             .onGloballyPositioned { coordinates ->
                 onMeasuredHeight(with(density) { coordinates.size.height.toDp() })
@@ -226,36 +234,45 @@ internal fun PhoneComposerDock(
                         Text(sendLabel)
                     }
                 }
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    CompactComposerIconButton(
-                        contentDescription = "Collapse composer",
-                        icon = { Icon(Icons.Outlined.ExpandMore, contentDescription = null) },
-                        onClick = {
-                            hideKeyboard()
-                            composerExpanded = false
+                // Samsung's resize-mode IME occupies the area below the text row.
+                // Do not leave invisible media controls beneath it; the keyboard's
+                // hide action restores this row without changing the draft.
+                if (keyboardVisible) {
+                    // Keep the input row above Samsung's IME-resize overlap without
+                    // exposing action semantics underneath the keyboard.
+                    Spacer(modifier = Modifier.height(48.dp))
+                } else {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CompactComposerIconButton(
+                            contentDescription = "Collapse composer",
+                            icon = { Icon(Icons.Outlined.ExpandMore, contentDescription = null) },
+                            onClick = {
+                                hideKeyboard()
+                                composerExpanded = false
+                            }
+                        )
+                        CompactComposerIconButton(
+                            contentDescription = "Add photo",
+                            icon = { Icon(Icons.Outlined.Image, contentDescription = "Add photo") },
+                            onClick = onAddPhoto
+                        )
+                        if (canCapturePhoto) {
+                            CompactComposerIconButton(
+                                contentDescription = "Take photo",
+                                icon = { Icon(Icons.Outlined.CameraAlt, contentDescription = "Take photo") },
+                                onClick = onTakePhoto
+                            )
                         }
-                    )
-                    CompactComposerIconButton(
-                        contentDescription = "Add photo",
-                        icon = { Icon(Icons.Outlined.Image, contentDescription = "Add photo") },
-                        onClick = onAddPhoto
-                    )
-                    if (canCapturePhoto) {
-                        CompactComposerIconButton(
-                            contentDescription = "Take photo",
-                            icon = { Icon(Icons.Outlined.CameraAlt, contentDescription = "Take photo") },
-                            onClick = onTakePhoto
-                        )
-                    }
-                    if (canUseVoiceInput) {
-                        CompactComposerIconButton(
-                            contentDescription = "Voice input",
-                            icon = { Icon(Icons.Outlined.Mic, contentDescription = "Voice input") },
-                            onClick = onVoiceInput
-                        )
+                        if (canUseVoiceInput) {
+                            CompactComposerIconButton(
+                                contentDescription = "Voice input",
+                                icon = { Icon(Icons.Outlined.Mic, contentDescription = "Voice input") },
+                                onClick = onVoiceInput
+                            )
+                        }
                     }
                 }
             } else {

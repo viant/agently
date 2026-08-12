@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.background
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -26,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.PendingToolApproval
 import com.viant.forgeandroid.runtime.ContentDef
@@ -292,27 +297,47 @@ internal fun ApprovalCardContent(
             modifier = Modifier.padding(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (meta != null) {
+            Text(
+                meta?.title?.takeIf { it.isNotBlank() }
+                    ?: approval.title?.takeIf { it.isNotBlank() }
+                    ?: approval.toolName,
+                style = MaterialTheme.typography.titleSmall
+            )
+            Text(
+                meta?.message?.takeIf { it.isNotBlank() }
+                    ?: "Tool ${approval.toolName} is waiting for approval.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF667085)
+            )
+            val hasAuthoredEditor = meta != null &&
+                (meta.editors.isNotEmpty() || meta.forge != null)
+            if (hasAuthoredEditor) {
                 ApprovalForgeEditors(
                     approvalId = approval.id,
                     forgeRuntime = forgeRuntime,
                     approval = approval,
-                    meta = meta,
+                    meta = meta!!,
                     originalArgs = approval.arguments,
                     selectedFields = selectedFields,
                     onEditChange = onEditChange,
                     onAvailabilityChange = { approvalForgeError = it }
                 )
             } else {
-                Text(
-                    approval.title ?: approval.toolName,
-                    style = MaterialTheme.typography.titleSmall
-                )
-                Text(
-                    "Tool ${approval.toolName} is waiting for approval.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF667085)
-                )
+                ApprovalArgumentsPreview(approval.arguments)
+            }
+            if (!approval.errorMessage.isNullOrBlank()) {
+                Surface(
+                    color = Color(0xFFFFF1F0),
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        approvalFailureMessage(approval.errorMessage),
+                        modifier = Modifier.padding(10.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFB42318)
+                    )
+                }
             }
             approvalForgeError?.takeIf { it.isNotBlank() }?.let {
                 Text(
@@ -334,6 +359,269 @@ internal fun ApprovalCardContent(
             }
         }
     }
+}
+
+internal fun approvalFailureMessage(errorMessage: String?): String {
+    val detail = errorMessage?.trim().orEmpty()
+    if (detail.isBlank()) {
+        return "Approval did not complete. Your selection was kept; try again."
+    }
+    if (detail.contains("EOFException", ignoreCase = true) ||
+        detail.equals("EOF", ignoreCase = true) ||
+        detail.contains("unexpected end of stream", ignoreCase = true)
+    ) {
+        return "The connection ended before the server confirmed approval. Your selection was kept; try again."
+    }
+    if (detail.contains("status=403", ignoreCase = true) ||
+        detail.contains("http 403", ignoreCase = true) ||
+        detail.contains("forbidden", ignoreCase = true)
+    ) {
+        return "The platform did not authorize this recommendation update (403). Your selection was kept; review access or retry."
+    }
+    if (detail.startsWith("{") || detail.contains("body={", ignoreCase = true)) {
+        return "The server rejected this approval. Your selection was kept; try again or review permissions."
+    }
+    val concise = detail
+        .lineSequence()
+        .firstOrNull { it.isNotBlank() }
+        ?.replace(Regex("\\s+"), " ")
+        ?.take(180)
+        .orEmpty()
+    return if (concise.isBlank()) {
+        "Approval did not complete. Your selection was kept; try again."
+    } else {
+        "Approval did not complete: $concise"
+    }
+}
+
+@Composable
+private fun ApprovalArgumentsPreview(arguments: JsonElement?) {
+    val preview = remember(arguments) { buildApprovalArgumentsPreview(arguments) }
+    if (preview.summary.isEmpty() && preview.rows.isEmpty()) {
+        return
+    }
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            val summaryRows = remember(preview.summary) { approvalPreviewSummaryRows(preview.summary) }
+            summaryRows.forEach { fields ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    fields.forEach { field ->
+                        ApprovalPreviewFieldView(field, Modifier.weight(1f))
+                    }
+                    if (fields.size == 1 && !approvalPreviewFieldIsNarrative(fields[0])) {
+                        androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+            if (preview.rows.isNotEmpty()) {
+                Text(
+                    "${preview.rowsLabel} (${preview.totalRows})",
+                    style = MaterialTheme.typography.labelLarge
+                )
+                val columns = remember(preview.rows) {
+                    preview.rows.flatMap { row -> row.map { it.label } }.distinct()
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .background(Color(0xFFEFF4FF), MaterialTheme.shapes.small)
+                            .padding(horizontal = 8.dp, vertical = 8.dp)
+                    ) {
+                        columns.forEach { label ->
+                            Text(
+                                text = label,
+                                modifier = Modifier.width(approvalPreviewColumnWidth(label, preview.rows)),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF344054)
+                            )
+                        }
+                    }
+                    preview.rows.forEachIndexed { index, row ->
+                        val values = row.associateBy { it.label }
+                        Row(
+                            modifier = Modifier
+                                .background(if (index % 2 == 0) Color.White else Color(0xFFF8FAFC))
+                                .padding(horizontal = 8.dp, vertical = 8.dp)
+                        ) {
+                            columns.forEach { label ->
+                                Text(
+                                    text = values[label]?.value.orEmpty(),
+                                    modifier = Modifier.width(approvalPreviewColumnWidth(label, preview.rows)),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF344054),
+                                    maxLines = if (approvalPreviewColumnIsWide(label, preview.rows)) 3 else 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+                Text(
+                    "Swipe the table horizontally to review every field.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF667085)
+                )
+                if (preview.totalRows > preview.rows.size) {
+                    Text(
+                        "+${preview.totalRows - preview.rows.size} more",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF667085)
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun approvalPreviewColumnWidth(
+    label: String,
+    rows: List<List<ApprovalPreviewField>>
+) = if (approvalPreviewColumnIsWide(label, rows)) 248.dp else 132.dp
+
+private fun approvalPreviewColumnIsWide(
+    label: String,
+    rows: List<List<ApprovalPreviewField>>
+): Boolean {
+    return rows.asSequence()
+        .flatMap { it.asSequence() }
+        .filter { it.label == label }
+        .any { it.value.length > 48 }
+}
+
+@Composable
+private fun ApprovalPreviewFieldView(field: ApprovalPreviewField, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            field.label,
+            style = MaterialTheme.typography.labelSmall,
+            color = Color(0xFF667085)
+        )
+        Text(field.value, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+internal data class ApprovalPreviewField(
+    val label: String,
+    val value: String
+)
+
+internal data class ApprovalArgumentsPreview(
+    val summary: List<ApprovalPreviewField> = emptyList(),
+    val rowsLabel: String = "Items",
+    val rowLabel: String = "Item",
+    val rows: List<List<ApprovalPreviewField>> = emptyList(),
+    val totalRows: Int = 0
+)
+
+internal fun buildApprovalArgumentsPreview(arguments: JsonElement?): ApprovalArgumentsPreview {
+    val root = arguments as? JsonObject ?: return ApprovalArgumentsPreview()
+    val collection = root.entries.firstOrNull { (_, value) ->
+        value is JsonArray && value.any { it is JsonObject }
+    }
+    val values = collection?.value as? JsonArray
+    val rowsContainRationale = values.orEmpty().filterIsInstance<JsonObject>().any { row ->
+        row.keys.any { it.equals("rationale", ignoreCase = true) }
+    }
+    val summary = buildList {
+        root.entries.forEach { (key, value) ->
+            if (value is JsonPrimitive && !isApprovalTechnicalField(key)) {
+                approvalPreviewValue(value)?.let { add(ApprovalPreviewField(humanizeApprovalKey(key), it)) }
+            }
+        }
+        root.values.filterIsInstance<JsonObject>().firstOrNull()?.entries?.forEach { (key, value) ->
+            if (size >= 6 || isApprovalTechnicalField(key)) return@forEach
+            approvalPreviewValue(value)?.let { add(ApprovalPreviewField(humanizeApprovalKey(key), it)) }
+        }
+    }.filterNot { rowsContainRationale && it.label.equals("Change Reason", ignoreCase = true) }
+        .take(6)
+    val summaryLabels = summary.mapTo(mutableSetOf()) { it.label }
+    val rows = values.orEmpty().filterIsInstance<JsonObject>().take(6).map { row ->
+        row.entries.mapNotNull { (key, value) ->
+            if (isApprovalTechnicalField(key)) return@mapNotNull null
+            val label = humanizeApprovalKey(key)
+            if (label in summaryLabels) return@mapNotNull null
+            approvalPreviewValue(value)?.let { ApprovalPreviewField(label, it) }
+        }.take(6)
+    }
+    val rowsLabel = collection?.key?.let(::humanizeApprovalKey) ?: "Items"
+    return ApprovalArgumentsPreview(
+        summary = summary,
+        rowsLabel = rowsLabel,
+        rowLabel = rowsLabel.removeSuffix("s").ifBlank { "Item" },
+        rows = rows,
+        totalRows = values?.size ?: 0
+    )
+}
+
+internal fun approvalPreviewFieldIsNarrative(field: ApprovalPreviewField): Boolean {
+    val label = field.label.lowercase()
+    return field.value.length > 56 || listOf("reason", "summary", "description", "rationale", "note").any(label::contains)
+}
+
+internal fun approvalPreviewSummaryRows(fields: List<ApprovalPreviewField>): List<List<ApprovalPreviewField>> {
+    val rows = mutableListOf<List<ApprovalPreviewField>>()
+    val compact = mutableListOf<ApprovalPreviewField>()
+    fields.forEach { field ->
+        if (approvalPreviewFieldIsNarrative(field)) {
+            if (compact.isNotEmpty()) {
+                rows += compact.toList()
+                compact.clear()
+            }
+            rows += listOf(field)
+        } else {
+            compact += field
+            if (compact.size == 2) {
+                rows += compact.toList()
+                compact.clear()
+            }
+        }
+    }
+    if (compact.isNotEmpty()) rows += compact.toList()
+    return rows
+}
+
+private fun approvalPreviewValue(value: JsonElement): String? {
+    val primitive = value as? JsonPrimitive ?: return null
+    val content = primitive.content.trim()
+    return content.takeIf { it.isNotEmpty() && it != "null" }
+}
+
+private fun isApprovalTechnicalField(key: String): Boolean {
+    return key.lowercase().replace("_", "").replace("-", "") in setOf(
+        "timeoutms",
+        "selected",
+        "id",
+        "mode",
+        "queuetitle",
+        "selectordirection",
+        "targetfield"
+    )
+}
+
+private fun humanizeApprovalKey(key: String): String {
+    return key
+        .replace(Regex("([a-z0-9])([A-Z])"), "$1 $2")
+        .replace('_', ' ')
+        .replace('-', ' ')
+        .trim()
+        .split(Regex("\\s+"))
+        .filter { it.isNotBlank() }
+        .joinToString(" ") { word -> word.lowercase().replaceFirstChar(Char::uppercase) }
 }
 
 @Composable

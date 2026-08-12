@@ -69,7 +69,7 @@ internal fun TabletConversationSidebar(
     onRefresh: () -> Unit,
     onSelectConversation: (String) -> Unit
 ) {
-    val brandLabel = resolveWorkspaceBrandLabel(metadata)
+    val headerTitle = resolveWorkspaceHeaderTitle(metadata, workspaceTitle)
     var sidebarQuery by remember { mutableStateOf("") }
     val filteredConversations = remember(recentConversations, sidebarQuery) {
         val filterText = sidebarQuery.trim().lowercase()
@@ -106,13 +106,7 @@ internal fun TabletConversationSidebar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    brandLabel,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color(0xFFDB1F2F)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    workspaceTitle,
+                    headerTitle,
                     style = MaterialTheme.typography.titleMedium,
                     color = Color(0xFF101828)
                 )

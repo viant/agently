@@ -31,7 +31,8 @@ func SetBootstrapHook() {
 		if err := ensureWorkspaceDirs(store.Root()); err != nil {
 			return err
 		}
-		if !existingWorkspace || emptyWorkspace {
+		generatedWorkspace := !existingWorkspace || emptyWorkspace
+		if generatedWorkspace {
 			if err := seedFileIfMissing(store.Root(), "config.yaml", "defaults/config.yaml"); err != nil {
 				return err
 			}
@@ -58,6 +59,9 @@ func SetBootstrapHook() {
 					return err
 				}
 			}
+			if err := configureGeneratedWorkspaceModels(store.Root(), os.Getenv); err != nil {
+				return err
+			}
 		}
 		if err := ensureInternalMCPConfig(filepath.Join(store.Root(), "config.yaml")); err != nil {
 			return err
@@ -67,6 +71,84 @@ func SetBootstrapHook() {
 		}
 		return nil
 	})
+}
+
+type generatedWorkspaceModel struct {
+	ID     string
+	EnvKey string
+}
+
+var generatedWorkspaceModels = []generatedWorkspaceModel{
+	{ID: "openai_gpt-5.4", EnvKey: "OPENAI_API_KEY"},
+	{ID: "xai_grok-4-latest", EnvKey: "XAI_API_KEY"},
+	{ID: "vertexai_gemini_3_0_pro", EnvKey: "GEMINI_API_KEY"},
+}
+
+func selectGeneratedWorkspaceModel(getenv func(string) string) string {
+	for _, candidate := range generatedWorkspaceModels {
+		if strings.TrimSpace(getenv(candidate.EnvKey)) != "" {
+			return candidate.ID
+		}
+	}
+	// Preserve the documented default when generation cannot observe any
+	// provider credential. The UI can then direct the user to configure one.
+	return generatedWorkspaceModels[0].ID
+}
+
+// configureGeneratedWorkspaceModels keeps a freshly generated workspace from
+// pinning every execution path to OpenAI when only another bundled provider is
+// configured. It runs only while seeding a new/empty workspace, so an existing
+// workspace's explicit model choices are never rewritten.
+func configureGeneratedWorkspaceModels(root string, getenv func(string) string) error {
+	model := selectGeneratedWorkspaceModel(getenv)
+	if err := rewriteGeneratedModelRefs(filepath.Join(root, "config.yaml"), model, true); err != nil {
+		return err
+	}
+	for _, agent := range defaultSeedAgents {
+		path := filepath.Join(root, "agents", agent, agent+".yaml")
+		if err := rewriteGeneratedModelRefs(path, model, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func rewriteGeneratedModelRefs(path, model string, workspaceConfig bool) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	root := map[string]interface{}{}
+	if err = yaml.Unmarshal(data, &root); err != nil {
+		return err
+	}
+	if workspaceConfig {
+		defaults, _ := root["default"].(map[string]interface{})
+		if defaults == nil {
+			defaults = map[string]interface{}{}
+			root["default"] = defaults
+		}
+		defaults["model"] = model
+		defaults["summaryModel"] = model
+		for _, key := range []string{"agentAutoSelection", "toolAutoSelection"} {
+			selection, _ := defaults[key].(map[string]interface{})
+			if selection == nil {
+				selection = map[string]interface{}{}
+				defaults[key] = selection
+			}
+			selection["model"] = model
+		}
+	} else {
+		root["modelRef"] = model
+		if intake, ok := root["intake"].(map[string]interface{}); ok && intake != nil {
+			intake["model"] = model
+		}
+	}
+	updated, err := yaml.Marshal(root)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, updated, 0o644)
 }
 
 // skipBootstrapDirs are workspace kinds that should not be eagerly created

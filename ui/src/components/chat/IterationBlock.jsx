@@ -1565,6 +1565,7 @@ export function buildIterationDataFromCanonicalRow(canonicalRow = null, message 
     ...(message?._iterationData || {}),
     turnId: canonicalRow?.turnId || message?._iterationData?.turnId || '',
     status: canonicalRow?.lifecycle || message?._iterationData?.status || '',
+    errorMessage: canonicalRow?.errorMessage || message?._iterationData?.errorMessage || '',
     turnStartedAt: canonicalRow?.turnStartedAt || '',
     narration: firstNarration ? { content: firstNarration } : (message?._iterationData?.narration || null),
     elicitation: canonicalElicitation || message?._iterationData?.elicitation || null,

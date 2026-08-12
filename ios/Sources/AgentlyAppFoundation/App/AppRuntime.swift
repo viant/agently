@@ -400,7 +400,7 @@ public final class AppRuntime: ObservableObject {
             }
         } catch {
             logger.error("Query send threw error: \(String(describing: error), privacy: .public)")
-            queryRuntime.lastError = error.localizedDescription
+            queryRuntime.lastError = visibleQueryError(error)
         }
     }
 

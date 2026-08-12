@@ -8,10 +8,13 @@ import AppKit
 #endif
 
 public struct TranscriptScreen: View {
+    private static let initialRenderCount = 40
+    private static let renderBatchSize = 40
     let items: [ChatTranscriptEntry]
 	let client: AgentlyClient?
     let onReusePrompt: ((String) -> Void)?
     let onReuseAndSendPrompt: ((String) -> Void)?
+    @State private var visibleItemCount: Int
 
     public init(
         items: [ChatTranscriptEntry],
@@ -20,9 +23,10 @@ public struct TranscriptScreen: View {
         onReuseAndSendPrompt: ((String) -> Void)? = nil
     ) {
         self.items = items
-		self.client = client
+        self.client = client
         self.onReusePrompt = onReusePrompt
         self.onReuseAndSendPrompt = onReuseAndSendPrompt
+        _visibleItemCount = State(initialValue: min(items.count, Self.initialRenderCount))
     }
 
     public var body: some View {
@@ -56,12 +60,33 @@ public struct TranscriptScreen: View {
                 guard let lastID = items.last?.id else { return }
                 proxy.scrollTo(lastID, anchor: .bottom)
             }
+            .onChange(of: items.first?.id) { _, _ in
+                visibleItemCount = min(items.count, Self.initialRenderCount)
+            }
         }
     }
 
     private var transcriptStack: some View {
-        LazyVStack(alignment: .leading, spacing: 12) {
-            ForEach(items) { item in
+        let start = transcriptWindowStart(
+            totalItemCount: items.count,
+            visibleItemCount: visibleItemCount
+        )
+        let visibleItems = items.dropFirst(start)
+        return LazyVStack(alignment: .leading, spacing: 12) {
+            if start > 0 {
+                Button {
+                    visibleItemCount = min(items.count, visibleItemCount + Self.renderBatchSize)
+                } label: {
+                    Label(
+                        "Show \(min(Self.renderBatchSize, start)) earlier messages",
+                        systemImage: "clock.arrow.circlepath"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("transcript-show-earlier")
+            }
+            ForEach(visibleItems) { item in
                 TranscriptBubble(
                     item: item,
 					client: client,
@@ -72,6 +97,10 @@ public struct TranscriptScreen: View {
             }
         }
     }
+}
+
+internal func transcriptWindowStart(totalItemCount: Int, visibleItemCount: Int) -> Int {
+    max(0, totalItemCount - max(0, visibleItemCount))
 }
 
 public struct TranscriptContentHeightPreferenceKey: PreferenceKey {

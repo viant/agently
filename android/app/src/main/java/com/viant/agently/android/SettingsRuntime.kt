@@ -94,6 +94,14 @@ internal fun resolveInitialApiBaseUrl(
     )
 }
 
+internal fun hasInitialWorkspaceEndpointSelection(
+    storedSettings: AppSettings,
+    preferExplicitBuildEndpoint: Boolean
+): Boolean =
+    preferExplicitBuildEndpoint ||
+        storedSettings.hasWorkspaceEndpointSelection ||
+        storedSettings.baseUrlOverride.trim().isNotBlank()
+
 internal fun selectedWorkspaceEndpointOption(baseUrl: String): WorkspaceEndpointOption? {
     val normalized = normalizeApiBaseUrl(baseUrl)
     return workspaceEndpointOptions.firstOrNull { option -> option.value == normalized }
