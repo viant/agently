@@ -452,4 +452,84 @@ class ApprovalComponentsTest {
 
         assertEquals(mapOf("envNames" to listOf("dev")), edited)
     }
+
+    @Test
+    fun buildApprovalArgumentsPreview_exposesLegacySummaryAndRows() {
+        val arguments = Json.parseToJsonElement(
+            """
+            {
+              "Recommendation": {
+                "audience_id": 7314989,
+                "change_summary": "Exclude low-performing publisher paths.",
+                "selector_direction": "EXCLUDE",
+                "timeoutMs": 600000
+              },
+              "rows": [
+                {
+                  "publisher": "37/3713495849",
+                  "recommendation": "EXCLUDE",
+                  "rationale": "Low click-through rate.",
+                  "selected": true
+                },
+                {
+                  "publisher": "48/3962201010",
+                  "recommendation": "EXCLUDE",
+                  "selected": true
+                }
+              ],
+              "timeoutMs": 600000
+            }
+            """.trimIndent()
+        )
+
+        val preview = buildApprovalArgumentsPreview(arguments)
+
+        assertEquals("Rows", preview.rowsLabel)
+        assertEquals(2, preview.totalRows)
+        assertEquals("Audience Id", preview.summary[0].label)
+        assertEquals("7314989", preview.summary[0].value)
+        assertTrue(preview.summary.none { it.label.contains("Timeout") })
+        assertEquals("Publisher", preview.rows[0][0].label)
+        assertTrue(preview.rows.flatten().none { it.label == "Selected" })
+    }
+
+    @Test
+    fun approvalSummaryPairsIdsAndKeepsNarrativeFullWidth() {
+        val rows = approvalPreviewSummaryRows(
+            listOf(
+                ApprovalPreviewField("Ad Order Id", "2672373"),
+                ApprovalPreviewField("Audience Id", "7314989"),
+                ApprovalPreviewField("Change Summary", "Exclude three low-performing publisher paths.")
+            )
+        )
+
+        assertEquals(listOf(2, 1), rows.map { it.size })
+        assertEquals("Change Summary", rows[1][0].label)
+    }
+
+    @Test
+    fun approvalFailureMessage_explainsEofWithoutLosingSelection() {
+        assertEquals(
+            "The connection ended before the server confirmed approval. Your selection was kept; try again.",
+            approvalFailureMessage("java.io.EOFException: source exhausted prematurely")
+        )
+    }
+
+    @Test
+    fun approvalFailureMessage_keepsConciseServerDetail() {
+        assertEquals(
+            "Approval did not complete: recommendation is no longer pending",
+            approvalFailureMessage("recommendation is no longer pending\ninternal stack trace")
+        )
+    }
+
+    @Test
+    fun approvalFailureMessage_hidesRawForbiddenPlatformBody() {
+        assertEquals(
+            "The platform did not authorize this recommendation update (403). Your selection was kept; review access or retry.",
+            approvalFailureMessage(
+                "{\"status\":\"error\",\"message\":\"platform patch failed: status=403 body={...}\"}"
+            )
+        )
+    }
 }

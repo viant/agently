@@ -62,15 +62,12 @@ internal fun HostedWorkspaceSection(
     headerActions: (@Composable () -> Unit)? = null
 ) {
     val resolvedRestoreState = restoreState ?: return
-    var activeWindowOverride by remember(resolvedRestoreState.selectionKey()) {
-        mutableStateOf<WorkspaceWindowSnapshot?>(null)
-    }
+    val runtimeWindows by forgeRuntime.windows.collectAsState(initial = emptyList())
     var selectedWindowId by remember(resolvedRestoreState.selectionKey()) {
         mutableStateOf(defaultHostedWorkspaceWindowId(resolvedRestoreState))
     }
-    val selectedWindow = remember(resolvedRestoreState.windows, selectedWindowId, activeWindowOverride) {
-        activeWindowOverride
-            ?: resolvedRestoreState.windows.firstOrNull { it.windowId == selectedWindowId }
+    val selectedWindow = remember(resolvedRestoreState.windows, selectedWindowId) {
+        resolvedRestoreState.windows.firstOrNull { it.windowId == selectedWindowId }
             ?: resolvedRestoreState.windows.lastOrNull()
     }
     val windowState = rememberHostedWorkspaceWindowUiState(
@@ -87,6 +84,9 @@ internal fun HostedWorkspaceSection(
     )
     val presentation = remember(selectedWindow) {
         resolveHostedWorkspacePresentation(selectedWindow)
+    }
+    val activeRuntimeWindow = runtimeWindows.firstOrNull {
+        it.windowId == windowState.windowContext?.windowId
     }
 
     val content: @Composable () -> Unit = {
@@ -134,7 +134,8 @@ internal fun HostedWorkspaceSection(
                 else -> WindowContentView(
                     runtime = forgeRuntime,
                     windowId = windowState.windowContext.windowId,
-                    windowKey = windowState.windows.firstOrNull { it.windowId == windowState.selectedWindowId }?.windowKey
+                    windowKey = activeRuntimeWindow?.windowKey
+                        ?: windowState.windows.firstOrNull { it.windowId == windowState.selectedWindowId }?.windowKey
                         ?: windowState.selectedWindowId,
                     showWindowHeader = false,
                     modifier = Modifier

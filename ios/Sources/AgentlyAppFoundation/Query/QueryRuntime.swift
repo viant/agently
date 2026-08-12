@@ -47,7 +47,7 @@ public final class QueryRuntime: ObservableObject {
                 return QueryOutput()
             }
             logger.error("Query request failed: \(String(describing: error), privacy: .public)")
-            lastError = error.localizedDescription
+            lastError = visibleQueryError(error)
             return nil
         }
     }
@@ -58,4 +58,19 @@ public final class QueryRuntime: ObservableObject {
         isSending = false
         lastError = nil
     }
+}
+
+internal func visibleQueryError(_ error: Error) -> String {
+    let detail = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+    let diagnostic = "\(String(describing: error)) \(detail)".lowercased()
+    if diagnostic.contains("api key is required") {
+        return "The workspace model is not configured. Ask an administrator to add the model API key, then try again."
+    }
+    if diagnostic.contains("eof") || diagnostic.contains("connection ended") {
+        return "The connection ended before the report finished loading. Refresh to try again."
+    }
+    if diagnostic.contains("/v1/agent/query") || diagnostic.contains("failed to stream") {
+        return "The assistant could not start this request. Try again, or contact the workspace administrator if it continues."
+    }
+    return detail.isEmpty ? "The assistant could not start this request. Try again." : detail
 }

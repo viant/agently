@@ -14,6 +14,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -44,9 +48,24 @@ internal fun RenderTranscript(
     if (items.isEmpty()) {
         return
     }
+    var visibleItemCount by remember(items.firstOrNull()?.id, items.lastOrNull()?.id) {
+        mutableIntStateOf(minOf(items.size, INITIAL_TRANSCRIPT_RENDER_COUNT))
+    }
+    val windowStart = transcriptWindowStart(items.size, visibleItemCount)
+    val visibleItems = items.subList(windowStart, items.size)
     Text("Transcript", style = MaterialTheme.typography.titleMedium)
-    items.forEachIndexed { index, item ->
-        val previous = items.getOrNull(index - 1)
+    if (windowStart > 0) {
+        OutlinedButton(
+            onClick = {
+                visibleItemCount = minOf(items.size, visibleItemCount + TRANSCRIPT_RENDER_BATCH_SIZE)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Show ${minOf(TRANSCRIPT_RENDER_BATCH_SIZE, windowStart)} earlier messages")
+        }
+    }
+    visibleItems.forEachIndexed { index, item ->
+        val previous = visibleItems.getOrNull(index - 1)
         val startsGroup = previous?.role != item.role
         val messageApprovals = if (item.role == "assistant") {
             pendingApprovals.filter { it.messageId == item.id }
@@ -187,3 +206,9 @@ internal fun RenderTranscript(
         Spacer(modifier = Modifier.height(if (startsGroup) 10.dp else 4.dp))
     }
 }
+
+internal fun transcriptWindowStart(totalItemCount: Int, visibleItemCount: Int): Int =
+    (totalItemCount - visibleItemCount.coerceAtLeast(0)).coerceAtLeast(0)
+
+internal const val INITIAL_TRANSCRIPT_RENDER_COUNT = 40
+internal const val TRANSCRIPT_RENDER_BATCH_SIZE = 40

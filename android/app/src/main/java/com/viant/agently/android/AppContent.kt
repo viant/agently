@@ -3,6 +3,7 @@ package com.viant.agently.android
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
@@ -77,6 +78,7 @@ internal fun AppBody(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
+            .navigationBarsPadding()
             .padding(16.dp)
     ) {
         if (authState == AuthState.Checking) {

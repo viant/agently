@@ -71,4 +71,36 @@ final class ApprovalComponentsSupportTests: XCTestCase {
             "envNames": .array([.string("prod")])
         ])
     }
+
+    func testApprovalArgumentsPreviewHidesTechnicalFieldsAndBuildsRows() {
+        let preview = buildApprovalArgumentsPreview(.object([
+            "Recommendation": .object([
+                "audience_id": .number(7_314_989),
+                "change_summary": .string("Exclude low-performing publisher paths."),
+                "selector_direction": .string("EXCLUDE")
+            ]),
+            "rows": .array([
+                .object([
+                    "publisher": .string("37/3713495849"),
+                    "recommendation": .string("EXCLUDE"),
+                    "rationale": .string("Low click-through rate."),
+                    "selected": .bool(true)
+                ])
+            ]),
+            "timeoutMs": .number(600_000)
+        ]))
+
+        XCTAssertEqual(preview.rowsLabel, "Rows")
+        XCTAssertEqual(preview.totalRows, 1)
+        XCTAssertTrue(preview.summary.contains(ApprovalPreviewField(label: "Audience Id", value: "7314989")))
+        XCTAssertFalse(preview.summary.contains { $0.label.contains("Timeout") })
+        XCTAssertFalse(preview.rows.flatMap { $0 }.contains { $0.label == "Selected" })
+    }
+
+    func testApprovalFailureMessageExplainsEOF() {
+        XCTAssertEqual(
+            approvalFailureMessage("java.io.EOFException: source exhausted prematurely"),
+            "The connection ended before the server confirmed approval. Your selection was kept; try again."
+        )
+    }
 }

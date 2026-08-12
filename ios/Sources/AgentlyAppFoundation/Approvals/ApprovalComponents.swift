@@ -60,20 +60,14 @@ private struct ApprovalCard: View {
 
     var body: some View {
         let meta = parsedApprovalMeta(approval)
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             // Header
             VStack(alignment: .leading, spacing: 4) {
-                Text(approval.title ?? approval.toolName)
+                Text(trimmedApprovalText(meta?.title) ?? trimmedApprovalText(approval.title) ?? humanizeApprovalKey(approval.toolName))
                     .font(.headline)
-                Text(approval.toolName)
-                    .font(.subheadline).foregroundStyle(.secondary)
-                ApprovalMetaRow(label: "Status", value: approval.status.capitalized)
-                if let cid = approval.conversationID, !cid.isEmpty {
-                    ApprovalMetaRow(label: "Conversation", value: cid)
-                }
-                if let mid = approval.messageID, !mid.isEmpty {
-                    ApprovalMetaRow(label: "Message", value: mid)
-                }
+                Text(trimmedApprovalText(meta?.message) ?? "Review the proposed change before approving it.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
 
             if isSubmitting {
@@ -93,31 +87,191 @@ private struct ApprovalCard: View {
                     onEditedFieldsChange: { editedFields = $0 }
                 )
             } else {
-                if let arguments = approval.arguments {
-                    ApprovalJSONSection(title: "Arguments", value: arguments)
-                }
-                if let metadata = approval.metadata {
-                    ApprovalJSONSection(title: "Metadata", value: metadata)
-                }
+                ApprovalArgumentsPreviewView(preview: buildApprovalArgumentsPreview(approval.arguments))
             }
 
-            // Action buttons — use custom labels when available
+            if let errorMessage = trimmedApprovalText(approval.errorMessage) {
+                Text(approvalFailureMessage(errorMessage))
+                    .font(.footnote)
+                    .foregroundStyle(Color.red)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+            }
+
+            // Keep the mobile decision surface focused on the two user outcomes.
             let acceptLabel = meta?.acceptLabel ?? "Approve"
-            let rejectLabel = meta?.rejectLabel ?? "Decline"
-            let cancelLabel = meta?.cancelLabel ?? "Cancel"
-            HStack {
-                Button(rejectLabel) { onDecision("decline", editedFields) }
-                    .disabled(isSubmitting)
-                Button(cancelLabel) { onDecision("cancel", [:]) }
-                    .disabled(isSubmitting)
+            let rejectLabel = meta?.rejectLabel ?? "Reject"
+            HStack(spacing: 10) {
                 Button(acceptLabel) { onDecision("approve", editedFields) }
                     .disabled(isSubmitting)
+                    .buttonStyle(.borderedProminent)
+                Button(rejectLabel) { onDecision("reject", editedFields) }
+                    .disabled(isSubmitting)
+                    .buttonStyle(.bordered)
             }
-            .buttonStyle(.bordered)
         }
         .padding()
         .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
     }
+}
+
+struct ApprovalPreviewField: Equatable {
+    let label: String
+    let value: String
+}
+
+struct ApprovalArgumentsPreview: Equatable {
+    var summary: [ApprovalPreviewField] = []
+    var rowsLabel: String = "Items"
+    var rows: [[ApprovalPreviewField]] = []
+    var totalRows: Int = 0
+}
+
+func buildApprovalArgumentsPreview(_ arguments: AppJSONValue?) -> ApprovalArgumentsPreview {
+    guard case .object(let root) = arguments else { return ApprovalArgumentsPreview() }
+    let collection = root.first { _, value in
+        guard case .array(let values) = value else { return false }
+        return values.contains { if case .object = $0 { return true }; return false }
+    }
+    let rowValues: [AppJSONValue]
+    if let collection, case .array(let values) = collection.value { rowValues = values } else { rowValues = [] }
+    let rowsContainRationale = rowValues.contains { value in
+        guard case .object(let row) = value else { return false }
+        return row.keys.contains { $0.caseInsensitiveCompare("rationale") == .orderedSame }
+    }
+
+    var summary: [ApprovalPreviewField] = root.compactMap { key, value in
+        guard !isApprovalTechnicalField(key), let display = approvalPreviewValue(value) else { return nil }
+        return ApprovalPreviewField(label: humanizeApprovalKey(key), value: display)
+    }
+    if let nested = root.values.compactMap({ value -> [String: AppJSONValue]? in
+        if case .object(let object) = value { return object }
+        return nil
+    }).first {
+        for (key, value) in nested where summary.count < 6 && !isApprovalTechnicalField(key) {
+            if let display = approvalPreviewValue(value) {
+                summary.append(ApprovalPreviewField(label: humanizeApprovalKey(key), value: display))
+            }
+        }
+    }
+    if rowsContainRationale {
+        summary.removeAll { $0.label.caseInsensitiveCompare("Change Reason") == .orderedSame }
+    }
+    summary = Array(summary.prefix(6))
+    let summaryLabels = Set(summary.map(\.label))
+    let rows = rowValues.compactMap { value -> [ApprovalPreviewField]? in
+        guard case .object(let row) = value else { return nil }
+        return Array(row.compactMap { key, value in
+            let label = humanizeApprovalKey(key)
+            guard !isApprovalTechnicalField(key), !summaryLabels.contains(label), let display = approvalPreviewValue(value) else { return nil }
+            return ApprovalPreviewField(label: label, value: display)
+        }.prefix(6))
+    }
+    let rowsLabel = collection.map { humanizeApprovalKey($0.key) } ?? "Items"
+    return ApprovalArgumentsPreview(
+        summary: summary,
+        rowsLabel: rowsLabel,
+        rows: Array(rows.prefix(6)),
+        totalRows: rowValues.count
+    )
+}
+
+private struct ApprovalArgumentsPreviewView: View {
+    let preview: ApprovalArgumentsPreview
+
+    var body: some View {
+        if !preview.summary.isEmpty || !preview.rows.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(Array(preview.summary.enumerated()), id: \.offset) { _, field in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(field.label).font(.caption).foregroundStyle(.secondary)
+                        Text(field.value).font(.subheadline)
+                    }
+                }
+                if !preview.rows.isEmpty {
+                    Text("\(preview.rowsLabel) (\(preview.totalRows))")
+                        .font(.subheadline.weight(.semibold))
+                    ScrollView(.horizontal, showsIndicators: true) {
+                        let columns = Array(Set(preview.rows.flatMap { $0.map(\.label) })).sorted()
+                        VStack(alignment: .leading, spacing: 0) {
+                            approvalPreviewRow(columns.map { ApprovalPreviewField(label: $0, value: $0) }, isHeader: true)
+                            ForEach(Array(preview.rows.enumerated()), id: \.offset) { index, row in
+                                let values = Dictionary(uniqueKeysWithValues: row.map { ($0.label, $0.value) })
+                                approvalPreviewRow(columns.map { ApprovalPreviewField(label: $0, value: values[$0] ?? "") }, isHeader: false)
+                                    .background(index.isMultiple(of: 2) ? Color.clear : Color.secondary.opacity(0.04))
+                            }
+                        }
+                    }
+                    if preview.totalRows > preview.rows.count {
+                        Text("+\(preview.totalRows - preview.rows.count) more")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(12)
+            .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    private func approvalPreviewRow(_ fields: [ApprovalPreviewField], isHeader: Bool) -> some View {
+        HStack(spacing: 0) {
+            ForEach(fields, id: \.label) { field in
+                Text(field.value)
+                    .font(isHeader ? .caption.weight(.semibold) : .caption)
+                    .foregroundStyle(isHeader ? Color.primary : Color.secondary)
+                    .lineLimit(3)
+                    .frame(width: field.value.count > 48 ? 240 : 132, alignment: .leading)
+                    .padding(8)
+            }
+        }
+        .background(isHeader ? Color.blue.opacity(0.08) : Color.clear)
+    }
+}
+
+func approvalFailureMessage(_ errorMessage: String?) -> String {
+    let detail = errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if detail.localizedCaseInsensitiveContains("EOFException") || detail.caseInsensitiveCompare("EOF") == .orderedSame || detail.localizedCaseInsensitiveContains("unexpected end of stream") {
+        return "The connection ended before the server confirmed approval. Your selection was kept; try again."
+    }
+    if detail.localizedCaseInsensitiveContains("status=403") || detail.localizedCaseInsensitiveContains("http 403") || detail.localizedCaseInsensitiveContains("forbidden") {
+        return "The platform did not authorize this recommendation update (403). Your selection was kept; review access or retry."
+    }
+    if detail.hasPrefix("{") || detail.localizedCaseInsensitiveContains("body={") {
+        return "The server rejected this approval. Your selection was kept; try again or review permissions."
+    }
+    let concise = detail.split(whereSeparator: \.isNewline).first.map(String.init)?.prefix(180) ?? ""
+    return concise.isEmpty ? "Approval did not complete. Your selection was kept; try again." : "Approval did not complete: \(concise)"
+}
+
+private func approvalPreviewValue(_ value: AppJSONValue) -> String? {
+    switch value {
+    case .string(let value): return trimmedApprovalText(value)
+    case .number(let value):
+        return value.rounded() == value ? String(format: "%.0f", value) : value.description
+    case .bool(let value): return value.description
+    case .null, .array, .object: return nil
+    }
+}
+
+private func trimmedApprovalText(_ value: String?) -> String? {
+    let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return trimmed.isEmpty ? nil : trimmed
+}
+
+private func isApprovalTechnicalField(_ key: String) -> Bool {
+    let normalized = key.lowercased().replacingOccurrences(of: "_", with: "").replacingOccurrences(of: "-", with: "")
+    return ["timeoutms", "selected", "id", "mode", "queuetitle", "selectordirection", "targetfield"].contains(normalized)
+}
+
+private func humanizeApprovalKey(_ key: String) -> String {
+    key.replacingOccurrences(of: "([a-z0-9])([A-Z])", with: "$1 $2", options: .regularExpression)
+        .replacingOccurrences(of: "_", with: " ")
+        .replacingOccurrences(of: "-", with: " ")
+        .split(whereSeparator: \.isWhitespace)
+        .map { $0.lowercased().capitalized }
+        .joined(separator: " ")
 }
 
 // MARK: - Forge-driven editor section

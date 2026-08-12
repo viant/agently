@@ -10,6 +10,7 @@ import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import com.viant.forgeandroid.ui.TranscriptCanonicalData
 import com.viant.forgeandroid.ui.TranscriptCanonicalReport
 import kotlinx.coroutines.CancellationException
+import java.io.EOFException
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -248,7 +249,19 @@ internal fun visibleAppError(err: Throwable?): String? {
     if (isBenignLifecycleCancellation(err)) {
         return null
     }
-    return err?.message ?: err?.toString()
+    if (generateSequence(err) { it.cause }.any { it is EOFException }) {
+        return "The connection ended before the report finished loading. Refresh to try again."
+    }
+    val detail = err?.message?.trim().orEmpty()
+    if (detail.contains("api key is required", ignoreCase = true)) {
+        return "The workspace model is not configured. Ask an administrator to add the model API key, then try again."
+    }
+    if (detail.contains("/v1/agent/query", ignoreCase = true) ||
+        detail.contains("failed to stream", ignoreCase = true)
+    ) {
+        return "The assistant could not start this request. Try again, or contact the workspace administrator if it continues."
+    }
+    return detail.ifBlank { err?.toString().orEmpty() }
 }
 
 internal fun isPreviewableText(contentType: String?, name: String?): Boolean {

@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.AgentlyClient
@@ -93,7 +94,7 @@ internal fun PhoneWorkspacePane(
     composerVisible: Boolean = true,
     onToggleComposer: () -> Unit = {}
 ) {
-    val brandLabel = resolveWorkspaceBrandLabel(metadata)
+    val headerTitle = resolveWorkspaceHeaderTitle(metadata, workspaceTitle)
     val hostedWorkspaceState = deriveAgentlyHostedWorkspaceRestoreState(conversationState, streamSnapshot)
     val displayTranscript = transcriptWithActiveAssistant(transcript, streamSnapshot)
     val hostedWorkspaceMinHeight = remember(hostedWorkspaceState) {
@@ -142,21 +143,13 @@ internal fun PhoneWorkspacePane(
                     ) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                brandLabel,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = Color(0xFFDB1F2F)
-                            )
-                            Text(
-                                workspaceTitle,
+                                headerTitle,
                                 style = MaterialTheme.typography.titleSmall,
                                 color = Color(0xFF182230),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                    }
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Outlined.Settings, contentDescription = "Settings")
                     }
                 }
             } else {
@@ -170,12 +163,7 @@ internal fun PhoneWorkspacePane(
                     ) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                brandLabel,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = Color(0xFFDB1F2F)
-                            )
-                            Text(
-                                workspaceTitle,
+                                headerTitle,
                                 style = MaterialTheme.typography.titleSmall,
                                 color = Color(0xFF182230),
                                 maxLines = 1,
@@ -189,46 +177,58 @@ internal fun PhoneWorkspacePane(
                             color = Color(0xFF667085)
                         )
                     }
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Outlined.Settings, contentDescription = "Settings")
-                    }
                 }
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Surface(
+                color = Color(0xFFF4F7FB),
+                shape = MaterialTheme.shapes.extraLarge,
+                border = BorderStroke(1.dp, Color(0xFFE4EAF2)),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                IconButton(onClick = onNewConversation, enabled = !loading) {
-                    Icon(Icons.Outlined.AddComment, contentDescription = "New chat")
-                }
-                IconButton(
-                    onClick = onOpenHistory,
-                    enabled = recentConversations.isNotEmpty()
+                Row(
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Outlined.History, contentDescription = "Conversation history")
-                }
-                if (!activeConversationId.isNullOrBlank()) {
-                    IconButton(
+                    PhoneToolbarAction(
+                        icon = Icons.Outlined.AddComment,
+                        contentDescription = "New chat",
+                        onClick = onNewConversation,
+                        enabled = !loading
+                    )
+                    PhoneToolbarAction(
+                        icon = Icons.Outlined.History,
+                        contentDescription = "Conversation history",
                         onClick = onOpenHistory,
                         enabled = recentConversations.isNotEmpty()
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = "Back to conversation list"
+                    )
+                    if (!activeConversationId.isNullOrBlank()) {
+                        PhoneToolbarAction(
+                            icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                            contentDescription = "Back to conversation list",
+                            onClick = onOpenHistory,
+                            enabled = recentConversations.isNotEmpty()
                         )
                     }
-                }
-                IconButton(onClick = onRefresh, enabled = !loading) {
-                    Icon(Icons.Outlined.Refresh, contentDescription = "Refresh workspace")
-                }
-                if (!activeConversationId.isNullOrBlank()) {
-                    IconButton(onClick = onToggleComposer) {
-                        Icon(
-                            if (composerVisible) Icons.Outlined.KeyboardHide else Icons.Outlined.ChatBubbleOutline,
-                            contentDescription = if (composerVisible) "Hide chat composer" else "Show chat composer"
+                    PhoneToolbarAction(
+                        icon = Icons.Outlined.Refresh,
+                        contentDescription = "Refresh workspace",
+                        onClick = onRefresh,
+                        enabled = !loading
+                    )
+                    if (!activeConversationId.isNullOrBlank()) {
+                        PhoneToolbarAction(
+                            icon = if (composerVisible) Icons.Outlined.KeyboardHide else Icons.Outlined.ChatBubbleOutline,
+                            contentDescription = if (composerVisible) "Hide chat composer" else "Show chat composer",
+                            onClick = onToggleComposer,
+                            selected = composerVisible
                         )
                     }
+                    PhoneToolbarAction(
+                        icon = Icons.Outlined.Settings,
+                        contentDescription = "Settings",
+                        onClick = onOpenSettings
+                    )
                 }
             }
             if (loading && streamSnapshot?.activeTurnId == null) {
@@ -388,6 +388,42 @@ internal fun PhoneWorkspacePane(
             }
         }
         Spacer(modifier = Modifier.height(bottomComposerInset))
+    }
+}
+
+@Composable
+private fun PhoneToolbarAction(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    selected: Boolean = false
+) {
+    Surface(
+        color = if (selected) Color(0xFFE5EEFF) else Color.White,
+        shape = MaterialTheme.shapes.large,
+        border = BorderStroke(
+            1.dp,
+            if (selected) Color(0xFF9FC0FF) else Color(0xFFDCE3EC)
+        ),
+        modifier = Modifier.size(42.dp)
+    ) {
+        IconButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = Modifier.size(42.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = when {
+                    !enabled -> Color(0xFF98A2B3)
+                    selected -> Color(0xFF2457C5)
+                    else -> Color(0xFF344054)
+                },
+                modifier = Modifier.size(21.dp)
+            )
+        }
     }
 }
 

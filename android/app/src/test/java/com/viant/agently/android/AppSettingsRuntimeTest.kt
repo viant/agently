@@ -5,7 +5,9 @@ import com.viant.agentlysdk.WorkspaceDefaults
 import com.viant.agentlysdk.WorkspaceMetadata
 import com.viant.agentlysdk.StarterTask
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppSettingsRuntimeTest {
@@ -100,6 +102,14 @@ class AppSettingsRuntimeTest {
                 defaultAgent = "workspace"
             )
         )
+    }
+
+    @Test
+    fun resolveWorkspaceHeaderTitle_usesConfiguredAppNameThenWorkspaceTitle() {
+        val metadata = WorkspaceMetadata(appName = "Steward")
+        assertEquals("Steward", resolveWorkspaceHeaderTitle(metadata, "Viant Steward"))
+        assertEquals("Metrics", resolveWorkspaceHeaderTitle(null, "Metrics"))
+        assertEquals("Agently", resolveWorkspaceHeaderTitle(null, ""))
     }
 
     @Test
@@ -223,6 +233,22 @@ class AppSettingsRuntimeTest {
                     hasWorkspaceEndpointSelection = true
                 ),
                 preferExplicitBuildEndpoint = true
+            )
+        )
+    }
+
+    @Test
+    fun hasInitialWorkspaceEndpointSelection_explicitDebugEndpointSkipsProductionChooser() {
+        assertTrue(
+            hasInitialWorkspaceEndpointSelection(
+                storedSettings = AppSettings(),
+                preferExplicitBuildEndpoint = true
+            )
+        )
+        assertFalse(
+            hasInitialWorkspaceEndpointSelection(
+                storedSettings = AppSettings(),
+                preferExplicitBuildEndpoint = false
             )
         )
     }

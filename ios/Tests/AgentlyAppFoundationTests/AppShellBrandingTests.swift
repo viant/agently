@@ -1,4 +1,5 @@
 import XCTest
+import AgentlySDK
 @testable import AgentlyAppFoundation
 
 final class AppShellBrandingTests: XCTestCase {
@@ -15,6 +16,30 @@ final class AppShellBrandingTests: XCTestCase {
     func testResolveWorkspaceBrandTitleDoesNotDoublePrefixViant() {
         XCTAssertEqual(resolveWorkspaceBrandTitle(workspaceTitle: "Viant Workspace"), "Viant Workspace")
         XCTAssertEqual(resolveWorkspaceBrandTitle(workspaceTitle: "viant"), "Viant")
+    }
+
+    func testResolveWorkspaceHeaderTitleUsesAppNameThenWorkspaceTitle() {
+        XCTAssertEqual(
+            resolveWorkspaceHeaderTitle(
+                metadata: WorkspaceMetadata(appName: "Steward"),
+                workspaceTitle: "Viant Steward"
+            ),
+            "Steward"
+        )
+        XCTAssertEqual(resolveWorkspaceHeaderTitle(metadata: nil, workspaceTitle: "Viant Metrics"), "Viant Metrics")
+        XCTAssertEqual(resolveWorkspaceHeaderTitle(metadata: nil, workspaceTitle: ""), "Agently")
+    }
+
+    func testStewardWorkspaceHeaderUsesConfiguredAppNameOnly() {
+        let metadata = WorkspaceMetadata(workspaceRoot: "/deployment/steward", appName: "Steward")
+        let workspaceTitle = resolveWorkspaceBrandTitle(workspaceTitle: metadata.workspaceRoot)
+        XCTAssertEqual(
+            resolveWorkspaceHeaderTitle(
+                metadata: metadata,
+                workspaceTitle: workspaceTitle
+            ),
+            "Steward"
+        )
     }
 
     func testResolvedCompactNavigationPathOpensPersistedConversation() {

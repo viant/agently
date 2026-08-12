@@ -6,6 +6,7 @@ import com.viant.agentlysdk.stream.BufferedMessage
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import com.viant.agentlysdk.stream.LiveExecutionGroup
 import kotlinx.serialization.json.Json
+import java.io.EOFException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -52,6 +53,34 @@ class ChatRuntimeTest {
     @Test
     fun visibleAppError_hidesLifecycleCancellationNoise() {
         assertNull(visibleAppError(IllegalStateException("left the composition")))
+    }
+
+    @Test
+    fun visibleAppError_replacesRawEofExceptionWithRecoveryGuidance() {
+        assertEquals(
+            "The connection ended before the report finished loading. Refresh to try again.",
+            visibleAppError(EOFException())
+        )
+    }
+
+    @Test
+    fun visibleAppError_hidesQueryEndpointAndMissingKeyResponse() {
+        assertEquals(
+            "The workspace model is not configured. Ask an administrator to add the model API key, then try again.",
+            visibleAppError(
+                IllegalStateException(
+                    "POST http://127.0.0.1:8080/v1/agent/query failed: 500: {\"error\":\"failed to stream: API key is required\"}"
+                )
+            )
+        )
+    }
+
+    @Test
+    fun visibleAppError_hidesGenericQueryTransportDetails() {
+        assertEquals(
+            "The assistant could not start this request. Try again, or contact the workspace administrator if it continues.",
+            visibleAppError(IllegalStateException("POST /v1/agent/query failed: 500: internal failure"))
+        )
     }
 
     @Test

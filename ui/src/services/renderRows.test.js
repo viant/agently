@@ -193,6 +193,32 @@ describe('buildCanonicalTranscriptRows', () => {
     expect(elicitationRow?.elicitation?.status).toBe('failed');
   });
 
+  it('renders an expandable failed iteration when the provider fails before the first execution page', () => {
+    const { rows } = buildCanonicalTranscriptRows([{
+      turnId: 'turn-provider-auth-failed',
+      conversationId: 'conv-1',
+      createdAt: '2026-08-12T07:02:06Z',
+      status: 'failed',
+      errorMessage: 'failed to stream: failed to start Stream: API key is required',
+      user: {
+        messageId: 'user-1',
+        content: 'review local changes'
+      },
+      execution: { pages: [] }
+    }]);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toMatchObject({
+      id: 'turn:turn-provider-auth-failed:failure',
+      role: 'assistant',
+      turnId: 'turn-provider-auth-failed',
+      turnStatus: 'failed',
+      status: 'failed',
+      errorMessage: 'failed to stream: failed to start Stream: API key is required',
+      executionGroups: []
+    });
+  });
+
   it('preserves tool step content on canonical execution rows', () => {
     const turn = {
       turnId: 'turn-status',

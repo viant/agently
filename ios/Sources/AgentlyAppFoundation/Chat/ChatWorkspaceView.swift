@@ -76,9 +76,13 @@ struct ChatWorkspaceView: View {
 
     private var workspaceLabel: String {
         let preferred = metadata?.workspaceRoot.flatMap(resolveWorkspaceDisplayTitle)
-        return resolveWorkspaceBrandTitle(
+        let workspaceTitle = resolveWorkspaceBrandTitle(
             workspaceTitle: preferred ?? resolvedAgentLabel,
             fallbackTitle: "Agently"
+        )
+        return resolveWorkspaceHeaderTitle(
+            metadata: metadata,
+            workspaceTitle: workspaceTitle
         )
     }
 
