@@ -40,6 +40,7 @@ import {
   applyMessagePatchEvent,
   applyPreambleEvent,
   applyStreamChunk,
+  normalizeStreamingDelta,
   applyTurnStartedEvent,
   applyToolStreamEvent,
   finalizeStreamTurn,
@@ -326,6 +327,22 @@ function textDeltaQueueKey(payload = {}, fallbackConversationID = '') {
   ].join('::');
 }
 
+function renderedStreamContent(chatState = {}, payload = {}) {
+  const rows = Array.isArray(chatState?.liveRows) ? chatState.liveRows : [];
+  const messageID = String(payload?.messageId || payload?.assistantMessageId || payload?.id || '').trim();
+  const turnID = String(payload?.turnId || '').trim();
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (String(row?.role || '').toLowerCase() !== 'assistant') continue;
+    const rowID = String(row?.id || '').trim();
+    const rowTurnID = String(row?.turnId || '').trim();
+    if ((messageID && rowID === messageID) || (turnID && rowTurnID === turnID)) {
+      return String(row?._streamContent || '');
+    }
+  }
+  return '';
+}
+
 function enqueueTextDelta(chatState = {}, payload = {}, fallbackConversationID = '') {
   const queue = Array.isArray(chatState.pendingTextDeltaQueue) ? chatState.pendingTextDeltaQueue : [];
   const key = textDeltaQueueKey(payload, fallbackConversationID);
@@ -335,8 +352,15 @@ function enqueueTextDelta(chatState = {}, payload = {}, fallbackConversationID =
     return queue;
   }
   const last = queue[queue.length - 1];
+  const renderedContent = renderedStreamContent(chatState, payload);
   if (last && last._queueKey === key) {
-    last.content = `${String(last.content || '')}${content}`;
+    // A provider or reconnect can report the full content-so-far in a
+    // text_delta event. Normalize it before frame coalescing; otherwise two
+    // cumulative snapshots are irreversibly glued together before the live
+    // store can recognize the replay.
+    const queuedContent = String(last.content || '');
+    const normalizedContent = normalizeStreamingDelta(`${renderedContent}${queuedContent}`, content);
+    last.content = `${queuedContent}${normalizedContent}`;
     last.createdAt = String(payload?.createdAt || last.createdAt || '').trim() || last.createdAt;
     if (!String(last.id || '').trim() && String(payload?.id || '').trim()) {
       last.id = String(payload.id).trim();
@@ -348,10 +372,15 @@ function enqueueTextDelta(chatState = {}, payload = {}, fallbackConversationID =
       last.assistantMessageId = String(payload.assistantMessageId).trim();
     }
   } else {
+    const normalizedContent = normalizeStreamingDelta(renderedContent, content);
+    if (!normalizedContent) {
+      chatState.pendingTextDeltaQueue = queue;
+      return queue;
+    }
     queue.push({
       ...payload,
       conversationId: String(payload?.conversationId || payload?.streamId || fallbackConversationID || '').trim(),
-      content,
+      content: normalizedContent,
       _queueKey: key,
     });
   }
