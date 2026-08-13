@@ -12,6 +12,7 @@ import {
   applyTurnStartedEvent,
   applyStreamChunk,
   finalizeStreamTurn,
+  normalizeStreamingDelta,
   normalizeStreamingMarkdown
 } from './liveStreamStore';
 import { markLiveOwnedTurn } from './liveStreamStore';
@@ -34,9 +35,62 @@ describe('normalizeStreamingMarkdown', () => {
       language: '',
     });
   });
+
+  it('preserves forge transport fences so streamed reports never appear as JSON', () => {
+    const content = '```forge-report\n{"version":1,"id":"brief"}';
+    expect(normalizeStreamingMarkdown(content)).toMatchObject({
+      content,
+      hadLeadingFence: true,
+      hadTrailingFence: false,
+      language: 'forge-report',
+    });
+  });
+});
+
+describe('normalizeStreamingDelta', () => {
+  it('converts a cumulative provider snapshot into a suffix', () => {
+    expect(normalizeStreamingDelta('```forge-report\n{"version":1', '```forge-report\n{"version":1,"id":"brief"}'))
+      .toBe(',"id":"brief"}');
+  });
+
+  it('ignores an exactly replayed delta', () => {
+    expect(normalizeStreamingDelta('report payload', 'report payload')).toBe('');
+  });
 });
 
 describe('applyStreamChunk', () => {
+  it('does not duplicate cumulative forge-report snapshots', () => {
+    const chatState = { activeStreamTurnId: 'turn-report', liveRows: [] };
+    applyStreamChunk(chatState, {
+      id: 'message-report', turnId: 'turn-report', content: '```forge-report\n{"version":1'
+    }, 'conv-1');
+    applyStreamChunk(chatState, {
+      id: 'message-report', turnId: 'turn-report', content: '```forge-report\n{"version":1,"id":"brief"}'
+    }, 'conv-1');
+
+    expect(chatState.liveRows[0]._streamContent)
+      .toBe('```forge-report\n{"version":1,"id":"brief"}');
+    expect(chatState.liveRows[0].content).not.toContain('version```forge-report');
+  });
+
+  it('never compares a new turn delta against another turn streaming row', () => {
+    const chatState = {
+      activeStreamTurnId: 'turn-2',
+      liveRows: [{
+        id: 'message-1', role: 'assistant', turnId: 'turn-1', isStreaming: true,
+        _streamContent: 'shared prefix from turn one', content: 'shared prefix from turn one',
+        executionGroups: []
+      }]
+    };
+
+    applyStreamChunk(chatState, {
+      id: 'message-2', turnId: 'turn-2', content: 'shared prefix from turn one plus turn two'
+    }, 'conv-1');
+
+    expect(chatState.liveRows.find((row) => row.turnId === 'turn-2')?._streamContent)
+      .toBe('shared prefix from turn one plus turn two');
+  });
+
   it('updates the active execution group content while streaming', () => {
     const chatState = {
       activeStreamTurnId: 'turn-1',

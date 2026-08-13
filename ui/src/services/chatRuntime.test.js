@@ -1154,6 +1154,94 @@ describe('handleStreamEvent', () => {
     }
   });
 
+  it('coalesces cumulative forge-report snapshots without replaying the transcript', async () => {
+    vi.useFakeTimers();
+    const originalWindow = globalThis.window;
+    globalThis.window = {
+      requestAnimationFrame: (cb) => setTimeout(cb, 16),
+      cancelAnimationFrame: (id) => clearTimeout(id),
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      localStorage: createStorage(),
+      sessionStorage: createStorage(),
+      location: { pathname: '/conversation/conv-1' }
+    };
+    try {
+      const chatState = {
+        liveRows: [], transcriptRows: [], renderRows: [], lastHasRunning: false,
+        activeConversationID: 'conv-1', liveOwnedConversationID: 'conv-1', liveOwnedTurnIds: ['turn-1']
+      };
+      const context = {
+        identity: { windowId: 'chat/main' },
+        resources: { chat: chatState },
+        Context(name) {
+          if (name === 'conversations') return { handlers: { dataSource: { peekFormData: () => ({ id: 'conv-1' }), setFormData: vi.fn() } } };
+          if (name === 'messages') return { handlers: { dataSource: { setCollection: vi.fn(), setError: vi.fn() } } };
+          if (name === 'meta') return { handlers: { dataSource: { peekFormData: () => ({ defaults: {}, agentInfos: [] }) } } };
+          return null;
+        }
+      };
+      const first = '```forge-report\n{"version":1';
+      const second = '```forge-report\n{"version":1,"id":"brief"}';
+      handleStreamEvent(chatState, context, 'conv-1', { type: 'text_delta', conversationId: 'conv-1', turnId: 'turn-1', id: 'msg-1', content: first });
+      handleStreamEvent(chatState, context, 'conv-1', { type: 'text_delta', conversationId: 'conv-1', turnId: 'turn-1', id: 'msg-1', content: second });
+
+      await vi.advanceTimersByTimeAsync(20);
+
+      expect(chatState.liveRows[0]?._streamContent).toBe(second);
+      expect(chatState.liveRows[0]?.content).toBe(second);
+    } finally {
+      globalThis.window = originalWindow;
+      vi.useRealTimers();
+    }
+  });
+
+  it('normalizes a cumulative snapshot against rendered and same-frame report content', async () => {
+    vi.useFakeTimers();
+    const originalWindow = globalThis.window;
+    globalThis.window = {
+      requestAnimationFrame: (cb) => setTimeout(cb, 16),
+      cancelAnimationFrame: (id) => clearTimeout(id),
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      localStorage: createStorage(),
+      sessionStorage: createStorage(),
+      location: { pathname: '/conversation/conv-1' }
+    };
+    try {
+      const rendered = '```forge-report\n{"version":1';
+      const suffix = ',"id":"brief"';
+      const snapshot = `${rendered}${suffix},"mode":"commit"}`;
+      const chatState = {
+        liveRows: [{
+          id: 'msg-1', role: 'assistant', turnId: 'turn-1', interim: 1,
+          _streamContent: rendered, content: rendered, executionGroups: [{}]
+        }],
+        transcriptRows: [], renderRows: [], lastHasRunning: true,
+        activeConversationID: 'conv-1', liveOwnedConversationID: 'conv-1', liveOwnedTurnIds: ['turn-1']
+      };
+      const context = {
+        identity: { windowId: 'chat/main' },
+        resources: { chat: chatState },
+        Context(name) {
+          if (name === 'conversations') return { handlers: { dataSource: { peekFormData: () => ({ id: 'conv-1' }), setFormData: vi.fn() } } };
+          if (name === 'messages') return { handlers: { dataSource: { setCollection: vi.fn(), setError: vi.fn() } } };
+          if (name === 'meta') return { handlers: { dataSource: { peekFormData: () => ({ defaults: {}, agentInfos: [] }) } } };
+          return null;
+        }
+      };
+      handleStreamEvent(chatState, context, 'conv-1', { type: 'text_delta', conversationId: 'conv-1', turnId: 'turn-1', id: 'msg-1', content: suffix });
+      handleStreamEvent(chatState, context, 'conv-1', { type: 'text_delta', conversationId: 'conv-1', turnId: 'turn-1', id: 'msg-1', content: snapshot });
+
+      await vi.advanceTimersByTimeAsync(20);
+
+      expect(chatState.liveRows[0]?._streamContent).toBe(snapshot);
+    } finally {
+      globalThis.window = originalWindow;
+      vi.useRealTimers();
+    }
+  });
+
   it('ignores late execution events after the turn is already terminal', () => {
     const setCollection = vi.fn();
     const setFormData = vi.fn();

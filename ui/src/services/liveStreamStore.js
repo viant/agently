@@ -1067,6 +1067,18 @@ function stripTrailingFence(text = '') {
 export function normalizeStreamingMarkdown(text = '') {
   const raw = String(text || '');
   const leading = stripLeadingFence(raw);
+  // Forge fences are transport-bearing rich content, not decorative markdown.
+  // Keeping them intact lets RichContent recognize an incomplete report while
+  // it streams and atomically replace it with the committed report. Stripping
+  // the opener turns the payload into visible JSON until the final snapshot.
+  if (['forge-report', 'forge-data', 'forge-ui'].includes(leading.language)) {
+    return {
+      content: raw,
+      hadLeadingFence: true,
+      hadTrailingFence: /\r?\n?```$/.test(raw),
+      language: leading.language,
+    };
+  }
   const trailing = stripTrailingFence(leading.text);
   return {
     content: trailing.text,
@@ -1076,6 +1088,19 @@ export function normalizeStreamingMarkdown(text = '') {
   };
 }
 
+export function normalizeStreamingDelta(existing = '', incoming = '') {
+  const current = String(existing || '');
+  const next = String(incoming || '');
+  if (!next || !current) return next;
+  // Some providers/reconnect paths emit a cumulative snapshot in text_delta.
+  // Convert that snapshot back to a suffix before it reaches the append-only
+  // UI store. Exact replay is also ignored. This keeps one model stream from
+  // multiplying a report payload in the visible transcript.
+  if (next.startsWith(current)) return next.slice(current.length);
+  if (current.endsWith(next)) return '';
+  return next;
+}
+
 export function applyStreamChunk(chatState = {}, payload = {}, conversationID = '') {
   if (isSuppressedSummaryEvent(chatState, payload)) {
     rememberSuppressedSummary(chatState, payload);
@@ -1083,12 +1108,14 @@ export function applyStreamChunk(chatState = {}, payload = {}, conversationID = 
   }
   const turnId = String(payload?.turnId || chatState.activeStreamTurnId || chatState.runningTurnId || '').trim();
   const streamMessageID = canonicalPayloadMessageId(payload);
-  const delta = String(payload?.content || '');
+  const liveRows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
+  const index = findAssistantExecutionRowIndex(liveRows, turnId, streamMessageID);
+  const incoming = String(payload?.content || '');
+  const existingRow = index >= 0 ? liveRows[index] : null;
+  const delta = normalizeStreamingDelta(existingRow?._streamContent || '', incoming);
   if (!delta) return chatState.liveRows || [];
 
-  const liveRows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
   // Find the existing assistant execution row for this turn.
-  const index = findAssistantExecutionRowIndex(liveRows, turnId, streamMessageID);
   if (index >= 0) {
     // Append delta to the execution row's streaming content.
     const row = { ...liveRows[index] };
