@@ -28,15 +28,34 @@ public struct AuthRequiredScreen: View {
                 .accessibilityLabel("Workspace settings")
                 .buttonStyle(.borderless)
             }
-            Button("Sign in") {
-                Task {
-                    if await authRuntime.beginOAuthWebAuthenticationSessionLogin() {
-                        onLoginSuccess()
+            VStack(alignment: .leading, spacing: 10) {
+                Button {
+                    Task {
+                        if await authRuntime.beginOAuthWebAuthenticationSessionLogin() {
+                            onLoginSuccess()
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        if authRuntime.isSubmittingOAuthLogin {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(.white)
+                        }
+                        Text(authRuntime.isSubmittingOAuthLogin ? "Opening sign-in…" : "Sign in")
                     }
                 }
+                .disabled(authRuntime.isSubmittingOAuthLogin)
+                .buttonStyle(.borderedProminent)
+
+                if let error = authRuntime.lastError,
+                   !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .accessibilityIdentifier("sign-in-error")
+                }
             }
-            .disabled(authRuntime.isSubmittingOAuthLogin || authRuntime.isRefreshingContext)
-            .buttonStyle(.borderedProminent)
         }
         .padding()
         .task {

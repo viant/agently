@@ -2,8 +2,13 @@ import SwiftUI
 import AgentlySDK
 import ForgeIOSRuntime
 import ForgeIOSUI
+import OSLog
 
 private let hostedWorkspaceDidOpenNotification = Notification.Name("forgeHostedWorkspaceDidOpen")
+private let hostedWorkspaceLogger = Logger(
+    subsystem: "com.viant.agently.ios",
+    category: "HostedWorkspace"
+)
 
 struct HostedWorkspaceSection: View {
     let restoreState: HostedWorkspaceRestoreState?
@@ -157,6 +162,13 @@ private struct HostedWorkspaceWindowView: View {
             guard let selectedWindow else { return }
             await load(selectedWindow)
         }
+        .task(id: selectedWindowFormKey) {
+            guard let selectedWindow,
+                  await forgeRuntime.windows.contains(where: { $0.id == selectedWindow.windowId }) else {
+                return
+            }
+            await applyRestoredWindowForm(selectedWindow)
+        }
     }
 
     private var headerRow: some View {
@@ -248,10 +260,7 @@ private struct HostedWorkspaceWindowView: View {
     private var restoreSelectionKey: String {
         let selected = restoreState.selectedWindowId ?? ""
         let windows = restoreState.windows.map { window in
-            [
-                window.windowId,
-                hostedWorkspaceJSONSignature(window.windowForm)
-            ].joined(separator: "@")
+            [window.windowId, window.windowKey].joined(separator: "@")
         }.joined(separator: "|")
         return "\(selected)#\(windows)"
     }
@@ -262,9 +271,13 @@ private struct HostedWorkspaceWindowView: View {
             selectedWindow.windowId,
             selectedWindow.windowKey,
             selectedWindow.windowTitle ?? "",
-            hostedWorkspaceJSONSignature(selectedWindow.parameters),
-            hostedWorkspaceJSONSignature(selectedWindow.windowForm)
+            hostedWorkspaceJSONSignature(selectedWindow.parameters)
         ].joined(separator: "#")
+    }
+
+    private var selectedWindowFormKey: String {
+        guard let selectedWindow else { return "" }
+        return "\(selectedWindow.windowId)#\(hostedWorkspaceJSONSignature(selectedWindow.windowForm))"
     }
 
     @MainActor
@@ -273,7 +286,9 @@ private struct HostedWorkspaceWindowView: View {
             return
         }
         selectedWindowID = snapshot.windowId
-        activeWindowSnapshot = snapshot
+        activeWindowSnapshot = selectedWindow.map {
+            mergeHostedWorkspaceRuntimeSnapshot(current: $0, incoming: snapshot)
+        } ?? snapshot
         metadata = nil
         windowContext = nil
         errorMessage = nil
@@ -309,6 +324,7 @@ private struct HostedWorkspaceWindowView: View {
     @MainActor
     private func load(_ selectedWindow: WorkspaceWindowSnapshot) async {
         activeWindowSnapshot = selectedWindow
+        let snapshotMetadata = decodeHostedWorkspaceMetadata(selectedWindow.windowForm?["__agentlyWindowMetadata"])
         let state = await forgeRuntime.openWindow(
             key: selectedWindow.windowKey,
             title: selectedWindow.windowTitle ?? selectedWindow.windowKey,
@@ -322,14 +338,24 @@ private struct HostedWorkspaceWindowView: View {
             workspaceMinHeight: selectedWindow.workspaceMinHeight,
             parentKey: selectedWindow.parentKey
         )
-        if let windowForm = selectedWindow.windowForm?.mapValues(\.forgeValue), !windowForm.isEmpty {
-            await forgeRuntime.setWindowFormValue(
-                windowID: state.id,
-                values: windowForm,
-                replace: true,
-                bumpPrefillRevision: false
+        if let liveMetadata = state.metadata,
+           let snapshotMetadata,
+           let mergedMetadata = mergeHostedWorkspaceMetadata(
+                live: liveMetadata,
+                snapshot: snapshotMetadata
+           ) {
+            _ = await forgeRuntime.updateWindowInline(
+                id: state.id,
+                title: state.title,
+                metadata: mergedMetadata,
+                resolveMetadata: false
             )
         }
+        await applyRestoredWindowForm(selectedWindow)
+        let restoredForm = await forgeRuntime.windowFormJSONValue(windowID: state.id)
+        hostedWorkspaceLogger.info(
+            "Restored window form entries=\(restoredForm.count, privacy: .public) authoredReport=\(hostedWorkspaceContainsAuthoredReport(restoredForm), privacy: .public)"
+        )
         windowContext = await forgeRuntime.windowContext(id: state.id)
         try? await Task.sleep(for: .milliseconds(150))
         let latest = await forgeRuntime.windows.first(where: { $0.id == state.id })
@@ -337,6 +363,100 @@ private struct HostedWorkspaceWindowView: View {
         errorMessage = metadata == nil ? "Workspace metadata did not load." : nil
     }
 
+    @MainActor
+    private func applyRestoredWindowForm(_ selectedWindow: WorkspaceWindowSnapshot) async {
+        let restoredWindowForm = selectedWindow.windowForm?
+            .filter { $0.key != "__agentlyWindowMetadata" }
+            .mapValues(\.forgeValue)
+        guard let windowForm = restoredWindowForm, !windowForm.isEmpty else { return }
+        await forgeRuntime.setWindowFormValue(
+            windowID: selectedWindow.windowId,
+            values: windowForm,
+            replace: true,
+            bumpPrefillRevision: false
+        )
+    }
+
+}
+
+private func decodeHostedWorkspaceMetadata(_ value: AgentlySDK.JSONValue?) -> WindowMetadata? {
+    guard let value,
+          let data = try? JSONEncoder().encode(value.forgeValue) else {
+        return nil
+    }
+    return try? JSONDecoder().decode(WindowMetadata.self, from: data)
+}
+
+private func mergeHostedWorkspaceMetadata(
+    live: WindowMetadata,
+    snapshot: WindowMetadata
+) -> WindowMetadata? {
+    let snapshotContainers = snapshot.view?.content?.containers ?? []
+    let publishedContainer = snapshotContainers.first { container in
+        let direct = container.dashboard?.reportBuilder?.dataSources ?? []
+        let variants = container.dashboard?.reportBuilders.values.flatMap {
+            $0.reportBuilder?.dataSources ?? []
+        } ?? []
+        return !direct.isEmpty || !variants.isEmpty
+    }
+    let builderRef = publishedContainer?.dashboard?.reportBuilderRef?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let publishedSources = publishedContainer?.dashboard?.reportBuilder?.dataSources
+        ?? publishedContainer?.dashboard?.reportBuilders[builderRef]?.reportBuilder?.dataSources
+        ?? []
+    guard !publishedSources.isEmpty,
+          let liveData = try? JSONEncoder().encode(live),
+          let sourcesData = try? JSONEncoder().encode(publishedSources),
+          let liveValue = try? JSONDecoder().decode(ForgeIOSRuntime.JSONValue.self, from: liveData),
+          let sourcesValue = try? JSONDecoder().decode(ForgeIOSRuntime.JSONValue.self, from: sourcesData),
+          var liveObject = liveValue.objectValue,
+          var view = liveObject["view"]?.objectValue,
+          var content = view["content"]?.objectValue,
+          var containers = content["containers"]?.arrayValue else {
+        return nil
+    }
+    for index in containers.indices {
+        guard var container = containers[index].objectValue else {
+            continue
+        }
+        if var variants = container["reportBuilders"]?.objectValue,
+           var variant = variants[builderRef]?.objectValue,
+           var reportBuilder = variant["reportBuilder"]?.objectValue {
+            reportBuilder["dataSources"] = sourcesValue
+            variant["reportBuilder"] = .object(reportBuilder)
+            variants[builderRef] = .object(variant)
+            container["reportBuilders"] = .object(variants)
+        }
+        guard var dashboard = container["dashboard"]?.objectValue else {
+            containers[index] = .object(container)
+            continue
+        }
+        if var direct = dashboard["reportBuilder"]?.objectValue {
+            direct["dataSources"] = sourcesValue
+            dashboard["reportBuilder"] = .object(direct)
+        }
+        if var variants = dashboard["reportBuilders"]?.objectValue {
+            let selectedRef = builderRef.isEmpty
+                ? dashboard["reportBuilderRef"]?.stringValue ?? ""
+                : builderRef
+            if var variant = variants[selectedRef]?.objectValue,
+               var reportBuilder = variant["reportBuilder"]?.objectValue {
+                reportBuilder["dataSources"] = sourcesValue
+                variant["reportBuilder"] = .object(reportBuilder)
+                variants[selectedRef] = .object(variant)
+                dashboard["reportBuilders"] = .object(variants)
+            }
+        }
+        container["dashboard"] = .object(dashboard)
+        containers[index] = .object(container)
+    }
+    content["containers"] = .array(containers)
+    view["content"] = .object(content)
+    liveObject["view"] = .object(view)
+    guard let mergedData = try? JSONEncoder().encode(ForgeIOSRuntime.JSONValue.object(liveObject)) else {
+        return nil
+    }
+    return try? JSONDecoder().decode(WindowMetadata.self, from: mergedData)
 }
 
 private func normalizedHostedField(_ value: String?) -> String {
@@ -367,6 +487,17 @@ private func hostedWorkspaceJSONSignature(_ value: AgentlySDK.JSONValue?) -> Str
         return "[" + values.map { hostedWorkspaceJSONSignature($0) }.joined(separator: ",") + "]"
     case .object(let values):
         return "{" + hostedWorkspaceJSONSignature(values) + "}"
+    }
+}
+
+private func hostedWorkspaceContainsAuthoredReport(_ form: [String: ForgeIOSRuntime.JSONValue]) -> Bool {
+    if !(form["reportDocument"]?.objectValue?["blocks"]?.arrayValue ?? []).isEmpty ||
+        !(form["reportDocumentBlocks"]?.arrayValue ?? []).isEmpty {
+        return true
+    }
+    return form.values.compactMap(\.objectValue).contains { value in
+        !(value["reportDocument"]?.objectValue?["blocks"]?.arrayValue ?? []).isEmpty ||
+            !(value["reportDocumentBlocks"]?.arrayValue ?? []).isEmpty
     }
 }
 

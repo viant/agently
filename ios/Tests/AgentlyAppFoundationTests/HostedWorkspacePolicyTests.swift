@@ -4,6 +4,47 @@ import ForgeIOSRuntime
 @testable import AgentlyAppFoundation
 
 final class HostedWorkspacePolicyTests: XCTestCase {
+    func testRuntimeOpenSnapshotDoesNotEraseRestoredReportForm() {
+        let restored = WorkspaceWindowSnapshot(
+            windowId: "reportBuilder__conv-1",
+            conversationId: "conv-1",
+            windowKey: "reportBuilder",
+            windowTitle: "Performance Metrics",
+            presentation: "hosted",
+            region: "chat.top",
+            parentKey: "chat/new",
+            parameters: ["reportBuilderRef": .string("metricsCubeBuilder")],
+            windowForm: [
+                "reportBuilder:metricsCubeBuilder": .object([
+                    "reportDocumentBlocks": .array([
+                        .object(["id": .string("overview"), "kind": .string("sectionBlock")])
+                    ])
+                ])
+            ]
+        )
+        let opened = WorkspaceWindowSnapshot(
+            windowId: "reportBuilder__conv-1",
+            conversationId: "conv-1",
+            windowKey: "reportBuilder",
+            windowTitle: "Performance Metrics",
+            presentation: "hosted",
+            region: "chat.top",
+            parentKey: "chat/new",
+            parameters: [:],
+            windowForm: [:]
+        )
+
+        let merged = mergeHostedWorkspaceRuntimeSnapshot(current: restored, incoming: opened)
+
+        XCTAssertEqual(merged.parameters?["reportBuilderRef"], .string("metricsCubeBuilder"))
+        guard case .object(let builder)? = merged.windowForm?["reportBuilder:metricsCubeBuilder"],
+              case .array(let blocks)? = builder["reportDocumentBlocks"] else {
+            XCTFail("Expected restored authored report form to survive the open notification")
+            return
+        }
+        XCTAssertEqual(blocks.count, 1)
+    }
+
     func testFilterAgentlyHostedWorkspaceRestoreStateSeedsParametersIntoWindowForm() {
         let restore = filterAgentlyHostedWorkspaceRestoreState(
             HostedWorkspaceRestoreState(

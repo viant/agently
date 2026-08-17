@@ -340,6 +340,7 @@ public struct WorkspaceScreen: View {
                 TranscriptScreen(
                     items: transcript,
 					client: client,
+                    conversationID: conversationState?.conversation?.conversationID,
                     onReusePrompt: { prompt in
                         composerRuntime.query = prompt
                     },
@@ -398,6 +399,7 @@ public struct WorkspaceScreen: View {
             TranscriptScreen(
                 items: transcript,
 				client: client,
+                conversationID: conversationState?.conversation?.conversationID,
                 onReusePrompt: { prompt in
                     composerRuntime.query = prompt
                 },

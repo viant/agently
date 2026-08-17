@@ -451,9 +451,6 @@ public struct ComposerScreen: View {
     private var actionRow: some View {
         HStack {
             actionButtons
-            if isSending {
-                sendingIndicator
-            }
             Spacer(minLength: 12)
             sendButton
         }
@@ -464,9 +461,6 @@ public struct ComposerScreen: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack {
                     actionButtons
-                    if isSending {
-                        sendingIndicator
-                    }
                 }
             }
             HStack {
@@ -542,16 +536,6 @@ public struct ComposerScreen: View {
             .buttonStyle(.bordered)
             .tint(voiceRuntime.isRecording ? .red : .accentColor)
             .disabled(isSending)
-        }
-    }
-
-    private var sendingIndicator: some View {
-        HStack(spacing: 6) {
-            ProgressView()
-                .controlSize(.small)
-            Text("Sending...")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
         }
     }
 

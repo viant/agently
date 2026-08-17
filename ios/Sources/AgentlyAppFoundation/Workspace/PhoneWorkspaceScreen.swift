@@ -414,6 +414,7 @@ public struct PhoneWorkspaceScreen: View {
             TranscriptScreen(
                 items: transcript,
 				client: client,
+                conversationID: conversationState?.conversation?.conversationID,
                 onReusePrompt: { prompt in
                     composerRuntime.query = prompt
                 },

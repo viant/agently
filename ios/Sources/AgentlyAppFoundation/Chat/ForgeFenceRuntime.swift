@@ -15,6 +15,7 @@ struct TranscriptMessageContent: View {
     let renderedParts: [TranscriptCanonicalPart]?
     let renderedReports: [TranscriptCanonicalReport]?
 	let client: AgentlyClient?
+    let conversationID: String?
 
     var body: some View {
         let sourceParts = renderedParts
@@ -40,7 +41,7 @@ struct TranscriptMessageContent: View {
                 }
             }
             ForEach(renderedReports ?? [], id: \.stableIdentity) { report in
-                TranscriptInlineReportView(report: report, client: client)
+                TranscriptInlineReportView(report: report, client: client, conversationID: conversationID)
             }
         }
     }
@@ -59,6 +60,7 @@ private extension TranscriptCanonicalReport {
 private struct TranscriptInlineReportView: View {
     let report: TranscriptCanonicalReport
 	let client: AgentlyClient?
+    let conversationID: String?
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var metadata: WindowMetadata?
@@ -104,7 +106,20 @@ private struct TranscriptInlineReportView: View {
         }
         .task(id: report.refreshIdentity) {
             do {
-				let hydrated = try await hydrateInlineReport(report, client: client)
+				if let client {
+                    let scopedConversationID = conversationID
+                    await runtime.registerDataSourceLoader(
+                        makeForgeAgentlyDataSourceLoader(
+                            client: client,
+                            conversationIDProvider: { scopedConversationID }
+                        )
+                    )
+                }
+				let hydrated = try await hydrateInlineReport(
+                    report,
+                    client: client,
+                    conversationID: conversationID
+                )
                 let artifact = try InlineReportRuntimeCompiler.compile(hydrated)
                 let state = await runtime.openWindowInline(
                     key: "inline-report-\(report.scope)-\(report.id)",
@@ -159,15 +174,18 @@ private struct TranscriptInlineReportView: View {
         exportErrorMessage = nil
         Task {
             do {
-                let hydrated = try await hydrateInlineReport(report, client: client)
+                let hydrated = try await hydrateInlineReport(
+                    report,
+                    client: client,
+                    conversationID: conversationID
+                )
                 let artifact = try InlineReportRuntimeCompiler.compile(hydrated)
                 let title = artifact.reportSpec.objectValue?["title"]?.stringValue ?? report.id
                 let exportRequest: [String: ForgeIOSRuntime.JSONValue] = [
                     "title": .string(title),
                     "artifactRef": .string("report://inline/\(report.scope)/\(report.id)"),
-                    "reportSpec": artifact.reportSpec,
-                    "reportFill": artifact.reportFill,
-                    "reportPrint": .null
+                    "reportId": .string(report.id),
+                    "fences": .array(try InlineReportRuntimeCompiler.exportFences(hydrated))
                 ]
                 let exported = try await exportReportRuntimePDF(
                     client: client,
@@ -201,17 +219,20 @@ private func persistInlineReportExportArtifact(_ artifact: ReportRuntimeExportAr
 
 private func hydrateInlineReport(
 	_ report: TranscriptCanonicalReport,
-	client: AgentlyClient?
+	client: AgentlyClient?,
+    conversationID: String?
 ) async throws -> TranscriptCanonicalReport {
 	let requests = InlineReportRuntimeCompiler.workspaceDatasetRequests(report)
 	guard !requests.isEmpty, let client else { return report }
+	let trimmedConversationID = conversationID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 	var dataSources = report.dataSources
 	for request in requests {
 		let inputData = try JSONEncoder().encode(request.inputs)
 		let inputs = try JSONDecoder().decode([String: AgentlySDK.JSONValue].self, from: inputData)
 		let output = try await client.fetchDatasource(FetchDatasourceInput(
 			id: request.dataSourceRef,
-			inputs: inputs
+			inputs: inputs,
+            conversationId: trimmedConversationID.isEmpty ? nil : trimmedConversationID
 		))
 		let rowsData = try JSONEncoder().encode(output.rows)
 		let rows = try JSONDecoder().decode(ForgeIOSRuntime.JSONValue.self, from: rowsData)

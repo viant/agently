@@ -12,6 +12,7 @@ public struct TranscriptScreen: View {
     private static let renderBatchSize = 40
     let items: [ChatTranscriptEntry]
 	let client: AgentlyClient?
+    let conversationID: String?
     let onReusePrompt: ((String) -> Void)?
     let onReuseAndSendPrompt: ((String) -> Void)?
     @State private var visibleItemCount: Int
@@ -19,11 +20,13 @@ public struct TranscriptScreen: View {
     public init(
         items: [ChatTranscriptEntry],
 		client: AgentlyClient? = nil,
+        conversationID: String? = nil,
         onReusePrompt: ((String) -> Void)? = nil,
         onReuseAndSendPrompt: ((String) -> Void)? = nil
     ) {
         self.items = items
         self.client = client
+        self.conversationID = conversationID
         self.onReusePrompt = onReusePrompt
         self.onReuseAndSendPrompt = onReuseAndSendPrompt
         _visibleItemCount = State(initialValue: min(items.count, Self.initialRenderCount))
@@ -90,6 +93,7 @@ public struct TranscriptScreen: View {
                 TranscriptBubble(
                     item: item,
 					client: client,
+                    conversationID: conversationID,
                     onReusePrompt: onReusePrompt,
                     onReuseAndSendPrompt: onReuseAndSendPrompt
                 )
@@ -114,6 +118,7 @@ public struct TranscriptContentHeightPreferenceKey: PreferenceKey {
 private struct TranscriptBubble: View {
     let item: ChatTranscriptEntry
 	let client: AgentlyClient?
+    let conversationID: String?
     let onReusePrompt: ((String) -> Void)?
     let onReuseAndSendPrompt: ((String) -> Void)?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -222,7 +227,8 @@ private struct TranscriptBubble: View {
                 markdown: item.markdown,
                 renderedParts: item.renderedParts,
                 renderedReports: item.renderedReports,
-				client: client
+				client: client,
+                conversationID: conversationID
             )
                 .transcriptTextSelection(allowsInlineTextSelection)
         }

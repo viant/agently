@@ -143,3 +143,23 @@ func shouldReuseExistingHostedWorkspaceWindow(
         existing.region == selected.region &&
         existing.parentKey == selected.parentKey
 }
+
+func mergeHostedWorkspaceRuntimeSnapshot(
+    current: WorkspaceWindowSnapshot,
+    incoming: WorkspaceWindowSnapshot
+) -> WorkspaceWindowSnapshot {
+    WorkspaceWindowSnapshot(
+        windowId: incoming.windowId,
+        conversationId: incoming.conversationId ?? current.conversationId,
+        windowKey: incoming.windowKey,
+        windowTitle: incoming.windowTitle ?? current.windowTitle,
+        presentation: incoming.presentation ?? current.presentation,
+        region: incoming.region ?? current.region,
+        parentKey: incoming.parentKey ?? current.parentKey,
+        workspaceSharePct: incoming.workspaceSharePct ?? current.workspaceSharePct,
+        workspaceMinHeight: incoming.workspaceMinHeight ?? current.workspaceMinHeight,
+        inTab: incoming.inTab ?? current.inTab,
+        parameters: incoming.parameters?.isEmpty == false ? incoming.parameters : current.parameters,
+        windowForm: incoming.windowForm?.isEmpty == false ? incoming.windowForm : current.windowForm
+    )
+}
