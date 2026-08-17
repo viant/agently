@@ -42,7 +42,10 @@ public final class AppRuntime: ObservableObject {
         self.elicitationRuntime = ElicitationRuntime(client: client)
         Task {
             await state.forgeRuntime.registerDataSourceLoader(
-                makeForgeAgentlyDataSourceLoader(client: client)
+                makeForgeAgentlyDataSourceLoader(
+                    client: client,
+                    conversationIDProvider: { @MainActor in state.activeConversationID }
+                )
             )
             await state.forgeRuntime.registerWindowMetadataLoader(
                 makeForgeAgentlyWindowMetadataLoader(
@@ -69,12 +72,18 @@ public final class AppRuntime: ObservableObject {
                         selectedWindowID: selectedWindowID
                     )
                     if let restoreState {
+                        let existingRestoreState = await MainActor.run {
+                            state.activeHostedWorkspace
+                        }
+                        let preservedRestoreState = existingRestoreState.map {
+                            Self.mergeHostedWorkspaceRestoreState(base: $0, overlay: restoreState)
+                        } ?? restoreState
                         settingsStore.saveHostedWorkspaceRestoreState(
-                            restoreState,
+                            preservedRestoreState,
                             conversationID: conversationID
                         )
                         await MainActor.run {
-                            state.activeHostedWorkspace = restoreState
+                            state.activeHostedWorkspace = preservedRestoreState
                         }
                     }
                 }
@@ -898,7 +907,12 @@ public final class AppRuntime: ObservableObject {
         uiBridge.updateClient(client)
         Task {
             await state.forgeRuntime.registerDataSourceLoader(
-                makeForgeAgentlyDataSourceLoader(client: client)
+                makeForgeAgentlyDataSourceLoader(
+                    client: client,
+                    conversationIDProvider: { @MainActor [weak self] in
+                        self?.state.activeConversationID
+                    }
+                )
             )
             await state.forgeRuntime.registerWindowMetadataLoader(
                 makeForgeAgentlyWindowMetadataLoader(

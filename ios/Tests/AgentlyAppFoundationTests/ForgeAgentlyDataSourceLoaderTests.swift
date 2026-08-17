@@ -43,6 +43,7 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
             let body = try XCTUnwrap(Self.requestBodyData(request))
             let payload = try JSONSerialization.jsonObject(with: body) as? [String: Any]
             let inputs = payload?["inputs"] as? [String: Any]
+            XCTAssertEqual(payload?["conversationId"] as? String, "conversation-123")
             XCTAssertEqual(inputs?["AccountId"] as? Double, 13579)
             XCTAssertEqual(inputs?["Page"] as? Double, 1)
             XCTAssertEqual(inputs?["Limit"] as? Double, 20)
@@ -74,7 +75,8 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
                     page: nil,
                     fetch: true,
                     refresh: false
-                )
+                ),
+                conversationID: "conversation-123"
             )
         )
 
@@ -237,6 +239,50 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
         )
 
         XCTAssertTrue(result?.metrics.isEmpty == true)
+        URLProtocolStub.requestHandler = nil
+    }
+
+    @MainActor
+    func testDatasourceLoaderUsesActiveConversationFallbackForRestoredWindow() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+        let loader = makeForgeAgentlyDataSourceLoader(
+            client: client,
+            conversationIDProvider: { "active-conversation-456" }
+        )
+
+        URLProtocolStub.requestHandler = { request in
+            let body = try XCTUnwrap(Self.requestBodyData(request))
+            let payload = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+            XCTAssertEqual(payload["conversationId"] as? String, "active-conversation-456")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, #"{"rows":[]}"#.data(using: .utf8)!)
+        }
+
+        _ = try await loader(
+            ForgeRuntime.DataSourceFetchRequest(
+                windowID: "restored-window",
+                dataSourceRef: "metrics_cube_report",
+                dataSource: DataSourceDef(
+                    service: DataSourceServiceDef(
+                        endpoint: "agentlyAPI",
+                        uri: "/v1/api/datasources/metrics_cube_report/fetch",
+                        method: "POST"
+                    )
+                ),
+                input: InputState(fetch: true),
+                conversationID: nil
+            )
+        )
+
         URLProtocolStub.requestHandler = nil
     }
 

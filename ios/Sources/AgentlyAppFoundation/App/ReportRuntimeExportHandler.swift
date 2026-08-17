@@ -68,10 +68,40 @@ func registerReportRuntimeExportHandler(
             await onError(nil)
             return .bool(true)
         } catch {
-            await onError(error.localizedDescription)
+            await onError(reportRuntimeExportErrorMessage(error))
             return .bool(false)
         }
     }
+}
+
+func reportRuntimeExportErrorMessage(_ error: Error) -> String {
+    let raw = error.localizedDescription
+    let serverDetail: String? = {
+        guard let start = raw.firstIndex(of: "{") else { return nil }
+        let suffix = String(raw[start...])
+        guard let data = suffix.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = object["error"] as? String else {
+            return nil
+        }
+        let detail = message
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return detail
+            .replacingOccurrences(of: "^reporting export:\\s*", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nonEmpty
+    }()
+    let diagnostic = (serverDetail ?? raw).lowercased()
+    if diagnostic.contains("scratchpad") ||
+        diagnostic.contains("storage.googleapis.com") ||
+        diagnostic.contains("unable to generate access token") {
+        return "The PDF was created, but report storage is temporarily unavailable. Please try again."
+    }
+    guard let serverDetail else {
+        return "Unable to create the report PDF. Please try again."
+    }
+    return "Unable to create the report PDF: \(serverDetail)"
 }
 
 func exportReportRuntimePDF(
@@ -79,18 +109,42 @@ func exportReportRuntimePDF(
     exportRequest: [String: ForgeJSONValue],
     conversationID: String = ""
 ) async throws -> ReportRuntimeExportArtifact {
-    let request = normalizeReportRuntimeExportRequest(exportRequest)
-    let submitResult = try await executeReportingToolObject(
-        client: client,
-        toolName: "reporting:submit_export",
-        args: request,
-        conversationID: conversationID
-    )
-    let completedJob = try await waitForReportExportArtifact(
-        client: client,
-        initialJob: normalizeReportExportJob(submitResult),
-        conversationID: conversationID
-    )
+    let completedJob: ReportExportJobState
+    if let fences = exportRequest["fences"]?.arrayValue, !fences.isEmpty {
+        let compiled = try await executeReportingToolObject(
+            client: client,
+            toolName: "reporting:compile_and_export_fenced_report",
+            args: [
+                "reportId": .string(stringValue(exportRequest["reportId"])),
+                "format": .string("pdf"),
+                "fences": .array(fences.map(sdkJSONValue(from:))),
+                "conversationId": .string(conversationID)
+            ],
+            conversationID: conversationID
+        )
+        let job = normalizeReportExportJob(compiled["job"]?.objectValue ?? [:])
+        let artifactID = stringValue(compiled["artifact"]?.objectValue?["artifactId"])
+        completedJob = ReportExportJobState(
+            jobID: job.jobID,
+            artifactID: job.artifactID.nonEmpty ?? artifactID,
+            artifactRef: job.artifactRef,
+            status: job.status,
+            error: job.error
+        )
+    } else {
+        let request = normalizeReportRuntimeExportRequest(exportRequest)
+        let submitResult = try await executeReportingToolObject(
+            client: client,
+            toolName: "reporting:submit_export",
+            args: request,
+            conversationID: conversationID
+        )
+        completedJob = try await waitForReportExportArtifact(
+            client: client,
+            initialJob: normalizeReportExportJob(submitResult),
+            conversationID: conversationID
+        )
+    }
     guard !completedJob.artifactID.isEmpty else {
         throw ReportRuntimeExportError.missingArtifactID
     }

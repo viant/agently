@@ -91,6 +91,7 @@ public struct ArtifactScreen: View {
     let preview: ArtifactPreview
     #if os(iOS) && canImport(QuickLook)
     @State private var quickLookURL: URL?
+    @State private var didAutomaticallyOpenPDF = false
     #endif
 
     public init(preview: ArtifactPreview) {
@@ -149,11 +150,27 @@ public struct ArtifactScreen: View {
         .navigationTitle("Artifact")
         #if os(iOS) && canImport(QuickLook)
         .quickLookPreview($quickLookURL)
+        .onAppear {
+            guard !didAutomaticallyOpenPDF,
+                  preview.isPDFArtifact,
+                  let localFilePath = preview.localFilePath,
+                  !localFilePath.isEmpty else {
+                return
+            }
+            didAutomaticallyOpenPDF = true
+            quickLookURL = URL(fileURLWithPath: localFilePath)
+        }
         #endif
     }
 }
 
 private extension ArtifactPreview {
+    var isPDFArtifact: Bool {
+        let type = contentType?.lowercased() ?? ""
+        let path = localFilePath?.lowercased() ?? name.lowercased()
+        return type == "application/pdf" || path.hasSuffix(".pdf")
+    }
+
     var displayTextContent: ArtifactTextContent? {
         guard let text, !text.isEmpty else { return nil }
         if isMarkdownArtifact {

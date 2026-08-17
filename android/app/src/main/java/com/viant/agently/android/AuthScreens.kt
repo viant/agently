@@ -5,6 +5,7 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -39,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -74,15 +76,22 @@ internal fun AuthRequiredScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .widthIn(max = 760.dp)
-                .wrapContentHeight(),
-            shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFF1ECF4))
+                .wrapContentHeight()
+                .graphicsLayer {
+                    shadowElevation = 10.dp.toPx()
+                    shape = RoundedCornerShape(32.dp)
+                    clip = false
+                },
+            shape = RoundedCornerShape(32.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F1F7)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
         ) {
             BoxWithConstraints {
                 val isCompactWidth = maxWidth < 520.dp
                 Column(
-                    modifier = Modifier.padding(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 26.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -241,6 +250,19 @@ internal fun OAuthWebDialog(
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 super.onPageFinished(view, url)
                                 updatePageState(view, url)
+                                // Some identity-provider pages autofocus the username field
+                                // after layout, which makes WebView scroll the rounded form's
+                                // heading and top corners above the visible viewport. Start each
+                                // completed navigation at the document top; delayed passes cover
+                                // focus scripts that run just after `load` without fighting later
+                                // user-initiated scrolling.
+                                view?.clearFocus()
+                                view?.scrollTo(0, 0)
+                                resetOAuthDocumentScroll(view)
+                                view?.post { resetOAuthDocumentScroll(view) }
+                                view?.postDelayed({ resetOAuthDocumentScroll(view) }, 300)
+                                view?.postDelayed({ resetOAuthDocumentScroll(view) }, 900)
+                                view?.postDelayed({ resetOAuthDocumentScroll(view) }, 1_800)
                             }
 
                             override fun onReceivedError(
@@ -301,6 +323,34 @@ internal fun OAuthWebDialog(
             }
         }
     }
+}
+
+private fun resetOAuthDocumentScroll(webView: WebView?) {
+    webView ?: return
+    webView.scrollTo(0, 0)
+    webView.evaluateJavascript(
+        """
+        (() => {
+          const focused = document.activeElement;
+          if (focused && typeof focused.blur === 'function') focused.blur();
+          // Android WebView can resolve an identity page's `body { height:
+          // 100vh }` to 0px while the viewport is embedded in Compose. A
+          // centered login card is then positioned half above the viewport.
+          // Correct only that broken zero-height case; leave ordinary provider
+          // layouts untouched.
+          if (document.body && document.body.clientHeight <= 1) {
+            document.documentElement.style.minHeight = '100%';
+            document.body.style.height = 'auto';
+            document.body.style.minHeight = 'calc(100vh - 16px)';
+            document.body.style.boxSizing = 'border-box';
+          }
+          if (document.documentElement) document.documentElement.scrollTop = 0;
+          if (document.body) document.body.scrollTop = 0;
+          window.scrollTo(0, 0);
+        })();
+        """.trimIndent(),
+        null
+    )
 }
 
 

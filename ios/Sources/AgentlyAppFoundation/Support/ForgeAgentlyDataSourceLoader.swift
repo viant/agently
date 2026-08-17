@@ -3,7 +3,8 @@ import AgentlySDK
 import ForgeIOSRuntime
 
 func makeForgeAgentlyDataSourceLoader(
-    client: AgentlyClient
+    client: AgentlyClient,
+    conversationIDProvider: @escaping @Sendable () async -> String? = { nil }
 ) -> @Sendable (ForgeRuntime.DataSourceFetchRequest) async throws -> ForgeRuntime.DataSourceFetchResult? {
     return { request in
         let service = request.dataSource.service
@@ -55,13 +56,18 @@ func makeForgeAgentlyDataSourceLoader(
             }
         }
 
+        let requestConversationID = request.conversationID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let fallbackConversationID = requestConversationID.isEmpty
+            ? await conversationIDProvider()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            : ""
+        let conversationID = requestConversationID.isEmpty ? fallbackConversationID : requestConversationID
         let response = try await client.fetchDatasource(
             FetchDatasourceInput(
                 id: datasourceID,
-                inputs: inputs.isEmpty ? nil : inputs.mapValues(\.appValue)
+                inputs: inputs.isEmpty ? nil : inputs.mapValues(\.appValue),
+                conversationId: conversationID.isEmpty ? nil : conversationID
             )
         )
-
         return ForgeRuntime.DataSourceFetchResult(
             rows: response.rows.map { $0.mapValues(\.forgeValue) },
             metrics: response.metrics?.mapValues(\.forgeValue) ?? [:]

@@ -45,6 +45,41 @@ final class ForecastingPrefillUITests: XCTestCase {
         add(screenshot)
     }
 
+    func testSignInActivatesSecureAuthenticationWindow() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["AGENTLY_IOS_AUTH_SCREEN_LIVE_TESTS"] == "1"
+                || ProcessInfo.processInfo.environment["AGENTLY_IOS_LIVE_UI_TESTS"] == "1",
+            "Enable live iOS UI tests to run auth-window verification."
+        )
+
+        let baseURL = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_BASE_URL"]
+            ?? "https://steward.agently.viantinc.com"
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--enableDevAuth=1",
+            "--apiBaseURL=\(baseURL)"
+        ]
+        app.launch()
+
+        let signInButton = app.buttons["Sign in"]
+        XCTAssertTrue(signInButton.waitForExistence(timeout: 30), "Sign in action did not appear")
+        let enabled = NSPredicate(format: "isEnabled == true")
+        expectation(for: enabled, evaluatedWith: signInButton)
+        waitForExpectations(timeout: 10)
+        signInButton.tap()
+
+        let cancelButton = app.buttons["Cancel"]
+        XCTAssertTrue(
+            cancelButton.waitForExistence(timeout: 15),
+            "Tapping Sign in did not activate the secure authentication window"
+        )
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Secure authentication window"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        cancelButton.tap()
+    }
+
     func testOpenForecastBuilderPromptCanBeSentFromComposer() throws {
         try XCTSkipUnless(
             ProcessInfo.processInfo.environment["AGENTLY_IOS_LIVE_UI_TESTS"] == "1",
@@ -250,8 +285,33 @@ final class ForecastingPrefillUITests: XCTestCase {
         ]
         app.launch()
 
+        let authoredSectionSelector = app.descendants(matching: .any)["forge-report-runtime-section-selector"].firstMatch
+        if authoredSectionSelector.waitForExistence(timeout: 30) {
+            authoredSectionSelector.tap()
+            let trendSection = app.descendants(matching: .any)
+                .matching(NSPredicate(format: "label == %@", "Trend and bid funnel"))
+                .firstMatch
+            XCTAssertTrue(trendSection.waitForExistence(timeout: 10), "Trend and bid funnel section was not offered")
+            trendSection.tap()
+            XCTAssertTrue(
+                app.descendants(matching: .any)["forge-report-runtime-chart-daily_spend_trend"].firstMatch
+                    .waitForExistence(timeout: 30),
+                "Authored daily spend chart did not render"
+            )
+            XCTAssertTrue(
+                app.descendants(matching: .any)["forge-report-runtime-table-daily_delivery_table"].firstMatch
+                    .waitForExistence(timeout: 30),
+                "Authored daily delivery table did not render"
+            )
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = "Performance report authored chart and table parity"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+            return
+        }
+
         let modePicker = app.descendants(matching: .any)["forge-report-builder-view-mode"].firstMatch
-        let hideFilters = app.buttons["Hide Body"]
+        let hideFilters = app.buttons["Hide Filters"]
         if hideFilters.waitForExistence(timeout: 30) {
             hideFilters.tap()
         }
@@ -279,6 +339,61 @@ final class ForecastingPrefillUITests: XCTestCase {
         screenshot.name = "Performance report chart and table parity"
         screenshot.lifetime = .keepAlways
         add(screenshot)
+    }
+
+    func testLiveAuthoredReportPDFShowsProgressAndOpensQuickLook() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["AGENTLY_IOS_LIVE_UI_TESTS"] == "1",
+            "Set AGENTLY_IOS_LIVE_UI_TESTS=1 to run live Steward UI verification."
+        )
+        let baseURL = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_BASE_URL"] ?? ""
+        let oobSecret = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_OOB_SECRET"] ?? ""
+        let conversationID = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_ACTIVE_CONVERSATION_ID"] ?? ""
+        try XCTSkipUnless(!baseURL.isEmpty && !oobSecret.isEmpty && !conversationID.isEmpty)
+
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--enableDevAuth=1",
+            "--apiBaseURL=\(baseURL)",
+            "--oobSecretReference=\(oobSecret)",
+            "--autoOOBSignIn=1",
+            "--activeConversationID=\(conversationID)",
+            "--uiBridgeClientID=ios-ui-pdf-\(UUID().uuidString)"
+        ]
+        app.launch()
+
+        let openPDF = app.buttons["forge-report-runtime-open-pdf"]
+        XCTAssertTrue(openPDF.waitForExistence(timeout: 90), "Open PDF action did not render")
+        openPDF.tap()
+        let preparingPDF = NSPredicate(format: "label CONTAINS[c] %@", "Preparing PDF")
+        expectation(for: preparingPDF, evaluatedWith: openPDF)
+        waitForExpectations(timeout: 5)
+
+        let deadline = Date().addingTimeInterval(180)
+        var dismissPreview: XCUIElement?
+        while Date() < deadline {
+            // iOS 26 Quick Look exposes this as a lowercase `close` label and
+            // a stable overlay accessibility identifier. Older releases use
+            // Done or Close, so retain all variants.
+            for candidate in [
+                app.buttons["QLOverlayDoneButtonAccessibilityIdentifier"],
+                app.buttons["close"],
+                app.buttons["Done"],
+                app.buttons["Close"]
+            ] where candidate.exists {
+                dismissPreview = candidate
+                break
+            }
+            if dismissPreview != nil { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+        }
+        XCTAssertNotNil(dismissPreview, "Go-backed PDF export did not open Quick Look")
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Go-backed report PDF Quick Look"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        dismissPreview?.tap()
     }
 
     private func waitForReportBuilderFilterBody(in app: XCUIApplication) -> Bool {
