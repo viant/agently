@@ -2,6 +2,12 @@ package com.viant.agently.android
 
 import com.viant.agentlysdk.RenderedContent
 import com.viant.agentlysdk.RenderedReportAssembly
+import com.viant.agentlysdk.AssistantMessageState
+import com.viant.agentlysdk.AssistantState
+import com.viant.agentlysdk.ConversationState
+import com.viant.agentlysdk.ConversationStateResponse
+import com.viant.agentlysdk.TurnState
+import com.viant.agentlysdk.UserMessageState
 import com.viant.agentlysdk.stream.BufferedMessage
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import com.viant.agentlysdk.stream.LiveExecutionGroup
@@ -48,6 +54,54 @@ class ChatRuntimeTest {
         )
 
         assertEquals("Comparing delivery signals", latestActiveNarration(snapshot))
+    }
+
+    @Test
+    fun activeAssistant_hidesProgressiveReportTransportAndKeepsNarration() {
+        val snapshot = ConversationStreamSnapshot(
+            conversationId = "conv-1",
+            activeTurnId = "turn-1",
+            feeds = emptyList(),
+            pendingElicitation = null,
+            bufferedMessages = listOf(
+                BufferedMessage(
+                    id = "m1",
+                    turnId = "turn-1",
+                    role = "assistant",
+                    narration = "Comparing forecast evidence",
+                    content = """```forge-data
+                        |{"version":2,"scope":"forecast","id":"rows","format":"json","data":[{"avails":317132}]}
+                        |```""".trimMargin()
+                )
+            ),
+            liveExecutionGroupsById = emptyMap()
+        )
+
+        assertEquals("Comparing forecast evidence", latestAssistantMarkdown(snapshot))
+        assertEquals(true, activeAssistantHasVisibleOutput(snapshot))
+    }
+
+    @Test
+    fun acceptedRunningTurn_isRecoveredAsPending() {
+        val state = ConversationStateResponse(
+            conversation = ConversationState(
+                conversationId = "conv-1",
+                turns = listOf(
+                    TurnState(
+                        turnId = "turn-1",
+                        status = "running",
+                        user = UserMessageState("user-1", "Forecast line 7354223"),
+                        assistant = AssistantState(
+                            narration = AssistantMessageState("assistant-1", "Checking reachable supply")
+                        )
+                    )
+                )
+            )
+        )
+
+        assertEquals(true, submittedTurnWasAccepted(state, "Forecast line 7354223"))
+        assertEquals(true, hasPendingConversationTurn(state))
+        assertEquals("Checking reachable supply", latestPendingNarration(state))
     }
 
     @Test

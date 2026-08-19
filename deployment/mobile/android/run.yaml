@@ -3,22 +3,17 @@ init:
 
 pipeline:
 
-  deploy:
+  build:
     action: exec:run
-    description: test, build, install, and launch Android for an approved HTTPS workspace
+    description: initialize pinned SDK sources, test, and build Android for HTTPS
     TimeoutMs: 300000
     checkError: true
     errors:
       - AGENTLY_ANDROID_BASE_URL is required.
       - AGENTLY_ANDROID_BASE_URL must be an HTTPS URL.
-      - No connected Android device or emulator is available.
-      - Requested Android device is not connected.
     commands:
       - |
         set -eu
-        cd ${repoPath}/android
-        ANDROID_SDK="${ANDROID_HOME:-/Users/awitas/Library/Android/sdk}"
-        ADB="$ANDROID_SDK/platform-tools/adb"
         ENDPOINT="${AGENTLY_ANDROID_BASE_URL:-}"
         if [ -z "$ENDPOINT" ]; then
           echo "AGENTLY_ANDROID_BASE_URL is required."
@@ -28,6 +23,57 @@ pipeline:
           https://*) ;;
           *) echo "AGENTLY_ANDROID_BASE_URL must be an HTTPS URL."; exit 1 ;;
         esac
+        git -C ${repoPath} submodule update --init --recursive
+        cd ${repoPath}/android
+        ./gradlew \
+          -Pagently.android.baseUrl="$ENDPOINT" \
+          :agently-core-sdk:test \
+          :forge-sdk:test \
+          :app:testDebugUnitTest \
+          :app:assembleDebug \
+          --no-daemon \
+          --console=plain
+
+  buildLocal:
+    action: exec:run
+    description: initialize pinned SDK sources, test, and build Android for local Agently
+    TimeoutMs: 300000
+    checkError: true
+    commands:
+      - |
+        set -eu
+        PORT="${LOCAL_AGENTLY_PORT:-8080}"
+        git -C ${repoPath} submodule update --init --recursive
+        cd ${repoPath}/android
+        ./gradlew \
+          -Pagently.android.baseUrl="http://127.0.0.1:$PORT/" \
+          :agently-core-sdk:test \
+          :forge-sdk:test \
+          :app:testDebugUnitTest \
+          :app:assembleDebug \
+          --no-daemon \
+          --console=plain
+
+  install:
+    action: exec:run
+    description: install the existing APK in place and launch it on a selected Android target
+    TimeoutMs: 120000
+    checkError: true
+    errors:
+      - ANDROID_HOME or ANDROID_SDK_ROOT is required.
+      - No connected Android device or emulator is available.
+      - Requested Android device is not connected.
+      - Android APK is missing; run build or buildLocal first.
+    commands:
+      - |
+        set -eu
+        ANDROID_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+        if [ -z "$ANDROID_SDK" ]; then
+          echo "ANDROID_HOME or ANDROID_SDK_ROOT is required."
+          exit 1
+        fi
+        ADB="$ANDROID_SDK/platform-tools/adb"
+        APK="${repoPath}/android/app/build/outputs/apk/debug/app-debug.apk"
         devices="$($ADB devices -l | awk 'NR > 1 && $2 == "device" {print $0}')"
         physical="$(printf '%s\n' "$devices" | awk '$1 !~ /^emulator-/ {print $1; exit}')"
         emulator="$(printf '%s\n' "$devices" | awk '$1 ~ /^emulator-/ {print $1; exit}')"
@@ -47,14 +93,10 @@ pipeline:
           echo "Requested Android device is not connected: $selected"
           exit 1
         fi
-        echo "Selected Android device: $selected"
-        ./gradlew \
-          -Pagently.android.baseUrl="$ENDPOINT" \
-          :app:testDebugUnitTest \
-          :app:assembleDebug \
-          --no-daemon \
-          --console=plain
-        APK="${repoPath}/android/app/build/outputs/apk/debug/app-debug.apk"
+        if [ ! -f "$APK" ]; then
+          echo "Android APK is missing; run build or buildLocal first: $APK"
+          exit 1
+        fi
         "$ADB" -s "$selected" install -r "$APK"
         if [ "${CLEAR_DATA:-false}" = "true" ]; then
           "$ADB" -s "$selected" shell pm clear com.viant.agently.android
@@ -62,20 +104,28 @@ pipeline:
         "$ADB" -s "$selected" shell am force-stop com.viant.agently.android
         "$ADB" -s "$selected" shell am start -n com.viant.agently.android/.MainActivity
 
-  deployLocal:
+  deploy:
+    action: run
+    request: '@run'
+    tasks: build,install
+
+  proxyLocal:
     action: exec:run
-    description: proxy to local Agently, then test, build, install, and launch Android
-    TimeoutMs: 300000
+    description: reverse the selected Android loopback port to the local Agently listener
     checkError: true
     errors:
+      - ANDROID_HOME or ANDROID_SDK_ROOT is required.
       - No connected Android device or emulator is available.
       - Requested Android device is not connected.
       - Local Agently health check failed.
     commands:
       - |
         set -eu
-        cd ${repoPath}/android
-        ANDROID_SDK="${ANDROID_HOME:-/Users/awitas/Library/Android/sdk}"
+        ANDROID_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+        if [ -z "$ANDROID_SDK" ]; then
+          echo "ANDROID_HOME or ANDROID_SDK_ROOT is required."
+          exit 1
+        fi
         ADB="$ANDROID_SDK/platform-tools/adb"
         PORT="${LOCAL_AGENTLY_PORT:-8080}"
         devices="$($ADB devices -l | awk 'NR > 1 && $2 == "device" {print $0}')"
@@ -101,32 +151,31 @@ pipeline:
           echo "Local Agently health check failed: http://127.0.0.1:$PORT/healthz"
           exit 1
         fi
-        echo "Selected Android device: $selected"
         "$ADB" -s "$selected" reverse "tcp:$PORT" "tcp:$PORT"
         "$ADB" -s "$selected" reverse --list
-        ./gradlew \
-          -Pagently.android.baseUrl="http://127.0.0.1:$PORT/" \
-          :app:testDebugUnitTest \
-          :app:assembleDebug \
-          --no-daemon \
-          --console=plain
-        APK="${repoPath}/android/app/build/outputs/apk/debug/app-debug.apk"
-        "$ADB" -s "$selected" install -r "$APK"
-        "$ADB" -s "$selected" shell am force-stop com.viant.agently.android
-        "$ADB" -s "$selected" shell am start -n com.viant.agently.android/.MainActivity
+
+  deployLocal:
+    action: run
+    request: '@run'
+    tasks: proxyLocal,buildLocal,install
 
   verify:
     action: exec:run
     description: confirm Agently is the resumed activity on the selected Android device
     checkError: true
     errors:
+      - ANDROID_HOME or ANDROID_SDK_ROOT is required.
       - No connected Android device or emulator is available.
       - Requested Android device is not connected.
       - Agently is not the resumed activity.
     commands:
       - |
         set -eu
-        ANDROID_SDK="${ANDROID_HOME:-/Users/awitas/Library/Android/sdk}"
+        ANDROID_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+        if [ -z "$ANDROID_SDK" ]; then
+          echo "ANDROID_HOME or ANDROID_SDK_ROOT is required."
+          exit 1
+        fi
         ADB="$ANDROID_SDK/platform-tools/adb"
         devices="$($ADB devices -l | awk 'NR > 1 && $2 == "device" {print $0}')"
         physical="$(printf '%s\n' "$devices" | awk '$1 !~ /^emulator-/ {print $1; exit}')"
@@ -159,11 +208,16 @@ pipeline:
     description: remove the local Agently reverse-port mapping from the selected device
     checkError: true
     errors:
+      - ANDROID_HOME or ANDROID_SDK_ROOT is required.
       - DEVICE_SERIAL is required when removing a reverse mapping.
     commands:
       - |
         set -eu
-        ANDROID_SDK="${ANDROID_HOME:-/Users/awitas/Library/Android/sdk}"
+        ANDROID_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+        if [ -z "$ANDROID_SDK" ]; then
+          echo "ANDROID_HOME or ANDROID_SDK_ROOT is required."
+          exit 1
+        fi
         ADB="$ANDROID_SDK/platform-tools/adb"
         PORT="${LOCAL_AGENTLY_PORT:-8080}"
         if [ -z "${DEVICE_SERIAL:-}" ]; then

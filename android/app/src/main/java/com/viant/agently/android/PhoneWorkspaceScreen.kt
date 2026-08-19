@@ -296,8 +296,10 @@ internal fun PhoneWorkspacePane(
                 onSelectStarterTask = onStarterTaskSelected
             )
         }
-        if (streamSnapshot?.activeTurnId != null && hostedWorkspaceState == null) {
+        val turnPending = streamSnapshot?.activeTurnId != null || hasPendingConversationTurn(conversationState)
+        if (turnPending && hostedWorkspaceState == null) {
             val liveNarration = latestActiveNarration(streamSnapshot)
+                ?: latestPendingNarration(conversationState)
             Surface(
                 color = Color(0xFFFFFFFF),
                 border = BorderStroke(1.dp, Color(0xFFE2E8F3)),
@@ -308,13 +310,24 @@ internal fun PhoneWorkspacePane(
                     modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        liveNarration ?: "Preparing response…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF475467),
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text(
+                            liveNarration ?: if (activeAssistantHasVisibleOutput(streamSnapshot)) {
+                                "Assistant is responding…"
+                            } else {
+                                "Assistant is thinking…"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF475467),
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
         }
@@ -394,6 +407,7 @@ internal fun PhoneWorkspacePane(
                     onEditChange = onEditChange,
                     onDecision = onDecision,
                     artifactPreview = artifactPreview,
+                    showStreamingStatusInHeader = false,
                     onClosePreview = onClosePreview,
                     onOpenFile = onOpenFile,
                     onOpenInlineReportPdf = onOpenInlineReportPdf

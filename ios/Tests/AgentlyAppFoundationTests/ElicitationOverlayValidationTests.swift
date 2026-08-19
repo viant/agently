@@ -3,6 +3,15 @@ import AgentlySDK
 @testable import AgentlyAppFoundation
 
 final class ElicitationOverlayValidationTests: XCTestCase {
+    func testFallbackElicitationRequiresAndTrimsResponse() {
+        XCTAssertFalse(fallbackElicitationCanSubmit("   "))
+        XCTAssertTrue(fallbackElicitationCanSubmit("ad order"))
+        XCTAssertEqual(
+            fallbackElicitationPayload("  ad order  "),
+            ["response": .string("ad order")]
+        )
+    }
+
     func testForgePayloadValidationRequiresMissingRequiredFields() {
         let field = makeField(name: "workspace", title: "Workspace", isRequired: true)
 

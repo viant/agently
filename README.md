@@ -377,11 +377,16 @@ Agently is a multi-platform app:
 
 - `web` — embedded Forge/React UI served by the `agently` binary
 - `ios` — SwiftUI app using local `AgentlySDK` and `ForgeIOSPackage`
-- `android` — Compose app using local `agently-core-sdk` and `forge-sdk`
+- `android` — Compose app using Git-pinned `agently-core-sdk` and `forge-sdk`
 
 Use the canonical [Android Endly build and deployment workflow](doc/android.md)
 for remote-workspace deployment, local Agently proxying, and device verification.
 Do not create a separate Android deployment workflow under `e2e`.
+
+Android builds default to Git-pinned SDK sources under `android/deps`. Initialize
+them with `git submodule update --init --recursive`. Set
+`AGENTLY_ANDROID_USE_SIBLING_SOURCES=true` only when intentionally testing
+uncommitted sibling `forge` and `agently-core` changes.
 
 ### Shared Target Context
 
@@ -438,10 +443,11 @@ Mobile work must not remove metadata that web still depends on.
 
 ### Local Multi-Repo Development
 
-This repo now expects local multi-repo refactors to use the workspace file at:
+This repo expects local multi-repo refactors to use the workspace file one level
+above the sibling repositories:
 
 ```text
-/Users/awitas/go/src/github.com/viant/go.work
+../go.work
 ```
 
 That workspace ties together:
@@ -495,7 +501,7 @@ This is especially important for top-level Forge windows such as:
 
 The current migration work is tracked in:
 
-- `/Users/awitas/go/src/github.com/viant/agently/multi-platform.md`
+- [multi-platform.md](multi-platform.md)
 
 That document tracks:
 
@@ -725,9 +731,9 @@ approval:
 
 Canonical metadata example included in this repo:
 
-- [approval_editor.yaml](/Users/awitas/go/src/github.com/viant/agently/metadata/window/chat/new/dialog/approval_editor.yaml)
-- [approval_editor.yaml](/Users/awitas/go/src/github.com/viant/agently/metadata/window/chat/new/dialog/panel/approval_editor.yaml)
-- [approval_editor.yaml](/Users/awitas/go/src/github.com/viant/agently/metadata/window/chat/new/datasource/approval_editor.yaml)
+- [approval_editor.yaml](metadata/window/chat/new/dialog/approval_editor.yaml)
+- [approval_editor.yaml](metadata/window/chat/new/dialog/panel/approval_editor.yaml)
+- [approval_editor.yaml](metadata/window/chat/new/datasource/approval_editor.yaml)
 
 Expected Forge data source shape:
 

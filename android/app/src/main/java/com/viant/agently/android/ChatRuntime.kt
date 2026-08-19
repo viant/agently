@@ -9,6 +9,7 @@ import com.viant.agentlysdk.stream.BufferedMessage
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import com.viant.forgeandroid.ui.TranscriptCanonicalData
 import com.viant.forgeandroid.ui.TranscriptCanonicalReport
+import com.viant.forgeandroid.ui.TranscriptEnvelope
 import kotlinx.coroutines.CancellationException
 import java.io.EOFException
 import java.text.SimpleDateFormat
@@ -63,6 +64,17 @@ internal fun latestActiveNarration(snapshot: ConversationStreamSnapshot?): Strin
         }
         ?.narration
         ?.let(::sanitizeVisibleAssistantText)
+}
+
+internal fun activeAssistantHasVisibleOutput(snapshot: ConversationStreamSnapshot?): Boolean {
+    val activeTurnId = snapshot?.activeTurnId?.trim().orEmpty()
+    if (activeTurnId.isEmpty()) return false
+    return snapshot?.bufferedMessages.orEmpty().any { message ->
+        message.role.equals("assistant", ignoreCase = true) &&
+            message.turnId?.trim() == activeTurnId &&
+            (combineAssistantMarkdown(message).orEmpty().isNotBlank() ||
+                snapshot?.liveExecutionGroupsById?.get(message.id)?.renderedContent?.reports?.isNotEmpty() == true)
+    }
 }
 
 internal fun transcriptWithActiveAssistant(
@@ -124,8 +136,8 @@ private fun activeAssistantEntry(snapshot: ConversationStreamSnapshot): ChatEntr
 }
 
 private fun combineAssistantMarkdown(message: BufferedMessage): String? {
-    val narration = sanitizeVisibleAssistantText(message.narration).orEmpty()
-    val content = sanitizeVisibleAssistantText(message.content).orEmpty()
+    val narration = sanitizeAssistantTranscriptText(message.narration).orEmpty()
+    val content = sanitizeAssistantTranscriptText(message.content).orEmpty()
     return when {
         narration.isNotEmpty() && content.isNotEmpty() -> "$narration\n\n$content"
         content.isNotEmpty() -> content
@@ -149,6 +161,43 @@ internal fun updateChatEntryDeliveryState(
     transcript[existingIndex] = transcript[existingIndex].copy(deliveryState = deliveryState)
 }
 
+internal fun markLatestSubmittedUserEntryDelivered(transcript: MutableList<ChatEntry>) {
+    val index = transcript.indexOfLast { entry ->
+        entry.role.equals("user", ignoreCase = true) &&
+            entry.deliveryState?.lowercase(Locale.US) in setOf("sending", "waiting", "pending")
+    }
+    if (index >= 0) {
+        transcript[index] = transcript[index].copy(deliveryState = null)
+    }
+}
+
+internal fun submittedTurnWasAccepted(state: ConversationStateResponse, prompt: String): Boolean {
+    val expected = prompt.trim()
+    if (expected.isEmpty()) return false
+    return state.conversation?.turns.orEmpty().any { turn ->
+        turn.user?.content?.trim() == expected || turn.users.any { it.content?.trim() == expected }
+    }
+}
+
+internal fun hasPendingConversationTurn(state: ConversationStateResponse?): Boolean =
+    state?.conversation?.turns.orEmpty().any { turn ->
+        turn.status?.trim()?.lowercase(Locale.US) in setOf(
+            "queued", "pending", "starting", "running", "streaming", "processing",
+            "waiting", "waiting_for_model", "waiting_for_tool", "waiting_for_user"
+        )
+    }
+
+internal fun latestPendingNarration(state: ConversationStateResponse?): String? {
+    val turn = state?.conversation?.turns.orEmpty().lastOrNull { candidate ->
+        candidate.status?.trim()?.lowercase(Locale.US) in setOf(
+            "queued", "pending", "starting", "running", "streaming", "processing",
+            "waiting", "waiting_for_model", "waiting_for_tool", "waiting_for_user"
+        )
+    } ?: return null
+    return sanitizeAssistantTranscriptText(turn.assistant?.narration?.content)
+        ?.takeIf { it.isNotBlank() }
+}
+
 internal fun transcriptFromState(state: ConversationStateResponse): List<ChatEntry> {
     val entries = mutableListOf<ChatEntry>()
     state.conversation?.turns?.forEach { turn ->
@@ -166,8 +215,8 @@ internal fun transcriptFromState(state: ConversationStateResponse): List<ChatEnt
         val assistantMessages = listOfNotNull(turn.assistant?.narration, turn.assistant?.final)
         val assistantId = turn.assistant?.final?.messageId ?: turn.assistant?.narration?.messageId
         val assistantContent = buildString {
-            val narration = sanitizeVisibleAssistantText(turn.assistant?.narration?.content).orEmpty()
-            val final = sanitizeVisibleAssistantText(turn.assistant?.final?.content).orEmpty()
+            val narration = sanitizeAssistantTranscriptText(turn.assistant?.narration?.content).orEmpty()
+            val final = sanitizeAssistantTranscriptText(turn.assistant?.final?.content).orEmpty()
             if (narration.isNotEmpty()) {
                 append(narration)
             }
@@ -198,11 +247,16 @@ private fun canonicalAssistantParts(messages: List<AssistantMessageState>): List
     if (messages.none { it.renderedContent != null }) return null
     return messages.flatMap { message ->
         message.renderedContent?.parts.orEmpty().ifEmpty {
-            sanitizeVisibleAssistantText(message.content)
+            sanitizeAssistantTranscriptText(message.content)
                 ?.let { listOf(RenderedContentPart(kind = "markdown", text = it)) }
                 .orEmpty()
         }
     }
+}
+
+private fun sanitizeAssistantTranscriptText(value: String?): String? {
+    val text = value ?: return null
+    return sanitizeVisibleAssistantText(TranscriptEnvelope.suppressProgressiveTransport(text))
 }
 
 private fun canonicalAssistantReports(messages: List<AssistantMessageState>): List<TranscriptCanonicalReport>? {

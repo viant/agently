@@ -41,6 +41,7 @@ internal fun RenderTranscript(
     onEditChange: (String, String, JsonElement) -> Unit,
     onDecision: (PendingToolApproval, String) -> Unit,
     artifactPreview: ArtifactPreview?,
+    showStreamingStatusInHeader: Boolean = true,
     onClosePreview: () -> Unit,
     onOpenFile: (GeneratedFileEntry) -> Unit,
     onOpenInlineReportPdf: (Map<String, Any?>, () -> Unit) -> Unit
@@ -100,7 +101,9 @@ internal fun RenderTranscript(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                if (item.role == "user") "You" else if (item.streaming) "Assistant is responding..." else "Assistant",
+                                if (item.role == "user") "You"
+                                else if (item.streaming && showStreamingStatusInHeader) "Assistant is responding..."
+                                else "Assistant",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = if (item.role == "user") Color(0xFF1849A9) else Color(0xFF344054)
                             )
