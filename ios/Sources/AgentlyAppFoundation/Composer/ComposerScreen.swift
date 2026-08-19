@@ -24,6 +24,8 @@ public struct ComposerScreen: View {
     @State private var lookupRowsLoading = false
     @State private var lastAutoPresentedLookupSignature = ""
     @State private var isCompactComposerExpanded = false
+    @State private var editorSelectionUTF16Offset = 0
+    @State private var dictationInsertionUTF16Offset = 0
     @FocusState private var isEditorFocused: Bool
     #if os(iOS)
     @State private var isShowingCameraCapture = false
@@ -46,48 +48,7 @@ public struct ComposerScreen: View {
             if density == .compact && canShowCollapsedCompactComposer && !isCompactComposerExpanded {
                 collapsedCompactComposer
             } else {
-            if !runtime.lookupOccurrences.isEmpty {
-                composerLookupSection
-            }
-            TextEditor(text: $runtime.query)
-                .font(.body)
-                .focused($isEditorFocused)
-                .disabled(isSending)
-                .accessibilityIdentifier("agently-composer-editor")
-                .autocorrectionDisabled(true)
-                #if os(iOS)
-                .textInputAutocapitalization(.never)
-                #endif
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 18)
-                        .fill(composerInputBackground)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18)
-                        .stroke(composerInputStroke, lineWidth: isEditorFocused ? 1.5 : 1)
-                )
-                .frame(height: editorHeight)
-                .overlay(alignment: .topLeading) {
-                    if runtime.query.isEmpty {
-                        Text("Reply in the workspace")
-                            .font(.body)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 15)
-                            .padding(.vertical, 17)
-                            .allowsHitTesting(false)
-                    }
-                }
-            if voiceRuntime.isRecording {
-                Label(
-                    voiceRuntime.liveTranscript.isEmpty ? "Listening..." : voiceRuntime.liveTranscript,
-                    systemImage: "waveform"
-                )
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .lineLimit(3)
-            }
+            composerInput
             if let attachmentError = runtime.attachmentError, !attachmentError.isEmpty {
                 Text(attachmentError)
                     .font(.footnote)
@@ -174,9 +135,13 @@ public struct ComposerScreen: View {
             }
             presentFirstRequiredLookupIfNeeded()
         }
-        .onChange(of: runtime.query) { _, newValue in
+        .onChange(of: runtime.query) { oldValue, newValue in
             if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 isCompactComposerExpanded = true
+            }
+            let newLength = (newValue as NSString).length
+            if oldValue.isEmpty || editorSelectionUTF16Offset > newLength {
+                editorSelectionUTF16Offset = newLength
             }
         }
         .onChange(of: runtime.attachments.count) { _, count in
@@ -280,7 +245,7 @@ public struct ComposerScreen: View {
         runtime.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && runtime.attachments.isEmpty
             && runtime.lookupOccurrences.isEmpty
-            && !voiceRuntime.isRecording
+            && !voiceRuntime.isActive
             && !isSending
     }
 
@@ -290,9 +255,12 @@ public struct ComposerScreen: View {
                 isCompactComposerExpanded = true
                 isEditorFocused = true
             } label: {
-                Image(systemName: "bubble.left")
+                AppleToolbarActionIcon(
+                    systemImage: "bubble.left.fill",
+                    color: Color(red: 0.10, green: 0.45, blue: 0.95)
+                )
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
             .accessibilityLabel("Write a reply")
             .accessibilityIdentifier("agently-composer-expand")
 
@@ -311,15 +279,97 @@ public struct ComposerScreen: View {
 
             Button {
                 isCompactComposerExpanded = true
-                voiceRuntime.toggleDictation { recognizedText in
-                    runtime.appendRecognizedText(recognizedText)
-                }
+                beginVoiceInput()
             } label: {
-                Image(systemName: "waveform")
+                AppleToolbarActionIcon(
+                    systemImage: "waveform",
+                    color: Color(red: 0.87, green: 0.36, blue: 0.48),
+                    isLoading: voiceRuntime.isPreparing
+                )
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
             .accessibilityLabel("Voice input")
         }
+    }
+
+    private var composerInput: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !runtime.lookupOccurrences.isEmpty {
+                composerLookupSection
+            }
+            ZStack(alignment: .topLeading) {
+                #if os(iOS)
+                ComposerQueryEditor(
+                    text: $runtime.query,
+                    selectionUTF16Offset: $editorSelectionUTF16Offset,
+                    occurrences: runtime.lookupOccurrences,
+                    isDisabled: isSending,
+                    isFocused: $isEditorFocused
+                )
+                #else
+                TextEditor(text: $runtime.query)
+                    .font(.body)
+                    .focused($isEditorFocused)
+                    .disabled(isSending)
+                    .accessibilityIdentifier("agently-composer-editor")
+                    .autocorrectionDisabled(true)
+                #endif
+                if visibleEditorText.isEmpty {
+                    Text(runtime.lookupOccurrences.isEmpty ? "Reply in the workspace" : "Add details")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 1)
+                        .allowsHitTesting(false)
+                }
+            }
+            .frame(height: editorHeight)
+
+            if voiceRuntime.isActive {
+                Button(action: beginVoiceInput) {
+                    HStack(spacing: 10) {
+                        Image(systemName: voiceRuntime.isRecording ? "waveform" : "mic")
+                            .foregroundStyle(Color.accentColor)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(voiceRuntime.liveTranscript.isEmpty
+                                ? (voiceRuntime.isPreparing ? "Starting microphone…" : "Listening…")
+                                : voiceRuntime.liveTranscript)
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(3)
+                            Text("Speak naturally · tap to stop")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 4)
+                        Image(systemName: "stop.circle.fill")
+                            .foregroundStyle(.red)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop voice input")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(composerInputBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(composerInputStroke, lineWidth: isEditorFocused ? 1.5 : 1)
+        )
+    }
+
+    private var visibleEditorText: String {
+        ComposerEditorProjection(
+            source: runtime.query,
+            occurrences: runtime.lookupOccurrences
+        ).display
     }
 
     private var editorHeight: CGFloat {
@@ -346,18 +396,10 @@ public struct ComposerScreen: View {
 
     @ViewBuilder
     private var composerLookupSection: some View {
-        if density == .compact {
-            VStack(alignment: .leading, spacing: 8) {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
                 ForEach(runtime.lookupOccurrences) { occurrence in
-                    compactLookupButton(occurrence)
-                }
-            }
-        } else {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(runtime.lookupOccurrences) { occurrence in
-                        lookupChip(occurrence)
-                    }
+                    lookupChip(occurrence)
                 }
             }
         }
@@ -524,17 +566,15 @@ public struct ComposerScreen: View {
             .buttonStyle(.bordered)
             .disabled(isSending)
             Button {
-                voiceRuntime.toggleDictation { recognizedText in
-                    runtime.appendRecognizedText(recognizedText)
-                }
+                beginVoiceInput()
             } label: {
                 Label(
-                    voiceRuntime.isRecording ? "Stop" : "Voice",
-                    systemImage: voiceRuntime.isRecording ? "stop.circle" : "waveform"
+                    voiceRuntime.isActive ? "Stop" : "Voice",
+                    systemImage: voiceRuntime.isActive ? "stop.circle" : "waveform"
                 )
             }
             .buttonStyle(.bordered)
-            .tint(voiceRuntime.isRecording ? .red : .accentColor)
+            .tint(voiceRuntime.isActive ? .red : .accentColor)
             .disabled(isSending)
         }
     }
@@ -579,6 +619,21 @@ public struct ComposerScreen: View {
         isEditorFocused = false
         requestAgentlyPlatformKeyboardDismissal()
         onSend()
+    }
+
+    private func beginVoiceInput() {
+        if !voiceRuntime.isActive {
+            dictationInsertionUTF16Offset = editorSelectionUTF16Offset
+            isEditorFocused = false
+            requestAgentlyPlatformKeyboardDismissal()
+            isCompactComposerExpanded = true
+        }
+        voiceRuntime.toggleDictation { recognizedText in
+            editorSelectionUTF16Offset = runtime.insertRecognizedText(
+                recognizedText,
+                atUTF16Offset: dictationInsertionUTF16Offset
+            )
+        }
     }
 
     private func presentFirstRequiredLookupIfNeeded() {

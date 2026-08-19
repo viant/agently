@@ -15,12 +15,8 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.OpenInFull
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -180,8 +176,12 @@ private fun TranscriptInlineReportBlock(
                     Icon(Icons.Outlined.OpenInFull, contentDescription = null)
                     Text("Open report", modifier = Modifier.padding(start = 8.dp))
                 }
-                OutlinedIconButton(
+                PhoneToolbarAction(
+                    icon = Icons.Outlined.PictureAsPdf,
+                    contentDescription = "Open PDF",
+                    accent = Color(0xFFD34B5F),
                     enabled = !pdfExporting,
+                    loading = pdfExporting,
                     onClick = {
                         pdfExporting = true
                         onOpenInlineReportPdf(
@@ -194,13 +194,7 @@ private fun TranscriptInlineReportBlock(
                             { pdfExporting = false }
                         )
                     }
-                ) {
-                    if (pdfExporting) {
-                        CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                    } else {
-                        Icon(Icons.Outlined.PictureAsPdf, contentDescription = "Open PDF")
-                    }
-                }
+                )
             }
         }
     }
@@ -294,9 +288,12 @@ private fun TranscriptInlineReportDialog(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back to conversation")
-                    }
+                    PhoneToolbarAction(
+                        icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                        contentDescription = "Back to conversation",
+                        onClick = onDismiss,
+                        accent = Color(0xFF5965D8)
+                    )
                     Text(
                         "Report",
                         modifier = Modifier.weight(1f),
@@ -304,27 +301,25 @@ private fun TranscriptInlineReportDialog(
                         fontWeight = FontWeight.SemiBold
                     )
                     if (report.status.trim().lowercase().let { it.isEmpty() || it == "committed" || it == "ready" }) {
-                        IconButton(
-                        enabled = !pdfExporting,
-                        onClick = {
-                            pdfExporting = true
-                            onOpenInlineReportPdf(
-                                mapOf(
-                                    "title" to title,
-                                    "artifactRef" to "report://inline/${report.scope}/${report.id}",
-                                    "reportId" to report.id,
-                                    "fences" to inlineReportExportFences(presentation.report)
-                                ),
-                                { pdfExporting = false }
-                            )
-                        }
-                        ) {
-                            if (pdfExporting) {
-                                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Outlined.PictureAsPdf, contentDescription = "Open PDF")
+                        PhoneToolbarAction(
+                            icon = Icons.Outlined.PictureAsPdf,
+                            contentDescription = "Open PDF",
+                            accent = Color(0xFFD34B5F),
+                            enabled = !pdfExporting,
+                            loading = pdfExporting,
+                            onClick = {
+                                pdfExporting = true
+                                onOpenInlineReportPdf(
+                                    mapOf(
+                                        "title" to title,
+                                        "artifactRef" to "report://inline/${report.scope}/${report.id}",
+                                        "reportId" to report.id,
+                                        "fences" to inlineReportExportFences(presentation.report)
+                                    ),
+                                    { pdfExporting = false }
+                                )
                             }
-                        }
+                        )
                     }
                 }
                 HorizontalDivider()

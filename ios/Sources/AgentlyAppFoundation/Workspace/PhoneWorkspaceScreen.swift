@@ -390,11 +390,18 @@ public struct PhoneWorkspaceScreen: View {
             isHostedWorkspacePresented = false
             onReturnToConversationList?()
         } label: {
-            Label("Conversations", systemImage: "chevron.left")
-                .font(.headline)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                AppleToolbarActionIcon(
+                    systemImage: "chevron.left",
+                    color: Color(red: 0.35, green: 0.40, blue: 0.85)
+                )
+                Text("Conversations")
+                    .font(.headline)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.plain)
         .accessibilityIdentifier("agently-conversations-back")
     }
 

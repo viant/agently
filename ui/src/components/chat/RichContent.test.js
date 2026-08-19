@@ -443,6 +443,20 @@ describe('RichContent fence parsing', () => {
     expect(normalized).not.toContain('\nforge-ui\n```json');
   });
 
+  it('normalizes legacy forge marker plus unfenced JSON without leaking the payload', () => {
+    const normalized = normalizeLegacyForgeFenceBlocks([
+      'Before report',
+      'forge-report',
+      '{"version":1,"scope":"forecast_review","id":"audience_forecast_review","blocks":[]}',
+      'After report'
+    ].join('\n'));
+
+    expect(normalized).toContain('```forge-report');
+    expect(normalized).toContain('"id":"audience_forecast_review"');
+    expect(normalized).toContain('```\nAfter report');
+    expect(normalized).not.toContain('\nforge-report\n{');
+  });
+
   it('merges legacy forge text marker plus json fence descriptors into forge fence descriptors', () => {
     const descriptors = normalizeLegacyForgeDescriptors([
       { kind: 'text', value: 'forge-data\n' },

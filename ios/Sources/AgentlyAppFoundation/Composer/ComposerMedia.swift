@@ -22,46 +22,55 @@ import Speech
 @MainActor
 public final class ComposerVoiceInputRuntime: ObservableObject {
     @Published public private(set) var isRecording = false
+    @Published public private(set) var isPreparing = false
     @Published public private(set) var liveTranscript = ""
     @Published public var errorMessage: String?
 
+    public var isActive: Bool { isPreparing || isRecording }
+
     private let audioEngine = AVAudioEngine()
-    private let recognizer = SFSpeechRecognizer(locale: Locale.current) ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private var onCommit: ((String) -> Void)?
+    private var recognitionGeneration: UUID?
 
     public init() {}
 
     public func toggleDictation(onCommit: @escaping (String) -> Void) {
-        if isRecording {
+        if isActive {
             stopDictation(commit: true)
             return
         }
+        stopDictation(commit: false)
         self.onCommit = onCommit
+        isPreparing = true
+        errorMessage = nil
+        liveTranscript = ""
         Task {
             await startDictation()
         }
     }
 
     private func startDictation() async {
-        errorMessage = nil
-        liveTranscript = ""
-
         guard await requestSpeechAuthorization() else {
+            isPreparing = false
             errorMessage = "Speech recognition permission is required for voice input."
+            onCommit = nil
             return
         }
         guard await requestMicrophoneAuthorization() else {
+            isPreparing = false
             errorMessage = "Microphone permission is required for voice input."
+            onCommit = nil
             return
         }
         guard let recognizer, recognizer.isAvailable else {
+            isPreparing = false
             errorMessage = "Speech recognition is currently unavailable on this device."
+            onCommit = nil
             return
         }
-
-        stopDictation(commit: false)
 
         do {
             let audioSession = AVAudioSession.sharedInstance()
@@ -70,6 +79,7 @@ public final class ComposerVoiceInputRuntime: ObservableObject {
 
             let request = SFSpeechAudioBufferRecognitionRequest()
             request.shouldReportPartialResults = true
+            request.requiresOnDeviceRecognition = false
             recognitionRequest = request
 
             let inputNode = audioEngine.inputNode
@@ -81,11 +91,14 @@ public final class ComposerVoiceInputRuntime: ObservableObject {
 
             audioEngine.prepare()
             try audioEngine.start()
+            isPreparing = false
             isRecording = true
 
+            let generation = UUID()
+            recognitionGeneration = generation
             recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
                 Task { @MainActor in
-                    guard let self else { return }
+                    guard let self, self.recognitionGeneration == generation else { return }
                     if let result {
                         self.liveTranscript = result.bestTranscription.formattedString
                         if result.isFinal {
@@ -94,13 +107,18 @@ public final class ComposerVoiceInputRuntime: ObservableObject {
                         }
                     }
                     if let error {
-                        self.errorMessage = error.localizedDescription
-                        self.stopDictation(commit: false)
+                        let hasPartialTranscript = !self.liveTranscript
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .isEmpty
+                        if !hasPartialTranscript {
+                            self.errorMessage = self.voiceRecognitionErrorMessage(error)
+                        }
+                        self.stopDictation(commit: hasPartialTranscript)
                     }
                 }
             }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = voiceRecognitionErrorMessage(error)
             stopDictation(commit: false)
         }
     }
@@ -111,9 +129,12 @@ public final class ComposerVoiceInputRuntime: ObservableObject {
         }
         audioEngine.inputNode.removeTap(onBus: 0)
         recognitionRequest?.endAudio()
-        recognitionTask?.cancel()
+        let task = recognitionTask
         recognitionTask = nil
+        recognitionGeneration = nil
         recognitionRequest = nil
+        task?.cancel()
+        isPreparing = false
         isRecording = false
 
         if commit {
@@ -130,6 +151,14 @@ public final class ComposerVoiceInputRuntime: ObservableObject {
         } catch {
             // Deactivation failures should not block composer use.
         }
+    }
+
+    private func voiceRecognitionErrorMessage(_ error: Error) -> String {
+        let nsError = error as NSError
+        if nsError.domain == "kAFAssistantErrorDomain", nsError.code == 203 {
+            return "I didn't catch that. Tap the microphone to try again."
+        }
+        return "Voice input stopped. Tap the microphone to try again."
     }
 
     private func requestSpeechAuthorization() async -> Bool {
@@ -152,8 +181,11 @@ public final class ComposerVoiceInputRuntime: ObservableObject {
 @MainActor
 public final class ComposerVoiceInputRuntime: ObservableObject {
     @Published public private(set) var isRecording = false
+    @Published public private(set) var isPreparing = false
     @Published public private(set) var liveTranscript = ""
     @Published public var errorMessage: String?
+
+    public var isActive: Bool { isPreparing || isRecording }
 
     public init() {}
 

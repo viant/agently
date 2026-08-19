@@ -444,6 +444,7 @@ internal fun TabletWorkspacePane(
                                             keyboardOptions = KeyboardOptions(
                                                 capitalization = KeyboardCapitalization.None
                                             ),
+                                            visualTransformation = composerLookupVisualTransformation(lookupOccurrences),
                                             colors = OutlinedTextFieldDefaults.colors(
                                                 focusedContainerColor = ComposerInputFill,
                                                 unfocusedContainerColor = ComposerInputFill,
@@ -510,6 +511,7 @@ internal fun TabletWorkspacePane(
                                         keyboardOptions = KeyboardOptions(
                                             capitalization = KeyboardCapitalization.None
                                         ),
+                                        visualTransformation = composerLookupVisualTransformation(lookupOccurrences),
                                         colors = OutlinedTextFieldDefaults.colors(
                                             focusedContainerColor = ComposerInputFill,
                                             unfocusedContainerColor = ComposerInputFill,

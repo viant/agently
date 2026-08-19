@@ -1,7 +1,10 @@
 package com.viant.agently.android
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AddComment
@@ -22,6 +26,7 @@ import androidx.compose.material.icons.outlined.KeyboardHide
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -37,7 +42,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.AgentlyClient
@@ -194,12 +201,14 @@ internal fun PhoneWorkspacePane(
                         icon = Icons.Outlined.AddComment,
                         contentDescription = "New chat",
                         onClick = onNewConversation,
+                        accent = Color(0xFF1A73F0),
                         enabled = !loading
                     )
                     PhoneToolbarAction(
                         icon = Icons.Outlined.History,
                         contentDescription = "Conversation history",
                         onClick = onOpenHistory,
+                        accent = Color(0xFFE08A1E),
                         enabled = recentConversations.isNotEmpty()
                     )
                     if (!activeConversationId.isNullOrBlank()) {
@@ -207,6 +216,7 @@ internal fun PhoneWorkspacePane(
                             icon = Icons.AutoMirrored.Outlined.ArrowBack,
                             contentDescription = "Back to conversation list",
                             onClick = onOpenHistory,
+                            accent = Color(0xFF5965D8),
                             enabled = recentConversations.isNotEmpty()
                         )
                     }
@@ -214,6 +224,7 @@ internal fun PhoneWorkspacePane(
                         icon = Icons.Outlined.Refresh,
                         contentDescription = "Refresh workspace",
                         onClick = onRefresh,
+                        accent = Color(0xFF0A9B98),
                         enabled = !loading
                     )
                     if (!activeConversationId.isNullOrBlank()) {
@@ -221,13 +232,15 @@ internal fun PhoneWorkspacePane(
                             icon = if (composerVisible) Icons.Outlined.KeyboardHide else Icons.Outlined.ChatBubbleOutline,
                             contentDescription = if (composerVisible) "Hide chat composer" else "Show chat composer",
                             onClick = onToggleComposer,
+                            accent = Color(0xFFDF5B78),
                             selected = composerVisible
                         )
                     }
                     PhoneToolbarAction(
                         icon = Icons.Outlined.Settings,
                         contentDescription = "Settings",
-                        onClick = onOpenSettings
+                        onClick = onOpenSettings,
+                        accent = Color(0xFF7D52D9)
                     )
                 }
             }
@@ -392,37 +405,61 @@ internal fun PhoneWorkspacePane(
 }
 
 @Composable
-private fun PhoneToolbarAction(
+internal fun PhoneToolbarAction(
     icon: ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
+    accent: Color,
     enabled: Boolean = true,
-    selected: Boolean = false
+    selected: Boolean = false,
+    loading: Boolean = false
 ) {
-    Surface(
-        color = if (selected) Color(0xFFE5EEFF) else Color.White,
-        shape = MaterialTheme.shapes.large,
-        border = BorderStroke(
-            1.dp,
-            if (selected) Color(0xFF9FC0FF) else Color(0xFFDCE3EC)
-        ),
-        modifier = Modifier.size(42.dp)
+    val effectiveAccent = if (enabled || loading) accent else Color(0xFF98A2B3)
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .shadow(
+                elevation = if (enabled) 5.dp else 1.dp,
+                shape = CircleShape,
+                ambientColor = effectiveAccent.copy(alpha = 0.22f),
+                spotColor = effectiveAccent.copy(alpha = 0.30f)
+            )
+            .background(
+                brush = Brush.linearGradient(
+                    colors = if (selected) {
+                        listOf(effectiveAccent.copy(alpha = 0.28f), effectiveAccent.copy(alpha = 0.13f))
+                    } else {
+                        listOf(Color.White, effectiveAccent.copy(alpha = 0.10f))
+                    }
+                ),
+                shape = CircleShape
+            )
+            .border(
+                width = 1.dp,
+                color = effectiveAccent.copy(alpha = if (selected) 0.48f else 0.24f),
+                shape = CircleShape
+            ),
+        contentAlignment = Alignment.Center
     ) {
         IconButton(
             onClick = onClick,
             enabled = enabled,
-            modifier = Modifier.size(42.dp)
+            modifier = Modifier.size(44.dp)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = contentDescription,
-                tint = when {
-                    !enabled -> Color(0xFF98A2B3)
-                    selected -> Color(0xFF2457C5)
-                    else -> Color(0xFF344054)
-                },
-                modifier = Modifier.size(21.dp)
-            )
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(21.dp),
+                    color = effectiveAccent,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = contentDescription,
+                    tint = effectiveAccent,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         }
     }
 }

@@ -151,6 +151,14 @@ Current scope:
   now carries the camera usage description
 - voice dictation is now wired into the composer with speech and microphone
   permission prompts and live transcript preview while recording
+- dictation now preserves its completion handler, recognizes the English
+  workspace language, retains usable partial speech, and inserts recognized
+  text at the current composer caret without overwriting the remaining prompt
+- composer lookups now render as compact controls inside the input surface;
+  raw slash tokens stay in the stored prompt contract but are hidden from the
+  editable display, matching the mobile Android and web interaction model
+- Apple toolbar actions now use accessible, color-coded layered icons with a
+  subtle native depth treatment across authenticated and authorization screens
 - the composer action strip now adapts more gracefully on narrow and rotated
   layouts by collapsing into a vertically stacked variant when needed
 - the shared iOS foundations that are already buildable live in:

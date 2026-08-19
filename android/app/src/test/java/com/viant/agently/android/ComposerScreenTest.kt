@@ -1,5 +1,6 @@
 package com.viant.agently.android
 
+import androidx.compose.ui.text.AnnotatedString
 import com.viant.agentlysdk.LookupRegistryEntry
 import com.viant.agentlysdk.LookupTokenFormat
 import org.junit.Assert.assertEquals
@@ -40,6 +41,82 @@ class ComposerScreenTest {
     }
 
     @Test
+    fun `lookup authoring directive is hidden from the editable prompt`() {
+        val prompt = "Troubleshoot /order order for delivery issues."
+        val start = prompt.indexOf("/order")
+        val transformed = ComposerLookupVisualTransformation(
+            listOf(start until start + "/order".length)
+        ).filter(AnnotatedString(prompt))
+
+        assertEquals("Troubleshoot order for delivery issues.", transformed.text.text)
+        assertEquals(
+            transformed.text.length,
+            transformed.offsetMapping.originalToTransformed(prompt.length)
+        )
+        assertEquals(
+            prompt.length,
+            transformed.offsetMapping.transformedToOriginal(transformed.text.length)
+        )
+    }
+
+    @Test
+    fun `lookup directive before punctuation does not leave a stray space`() {
+        val prompt = "Recommend SPO for audience /line ."
+        val start = prompt.indexOf("/line")
+        val transformed = ComposerLookupVisualTransformation(
+            listOf(start until start + "/line".length)
+        ).filter(AnnotatedString(prompt))
+
+        assertEquals("Recommend SPO for audience.", transformed.text.text)
+    }
+
+    @Test
+    fun `phone inline lookup replaces duplicated following entity noun`() {
+        val prompt = "Troubleshoot /order order for delivery issues."
+
+        assertEquals(
+            "Troubleshoot Order for delivery issues.",
+            composerInlineLookupDisplayText(
+                source = prompt,
+                occurrences = listOf(orderLookupOccurrence(prompt))
+            )
+        )
+    }
+
+    @Test
+    fun `phone inline lookup replaces duplicated preceding entity noun`() {
+        val prompt = "Build me a report for order /order from yesterday."
+
+        assertEquals(
+            "Build me a report for Order from yesterday.",
+            composerInlineLookupDisplayText(
+                source = prompt,
+                occurrences = listOf(orderLookupOccurrence(prompt))
+            )
+        )
+    }
+
+    @Test
+    fun `phone inline lookup keeps selected order label compact`() {
+        val prompt = "Troubleshoot /order order for delivery issues and identify the blocker."
+        val occurrence = orderLookupOccurrence(prompt)
+        val selection = ComposerLookupSelection(
+            token = """@{order:2691875 "2691875 · Pillar 1 - Brand | BHE - 2026-27"}""",
+            label = "2691875 · Pillar 1 - Brand | BHE - 2026-27"
+        )
+
+        assertEquals("2691875", composerInlineLookupLabel(occurrence, selection))
+        assertEquals(
+            "Troubleshoot 2691875 for delivery issues and identify the blocker.",
+            composerInlineLookupDisplayText(
+                source = prompt,
+                occurrences = listOf(occurrence),
+                selections = mapOf(occurrence.key to selection)
+            )
+        )
+    }
+
+    @Test
     fun `lookup controls make unresolved required selection explicit`() {
         val occurrence = orderLookupOccurrence()
 
@@ -69,7 +146,7 @@ class ComposerScreenTest {
         assertEquals("Fixture Order", composerLookupControlLabel(occurrence.title, selection))
     }
 
-    private fun orderLookupOccurrence(): ComposerLookupOccurrence {
+    private fun orderLookupOccurrence(prompt: String = "Troubleshoot /order"): ComposerLookupOccurrence {
         val registry = listOf(
             LookupRegistryEntry(
                 name = "order",
@@ -84,6 +161,6 @@ class ComposerScreenTest {
                 )
             )
         )
-        return parseComposerLookupOccurrences("Troubleshoot /order", registry).single()
+        return parseComposerLookupOccurrences(prompt, registry).single()
     }
 }

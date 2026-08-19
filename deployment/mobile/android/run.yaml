@@ -1,0 +1,173 @@
+init:
+  repoPath: $WorkingDirectory(../../..)
+
+pipeline:
+
+  deploy:
+    action: exec:run
+    description: test, build, install, and launch Android for an approved HTTPS workspace
+    TimeoutMs: 300000
+    checkError: true
+    errors:
+      - AGENTLY_ANDROID_BASE_URL is required.
+      - AGENTLY_ANDROID_BASE_URL must be an HTTPS URL.
+      - No connected Android device or emulator is available.
+      - Requested Android device is not connected.
+    commands:
+      - |
+        set -eu
+        cd ${repoPath}/android
+        ANDROID_SDK="${ANDROID_HOME:-/Users/awitas/Library/Android/sdk}"
+        ADB="$ANDROID_SDK/platform-tools/adb"
+        ENDPOINT="${AGENTLY_ANDROID_BASE_URL:-}"
+        if [ -z "$ENDPOINT" ]; then
+          echo "AGENTLY_ANDROID_BASE_URL is required."
+          exit 1
+        fi
+        case "$ENDPOINT" in
+          https://*) ;;
+          *) echo "AGENTLY_ANDROID_BASE_URL must be an HTTPS URL."; exit 1 ;;
+        esac
+        devices="$($ADB devices -l | awk 'NR > 1 && $2 == "device" {print $0}')"
+        physical="$(printf '%s\n' "$devices" | awk '$1 !~ /^emulator-/ {print $1; exit}')"
+        emulator="$(printf '%s\n' "$devices" | awk '$1 ~ /^emulator-/ {print $1; exit}')"
+        if [ -n "${DEVICE_SERIAL:-}" ]; then
+          selected="$DEVICE_SERIAL"
+        elif [ -n "$physical" ]; then
+          selected="$physical"
+        else
+          selected="$emulator"
+        fi
+        printf '%s\n' "$devices"
+        if [ -z "$selected" ]; then
+          echo "No connected Android device or emulator is available."
+          exit 1
+        fi
+        if ! printf '%s\n' "$devices" | awk '{print $1}' | grep -qx "$selected"; then
+          echo "Requested Android device is not connected: $selected"
+          exit 1
+        fi
+        echo "Selected Android device: $selected"
+        ./gradlew \
+          -Pagently.android.baseUrl="$ENDPOINT" \
+          :app:testDebugUnitTest \
+          :app:assembleDebug \
+          --no-daemon \
+          --console=plain
+        APK="${repoPath}/android/app/build/outputs/apk/debug/app-debug.apk"
+        "$ADB" -s "$selected" install -r "$APK"
+        if [ "${CLEAR_DATA:-false}" = "true" ]; then
+          "$ADB" -s "$selected" shell pm clear com.viant.agently.android
+        fi
+        "$ADB" -s "$selected" shell am force-stop com.viant.agently.android
+        "$ADB" -s "$selected" shell am start -n com.viant.agently.android/.MainActivity
+
+  deployLocal:
+    action: exec:run
+    description: proxy to local Agently, then test, build, install, and launch Android
+    TimeoutMs: 300000
+    checkError: true
+    errors:
+      - No connected Android device or emulator is available.
+      - Requested Android device is not connected.
+      - Local Agently health check failed.
+    commands:
+      - |
+        set -eu
+        cd ${repoPath}/android
+        ANDROID_SDK="${ANDROID_HOME:-/Users/awitas/Library/Android/sdk}"
+        ADB="$ANDROID_SDK/platform-tools/adb"
+        PORT="${LOCAL_AGENTLY_PORT:-8080}"
+        devices="$($ADB devices -l | awk 'NR > 1 && $2 == "device" {print $0}')"
+        physical="$(printf '%s\n' "$devices" | awk '$1 !~ /^emulator-/ {print $1; exit}')"
+        emulator="$(printf '%s\n' "$devices" | awk '$1 ~ /^emulator-/ {print $1; exit}')"
+        if [ -n "${DEVICE_SERIAL:-}" ]; then
+          selected="$DEVICE_SERIAL"
+        elif [ -n "$physical" ]; then
+          selected="$physical"
+        else
+          selected="$emulator"
+        fi
+        printf '%s\n' "$devices"
+        if [ -z "$selected" ]; then
+          echo "No connected Android device or emulator is available."
+          exit 1
+        fi
+        if ! printf '%s\n' "$devices" | awk '{print $1}' | grep -qx "$selected"; then
+          echo "Requested Android device is not connected: $selected"
+          exit 1
+        fi
+        if ! curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null; then
+          echo "Local Agently health check failed: http://127.0.0.1:$PORT/healthz"
+          exit 1
+        fi
+        echo "Selected Android device: $selected"
+        "$ADB" -s "$selected" reverse "tcp:$PORT" "tcp:$PORT"
+        "$ADB" -s "$selected" reverse --list
+        ./gradlew \
+          -Pagently.android.baseUrl="http://127.0.0.1:$PORT/" \
+          :app:testDebugUnitTest \
+          :app:assembleDebug \
+          --no-daemon \
+          --console=plain
+        APK="${repoPath}/android/app/build/outputs/apk/debug/app-debug.apk"
+        "$ADB" -s "$selected" install -r "$APK"
+        "$ADB" -s "$selected" shell am force-stop com.viant.agently.android
+        "$ADB" -s "$selected" shell am start -n com.viant.agently.android/.MainActivity
+
+  verify:
+    action: exec:run
+    description: confirm Agently is the resumed activity on the selected Android device
+    checkError: true
+    errors:
+      - No connected Android device or emulator is available.
+      - Requested Android device is not connected.
+      - Agently is not the resumed activity.
+    commands:
+      - |
+        set -eu
+        ANDROID_SDK="${ANDROID_HOME:-/Users/awitas/Library/Android/sdk}"
+        ADB="$ANDROID_SDK/platform-tools/adb"
+        devices="$($ADB devices -l | awk 'NR > 1 && $2 == "device" {print $0}')"
+        physical="$(printf '%s\n' "$devices" | awk '$1 !~ /^emulator-/ {print $1; exit}')"
+        emulator="$(printf '%s\n' "$devices" | awk '$1 ~ /^emulator-/ {print $1; exit}')"
+        if [ -n "${DEVICE_SERIAL:-}" ]; then
+          selected="$DEVICE_SERIAL"
+        elif [ -n "$physical" ]; then
+          selected="$physical"
+        else
+          selected="$emulator"
+        fi
+        if [ -z "$selected" ]; then
+          echo "No connected Android device or emulator is available."
+          exit 1
+        fi
+        if ! printf '%s\n' "$devices" | awk '{print $1}' | grep -qx "$selected"; then
+          echo "Requested Android device is not connected: $selected"
+          exit 1
+        fi
+        if ! "$ADB" -s "$selected" shell dumpsys activity activities \
+          | grep -E 'topResumedActivity|mResumedActivity' \
+          | grep -q 'com.viant.agently.android'; then
+          echo "Agently is not the resumed activity."
+          exit 1
+        fi
+        echo "Agently is running on $selected."
+
+  removeProxy:
+    action: exec:run
+    description: remove the local Agently reverse-port mapping from the selected device
+    checkError: true
+    errors:
+      - DEVICE_SERIAL is required when removing a reverse mapping.
+    commands:
+      - |
+        set -eu
+        ANDROID_SDK="${ANDROID_HOME:-/Users/awitas/Library/Android/sdk}"
+        ADB="$ANDROID_SDK/platform-tools/adb"
+        PORT="${LOCAL_AGENTLY_PORT:-8080}"
+        if [ -z "${DEVICE_SERIAL:-}" ]; then
+          echo "DEVICE_SERIAL is required when removing a reverse mapping."
+          exit 1
+        fi
+        "$ADB" -s "$DEVICE_SERIAL" reverse --remove "tcp:$PORT"

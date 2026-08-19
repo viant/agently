@@ -23,10 +23,13 @@ public struct AuthRequiredScreen: View {
                     .font(.title2.weight(.semibold))
                 Spacer()
                 Button(action: onOpenSettings) {
-                    Image(systemName: "gearshape")
+                    AppleToolbarActionIcon(
+                        systemImage: "gearshape.fill",
+                        color: Color(red: 0.49, green: 0.32, blue: 0.88)
+                    )
                 }
                 .accessibilityLabel("Workspace settings")
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
             }
             VStack(alignment: .leading, spacing: 10) {
                 Button {

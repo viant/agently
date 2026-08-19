@@ -29,8 +29,13 @@ public struct AppShellView: View {
                 Button {
                     isShowingSettings = true
                 } label: {
-                    Label("Settings", systemImage: "gearshape")
+                    AppleToolbarActionIcon(
+                        systemImage: "gearshape.fill",
+                        color: Color(red: 0.49, green: 0.32, blue: 0.88)
+                    )
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Settings")
 
                 Button {
                     compactUserReturnedToListConversationID = nil
@@ -42,15 +47,25 @@ public struct AppShellView: View {
                     }
                     runtime.startNewConversation()
                 } label: {
-                    Label("New Chat", systemImage: "square.and.pencil")
+                    AppleToolbarActionIcon(
+                        systemImage: "square.and.pencil",
+                        color: Color(red: 0.10, green: 0.45, blue: 0.95)
+                    )
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("New Chat")
                 .accessibilityIdentifier("agently-new-chat")
 
                 Button {
                     Task { await runtime.refreshConversationList() }
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    AppleToolbarActionIcon(
+                        systemImage: "arrow.clockwise",
+                        color: Color(red: 0.04, green: 0.62, blue: 0.61)
+                    )
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Refresh")
                 .accessibilityIdentifier("agently-refresh-conversations")
             }
         }
@@ -249,6 +264,52 @@ public struct AppShellView: View {
     private var conversationsWorkspaceTitle: String? {
         runtime.state.workspaceMetadata?.workspaceRoot?.workspaceDisplayTitle
             ?? runtime.state.workspaceMetadata?.defaultAgent?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+struct AppleToolbarActionIcon: View {
+    let systemImage: String
+    let color: Color
+    var isLoading = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [color.opacity(0.20), color.opacity(0.08)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            Circle()
+                .stroke(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.92), color.opacity(0.32)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+            Circle()
+                .fill(Color.white.opacity(0.42))
+                .frame(width: 18, height: 8)
+                .blur(radius: 3)
+                .offset(x: -5, y: -8)
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(color)
+            } else {
+                Image(systemName: systemImage)
+                    .font(.system(size: 15, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(color)
+            }
+        }
+        .frame(width: 34, height: 34)
+        .shadow(color: color.opacity(0.20), radius: 5, x: 0, y: 3)
+        .contentShape(Circle())
     }
 }
 
@@ -515,10 +576,16 @@ private struct CompactConversationDestination: View {
         VStack(spacing: 0) {
             HStack {
                 Button(action: onReturnToList) {
-                    Label("Conversations", systemImage: "chevron.left")
-                        .labelStyle(.titleAndIcon)
+                    HStack(spacing: 8) {
+                        AppleToolbarActionIcon(
+                            systemImage: "chevron.left",
+                            color: Color(red: 0.35, green: 0.40, blue: 0.85)
+                        )
+                        Text("Conversations")
+                            .font(.subheadline.weight(.semibold))
+                    }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
                 .accessibilityIdentifier("agently-conversations-back")
                 Spacer()
             }
