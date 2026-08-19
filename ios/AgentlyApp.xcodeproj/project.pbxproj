@@ -23,7 +23,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		25F809D4CEBC765DAD010885 /* AgentlyApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AgentlyApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		25F809D4CEBC765DAD010885 /* Agently.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Agently.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		285194AF4DD1D1314861F793 /* AgentlyAppUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AgentlyAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		91E8795F12F3D76FDAE5F7DC /* ForecastingPrefillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForecastingPrefillUITests.swift; sourceTree = "<group>"; };
 		B54B14961D6A4507F32CBC7D /* AgentlyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentlyApp.swift; sourceTree = "<group>"; };
@@ -63,7 +63,7 @@
 		9B4F5F5B927E8D5E3D114863 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				25F809D4CEBC765DAD010885 /* AgentlyApp.app */,
+				25F809D4CEBC765DAD010885 /* Agently.app */,
 				285194AF4DD1D1314861F793 /* AgentlyAppUITests.xctest */,
 			);
 			name = Products;
@@ -124,7 +124,7 @@
 				F0EE3BFDCBDF459405E2E664 /* AgentlyAppFoundation */,
 			);
 			productName = AgentlyApp;
-			productReference = 25F809D4CEBC765DAD010885 /* AgentlyApp.app */;
+			productReference = 25F809D4CEBC765DAD010885 /* Agently.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -140,7 +140,6 @@
 						TestTargetID = BADA8F9AC9789B464366A87A;
 					};
 					BADA8F9AC9789B464366A87A = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -365,7 +364,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = V7HQP7HC4C;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -386,7 +385,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = V7HQP7HC4C;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
