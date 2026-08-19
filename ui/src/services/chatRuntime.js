@@ -2632,10 +2632,26 @@ export function enqueueConversationSwitch(context, conversationID = '') {
   const chatState = ensureContextResources(context);
   const targetID = String(conversationID || '').trim();
   if (!targetID) return Promise.resolve();
+  // History clicks, route bootstrap, and the sidebar can all announce the
+  // same selection. Reuse the in-flight request instead of starting another
+  // fetch/transcript hydration pass for the same conversation.
+  if (
+    chatState.switchQueue
+    && String(chatState.switchQueueTarget || '').trim() === targetID
+  ) {
+    return chatState.switchQueue;
+  }
   chatState.requestedConversationID = targetID;
   const request = switchConversation(context, targetID);
-  chatState.switchQueue = request.catch(() => {});
-  return request;
+  chatState.switchQueueTarget = targetID;
+  const settled = request.finally(() => {
+    if (String(chatState.switchQueueTarget || '').trim() === targetID) {
+      chatState.switchQueue = null;
+      chatState.switchQueueTarget = '';
+    }
+  });
+  chatState.switchQueue = settled;
+  return settled;
 }
 
 export function applyIterationVisibility(context) {

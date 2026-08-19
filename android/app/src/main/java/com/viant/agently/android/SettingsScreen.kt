@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -19,13 +20,22 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.RestartAlt
+import androidx.compose.material.icons.outlined.Save
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.WorkspaceMetadata
@@ -89,23 +99,30 @@ internal fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) {
-                        Text("Back")
-                    }
-                    OutlinedButton(
+                    SettingsIconAction(
+                        label = "Back",
+                        icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                        accent = Color(0xFF5965D8),
+                        onClick = onBack,
+                        modifier = Modifier.weight(1f)
+                    )
+                    SettingsIconAction(
+                        label = "Refresh",
+                        icon = Icons.Outlined.Refresh,
+                        accent = Color(0xFF0A9B98),
                         onClick = onRefreshWorkspace,
                         enabled = !loading,
+                        loading = loading,
                         modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Refresh")
-                    }
-                    Button(
+                    )
+                    SettingsIconAction(
+                        label = "Save",
+                        icon = Icons.Outlined.Save,
+                        accent = Color(0xFF16835D),
                         onClick = saveSettings,
                         enabled = !loading,
                         modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Save")
-                    }
+                    )
                 }
                 error?.let {
                     Card(modifier = Modifier.fillMaxWidth()) {
@@ -248,12 +265,13 @@ internal fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
-                    OutlinedButton(
+                    SettingsIconAction(
+                        label = "Clear Saved Auth",
+                        icon = Icons.Outlined.DeleteSweep,
+                        accent = Color(0xFFD34B5F),
                         onClick = onClearAuthSecrets,
                         modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Clear Saved Auth")
-                    }
+                    )
                 }
             }
         }
@@ -262,20 +280,55 @@ internal fun SettingsScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            OutlinedButton(
+            SettingsIconAction(
+                label = "Reset Overrides",
+                icon = Icons.Outlined.RestartAlt,
+                accent = Color(0xFFE08A1E),
                 onClick = onResetAppOverrides,
                 enabled = !loading,
                 modifier = Modifier.weight(1f)
-            ) {
-                Text("Reset Overrides")
-            }
-            Button(
+            )
+            SettingsIconAction(
+                label = "Save & Apply",
+                icon = Icons.Outlined.CheckCircle,
+                accent = Color(0xFF16835D),
                 onClick = saveSettings,
                 enabled = !loading,
                 modifier = Modifier.weight(1f)
-            ) {
-                Text("Save & Apply")
-            }
+            )
         }
+    }
+}
+
+@Composable
+private fun SettingsIconAction(
+    label: String,
+    icon: ImageVector,
+    accent: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    loading: Boolean = false
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        PhoneToolbarAction(
+            icon = icon,
+            contentDescription = label,
+            onClick = onClick,
+            accent = accent,
+            enabled = enabled,
+            loading = loading
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (enabled || loading) accent else Color(0xFF98A2B3),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }

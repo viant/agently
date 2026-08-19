@@ -161,11 +161,23 @@ public struct SettingsScreen: View {
                 }
             }
             Section {
-                Button("Apply") {
+                Button {
                     runtime.save()
                     onApply()
+                } label: {
+                    HStack(spacing: 9) {
+                        AppleToolbarActionIcon(
+                            systemImage: "checkmark.circle.fill",
+                            color: Color(red: 0.09, green: 0.51, blue: 0.36)
+                        )
+                        Text("Apply Settings")
+                            .font(.headline)
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("agently-settings-apply")
             }
         }
         .navigationTitle("Settings")
