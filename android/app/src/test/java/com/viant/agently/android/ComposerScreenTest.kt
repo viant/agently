@@ -84,14 +84,28 @@ class ComposerScreenTest {
     }
 
     @Test
-    fun `phone inline lookup replaces duplicated preceding entity noun`() {
-        val prompt = "Build me a report for order /order from yesterday."
+    fun `phone inline lookup preserves entity noun before lookup token`() {
+        val prompt = "show me line /line"
+        val registry = listOf(
+            LookupRegistryEntry(
+                name = "line",
+                title = "Line",
+                dataSource = "line_lookup",
+                required = true,
+                token = LookupTokenFormat(
+                    store = "\${id}",
+                    display = "\${name}",
+                    modelForm = "line \${id}",
+                    queryInput = "q"
+                )
+            )
+        )
 
         assertEquals(
-            "Build me a report for Order from yesterday.",
+            "show me line Line",
             composerInlineLookupDisplayText(
                 source = prompt,
-                occurrences = listOf(orderLookupOccurrence(prompt))
+                occurrences = parseComposerLookupOccurrences(prompt, registry)
             )
         )
     }

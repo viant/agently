@@ -740,23 +740,6 @@ private fun composerInlineLookupReplacementRange(
         return tokenStart until followingWordEnd
     }
 
-    var beforeWhitespace = tokenStart - 1
-    while (beforeWhitespace >= 0 && source[beforeWhitespace].isWhitespace()) {
-        beforeWhitespace -= 1
-    }
-    val precedingWordEnd = beforeWhitespace + 1
-    var precedingWordStart = beforeWhitespace
-    while (precedingWordStart >= 0 &&
-        (source[precedingWordStart].isLetterOrDigit() || source[precedingWordStart] in "_-")
-    ) {
-        precedingWordStart -= 1
-    }
-    precedingWordStart += 1
-    val precedingWord = source.substring(precedingWordStart, precedingWordEnd).lowercase()
-    if (precedingWord.isNotEmpty() && precedingWord in entityWords) {
-        return precedingWordStart until tokenEnd
-    }
-
     // Remove whitespace authored between a lookup and punctuation so the
     // inline representation reads naturally (for example, "Line.").
     if (afterWhitespace > tokenEnd &&

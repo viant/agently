@@ -12,6 +12,16 @@ import org.junit.Test
 class ElicitationOverlayTest {
 
     @Test
+    fun fallbackElicitation_requiresAndTrimsResponse() {
+        assertFalse(fallbackElicitationCanSubmit("   "))
+        assertTrue(fallbackElicitationCanSubmit("ad order"))
+        assertEquals(
+            JsonPrimitive("ad order"),
+            fallbackElicitationPayload("  ad order  ")["response"]
+        )
+    }
+
+    @Test
     fun prepareRequestedSchema_stripsHiddenFieldsAndNormalizesDefaults() {
         val schema = JsonObject(
             mapOf(
