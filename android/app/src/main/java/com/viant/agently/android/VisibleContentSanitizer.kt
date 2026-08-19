@@ -36,8 +36,8 @@ private fun stripHiddenRouterPayload(text: String): String {
 }
 
 private fun isHiddenRouterPayloadJson(text: String): Boolean {
-    val object = runCatching {
+    val payloadObject = runCatching {
         visibleContentJson.parseToJsonElement(text).jsonObject
     }.getOrNull() ?: return false
-    return object.keys.any(hiddenRouterPayloadKeys::contains)
+    return payloadObject.keys.any(hiddenRouterPayloadKeys::contains)
 }
