@@ -1220,6 +1220,8 @@ github.com/viant/forge v0.3.14-0.20260811131545-b3b2302e052c h1:BYtwYy8xfjFRoNVC
 github.com/viant/forge v0.3.14-0.20260811131545-b3b2302e052c/go.mod h1:Q2cbakSthK9Qyke1HiFFm2UG9cFbIvwxLiTL6yFbs7U=
 github.com/viant/forge v0.3.14-0.20260812131110-4d13b4129e39 h1:hsh98Gz/Nvot24LOIejHWmKZ1X1OHzd5hTK3fRPSYyc=
 github.com/viant/forge v0.3.14-0.20260812131110-4d13b4129e39/go.mod h1:Q2cbakSthK9Qyke1HiFFm2UG9cFbIvwxLiTL6yFbs7U=
+github.com/viant/forge v0.3.14 h1:TGj1ILvpy81sOlUQwGM/5J2jdRizhPSiggAgFg4LwR0=
+github.com/viant/forge v0.3.14/go.mod h1:Q2cbakSthK9Qyke1HiFFm2UG9cFbIvwxLiTL6yFbs7U=
 github.com/viant/gds v0.6.0 h1:HdjogZeJrs5X0aR8yNCep7TxlhkhrH/lrSFW02RZzOI=
 github.com/viant/gds v0.6.0/go.mod h1:oLW99/zRR67jOhDj4qnVoquDMtQd1z2mWxVc9KRvOs4=
 github.com/viant/gmetric v0.3.2 h1:zTdW9QrPk2P0i/do9fokxtHesFQCvYqIc5Yktzmyxtg=
