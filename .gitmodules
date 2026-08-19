@@ -1,0 +1,6 @@
+[submodule "android/deps/forge"]
+	path = android/deps/forge
+	url = https://github.com/viant/forge.git
+[submodule "android/deps/agently-core"]
+	path = android/deps/agently-core
+	url = https://github.com/viant/agently-core.git

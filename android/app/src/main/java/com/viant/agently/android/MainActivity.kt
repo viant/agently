@@ -920,6 +920,10 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
             activeConversationId = snapshot.conversationId
         }
         streamedMarkdown = latestAssistantMarkdown(snapshot) ?: streamedMarkdown
+        if (!snapshot.activeTurnId.isNullOrBlank()) {
+            markLatestSubmittedUserEntryDelivered(transcript)
+            setVisibleError(null)
+        }
     }
 
     fun schedulePostTurnRefresh(conversationId: String) {
@@ -1168,6 +1172,9 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     fun runQuery() {
         launchAppOperation(showLoading = true) {
             var userEntryId: String? = null
+            var submittedPrompt: String? = null
+            var submittedConversationId: String? = null
+            var submittedClient: AgentlyClient? = null
             val currentDraft = currentComposerDraft()
             try {
                 val rawPrompt = currentDraft.prompt.trim()
@@ -1189,6 +1196,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
                     prompt = lookupResolution.resolvedQuery ?: rawPrompt
                 )
                 val resolvedClient = resolveClient()
+                submittedClient = resolvedClient
                 streamJob?.cancelAndJoin()
                 resetQueryResponseState()
                 val preparedQuerySubmission = prepareQuerySubmission(
@@ -1196,6 +1204,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
                     timestampMs = System.currentTimeMillis()
                 )
                 userEntryId = preparedQuerySubmission.entryId
+                submittedPrompt = preparedQuerySubmission.effectivePrompt
                 transcript.add(preparedQuerySubmission.pendingEntry)
                 clearComposerInputs()
 
@@ -1212,6 +1221,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
                     ),
                     targetContext = buildMetadataTargetContext(formFactor),
                     onConversationReady = { conversationId ->
+                        submittedConversationId = conversationId
                         activeConversationId = conversationId
                         uiBridge.publishSnapshotNow()
                         startConversationStream(resolvedClient, conversationId)
@@ -1229,7 +1239,43 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
                 )
                 refreshRecentConversations()
             } catch (err: Throwable) {
-                handleQueryFailure(userEntryId, currentDraft, err)
+                val recoveredState = submittedClient?.let { recoveryClient ->
+                    val conversationId = submittedConversationId ?: activeConversationId
+                    val prompt = submittedPrompt
+                    if (conversationId.isNullOrBlank() || prompt.isNullOrBlank()) {
+                        null
+                    } else {
+                        var recovered: ConversationStateResponse? = null
+                        for (attempt in 0 until 3) {
+                            recovered = runCatching {
+                                recoveryClient.getLiveState(
+                                    conversationId = conversationId,
+                                    includeFeeds = true,
+                                    maxResponseBytes = conversationPolicy.maxTranscriptResponseBytes
+                                )
+                            }.getOrNull()?.takeIf { submittedTurnWasAccepted(it, prompt) }
+                            if (recovered != null) break
+                            if (attempt < 2) delay(350)
+                        }
+                        recovered
+                    }
+                }
+                if (recoveredState != null) {
+                    val conversationId = submittedConversationId ?: activeConversationId.orEmpty()
+                    conversationState = recoveredState
+                    updateChatEntryDeliveryState(transcript, userEntryId, null)
+                    clearComposerInputs()
+                    setVisibleError(null)
+                    if (streamJob?.isActive != true && conversationId.isNotBlank()) {
+                        submittedClient?.let { startConversationStream(it, conversationId) }
+                    }
+                    if (!hasPendingConversationTurn(recoveredState) && conversationId.isNotBlank()) {
+                        bindConversation(conversationId, replaceTranscript = true)
+                        refreshRecentConversations()
+                    }
+                } else {
+                    handleQueryFailure(userEntryId, currentDraft, err)
+                }
             }
         }
     }

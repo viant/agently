@@ -15,6 +15,7 @@ public struct ElicitationOverlay: View {
     @State private var fieldValues: [String: String] = [:]
     @State private var booleanValues: [String: Bool] = [:]
     @State private var forgeFormPayload: [String: AppJSONValue] = [:]
+    @State private var fallbackResponse = ""
 
     public init(
         pending: PendingElicitation?,
@@ -48,6 +49,18 @@ public struct ElicitationOverlay: View {
                 }
                 if approvalMode {
                     Text("Review the requested action and choose how to continue.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else if requiresFallbackResponse {
+                    TextField(
+                        "Enter the requested information",
+                        text: $fallbackResponse,
+                        axis: .vertical
+                    )
+                    .lineLimit(2...5)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Your response")
+                    Text("Respond to continue.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 } else if formFields.isEmpty {
@@ -111,7 +124,9 @@ public struct ElicitationOverlay: View {
                         }
                     } else {
                         Button("Submit") {
-                            let payload = forgeRuntime != nil ? forgeFormPayload : formPayload()
+                            let payload = requiresFallbackResponse
+                                ? fallbackElicitationPayload(fallbackResponse)
+                                : (forgeRuntime != nil ? forgeFormPayload : formPayload())
                             onResolve("accept", payload)
                         }
                         .disabled(isResolving || (forgeRuntime == nil && validationMessage != nil))
@@ -140,6 +155,10 @@ public struct ElicitationOverlay: View {
 
     private var approvalMode: Bool {
         approvalMeta != nil
+    }
+
+    private var requiresFallbackResponse: Bool {
+        !approvalMode && formFields.isEmpty && (pending?.url?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
     }
 
     private var approvalMeta: ApprovalMeta? {
@@ -254,6 +273,9 @@ public struct ElicitationOverlay: View {
     }
 
     private var validationMessage: String? {
+        if requiresFallbackResponse && !fallbackElicitationCanSubmit(fallbackResponse) {
+            return "Enter a response to continue."
+        }
         let invalidFieldTitles = formFields
             .compactMap(fieldValidationMessage(for:))
 
@@ -1011,6 +1033,15 @@ public struct ElicitationOverlay: View {
             return (field.name, .string(trimmed))
         }
     }
+}
+
+func fallbackElicitationCanSubmit(_ response: String) -> Bool {
+    !response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+}
+
+func fallbackElicitationPayload(_ response: String) -> [String: AppJSONValue] {
+    let normalized = response.trimmingCharacters(in: .whitespacesAndNewlines)
+    return normalized.isEmpty ? [:] : ["response": .string(normalized)]
 }
 
 struct SchemaField {
