@@ -81,12 +81,41 @@ class ForgeFenceRuntimeTest {
                     "kind" to JsonPrimitive("tableBlock"),
                     "title" to JsonPrimitive("Daily delivery"),
                     "description" to JsonPrimitive("Delivery by date"),
+                    "link" to JsonObject(mapOf("href" to JsonPrimitive("detailUrl"))),
                     "datasetRef" to JsonPrimitive("daily_rows"),
                     "columns" to JsonArray(listOf(JsonObject(mapOf(
                         "key" to JsonPrimitive("spend"),
                         "label" to JsonPrimitive("Spend"),
+                        "type" to JsonPrimitive("link"),
+                        "link" to JsonObject(mapOf("href" to JsonPrimitive("detailUrl"))),
                         "cellVisual" to JsonObject(mapOf("kind" to JsonPrimitive("dataBar")))
                     ))))
+                )),
+                JsonObject(mapOf(
+                    "id" to JsonPrimitive("trend"),
+                    "kind" to JsonPrimitive("chartBlock"),
+                    "title" to JsonPrimitive("Delivery trend"),
+                    "description" to JsonPrimitive("Interactive chart copy"),
+                    "datasetRef" to JsonPrimitive("daily_rows"),
+                    "chartSpec" to JsonObject(mapOf("type" to JsonPrimitive("line"))),
+                    "chartModel" to JsonObject(mapOf("type" to JsonPrimitive("line")))
+                )),
+                JsonObject(mapOf(
+                    "id" to JsonPrimitive("states"),
+                    "kind" to JsonPrimitive("geoMapBlock"),
+                    "title" to JsonPrimitive("State reach"),
+                    "description" to JsonPrimitive("Interactive map copy"),
+                    "datasetRef" to JsonPrimitive("state_rows"),
+                    "geo" to JsonObject(mapOf("key" to JsonPrimitive("stateCode")))
+                )),
+                JsonObject(mapOf(
+                    "id" to JsonPrimitive("findings"),
+                    "kind" to JsonPrimitive("collectionBlock"),
+                    "title" to JsonPrimitive("Findings"),
+                    "datasetRef" to JsonPrimitive("finding_rows"),
+                    "itemTitleField" to JsonPrimitive("finding"),
+                    "toneField" to JsonPrimitive("importance"),
+                    "bodyTemplate" to JsonPrimitive("**Feasibility:** ${'$'}{row.feasibility}\n**Driver:** ${'$'}{row.driver}\n**Next check:** ${'$'}{row.next_check}")
                 ))
             ))
         ))
@@ -98,6 +127,9 @@ class ForgeFenceRuntimeTest {
         val badges = blocks[2] as JsonObject
         val infoPanel = blocks[3] as JsonObject
         val table = blocks[4] as JsonObject
+        val chart = blocks[5] as JsonObject
+        val geo = blocks[6] as JsonObject
+        val collection = blocks[7] as JsonObject
 
         assertEquals(JsonPrimitive("Last seven days"), kpi["description"])
         assertEquals(null, kpi["subtitle"])
@@ -110,9 +142,26 @@ class ForgeFenceRuntimeTest {
         assertEquals(JsonPrimitive("markdownBlock"), infoPanel["kind"])
         assertEquals(JsonPrimitive("Capacity detail"), infoPanel["markdown"])
         assertEquals(null, table["description"])
+        assertEquals(null, table["link"])
+        val tableColumn = (table["columns"] as JsonArray)[0] as JsonObject
+        assertEquals(JsonPrimitive("link"), tableColumn["kind"])
+        assertEquals(null, tableColumn["type"])
+        assertEquals(null, tableColumn["link"])
         assertEquals(
             JsonPrimitive("dataBar"),
-            (((table["columns"] as JsonArray)[0] as JsonObject)["cellVisual"] as JsonObject)["kind"]
+            (tableColumn["cellVisual"] as JsonObject)["kind"]
+        )
+        assertEquals(null, chart["description"])
+        assertEquals(JsonPrimitive("line"), (chart["chartSpec"] as JsonObject)["type"])
+        assertEquals(null, geo["description"])
+        assertEquals(JsonPrimitive("tableBlock"), geo["kind"])
+        assertEquals(listOf("stateCode"), (geo["columns"] as JsonArray).map {
+            ((it as JsonObject)["key"] as JsonPrimitive).content
+        })
+        assertEquals(JsonPrimitive("tableBlock"), collection["kind"])
+        assertEquals(
+            listOf("finding", "importance", "feasibility", "driver", "next_check"),
+            (collection["columns"] as JsonArray).map { ((it as JsonObject)["key"] as JsonPrimitive).content }
         )
     }
 

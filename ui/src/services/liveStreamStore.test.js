@@ -56,6 +56,19 @@ describe('normalizeStreamingDelta', () => {
   it('ignores an exactly replayed delta', () => {
     expect(normalizeStreamingDelta('report payload', 'report payload')).toBe('');
   });
+
+  it('removes a partially overlapping rolling Forge snapshot', () => {
+    const existing = '```forge-report\n{"version":1,"scope":"message","id":"line_7377837_performance","sequence":';
+    const incoming = '"id":"line_7377837_performance","sequence":1,"mode":"start"}\n```';
+
+    expect(normalizeStreamingDelta(existing, incoming))
+      .toBe('1,"mode":"start"}\n```');
+  });
+
+  it('preserves partial overlap in ordinary streamed content', () => {
+    expect(normalizeStreamingDelta('A regular answer repeats this phrase', 'this phrase intentionally'))
+      .toBe('this phrase intentionally');
+  });
 });
 
 describe('applyStreamChunk', () => {
@@ -71,6 +84,25 @@ describe('applyStreamChunk', () => {
     expect(chatState.liveRows[0]._streamContent)
       .toBe('```forge-report\n{"version":1,"id":"brief"}');
     expect(chatState.liveRows[0].content).not.toContain('version```forge-report');
+  });
+
+  it('reassembles partially overlapping forge-report chunks into valid fenced JSON', () => {
+    const chatState = { activeStreamTurnId: 'turn-overlap', liveRows: [] };
+    applyStreamChunk(chatState, {
+      id: 'message-overlap',
+      turnId: 'turn-overlap',
+      content: '```forge-report\n{"version":1,"scope":"message","id":"line_7377837_performance","sequence":'
+    }, 'conv-1');
+    applyStreamChunk(chatState, {
+      id: 'message-overlap',
+      turnId: 'turn-overlap',
+      content: '"id":"line_7377837_performance","sequence":1,"mode":"start","blocks":[]}\n```'
+    }, 'conv-1');
+
+    expect(chatState.liveRows[0]._streamContent).toBe(
+      '```forge-report\n{"version":1,"scope":"message","id":"line_7377837_performance","sequence":1,"mode":"start","blocks":[]}\n```'
+    );
+    expect(chatState.liveRows[0].content).toBe(chatState.liveRows[0]._streamContent);
   });
 
   it('never compares a new turn delta against another turn streaming row', () => {
