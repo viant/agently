@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
    LastUpgradeVersion = "1430"
-   version = "1.7">
+   version = "1.3">
    <BuildAction
       parallelizeBuildables = "YES"
-      buildImplicitDependencies = "YES"
-      runPostActionsOnFailure = "NO">
+      buildImplicitDependencies = "YES">
       <BuildActionEntries>
          <BuildActionEntry
             buildForTesting = "YES"
@@ -16,7 +15,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "BADA8F9AC9789B464366A87A"
-               BuildableName = "AgentlyApp.app"
+               BuildableName = "Agently.app"
                BlueprintName = "AgentlyApp"
                ReferencedContainer = "container:AgentlyApp.xcodeproj">
             </BuildableReference>
@@ -41,21 +40,26 @@
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "NO"
-      onlyGenerateCoverageForSpecifiedTargets = "NO">
+      shouldUseLaunchSchemeArgsEnv = "NO">
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "BADA8F9AC9789B464366A87A"
-            BuildableName = "AgentlyApp.app"
+            BuildableName = "Agently.app"
             BlueprintName = "AgentlyApp"
             ReferencedContainer = "container:AgentlyApp.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
+      <EnvironmentVariables>
+         <EnvironmentVariable
+            key = "AGENTLY_IOS_LIVE_UI_TESTS"
+            value = "1"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
       <Testables>
          <TestableReference
-            skipped = "NO"
-            parallelizable = "NO">
+            skipped = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "2B82F87229787B1CB8A45FEC"
@@ -65,15 +69,6 @@
             </BuildableReference>
          </TestableReference>
       </Testables>
-      <CommandLineArguments>
-      </CommandLineArguments>
-      <EnvironmentVariables>
-         <EnvironmentVariable
-            key = "AGENTLY_IOS_LIVE_UI_TESTS"
-            value = "1"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-      </EnvironmentVariables>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
@@ -90,7 +85,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "BADA8F9AC9789B464366A87A"
-            BuildableName = "AgentlyApp.app"
+            BuildableName = "Agently.app"
             BlueprintName = "AgentlyApp"
             ReferencedContainer = "container:AgentlyApp.xcodeproj">
          </BuildableReference>
@@ -107,7 +102,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "BADA8F9AC9789B464366A87A"
-            BuildableName = "AgentlyApp.app"
+            BuildableName = "Agently.app"
             BlueprintName = "AgentlyApp"
             ReferencedContainer = "container:AgentlyApp.xcodeproj">
          </BuildableReference>
