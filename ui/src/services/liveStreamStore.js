@@ -1098,7 +1098,36 @@ export function normalizeStreamingDelta(existing = '', incoming = '') {
   // multiplying a report payload in the visible transcript.
   if (next.startsWith(current)) return next.slice(current.length);
   if (current.endsWith(next)) return '';
+  // A few provider/reconnect paths send a rolling window rather than either a
+  // true delta or a full cumulative snapshot. For Forge transport this can
+  // repeat part of the JSON and corrupt both the payload and its closing fence.
+  // Only collapse a substantial, exact suffix/prefix overlap for Forge streams;
+  // ordinary prose and code fences must retain repeated text verbatim.
+  if (/^```forge-(?:report|data|ui)(?:\r?\n|(?=[\[{]))/i.test(current)) {
+    const overlap = suffixPrefixOverlapLength(current, next);
+    if (overlap >= 12) return next.slice(overlap);
+  }
   return next;
+}
+
+function suffixPrefixOverlapLength(current = '', next = '') {
+  if (!current || !next) return 0;
+
+  // KMP prefix table keeps this linear even when report snapshots are large.
+  const prefix = new Array(next.length).fill(0);
+  for (let index = 1, matched = 0; index < next.length; index += 1) {
+    while (matched > 0 && next[index] !== next[matched]) matched = prefix[matched - 1];
+    if (next[index] === next[matched]) matched += 1;
+    prefix[index] = matched;
+  }
+
+  let matched = 0;
+  for (const ch of current) {
+    while (matched > 0 && ch !== next[matched]) matched = prefix[matched - 1];
+    if (ch === next[matched]) matched += 1;
+    if (matched === next.length) matched = prefix[matched - 1];
+  }
+  return matched;
 }
 
 export function applyStreamChunk(chatState = {}, payload = {}, conversationID = '') {
