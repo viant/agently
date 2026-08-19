@@ -445,6 +445,9 @@ Tasks:
 - Verified Android Gradle builds under JDK 17 with:
   - `gradle :app:testDebugUnitTest`
   - `gradle test` in `agently-core/sdk/android`
+- Android app build, ADB reverse proxy, deployment, and device verification are
+  centralized in `deployment/mobile/android/run.yaml`; see `doc/android.md` for
+  the supported Endly tasks.
 - Added a workspace-level `/Users/awitas/go/src/github.com/viant/go.work` for
   local multi-repo development instead of relying on committed module-level
   `replace` directives

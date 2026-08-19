@@ -65,6 +65,22 @@ final class ComposerRuntimeTests: XCTestCase {
     }
 
     @MainActor
+    func testComposerEditorProjectionHidesRawLookupTokenInsideInput() async throws {
+        let runtime = ComposerRuntime()
+        try await configureLookupRuntime(runtime)
+        runtime.query = "Troubleshoot /order for delivery issues"
+
+        let projection = ComposerEditorProjection(
+            source: runtime.query,
+            occurrences: runtime.lookupOccurrences
+        )
+
+        XCTAssertEqual(projection.display, "Troubleshoot for delivery issues")
+        XCTAssertFalse(projection.display.contains("/order"))
+        XCTAssertEqual(projection.sourceOffset(forDisplayOffset: 13), 20)
+    }
+
+    @MainActor
     func testChangingQueryPrunesStaleLookupSelections() async throws {
         let runtime = ComposerRuntime()
         try await configureLookupRuntime(runtime)
@@ -120,6 +136,27 @@ final class ComposerRuntimeTests: XCTestCase {
             composerEditorHeight(query: longPrompt, density: .regular, horizontalSizeClass: .regular),
             82
         )
+    }
+
+    @MainActor
+    func testRecognizedTextIsInsertedAtCaretAndPreservesSuffix() {
+        let runtime = ComposerRuntime()
+        runtime.query = "Troubleshoot  and summarize delivery"
+
+        let cursor = runtime.insertRecognizedText("order 2674628", atUTF16Offset: 13)
+
+        XCTAssertEqual(runtime.query, "Troubleshoot order 2674628 and summarize delivery")
+        XCTAssertEqual(cursor, 26)
+    }
+
+    @MainActor
+    func testRecognizedTextPopulatesBlankComposer() {
+        let runtime = ComposerRuntime()
+
+        let cursor = runtime.insertRecognizedText(" troubleshoot order 2674628 ", atUTF16Offset: 0)
+
+        XCTAssertEqual(runtime.query, "troubleshoot order 2674628")
+        XCTAssertEqual(cursor, 26)
     }
 
     @MainActor

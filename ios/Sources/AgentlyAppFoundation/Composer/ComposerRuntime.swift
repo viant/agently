@@ -152,13 +152,25 @@ public final class ComposerRuntime: ObservableObject {
     }
 
     public func appendRecognizedText(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            query = trimmed
-        } else {
-            query += "\n" + trimmed
+        _ = insertRecognizedText(text, atUTF16Offset: (query as NSString).length)
+    }
+
+    @discardableResult
+    public func insertRecognizedText(_ text: String, atUTF16Offset requestedOffset: Int) -> Int {
+        let transcript = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !transcript.isEmpty else {
+            return min(max(0, requestedOffset), (query as NSString).length)
         }
+        let source = query as NSString
+        let offset = min(max(0, requestedOffset), source.length)
+        let prefix = source.substring(to: offset)
+        let suffix = source.substring(from: offset)
+        let leadingSeparator = prefix.last.map { $0.isWhitespace } == false ? " " : ""
+        let trailingSeparator = suffix.first.map { $0.isWhitespace } == false ? " " : ""
+        query = prefix + leadingSeparator + transcript + trailingSeparator + suffix
+        return (prefix as NSString).length
+            + (leadingSeparator as NSString).length
+            + (transcript as NSString).length
     }
 
     public func clearAttachments() {

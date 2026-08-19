@@ -3,6 +3,7 @@ package com.viant.agently.android
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -263,7 +264,13 @@ internal fun AppBody(
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .fillMaxSize(),
+                    .fillMaxSize()
+                    // On edge-to-edge Android windows, adjustResize keeps the
+                    // activity frame full-height and exposes the keyboard as an
+                    // inset. Apply it at the dock overlay boundary so the focused
+                    // editor and its lookup actions remain above the IME without
+                    // moving or recomposing the conversation surface beneath it.
+                    .imePadding(),
                 contentAlignment = Alignment.BottomCenter
             ) {
                 PhoneComposerDock(
@@ -279,6 +286,9 @@ internal fun AppBody(
                     onLookupClick = callbacks.onComposerLookupSelected,
                     canCapturePhoto = mediaController.canCapturePhoto,
                     canUseVoiceInput = mediaController.canUseVoiceInput,
+                    voiceInputState = mediaController.voiceInputState,
+                    composerCursorPosition = mediaController.composerCursorPosition,
+                    onComposerCursorPositionChange = mediaController.updateComposerCursorPosition,
                     onAddPhoto = mediaController.launchPhotoPicker,
                     onTakePhoto = mediaController.launchCameraCapture,
                     onVoiceInput = mediaController.launchVoiceInput,

@@ -2292,10 +2292,50 @@ function renderPipeTable(body = '', generatedFiles = []) {
 export function normalizeLegacyForgeFenceBlocks(content = '') {
   const source = String(content || '').replace(/\r\n/g, '\n');
   const pattern = /(^|\n)(forge-(?:data|ui|report))\s*\n```json\s*\n?([\s\S]*?)\n```(?=\n|$)/gi;
-  return source.replace(pattern, (_, prefix, marker, body) => {
+  let normalized = source.replace(pattern, (_, prefix, marker, body) => {
     const normalizedBody = String(body || '').replace(/\n+$/, '');
     return `${prefix}\`\`\`${String(marker || '').toLowerCase()}\n${normalizedBody}\n\`\`\``;
   });
+
+  // Older Steward runs persisted the transport marker and JSON body without
+  // markdown fences. Normalize that form before describeContent() sees it;
+  // otherwise the full report payload leaks into the transcript and large
+  // reports can block the browser while React lays out the JSON text.
+  const legacy = /(^|\n)(forge-(?:data|ui|report))\s*\n(?=\{)/gi;
+  let match;
+  while ((match = legacy.exec(normalized))) {
+    const bodyStart = legacy.lastIndex;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let bodyEnd = -1;
+    for (let index = bodyStart; index < normalized.length; index += 1) {
+      const ch = normalized[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') { inString = true; continue; }
+      if (ch === '{') depth += 1;
+      else if (ch === '}') {
+        depth -= 1;
+        if (depth === 0) { bodyEnd = index + 1; break; }
+      }
+    }
+    if (bodyEnd < 0) break;
+    const body = normalized.slice(bodyStart, bodyEnd).trim();
+    try {
+      JSON.parse(body);
+      const replacement = `${match[1] || ''}\`\`\`${String(match[2] || '').toLowerCase()}\n${body}\n\`\`\``;
+      normalized = `${normalized.slice(0, match.index)}${replacement}${normalized.slice(bodyEnd)}`;
+      legacy.lastIndex = match.index + replacement.length;
+    } catch (_) {
+      legacy.lastIndex = bodyEnd;
+    }
+  }
+  return normalized;
 }
 
 export function normalizeLegacyForgeDescriptors(descriptors = []) {

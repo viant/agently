@@ -148,9 +148,22 @@ private struct TranscriptInlineReportView: View {
                 Button {
                     exportInlineReportPDF()
                 } label: {
-                    Label(isExportingPDF ? "Opening PDF…" : "Open PDF", systemImage: "doc.richtext")
+                    HStack(spacing: 8) {
+                        AppleToolbarActionIcon(
+                            systemImage: "doc.richtext.fill",
+                            color: Color(red: 0.82, green: 0.25, blue: 0.34),
+                            isLoading: isExportingPDF
+                        )
+                        Text(isExportingPDF ? "Opening PDF…" : "Open PDF")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .padding(.trailing, 12)
+                    .background(
+                        Color(red: 0.82, green: 0.25, blue: 0.34).opacity(0.08),
+                        in: Capsule()
+                    )
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
                 .disabled(isExportingPDF)
 
                 if let exportErrorMessage, !exportErrorMessage.isEmpty {

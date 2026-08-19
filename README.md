@@ -379,6 +379,10 @@ Agently is a multi-platform app:
 - `ios` — SwiftUI app using local `AgentlySDK` and `ForgeIOSPackage`
 - `android` — Compose app using local `agently-core-sdk` and `forge-sdk`
 
+Use the canonical [Android Endly build and deployment workflow](doc/android.md)
+for remote-workspace deployment, local Agently proxying, and device verification.
+Do not create a separate Android deployment workflow under `e2e`.
+
 ### Shared Target Context
 
 Platform targeting should use one shared shape across metadata requests, query

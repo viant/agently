@@ -36,6 +36,7 @@ import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -347,23 +348,28 @@ internal fun ConversationHistoryScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = if (activeConversationId.isNullOrBlank()) {
-                                Icons.AutoMirrored.Outlined.ArrowBack
-                            } else {
-                                Icons.Outlined.ChatBubbleOutline
-                            },
-                            contentDescription = if (activeConversationId.isNullOrBlank()) {
-                                "Back"
-                            } else {
-                                "Back to open conversation"
-                            }
-                        )
-                    }
-                    IconButton(onClick = onRefresh, enabled = !loading) {
-                        Icon(Icons.Outlined.Refresh, contentDescription = "Refresh conversations")
-                    }
+                    PhoneToolbarAction(
+                        icon = if (activeConversationId.isNullOrBlank()) {
+                            Icons.AutoMirrored.Outlined.ArrowBack
+                        } else {
+                            Icons.Outlined.ChatBubbleOutline
+                        },
+                        contentDescription = if (activeConversationId.isNullOrBlank()) {
+                            "Back"
+                        } else {
+                            "Back to open conversation"
+                        },
+                        onClick = onBack,
+                        accent = Color(0xFF5965D8)
+                    )
+                    PhoneToolbarAction(
+                        icon = Icons.Outlined.Refresh,
+                        contentDescription = "Refresh conversations",
+                        onClick = onRefresh,
+                        accent = Color(0xFF0A9B98),
+                        enabled = !loading,
+                        loading = loading
+                    )
                     if (loading) {
                         CircularProgressIndicator(modifier = Modifier.width(24.dp))
                     }
@@ -597,22 +603,19 @@ internal fun RecentConversationsSection(
                                 color = Color(0xFF98A2B3)
                             )
                         }
-                        OutlinedButton(
+                        PhoneToolbarAction(
+                            icon = Icons.Outlined.Visibility,
+                            contentDescription = when {
+                                isOpening -> "Opening conversation"
+                                isActive -> "Open current conversation"
+                                else -> "View conversation"
+                            },
                             onClick = { onSelectConversation(conversation.id) },
-                            enabled = !isOpening
-                        ) {
-                            if (isOpening) {
-                                CircularProgressIndicator(modifier = Modifier.width(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                            }
-                            Text(
-                                when {
-                                    isOpening -> "Opening..."
-                                    isActive -> "Current"
-                                    else -> "View"
-                                }
-                            )
-                        }
+                            accent = Color(0xFF1A73F0),
+                            enabled = !isOpening,
+                            selected = isActive,
+                            loading = isOpening
+                        )
                     }
                 }
             }
