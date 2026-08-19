@@ -24,7 +24,7 @@
 
 /* Begin PBXFileReference section */
 		25F809D4CEBC765DAD010885 /* Agently.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Agently.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		285194AF4DD1D1314861F793 /* AgentlyAppUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AgentlyAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		285194AF4DD1D1314861F793 /* AgentlyAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentlyAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		91E8795F12F3D76FDAE5F7DC /* ForecastingPrefillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForecastingPrefillUITests.swift; sourceTree = "<group>"; };
 		B54B14961D6A4507F32CBC7D /* AgentlyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentlyApp.swift; sourceTree = "<group>"; };
 		D54098DCED9F43327E19B190 /* ios */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ios; path = .; sourceTree = SOURCE_ROOT; };
@@ -134,7 +134,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 1430;
+				LastUpgradeCheck = 2660;
 				TargetAttributes = {
 					2B82F87229787B1CB8A45FEC = {
 						TestTargetID = BADA8F9AC9789B464366A87A;
@@ -253,6 +253,7 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -267,6 +268,7 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = Agently;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.9;
@@ -311,6 +313,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -332,6 +335,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = Agently;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.9;
