@@ -25,14 +25,12 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
@@ -338,9 +336,9 @@ internal fun ConversationHistoryScreen(
                     style = MaterialTheme.typography.labelMedium,
                     color = Color(0xFF667085)
                 )
-                Text("Conversation History", style = MaterialTheme.typography.headlineSmall)
+                Text("Conversations", style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    "Browse recent threads and jump back into an earlier conversation.",
+                    "Search and open a workspace conversation.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFF667085)
                 )
@@ -349,16 +347,8 @@ internal fun ConversationHistoryScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     PhoneToolbarAction(
-                        icon = if (activeConversationId.isNullOrBlank()) {
-                            Icons.AutoMirrored.Outlined.ArrowBack
-                        } else {
-                            Icons.Outlined.ChatBubbleOutline
-                        },
-                        contentDescription = if (activeConversationId.isNullOrBlank()) {
-                            "Back"
-                        } else {
-                            "Back to open conversation"
-                        },
+                        icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                        contentDescription = "Back",
                         onClick = onBack,
                         accent = Color(0xFF5965D8)
                     )
@@ -370,9 +360,6 @@ internal fun ConversationHistoryScreen(
                         enabled = !loading,
                         loading = loading
                     )
-                    if (loading) {
-                        CircularProgressIndicator(modifier = Modifier.width(24.dp))
-                    }
                 }
                 OutlinedTextField(
                     value = query,
@@ -426,48 +413,56 @@ internal fun ConversationHistoryScreen(
         filteredConversations.forEach { conversation ->
             val isActive = conversation.id == activeConversationId
             val isOpening = conversation.id == openingConversationId
-            Card(
+            Surface(
+                color = if (isActive) Color(0xFFF2F6FF) else Color.White,
+                border = BorderStroke(
+                    1.dp,
+                    if (isActive) Color(0xFFB2CCFF) else Color(0xFFE4E7EC)
+                ),
+                shape = MaterialTheme.shapes.large,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(enabled = !isOpening) { onSelectConversation(conversation.id) }
             ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        conversationHistoryTitle(conversation),
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    conversationHistorySummary(conversation).takeIf { it.isNotBlank() }?.let { summary ->
-                        Text(
-                            summary,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF667085)
-                        )
-                    }
-                    Text(
-                        formatTimestampLabel(conversation.lastActivity ?: conversation.createdAt) ?: "Recent conversation",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF667085)
-                    )
-                    OutlinedButton(
-                        onClick = { onSelectConversation(conversation.id) },
-                        enabled = !isOpening,
-                        modifier = Modifier.fillMaxWidth()
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        if (isOpening) {
-                            CircularProgressIndicator(modifier = Modifier.width(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            conversationHistoryTitle(conversation),
+                            style = MaterialTheme.typography.titleSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        conversationHistorySummary(conversation).takeIf { it.isNotBlank() }?.let { summary ->
+                            Text(
+                                summary,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF667085),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                         Text(
-                            when {
-                                isOpening -> "Opening..."
-                                isActive -> "Return to conversation"
-                                else -> "Open conversation"
-                            }
+                            formatConversationRecency(conversation.lastActivity ?: conversation.createdAt) ?: "Recent",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF98A2B3)
                         )
                     }
+                    PhoneToolbarAction(
+                        icon = Icons.Outlined.Visibility,
+                        contentDescription = "Open conversation",
+                        onClick = { onSelectConversation(conversation.id) },
+                        accent = Color(0xFF1A73F0),
+                        enabled = !isOpening,
+                        selected = isActive,
+                        loading = isOpening
+                    )
                 }
             }
         }
