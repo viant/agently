@@ -15,6 +15,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -76,6 +77,7 @@ internal fun ElicitationOverlay(
     var approvalValues by remember(elicitation.elicitationId, approvalMeta) {
         mutableStateOf(buildApprovalEditorState(approvalMeta))
     }
+    var fallbackResponse by remember(elicitation.elicitationId) { mutableStateOf("") }
 
     LaunchedEffect(elicitation.elicitationId, preparedSchema, isOob) {
         error = null
@@ -212,6 +214,15 @@ internal fun ElicitationOverlay(
                         )
                     }
                 } else if (visiblePropertyCount == 0) {
+                    OutlinedTextField(
+                        value = fallbackResponse,
+                        onValueChange = { fallbackResponse = it },
+                        label = { Text("Your response") },
+                        placeholder = { Text("Enter the requested information") },
+                        minLines = 2,
+                        maxLines = 5,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                     Text(
                         text = "Respond to continue.",
                         style = MaterialTheme.typography.bodySmall,
@@ -256,11 +267,18 @@ internal fun ElicitationOverlay(
                         resolve("accept", emptyMap(), openUrl = true)
                     } else if (approvalMeta != null) {
                         resolve("accept", mapOf("editedFields" to JsonObject(approvalValues)))
+                    } else if (visiblePropertyCount == 0) {
+                        resolve("accept", fallbackElicitationPayload(fallbackResponse))
                     } else {
                         resolve("accept", formState.toJsonPayload())
                     }
                 },
-                enabled = !submitting && (isOob || approvalMeta != null || activeWindowId != null)
+                enabled = !submitting && (
+                    isOob ||
+                        approvalMeta != null ||
+                        activeWindowId != null ||
+                        fallbackElicitationCanSubmit(fallbackResponse)
+                    )
             ) {
                 if (submitting) {
                     CircularProgressIndicator(
@@ -279,6 +297,13 @@ internal fun ElicitationOverlay(
             }
         }
     )
+}
+
+internal fun fallbackElicitationCanSubmit(response: String): Boolean = response.isNotBlank()
+
+internal fun fallbackElicitationPayload(response: String): Map<String, JsonElement> {
+    val normalized = response.trim()
+    return if (normalized.isEmpty()) emptyMap() else mapOf("response" to JsonPrimitive(normalized))
 }
 
 internal fun buildElicitationWindow(schema: JsonObject): WindowMetadata {

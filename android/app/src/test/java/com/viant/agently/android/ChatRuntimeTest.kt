@@ -246,6 +246,56 @@ class ChatRuntimeTest {
     }
 
     @Test
+    fun sanitizeVisibleAssistantText_stripsPureRouterPayload() {
+        val raw = """{"classification":{"title":"Show entity 7391245","intent":"entity_lookup","confidence":0.72},"directAction":null,"prompting":{"appendToolBundles":["orchestrator"]}}"""
+
+        assertNull(sanitizeVisibleAssistantText(raw))
+    }
+
+    @Test
+    fun sanitizeVisibleAssistantText_preservesHumanPrefix() {
+        val raw = """
+            I need the entity type before opening 7391245. {
+              "classification": {"intent":"entity_lookup"},
+              "prompting": {"appendToolBundles":["orchestrator"]}
+            }
+        """.trimIndent()
+
+        assertEquals("I need the entity type before opening 7391245.", sanitizeVisibleAssistantText(raw))
+    }
+
+    @Test
+    fun transcriptWithActiveAssistant_skipsNewestRouterPayload() {
+        val snapshot = ConversationStreamSnapshot(
+            conversationId = "conv-1",
+            activeTurnId = "turn-1",
+            feeds = emptyList(),
+            pendingElicitation = null,
+            bufferedMessages = listOf(
+                BufferedMessage(
+                    id = "human",
+                    turnId = "turn-1",
+                    role = "assistant",
+                    content = "I need the entity type before opening 7391245."
+                ),
+                BufferedMessage(
+                    id = "router",
+                    turnId = "turn-1",
+                    role = "assistant",
+                    content = """{"classification":{"intent":"entity_lookup"},"prompting":{"appendToolBundles":["orchestrator"]}}"""
+                )
+            ),
+            liveExecutionGroupsById = emptyMap()
+        )
+
+        val display = transcriptWithActiveAssistant(emptyList(), snapshot)
+
+        assertEquals(1, display.size)
+        assertEquals("human", display.single().id)
+        assertEquals("I need the entity type before opening 7391245.", display.single().markdown)
+    }
+
+    @Test
     fun parseConversationActivityInstantMillis_handlesGoMonotonicSuffix() {
         val parsed = parseConversationActivityInstantMillis(
             "2026-06-02 11:44:30.288943 -0700 PDT m=+9154.487875251"

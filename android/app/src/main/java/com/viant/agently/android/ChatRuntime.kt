@@ -62,8 +62,7 @@ internal fun latestActiveNarration(snapshot: ConversationStreamSnapshot?): Strin
                 !message.narration.isNullOrBlank()
         }
         ?.narration
-        ?.trim()
-        ?.takeIf { it.isNotEmpty() }
+        ?.let(::sanitizeVisibleAssistantText)
 }
 
 internal fun transcriptWithActiveAssistant(
@@ -94,33 +93,39 @@ private fun activeAssistantEntry(snapshot: ConversationStreamSnapshot): ChatEntr
     if (activeTurnId.isBlank()) {
         return null
     }
-    val latest = snapshot.bufferedMessages
-        .asReversed()
-        .firstOrNull { message ->
-            message.role.equals("assistant", ignoreCase = true) &&
-                message.turnId?.trim() == activeTurnId &&
-                (!message.content.isNullOrBlank() ||
-                    !message.narration.isNullOrBlank() ||
-                    snapshot.liveExecutionGroupsById[message.id]?.renderedContent?.reports?.isNotEmpty() == true)
+    var latest: BufferedMessage? = null
+    var markdown = ""
+    var rendered: RenderedContent? = null
+    snapshot.bufferedMessages.asReversed().forEach { message ->
+        if (latest != null ||
+            !message.role.equals("assistant", ignoreCase = true) ||
+            message.turnId?.trim() != activeTurnId
+        ) {
+            return@forEach
         }
-        ?: return null
-    val markdown = combineAssistantMarkdown(latest).orEmpty()
-    val rendered = snapshot.liveExecutionGroupsById[latest.id]?.renderedContent
-    if (markdown.isBlank() && rendered?.reports.isNullOrEmpty()) return null
+        val candidateMarkdown = combineAssistantMarkdown(message).orEmpty()
+        val candidateRendered = snapshot.liveExecutionGroupsById[message.id]?.renderedContent
+        if (candidateMarkdown.isNotBlank() || candidateRendered?.reports?.isNotEmpty() == true) {
+            latest = message
+            markdown = candidateMarkdown
+            rendered = candidateRendered
+        }
+    }
+    val visibleLatest = latest ?: return null
     return ChatEntry(
-        id = latest.id,
+        id = visibleLatest.id,
         role = "assistant",
         markdown = markdown,
         renderedParts = rendered?.parts,
         renderedReports = rendered?.let(::canonicalReports)?.takeIf { it.isNotEmpty() },
         streaming = true,
-        timestampLabel = formatTimestampLabel(latest.createdAt)
+        timestampLabel = formatTimestampLabel(visibleLatest.createdAt)
     )
 }
 
 private fun combineAssistantMarkdown(message: BufferedMessage): String? {
-    val narration = message.narration?.trim().orEmpty()
-    val content = message.content?.trim().orEmpty()
+    val narration = sanitizeVisibleAssistantText(message.narration).orEmpty()
+    val content = sanitizeVisibleAssistantText(message.content).orEmpty()
     return when {
         narration.isNotEmpty() && content.isNotEmpty() -> "$narration\n\n$content"
         content.isNotEmpty() -> content
@@ -161,8 +166,8 @@ internal fun transcriptFromState(state: ConversationStateResponse): List<ChatEnt
         val assistantMessages = listOfNotNull(turn.assistant?.narration, turn.assistant?.final)
         val assistantId = turn.assistant?.final?.messageId ?: turn.assistant?.narration?.messageId
         val assistantContent = buildString {
-            val narration = turn.assistant?.narration?.content?.trim().orEmpty()
-            val final = turn.assistant?.final?.content?.trim().orEmpty()
+            val narration = sanitizeVisibleAssistantText(turn.assistant?.narration?.content).orEmpty()
+            val final = sanitizeVisibleAssistantText(turn.assistant?.final?.content).orEmpty()
             if (narration.isNotEmpty()) {
                 append(narration)
             }
@@ -193,7 +198,7 @@ private fun canonicalAssistantParts(messages: List<AssistantMessageState>): List
     if (messages.none { it.renderedContent != null }) return null
     return messages.flatMap { message ->
         message.renderedContent?.parts.orEmpty().ifEmpty {
-            message.content?.takeIf { it.isNotBlank() }
+            sanitizeVisibleAssistantText(message.content)
                 ?.let { listOf(RenderedContentPart(kind = "markdown", text = it)) }
                 .orEmpty()
         }
