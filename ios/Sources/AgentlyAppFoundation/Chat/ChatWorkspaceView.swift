@@ -199,7 +199,18 @@ struct ChatWorkspaceView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(starterTaskAccessibilityIdentifier(task))
     }
+}
+
+private func starterTaskAccessibilityIdentifier(_ task: StarterTask) -> String {
+    let title = (task.title ?? "task")
+        .lowercased()
+        .map { $0.isLetter || $0.isNumber ? $0 : "-" }
+    let normalized = String(title)
+        .replacingOccurrences(of: "-+", with: "-", options: .regularExpression)
+        .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    return "agently-starter-task-\(normalized.isEmpty ? "task" : normalized)"
 }
 
 private func humanizedAgentLabel(_ value: String) -> String {

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -30,8 +31,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Clear
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Visibility
@@ -276,12 +278,14 @@ internal fun ConversationHistoryScreen(
     loading: Boolean,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
-    onSelectConversation: (String) -> Unit
+    onSelectConversation: (String) -> Unit,
+    onDeleteConversation: (String) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
     var remoteQuery by remember { mutableStateOf("") }
     var remoteConversations by remember { mutableStateOf<List<Conversation>>(emptyList()) }
     var remoteSearching by remember { mutableStateOf(false) }
+    var pendingDeletion by remember { mutableStateOf<Conversation?>(null) }
     LaunchedEffect(query, client) {
         val normalized = query.trim()
         if (normalized.length < 2) {
@@ -331,35 +335,45 @@ internal fun ConversationHistoryScreen(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text(
-                    workspaceTitle,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFF667085)
-                )
-                Text("Conversations", style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    "Search and open a workspace conversation.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF667085)
-                )
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    PhoneToolbarAction(
-                        icon = Icons.AutoMirrored.Outlined.ArrowBack,
-                        contentDescription = "Back",
-                        onClick = onBack,
-                        accent = Color(0xFF5965D8)
-                    )
-                    PhoneToolbarAction(
-                        icon = Icons.Outlined.Refresh,
-                        contentDescription = "Refresh conversations",
-                        onClick = onRefresh,
-                        accent = Color(0xFF0A9B98),
-                        enabled = !loading,
-                        loading = loading
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            workspaceTitle,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color(0xFF667085)
+                        )
+                        Text("History", style = MaterialTheme.typography.headlineSmall)
+                        Text(
+                            "Search and open a workspace conversation.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFF667085),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        PhoneToolbarAction(
+                            icon = Icons.Outlined.Home,
+                            contentDescription = "Home",
+                            onClick = onBack,
+                            accent = Color(0xFF5965D8)
+                        )
+                        PhoneToolbarAction(
+                            icon = Icons.Outlined.Refresh,
+                            contentDescription = "Refresh conversations",
+                            onClick = onRefresh,
+                            accent = Color(0xFF0A9B98),
+                            enabled = !loading,
+                            loading = loading
+                        )
+                    }
                 }
                 OutlinedTextField(
                     value = query,
@@ -463,10 +477,44 @@ internal fun ConversationHistoryScreen(
                         selected = isActive,
                         loading = isOpening
                     )
+                    PhoneToolbarAction(
+                        icon = Icons.Outlined.DeleteOutline,
+                        contentDescription = "Delete conversation",
+                        onClick = { pendingDeletion = conversation },
+                        accent = Color(0xFFB42318),
+                        enabled = !isOpening && !loading
+                    )
                 }
             }
         }
         Spacer(modifier = Modifier.height(24.dp))
+    }
+    pendingDeletion?.let { conversation ->
+        AlertDialog(
+            onDismissRequest = { pendingDeletion = null },
+            title = { Text("Delete conversation?") },
+            text = {
+                Text(
+                    "Delete \"${conversationHistoryTitle(conversation)}\" and its history? " +
+                        "This action can’t be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDeletion = null
+                        onDeleteConversation(conversation.id)
+                    }
+                ) {
+                    Text("Delete", color = Color(0xFFB42318))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeletion = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 

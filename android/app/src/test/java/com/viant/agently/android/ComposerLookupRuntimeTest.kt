@@ -202,6 +202,14 @@ class ComposerLookupRuntimeTest {
             composerLookupSearchInputs(entry, "Delivery Troubleshoot")
                 ?.get("q")?.jsonPrimitive?.content
         )
+        assertEquals(
+            listOf("orderId", "q"),
+            composerLookupSearchInputCandidates(entry, "2688386").mapNotNull { it?.keys?.singleOrNull() }
+        )
+        assertEquals(
+            listOf("q", "orderId"),
+            composerLookupSearchInputCandidates(entry, "Delivery Troubleshoot").mapNotNull { it?.keys?.singleOrNull() }
+        )
     }
 
     @Test

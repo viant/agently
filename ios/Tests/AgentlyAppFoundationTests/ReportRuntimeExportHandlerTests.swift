@@ -5,6 +5,18 @@ import ForgeIOSRuntime
 @testable import AgentlyAppFoundation
 
 final class ReportRuntimeExportHandlerTests: XCTestCase {
+    func testReportArtifactIDRecognizesAuthenticatedArtifactLinks() throws {
+        XCTAssertEqual(
+            reportArtifactID(from: try XCTUnwrap(URL(string: "scratchpad://artifact/3cf51e86-ba08-41be-9bf8-83b27ab9a275"))),
+            "3cf51e86-ba08-41be-9bf8-83b27ab9a275"
+        )
+        XCTAssertEqual(
+            reportArtifactID(from: try XCTUnwrap(URL(string: "https://workspace.example.com/__report_artifact__/artifact-2"))),
+            "artifact-2"
+        )
+        XCTAssertNil(reportArtifactID(from: try XCTUnwrap(URL(string: "https://example.com/report.pdf"))))
+    }
+
     func testReportRuntimeExportErrorHidesTransportURL() {
         let error = NSError(
             domain: "test",

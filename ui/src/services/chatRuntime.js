@@ -49,6 +49,7 @@ import {
 } from './liveStreamStore';
 import { buildCanonicalTranscriptRows, buildConversationRenderRows, isCanonicalTranscriptTurn } from './renderRows';
 import {
+  clearWorkspaceWindowsForNewConversation,
   getWindowById,
   MAIN_CHAT_WINDOW_ID,
   getScopedConversationSelection,
@@ -1536,7 +1537,8 @@ export async function hydrateMeta(context) {
 export function syncMessagesSnapshot(context, turns, reason = 'poll', pendingElicitations = []) {
   const chatState = ensureContextResources(context);
   const currentConversationID = String(getCurrentConversationID(context) || '').trim();
-  if (transcriptShouldBeIdle(chatState, currentConversationID)) {
+  const lateJoinHydration = reason === 'late-join';
+  if (transcriptShouldBeIdle(chatState, currentConversationID) && !lateJoinHydration) {
     logExecutorDebug('transcript-snapshot-skipped-live-owned', {
       conversationId: currentConversationID,
       reason,
@@ -1601,7 +1603,7 @@ export async function dsTick(context, options = {}) {
       window.__agentlyActiveChatState = chatState;
     } catch (_) {}
   }
-  if (shouldDeferTranscriptToLiveStream(context, requestedConversationID)) {
+  if (!options?.allowLiveHydration && shouldDeferTranscriptToLiveStream(context, requestedConversationID)) {
     logExecutorDebug('transcript-deferred-to-live', {
       conversationId: requestedConversationID,
       liveOwnedConversationID: String(chatState?.liveOwnedConversationID || '').trim(),
@@ -2588,8 +2590,10 @@ export async function switchConversation(context, conversationID = '') {
     const snapshot = await dsTick(context, {
       conversationID: targetID,
       transcript: {
-        includeExecutionDetails: !conversationLiveish,
+        includeExecutionDetails: true,
       },
+      allowLiveHydration: conversationLiveish,
+      reason: conversationLiveish ? 'late-join' : 'poll',
     });
     if (!isCurrentRequest()) return;
     if ((snapshot?.hasRunning || conversationLiveish) && !initialTransportActive) {
@@ -2613,8 +2617,10 @@ export async function switchConversation(context, conversationID = '') {
   const snapshot = await dsTick(context, {
     conversationID: targetID,
     transcript: {
-      includeExecutionDetails: !conversationLiveish,
+      includeExecutionDetails: true,
     },
+    allowLiveHydration: conversationLiveish,
+    reason: conversationLiveish ? 'late-join' : 'poll',
   });
   if (!isCurrentRequest()) return;
   if ((snapshot?.hasRunning || conversationLiveish) && !initialTransportActive) {
@@ -2743,6 +2749,10 @@ export async function createNewConversation(context) {
   const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
   if (!conversationsDS) return false;
   const currentForm = conversationsDS.peekFormData?.() || {};
+  // New chat can originate from the composer, Report Builder, or another
+  // hosted workspace surface. Clear conversation-owned windows here as the
+  // common boundary so a direct caller cannot leave the old report mounted.
+  clearWorkspaceWindowsForNewConversation();
   clearFeedStateForConversation(resolveFeedResetConversationId(chatState, String(currentForm?.id || '').trim()));
   if (chatState.pendingConversationPromise) {
     try {

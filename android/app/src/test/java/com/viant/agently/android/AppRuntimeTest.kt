@@ -6,9 +6,13 @@ import com.viant.agentlysdk.AuthProvider
 import com.viant.agentlysdk.AuthUser
 import com.viant.agentlysdk.Conversation
 import com.viant.agentlysdk.ConversationStateResponse
+import com.viant.agentlysdk.EndpointConfig
 import com.viant.agentlysdk.MetadataTargetContext
 import com.viant.agentlysdk.PendingToolApproval
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.coroutines.runBlocking
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -120,6 +124,32 @@ class AppRuntimeTest {
         }.exceptionOrNull()
 
         assertNotNull(error)
+    }
+
+    @Test
+    fun `auth session resolution reuses the provider probe response`() {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("""[{"name":"bff","type":"bff"}]"""))
+        server.start()
+        try {
+            val baseUrl = server.url("/").toString().trimEnd('/')
+            val client = AgentlyClient(mapOf("appAPI" to EndpointConfig(baseUrl = baseUrl)))
+
+            val resolved = runBlocking {
+                resolveAuthSessionClient(
+                    currentBaseUrl = baseUrl,
+                    candidates = listOf(baseUrl),
+                    currentClient = client,
+                    buildClient = { client }
+                )
+            }
+
+            assertEquals("bff", resolved.providers.single().name)
+            assertEquals(1, server.requestCount)
+            assertEquals("/v1/api/auth/providers", server.takeRequest().path)
+        } finally {
+            server.shutdown()
+        }
     }
 
     @Test

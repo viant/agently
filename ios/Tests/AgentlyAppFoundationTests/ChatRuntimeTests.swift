@@ -61,7 +61,34 @@ final class ChatRuntimeTests: XCTestCase {
             liveExecutionGroupsByID: [:]
         )
 
-        XCTAssertEqual(runtime.latestAssistantMarkdown(snapshot: snapshot), "Heads up\n\nLatest")
+        XCTAssertEqual(runtime.latestAssistantMarkdown(snapshot: snapshot), "Latest")
+    }
+
+    @MainActor
+    func testActiveAssistantSuppressesIncompleteReportTransportAndKeepsNarration() {
+        let runtime = ChatRuntime()
+        let snapshot = ConversationStreamSnapshot(
+            conversationID: "conv-1",
+            activeTurnID: "turn-1",
+            feeds: [],
+            pendingElicitation: nil,
+            bufferedMessages: [
+                BufferedStreamMessage(
+                    id: "msg-1",
+                    conversationID: "conv-1",
+                    turnID: "turn-1",
+                    content: """
+                    ```forge-report
+                    {"version":1,"scope":"delivery","id":"review","blocks":[
+                    """,
+                    narration: "Checking delivery evidence",
+                    status: "running"
+                )
+            ],
+            liveExecutionGroupsByID: [:]
+        )
+
+        XCTAssertNil(runtime.latestAssistantMarkdown(snapshot: snapshot))
     }
 
     @MainActor
@@ -100,12 +127,60 @@ final class ChatRuntimeTests: XCTestCase {
         XCTAssertEqual(runtime.transcript.first?.markdown, "existing history")
         XCTAssertEqual(displayTranscript.count, 2)
         XCTAssertEqual(displayTranscript.last?.id, "msg-buffered")
-        XCTAssertEqual(displayTranscript.last?.markdown, "buffered narration\n\nbuffered content")
+        XCTAssertEqual(displayTranscript.last?.markdown, "buffered content")
         XCTAssertEqual(displayTranscript.last?.statusLabel, "Streaming")
     }
 
+    func testTurnProgressUsesLatestNarrationAndReportingTool() {
+        let snapshot = ConversationStreamSnapshot(
+            conversationID: "conv-1",
+            activeTurnID: "turn-1",
+            bufferedMessages: [
+                BufferedStreamMessage(
+                    id: "assistant-1",
+                    turnID: "turn-1",
+                    narration: "Checking delivery evidence.",
+                    status: "running"
+                )
+            ],
+            liveExecutionGroupsByID: [
+                "assistant-1": LiveExecutionGroup(
+                    pageID: "page-1",
+                    assistantMessageID: "assistant-1",
+                    turnID: "turn-1",
+                    sequence: 1,
+                    narration: "Validating performance metrics.",
+                    status: "running",
+                    toolSteps: [
+                        LiveToolStepState(
+                            toolCallID: "tool-1",
+                            toolName: "reporting:run_report",
+                            status: "running"
+                        )
+                    ]
+                )
+            ],
+            usage: StreamUsageState(inputTokens: 120, outputTokens: 30, totalTokens: 150)
+        )
+
+        let presentation = turnProgressPresentation(
+            isSending: true,
+            activeTurnID: "turn-1",
+            isStoppingTurn: false,
+            conversationState: nil,
+            streamSnapshot: snapshot
+        )
+
+        XCTAssertEqual(presentation?.title, "Working on your request")
+        XCTAssertEqual(presentation?.detail, "Validating performance metrics.")
+        XCTAssertEqual(presentation?.activity, "Reporting")
+        XCTAssertEqual(presentation?.toolProgress, "Tools 0/1")
+        XCTAssertEqual(presentation?.tokenUsage, "150 tokens")
+        XCTAssertEqual(presentation?.canStop, true)
+    }
+
     @MainActor
-    func testTranscriptWithActiveAssistantReplacesOptimisticStreamingPlaceholderForDisplay() {
+    func testTranscriptWithActiveAssistantUsesSingleGlobalProgressInsteadOfWaitingPlaceholder() {
         let runtime = ChatRuntime()
         let optimistic = runtime.beginOptimisticTurn(query: "open report")
         runtime.markOptimisticTurnAccepted(optimistic)
@@ -128,8 +203,8 @@ final class ChatRuntimeTests: XCTestCase {
 
         let displayTranscript = runtime.transcriptWithActiveAssistant(snapshot: snapshot)
 
-        XCTAssertEqual(runtime.transcript.count, 2)
-        XCTAssertTrue(runtime.transcript.contains { $0.id == optimistic.assistantEntryID })
+        XCTAssertEqual(runtime.transcript.count, 1)
+        XCTAssertFalse(runtime.transcript.contains { $0.id == optimistic.assistantEntryID })
         XCTAssertEqual(displayTranscript.count, 2)
         XCTAssertEqual(displayTranscript.first?.id, optimistic.userEntryID)
         XCTAssertEqual(displayTranscript.last?.id, "assistant-real-1")
@@ -172,6 +247,54 @@ final class ChatRuntimeTests: XCTestCase {
             runtime.transcript.last?.markdown,
             "I can troubleshoot the order, but I need the exact entity ID because “order” by itself is ambiguous."
         )
+    }
+
+    @MainActor
+    func testReplaceTranscriptDoesNotDuplicateNarrationBesideFinalAnswer() {
+        let runtime = ChatRuntime()
+        let state = ConversationStateResponse(
+            conversation: ConversationState(
+                conversationID: "conv-1",
+                turns: [
+                    TurnState(
+                        turnID: "turn-1",
+                        status: "completed",
+                        assistant: AssistantState(
+                            narration: AssistantMessageState(messageID: "n1", content: "Waiting for response"),
+                            final: AssistantMessageState(messageID: "a1", content: "The report is ready.")
+                        )
+                    )
+                ]
+            )
+        )
+
+        runtime.replaceTranscript(from: state)
+
+        XCTAssertEqual(runtime.transcript.count, 1)
+        XCTAssertEqual(runtime.transcript[0].markdown, "The report is ready.")
+    }
+
+    @MainActor
+    func testReplaceTranscriptKeepsPendingNarrationOutOfTranscript() {
+        let runtime = ChatRuntime()
+        let state = ConversationStateResponse(
+            conversation: ConversationState(
+                conversationID: "conv-1",
+                turns: [
+                    TurnState(
+                        turnID: "turn-1",
+                        status: "running",
+                        assistant: AssistantState(
+                            narration: AssistantMessageState(messageID: "n1", content: "Waiting for response")
+                        )
+                    )
+                ]
+            )
+        )
+
+        runtime.replaceTranscript(from: state)
+
+        XCTAssertTrue(runtime.transcript.isEmpty)
     }
 
     @MainActor

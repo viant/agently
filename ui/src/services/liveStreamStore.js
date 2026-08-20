@@ -1088,6 +1088,16 @@ export function normalizeStreamingMarkdown(text = '') {
   };
 }
 
+export function suppressOrphanedForgeTransport(text = '') {
+  const raw = String(text || '');
+  if (!raw.trim() || /```forge-(?:report|data|ui)\b/i.test(raw)) return raw;
+  const hasReportIdentity = /reportRef"?\s*:/i.test(raw);
+  const hasSequence = /sequence"?\s*:/i.test(raw);
+  const hasPayloadShape = /(?:format|mode|data)"?\s*:/i.test(raw);
+  const hasBareFenceLabel = /(?:^|\n)\s*forge-(?:report|data|ui)\s*(?:\n|$)/i.test(raw);
+  return (hasBareFenceLabel || (hasReportIdentity && hasSequence && hasPayloadShape)) ? '' : raw;
+}
+
 export function normalizeStreamingDelta(existing = '', incoming = '') {
   const current = String(existing || '');
   const next = String(incoming || '');
@@ -1155,7 +1165,7 @@ export function applyStreamChunk(chatState = {}, payload = {}, conversationID = 
       hasTrailingFence: normalized.hadTrailingFence,
       language: normalized.language,
     };
-    row.content = normalized.content;
+    row.content = suppressOrphanedForgeTransport(normalized.content);
     row.isStreaming = true;
     // Clear narration once real content starts streaming — prevents
     // concatenated narration+response in the bubble.
@@ -1674,7 +1684,7 @@ export function finalizeStreamTurn(chatState = {}, payload = {}, fallbackConvers
       errorMessage: errorMessage || row?.errorMessage || '',
       interim: 0,
       isStreaming: false,
-      content: finalizedContent,
+      content: suppressOrphanedForgeTransport(finalizedContent),
       _streamContent: '',
       _streamFence: null,
       executionGroups: groups.map((group) => {
@@ -1694,7 +1704,7 @@ export function finalizeStreamTurn(chatState = {}, payload = {}, fallbackConvers
           finalResponse: shouldAssignTerminalContent
             ? (finalizedContent ? true : Boolean(group?.finalResponse || group?.FinalResponse))
             : Boolean(group?.finalResponse || group?.FinalResponse),
-          content: finalizedContent || String(group?.content || ''),
+          content: suppressOrphanedForgeTransport(finalizedContent || String(group?.content || '')),
           modelSteps
         };
       })

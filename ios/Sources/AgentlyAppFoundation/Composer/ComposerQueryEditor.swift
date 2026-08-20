@@ -11,7 +11,16 @@ internal struct ComposerEditorProjection: Equatable {
         self.source = source
         let nsSource = source as NSString
         let sourceLength = nsSource.length
-        let removedRanges = occurrences
+        // Swift String.Index values are tied to the String instance that
+        // created them. SwiftUI can briefly deliver a new binding value with
+        // lookup occurrences computed from the previous value. Re-derive the
+        // ranges against this exact source before converting them to NSRange;
+        // using a stale range traps inside String.UTF16View._offsetRange.
+        let currentOccurrences = parseComposerLookupOccurrences(
+            query: source,
+            registry: occurrences.map(\.entry)
+        )
+        let removedRanges = currentOccurrences
             .map { occurrence in
                 expandedHiddenLookupRange(
                     NSRange(occurrence.displayRange, in: source),
@@ -150,12 +159,26 @@ internal struct ComposerQueryEditor: UIViewRepresentable {
             shouldChangeTextIn range: NSRange,
             replacementText replacement: String
         ) -> Bool {
+            // Let UITextView own ordinary typing. Updating the SwiftUI binding
+            // from shouldChangeText and returning false forced UIKit to rebuild
+            // the text storage on every character, which made the keyboard-safe
+            // composer alternate vertically between layout passes.
+            if parent.occurrences.isEmpty {
+                return true
+            }
             let sourceStart = projection.sourceOffset(forDisplayOffset: range.location)
             let sourceEnd = projection.sourceOffset(forDisplayOffset: NSMaxRange(range))
             let sourceRange = NSRange(location: sourceStart, length: max(0, sourceEnd - sourceStart))
             parent.text = (projection.source as NSString).replacingCharacters(in: sourceRange, with: replacement)
             parent.selectionUTF16Offset = sourceStart + (replacement as NSString).length
             return false
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            guard !isApplyingUpdate, parent.occurrences.isEmpty else { return }
+            parent.text = textView.text
+            parent.selectionUTF16Offset = textView.selectedRange.location
+            projection = ComposerEditorProjection(source: textView.text, occurrences: [])
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {

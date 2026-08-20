@@ -504,6 +504,9 @@ describe('RichContent fence parsing', () => {
     expect(html).toContain('<h3>Daily Trend</h3>');
     expect(html).not.toContain('Daily Trend | Date | Value |');
     expect(html).toContain('bp6-table-container');
+    expect(html).toContain('aria-label="Columns and display"');
+    expect(html).toContain('aria-label="Download CSV"');
+    expect(html).not.toContain('>CSV<');
   });
 
   it('separates a collapsed bold label from a following pipe table', () => {

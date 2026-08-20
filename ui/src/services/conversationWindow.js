@@ -181,6 +181,10 @@ function removeWindowsForConversationChange(nextConversationId = '') {
   }
 }
 
+export function clearWorkspaceWindowsForNewConversation() {
+  removeWindowsForConversationChange('');
+}
+
 export function getScopedConversationSelection(windowId = '') {
   const storage = uiStateStorage();
   if (!storage) return '';

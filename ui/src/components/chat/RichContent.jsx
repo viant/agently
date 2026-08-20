@@ -2124,14 +2124,33 @@ function ChartSpecPanel({ spec = {} }) {
 
 // ── Pipe table rendering (Blueprint Table) ──
 
+const useClientLayoutEffect = typeof window === 'undefined' ? React.useEffect : React.useLayoutEffect;
+
 function FencedPipeTable({ headers = [], rows = [], aligns = [], generatedFiles = [] }) {
   const pageSize = 40;
+  const tableRootRef = React.useRef(null);
   const [visible, setVisible] = React.useState(() => new Set(headers.map((_, i) => i)));
   const [page, setPage] = React.useState(0);
   const [showCols, setShowCols] = React.useState(false);
   const [expand, setExpand] = React.useState(null);
   const [truncateAt, setTruncateAt] = React.useState(100);
   const [widthByCol, setWidthByCol] = React.useState({});
+  const [availableWidth, setAvailableWidth] = React.useState(0);
+
+  useClientLayoutEffect(() => {
+    const element = tableRootRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return undefined;
+    const updateWidth = (width = element.getBoundingClientRect().width) => {
+      const next = Math.max(0, Math.floor(width || 0));
+      setAvailableWidth((previous) => (previous === next ? previous : next));
+    };
+    updateWidth();
+    const observer = new ResizeObserver((entries) => {
+      updateWidth(entries[0]?.contentRect?.width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   const total = Array.isArray(rows) ? rows.length : 0;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -2149,7 +2168,7 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [], generatedFiles 
     for (const r of rows) { const c = String((r || [])[i] ?? '').length; if (c > m) m = c; }
     return clamp(m, 4, 48);
   });
-  const baseWidthPx = Math.min(1400, Math.max(920, visIdx.length * 160));
+  const baseWidthPx = Math.min(1400, Math.max(920, availableWidth, visIdx.length * 160));
   const totalLens = visIdx.reduce((acc, i) => acc + allMaxLens[i], 0) || visIdx.length;
   const computedColWidths = visIdx.map(i => Math.max(80, Math.round((allMaxLens[i] / totalLens) * baseWidthPx)));
   const colWidths = visIdx.map((i, j) => {
@@ -2206,10 +2225,17 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [], generatedFiles 
   });
 
   return (
-    <div className="app-rich-data-table">
+    <div className="app-rich-data-table" ref={tableRootRef}>
       <div className="app-rich-data-table-toolbar">
         <div className="app-rich-data-table-actions">
-          <Button small minimal icon="cog" onClick={() => setShowCols(true)} title="Columns & display" />
+          <Button
+            small
+            minimal
+            icon="cog"
+            onClick={() => setShowCols(true)}
+            title="Columns & display"
+            aria-label="Columns and display"
+          />
           <span className="app-rich-data-table-count">
             {total === 0 ? '0 rows' : `${start + 1}-${end} of ${total}`}
           </span>
@@ -2223,7 +2249,15 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [], generatedFiles 
             </div>
           )}
         </div>
-        <Button small minimal icon="download" onClick={downloadCSV} text="CSV" title="Download CSV" />
+        <Button
+          className="app-rich-data-table-download"
+          small
+          minimal
+          icon="download"
+          onClick={downloadCSV}
+          title="Download CSV"
+          aria-label="Download CSV"
+        />
       </div>
       <div className="app-rich-data-table-frame">
         <BpTable
@@ -2239,7 +2273,7 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [], generatedFiles 
           }}
           enableGhostCells={false}
           enableRowHeader={false}
-          defaultRowHeight={34}
+          defaultRowHeight={42}
           minColumnWidth={72}
           maxColumnWidth={720}
         >

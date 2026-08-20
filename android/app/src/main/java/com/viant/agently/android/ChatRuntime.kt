@@ -7,6 +7,7 @@ import com.viant.agentlysdk.RenderedContent
 import com.viant.agentlysdk.RenderedContentPart
 import com.viant.agentlysdk.stream.BufferedMessage
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
+import com.viant.agentlysdk.stream.LiveExecutionGroup
 import com.viant.forgeandroid.ui.TranscriptCanonicalData
 import com.viant.forgeandroid.ui.TranscriptCanonicalReport
 import com.viant.forgeandroid.ui.TranscriptEnvelope
@@ -52,6 +53,137 @@ internal fun latestAssistantMarkdown(snapshot: ConversationStreamSnapshot): Stri
     return activeAssistantEntry(snapshot)?.markdown
 }
 
+internal data class TurnProgressPresentation(
+    val title: String,
+    val detail: String,
+    val activity: String,
+    val toolProgress: String?,
+    val tokenUsage: String?,
+    val canStop: Boolean
+)
+
+internal fun turnProgressPresentation(
+    loading: Boolean,
+    conversationState: ConversationStateResponse?,
+    snapshot: ConversationStreamSnapshot?
+): TurnProgressPresentation? {
+    val activeTurnId = snapshot?.activeTurnId?.trim().orEmpty().ifBlank {
+        conversationState?.conversation?.turns.orEmpty()
+            .lastOrNull { isPendingTurnStatus(it.status) }
+            ?.turnId.orEmpty()
+    }
+    if (!loading && activeTurnId.isBlank()) return null
+    if (activeTurnId.isBlank()) {
+        return TurnProgressPresentation(
+            title = "Sending request",
+            detail = "Connecting to the workspace.",
+            activity = "Connecting",
+            toolProgress = null,
+            tokenUsage = formattedConversationTokenUsage(snapshot, conversationState),
+            canStop = false
+        )
+    }
+    val groups = snapshot?.liveExecutionGroupsById.orEmpty().values
+        .filter { it.turnId?.trim() == activeTurnId }
+        .sortedWith(compareBy<LiveExecutionGroup> { it.sequence ?: Int.MIN_VALUE }.thenBy { it.iteration ?: Int.MIN_VALUE })
+    val latestGroup = groups.lastOrNull()
+    val narration = sequenceOf(
+        latestGroup?.narration,
+        snapshot?.bufferedMessages.orEmpty().asReversed().firstOrNull { message ->
+            message.role.equals("assistant", ignoreCase = true) &&
+                message.turnId?.trim() == activeTurnId &&
+                !message.narration.isNullOrBlank()
+        }?.narration,
+        latestPendingNarration(conversationState)
+    ).mapNotNull(::sanitizeAssistantTranscriptText).firstOrNull { it.isNotBlank() }
+    val activeToolName = groups.asReversed().asSequence()
+        .flatMap { it.toolSteps.asReversed().asSequence() }
+        .firstOrNull { isActiveExecutionStatus(it.status) }
+        ?.toolName
+    val plannedToolName = latestGroup?.toolCallsPlanned?.asReversed()?.firstNotNullOfOrNull { it.toolName }
+    val bufferedToolName = snapshot?.bufferedMessages.orEmpty().asReversed().firstOrNull { message ->
+        message.turnId?.trim() == activeTurnId && !message.toolName.isNullOrBlank()
+    }?.toolName
+    val activeModel = groups.asReversed().asSequence()
+        .flatMap { it.modelSteps.asReversed().asSequence() }
+        .firstOrNull { isActiveExecutionStatus(it.status) }
+    val plannerStatus = snapshot?.plannerByTurnId?.get(activeTurnId)?.status?.trim().orEmpty()
+    val activity = userFacingToolActivity(activeToolName ?: plannedToolName ?: bufferedToolName)
+        ?: when {
+            activeAssistantHasVisibleOutput(snapshot) -> "Writing response"
+            activeModel != null -> "Thinking"
+            plannerStatus.isNotBlank() -> "Planning"
+            else -> "Thinking"
+        }
+    val fallback = when (activity) {
+        "Writing response" -> "Preparing the response for display."
+        "Planning" -> "Preparing the execution plan."
+        "Thinking" -> if (activeModel != null) "The model is analyzing the request." else "Planning the next step."
+        else -> "Using a workspace tool."
+    }
+    val toolSteps = groups.flatMap { it.toolSteps }
+    val plannedToolCount = groups.sumOf { it.toolCallsPlanned.size }
+    val toolTotal = maxOf(toolSteps.size, plannedToolCount)
+    val toolCompleted = toolSteps.count { isTerminalExecutionStatus(it.status) }.coerceAtMost(toolTotal)
+    return TurnProgressPresentation(
+        title = "Working on your request",
+        detail = narration ?: fallback,
+        activity = activity,
+        toolProgress = toolTotal.takeIf { it > 0 }?.let { "Tools $toolCompleted/$it" },
+        tokenUsage = formattedConversationTokenUsage(snapshot, conversationState),
+        canStop = true
+    )
+}
+
+private fun formattedConversationTokenUsage(
+    snapshot: ConversationStreamSnapshot?,
+    conversationState: ConversationStateResponse?
+): String? {
+    val streamedTotal = snapshot?.usage?.totalTokens ?: 0
+    val persistedTotal = (conversationState?.usage?.totalInputTokens ?: 0) +
+        (conversationState?.usage?.totalOutputTokens ?: 0)
+    val total = if (streamedTotal > 0) streamedTotal else persistedTotal
+    return total.takeIf { it > 0 }?.let {
+        "${java.text.NumberFormat.getIntegerInstance(Locale.US).format(it)} tokens"
+    }
+}
+
+private fun isActiveExecutionStatus(status: String?): Boolean {
+    val value = status?.trim()?.lowercase(Locale.US).orEmpty()
+    return value.isEmpty() || value in setOf("queued", "pending", "starting", "started", "running", "streaming", "processing")
+}
+
+private fun isTerminalExecutionStatus(status: String?): Boolean =
+    status?.trim()?.lowercase(Locale.US) in setOf(
+        "completed", "succeeded", "success", "failed", "canceled", "cancelled"
+    )
+
+private fun isPendingTurnStatus(status: String?): Boolean =
+    status?.trim()?.lowercase(Locale.US) in setOf(
+        "queued", "pending", "starting", "running", "streaming", "processing",
+        "waiting", "waiting_for_model", "waiting_for_tool"
+    )
+
+internal fun userFacingToolActivity(rawName: String?): String? {
+    val raw = rawName?.trim().orEmpty()
+    if (raw.isEmpty()) return null
+    val lower = raw.lowercase(Locale.US)
+    if ("reporting" in lower && "export" in lower) return "Preparing report export"
+    if ("reporting" in lower) return "Reporting"
+    if ("diagnostic" in lower) return "Delivery diagnostics"
+    if ("forecast" in lower) return "Forecasting"
+    if ("hierarchy" in lower) return "Loading hierarchy"
+    if ("resource" in lower) return "Reading workspace"
+    val leaf = raw.substringAfterLast('/').substringAfterLast(':')
+    return leaf.replace('_', ' ').replace('-', ' ')
+        .replace(Regex("([a-z0-9])([A-Z])"), "$1 $2")
+        .trim()
+        .split(Regex("\\s+"))
+        .filter { it.isNotBlank() }
+        .joinToString(" ") { token -> token.replaceFirstChar { it.uppercase(Locale.US) } }
+        .ifBlank { "Workspace tool" }
+}
+
 internal fun latestActiveNarration(snapshot: ConversationStreamSnapshot?): String? {
     val activeTurnId = snapshot?.activeTurnId?.trim().orEmpty()
     if (activeTurnId.isBlank()) return null
@@ -72,7 +204,7 @@ internal fun activeAssistantHasVisibleOutput(snapshot: ConversationStreamSnapsho
     return snapshot?.bufferedMessages.orEmpty().any { message ->
         message.role.equals("assistant", ignoreCase = true) &&
             message.turnId?.trim() == activeTurnId &&
-            (combineAssistantMarkdown(message).orEmpty().isNotBlank() ||
+            (visibleAssistantContent(message).orEmpty().isNotBlank() ||
                 snapshot?.liveExecutionGroupsById?.get(message.id)?.renderedContent?.reports?.isNotEmpty() == true)
     }
 }
@@ -115,7 +247,7 @@ private fun activeAssistantEntry(snapshot: ConversationStreamSnapshot): ChatEntr
         ) {
             return@forEach
         }
-        val candidateMarkdown = combineAssistantMarkdown(message).orEmpty()
+        val candidateMarkdown = visibleAssistantContent(message).orEmpty()
         val candidateRendered = snapshot.liveExecutionGroupsById[message.id]?.renderedContent
         if (candidateMarkdown.isNotBlank() || candidateRendered?.reports?.isNotEmpty() == true) {
             latest = message
@@ -135,15 +267,9 @@ private fun activeAssistantEntry(snapshot: ConversationStreamSnapshot): ChatEntr
     )
 }
 
-private fun combineAssistantMarkdown(message: BufferedMessage): String? {
-    val narration = sanitizeAssistantTranscriptText(message.narration).orEmpty()
+private fun visibleAssistantContent(message: BufferedMessage): String? {
     val content = sanitizeAssistantTranscriptText(message.content).orEmpty()
-    return when {
-        narration.isNotEmpty() && content.isNotEmpty() -> "$narration\n\n$content"
-        content.isNotEmpty() -> content
-        narration.isNotEmpty() -> narration
-        else -> null
-    }
+    return content.takeIf { it.isNotEmpty() }
 }
 
 internal fun updateChatEntryDeliveryState(
@@ -214,17 +340,16 @@ internal fun transcriptFromState(state: ConversationStateResponse): List<ChatEnt
         }
         val assistantMessages = listOfNotNull(turn.assistant?.narration, turn.assistant?.final)
         val assistantId = turn.assistant?.final?.messageId ?: turn.assistant?.narration?.messageId
-        val assistantContent = buildString {
-            val narration = sanitizeAssistantTranscriptText(turn.assistant?.narration?.content).orEmpty()
-            val final = sanitizeAssistantTranscriptText(turn.assistant?.final?.content).orEmpty()
-            if (narration.isNotEmpty()) {
-                append(narration)
-            }
-            if (final.isNotEmpty()) {
-                if (isNotEmpty()) append("\n\n")
-                append(final)
-            }
-        }.trim()
+        // Narration is live progress and is already rendered by the single
+        // global turn-status card. Do not duplicate it in the transcript. For
+        // old terminal turns without a final message, preserve it as fallback.
+        val finalContent = sanitizeAssistantTranscriptText(turn.assistant?.final?.content).orEmpty()
+        val narrationFallback = if (isPendingTurnStatus(turn.status)) {
+            ""
+        } else {
+            sanitizeAssistantTranscriptText(turn.assistant?.narration?.content).orEmpty()
+        }
+        val assistantContent = (finalContent.ifBlank { narrationFallback }).trim()
         val renderedReports = canonicalAssistantReports(assistantMessages)
         if (!assistantId.isNullOrBlank() && (assistantContent.isNotBlank() || !renderedReports.isNullOrEmpty())) {
             entries.add(
@@ -254,7 +379,7 @@ private fun canonicalAssistantParts(messages: List<AssistantMessageState>): List
     }
 }
 
-private fun sanitizeAssistantTranscriptText(value: String?): String? {
+internal fun sanitizeAssistantTranscriptText(value: String?): String? {
     val text = value ?: return null
     return sanitizeVisibleAssistantText(TranscriptEnvelope.suppressProgressiveTransport(text))
 }

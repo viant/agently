@@ -418,9 +418,16 @@ export default function ExecutionWorkspace() {
         }
       });
       setLiveGroups((current) => {
-        const currentKeys = Object.keys(current || {});
-        if (currentKeys.length > 0) return current;
-        return seededGroups;
+        const merged = mergeLatestTranscriptAndLiveGroups(
+          Object.values(seededGroups),
+          current,
+          'all'
+        );
+        return merged.reduce((result, group) => {
+          const key = firstString(group?.assistantMessageId, group?.pageId);
+          if (key) result[key] = group;
+          return result;
+        }, {});
       });
     }
   }, []);
@@ -527,8 +534,11 @@ export default function ExecutionWorkspace() {
             setConversationTitle(firstString(patch?.title, conversationId));
           }
         }
-        if (['turn_completed', 'turn_failed', 'turn_canceled', 'tool_call_completed', 'model_completed', 'control'].includes(type)) {
-          loadTranscript(conversationId, pageSize, pageIndex).catch(() => {});
+        if (['turn_completed', 'turn_failed', 'turn_canceled', 'conversation_meta_updated'].includes(type)) {
+          // SSE owns execution and message identity after initial hydration.
+          // Refresh only lightweight conversation metadata; a transcript
+          // reload here remounts report/UI rows and violates streaming
+          // continuity at terminal state.
           loadConversation(conversationId).catch(() => {});
         }
       },
@@ -545,7 +555,7 @@ export default function ExecutionWorkspace() {
         streamRef.current = null;
       }
     };
-  }, [conversationId, loadConversation, loadTranscript, pageIndex, pageSize]);
+  }, [conversationId, loadConversation]);
 
   async function handleSubmit(event) {
     event.preventDefault();

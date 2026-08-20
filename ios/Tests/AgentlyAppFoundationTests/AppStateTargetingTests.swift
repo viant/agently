@@ -147,6 +147,29 @@ final class AppStateTargetingTests: XCTestCase {
         )
     }
 
+    func testComposerLookupSearchSupportsIdentifierAndNameFromOneField() throws {
+        let entry = try JSONDecoder().decode(LookupRegistryEntry.self, from: Data(#"""
+        {
+          "name":"order",
+          "title":"Order",
+          "dataSource":"ad_order_lookup",
+          "token":{
+            "queryInput":"AdOrderName",
+            "resolveInput":"AdOrderId"
+          }
+        }
+        """#.utf8))
+
+        let identifierCandidates = composerLookupSearchInputCandidates(entry: entry, searchQuery: " 2688386 ")
+        XCTAssertEqual(identifierCandidates.count, 2)
+        XCTAssertEqual(identifierCandidates[0]["AdOrderId"], .string("2688386"))
+        XCTAssertEqual(identifierCandidates[1]["AdOrderName"], .string("2688386"))
+
+        let nameCandidates = composerLookupSearchInputCandidates(entry: entry, searchQuery: "Performance")
+        XCTAssertEqual(nameCandidates[0]["AdOrderName"], .string("Performance"))
+        XCTAssertEqual(nameCandidates[1]["AdOrderId"], .string("Performance"))
+    }
+
     func testResolvedBootstrapAutoOOBSignInHonorsEnvironmentAndLaunchArgs() {
         XCTAssertTrue(
             resolvedBootstrapAutoOOBSignIn(

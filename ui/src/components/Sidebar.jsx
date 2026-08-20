@@ -129,6 +129,14 @@ function conversationStatusTone(row = {}) {
   return 'idle';
 }
 
+export function conversationDeletionBlocked(row = {}) {
+  if (row?.Running === true || row?.running === true) return true;
+  const status = String(row?.Status || row?.status || '').trim().toLowerCase();
+  const stage = String(row?.Stage || row?.stage || '').trim().toLowerCase();
+  return ['running', 'in_progress', 'processing', 'queued', 'thinking', 'streaming'].includes(status)
+    || ['running', 'executing', 'processing', 'queued', 'thinking', 'streaming'].includes(stage);
+}
+
 export function removeConversationRow(rows = [], conversationID = '') {
   const id = String(conversationID || '').trim();
   if (!id || !Array.isArray(rows)) return rows;
@@ -278,9 +286,13 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
     const id = String(row?.Id || row?.id || '').trim();
     if (!id || deletingID) return;
     const title = resolveConversationTitle(row);
+    if (conversationDeletionBlocked(row)) {
+      setDeleteError(`“${title}” is still in progress. Stop or wait for the current turn before deleting it.`);
+      return;
+    }
     openConfirmDialog({
       title: 'Delete conversation',
-      message: `Delete "${title}" and its conversation tree? Conversations still in progress cannot be deleted.`,
+      message: `Delete "${title}" and its history? This action cannot be undone.`,
       confirmText: 'Delete',
       loadingText: 'Deleting...',
       intent: 'danger',
@@ -434,6 +446,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
             const relative = formatRelativeTime(conversationTimestamp(row));
             const isSelected = id && id === selectedID;
             const tone = conversationStatusTone(row);
+            const deletionBlocked = conversationDeletionBlocked(row);
             const hoverText = summary || title;
             return (
               <div
@@ -459,9 +472,9 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
                 </button>
                 <button
                   className="app-conversation-trash"
-                  title="Delete conversation"
-                  aria-label="Delete conversation"
-                  disabled={deletingID === id}
+                  title={deletionBlocked ? 'Conversation is still in progress' : 'Delete conversation'}
+                  aria-label={deletionBlocked ? 'Conversation is still in progress' : 'Delete conversation'}
+                  disabled={deletingID === id || deletionBlocked}
                   onClick={(e) => {
                     e.stopPropagation();
                     requestDeleteConversation(row);

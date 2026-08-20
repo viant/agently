@@ -1,6 +1,7 @@
 import SwiftUI
 
 public struct SettingsScreen: View {
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject private var runtime: SettingsRuntime
     let workspaceRoot: String?
     let workspaceDefaultAgentID: String?
@@ -160,27 +161,36 @@ public struct SettingsScreen: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            Section {
+        }
+        .navigationTitle("Settings")
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button {
+                    dismiss()
+                } label: {
+                    AppleToolbarActionIcon(
+                        systemImage: "xmark",
+                        color: Color(red: 0.36, green: 0.40, blue: 0.48)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close Settings")
+            }
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     runtime.save()
                     onApply()
                 } label: {
-                    HStack(spacing: 9) {
-                        AppleToolbarActionIcon(
-                            systemImage: "checkmark.circle.fill",
-                            color: Color(red: 0.09, green: 0.51, blue: 0.36)
-                        )
-                        Text("Apply Settings")
-                            .font(.headline)
-                        Spacer()
-                    }
-                    .contentShape(Rectangle())
+                    AppleToolbarActionIcon(
+                        systemImage: "checkmark",
+                        color: Color(red: 0.09, green: 0.51, blue: 0.36)
+                    )
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Apply Settings")
                 .accessibilityIdentifier("agently-settings-apply")
             }
         }
-        .navigationTitle("Settings")
     }
 
     private var hasWorkspaceMetadata: Bool {

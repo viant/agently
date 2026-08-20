@@ -402,7 +402,12 @@ export async function tickTranscript({
   const pendingElicitations = Array.isArray(options?.prefetchedPendingElicitations)
     ? options.prefetchedPendingElicitations
     : await fetchPendingElicitations(conversationID);
-  return doSync({ context, turns, pendingElicitations, reason: 'poll' });
+  return doSync({
+    context,
+    turns,
+    pendingElicitations,
+    reason: String(options?.reason || 'poll').trim() || 'poll'
+  });
 }
 
 export function resetTranscriptState({

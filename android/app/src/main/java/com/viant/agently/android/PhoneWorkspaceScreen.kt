@@ -18,13 +18,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.AddComment
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.KeyboardHide
-import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -37,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,6 +59,7 @@ import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import com.viant.forgeandroid.runtime.ForgeRuntime
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.coroutines.delay
 
 private enum class PhoneWorkspaceContentMode {
     Workspace,
@@ -97,6 +99,7 @@ internal fun PhoneWorkspacePane(
     onOpenInlineReportPdf: (Map<String, Any?>, () -> Unit) -> Unit,
     onClosePreview: () -> Unit,
     onStarterTaskSelected: (String) -> Unit,
+    onCancelTurn: (() -> Unit)? = null,
     bottomComposerInset: androidx.compose.ui.unit.Dp = 232.dp,
     composerVisible: Boolean = true,
     onToggleComposer: () -> Unit = {}
@@ -139,94 +142,74 @@ internal fun PhoneWorkspacePane(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(if (workspaceFocused) 2.dp else 6.dp)
         ) {
-            if (workspaceFocused) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                headerTitle,
-                                style = MaterialTheme.typography.titleSmall,
-                                color = Color(0xFF182230),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                headerTitle,
-                                style = MaterialTheme.typography.titleSmall,
-                                color = Color(0xFF182230),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                    Text(
+                        headerTitle,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Color(0xFF182230),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (!workspaceFocused) {
                         Text(
                             if (!activeConversationId.isNullOrBlank()) "Continuing your latest chat"
                             else "Ready for a new conversation",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF667085)
+                            color = Color(0xFF667085),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
-            }
-            Surface(
-                color = Color(0xFFF4F7FB),
-                shape = MaterialTheme.shapes.extraLarge,
-                border = BorderStroke(1.dp, Color(0xFFE4EAF2)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Surface(
+                    color = Color(0xFFF4F7FB),
+                    shape = MaterialTheme.shapes.extraLarge,
+                    border = BorderStroke(1.dp, Color(0xFFE4EAF2))
                 ) {
-                    PhoneToolbarAction(
-                        icon = Icons.Outlined.AddComment,
-                        contentDescription = "New chat",
-                        onClick = onNewConversation,
-                        accent = Color(0xFF1A73F0),
-                        enabled = !loading
-                    )
-                    PhoneToolbarAction(
-                        icon = Icons.Outlined.History,
-                        contentDescription = "Conversation history",
-                        onClick = onOpenHistory,
-                        accent = Color(0xFFE08A1E),
-                        enabled = recentConversations.isNotEmpty()
-                    )
-                    if (!activeConversationId.isNullOrBlank()) {
+                    Row(
+                        modifier = Modifier.padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                    if (activeConversationId.isNullOrBlank()) {
                         PhoneToolbarAction(
-                            icon = Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = "Back to conversation list",
+                            icon = Icons.Outlined.Edit,
+                            contentDescription = "New chat",
+                            onClick = onNewConversation,
+                            accent = Color(0xFF1A73F0),
+                            enabled = !loading
+                        )
+                        PhoneToolbarAction(
+                            icon = Icons.Outlined.History,
+                            contentDescription = "Conversation history",
                             onClick = onOpenHistory,
-                            accent = Color(0xFF5965D8),
+                            accent = Color(0xFFE08A1E),
+                            enabled = recentConversations.isNotEmpty()
+                        )
+                    } else {
+                        PhoneToolbarAction(
+                            icon = Icons.Outlined.Home,
+                            contentDescription = "Home",
+                            onClick = onNewConversation,
+                            accent = Color(0xFF1A73F0),
+                            enabled = !loading
+                        )
+                        PhoneToolbarAction(
+                            icon = Icons.Outlined.History,
+                            contentDescription = "Conversation history",
+                            onClick = onOpenHistory,
+                            accent = Color(0xFFE08A1E),
                             enabled = recentConversations.isNotEmpty()
                         )
                     }
-                    PhoneToolbarAction(
-                        icon = Icons.Outlined.Refresh,
-                        contentDescription = "Refresh workspace",
-                        onClick = onRefresh,
-                        accent = Color(0xFF0A9B98),
-                        enabled = !loading
-                    )
                     if (!activeConversationId.isNullOrBlank()) {
                         PhoneToolbarAction(
                             icon = if (composerVisible) Icons.Outlined.KeyboardHide else Icons.Outlined.ChatBubbleOutline,
@@ -242,10 +225,8 @@ internal fun PhoneWorkspacePane(
                         onClick = onOpenSettings,
                         accent = Color(0xFF7D52D9)
                     )
+                    }
                 }
-            }
-            if (loading && streamSnapshot?.activeTurnId == null) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
         }
         error?.let {
@@ -296,40 +277,8 @@ internal fun PhoneWorkspacePane(
                 onSelectStarterTask = onStarterTaskSelected
             )
         }
-        val turnPending = streamSnapshot?.activeTurnId != null || hasPendingConversationTurn(conversationState)
-        if (turnPending && hostedWorkspaceState == null) {
-            val liveNarration = latestActiveNarration(streamSnapshot)
-                ?: latestPendingNarration(conversationState)
-            Surface(
-                color = Color(0xFFFFFFFF),
-                border = BorderStroke(1.dp, Color(0xFFE2E8F3)),
-                shape = MaterialTheme.shapes.large,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        Text(
-                            liveNarration ?: if (activeAssistantHasVisibleOutput(streamSnapshot)) {
-                                "Assistant is responding…"
-                            } else {
-                                "Assistant is thinking…"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF475467),
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-            }
+        turnProgressPresentation(loading, conversationState, streamSnapshot)?.let { progress ->
+            TurnProgressStatus(progress, onCancelTurn)
         }
         streamSnapshot?.pendingElicitation?.let { elicitation ->
             elicitation.conversationId.takeIf { it.isNotBlank() }?.let { conversationId ->
@@ -386,16 +335,6 @@ internal fun PhoneWorkspacePane(
             }
 
             else -> {
-                if (displayTranscript.isEmpty() &&
-                    (!activeConversationId.isNullOrBlank() || recentConversations.isNotEmpty())
-                ) {
-                    RecentConversationsSection(
-                        conversations = recentConversations,
-                        activeConversationId = activeConversationId,
-                        openingConversationId = openingConversationId,
-                        onSelectConversation = onSelectConversation
-                    )
-                }
                 RenderTranscript(
                     items = displayTranscript,
                     pendingApprovals = pendingApprovals,
@@ -416,6 +355,86 @@ internal fun PhoneWorkspacePane(
         }
         Spacer(modifier = Modifier.height(bottomComposerInset))
     }
+}
+
+@Composable
+internal fun TurnProgressStatus(
+    presentation: TurnProgressPresentation,
+    onStop: (() -> Unit)? = null
+) {
+    var elapsedSeconds by remember(
+        presentation.title,
+        presentation.detail,
+        presentation.activity
+    ) { mutableIntStateOf(0) }
+    LaunchedEffect(presentation.title, presentation.detail, presentation.activity) {
+        while (true) {
+            delay(1_000)
+            elapsedSeconds += 1
+        }
+    }
+    val activityLabel = if (elapsedSeconds >= 5) {
+        "${presentation.activity} · ${formatProgressElapsed(elapsedSeconds)}"
+    } else {
+        presentation.activity
+    }
+    Surface(
+        color = Color(0xFFEFF7FF),
+        border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(presentation.title, style = MaterialTheme.typography.labelLarge, color = Color(0xFF172B4D))
+                Text(
+                    presentation.detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF667085),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    StatusChip(activityLabel, Color(0xFF1A73F0))
+                    presentation.toolProgress?.let { StatusChip(it, Color(0xFF7D52D9)) }
+                    presentation.tokenUsage?.let { StatusChip(it, Color(0xFF667085)) }
+                }
+            }
+            if (presentation.canStop && onStop != null) {
+                IconButton(onClick = onStop, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Outlined.Stop, contentDescription = "Stop current request", tint = Color(0xFFD34B5F))
+                }
+            }
+        }
+    }
+}
+
+private fun formatProgressElapsed(seconds: Int): String = when {
+    seconds < 60 -> "${seconds}s"
+    else -> "${seconds / 60}m ${seconds % 60}s"
+}
+
+@Composable
+private fun StatusChip(label: String, color: Color) {
+    Text(
+        label,
+        style = MaterialTheme.typography.labelSmall,
+        color = color,
+        modifier = Modifier
+            .background(color.copy(alpha = 0.09f), CircleShape)
+            .padding(horizontal = 7.dp, vertical = 2.dp)
+    )
 }
 
 @Composable

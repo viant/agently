@@ -39,8 +39,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.CameraAlt
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Cancel
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.KeyboardHide
@@ -87,6 +88,7 @@ internal fun PhoneComposerDock(
     agentLabel: String?,
     query: String,
     onQueryChange: (String) -> Unit,
+    onClearComposer: () -> Unit,
     composerAttachments: List<ComposerAttachmentDraft>,
     canCapturePhoto: Boolean,
     canUseVoiceInput: Boolean,
@@ -184,12 +186,6 @@ internal fun PhoneComposerDock(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    PhoneToolbarAction(
-                        icon = Icons.Outlined.ChatBubbleOutline,
-                        contentDescription = "Write a reply",
-                        onClick = { composerExpanded = true },
-                        accent = Color(0xFF1A73F0)
-                    )
                     Surface(
                         onClick = { composerExpanded = true },
                         color = ComposerInputFill,
@@ -271,20 +267,32 @@ internal fun PhoneComposerDock(
                             )
                         }
                     }
-                    Button(
+                    PhoneToolbarAction(
+                        icon = Icons.Outlined.ArrowUpward,
+                        contentDescription = sendLabel,
                         onClick = onRunQuery,
-                        enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty())
-                    ) {
-                        Text(sendLabel)
-                    }
+                        accent = Color(0xFF383BD8),
+                        enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty()),
+                        loading = loading
+                    )
                 }
                 // Hide secondary media actions while typing. The dock overlay owns
                 // the IME inset, so no compensating spacer is needed here.
                 if (!keyboardVisible) {
                     Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                     ) {
+                        if (query.isNotBlank() || composerAttachments.isNotEmpty() || lookupSelections.isNotEmpty()) {
+                            CompactComposerIconButton(
+                                contentDescription = "Clear composer",
+                                icon = { Icon(Icons.Outlined.Cancel, contentDescription = null) },
+                                onClick = {
+                                    hideKeyboard()
+                                    onClearComposer()
+                                }
+                            )
+                        }
                         CompactComposerIconButton(
                             contentDescription = "Collapse composer",
                             icon = { Icon(Icons.Outlined.ExpandMore, contentDescription = null) },
@@ -326,30 +334,37 @@ internal fun PhoneComposerDock(
                 }
             } else {
                 Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                 ) {
-                    ComposerActionButton(
-                        label = "Photo",
+                    if (query.isNotBlank() || composerAttachments.isNotEmpty() || lookupSelections.isNotEmpty()) {
+                        CompactComposerIconButton(
+                            contentDescription = "Clear composer",
+                            icon = { Icon(Icons.Outlined.Cancel, contentDescription = null) },
+                            onClick = onClearComposer
+                        )
+                    }
+                    CompactComposerIconButton(
+                        contentDescription = "Add photo",
                         icon = { Icon(Icons.Outlined.Image, contentDescription = "Add photo") },
                         onClick = onAddPhoto
                     )
                     if (canCapturePhoto) {
-                        ComposerActionButton(
-                            label = "Camera",
+                        CompactComposerIconButton(
+                            contentDescription = "Take photo",
                             icon = { Icon(Icons.Outlined.CameraAlt, contentDescription = "Take photo") },
                             onClick = onTakePhoto
                         )
                     }
                     if (canUseVoiceInput) {
-                        ComposerActionButton(
-                            label = "Voice",
+                        CompactComposerIconButton(
+                            contentDescription = "Voice input",
                             icon = { Icon(Icons.Outlined.Mic, contentDescription = "Voice input") },
                             onClick = onVoiceInput
                         )
                     }
-                    ComposerActionButton(
-                        label = "Hide",
+                    CompactComposerIconButton(
+                        contentDescription = "Hide keyboard",
                         icon = { Icon(Icons.Outlined.KeyboardHide, contentDescription = "Hide keyboard") },
                         onClick = ::hideKeyboard
                     )
@@ -930,27 +945,6 @@ private fun CompactComposerIconButton(
         modifier = Modifier.semantics { this.contentDescription = contentDescription }
     ) {
         icon()
-    }
-}
-
-@Composable
-private fun ComposerActionButton(
-    label: String,
-    icon: @Composable () -> Unit,
-    onClick: () -> Unit
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        FilledTonalIconButton(onClick = onClick) {
-            icon()
-        }
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFF667085)
-        )
     }
 }
 

@@ -17,6 +17,17 @@ final class ComposerRuntimeTests: XCTestCase {
     }
 
     @MainActor
+    func testRequiredLookupAutoPresentationIsClaimedOncePerDraft() {
+        let runtime = ComposerRuntime()
+
+        XCTAssertTrue(runtime.claimRequiredLookupAutoPresentation(key: "order#0|Troubleshoot /order"))
+        XCTAssertFalse(runtime.claimRequiredLookupAutoPresentation(key: "order#0|Troubleshoot /order"))
+
+        runtime.clearDraft()
+        XCTAssertTrue(runtime.claimRequiredLookupAutoPresentation(key: "order#0|Troubleshoot /order"))
+    }
+
+    @MainActor
     func testLookupOccurrencesParseRegisteredSlashTokensOnly() async throws {
         let runtime = ComposerRuntime()
         try await configureLookupRuntime(runtime)
@@ -65,6 +76,33 @@ final class ComposerRuntimeTests: XCTestCase {
     }
 
     @MainActor
+    func testClearDraftRemovesTextAttachmentsAndLookupSelections() async throws {
+        let runtime = ComposerRuntime()
+        try await configureLookupRuntime(runtime)
+        runtime.query = "Troubleshoot /order"
+        let occurrence = try XCTUnwrap(runtime.lookupOccurrences.first)
+        runtime.setLookupSelection(
+            for: occurrence,
+            row: ["id": .string("fixture-order-1"), "name": .string("Fixture Order")]
+        )
+        runtime.addAttachment(
+            ComposerAttachmentDraft(
+                name: "evidence.txt",
+                mimeType: "text/plain",
+                data: Data("evidence".utf8),
+                source: "file"
+            )
+        )
+
+        runtime.clearDraft()
+
+        XCTAssertEqual(runtime.query, "")
+        XCTAssertTrue(runtime.attachments.isEmpty)
+        XCTAssertTrue(runtime.lookupSelections.isEmpty)
+        XCTAssertNil(runtime.attachmentError)
+    }
+
+    @MainActor
     func testComposerEditorProjectionHidesRawLookupTokenInsideInput() async throws {
         let runtime = ComposerRuntime()
         try await configureLookupRuntime(runtime)
@@ -78,6 +116,21 @@ final class ComposerRuntimeTests: XCTestCase {
         XCTAssertEqual(projection.display, "Troubleshoot for delivery issues")
         XCTAssertFalse(projection.display.contains("/order"))
         XCTAssertEqual(projection.sourceOffset(forDisplayOffset: 13), 20)
+    }
+
+    @MainActor
+    func testComposerEditorProjectionIgnoresStaleLookupRangesFromPreviousText() async throws {
+        let runtime = ComposerRuntime()
+        try await configureLookupRuntime(runtime)
+        runtime.query = "Troubleshoot /order for delivery issues"
+        let staleOccurrences = runtime.lookupOccurrences
+
+        let projection = ComposerEditorProjection(
+            source: "Troubleshoot order 2692101 for delivery issues",
+            occurrences: staleOccurrences
+        )
+
+        XCTAssertEqual(projection.display, "Troubleshoot order 2692101 for delivery issues")
     }
 
     @MainActor
@@ -136,6 +189,18 @@ final class ComposerRuntimeTests: XCTestCase {
             composerEditorHeight(query: longPrompt, density: .regular, horizontalSizeClass: .regular),
             82
         )
+    }
+
+    func testCompactComposerHeightDoesNotOscillateForSingleLineTyping() {
+        let heights = (1...29).map { count in
+            composerEditorHeight(
+                query: String(repeating: "a", count: count),
+                density: .compact,
+                horizontalSizeClass: .compact
+            )
+        }
+
+        XCTAssertEqual(Set(heights), Set([CGFloat(54)]))
     }
 
     @MainActor

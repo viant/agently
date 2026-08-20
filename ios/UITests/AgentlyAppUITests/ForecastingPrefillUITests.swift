@@ -1,6 +1,121 @@
 import XCTest
 
 final class ForecastingPrefillUITests: XCTestCase {
+    func testPhysicalHistoryRefreshFindsLatestOrderConversation() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["AGENTLY_IOS_PHYSICAL_STABILITY_TESTS"] == "1",
+            "Enable the physical iOS stability test explicitly."
+        )
+        let query = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_HISTORY_QUERY"] ?? "101"
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(returnToPhysicalHome(app), "Home did not appear")
+        let history = app.buttons["agently-home-history"]
+        XCTAssertTrue(history.waitForExistence(timeout: 30), "History action did not appear on Home")
+        history.tap()
+
+        let refresh = app.buttons["agently-history-refresh"]
+        XCTAssertTrue(refresh.waitForExistence(timeout: 30), "History refresh action did not appear")
+        if refresh.isEnabled { refresh.tap() }
+
+        let search = app.textFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 30), "History search field did not appear")
+        search.tap()
+        search.typeText(query)
+        let matchingConversation = app.buttons
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", query))
+            .firstMatch
+        XCTAssertTrue(matchingConversation.waitForExistence(timeout: 45), "Latest conversation did not match History filter \(query)")
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Refreshed iOS History filtered by \(query)"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    func testPhysicalComposerRemainsStableWhileTypingSingleLine() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["AGENTLY_IOS_PHYSICAL_STABILITY_TESTS"] == "1",
+            "Enable the physical iOS stability test explicitly."
+        )
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(returnToPhysicalHome(app), "Home did not appear")
+        let newChat = app.buttons["agently-new-chat"]
+        XCTAssertTrue(newChat.waitForExistence(timeout: 30))
+        newChat.tap()
+        let expand = app.buttons["agently-composer-expand"]
+        XCTAssertTrue(expand.waitForExistence(timeout: 20))
+        expand.tap()
+        let editor = app.textViews["agently-composer-editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 20))
+        editor.tap()
+
+        var verticalPositions: [CGFloat] = []
+        for character in "stable composer input" {
+            editor.typeText(String(character))
+            verticalPositions.append(editor.frame.minY)
+        }
+        let spread = (verticalPositions.max() ?? 0) - (verticalPositions.min() ?? 0)
+        XCTAssertLessThanOrEqual(spread, 2, "Composer moved vertically while typing a single rendered line")
+    }
+
+    func testPhysicalTroubleshootStarterOrderSelectionAndSendRemainStable() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["AGENTLY_IOS_PHYSICAL_STABILITY_TESTS"] == "1",
+            "Enable the physical iOS stability test explicitly."
+        )
+        let orderID = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_ORDER_ID"] ?? "2692101"
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(returnToPhysicalHome(app), "Home did not appear")
+
+        let starter = app.buttons["agently-starter-task-troubleshoot-ad-order"]
+        XCTAssertTrue(starter.waitForExistence(timeout: 30), "Troubleshoot starter task did not appear")
+        starter.tap()
+
+        let search = app.searchFields.firstMatch
+        let send = app.buttons["agently-composer-send"]
+        if !search.waitForExistence(timeout: 8) {
+            XCTAssertTrue(send.waitForExistence(timeout: 20), "Starter composer send action did not appear")
+            send.tap()
+        }
+        XCTAssertTrue(search.waitForExistence(timeout: 30), "Order lookup search did not appear")
+        search.tap()
+        search.typeText(orderID)
+
+        let orderRow = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", orderID))
+            .firstMatch
+        XCTAssertTrue(orderRow.waitForExistence(timeout: 60), "Requested order did not appear")
+        orderRow.tap()
+
+        XCTAssertTrue(send.waitForExistence(timeout: 15), "Send action did not return after order selection")
+        XCTAssertTrue(send.isEnabled, "Send action was disabled after order selection")
+        send.tap()
+
+        RunLoop.current.run(until: Date().addingTimeInterval(90))
+        XCTAssertEqual(app.state, .runningForeground, "Agently terminated during troubleshooting response streaming")
+        XCTAssertTrue(app.buttons["agently-home"].exists, "Home action disappeared during troubleshooting")
+    }
+
+    private func returnToPhysicalHome(_ app: XCUIApplication) -> Bool {
+        let newChat = app.buttons["agently-new-chat"]
+        if newChat.waitForExistence(timeout: 45) { return true }
+        for _ in 0..<5 {
+            let candidates = [
+                app.buttons["agently-home"],
+                app.buttons["BackButton"],
+                app.buttons["agently-conversations-back"],
+                app.buttons.matching(NSPredicate(format: "label ==[c] 'Conversations'")).firstMatch
+            ]
+            guard let action = candidates.first(where: { $0.exists && $0.isHittable }) else { break }
+            action.tap()
+            if newChat.waitForExistence(timeout: 8) { return true }
+        }
+        return newChat.exists
+    }
+
     func testNormalAuthRequiredScreenIsQuietWithoutDevAuth() throws {
         try XCTSkipUnless(
             ProcessInfo.processInfo.environment["AGENTLY_IOS_AUTH_SCREEN_LIVE_TESTS"] == "1"

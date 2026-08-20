@@ -16,6 +16,10 @@ struct TranscriptMessageContent: View {
     let renderedReports: [TranscriptCanonicalReport]?
 	let client: AgentlyClient?
     let conversationID: String?
+    @State private var artifactLinkError: String?
+    #if os(iOS) && canImport(QuickLook)
+    @State private var artifactLinkPreviewURL: URL?
+    #endif
 
     var body: some View {
         let sourceParts = renderedParts
@@ -43,8 +47,58 @@ struct TranscriptMessageContent: View {
             ForEach(renderedReports ?? [], id: \.stableIdentity) { report in
                 TranscriptInlineReportView(report: report, client: client, conversationID: conversationID)
             }
+            if let artifactLinkError, !artifactLinkError.isEmpty {
+                Text(artifactLinkError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
         }
+        .environment(\.openURL, OpenURLAction { url in
+            guard let artifactID = reportArtifactID(from: url) else {
+                return .systemAction
+            }
+            guard let client else {
+                artifactLinkError = "Sign in before opening this report."
+                return .discarded
+            }
+            Task {
+                do {
+                    let artifact = try await downloadReportRuntimeArtifact(
+                        client: client,
+                        artifactID: artifactID,
+                        conversationID: conversationID ?? ""
+                    )
+                    let fileURL = try persistInlineReportExportArtifact(artifact)
+                    await MainActor.run {
+                        artifactLinkError = nil
+                        #if os(iOS) && canImport(QuickLook)
+                        artifactLinkPreviewURL = fileURL
+                        #endif
+                    }
+                } catch {
+                    await MainActor.run {
+                        artifactLinkError = reportRuntimeExportErrorMessage(error)
+                    }
+                }
+            }
+            return .handled
+        })
+        #if os(iOS) && canImport(QuickLook)
+        .quickLookPreview($artifactLinkPreviewURL)
+        #endif
     }
+}
+
+internal func reportArtifactID(from url: URL) -> String? {
+    if url.scheme?.lowercased() == "scratchpad", url.host?.lowercased() == "artifact" {
+        let value = url.pathComponents.last?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? nil : value
+    }
+    if url.path.contains("/__report_artifact__/") {
+        let value = url.pathComponents.last?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? nil : value
+    }
+    return nil
 }
 
 private extension TranscriptCanonicalReport {
@@ -62,48 +116,19 @@ private struct TranscriptInlineReportView: View {
 	let client: AgentlyClient?
     let conversationID: String?
 
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var metadata: WindowMetadata?
     @State private var windowContext: WindowContext?
     @State private var errorMessage: String?
     @State private var exportErrorMessage: String?
     @State private var isExportingPDF = false
+    @State private var isReportPresented = false
     #if os(iOS) && canImport(QuickLook)
     @State private var quickLookURL: URL?
     #endif
     @State private var runtime = ForgeRuntime()
 
     var body: some View {
-        Group {
-            if let metadata, let windowContext {
-                VStack(alignment: .leading, spacing: 8) {
-                    inlineReportExportAction
-                    WindowContentView(
-                        runtime: runtime,
-                        window: windowContext,
-                        metadata: metadata,
-                        scrollEnabled: true,
-                        contentPadding: 4
-                    )
-                    .environment(\.forgePresentationDensity, .compact)
-                    .frame(maxHeight: TranscriptInlinePresentationPolicy.resolve(
-                        metadata: metadata,
-                        horizontalSizeClass: horizontalSizeClass
-                    ).maximumHeight)
-                    .clipped()
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(report.id).font(.headline)
-                    Text(errorMessage ?? "Loading report…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-            }
-        }
+        inlineReportPreviewCard
         .task(id: report.refreshIdentity) {
             do {
 				if let client {
@@ -135,45 +160,138 @@ private struct TranscriptInlineReportView: View {
                 errorMessage = error.localizedDescription
             }
         }
+        .transcriptReportPresentation(isPresented: $isReportPresented) {
+            inlineReportDestination
+        }
         #if os(iOS) && canImport(QuickLook)
         .quickLookPreview($quickLookURL)
         #endif
     }
 
+    private var previewTitle: String {
+        let title = report.source.objectValue?["title"]?.stringValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return title.isEmpty ? report.id : title
+    }
+
+    private var previewSubtitle: String? {
+        let subtitle = report.source.objectValue?["subtitle"]?.stringValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return subtitle.isEmpty ? nil : subtitle
+    }
+
+    private var inlineReportPreviewCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(previewTitle)
+                .font(.headline.weight(.semibold))
+            if let previewSubtitle {
+                Text(previewSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if metadata != nil, windowContext != nil {
+                HStack(spacing: 10) {
+                    Button {
+                        isReportPresented = true
+                    } label: {
+                        AppleToolbarActionIcon(
+                            systemImage: "arrow.up.left.and.arrow.down.right",
+                            color: Color(red: 0.22, green: 0.23, blue: 0.86)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open Report")
+                    .accessibilityIdentifier("agently-open-report")
+                    inlineReportExportButton
+                }
+                exportErrorText
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text(errorMessage ?? "Loading report…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.secondary.opacity(0.10)))
+    }
+
     @ViewBuilder
-    private var inlineReportExportAction: some View {
+    private var inlineReportDestination: some View {
+        NavigationStack {
+            Group {
+                if let metadata, let windowContext {
+                    WindowContentView(
+                        runtime: runtime,
+                        window: windowContext,
+                        metadata: metadata,
+                        scrollEnabled: true,
+                        contentPadding: 12
+                    )
+                    .environment(\.forgePresentationDensity, .compact)
+                    .environment(\.forgeDedicatedReportScreen, true)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ProgressView("Loading report…")
+                }
+            }
+            .navigationTitle(previewTitle)
+            .agentlyInlineTitleMode()
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { isReportPresented = false } label: {
+                        AppleToolbarActionIcon(
+                            systemImage: "chevron.left",
+                            color: Color(red: 0.35, green: 0.40, blue: 0.85)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Back to conversation")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    inlineReportExportButton
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                exportErrorText
+                    .padding(.horizontal, 12)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var inlineReportExportButton: some View {
         if report.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().isEmpty ||
             ["committed", "ready"].contains(report.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
-            HStack(spacing: 8) {
-                Button {
-                    exportInlineReportPDF()
-                } label: {
-                    HStack(spacing: 8) {
-                        AppleToolbarActionIcon(
-                            systemImage: "doc.richtext.fill",
-                            color: Color(red: 0.82, green: 0.25, blue: 0.34),
-                            isLoading: isExportingPDF
-                        )
-                        Text(isExportingPDF ? "Opening PDF…" : "Open PDF")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    .padding(.trailing, 12)
-                    .background(
-                        Color(red: 0.82, green: 0.25, blue: 0.34).opacity(0.08),
-                        in: Capsule()
-                    )
-                }
+            Button {
+                exportInlineReportPDF()
+            } label: {
+                AppleToolbarActionIcon(
+                    systemImage: "doc.richtext.fill",
+                    color: Color(red: 0.82, green: 0.25, blue: 0.34),
+                    isLoading: isExportingPDF
+                )
+            }
+                .accessibilityLabel(isExportingPDF ? "Preparing PDF" : "Open PDF")
+                .accessibilityIdentifier("forge-report-runtime-open-pdf")
                 .buttonStyle(.plain)
                 .disabled(isExportingPDF)
 
-                if let exportErrorMessage, !exportErrorMessage.isEmpty {
-                    Text(exportErrorMessage)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .lineLimit(2)
-                }
-            }
-            .padding(.horizontal, 4)
+        }
+    }
+
+    @ViewBuilder
+    private var exportErrorText: some View {
+        if let exportErrorMessage, !exportErrorMessage.isEmpty {
+            Text(exportErrorMessage)
+                .font(.caption)
+                .foregroundStyle(.red)
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -218,6 +336,20 @@ private struct TranscriptInlineReportView: View {
                 }
             }
         }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func transcriptReportPresentation<Content: View>(
+        isPresented: Binding<Bool>,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        #if os(iOS)
+        fullScreenCover(isPresented: isPresented, content: content)
+        #else
+        sheet(isPresented: isPresented, content: content)
+        #endif
     }
 }
 

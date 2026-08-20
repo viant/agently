@@ -141,10 +141,10 @@ public final class AppRuntime: ObservableObject {
     }
 
     public func bootstrap() async {
-        await bootstrap(allowAutoOOB: true)
+        await bootstrap(allowAutoOOB: true, selectInitialConversation: true)
     }
 
-    private func bootstrap(allowAutoOOB: Bool) async {
+    private func bootstrap(allowAutoOOB: Bool, selectInitialConversation: Bool) async {
         logger.info("Bootstrap started for base URL: \(self.displayBaseURL, privacy: .public)")
         bootstrapTimeoutTask?.cancel()
         state.authState = .checking
@@ -177,7 +177,9 @@ public final class AppRuntime: ObservableObject {
                 developerAuthEnabled: developerAuthFeaturesEnabled()
             )
             let selectedConversationID: String?
-            if !restoredConversationID.isEmpty,
+            if !selectInitialConversation {
+                selectedConversationID = nil
+            } else if !restoredConversationID.isEmpty,
                state.conversations.contains(where: { $0.id == restoredConversationID }) {
                 selectedConversationID = restoredConversationID
             } else if !restoredConversationID.isEmpty {
@@ -220,7 +222,7 @@ public final class AppRuntime: ObservableObject {
                     logger.info("Attempting bootstrap OOB sign-in before presenting auth screen")
                     let success = await authRuntime.beginOOBLogin(secretsURL: secret)
                     if success {
-                        await bootstrap(allowAutoOOB: false)
+                        await bootstrap(allowAutoOOB: false, selectInitialConversation: selectInitialConversation)
                         return
                     }
                 }
@@ -234,7 +236,10 @@ public final class AppRuntime: ObservableObject {
         state.isRefreshingConversations = false
     }
 
-    public func applySettingsAndReload() async {
+    public func applySettingsAndReload(
+        restoreConversationID: String? = nil,
+        selectInitialConversation: Bool = true
+    ) async {
         logger.info("Applying settings and rebuilding runtime client")
         settingsRuntime.save()
         uiBridge.stop()
@@ -255,8 +260,8 @@ public final class AppRuntime: ObservableObject {
         state.isRefreshingConversations = false
         state.isLoadingConversation = false
         state.isLoadingArtifacts = false
-        settingsStore.saveActiveConversationID(nil)
-        await bootstrap()
+        settingsStore.saveActiveConversationID(restoreConversationID)
+        await bootstrap(allowAutoOOB: true, selectInitialConversation: selectInitialConversation)
     }
 
     public func selectConversation(_ conversationID: String) async {
@@ -822,6 +827,7 @@ public final class AppRuntime: ObservableObject {
             guard !Task.isCancelled else { return }
             guard self.state.activeConversationID == conversationID else { return }
             await self.loadConversationState(conversationID: conversationID)
+            await self.refreshConversationList()
         }
     }
 
@@ -1242,20 +1248,49 @@ private func makeComposerLookupRegistryLoader(
 private func makeComposerLookupRowsLoader(
     client: AgentlyClient
 ) -> ComposerRuntime.LookupRowsLoader {
-    return { entry, searchQuery, _ in
-        var inputs: [String: JSONValue] = [:]
-        let queryKey = entry.token?.queryInput?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !queryKey.isEmpty, !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            inputs[queryKey] = .string(searchQuery)
+    return { entry, searchQuery, conversationID in
+        var firstError: Error?
+        var completedRequest = false
+        for inputs in composerLookupSearchInputCandidates(entry: entry, searchQuery: searchQuery) {
+            do {
+                let output = try await client.fetchDatasource(
+                    FetchDatasourceInput(
+                        id: entry.dataSource,
+                        inputs: inputs.isEmpty ? nil : inputs,
+                        conversationId: conversationID.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+                    )
+                )
+                completedRequest = true
+                if !output.rows.isEmpty || inputs.isEmpty {
+                    return output.rows
+                }
+            } catch {
+                firstError = firstError ?? error
+            }
         }
-        let output = try await client.fetchDatasource(
-            FetchDatasourceInput(
-                id: entry.dataSource,
-                inputs: inputs.isEmpty ? nil : inputs
-            )
-        )
-        return output.rows
+        if !completedRequest, let firstError { throw firstError }
+        return []
     }
+}
+
+func composerLookupSearchInputCandidates(
+    entry: LookupRegistryEntry,
+    searchQuery: String
+) -> [[String: JSONValue]] {
+    let value = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !value.isEmpty else { return [[:]] }
+    let queryKey = entry.token?.queryInput?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let resolveKey = entry.token?.resolveInput?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let looksLikeIdentifier = value.allSatisfy(\.isNumber)
+    let orderedKeys = looksLikeIdentifier
+        ? [resolveKey, queryKey]
+        : [queryKey, resolveKey]
+    var seen = Set<String>()
+    let candidates: [[String: JSONValue]] = orderedKeys.compactMap { key in
+        guard !key.isEmpty, seen.insert(key).inserted else { return nil }
+        return [key: .string(value)]
+    }
+    return candidates.isEmpty ? [[:]] : candidates
 }
 
 internal func resolvedBootstrapActiveConversationID(
