@@ -1202,6 +1202,8 @@ github.com/viant/assertly v0.9.1-0.20220620174148-bab013f93a60 h1:VFJvCOHKXv4IqX
 github.com/viant/assertly v0.9.1-0.20220620174148-bab013f93a60/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/bigquery v0.5.1 h1:fCP2iUJYyx2DzS2sfx15ru4zmFkAiQbhGJc1cM4j6bg=
 github.com/viant/bigquery v0.5.1/go.mod h1:6gHVcc2lmLvvVyWgbP1mUuoN9p5HcejYx2Xu+hSDoJc=
+github.com/viant/bigquery v0.5.2-0.20260803163621-2873b21b58e5 h1:n0b8XMi4UZO532AP17Scc2vCDJTVSMzLHOUXFg5RyvQ=
+github.com/viant/bigquery v0.5.2-0.20260803163621-2873b21b58e5/go.mod h1:IIlW5q1E6xqg1p/91b3AGRCeLVZpRi+9C1kUL9PFNqw=
 github.com/viant/bintly v0.2.0 h1:vmsDUh/+V2a1zDc2YL4SpwoUG9m/7zYKxB8Yw10D2Sk=
 github.com/viant/bintly v0.2.0/go.mod h1:IpiWi1GsRJebOKID8b65euhXMg4FPvfGUvLntaSt7I8=
 github.com/viant/cloudless v1.12.0 h1:EVLki/Ontsj1viXGUh+BCB1y0XMkDd9VQypjZKzIgfc=
