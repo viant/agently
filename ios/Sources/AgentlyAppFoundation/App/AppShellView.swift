@@ -8,7 +8,8 @@ public struct AppShellView: View {
     @State private var conversationSearchText = ""
     @State private var compactNavigationPath: [String] = []
     @State private var compactUserReturnedToListConversationID: String?
-    @State private var compactShowsStarterSurface = false
+    @State private var compactShowsStarterSurface = true
+    @State private var compactHistoryRequested = false
     @State private var regularColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var pendingConversationDeletion: Conversation?
 
@@ -26,6 +27,103 @@ public struct AppShellView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: ToolbarItemPlacement.actionShellToolbarPlacement) {
+                if isHomeSurfaceVisible {
+                    Button {
+                        compactUserReturnedToListConversationID = nil
+                        compactNavigationPath = []
+                        conversationSearchText = ""
+                        compactShowsStarterSurface = true
+                        compactHistoryRequested = false
+                        runtime.startNewConversation()
+                    } label: {
+                        AppleToolbarActionIcon(
+                            systemImage: "square.and.pencil",
+                            color: Color(red: 0.10, green: 0.45, blue: 0.95)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("New Chat")
+                    .accessibilityIdentifier("agently-new-chat")
+
+                    Button {
+                        compactUserReturnedToListConversationID = normalizedCompactConversationID(runtime.state.activeConversationID)
+                        compactNavigationPath = []
+                        conversationSearchText = ""
+                        compactShowsStarterSurface = false
+                        compactHistoryRequested = true
+                        if horizontalSizeClass == .regular {
+                            regularColumnVisibility = .all
+                        }
+                        Task { await runtime.refreshConversationList() }
+                    } label: {
+                        AppleToolbarActionIcon(
+                            systemImage: "clock.arrow.circlepath",
+                            color: Color(red: 0.88, green: 0.54, blue: 0.12)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("History")
+                    .accessibilityIdentifier("agently-home-history")
+                } else {
+                    Button {
+                    compactUserReturnedToListConversationID = nil
+                    compactNavigationPath = []
+                    conversationSearchText = ""
+                    compactShowsStarterSurface = true
+                    compactHistoryRequested = false
+                    if horizontalSizeClass == .regular {
+                        regularColumnVisibility = .detailOnly
+                    }
+                    runtime.startNewConversation()
+                } label: {
+                    AppleToolbarActionIcon(
+                        systemImage: "house.fill",
+                        color: Color(red: 0.10, green: 0.45, blue: 0.95)
+                    )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Home")
+                    .accessibilityIdentifier("agently-home")
+                }
+
+                if shouldShowToolbarHistory {
+                    Button {
+                    compactUserReturnedToListConversationID = normalizedCompactConversationID(runtime.state.activeConversationID)
+                    compactNavigationPath = []
+                    conversationSearchText = ""
+                    compactShowsStarterSurface = false
+                    compactHistoryRequested = true
+                    if horizontalSizeClass == .regular {
+                        regularColumnVisibility = .all
+                    }
+                    Task { await runtime.refreshConversationList() }
+                } label: {
+                    AppleToolbarActionIcon(
+                        systemImage: "clock.arrow.circlepath",
+                        color: Color(red: 0.88, green: 0.54, blue: 0.12)
+                    )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("History")
+                    .accessibilityIdentifier("agently-history")
+                }
+
+                if isHistorySurfaceVisible {
+                    Button {
+                        Task { await runtime.refreshConversationList() }
+                    } label: {
+                        AppleToolbarActionIcon(
+                            systemImage: "arrow.clockwise",
+                            color: Color(red: 0.04, green: 0.61, blue: 0.60),
+                            isLoading: runtime.state.isRefreshingConversations
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Refresh conversations")
+                    .accessibilityIdentifier("agently-history-refresh")
+                    .disabled(runtime.state.isRefreshingConversations)
+                }
+
                 Button {
                     isShowingSettings = true
                 } label: {
@@ -36,40 +134,14 @@ public struct AppShellView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Settings")
-
-                Button {
-                    compactUserReturnedToListConversationID = nil
-                    compactNavigationPath = []
-                    conversationSearchText = ""
-                    compactShowsStarterSurface = true
-                    if horizontalSizeClass == .regular {
-                        regularColumnVisibility = .detailOnly
-                    }
-                    runtime.startNewConversation()
-                } label: {
-                    AppleToolbarActionIcon(
-                        systemImage: "square.and.pencil",
-                        color: Color(red: 0.10, green: 0.45, blue: 0.95)
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("New Chat")
-                .accessibilityIdentifier("agently-new-chat")
-
-                Button {
-                    Task { await runtime.refreshConversationList() }
-                } label: {
-                    AppleToolbarActionIcon(
-                        systemImage: "arrow.clockwise",
-                        color: Color(red: 0.04, green: 0.62, blue: 0.61)
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Refresh")
-                .accessibilityIdentifier("agently-refresh-conversations")
             }
         }
-        .settingsSheet(isPresented: $isShowingSettings, runtime: runtime)
+        .settingsSheet(
+            isPresented: $isShowingSettings,
+            runtime: runtime,
+            restoreConversationID: settingsRestoreConversationID,
+            selectInitialConversation: settingsShouldRestoreConversation
+        )
         .alert(
             "Delete Conversation?",
             isPresented: Binding(
@@ -112,11 +184,13 @@ public struct AppShellView: View {
                 composerRuntime: runtime.composerRuntime,
                 isSending: runtime.isQueryBusy,
                 showsStarterSurfaceOverride: compactShowsStarterSurface,
+                showsHistorySurfaceOverride: false,
                 onRefresh: {
                     await runtime.refreshConversationList()
                 },
                 onSelectConversation: { conversationID in
                     compactShowsStarterSurface = false
+                    compactHistoryRequested = false
                     regularColumnVisibility = .detailOnly
                     Task { await runtime.selectConversation(conversationID) }
                 },
@@ -127,11 +201,22 @@ public struct AppShellView: View {
                     let prompt = (task.prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                     if !prompt.isEmpty {
                         compactShowsStarterSurface = true
+                        compactHistoryRequested = false
                         runtime.composerRuntime.query = prompt
                     }
                 },
                 onRequestDeleteConversation: { conversation in
                     pendingConversationDeletion = conversation
+                },
+                onNewChat: {
+                    compactShowsStarterSurface = true
+                    compactHistoryRequested = false
+                    runtime.startNewConversation()
+                },
+                onShowHistory: {
+                    compactShowsStarterSurface = false
+                    compactHistoryRequested = true
+                    regularColumnVisibility = .all
                 },
                 onSend: { Task { await runtime.sendCurrentQuery() } }
             )
@@ -194,6 +279,7 @@ public struct AppShellView: View {
                 composerRuntime: runtime.composerRuntime,
                 isSending: runtime.isQueryBusy,
                 showsStarterSurfaceOverride: compactShowsStarterSurface,
+                showsHistorySurfaceOverride: compactHistoryRequested,
                 onRefresh: {
                     await runtime.refreshConversationList()
                 },
@@ -204,6 +290,7 @@ public struct AppShellView: View {
                         compactNavigationPath = [normalized]
                     }
                     compactShowsStarterSurface = false
+                    compactHistoryRequested = false
                     Task { await runtime.selectConversation(conversationID) }
                 },
                 onSelectAgent: { agentID in
@@ -213,11 +300,26 @@ public struct AppShellView: View {
                     let prompt = (task.prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                     if !prompt.isEmpty {
                         compactShowsStarterSurface = true
+                        compactHistoryRequested = false
                         runtime.composerRuntime.query = prompt
                     }
                 },
                 onRequestDeleteConversation: { conversation in
                     pendingConversationDeletion = conversation
+                },
+                onNewChat: {
+                    compactUserReturnedToListConversationID = nil
+                    compactNavigationPath = []
+                    compactShowsStarterSurface = true
+                    compactHistoryRequested = false
+                    runtime.startNewConversation()
+                },
+                onShowHistory: {
+                    compactUserReturnedToListConversationID = normalizedCompactConversationID(runtime.state.activeConversationID)
+                    compactNavigationPath = []
+                    compactShowsStarterSurface = false
+                    compactHistoryRequested = true
+                    Task { await runtime.refreshConversationList() }
                 },
                 onSend: { Task { await runtime.sendCurrentQuery() } }
             )
@@ -229,6 +331,7 @@ public struct AppShellView: View {
                         compactUserReturnedToListConversationID = normalizedCompactConversationID(runtime.state.activeConversationID)
                             ?? normalizedCompactConversationID(conversationID)
                         compactShowsStarterSurface = false
+                        compactHistoryRequested = true
                         compactNavigationPath = []
                     }
                 )
@@ -240,8 +343,10 @@ public struct AppShellView: View {
                 if newValue.isEmpty, runtime.state.activeConversationID != nil {
                     compactUserReturnedToListConversationID = normalizedCompactConversationID(runtime.state.activeConversationID)
                     compactShowsStarterSurface = false
+                    compactHistoryRequested = true
                 } else if !newValue.isEmpty {
                     compactUserReturnedToListConversationID = nil
+                    compactHistoryRequested = false
                 }
             }
         }
@@ -264,6 +369,44 @@ public struct AppShellView: View {
     private var conversationsWorkspaceTitle: String? {
         runtime.state.workspaceMetadata?.workspaceRoot?.workspaceDisplayTitle
             ?? runtime.state.workspaceMetadata?.defaultAgent?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var shouldShowToolbarHistory: Bool {
+        guard !isHomeSurfaceVisible else { return false }
+        if horizontalSizeClass == .compact {
+            return !compactNavigationPath.isEmpty
+        }
+        return regularColumnVisibility == .detailOnly
+    }
+
+    private var isHomeSurfaceVisible: Bool {
+        if horizontalSizeClass == .compact {
+            return compactNavigationPath.isEmpty
+                && !compactHistoryRequested
+                && compactShowsStarterSurface
+        }
+        return compactShowsStarterSurface && runtime.state.activeConversationID == nil
+    }
+
+    private var isHistorySurfaceVisible: Bool {
+        if horizontalSizeClass == .compact {
+            return compactNavigationPath.isEmpty && compactHistoryRequested
+        }
+        guard !compactShowsStarterSurface else { return false }
+        return regularColumnVisibility == .all
+    }
+
+    private var settingsShouldRestoreConversation: Bool {
+        if horizontalSizeClass == .compact {
+            return !compactNavigationPath.isEmpty
+        }
+        return regularColumnVisibility == .detailOnly
+    }
+
+    private var settingsRestoreConversationID: String? {
+        settingsShouldRestoreConversation
+            ? normalizedCompactConversationID(runtime.state.activeConversationID)
+            : nil
     }
 }
 
@@ -363,11 +506,14 @@ private struct ConversationListView: View {
     let composerRuntime: ComposerRuntime
     let isSending: Bool
     let showsStarterSurfaceOverride: Bool
+    let showsHistorySurfaceOverride: Bool
     let onRefresh: () async -> Void
     let onSelectConversation: (String) -> Void
     let onSelectAgent: (String?) -> Void
     let onSelectStarterTask: (StarterTask) -> Void
     let onRequestDeleteConversation: (Conversation) -> Void
+    let onNewChat: () -> Void
+    let onShowHistory: () -> Void
     let onSend: () -> Void
 
     private var trimmedSearchText: String {
@@ -397,9 +543,9 @@ private struct ConversationListView: View {
             return false
         }
         if showsStarterSurfaceOverride {
-            return true
+            return !showsHistorySurfaceOverride
         }
-        return activeConversationID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+        return false
     }
 
     var body: some View {
@@ -412,6 +558,30 @@ private struct ConversationListView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 10)
                 .padding(.bottom, 6)
+
+            if !showsCompactStarterTasks {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Search conversations", text: $searchText)
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Clear conversation search")
+                    }
+                }
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
+                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .accessibilityIdentifier("agently-history-filter")
+            }
 
             if showsCompactStarterTasks {
                 compactStarterSurface
@@ -502,15 +672,15 @@ private struct ConversationListView: View {
                 .id("plain-list-\(activeConversationID ?? "none")")
             }
         }
-        .navigationTitle("Conversations")
+        .navigationTitle(showsCompactStarterTasks ? "Home" : "History")
         .modifier(ConversationListNavigationTitleMode(useInlineTitle: usesNavigationDestination))
-        .searchable(
-            text: $searchText,
-            placement: SearchFieldPlacement.conversationSearchPlacement,
-            prompt: "Search conversations"
-        )
         .refreshable {
             await onRefresh()
+        }
+        .task(id: showsCompactStarterTasks) {
+            if !showsCompactStarterTasks {
+                await onRefresh()
+            }
         }
     }
 
@@ -634,10 +804,41 @@ private struct ConversationLoadingDetailView: View {
 }
 
 private struct ConversationRowView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let conversation: Conversation
     let isActive: Bool
 
     var body: some View {
+        if horizontalSizeClass == .compact {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(conversation.title ?? "Untitled Conversation")
+                        .font(.body.weight(isActive ? .semibold : .regular))
+                        .lineLimit(1)
+                    if let relativeLastActivity, !relativeLastActivity.isEmpty {
+                        Text(relativeLastActivity)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 8)
+                AppleToolbarActionIcon(
+                    systemImage: "eye.fill",
+                    color: Color(red: 0.10, green: 0.45, blue: 0.95)
+                )
+                .accessibilityHidden(true)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(isActive ? Color.blue.opacity(0.07) : Color.secondary.opacity(0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(isActive ? Color.blue.opacity(0.30) : Color.secondary.opacity(0.10), lineWidth: 1)
+            )
+        } else {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(conversation.title ?? "Untitled Conversation")
@@ -672,6 +873,7 @@ private struct ConversationRowView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
+        }
     }
 
     private var metadataChips: [ConversationMetadataChipModel] {
@@ -911,7 +1113,12 @@ internal func resolvedCompactNavigationPath(
 }
 
 private extension View {
-    func settingsSheet(isPresented: Binding<Bool>, runtime: AppRuntime) -> some View {
+    func settingsSheet(
+        isPresented: Binding<Bool>,
+        runtime: AppRuntime,
+        restoreConversationID: String?,
+        selectInitialConversation: Bool
+    ) -> some View {
         sheet(isPresented: isPresented) {
             NavigationStack {
                 SettingsScreen(
@@ -926,7 +1133,10 @@ private extension View {
                 ) {
                     Task {
                         isPresented.wrappedValue = false
-                        await runtime.applySettingsAndReload()
+                        await runtime.applySettingsAndReload(
+                            restoreConversationID: restoreConversationID,
+                            selectInitialConversation: selectInitialConversation
+                        )
                     }
                 }
             }

@@ -236,6 +236,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     var artifactPreview by remember { mutableStateOf<ArtifactPreview?>(null) }
     var streamJob by remember { mutableStateOf<Job?>(null) }
     var postTurnRefreshJob by remember { mutableStateOf<Job?>(null) }
+    var stoppingTurnId by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var approvalEdits by remember { mutableStateOf<Map<String, Map<String, JsonElement>>>(emptyMap()) }
     val transcript = remember { mutableListOf<ChatEntry>().toMutableStateList() }
@@ -1409,6 +1410,30 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         setQueryText(value)
     }
 
+    fun cancelCurrentTurn() {
+        val turnId = streamSnapshot?.activeTurnId?.trim().orEmpty()
+        if (turnId.isEmpty() || stoppingTurnId != null) return
+        stoppingTurnId = turnId
+        launchVisibleErrorOperation {
+            try {
+                resolveClient().cancelTurn(turnId)
+                clearActiveStreamJob()
+                activeConversationId?.takeIf { it.isNotBlank() }?.let { conversationId ->
+                    bindConversation(conversationId, replaceTranscript = true)
+                }
+            } finally {
+                stoppingTurnId = null
+            }
+        }
+    }
+
+    fun clearComposerDraft() {
+        setQueryText("")
+        composerAttachments = emptyList()
+        composerLookupSelections = emptyMap()
+        activeComposerLookupOccurrence = null
+    }
+
     fun selectStarterTask(prompt: String) {
         setQueryText(prompt)
         showChatScreen()
@@ -1495,6 +1520,18 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         }
     }
 
+    fun deleteConversation(conversationId: String) {
+        val normalized = conversationId.trim()
+        if (normalized.isEmpty()) return
+        launchVisibleErrorOperation(showLoading = true) {
+            resolveClient().deleteConversation(normalized)
+            if (activeConversationId == normalized) {
+                resetConversation()
+            }
+            refreshRecentConversations()
+        }
+    }
+
     val callbacks = buildAppUiCallbacks(
         currentScreenProvider = { currentScreen },
         setCurrentScreen = ::setCurrentScreen,
@@ -1502,15 +1539,18 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         onNewConversation = ::resetConversation,
         onSelectAgent = ::selectPreferredAgent,
         onSelectConversation = ::selectConversation,
+        onDeleteConversation = ::deleteConversation,
         onApprovalEditChange = ::handleApprovalEditChange,
         onApprovalDecision = ::handleApprovalDecision,
         onOpenFile = ::openGeneratedFile,
         onOpenInlineReportPdf = ::openInlineReportPdf,
         onClosePreview = ::closeArtifactPreview,
         onQueryChange = ::updateQuery,
+        onClearComposer = ::clearComposerDraft,
         onComposerLookupSelected = ::selectComposerLookup,
         onStarterTaskSelected = ::selectStarterTask,
         onRunQuery = ::runQuery,
+        onCancelTurn = ::cancelCurrentTurn,
         onRefreshAuth = ::refreshAuthFromUi,
         onSaveSettings = ::applySettings,
         onResetAppOverrides = ::resetAppOverrides,

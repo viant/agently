@@ -89,6 +89,7 @@ internal fun PhoneChatScreen(
     onOpenInlineReportPdf: (Map<String, Any?>, () -> Unit) -> Unit,
     onClosePreview: () -> Unit,
     onStarterTaskSelected: (String) -> Unit,
+    onCancelTurn: () -> Unit = {},
     bottomComposerInset: Dp = 232.dp,
     composerVisible: Boolean = true,
     onToggleComposer: () -> Unit = {}
@@ -125,6 +126,7 @@ internal fun PhoneChatScreen(
         onOpenInlineReportPdf = onOpenInlineReportPdf,
         onClosePreview = onClosePreview,
         onStarterTaskSelected = onStarterTaskSelected,
+        onCancelTurn = onCancelTurn,
         bottomComposerInset = bottomComposerInset,
         composerVisible = composerVisible,
         onToggleComposer = onToggleComposer
@@ -175,7 +177,8 @@ internal fun TabletChatScreen(
     onTakePhoto: () -> Unit,
     onVoiceInput: () -> Unit,
     onRemoveAttachment: (String) -> Unit,
-    onRunQuery: () -> Unit
+    onRunQuery: () -> Unit,
+    onCancelTurn: () -> Unit = {}
 ) {
     val activeConversationHasWorkspace =
         deriveAgentlyHostedWorkspaceRestoreState(conversationState, streamSnapshot) != null
@@ -244,7 +247,8 @@ internal fun TabletChatScreen(
                 onTakePhoto = onTakePhoto,
                 onVoiceInput = onVoiceInput,
                 onRemoveAttachment = onRemoveAttachment,
-                onRunQuery = onRunQuery
+                onRunQuery = onRunQuery,
+                onCancelTurn = onCancelTurn
             )
         }
     }

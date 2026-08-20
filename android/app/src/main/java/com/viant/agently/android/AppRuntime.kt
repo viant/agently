@@ -23,6 +23,12 @@ internal data class ResolvedClient(
     val client: AgentlyClient
 )
 
+internal data class ResolvedAuthSessionClient(
+    val baseUrl: String,
+    val client: AgentlyClient,
+    val providers: List<AuthProvider>
+)
+
 internal data class WorkspaceSnapshot(
     val metadata: com.viant.agentlysdk.WorkspaceMetadata,
     val conversations: List<Conversation>
@@ -188,6 +194,24 @@ internal suspend fun resolveAuthCapableClient(
     throw lastError ?: IllegalStateException("No auth-capable Agently endpoint is reachable")
 }
 
+internal suspend fun resolveAuthSessionClient(
+    currentBaseUrl: String,
+    candidates: List<String>,
+    currentClient: AgentlyClient,
+    buildClient: (String) -> AgentlyClient
+): ResolvedAuthSessionClient {
+    var lastError: Throwable? = null
+    for (candidate in candidates.distinct()) {
+        val probeClient = if (candidate == currentBaseUrl) currentClient else buildClient(candidate)
+        try {
+            return ResolvedAuthSessionClient(candidate, probeClient, probeClient.authProviders())
+        } catch (err: Throwable) {
+            lastError = err
+        }
+    }
+    throw lastError ?: IllegalStateException("No auth-capable Agently endpoint is reachable")
+}
+
 internal suspend fun resolveAuthClientWithFallback(
     currentBaseUrl: String,
     candidates: List<String>,
@@ -210,10 +234,10 @@ internal suspend fun resolveAuthClientWithFallback(
 internal suspend fun loadWorkspaceSnapshot(
     client: AgentlyClient,
     targetContext: MetadataTargetContext
-): WorkspaceSnapshot {
-    val metadata = client.getWorkspaceMetadata(targetContext)
-    val conversations = loadRecentConversations(client)
-    return WorkspaceSnapshot(metadata = metadata, conversations = conversations)
+): WorkspaceSnapshot = coroutineScope {
+    val metadata = async { client.getWorkspaceMetadata(targetContext) }
+    val conversations = async { loadRecentConversations(client) }
+    WorkspaceSnapshot(metadata = metadata.await(), conversations = conversations.await())
 }
 
 internal suspend fun loadRecentConversations(
@@ -473,7 +497,7 @@ internal suspend fun refreshAuthSession(
     targetContext: MetadataTargetContext
 ): AuthRefreshResult {
     val authResolved = try {
-        resolveAuthCapableClient(
+        resolveAuthSessionClient(
             currentBaseUrl = currentBaseUrl,
             candidates = candidates,
             currentClient = currentClient,
@@ -491,17 +515,7 @@ internal suspend fun refreshAuthSession(
     val authClient = authResolved.client
     val resolvedBaseUrl = authResolved.baseUrl
 
-    val providers = try {
-        authClient.authProviders()
-    } catch (err: Throwable) {
-        return AuthRefreshResult(
-            resolvedBaseUrl = resolvedBaseUrl,
-            authState = AuthState.Required,
-            providers = emptyList(),
-            user = null,
-            authRequiredError = err
-        )
-    }
+    val providers = authResolved.providers
 
     val user = try {
         authClient.authMe()
@@ -516,15 +530,7 @@ internal suspend fun refreshAuthSession(
     }
     val nextAuthState = resolveAuthState(providers, user)
     val workspaceSnapshot = if (nextAuthState == AuthState.Ready && loadOnSuccess) {
-        val workspaceClient = resolveWorkspaceClient(
-            currentBaseUrl = resolvedBaseUrl,
-            candidates = candidates,
-            currentClient = if (resolvedBaseUrl == currentBaseUrl) currentClient else buildClient(resolvedBaseUrl),
-            buildClient = buildClient,
-            onResolvedBaseUrl = {},
-            targetContext = targetContext
-        )
-        loadWorkspaceSnapshot(workspaceClient, targetContext)
+        loadWorkspaceSnapshot(authClient, targetContext)
     } else {
         null
     }

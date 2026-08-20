@@ -13,7 +13,8 @@ import {
   applyStreamChunk,
   finalizeStreamTurn,
   normalizeStreamingDelta,
-  normalizeStreamingMarkdown
+  normalizeStreamingMarkdown,
+  suppressOrphanedForgeTransport
 } from './liveStreamStore';
 import { markLiveOwnedTurn } from './liveStreamStore';
 
@@ -68,6 +69,20 @@ describe('normalizeStreamingDelta', () => {
   it('preserves partial overlap in ordinary streamed content', () => {
     expect(normalizeStreamingDelta('A regular answer repeats this phrase', 'this phrase intentionally'))
       .toBe('this phrase intentionally');
+  });
+});
+
+describe('suppressOrphanedForgeTransport', () => {
+  it('hides a mid-fence report fragment received after late stream attachment', () => {
+    expect(suppressOrphanedForgeTransport(
+      'reportRef":"order_1","sequence":2,"format":"json","mode":"replace","data":[{"spend":0}]}'
+    )).toBe('');
+  });
+
+  it('preserves ordinary assistant prose and complete forge fences', () => {
+    expect(suppressOrphanedForgeTransport('The report is ready.')).toBe('The report is ready.');
+    const fenced = '```forge-data\n{"version":2,"reportRef":"order_1","sequence":2,"data":[]}\n```';
+    expect(suppressOrphanedForgeTransport(fenced)).toBe(fenced);
   });
 });
 

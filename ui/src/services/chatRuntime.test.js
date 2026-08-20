@@ -3161,7 +3161,7 @@ describe('switchConversation', () => {
     expect(messageState.collection).toEqual(expect.any(Array));
   });
 
-  it('uses a lightweight transcript fetch when switching to a live conversation', async () => {
+  it('hydrates execution history when joining a live conversation started by another client', async () => {
     const messageState = { collection: [] };
     const conversationState = { values: { id: 'conv-live-target', queuedTurns: [] } };
     const context = {
@@ -3231,8 +3231,8 @@ describe('switchConversation', () => {
     expect(client.getTranscript).toHaveBeenCalledWith(
       expect.objectContaining({
         conversationId: 'conv-live-target',
-        includeModelCalls: false,
-        includeToolCalls: false,
+        includeModelCalls: true,
+        includeToolCalls: true,
         includeFeeds: true,
         since: undefined
       }),

@@ -22,7 +22,6 @@ public struct ComposerScreen: View {
     @State private var lookupRows: [[String: JSONValue]] = []
     @State private var lookupErrorMessage: String?
     @State private var lookupRowsLoading = false
-    @State private var lastAutoPresentedLookupSignature = ""
     @State private var isCompactComposerExpanded = false
     @State private var editorSelectionUTF16Offset = 0
     @State private var dictationInsertionUTF16Offset = 0
@@ -255,19 +254,6 @@ public struct ComposerScreen: View {
                 isCompactComposerExpanded = true
                 isEditorFocused = true
             } label: {
-                AppleToolbarActionIcon(
-                    systemImage: "bubble.left.fill",
-                    color: Color(red: 0.10, green: 0.45, blue: 0.95)
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Write a reply")
-            .accessibilityIdentifier("agently-composer-expand")
-
-            Button {
-                isCompactComposerExpanded = true
-                isEditorFocused = true
-            } label: {
                 Text("Reply in the workspace")
                     .font(.body)
                     .foregroundStyle(.secondary)
@@ -276,6 +262,7 @@ public struct ComposerScreen: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Reply in the workspace")
+            .accessibilityIdentifier("agently-composer-expand")
 
             Button {
                 isCompactComposerExpanded = true
@@ -484,46 +471,50 @@ public struct ComposerScreen: View {
 
     @ViewBuilder
     private var actionSection: some View {
-        ViewThatFits(in: .horizontal) {
-            actionRow
-            compactActionColumn
-        }
+        actionRow
     }
 
     private var actionRow: some View {
-        HStack {
+        HStack(spacing: 10) {
+            Spacer(minLength: 0)
             actionButtons
-            Spacer(minLength: 12)
             sendButton
-        }
-    }
-
-    private var compactActionColumn: some View {
-        VStack(alignment: .leading, spacing: density == .compact ? 8 : 10) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack {
-                    actionButtons
-                }
-            }
-            HStack {
-                Spacer()
-                sendButton
-            }
         }
     }
 
     private var actionButtons: some View {
         Group {
+            if hasDraftContent {
+                Button {
+                    runtime.clearDraft()
+                    editorSelectionUTF16Offset = 0
+                    isEditorFocused = false
+                    requestAgentlyPlatformKeyboardDismissal()
+                } label: {
+                    AppleToolbarActionIcon(
+                        systemImage: "xmark.circle.fill",
+                        color: Color(red: 0.74, green: 0.29, blue: 0.35)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear composer")
+                .accessibilityIdentifier("agently-composer-clear")
+                .disabled(isSending)
+            }
             if density == .compact {
                 Button {
                     isEditorFocused = false
                     requestAgentlyPlatformKeyboardDismissal()
                     isCompactComposerExpanded = false
                 } label: {
-                    Label("Collapse", systemImage: "chevron.down")
+                    AppleToolbarActionIcon(
+                        systemImage: "chevron.down",
+                        color: Color(red: 0.36, green: 0.40, blue: 0.48)
+                    )
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
                 .disabled(!canShowCollapsedCompactComposer)
+                .accessibilityLabel("Collapse composer")
                 .accessibilityIdentifier("agently-composer-collapse")
             }
             #if os(iOS)
@@ -532,21 +523,14 @@ public struct ComposerScreen: View {
                     isEditorFocused = false
                     requestAgentlyPlatformKeyboardDismissal()
                 } label: {
-                    Label("Hide Keyboard", systemImage: "keyboard.chevron.compact.down")
+                    AppleToolbarActionIcon(
+                        systemImage: "keyboard.chevron.compact.down",
+                        color: Color(red: 0.36, green: 0.40, blue: 0.48)
+                    )
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Hide keyboard")
                 .accessibilityIdentifier("agently-composer-hide-keyboard")
-            }
-            #endif
-            #if os(iOS)
-            if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                Button {
-                    isShowingCameraCapture = true
-                } label: {
-                    Label(density == .compact ? "Cam" : "Camera", systemImage: "camera")
-                }
-                .buttonStyle(.bordered)
-                .disabled(isSending)
             }
             #endif
             PhotosPicker(
@@ -554,34 +538,71 @@ public struct ComposerScreen: View {
                 maxSelectionCount: 5,
                 matching: .images
             ) {
-                Label(density == .compact ? "Photos" : "Photos", systemImage: "photo.on.rectangle")
+                AppleToolbarActionIcon(
+                    systemImage: "photo.on.rectangle.fill",
+                    color: Color(red: 0.10, green: 0.45, blue: 0.95)
+                )
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Add photos")
             .disabled(isSending)
+            #if os(iOS)
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button {
+                    isShowingCameraCapture = true
+                } label: {
+                    AppleToolbarActionIcon(
+                        systemImage: "camera.fill",
+                        color: Color(red: 0.88, green: 0.54, blue: 0.12)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Take photo")
+                .disabled(isSending)
+            }
+            #endif
             Button {
                 isShowingFileImporter = true
             } label: {
-                Label(density == .compact ? "Attach" : "Attach", systemImage: "paperclip")
+                AppleToolbarActionIcon(
+                    systemImage: "paperclip",
+                    color: Color(red: 0.49, green: 0.32, blue: 0.88)
+                )
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Attach file")
             .disabled(isSending)
             Button {
                 beginVoiceInput()
             } label: {
-                Label(
-                    voiceRuntime.isActive ? "Stop" : "Voice",
-                    systemImage: voiceRuntime.isActive ? "stop.circle" : "waveform"
+                AppleToolbarActionIcon(
+                    systemImage: voiceRuntime.isActive ? "stop.fill" : "waveform",
+                    color: Color(red: 0.87, green: 0.36, blue: 0.48),
+                    isLoading: voiceRuntime.isPreparing
                 )
             }
-            .buttonStyle(.bordered)
-            .tint(voiceRuntime.isActive ? .red : .accentColor)
+            .buttonStyle(.plain)
+            .accessibilityLabel(voiceRuntime.isActive ? "Stop voice input" : "Voice input")
             .disabled(isSending)
         }
     }
 
+    private var hasDraftContent: Bool {
+        !runtime.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+            !runtime.attachments.isEmpty ||
+            !runtime.lookupSelections.isEmpty
+    }
+
     private var sendButton: some View {
-        Button(sendButtonTitle, action: handleSendTap)
-            .buttonStyle(.borderedProminent)
+        Button(action: handleSendTap) {
+            AppleToolbarActionIcon(
+                systemImage: firstUnresolvedRequiredLookup == nil ? "arrow.up" : "magnifyingglass",
+                color: Color(red: 0.22, green: 0.23, blue: 0.86),
+                isLoading: isSending
+            )
+        }
+            .buttonStyle(.plain)
+            .accessibilityLabel(sendButtonTitle)
             .accessibilityIdentifier("agently-composer-send")
             .disabled(isSending || runtime.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
@@ -640,12 +661,11 @@ public struct ComposerScreen: View {
         guard density == .compact else { return }
         let signature = unresolvedRequiredLookupSignature
         guard !signature.isEmpty,
-              signature != lastAutoPresentedLookupSignature,
+              runtime.claimRequiredLookupAutoPresentation(key: "\(signature)|\(runtime.query)"),
               activeLookupOccurrence == nil,
               let occurrence = firstUnresolvedRequiredLookup else {
             return
         }
-        lastAutoPresentedLookupSignature = signature
         activeLookupOccurrence = occurrence
     }
 }

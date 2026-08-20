@@ -383,6 +383,9 @@ Use the canonical [Android Endly build and deployment workflow](doc/android.md)
 for remote-workspace deployment, local Agently proxying, and device verification.
 Do not create a separate Android deployment workflow under `e2e`.
 
+Use the canonical [iOS Endly physical-device workflow](doc/ios.md) for signed
+builds, USB installation, launch, and verification through Xcode/CoreDevice.
+
 Android builds default to Git-pinned SDK sources under `android/deps`. Initialize
 them with `git submodule update --init --recursive`. Set
 `AGENTLY_ANDROID_USE_SIBLING_SOURCES=true` only when intentionally testing

@@ -52,6 +52,11 @@
       </MacroExpansion>
       <EnvironmentVariables>
          <EnvironmentVariable
+            key = "AGENTLY_IOS_PHYSICAL_STABILITY_TESTS"
+            value = "1"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
             key = "AGENTLY_IOS_LIVE_UI_TESTS"
             value = "1"
             isEnabled = "YES">

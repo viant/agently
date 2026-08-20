@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyConversationMetaPatchToRows,
+  conversationDeletionBlocked,
   conversationDeleteErrorMessage,
   fillDeletedSidebarPageFromOlder,
   normalizeSidebarPageRequest,
@@ -177,6 +178,13 @@ describe('sidebar conversation pagination', () => {
 });
 
 describe('conversation delete helpers', () => {
+  it('blocks deletion only for explicitly active conversations', () => {
+    expect(conversationDeletionBlocked({ status: 'running' })).toBe(true);
+    expect(conversationDeletionBlocked({ running: true })).toBe(true);
+    expect(conversationDeletionBlocked({ status: 'succeeded', stage: 'done' })).toBe(false);
+    expect(conversationDeletionBlocked({ title: 'Legacy row without lifecycle' })).toBe(false);
+  });
+
   it('removes only the deleted conversation row', () => {
     const rows = [
       { Id: 'conv-1', Title: 'One' },

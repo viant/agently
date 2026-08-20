@@ -3,6 +3,7 @@ package com.viant.agently.android
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,18 +13,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.RestartAlt
-import androidx.compose.material.icons.outlined.Save
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +60,7 @@ internal fun SettingsScreen(
     var endpointDraft by remember(currentAppApiBaseUrl) { mutableStateOf(currentAppApiBaseUrl) }
     var preferredAgentDraft by remember(currentPreferredAgentId) { mutableStateOf(currentPreferredAgentId) }
     var oobSecretRefDraft by remember(savedLoginConfig) { mutableStateOf(savedLoginConfig.oobSecretRef) }
+    var actionsMenuExpanded by remember { mutableStateOf(false) }
     val discoveredAgents = remember(metadata) { workspaceAgentChoices(metadata) }
     val saveSettings = {
         onSave(
@@ -86,39 +90,57 @@ internal fun SettingsScreen(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("Settings", style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    "Configure the phone client, inspect the discovered workspace, and choose which agent new conversations should use by default.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF667085)
-                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Settings", style = MaterialTheme.typography.titleLarge)
+                    }
                     SettingsIconAction(
                         label = "Back",
-                        icon = Icons.AutoMirrored.Outlined.ArrowBack,
+                        icon = Icons.Outlined.Close,
                         accent = Color(0xFF5965D8),
-                        onClick = onBack,
-                        modifier = Modifier.weight(1f)
+                        onClick = onBack
                     )
-                    SettingsIconAction(
-                        label = "Refresh",
-                        icon = Icons.Outlined.Refresh,
-                        accent = Color(0xFF0A9B98),
-                        onClick = onRefreshWorkspace,
-                        enabled = !loading,
-                        loading = loading,
-                        modifier = Modifier.weight(1f)
-                    )
+                    Box {
+                        SettingsIconAction(
+                            label = "More settings actions",
+                            icon = Icons.Outlined.MoreVert,
+                            accent = Color(0xFF7D52D9),
+                            onClick = { actionsMenuExpanded = true }
+                        )
+                        DropdownMenu(
+                            expanded = actionsMenuExpanded,
+                            onDismissRequest = { actionsMenuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Refresh workspace") },
+                                leadingIcon = { androidx.compose.material3.Icon(Icons.Outlined.Refresh, contentDescription = null) },
+                                enabled = !loading,
+                                onClick = {
+                                    actionsMenuExpanded = false
+                                    onRefreshWorkspace()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Reset overrides") },
+                                leadingIcon = { androidx.compose.material3.Icon(Icons.Outlined.RestartAlt, contentDescription = null) },
+                                enabled = !loading,
+                                onClick = {
+                                    actionsMenuExpanded = false
+                                    onResetAppOverrides()
+                                }
+                            )
+                        }
+                    }
                     SettingsIconAction(
                         label = "Save",
-                        icon = Icons.Outlined.Save,
+                        icon = Icons.Outlined.Check,
                         accent = Color(0xFF16835D),
                         onClick = saveSettings,
-                        enabled = !loading,
-                        modifier = Modifier.weight(1f)
+                        enabled = !loading
                     )
                 }
                 error?.let {
@@ -242,7 +264,7 @@ internal fun SettingsScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text("Developer OOB Sign-In", style = MaterialTheme.typography.titleMedium)
+                    Text("Sign-In Helpers", style = MaterialTheme.typography.titleMedium)
                     Text(
                         "Optional OOB reference for developer verification builds.",
                         style = MaterialTheme.typography.bodySmall,
@@ -273,27 +295,6 @@ internal fun SettingsScreen(
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            SettingsIconAction(
-                label = "Reset Overrides",
-                icon = Icons.Outlined.RestartAlt,
-                accent = Color(0xFFE08A1E),
-                onClick = onResetAppOverrides,
-                enabled = !loading,
-                modifier = Modifier.weight(1f)
-            )
-            SettingsIconAction(
-                label = "Save & Apply",
-                icon = Icons.Outlined.CheckCircle,
-                accent = Color(0xFF16835D),
-                onClick = saveSettings,
-                enabled = !loading,
-                modifier = Modifier.weight(1f)
-            )
-        }
     }
 }
 
@@ -307,11 +308,7 @@ private fun SettingsIconAction(
     enabled: Boolean = true,
     loading: Boolean = false
 ) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
+    Box(modifier = modifier, contentAlignment = Alignment.CenterEnd) {
         PhoneToolbarAction(
             icon = icon,
             contentDescription = label,
@@ -319,13 +316,6 @@ private fun SettingsIconAction(
             accent = accent,
             enabled = enabled,
             loading = loading
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = if (enabled || loading) accent else Color(0xFF98A2B3),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
         )
     }
 }

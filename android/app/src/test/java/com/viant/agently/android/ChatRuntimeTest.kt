@@ -11,6 +11,8 @@ import com.viant.agentlysdk.UserMessageState
 import com.viant.agentlysdk.stream.BufferedMessage
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import com.viant.agentlysdk.stream.LiveExecutionGroup
+import com.viant.agentlysdk.stream.LiveToolStepState
+import com.viant.agentlysdk.stream.StreamUsageState
 import kotlinx.serialization.json.Json
 import java.io.EOFException
 import org.junit.Assert.assertEquals
@@ -35,7 +37,7 @@ class ChatRuntimeTest {
             liveExecutionGroupsById = emptyMap()
         )
 
-        assertEquals("Heads up\n\nLatest", latestAssistantMarkdown(snapshot))
+        assertEquals("Latest", latestAssistantMarkdown(snapshot))
     }
 
     @Test
@@ -57,7 +59,7 @@ class ChatRuntimeTest {
     }
 
     @Test
-    fun activeAssistant_hidesProgressiveReportTransportAndKeepsNarration() {
+    fun activeAssistant_hidesProgressiveReportTransportAndLeavesNarrationToGlobalStatus() {
         val snapshot = ConversationStreamSnapshot(
             conversationId = "conv-1",
             activeTurnId = "turn-1",
@@ -77,8 +79,52 @@ class ChatRuntimeTest {
             liveExecutionGroupsById = emptyMap()
         )
 
-        assertEquals("Comparing forecast evidence", latestAssistantMarkdown(snapshot))
-        assertEquals(true, activeAssistantHasVisibleOutput(snapshot))
+        assertNull(latestAssistantMarkdown(snapshot))
+        assertEquals(false, activeAssistantHasVisibleOutput(snapshot))
+    }
+
+    @Test
+    fun turnProgress_usesNarrationReportingToolAndNonIntrusiveTokenUsage() {
+        val snapshot = ConversationStreamSnapshot(
+            conversationId = "conv-1",
+            activeTurnId = "turn-1",
+            feeds = emptyList(),
+            pendingElicitation = null,
+            bufferedMessages = listOf(
+                BufferedMessage(
+                    id = "assistant-1",
+                    turnId = "turn-1",
+                    role = "assistant",
+                    narration = "Checking delivery evidence."
+                )
+            ),
+            liveExecutionGroupsById = mapOf(
+                "assistant-1" to LiveExecutionGroup(
+                    pageId = "page-1",
+                    assistantMessageId = "assistant-1",
+                    turnId = "turn-1",
+                    sequence = 1,
+                    narration = "Validating performance metrics.",
+                    status = "running",
+                    toolSteps = listOf(
+                        LiveToolStepState(
+                            toolCallId = "tool-1",
+                            toolName = "reporting:run_report",
+                            status = "running"
+                        )
+                    )
+                )
+            ),
+            usage = StreamUsageState(inputTokens = 120, outputTokens = 30, totalTokens = 150)
+        )
+
+        val presentation = turnProgressPresentation(true, null, snapshot)
+
+        assertEquals("Working on your request", presentation?.title)
+        assertEquals("Validating performance metrics.", presentation?.detail)
+        assertEquals("Reporting", presentation?.activity)
+        assertEquals("Tools 0/1", presentation?.toolProgress)
+        assertEquals("150 tokens", presentation?.tokenUsage)
     }
 
     @Test
@@ -102,6 +148,47 @@ class ChatRuntimeTest {
         assertEquals(true, submittedTurnWasAccepted(state, "Forecast line 7354223"))
         assertEquals(true, hasPendingConversationTurn(state))
         assertEquals("Checking reachable supply", latestPendingNarration(state))
+    }
+
+    @Test
+    fun transcriptFromState_doesNotDuplicateNarrationBesideFinalAnswer() {
+        val state = ConversationStateResponse(
+            conversation = ConversationState(
+                conversationId = "conv-1",
+                turns = listOf(
+                    TurnState(
+                        turnId = "turn-1",
+                        status = "completed",
+                        assistant = AssistantState(
+                            narration = AssistantMessageState("n1", "Waiting for response"),
+                            final = AssistantMessageState("a1", "The report is ready.")
+                        )
+                    )
+                )
+            )
+        )
+
+        assertEquals("The report is ready.", transcriptFromState(state).single().markdown)
+    }
+
+    @Test
+    fun transcriptFromState_keepsPendingNarrationOutOfTranscript() {
+        val state = ConversationStateResponse(
+            conversation = ConversationState(
+                conversationId = "conv-1",
+                turns = listOf(
+                    TurnState(
+                        turnId = "turn-1",
+                        status = "running",
+                        assistant = AssistantState(
+                            narration = AssistantMessageState("n1", "Waiting for response")
+                        )
+                    )
+                )
+            )
+        )
+
+        assertEquals(emptyList<ChatEntry>(), transcriptFromState(state))
     }
 
     @Test

@@ -31,10 +31,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import com.viant.agentlysdk.FetchDatasourceInput
 import com.viant.agentlysdk.LookupRegistryEntry
 import com.viant.agentlysdk.fetchDatasource
@@ -58,6 +62,13 @@ internal fun ComposerLookupDialog(
     var rows by remember(occurrence.key) { mutableStateOf<List<Map<String, JsonElement>>>(emptyList()) }
     var loading by remember(occurrence.key) { mutableStateOf(false) }
     var error by remember(occurrence.key) { mutableStateOf<String?>(null) }
+    val searchFocusRequester = remember(occurrence.key) { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(occurrence.key) {
+        searchFocusRequester.requestFocus()
+        keyboardController?.show()
+    }
 
     LaunchedEffect(occurrence.key, searchText) {
         loading = true
@@ -86,7 +97,9 @@ internal fun ComposerLookupDialog(
                 OutlinedTextField(
                     value = searchText,
                     onValueChange = { searchText = it },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(searchFocusRequester),
                     singleLine = true,
                     label = { Text("Search ${occurrence.title.lowercase()}") }
                 )
@@ -184,6 +197,10 @@ internal fun ComposerLookupDialog(
                 }
             }
         },
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false
+        ),
         confirmButton = {
             TextButton(onClick = onDismiss) {
                 Text("Close")
@@ -215,15 +232,27 @@ internal suspend fun loadComposerLookupRows(
     searchText: String,
     activeConversationId: String? = null
 ): List<Map<String, JsonElement>> {
-    val inputs = composerLookupSearchInputs(entry, searchText)
     val conversationId = activeConversationId?.trim()?.takeIf { it.isNotBlank() }
-    return client.fetchDatasource(
-        FetchDatasourceInput(
-            id = entry.dataSource,
-            inputs = inputs,
-            conversationId = conversationId
-        )
-    ).rows
+    var firstError: Throwable? = null
+    var completedRequest = false
+    composerLookupSearchInputCandidates(entry, searchText).forEach { inputs ->
+        try {
+            val rows = client.fetchDatasource(
+                FetchDatasourceInput(
+                    id = entry.dataSource,
+                    inputs = inputs,
+                    conversationId = conversationId
+                )
+            ).rows
+            completedRequest = true
+            if (rows.isNotEmpty() || inputs == null) return rows
+        } catch (err: Throwable) {
+            if (err is CancellationException) throw err
+            if (firstError == null) firstError = err
+        }
+    }
+    if (!completedRequest) firstError?.let { throw it }
+    return emptyList()
 }
 
 /**
@@ -236,17 +265,27 @@ internal fun composerLookupSearchInputs(
     entry: LookupRegistryEntry,
     searchText: String
 ): Map<String, JsonElement>? {
+    return composerLookupSearchInputCandidates(entry, searchText).firstOrNull()
+}
+
+internal fun composerLookupSearchInputCandidates(
+    entry: LookupRegistryEntry,
+    searchText: String
+): List<Map<String, JsonElement>?> {
     val value = searchText.trim()
-    if (value.isBlank()) return null
+    if (value.isBlank()) return listOf(null)
 
     val queryKey = entry.token?.queryInput?.trim().orEmpty()
     val resolveKey = entry.token?.resolveInput?.trim().orEmpty()
     val looksLikeIdentifier = value.all(Char::isDigit)
-    val inputKey = when {
-        looksLikeIdentifier && resolveKey.isNotBlank() -> resolveKey
-        queryKey.isNotBlank() -> queryKey
-        resolveKey.isNotBlank() -> resolveKey
-        else -> return null
+    val orderedKeys = if (looksLikeIdentifier) {
+        listOf(resolveKey, queryKey)
+    } else {
+        listOf(queryKey, resolveKey)
     }
-    return mapOf(inputKey to JsonPrimitive(value))
+    return orderedKeys
+        .filter { it.isNotBlank() }
+        .distinct()
+        .map { key -> mapOf(key to JsonPrimitive(value)) }
+        .ifEmpty { listOf(null) }
 }

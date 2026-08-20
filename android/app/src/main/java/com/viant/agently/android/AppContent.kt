@@ -7,8 +7,11 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -83,11 +86,24 @@ internal fun AppBody(
             .padding(16.dp)
     ) {
         if (authState == AuthState.Checking) {
-            Box(
+            Column(
                 modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                CircularProgressIndicator()
+                Text(
+                    text = metadata?.appName?.takeIf { it.isNotBlank() } ?: "Agently",
+                    style = MaterialTheme.typography.headlineSmall
+                )
+                TurnProgressStatus(
+                    TurnProgressPresentation(
+                        title = "Connecting to workspace",
+                        detail = "Checking your saved sign-in and loading workspace details.",
+                        activity = "Connecting",
+                        toolProgress = null,
+                        tokenUsage = null,
+                        canStop = false
+                    )
+                )
             }
             return
         }
@@ -179,7 +195,8 @@ internal fun AppBody(
                         onTakePhoto = mediaController.launchCameraCapture,
                         onVoiceInput = mediaController.launchVoiceInput,
                         onRemoveAttachment = mediaController.removeAttachment,
-                        onRunQuery = callbacks.onRunQuery
+                        onRunQuery = callbacks.onRunQuery,
+                        onCancelTurn = callbacks.onCancelTurn
                     )
                 } else {
                     PhoneChatScreen(
@@ -214,6 +231,7 @@ internal fun AppBody(
                         onOpenInlineReportPdf = callbacks.onOpenInlineReportPdf,
                         onClosePreview = callbacks.onClosePreview,
                         onStarterTaskSelected = callbacks.onStarterTaskSelected,
+                        onCancelTurn = callbacks.onCancelTurn,
                         bottomComposerInset = if (phoneComposerVisible || activeConversationId.isNullOrBlank()) {
                             phoneComposerInset
                         } else {
@@ -237,7 +255,8 @@ internal fun AppBody(
                     loading = loading,
                     onBack = callbacks.onBackFromHistory,
                     onRefresh = callbacks.onRefreshWorkspace,
-                    onSelectConversation = callbacks.onSelectConversation
+                    onSelectConversation = callbacks.onSelectConversation,
+                    onDeleteConversation = callbacks.onDeleteConversation
                 )
             }
             AppScreen.Settings -> {
@@ -280,6 +299,7 @@ internal fun AppBody(
                         ?.takeIf { showWorkspaceAgentSelection(metadata) },
                     query = query,
                     onQueryChange = callbacks.onQueryChange,
+                    onClearComposer = callbacks.onClearComposer,
                     composerAttachments = composerAttachments,
                     lookupOccurrences = lookupOccurrences,
                     lookupSelections = lookupSelections,

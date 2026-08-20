@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		19D84B7C4D8D4DFD8B615101 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 19D84B7C4D8D4DFD8B615102 /* Assets.xcassets */; };
 		0E122708033FF9D155DBB90E /* AgentlyAppFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = F0EE3BFDCBDF459405E2E664 /* AgentlyAppFoundation */; };
 		40143AAD886AD20509AD7A9C /* AgentlyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54B14961D6A4507F32CBC7D /* AgentlyApp.swift */; };
 		7C083DC2273F6FE5DF7F69A0 /* ForecastingPrefillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91E8795F12F3D76FDAE5F7DC /* ForecastingPrefillUITests.swift */; };
@@ -23,6 +24,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		19D84B7C4D8D4DFD8B615102 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		25F809D4CEBC765DAD010885 /* Agently.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Agently.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		285194AF4DD1D1314861F793 /* AgentlyAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentlyAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		91E8795F12F3D76FDAE5F7DC /* ForecastingPrefillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForecastingPrefillUITests.swift; sourceTree = "<group>"; };
@@ -81,6 +83,7 @@
 		CEE1ED6C417E20BB9CA07CC9 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
+				19D84B7C4D8D4DFD8B615102 /* Assets.xcassets */,
 				B54B14961D6A4507F32CBC7D /* AgentlyApp.swift */,
 			);
 			name = Sources;
@@ -114,6 +117,7 @@
 			buildPhases = (
 				57CB9379E97497BCBF8BBBB3 /* Sources */,
 				A0AEC1EF961139DE03C5695E /* Frameworks */,
+				19D84B7C4D8D4DFD8B615103 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -166,6 +170,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		19D84B7C4D8D4DFD8B615103 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				19D84B7C4D8D4DFD8B615101 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		57CB9379E97497BCBF8BBBB3 /* Sources */ = {

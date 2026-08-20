@@ -20,6 +20,7 @@ public struct PhoneWorkspaceScreen: View {
     let activeGoal: Goal?
     let hostedWorkspaceRestoreStateOverride: HostedWorkspaceRestoreState?
     let conversationState: ConversationStateResponse?
+    let streamSnapshot: ConversationStreamSnapshot?
     let transcript: [ChatTranscriptEntry]
     let client: AgentlyClient
     let artifacts: [ArtifactPreview]
@@ -56,6 +57,7 @@ public struct PhoneWorkspaceScreen: View {
         activeGoal: Goal? = nil,
         hostedWorkspaceRestoreState: HostedWorkspaceRestoreState? = nil,
         conversationState: ConversationStateResponse? = nil,
+        streamSnapshot: ConversationStreamSnapshot? = nil,
         transcript: [ChatTranscriptEntry],
         client: AgentlyClient,
         artifacts: [ArtifactPreview] = [],
@@ -91,6 +93,7 @@ public struct PhoneWorkspaceScreen: View {
         self.activeGoal = activeGoal
         self.hostedWorkspaceRestoreStateOverride = hostedWorkspaceRestoreState
         self.conversationState = conversationState
+        self.streamSnapshot = streamSnapshot
         self.transcript = transcript
         self.client = client
         self.artifacts = artifacts
@@ -182,6 +185,8 @@ public struct PhoneWorkspaceScreen: View {
             }
             WorkspaceStatusSection(
                 isSending: isSending,
+                conversationState: conversationState,
+                streamSnapshot: streamSnapshot,
                 isLoadingArtifacts: isLoadingArtifacts,
                 activeTurnID: activeTurnID,
                 isStoppingTurn: isStoppingTurn,
@@ -332,6 +337,8 @@ public struct PhoneWorkspaceScreen: View {
                 }
                 WorkspaceStatusSection(
                     isSending: isSending,
+                    conversationState: conversationState,
+                    streamSnapshot: streamSnapshot,
                     isLoadingArtifacts: isLoadingArtifacts,
                     activeTurnID: activeTurnID,
                     isStoppingTurn: isStoppingTurn,

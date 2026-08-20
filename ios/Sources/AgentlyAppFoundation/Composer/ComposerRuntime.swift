@@ -58,6 +58,7 @@ public final class ComposerRuntime: ObservableObject {
 
     private var lookupRegistryLoader: LookupRegistryLoader?
     private var lookupRowsLoader: LookupRowsLoader?
+    private var lastAutoPresentedLookupKey = ""
 
     public init() {}
 
@@ -82,6 +83,13 @@ public final class ComposerRuntime: ObservableObject {
 
     public func requestFocus() {
         focusRequestID += 1
+    }
+
+    public func claimRequiredLookupAutoPresentation(key: String) -> Bool {
+        let normalized = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty, normalized != lastAutoPresentedLookupKey else { return false }
+        lastAutoPresentedLookupKey = normalized
+        return true
     }
 
     public func refreshLookupRegistry() async {
@@ -177,6 +185,14 @@ public final class ComposerRuntime: ObservableObject {
         attachments = []
     }
 
+    public func clearDraft() {
+        query = ""
+        attachments = []
+        lookupSelections = [:]
+        attachmentError = nil
+        lastAutoPresentedLookupKey = ""
+    }
+
     public func importAttachment(from url: URL) {
         let hasSecurityScope = url.startAccessingSecurityScopedResource()
         defer {
@@ -234,12 +250,14 @@ public enum ComposerLookupError: LocalizedError {
     }
 }
 
-private func parseComposerLookupOccurrences(
+func parseComposerLookupOccurrences(
     query: String,
     registry: [LookupRegistryEntry]
 ) -> [ComposerLookupOccurrence] {
     guard !query.isEmpty, !registry.isEmpty else { return [] }
-    let registryByName = Dictionary(uniqueKeysWithValues: registry.map { ($0.name.lowercased(), $0) })
+    let registryByName = registry.reduce(into: [String: LookupRegistryEntry]()) { result, entry in
+        result[entry.name.lowercased()] = entry
+    }
     let pattern = #"/([a-zA-Z][a-zA-Z0-9_-]*)\b"#
     guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
     let nsRange = NSRange(query.startIndex..<query.endIndex, in: query)

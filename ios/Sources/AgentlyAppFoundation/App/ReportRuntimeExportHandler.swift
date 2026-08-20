@@ -176,6 +176,41 @@ func exportReportRuntimePDF(
     )
 }
 
+func downloadReportRuntimeArtifact(
+    client: AgentlyClient,
+    artifactID: String,
+    conversationID: String = ""
+) async throws -> ReportRuntimeExportArtifact {
+    let normalizedID = artifactID.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalizedID.isEmpty else {
+        throw ReportRuntimeExportError.missingArtifactID
+    }
+    let artifact = try await executeReportingToolObject(
+        client: client,
+        toolName: "reporting:get_artifact",
+        args: [
+            "artifactId": .string(normalizedID),
+            "includeData": .bool(true)
+        ],
+        conversationID: conversationID
+    )
+    let bytes = decodeReportArtifactBytes(artifact)
+    guard !bytes.isEmpty else {
+        throw ReportRuntimeExportError.emptyArtifact
+    }
+    let name = sanitizeReportRuntimeExportFilename(
+        stringValue(artifact["filename"]).nonEmpty
+            ?? stringValue(artifact["name"]).nonEmpty
+            ?? "(normalizedID).pdf"
+    )
+    return ReportRuntimeExportArtifact(
+        id: normalizedID,
+        name: name,
+        contentType: stringValue(artifact["contentType"]).nonEmpty ?? "application/pdf",
+        data: bytes
+    )
+}
+
 private func normalizeReportRuntimeExportRequest(_ exportRequest: [String: ForgeJSONValue]) -> [String: SDKJSONValue] {
     let artifactRef = stringValue(exportRequest["artifactRef"]).nonEmpty
         ?? "report://runtime/\(stringValue(exportRequest["title"]).nonEmpty ?? "report")"

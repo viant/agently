@@ -61,16 +61,6 @@ public final class ChatRuntime: ObservableObject {
             )
         )
 
-        transcript.append(
-            ChatTranscriptEntry(
-                id: assistantEntryID,
-                role: "assistant",
-                markdown: "(waiting for response)",
-                timestampLabel: timestamp,
-                statusLabel: "Waiting"
-            )
-        )
-
         return OptimisticTurnHandle(
             userEntryID: userEntryID,
             assistantEntryID: assistantEntryID
@@ -102,23 +92,12 @@ public final class ChatRuntime: ObservableObject {
                 )
             }
 
-            if entry.id == handle.assistantEntryID {
-                return ChatTranscriptEntry(
-                    id: entry.id,
-                    role: entry.role,
-                    markdown: entry.markdown,
-                    renderedParts: entry.renderedParts,
-                    renderedReports: entry.renderedReports,
-                    timestampLabel: entry.timestampLabel,
-                    statusLabel: "Streaming"
-                )
-            }
-
             return entry
         }
     }
 
     public func completeOptimisticTurn(_ handle: OptimisticTurnHandle, response text: String) {
+        var resolvedAssistant = false
         transcript = transcript.map { entry in
             if entry.id == handle.userEntryID {
                 return ChatTranscriptEntry(
@@ -133,6 +112,7 @@ public final class ChatRuntime: ObservableObject {
             }
 
             if entry.id == handle.assistantEntryID {
+                resolvedAssistant = true
                 return ChatTranscriptEntry(
                     id: entry.id,
                     role: "assistant",
@@ -145,12 +125,21 @@ public final class ChatRuntime: ObservableObject {
 
             return entry
         }
+        if !resolvedAssistant {
+            transcript.append(ChatTranscriptEntry(
+                id: handle.assistantEntryID,
+                role: "assistant",
+                markdown: text.isEmpty ? "(empty response)" : text,
+                timestampLabel: Self.timestampLabel(for: Date())
+            ))
+        }
     }
 
     public func failOptimisticTurn(_ handle: OptimisticTurnHandle, errorMessage: String? = nil) {
         let normalizedErrorMessage = errorMessage?
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
+        var resolvedAssistant = false
         transcript = transcript.map { entry in
             if entry.id == handle.userEntryID {
                 return ChatTranscriptEntry(
@@ -165,6 +154,7 @@ public final class ChatRuntime: ObservableObject {
             }
 
             if entry.id == handle.assistantEntryID {
+                resolvedAssistant = true
                 return ChatTranscriptEntry(
                     id: entry.id,
                     role: "assistant",
@@ -178,6 +168,17 @@ public final class ChatRuntime: ObservableObject {
             }
 
             return entry
+        }
+        if !resolvedAssistant {
+            transcript.append(ChatTranscriptEntry(
+                id: handle.assistantEntryID,
+                role: "assistant",
+                markdown: normalizedErrorMessage?.isEmpty == false
+                    ? normalizedErrorMessage!
+                    : "The request did not reach a streaming response.",
+                timestampLabel: Self.timestampLabel(for: Date()),
+                statusLabel: "Failed"
+            ))
         }
     }
 
@@ -209,11 +210,15 @@ public final class ChatRuntime: ObservableObject {
             }
 
             let assistantMessages = [turn.assistant?.narration, turn.assistant?.final].compactMap { $0 }
-            let assistantMarkdown = assistantMessages
-                .map(\.content)
-                .compactMap(sanitizeVisibleAssistantText)
-                .filter { !$0.isEmpty }
-                .joined(separator: "\n\n")
+            // Narration is live progress, not a second assistant answer. While a
+            // turn is active it belongs exclusively in the global progress card;
+            // after completion the final message wins. Keep narration only as a
+            // compatibility fallback for terminal turns that have no final text.
+            let finalMarkdown = sanitizeAssistantTranscriptText(turn.assistant?.final?.content) ?? ""
+            let narrationFallback = Self.isPendingStatus(turn.status)
+                ? ""
+                : (sanitizeAssistantTranscriptText(turn.assistant?.narration?.content) ?? "")
+            let assistantMarkdown = finalMarkdown.isEmpty ? narrationFallback : finalMarkdown
             let renderedReports = Self.canonicalAssistantReports(assistantMessages)
 
             if !assistantMarkdown.isEmpty || renderedReports?.isEmpty == false {
@@ -267,13 +272,12 @@ public final class ChatRuntime: ObservableObject {
             message.role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "assistant" &&
                 message.turnID?.trimmingCharacters(in: .whitespacesAndNewlines) == activeTurnID &&
                 (message.content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ||
-                 message.narration?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ||
                  snapshot.liveExecutionGroupsByID[message.id]?.renderedContent?.reports.isEmpty == false)
         }) else {
             return nil
         }
-        let markdown = [message.narration, message.content]
-            .compactMap(sanitizeVisibleAssistantText)
+        let markdown = [message.content]
+            .compactMap(sanitizeAssistantTranscriptText)
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
         let rendered = snapshot.liveExecutionGroupsByID[message.id]?.renderedContent
@@ -297,7 +301,7 @@ public final class ChatRuntime: ObservableObject {
             if let rendered = message.renderedContent {
                 return canonicalParts(from: rendered)
             }
-            guard let text = message.content?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+            guard let text = sanitizeAssistantTranscriptText(message.content), !text.isEmpty else {
                 return []
             }
             return [TranscriptCanonicalPart(kind: "markdown", text: text)]
@@ -413,4 +417,24 @@ public final class ChatRuntime: ObservableObject {
             return rawValue.capitalized
         }
     }
+
+    private static func isPendingStatus(_ rawValue: String?) -> Bool {
+        guard let normalized = rawValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(), !normalized.isEmpty else {
+            return false
+        }
+        return [
+            "queued", "pending", "starting", "started", "running",
+            "streaming", "processing", "waiting", "waiting_for_model",
+            "waiting_for_tool", "waiting_for_user"
+        ].contains(normalized)
+    }
+}
+
+func sanitizeAssistantTranscriptText(_ value: String?) -> String? {
+    guard let value else { return nil }
+    return sanitizeVisibleAssistantText(
+        TranscriptEnvelope.suppressProgressiveTransport(in: value)
+    )
 }

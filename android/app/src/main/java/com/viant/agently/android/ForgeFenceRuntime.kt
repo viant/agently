@@ -14,7 +14,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.OpenInFull
 import androidx.compose.material.icons.outlined.PictureAsPdf
-import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -172,10 +171,12 @@ private fun TranscriptInlineReportBlock(
                 Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFF667085))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { reportOpen = true }) {
-                    Icon(Icons.Outlined.OpenInFull, contentDescription = null)
-                    Text("Open report", modifier = Modifier.padding(start = 8.dp))
-                }
+                PhoneToolbarAction(
+                    icon = Icons.Outlined.OpenInFull,
+                    contentDescription = "Open report",
+                    accent = Color(0xFF383BD8),
+                    onClick = { reportOpen = true }
+                )
                 PhoneToolbarAction(
                     icon = Icons.Outlined.PictureAsPdf,
                     contentDescription = "Open PDF",

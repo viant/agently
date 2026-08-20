@@ -101,7 +101,8 @@ internal fun TabletWorkspacePane(
     onTakePhoto: () -> Unit,
     onVoiceInput: () -> Unit,
     onRemoveAttachment: (String) -> Unit,
-    onRunQuery: () -> Unit
+    onRunQuery: () -> Unit,
+    onCancelTurn: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val hostedWorkspaceState = deriveAgentlyHostedWorkspaceRestoreState(conversationState, streamSnapshot)
@@ -188,8 +189,8 @@ internal fun TabletWorkspacePane(
                                 )
                             }
                         }
-                        if (loading || streamSnapshot?.activeTurnId != null) {
-                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        turnProgressPresentation(loading, conversationState, streamSnapshot)?.let { progress ->
+                            TurnProgressStatus(progress, onCancelTurn)
                         }
                         streamSnapshot?.pendingElicitation?.let { elicitation ->
                             elicitation.conversationId.takeIf { it.isNotBlank() }?.let { conversationId ->
