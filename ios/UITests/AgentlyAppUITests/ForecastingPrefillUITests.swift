@@ -1,6 +1,39 @@
 import XCTest
 
 final class ForecastingPrefillUITests: XCTestCase {
+    func testPhysicalCausalEvidenceKeepsAuthoredTableGrid() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["AGENTLY_IOS_PHYSICAL_REPORT_TESTS"] == "1"
+                || ProcessInfo.processInfo.environment["AGENTLY_IOS_PHYSICAL_STABILITY_TESTS"] == "1",
+            "Enable the physical iOS report test explicitly."
+        )
+        let conversationID = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_ACTIVE_CONVERSATION_ID"]
+            ?? "8f5785be-143a-4ca7-a367-bf5629abc4af"
+        let app = XCUIApplication()
+        app.launchArguments = ["--activeConversationID=\(conversationID)"]
+        app.launch()
+
+        let openReport = app.buttons["agently-open-report"].firstMatch
+        XCTAssertTrue(openReport.waitForExistence(timeout: 60), "Open report action did not appear")
+        openReport.tap()
+
+        let sectionSelector = app.descendants(matching: .any)["forge-report-runtime-section-selector"]
+        XCTAssertTrue(sectionSelector.waitForExistence(timeout: 30), "Report section selector did not appear")
+        let selectedSection = app.buttons["Overview"].firstMatch
+        XCTAssertTrue(selectedSection.waitForExistence(timeout: 10), "Overview section menu did not appear")
+        selectedSection.tap()
+        let causalEvidence = app.buttons["Causal evidence"].firstMatch
+        XCTAssertTrue(causalEvidence.waitForExistence(timeout: 10), "Causal evidence menu item did not appear")
+        causalEvidence.tap()
+
+        let incidentTable = app.descendants(matching: .any)["forge-report-runtime-table-causal_incident_table"]
+        XCTAssertTrue(incidentTable.waitForExistence(timeout: 30), "Current-versus-previous authored table did not render")
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "iOS Causal evidence authored table"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
     func testPhysicalHistoryRefreshFindsLatestOrderConversation() throws {
         try XCTSkipUnless(
             ProcessInfo.processInfo.environment["AGENTLY_IOS_PHYSICAL_STABILITY_TESTS"] == "1",
