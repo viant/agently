@@ -179,6 +179,39 @@ final class ChatRuntimeTests: XCTestCase {
         XCTAssertEqual(presentation?.canStop, true)
     }
 
+    func testTurnProgressSurvivesStreamGapUsingPersistedPendingTurn() {
+        let state = ConversationStateResponse(
+            conversation: ConversationState(
+                conversationID: "conv-1",
+                turns: [
+                    TurnState(
+                        turnID: "turn-1",
+                        status: "running",
+                        assistant: AssistantState(
+                            narration: AssistantMessageState(
+                                messageID: "n1",
+                                content: "Checking delivery evidence."
+                            )
+                        )
+                    )
+                ]
+            )
+        )
+
+        let presentation = turnProgressPresentation(
+            isSending: false,
+            activeTurnID: nil,
+            isStoppingTurn: false,
+            conversationState: state,
+            streamSnapshot: nil
+        )
+
+        XCTAssertEqual(presentation?.title, "Working on your request")
+        XCTAssertEqual(presentation?.detail, "Checking delivery evidence.")
+        XCTAssertEqual(presentation?.activity, "Thinking")
+        XCTAssertEqual(presentation?.canStop, true)
+    }
+
     @MainActor
     func testTranscriptWithActiveAssistantUsesSingleGlobalProgressInsteadOfWaitingPlaceholder() {
         let runtime = ChatRuntime()

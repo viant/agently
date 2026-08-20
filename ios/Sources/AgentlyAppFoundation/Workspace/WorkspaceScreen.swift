@@ -558,7 +558,14 @@ func turnProgressPresentation(
 ) -> TurnProgressPresentation? {
     let streamedTurnID = streamSnapshot?.activeTurnID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     let fallbackTurnID = activeTurnID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    let activeID: String? = !streamedTurnID.isEmpty ? streamedTurnID : (!fallbackTurnID.isEmpty ? fallbackTurnID : nil)
+    let persistedPendingTurnID = conversationState?.conversation?.turns.reversed().first(where: { turn in
+        isPendingTurnStatus(turn.status)
+    })?.turnID.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let activeID: String? = !streamedTurnID.isEmpty
+        ? streamedTurnID
+        : (!fallbackTurnID.isEmpty
+            ? fallbackTurnID
+            : (!persistedPendingTurnID.isEmpty ? persistedPendingTurnID : nil))
     guard isSending || activeID != nil || isStoppingTurn else { return nil }
     if isStoppingTurn {
         return TurnProgressPresentation(
