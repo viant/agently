@@ -1,0 +1,191 @@
+init:
+  repoPath: $WorkingDirectory(../../..)
+
+pipeline:
+
+  doctor:
+    action: exec:run
+    description: validate the iOS toolchain, signing team, and connected physical device
+    checkError: true
+    commands:
+      - |
+        set -eu
+        if [ -n "${AGENTLY_IOS_DEVELOPER_DIR:-}" ]; then
+          export DEVELOPER_DIR="$AGENTLY_IOS_DEVELOPER_DIR"
+        elif [ -d /Applications/Xcode-beta.app/Contents/Developer ]; then
+          export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+        fi
+        TEAM="${AGENTLY_IOS_DEVELOPMENT_TEAM:-}"
+        if [ -z "$TEAM" ]; then
+          echo "AGENTLY_IOS_DEVELOPMENT_TEAM is required."
+          exit 1
+        fi
+        /usr/bin/xcodebuild -version
+        /usr/bin/xcrun --sdk iphoneos --show-sdk-version
+        /usr/bin/xcrun devicectl list devices
+        /usr/bin/security find-identity -v -p codesigning | grep -q 'Apple Development'
+
+  test:
+    action: exec:run
+    description: run iOS SDK, Forge, and app-foundation unit tests
+    TimeoutMs: 600000
+    checkError: true
+    commands:
+      - |
+        set -eu
+        if [ -n "${AGENTLY_IOS_DEVELOPER_DIR:-}" ]; then
+          export DEVELOPER_DIR="$AGENTLY_IOS_DEVELOPER_DIR"
+        elif [ -d /Applications/Xcode-beta.app/Contents/Developer ]; then
+          export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+        fi
+        cd ${repoPath}/android/deps/agently-core/sdk/ios
+        /usr/bin/swift test
+        cd ${repoPath}/android/deps/forge/ios
+        /usr/bin/swift test
+        cd ${repoPath}/ios
+        /usr/bin/swift test
+
+  build:
+    action: exec:run
+    description: build and sign the physical-device iOS application
+    TimeoutMs: 600000
+    checkError: true
+    errors:
+      - AGENTLY_IOS_DEVELOPMENT_TEAM is required.
+    commands:
+      - |
+        set -eu
+        if [ -n "${AGENTLY_IOS_DEVELOPER_DIR:-}" ]; then
+          export DEVELOPER_DIR="$AGENTLY_IOS_DEVELOPER_DIR"
+        elif [ -d /Applications/Xcode-beta.app/Contents/Developer ]; then
+          export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+        fi
+        TEAM="${AGENTLY_IOS_DEVELOPMENT_TEAM:-}"
+        if [ -z "$TEAM" ]; then
+          echo "AGENTLY_IOS_DEVELOPMENT_TEAM is required."
+          exit 1
+        fi
+        cd ${repoPath}/ios
+        /usr/bin/xcodebuild \
+          -project AgentlyApp.xcodeproj \
+          -scheme AgentlyApp \
+          -configuration Debug \
+          -sdk iphoneos \
+          -destination 'generic/platform=iOS' \
+          -derivedDataPath build/DerivedData \
+          DEVELOPMENT_TEAM="$TEAM" \
+          CODE_SIGN_STYLE=Automatic \
+          -allowProvisioningUpdates \
+          build
+
+  install:
+    action: exec:run
+    description: install the existing signed app on a connected physical iPhone
+    TimeoutMs: 180000
+    checkError: true
+    commands:
+      - |
+        set -eu
+        if [ -n "${AGENTLY_IOS_DEVELOPER_DIR:-}" ]; then
+          export DEVELOPER_DIR="$AGENTLY_IOS_DEVELOPER_DIR"
+        elif [ -d /Applications/Xcode-beta.app/Contents/Developer ]; then
+          export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+        fi
+        APP="${repoPath}/ios/build/DerivedData/Build/Products/Debug-iphoneos/Agently.app"
+        if [ ! -d "$APP" ]; then
+          echo "Signed Agently.app is missing; run build first: $APP"
+          exit 1
+        fi
+        /usr/bin/xcrun devicectl list devices --json-output /tmp/agently-ios-endly-devices.json >/dev/null
+        DEVICE="$(/usr/bin/python3 - <<'PY'
+        import json, os
+        requested=os.environ.get('IOS_DEVICE_ID','').strip()
+        rows=json.load(open('/tmp/agently-ios-endly-devices.json')).get('result',{}).get('devices',[])
+        candidates=[]
+        for row in rows:
+            props=row.get('properties',{})
+            hw=props.get('hardware', row.get('hardwareProperties',{}))
+            connection=props.get('connection', row.get('connectionProperties',{}))
+            state=props.get('state', row.get('deviceProperties',{}))
+            if hw.get('reality')!='physical' or hw.get('platform')!='iOS': continue
+            values={row.get('identifier',''), hw.get('udid',''), hw.get('serialNumber',''), state.get('name','')}
+            if requested and requested not in values: continue
+            if connection.get('pairingState')!='paired': continue
+            if connection.get('state') not in ('connected','available') and row.get('visibilityClass')!='default': continue
+            candidates.append(row.get('identifier',''))
+        if candidates: print(candidates[0])
+        PY
+        )"
+        if [ -z "$DEVICE" ]; then
+          echo "No connected, paired physical iPhone is available."
+          exit 1
+        fi
+        echo "Installing on $DEVICE"
+        /usr/bin/xcrun devicectl device install app --device "$DEVICE" "$APP" --timeout 120
+
+  launch:
+    action: exec:run
+    description: launch Agently on the selected iPhone with an explicit HTTPS workspace
+    TimeoutMs: 120000
+    checkError: true
+    errors:
+      - AGENTLY_IOS_BASE_URL is required.
+      - AGENTLY_IOS_BASE_URL must be an HTTPS URL.
+    commands:
+      - |
+        set -eu
+        if [ -n "${AGENTLY_IOS_DEVELOPER_DIR:-}" ]; then
+          export DEVELOPER_DIR="$AGENTLY_IOS_DEVELOPER_DIR"
+        elif [ -d /Applications/Xcode-beta.app/Contents/Developer ]; then
+          export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+        fi
+        ENDPOINT="${AGENTLY_IOS_BASE_URL:-}"
+        case "$ENDPOINT" in
+          https://*) ;;
+          '') echo "AGENTLY_IOS_BASE_URL is required."; exit 1 ;;
+          *) echo "AGENTLY_IOS_BASE_URL must be an HTTPS URL."; exit 1 ;;
+        esac
+        /usr/bin/xcrun devicectl list devices --json-output /tmp/agently-ios-endly-devices.json >/dev/null
+        DEVICE="$(/usr/bin/python3 - <<'PY'
+        import json, os
+        requested=os.environ.get('IOS_DEVICE_ID','').strip()
+        for row in json.load(open('/tmp/agently-ios-endly-devices.json')).get('result',{}).get('devices',[]):
+            props=row.get('properties',{}); hw=props.get('hardware',{}); connection=props.get('connection',{}); state=props.get('state',{})
+            values={row.get('identifier',''), hw.get('udid',''), hw.get('serialNumber',''), state.get('name','')}
+            if hw.get('reality')=='physical' and hw.get('platform')=='iOS' and connection.get('pairingState')=='paired' and (not requested or requested in values):
+                print(row.get('identifier','')); break
+        PY
+        )"
+        if [ -z "$DEVICE" ]; then echo "No paired physical iPhone is available."; exit 1; fi
+        /usr/bin/xcrun devicectl device process launch \
+          --device "$DEVICE" \
+          --terminate-existing \
+          com.viant.agently.ios \
+          --enableDevAuth=1 \
+          "--apiBaseURL=$ENDPOINT"
+
+  deploy:
+    action: run
+    request: '@run'
+    tasks: doctor,test,build,install,launch
+
+  verify:
+    action: exec:run
+    description: verify Agently is installed and running on the selected physical iPhone
+    checkError: true
+    commands:
+      - |
+        set -eu
+        if [ -n "${AGENTLY_IOS_DEVELOPER_DIR:-}" ]; then
+          export DEVELOPER_DIR="$AGENTLY_IOS_DEVELOPER_DIR"
+        elif [ -d /Applications/Xcode-beta.app/Contents/Developer ]; then
+          export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+        fi
+        DEVICE="${IOS_DEVICE_ID:-}"
+        if [ -z "$DEVICE" ]; then
+          /usr/bin/xcrun devicectl list devices --json-output /tmp/agently-ios-endly-devices.json >/dev/null
+          DEVICE="$(/usr/bin/python3 -c 'import json; rows=json.load(open("/tmp/agently-ios-endly-devices.json")).get("result",{}).get("devices",[]); print(next((r.get("identifier","") for r in rows if r.get("properties",{}).get("hardware",{}).get("reality")=="physical" and r.get("properties",{}).get("hardware",{}).get("platform")=="iOS"),""))')"
+        fi
+        /usr/bin/xcrun devicectl device info apps --device "$DEVICE" --bundle-id com.viant.agently.ios | grep -q com.viant.agently.ios
+        /usr/bin/xcrun devicectl device info processes --device "$DEVICE" | grep -q '/Agently.app/Agently'
+        echo "Agently is installed and running on $DEVICE."
