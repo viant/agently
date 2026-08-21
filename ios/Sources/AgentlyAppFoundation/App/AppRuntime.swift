@@ -397,7 +397,7 @@ public final class AppRuntime: ObservableObject {
                     state.activeConversationID = conversationID
                     settingsStore.saveActiveConversationID(conversationID)
                     await refreshConversationList()
-                    await loadConversationState(conversationID: conversationID)
+                    await loadConversationState(conversationID: conversationID, replaceTranscript: false)
                     startStreaming(conversationID: conversationID)
                 } else {
                     chatRuntime.completeOptimisticTurn(optimisticTurn, response: response.content)
@@ -514,7 +514,7 @@ public final class AppRuntime: ObservableObject {
             try await state.client.cancelTurn(id: activeTurnID)
             logger.info("Cancelled active turn \(activeTurnID, privacy: .public)")
             if let conversationID = state.activeConversationID, !conversationID.isEmpty {
-                await loadConversationState(conversationID: conversationID)
+                await loadConversationState(conversationID: conversationID, replaceTranscript: false)
             }
         } catch {
             logger.error("Cancel turn failed: \(String(describing: error), privacy: .public)")
@@ -530,7 +530,7 @@ public final class AppRuntime: ObservableObject {
         }
 
         state.streamErrorMessage = nil
-        await loadConversationState(conversationID: conversationID)
+        await loadConversationState(conversationID: conversationID, replaceTranscript: false)
         startStreaming(conversationID: conversationID)
     }
 
@@ -543,7 +543,7 @@ public final class AppRuntime: ObservableObject {
                                      editedFields: editedFields)
         let conversationID = approval.conversationID ?? state.activeConversationID
         if let conversationID, !conversationID.isEmpty {
-            await loadConversationState(conversationID: conversationID)
+            await loadConversationState(conversationID: conversationID, replaceTranscript: false)
             startStreaming(conversationID: conversationID)
         } else {
             await approvalRuntime.refresh(conversationID: state.activeConversationID)
@@ -565,7 +565,7 @@ public final class AppRuntime: ObservableObject {
             action: action,
             data: payload
         )
-        await loadConversationState(conversationID: conversationID)
+        await loadConversationState(conversationID: conversationID, replaceTranscript: false)
         startStreaming(conversationID: conversationID)
     }
 
@@ -578,19 +578,30 @@ public final class AppRuntime: ObservableObject {
         }
     }
 
-    private func loadConversationState(conversationID: String) async {
+    private func loadConversationState(
+        conversationID: String,
+        replaceTranscript: Bool = true
+    ) async {
         state.isLoadingConversation = true
         do {
             await ensureConversationPresentInRecentList(conversationID: conversationID)
-            let transcriptState = try await state.client.getTranscript(
-                GetTranscriptInput(
+            let transcriptState: ConversationStateResponse
+            if replaceTranscript {
+                transcriptState = try await state.client.getTranscript(
+                    GetTranscriptInput(
+                        conversationID: conversationID,
+                        includeModelCalls: false,
+                        includeToolCalls: true,
+                        includeFeeds: true
+                    ),
+                    maxResponseBytes: 8 * 1024 * 1024
+                )
+            } else {
+                transcriptState = try await state.client.getLiveState(
                     conversationID: conversationID,
-                    includeModelCalls: false,
-                    includeToolCalls: true,
                     includeFeeds: true
-                ),
-                maxResponseBytes: 8 * 1024 * 1024
-            )
+                )
+            }
             let goal = try await state.client.getGoal(conversationID: conversationID)
             state.activeConversationState = transcriptState
             state.activeGoal = goal
@@ -598,7 +609,9 @@ public final class AppRuntime: ObservableObject {
                 conversationID: conversationID,
                 transcriptState: transcriptState
             )
-            chatRuntime.replaceTranscript(from: transcriptState)
+            if replaceTranscript {
+                chatRuntime.replaceTranscript(from: transcriptState)
+            }
             state.streamErrorMessage = nil
             logger.info("Loaded transcript state for conversation \(conversationID, privacy: .public)")
         } catch {
@@ -744,10 +757,19 @@ public final class AppRuntime: ObservableObject {
                 for try await snapshot in state.client.trackConversation(conversationID: conversationID) {
                     if Task.isCancelled { return }
                     let previousActiveTurnID = state.activeTurnID?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let previousSnapshot = state.activeStreamSnapshot
                     guard state.activeConversationID == conversationID else {
                         continue
                     }
                     let currentTurnID = snapshot.activeTurnID?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if previousActiveTurnID?.isEmpty == false,
+                       currentTurnID?.isEmpty != false,
+                       let completedTurnID = previousActiveTurnID {
+                        if !chatRuntime.commitAssistantTurn(from: snapshot, turnID: completedTurnID),
+                           let previousSnapshot {
+                            chatRuntime.commitAssistantTurn(from: previousSnapshot, turnID: completedTurnID)
+                        }
+                    }
                     let hasAcceptedActivity =
                         (currentTurnID?.isEmpty == false) ||
                         !snapshot.bufferedMessages.isEmpty ||
@@ -826,7 +848,7 @@ public final class AppRuntime: ObservableObject {
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled else { return }
             guard self.state.activeConversationID == conversationID else { return }
-            await self.loadConversationState(conversationID: conversationID)
+            await self.loadConversationState(conversationID: conversationID, replaceTranscript: false)
             await self.refreshConversationList()
         }
     }

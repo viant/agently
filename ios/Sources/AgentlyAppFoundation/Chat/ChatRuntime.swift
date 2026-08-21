@@ -6,6 +6,7 @@ public struct ChatTranscriptEntry: Identifiable, Sendable, Equatable {
     public let id: String
     public let role: String
     public let markdown: String
+    public let turnID: String?
     public let renderedParts: [TranscriptCanonicalPart]?
     public let renderedReports: [TranscriptCanonicalReport]?
     public let timestampLabel: String?
@@ -15,6 +16,7 @@ public struct ChatTranscriptEntry: Identifiable, Sendable, Equatable {
         id: String,
         role: String,
         markdown: String,
+        turnID: String? = nil,
         renderedParts: [TranscriptCanonicalPart]? = nil,
         renderedReports: [TranscriptCanonicalReport]? = nil,
         timestampLabel: String? = nil,
@@ -23,6 +25,7 @@ public struct ChatTranscriptEntry: Identifiable, Sendable, Equatable {
         self.id = id
         self.role = role
         self.markdown = markdown
+        self.turnID = turnID
         self.renderedParts = renderedParts
         self.renderedReports = renderedReports
         self.timestampLabel = timestampLabel
@@ -85,6 +88,7 @@ public final class ChatRuntime: ObservableObject {
                     id: entry.id,
                     role: entry.role,
                     markdown: entry.markdown,
+                    turnID: entry.turnID,
                     renderedParts: entry.renderedParts,
                     renderedReports: entry.renderedReports,
                     timestampLabel: entry.timestampLabel,
@@ -104,6 +108,7 @@ public final class ChatRuntime: ObservableObject {
                     id: entry.id,
                     role: entry.role,
                     markdown: entry.markdown,
+                    turnID: entry.turnID,
                     renderedParts: entry.renderedParts,
                     renderedReports: entry.renderedReports,
                     timestampLabel: entry.timestampLabel,
@@ -146,6 +151,7 @@ public final class ChatRuntime: ObservableObject {
                     id: entry.id,
                     role: entry.role,
                     markdown: entry.markdown,
+                    turnID: entry.turnID,
                     renderedParts: entry.renderedParts,
                     renderedReports: entry.renderedReports,
                     timestampLabel: entry.timestampLabel,
@@ -204,6 +210,7 @@ public final class ChatRuntime: ObservableObject {
                         id: turn.user?.messageID ?? "\(turn.id)-user",
                         role: "user",
                         markdown: user,
+                        turnID: turn.turnID,
                         timestampLabel: Self.timestampLabel(for: turn.createdAt)
                     )
                 )
@@ -227,6 +234,7 @@ public final class ChatRuntime: ObservableObject {
                         id: turn.assistant?.final?.messageID ?? turn.assistant?.narration?.messageID ?? "\(turn.id)-assistant",
                         role: "assistant",
                         markdown: assistantMarkdown,
+                        turnID: turn.turnID,
                         renderedParts: Self.canonicalAssistantParts(assistantMessages),
                         renderedReports: renderedReports,
                         timestampLabel: Self.timestampLabel(for: turn.createdAt)
@@ -252,14 +260,45 @@ public final class ChatRuntime: ObservableObject {
         snapshot: ConversationStreamSnapshot?
     ) -> [ChatTranscriptEntry] {
         guard let snapshot,
-              let active = activeAssistantEntry(from: snapshot) else {
+              let activeTurnID = snapshot.activeTurnID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !activeTurnID.isEmpty,
+              let active = assistantEntry(from: snapshot, turnID: activeTurnID, streaming: true) else {
             return transcript
         }
         return transcript.filter { entry in
-            entry.id != active.id &&
-            entry.statusLabel != "Waiting" &&
-            entry.statusLabel != "Streaming"
+            entry.id != active.id && !(
+                isTransientAssistantEntry(entry) &&
+                (entry.turnID?.isEmpty != false || entry.turnID == activeTurnID)
+            )
         } + [active]
+    }
+
+    @discardableResult
+    public func commitAssistantTurn(
+        from snapshot: ConversationStreamSnapshot,
+        turnID: String
+    ) -> Bool {
+        let normalizedTurnID = turnID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let completed = Self.assistantEntry(
+            from: snapshot,
+            turnID: normalizedTurnID,
+            streaming: false
+        ) else {
+            return false
+        }
+        let replacementIndexes = transcript.indices.filter { index in
+            let entry = transcript[index]
+            return entry.role.lowercased() == "assistant" && (
+                entry.id == completed.id || entry.turnID == normalizedTurnID ||
+                ((entry.turnID?.isEmpty ?? true) && Self.isTransientAssistantEntry(entry))
+            )
+        }
+        let insertionIndex = replacementIndexes.first ?? transcript.count
+        for index in replacementIndexes.reversed() {
+            transcript.remove(at: index)
+        }
+        transcript.insert(completed, at: min(insertionIndex, transcript.count))
+        return true
     }
 
     private static func activeAssistantEntry(from snapshot: ConversationStreamSnapshot) -> ChatTranscriptEntry? {
@@ -267,32 +306,92 @@ public final class ChatRuntime: ObservableObject {
               !activeTurnID.isEmpty else {
             return nil
         }
+        return assistantEntry(from: snapshot, turnID: activeTurnID, streaming: true)
+    }
 
-        guard let message = snapshot.bufferedMessages.reversed().first(where: { message in
-            message.role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "assistant" &&
-                message.turnID?.trimmingCharacters(in: .whitespacesAndNewlines) == activeTurnID &&
-                (message.content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ||
-                 snapshot.liveExecutionGroupsByID[message.id]?.renderedContent?.reports.isEmpty == false)
-        }) else {
-            return nil
+    private struct AssistantTurnFragment {
+        let message: BufferedStreamMessage
+        let markdown: String
+        let rendered: RenderedContent?
+    }
+
+    private static func assistantEntry(
+        from snapshot: ConversationStreamSnapshot,
+        turnID: String,
+        streaming: Bool
+    ) -> ChatTranscriptEntry? {
+        guard !turnID.isEmpty else { return nil }
+        let fragments = snapshot.bufferedMessages.compactMap { message -> AssistantTurnFragment? in
+            guard message.role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "assistant",
+                  message.turnID?.trimmingCharacters(in: .whitespacesAndNewlines) == turnID else {
+                return nil
+            }
+            let markdown = sanitizeAssistantTranscriptText(message.content) ?? ""
+            let rendered = snapshot.liveExecutionGroupsByID[message.id]?.renderedContent
+            guard !markdown.isEmpty || rendered?.reports.isEmpty == false else { return nil }
+            return AssistantTurnFragment(message: message, markdown: markdown, rendered: rendered)
         }
-        let markdown = [message.content]
-            .compactMap(sanitizeAssistantTranscriptText)
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n\n")
-        let rendered = snapshot.liveExecutionGroupsByID[message.id]?.renderedContent
-        guard !markdown.isEmpty || rendered?.reports.isEmpty == false else {
-            return nil
+        guard let latest = fragments.last else { return nil }
+
+        let hasCanonicalContent = fragments.contains { fragment in
+            fragment.rendered?.parts.isEmpty == false || fragment.rendered?.reports.isEmpty == false
+        }
+        var renderedParts: [TranscriptCanonicalPart]? = nil
+        if hasCanonicalContent {
+            var parts: [TranscriptCanonicalPart] = []
+            for fragment in fragments {
+                var fragmentParts = fragment.rendered.map(canonicalParts) ?? []
+                if fragmentParts.isEmpty, !fragment.markdown.isEmpty {
+                    fragmentParts = [TranscriptCanonicalPart(kind: "markdown", text: fragment.markdown)]
+                }
+                guard !fragmentParts.isEmpty else { continue }
+                if !parts.isEmpty {
+                    let first = fragmentParts.removeFirst()
+                    if first.kind.lowercased() == "markdown" {
+                        let text = String((first.text ?? "").drop(while: { $0.isWhitespace }))
+                        parts.append(TranscriptCanonicalPart(
+                            kind: first.kind,
+                            text: "\n\n\(text)",
+                            source: first.source,
+                            payload: first.payload,
+                            data: first.data
+                        ))
+                    } else {
+                        parts.append(TranscriptCanonicalPart(kind: "markdown", text: "\n\n"))
+                        parts.append(first)
+                    }
+                }
+                parts.append(contentsOf: fragmentParts)
+            }
+            renderedParts = parts
+        }
+
+        var reports: [TranscriptCanonicalReport] = []
+        var reportIndexes: [String: Int] = [:]
+        for report in fragments.flatMap({ $0.rendered.map(canonicalReports) ?? [] }) {
+            let identity = "\(report.scope)\u{0}\(report.id)"
+            if let index = reportIndexes[identity] {
+                reports[index] = report
+            } else {
+                reportIndexes[identity] = reports.count
+                reports.append(report)
+            }
         }
         return ChatTranscriptEntry(
-            id: message.id,
+            id: latest.message.id,
             role: "assistant",
-            markdown: markdown,
-            renderedParts: rendered.map(canonicalParts),
-            renderedReports: rendered.map(canonicalReports),
-            timestampLabel: Self.timestampLabel(for: message.createdAt),
-            statusLabel: Self.statusLabel(for: message.status) ?? "Streaming"
+            markdown: fragments.map(\.markdown).filter { !$0.isEmpty }.joined(separator: "\n\n"),
+            turnID: turnID,
+            renderedParts: renderedParts,
+            renderedReports: reports.isEmpty ? nil : reports,
+            timestampLabel: Self.timestampLabel(for: latest.message.createdAt),
+            statusLabel: streaming ? (Self.statusLabel(for: latest.message.status) ?? "Streaming") : nil
         )
+    }
+
+    private static func isTransientAssistantEntry(_ entry: ChatTranscriptEntry) -> Bool {
+        guard entry.role.lowercased() == "assistant" else { return false }
+        return ["waiting", "streaming", "sending"].contains(entry.statusLabel?.lowercased() ?? "")
     }
 
     private static func canonicalAssistantParts(_ messages: [AssistantMessageState]) -> [TranscriptCanonicalPart]? {

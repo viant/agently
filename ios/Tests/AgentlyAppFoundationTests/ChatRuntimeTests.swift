@@ -511,6 +511,107 @@ final class ChatRuntimeTests: XCTestCase {
         XCTAssertEqual(displayTranscript[0].renderedReports?.first?.id, "delivery")
     }
 
+    @MainActor
+    func testTranscriptWithActiveAssistantComposesProseReportAndLaterProse() throws {
+        let runtime = ChatRuntime()
+        let rendered = try JSONDecoder().decode(RenderedContent.self, from: Data(#"""
+        {
+          "schemaVersion": "1",
+          "parts": [],
+          "reports": [{
+            "scope": "order-1",
+            "id": "delivery",
+            "grammar": "report-document-v1",
+            "status": "building",
+            "resetVersion": 0,
+            "source": {"title":"Delivery","blocks":[]},
+            "dataSources": {}
+          }],
+          "diagnostics": []
+        }
+        """#.utf8))
+        let snapshot = ConversationStreamSnapshot(
+            conversationID: "conv-1",
+            activeTurnID: "turn-1",
+            bufferedMessages: [
+                BufferedStreamMessage(
+                    id: "assistant-prose-1",
+                    turnID: "turn-1",
+                    content: "### Key findings\n\nPrimary evidence."
+                ),
+                BufferedStreamMessage(id: "assistant-report", turnID: "turn-1"),
+                BufferedStreamMessage(
+                    id: "assistant-prose-2",
+                    turnID: "turn-1",
+                    content: "Follow-up interpretation."
+                )
+            ],
+            liveExecutionGroupsByID: [
+                "assistant-report": LiveExecutionGroup(
+                    pageID: "page-1",
+                    assistantMessageID: "assistant-report",
+                    turnID: "turn-1",
+                    renderedContent: rendered
+                )
+            ]
+        )
+
+        let entries = runtime.transcriptWithActiveAssistant(snapshot: snapshot)
+        XCTAssertEqual(entries.count, 1)
+        let entry = try XCTUnwrap(entries.first)
+
+        XCTAssertEqual(entry.id, "assistant-prose-2")
+        XCTAssertEqual(entry.turnID, "turn-1")
+        XCTAssertEqual(entry.renderedParts?.compactMap(\.text), [
+            "### Key findings\n\nPrimary evidence.",
+            "\n\nFollow-up interpretation."
+        ])
+        XCTAssertEqual(entry.renderedReports?.map(\.id), ["delivery"])
+    }
+
+    @MainActor
+    func testCommitAssistantTurnKeepsSSEContentAtCompletion() throws {
+        let runtime = ChatRuntime()
+        runtime.transcript = [
+            ChatTranscriptEntry(id: "user-1", role: "user", markdown: "diagnose", turnID: "turn-1"),
+            ChatTranscriptEntry(
+                id: "assistant-pending",
+                role: "assistant",
+                markdown: "Working…",
+                turnID: "turn-1",
+                statusLabel: "Streaming"
+            )
+        ]
+        let snapshot = ConversationStreamSnapshot(
+            conversationID: "conv-1",
+            activeTurnID: nil,
+            bufferedMessages: [
+                BufferedStreamMessage(
+                    id: "assistant-final",
+                    turnID: "turn-1",
+                    content: "### Key findings\n\nThe report is ready.",
+                    status: "completed",
+                    interim: 0
+                )
+            ]
+        )
+
+        XCTAssertTrue(runtime.commitAssistantTurn(from: snapshot, turnID: "turn-1"))
+        XCTAssertEqual(runtime.transcript.map(\.id), ["user-1", "assistant-final"])
+        XCTAssertEqual(runtime.transcript.last?.markdown, "### Key findings\n\nThe report is ready.")
+        XCTAssertNil(runtime.transcript.last?.statusLabel)
+    }
+
+    func testProgressStatusAttributedTextRemovesHeadingAndBoldMarkers() {
+        let rendered = progressStatusAttributedText("""
+        ### Key findings
+
+        - **Primary blocker:** bid competitiveness
+        """)
+
+        XCTAssertEqual(String(rendered.characters), "Key findings\n• Primary blocker: bid competitiveness")
+    }
+
     func testSanitizeVisibleAssistantTextStripsPureRouterPayload() {
         let raw = #"{"appendToolBundles":["analyst-baseline"],"suggestedProfileId":"diagnostic_baseline","scope":{"values":{"entityType":"Entity"}}}"#
         XCTAssertNil(sanitizeVisibleAssistantText(raw))

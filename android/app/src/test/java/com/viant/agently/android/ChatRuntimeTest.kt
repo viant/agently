@@ -24,6 +24,47 @@ import org.junit.Test
 class ChatRuntimeTest {
 
     @Test
+    fun streamAcceptance_doesNotRequireTransientActiveTurn() {
+        val workspaceAccepted = ConversationStreamSnapshot(
+            conversationId = "conv-workspace",
+            activeTurnId = null,
+            feeds = emptyList(),
+            pendingElicitation = null,
+            bufferedMessages = listOf(
+                BufferedMessage(id = "workspace-accepted", role = "assistant", content = "")
+            ),
+            liveExecutionGroupsById = emptyMap()
+        )
+        val empty = ConversationStreamSnapshot(
+            conversationId = "conv-empty",
+            activeTurnId = null,
+            feeds = emptyList(),
+            pendingElicitation = null,
+            bufferedMessages = emptyList(),
+            liveExecutionGroupsById = emptyMap()
+        )
+
+        assertEquals(true, streamSnapshotHasAcceptedActivity(workspaceAccepted))
+        assertEquals(false, streamSnapshotHasAcceptedActivity(empty))
+    }
+
+    @Test
+    fun progressStatusAnnotatedText_rendersHeadingAndBoldWithoutMarkdownMarkers() {
+        val rendered = progressStatusAnnotatedText(
+            """### Key findings
+
+                - **Primary blocker:** bid competitiveness
+            """.trimIndent()
+        )
+
+        assertEquals("Key findings\n• Primary blocker: bid competitiveness", rendered.text)
+        val boldText = rendered.spanStyles
+            .filter { it.item.fontWeight == androidx.compose.ui.text.font.FontWeight.Bold }
+            .map { rendered.text.substring(it.start, it.end) }
+        assertEquals(listOf("Key findings", "Primary blocker:"), boldText)
+    }
+
+    @Test
     fun latestAssistantMarkdown_prefersNewestActiveAssistantMessage() {
         val snapshot = ConversationStreamSnapshot(
             conversationId = "conv-1",
@@ -430,6 +471,100 @@ class ChatRuntimeTest {
         assertEquals(1, displayTranscript.size)
         assertEquals("", displayTranscript.single().markdown)
         assertEquals("delivery", displayTranscript.single().renderedReports?.single()?.id)
+    }
+
+    @Test
+    fun transcriptWithActiveAssistant_composesProseReportAndLaterProseWithoutDroppingContent() {
+        val report = RenderedContent(
+            schemaVersion = "1",
+            reports = listOf(
+                RenderedReportAssembly(
+                    scope = "order-1",
+                    id = "delivery",
+                    grammar = "report-document-v1",
+                    status = "building",
+                    source = Json.parseToJsonElement(
+                        """{"title":"Delivery","blocks":[{"id":"note","kind":"markdownBlock","markdown":"Ready"}]}"""
+                    )
+                )
+            )
+        )
+        val snapshot = ConversationStreamSnapshot(
+            conversationId = "conv-1",
+            activeTurnId = "turn-1",
+            feeds = emptyList(),
+            pendingElicitation = null,
+            bufferedMessages = listOf(
+                BufferedMessage(
+                    id = "assistant-prose-1",
+                    turnId = "turn-1",
+                    role = "assistant",
+                    content = "### Key findings\n\nPrimary evidence."
+                ),
+                BufferedMessage(id = "assistant-report", turnId = "turn-1", role = "assistant"),
+                BufferedMessage(
+                    id = "assistant-prose-2",
+                    turnId = "turn-1",
+                    role = "assistant",
+                    content = "Follow-up interpretation."
+                )
+            ),
+            liveExecutionGroupsById = mapOf(
+                "assistant-report" to LiveExecutionGroup(
+                    pageId = "page-1",
+                    assistantMessageId = "assistant-report",
+                    turnId = "turn-1",
+                    renderedContent = report
+                )
+            )
+        )
+
+        val entry = transcriptWithActiveAssistant(emptyList(), snapshot).single()
+
+        assertEquals("assistant-prose-2", entry.id)
+        assertEquals("turn-1", entry.turnId)
+        assertEquals(true, entry.streaming)
+        assertEquals(
+            listOf("### Key findings\n\nPrimary evidence.", "\n\nFollow-up interpretation."),
+            entry.renderedParts.orEmpty().mapNotNull { it.text }
+        )
+        assertEquals("delivery", entry.renderedReports?.single()?.id)
+    }
+
+    @Test
+    fun commitAssistantTurnFromSnapshot_keepsSseContentWhenTurnCompletes() {
+        val transcript = mutableListOf(
+            ChatEntry(id = "user-1", role = "user", markdown = "diagnose order", turnId = "turn-1"),
+            ChatEntry(
+                id = "assistant-pending",
+                role = "assistant",
+                markdown = "Working…",
+                turnId = "turn-1",
+                streaming = true
+            )
+        )
+        val terminalSnapshot = ConversationStreamSnapshot(
+            conversationId = "conv-1",
+            activeTurnId = null,
+            feeds = emptyList(),
+            pendingElicitation = null,
+            bufferedMessages = listOf(
+                BufferedMessage(
+                    id = "assistant-final",
+                    turnId = "turn-1",
+                    role = "assistant",
+                    content = "### Key findings\n\nThe report is ready.",
+                    status = "completed",
+                    interim = 0
+                )
+            ),
+            liveExecutionGroupsById = emptyMap()
+        )
+
+        assertEquals(true, commitAssistantTurnFromSnapshot(transcript, terminalSnapshot, "turn-1"))
+        assertEquals(listOf("user-1", "assistant-final"), transcript.map { it.id })
+        assertEquals("### Key findings\n\nThe report is ready.", transcript.last().markdown)
+        assertEquals(false, transcript.last().streaming)
     }
 
     @Test

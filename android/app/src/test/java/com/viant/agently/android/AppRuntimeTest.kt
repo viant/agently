@@ -344,6 +344,8 @@ class AppRuntimeTest {
         assertEquals(emptyList<com.viant.agentlysdk.Conversation>(), resetState.recentConversations)
         assertEquals(emptyList<AuthProvider>(), resetState.authProviders)
         assertNull(resetState.authUser)
+        assertNull(resetState.authWebUrl)
+        assertEquals(false, resetState.authBusy)
         assertNull(resetState.authError)
         assertEquals(AuthState.Checking, resetState.authState)
         assertEquals(false, resetState.workspaceBootstrapRequested)
