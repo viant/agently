@@ -297,15 +297,38 @@ public final class ChatRuntime: ObservableObject {
 
     private static func canonicalAssistantParts(_ messages: [AssistantMessageState]) -> [TranscriptCanonicalPart]? {
         guard messages.contains(where: { $0.renderedContent != nil }) else { return nil }
-        return messages.flatMap { message in
+        var result: [TranscriptCanonicalPart] = []
+        for message in messages {
+            var messageParts: [TranscriptCanonicalPart]
             if let rendered = message.renderedContent {
-                return canonicalParts(from: rendered)
+                messageParts = canonicalParts(from: rendered)
+            } else if let text = sanitizeAssistantTranscriptText(message.content), !text.isEmpty {
+                messageParts = [TranscriptCanonicalPart(kind: "markdown", text: text)]
+            } else {
+                messageParts = []
             }
-            guard let text = sanitizeAssistantTranscriptText(message.content), !text.isEmpty else {
-                return []
+            guard !messageParts.isEmpty else { continue }
+            if !result.isEmpty {
+                let first = messageParts.removeFirst()
+                if first.kind.lowercased() == "markdown" {
+                    let text = String((first.text ?? "").drop(while: { $0.isWhitespace }))
+                    result.append(
+                        TranscriptCanonicalPart(
+                            kind: first.kind,
+                            text: "\n\n\(text)",
+                            source: first.source,
+                            payload: first.payload,
+                            data: first.data
+                        )
+                    )
+                } else {
+                    result.append(TranscriptCanonicalPart(kind: "markdown", text: "\n\n"))
+                    result.append(first)
+                }
             }
-            return [TranscriptCanonicalPart(kind: "markdown", text: text)]
+            result.append(contentsOf: messageParts)
         }
+        return result
     }
 
     private static func canonicalAssistantReports(_ messages: [AssistantMessageState]) -> [TranscriptCanonicalReport]? {

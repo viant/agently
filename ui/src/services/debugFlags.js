@@ -15,9 +15,9 @@ export function isDebugFlagEnabled(key = '', envLevel = '') {
 }
 
 export function isStreamDebugEnabled() {
-  return isDebugFlagEnabled('agently.debugStream', import.meta?.env?.VITE_FORGE_LOG_LEVEL);
+  return isDebugFlagEnabled('agently.debugStream', import.meta.env?.VITE_FORGE_LOG_LEVEL);
 }
 
 export function isExecutorDebugEnabled() {
-  return isDebugFlagEnabled('agently.debugExecutor', import.meta?.env?.VITE_FORGE_LOG_LEVEL);
+  return isDebugFlagEnabled('agently.debugExecutor', import.meta.env?.VITE_FORGE_LOG_LEVEL);
 }

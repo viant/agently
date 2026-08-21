@@ -12,9 +12,7 @@ import {
   applyTurnStartedEvent,
   applyStreamChunk,
   finalizeStreamTurn,
-  normalizeStreamingDelta,
   normalizeStreamingMarkdown,
-  suppressOrphanedForgeTransport
 } from './liveStreamStore';
 import { markLiveOwnedTurn } from './liveStreamStore';
 
@@ -48,52 +46,14 @@ describe('normalizeStreamingMarkdown', () => {
   });
 });
 
-describe('normalizeStreamingDelta', () => {
-  it('converts a cumulative provider snapshot into a suffix', () => {
-    expect(normalizeStreamingDelta('```forge-report\n{"version":1', '```forge-report\n{"version":1,"id":"brief"}'))
-      .toBe(',"id":"brief"}');
-  });
-
-  it('ignores an exactly replayed delta', () => {
-    expect(normalizeStreamingDelta('report payload', 'report payload')).toBe('');
-  });
-
-  it('removes a partially overlapping rolling Forge snapshot', () => {
-    const existing = '```forge-report\n{"version":1,"scope":"message","id":"line_7377837_performance","sequence":';
-    const incoming = '"id":"line_7377837_performance","sequence":1,"mode":"start"}\n```';
-
-    expect(normalizeStreamingDelta(existing, incoming))
-      .toBe('1,"mode":"start"}\n```');
-  });
-
-  it('preserves partial overlap in ordinary streamed content', () => {
-    expect(normalizeStreamingDelta('A regular answer repeats this phrase', 'this phrase intentionally'))
-      .toBe('this phrase intentionally');
-  });
-});
-
-describe('suppressOrphanedForgeTransport', () => {
-  it('hides a mid-fence report fragment received after late stream attachment', () => {
-    expect(suppressOrphanedForgeTransport(
-      'reportRef":"order_1","sequence":2,"format":"json","mode":"replace","data":[{"spend":0}]}'
-    )).toBe('');
-  });
-
-  it('preserves ordinary assistant prose and complete forge fences', () => {
-    expect(suppressOrphanedForgeTransport('The report is ready.')).toBe('The report is ready.');
-    const fenced = '```forge-data\n{"version":2,"reportRef":"order_1","sequence":2,"data":[]}\n```';
-    expect(suppressOrphanedForgeTransport(fenced)).toBe(fenced);
-  });
-});
-
 describe('applyStreamChunk', () => {
-  it('does not duplicate cumulative forge-report snapshots', () => {
+  it('appends canonical forge-report deltas verbatim', () => {
     const chatState = { activeStreamTurnId: 'turn-report', liveRows: [] };
     applyStreamChunk(chatState, {
       id: 'message-report', turnId: 'turn-report', content: '```forge-report\n{"version":1'
     }, 'conv-1');
     applyStreamChunk(chatState, {
-      id: 'message-report', turnId: 'turn-report', content: '```forge-report\n{"version":1,"id":"brief"}'
+      id: 'message-report', turnId: 'turn-report', content: ',"id":"brief"}'
     }, 'conv-1');
 
     expect(chatState.liveRows[0]._streamContent)
@@ -101,7 +61,7 @@ describe('applyStreamChunk', () => {
     expect(chatState.liveRows[0].content).not.toContain('version```forge-report');
   });
 
-  it('reassembles partially overlapping forge-report chunks into valid fenced JSON', () => {
+  it('reassembles non-overlapping forge-report chunks into valid fenced JSON', () => {
     const chatState = { activeStreamTurnId: 'turn-overlap', liveRows: [] };
     applyStreamChunk(chatState, {
       id: 'message-overlap',
@@ -111,7 +71,7 @@ describe('applyStreamChunk', () => {
     applyStreamChunk(chatState, {
       id: 'message-overlap',
       turnId: 'turn-overlap',
-      content: '"id":"line_7377837_performance","sequence":1,"mode":"start","blocks":[]}\n```'
+      content: '1,"mode":"start","blocks":[]}\n```'
     }, 'conv-1');
 
     expect(chatState.liveRows[0]._streamContent).toBe(
@@ -175,6 +135,32 @@ describe('applyStreamChunk', () => {
     expect(chatState.liveRows[0].executionGroups[0].content).toBe('Hello');
     expect(chatState.liveRows[0].executionGroups[0].status).toBe('streaming');
     expect(chatState.liveRows[0].executionGroups[0].modelSteps[0].status).toBe('streaming');
+  });
+
+  it('does not erase preceding narration when a report enters pending state', () => {
+    const chatState = {
+      activeStreamTurnId: 'turn-report',
+      liveRows: [{
+        id: 'message-report',
+        role: 'assistant',
+        turnId: 'turn-report',
+        interim: 1,
+        isStreaming: true,
+        narration: 'Checking delivery evidence before assembling the report.',
+        content: '',
+        executionGroups: []
+      }]
+    };
+
+    applyStreamChunk(chatState, {
+      messageId: 'message-report',
+      turnId: 'turn-report',
+      content: '```forge-report\n{"version":1'
+    }, 'conv-1');
+
+    expect(chatState.liveRows[0].narration)
+      .toBe('Checking delivery evidence before assembling the report.');
+    expect(chatState.liveRows[0].content).toContain('```forge-report');
   });
 
   it('creates a streaming execution group when text arrives before model_started', () => {

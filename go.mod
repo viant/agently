@@ -2,6 +2,10 @@ module github.com/viant/agently
 
 go 1.25.5
 
+replace github.com/viant/sqlx => ../sqlx-agently-fixed
+
+replace github.com/viant/agently-core => ../agently-core
+
 exclude google.golang.org/grpc/stats/opentelemetry v0.0.0-20240907200651-3ffb98b2c93a
 
 require (
@@ -13,14 +17,14 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.1-0.20260707124824-0373fe4ae4cb
 	github.com/viant/afsc v1.17.0
-	github.com/viant/agently-core v0.1.23-0.20260820225740-b5bd0014acd8
+	github.com/viant/agently-core v0.1.23
 	github.com/viant/datly v0.37.1-0.20260409194131-e40dcc4467ab
 	github.com/viant/embedius v0.5.3 // indirect
 	github.com/viant/forge v0.3.14
 	github.com/viant/jsonrpc v0.24.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
 	github.com/viant/mcp v0.19.1-0.20260810230811-de146552d03f
-	github.com/viant/mcp-protocol v0.15.0
+	github.com/viant/mcp-protocol v0.16.0
 	github.com/viant/mcp-ui v0.2.0
 	github.com/viant/scy v0.30.0
 	github.com/viant/structology v0.9.0 // indirect
@@ -156,7 +160,7 @@ require (
 	github.com/viant/pgo v0.11.0 // indirect
 	github.com/viant/sqlite-vec v0.3.1-0.20260220164201-136574510a3f // indirect
 	github.com/viant/sqlparser v0.12.1-0.20260409013525-147f8fc299b7 // indirect
-	github.com/viant/sqlx v0.22.1-0.20260326175456-cec446e28372 // indirect
+	github.com/viant/sqlx v0.24.0 // indirect
 	github.com/viant/structql v0.5.4 // indirect
 	github.com/viant/tagly v0.3.0 // indirect
 	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect

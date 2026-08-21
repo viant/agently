@@ -1,6 +1,7 @@
 package com.viant.agently.android
 
 import com.viant.agentlysdk.RenderedContent
+import com.viant.agentlysdk.RenderedContentPart
 import com.viant.agentlysdk.RenderedReportAssembly
 import com.viant.agentlysdk.AssistantMessageState
 import com.viant.agentlysdk.AssistantState
@@ -169,6 +170,51 @@ class ChatRuntimeTest {
         )
 
         assertEquals("The report is ready.", transcriptFromState(state).single().markdown)
+    }
+
+    @Test
+    fun transcriptFromState_separatesNarrationFromFinalMarkdownHeading() {
+        val state = ConversationStateResponse(
+            conversation = ConversationState(
+                conversationId = "conv-1",
+                turns = listOf(
+                    TurnState(
+                        turnId = "turn-1",
+                        status = "completed",
+                        assistant = AssistantState(
+                            narration = AssistantMessageState(
+                                messageId = "n1",
+                                content = "I’ll check delivery evidence.",
+                                renderedContent = RenderedContent(
+                                    schemaVersion = "1",
+                                    parts = listOf(
+                                        RenderedContentPart(kind = "markdown", text = "I’ll check delivery evidence.")
+                                    )
+                                )
+                            ),
+                            final = AssistantMessageState(
+                                messageId = "a1",
+                                content = "### Key findings\n- **Primary blocker:** bid competitiveness.",
+                                renderedContent = RenderedContent(
+                                    schemaVersion = "1",
+                                    parts = listOf(
+                                        RenderedContentPart(
+                                            kind = "markdown",
+                                            text = "### Key findings\n- **Primary blocker:** bid competitiveness."
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val parts = transcriptFromState(state).single().renderedParts.orEmpty()
+
+        assertEquals("I’ll check delivery evidence.", parts[0].text)
+        assertEquals("\n\n### Key findings\n- **Primary blocker:** bid competitiveness.", parts[1].text)
     }
 
     @Test

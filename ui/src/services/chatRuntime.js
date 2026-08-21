@@ -4,6 +4,13 @@ import { compareTemporalEntries, conversationLifecyclePatchForStreamPhase, isLiv
 // App bootstrap installs the canonical chatStore mirror explicitly.
 // chatRuntime never resolves the store through module-system fallbacks.
 let _chatStoreModule = null;
+const streamSubscriptionOwners = new Map();
+let nextStreamSubscriptionID = 0;
+function hasActiveConversationTurnStream(conversationID = '') {
+  const id = String(conversationID || '').trim();
+  const owner = id ? streamSubscriptionOwners.get(id) : null;
+  return !!(owner?.active && owner?.subscription && owner?.liveTurn);
+}
 function _chatStoreRef() {
   return _chatStoreModule;
 }
@@ -40,7 +47,6 @@ import {
   applyMessagePatchEvent,
   applyPreambleEvent,
   applyStreamChunk,
-  normalizeStreamingDelta,
   applyTurnStartedEvent,
   applyToolStreamEvent,
   finalizeStreamTurn,
@@ -225,7 +231,7 @@ export function logStreamDebug(chatState = {}, event, detail = {}) {
   const seq = Number(chatState?.debugSeq || 0) + 1;
   chatState.debugSeq = seq;
   try {
-    console.log(STREAM_DEBUG_PREFIX, {
+    const record = {
       seq,
       ts: new Date().toISOString(),
       event: String(event || '').trim() || 'unknown',
@@ -234,7 +240,14 @@ export function logStreamDebug(chatState = {}, event, detail = {}) {
       activeStreamTurnId: String(chatState?.activeStreamTurnId || '').trim(),
       runningTurnId: String(chatState?.runningTurnId || '').trim(),
       ...detail
-    });
+    };
+    if (typeof window !== 'undefined') {
+      const records = Array.isArray(window.__agentlyStreamDebug) ? window.__agentlyStreamDebug : [];
+      records.push(record);
+      if (records.length > 5000) records.splice(0, records.length - 5000);
+      window.__agentlyStreamDebug = records;
+    }
+    console.log(STREAM_DEBUG_PREFIX, JSON.stringify(record));
   } catch (_) {}
 }
 
@@ -328,22 +341,6 @@ function textDeltaQueueKey(payload = {}, fallbackConversationID = '') {
   ].join('::');
 }
 
-function renderedStreamContent(chatState = {}, payload = {}) {
-  const rows = Array.isArray(chatState?.liveRows) ? chatState.liveRows : [];
-  const messageID = String(payload?.messageId || payload?.assistantMessageId || payload?.id || '').trim();
-  const turnID = String(payload?.turnId || '').trim();
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const row = rows[index];
-    if (String(row?.role || '').toLowerCase() !== 'assistant') continue;
-    const rowID = String(row?.id || '').trim();
-    const rowTurnID = String(row?.turnId || '').trim();
-    if ((messageID && rowID === messageID) || (turnID && rowTurnID === turnID)) {
-      return String(row?._streamContent || '');
-    }
-  }
-  return '';
-}
-
 function enqueueTextDelta(chatState = {}, payload = {}, fallbackConversationID = '') {
   const queue = Array.isArray(chatState.pendingTextDeltaQueue) ? chatState.pendingTextDeltaQueue : [];
   const key = textDeltaQueueKey(payload, fallbackConversationID);
@@ -353,15 +350,8 @@ function enqueueTextDelta(chatState = {}, payload = {}, fallbackConversationID =
     return queue;
   }
   const last = queue[queue.length - 1];
-  const renderedContent = renderedStreamContent(chatState, payload);
   if (last && last._queueKey === key) {
-    // A provider or reconnect can report the full content-so-far in a
-    // text_delta event. Normalize it before frame coalescing; otherwise two
-    // cumulative snapshots are irreversibly glued together before the live
-    // store can recognize the replay.
-    const queuedContent = String(last.content || '');
-    const normalizedContent = normalizeStreamingDelta(`${renderedContent}${queuedContent}`, content);
-    last.content = `${queuedContent}${normalizedContent}`;
+    last.content = `${String(last.content || '')}${content}`;
     last.createdAt = String(payload?.createdAt || last.createdAt || '').trim() || last.createdAt;
     if (!String(last.id || '').trim() && String(payload?.id || '').trim()) {
       last.id = String(payload.id).trim();
@@ -373,15 +363,10 @@ function enqueueTextDelta(chatState = {}, payload = {}, fallbackConversationID =
       last.assistantMessageId = String(payload.assistantMessageId).trim();
     }
   } else {
-    const normalizedContent = normalizeStreamingDelta(renderedContent, content);
-    if (!normalizedContent) {
-      chatState.pendingTextDeltaQueue = queue;
-      return queue;
-    }
     queue.push({
       ...payload,
       conversationId: String(payload?.conversationId || payload?.streamId || fallbackConversationID || '').trim(),
-      content: normalizedContent,
+      content,
       _queueKey: key,
     });
   }
@@ -836,6 +821,14 @@ const pendingConversationBootstrapIds = new Set();
 export function cacheSettledConversationBootstrapSnapshot(conversationID = '', snapshot = null) {
   const id = String(conversationID || '').trim();
   if (!id || !snapshot || typeof snapshot !== 'object') return;
+  const snapshotConversationID = String(snapshot?.conversation?.id || snapshot?.conversation?.Id || '').trim();
+  if (!snapshotConversationID || snapshotConversationID !== id) {
+    logExecutorDebug('settled-bootstrap-cache-rejected-conversation-mismatch', {
+      conversationId: id,
+      snapshotConversationId: snapshotConversationID
+    });
+    return;
+  }
   settledConversationBootstrapCache.set(id, {
     conversation: snapshot.conversation && typeof snapshot.conversation === 'object' ? snapshot.conversation : null,
     turns: Array.isArray(snapshot.turns) ? snapshot.turns : [],
@@ -853,7 +846,18 @@ export function cacheSettledConversationBootstrapSnapshot(conversationID = '', s
 export function getSettledConversationBootstrapSnapshot(conversationID = '') {
   const id = String(conversationID || '').trim();
   if (!id) return null;
-  return settledConversationBootstrapCache.get(id) || null;
+  const snapshot = settledConversationBootstrapCache.get(id) || null;
+  if (!snapshot) return null;
+  const snapshotConversationID = String(snapshot?.conversation?.id || snapshot?.conversation?.Id || '').trim();
+  if (snapshotConversationID !== id) {
+    settledConversationBootstrapCache.delete(id);
+    logExecutorDebug('settled-bootstrap-cache-evicted-conversation-mismatch', {
+      conversationId: id,
+      snapshotConversationId: snapshotConversationID
+    });
+    return null;
+  }
+  return snapshot;
 }
 
 export function clearSettledConversationBootstrapSnapshot(conversationID = '') {
@@ -1274,6 +1278,23 @@ export function publishActiveConversation(conversationID = '', context = null) {
   // and requestNewConversationInMainWindow both call publishConversationSelection
   // with syncPath: true) and by the poller's switchingConversationID guard
   // in startPolling.
+  // A stale/background context must not overwrite shared selection state or
+  // emit an active-conversation event after the user has selected another
+  // route. The previous URL-only guard still allowed that stale event to move
+  // the sidebar highlight back to the old conversation.
+  if (
+    isMainChatWindowId(targetWindowId)
+    && currentRouteConversationId
+    && id
+    && currentRouteConversationId !== id
+  ) {
+    logExecutorDebug('publish-active-conversation-ignored-stale-route', {
+      conversationId: id,
+      routeConversationId: currentRouteConversationId,
+      windowId: targetWindowId
+    });
+    return;
+  }
   publishConversationSelection(targetWindowId, id, {
     syncPath: isMainChatWindowId(targetWindowId)
       && (!currentRouteConversationId || currentRouteConversationId === id),
@@ -1307,6 +1328,15 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
   }
   const activeChatState = typeof window !== 'undefined' ? window.__agentlyActiveChatState : null;
   const latestTurnLiveOwned = transcriptShouldBeIdle(activeChatState, conversationID);
+  if (hasPendingConversationBootstrap(conversationID) || hasActiveConversationTurnStream(conversationID) || latestTurnLiveOwned) {
+    logExecutorDebug('transcript-fetch-deferred-to-sse-owner', {
+      conversationId: String(conversationID || '').trim(),
+      pendingBootstrap: hasPendingConversationBootstrap(conversationID),
+      activeStreamOwner: hasActiveConversationTurnStream(conversationID),
+      localLiveOwner: latestTurnLiveOwned
+    });
+    return [];
+  }
   if (typeof window !== 'undefined') {
     const chatState = activeChatState;
     if (latestTurnLiveOwned) {
@@ -1348,6 +1378,9 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
   const liveOwnedTurnIds = Array.isArray(activeChatState?.liveOwnedTurnIds)
     ? activeChatState.liveOwnedTurnIds.map((value) => String(value || '').trim()).filter(Boolean)
     : [];
+  const pendingBootstrapOwned = canonicalConversation?.conversationId
+    ? hasPendingConversationBootstrap(canonicalConversation.conversationId)
+    : false;
   // ── chatStore transcript forwarding shim (PR-0 side-consumer cutover) ───
   // Forward transcript snapshots only when the conversation is not currently
   // SSE-owned. Active-turn truth belongs entirely to SSE on the web UI; do not
@@ -1364,7 +1397,7 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
   // through field-level transcript refinement without disturbing entity
   // identity.
   try {
-    if (canonicalConversation && canonicalConversation.conversationId && (!latestTurnLiveOwned || !canonicalHasRunning)) {
+    if (canonicalConversation && canonicalConversation.conversationId && !pendingBootstrapOwned && (!latestTurnLiveOwned || !canonicalHasRunning)) {
       const store = _chatStoreRef();
       if (store) {
         if (!canonicalHasRunning && !latestTurnLiveOwned && typeof store.reset === 'function') {
@@ -1603,7 +1636,11 @@ export async function dsTick(context, options = {}) {
       window.__agentlyActiveChatState = chatState;
     } catch (_) {}
   }
-  if (!options?.allowLiveHydration && shouldDeferTranscriptToLiveStream(context, requestedConversationID)) {
+  const pendingBootstrapOwned = hasPendingConversationBootstrap(requestedConversationID);
+  const activeStreamOwned = hasActiveConversationTurnStream(requestedConversationID);
+  if (pendingBootstrapOwned || (!options?.allowLiveHydration && (
+    activeStreamOwned || shouldDeferTranscriptToLiveStream(context, requestedConversationID)
+  ))) {
     logExecutorDebug('transcript-deferred-to-live', {
       conversationId: requestedConversationID,
       liveOwnedConversationID: String(chatState?.liveOwnedConversationID || '').trim(),
@@ -1710,7 +1747,23 @@ export function queueTranscriptRefresh(context, { delay = 120, resetSince = fals
 
 export function connectStream(context, conversationID) {
   const chatState = ensureContextResources(context);
+  const targetConversationID = String(conversationID || '').trim();
   clearPendingStreamReconnect(chatState);
+  const generation = Number(chatState.streamGeneration || 0) + 1;
+  nextStreamSubscriptionID += 1;
+  const subscriptionID = `${targetConversationID}:${nextStreamSubscriptionID}:${Date.now()}`;
+  chatState.streamGeneration = generation;
+  chatState.activeStreamSubscriptionID = subscriptionID;
+  chatState.streamSubscriptionEventSeq = 0;
+  const previousOwner = streamSubscriptionOwners.get(targetConversationID);
+  if (previousOwner) {
+    previousOwner.active = false;
+    try { previousOwner.subscription?.close?.(); } catch (_) {}
+    if (previousOwner.chatState?.stream === previousOwner.subscription) {
+      previousOwner.chatState.stream = null;
+    }
+    streamSubscriptionOwners.delete(targetConversationID);
+  }
   if (chatState.stream) {
     logStreamDebug(chatState, 'stream-close-replaced', {
       conversationId: String(chatState.activeConversationID || '').trim()
@@ -1718,11 +1771,62 @@ export function connectStream(context, conversationID) {
     chatState.stream.close();
     chatState.stream = null;
   }
-  const subscription = client.streamEvents(conversationID, {
+  let subscription = null;
+  const owner = {
+    active: true,
+    liveTurn: true,
+    chatState,
+    subscription: null,
+    subscriptionID,
+  };
+  const isCurrentSubscription = () => (
+    owner.active
+    && streamSubscriptionOwners.get(targetConversationID) === owner
+    && Number(chatState.streamGeneration || 0) === generation
+    && String(chatState.activeStreamSubscriptionID || '') === subscriptionID
+    && chatState.stream === subscription
+  );
+  subscription = client.streamEvents(conversationID, {
     onEvent: (payload) => {
+      const content = String(payload?.content || '');
+      if (!isCurrentSubscription()) {
+        logStreamDebug(chatState, 'stream-event-ignored-stale-subscription', {
+          subscriptionID,
+          generation,
+          type: String(payload?.type || '').trim(),
+          contentLength: content.length,
+          contentHash: streamDebugHash(content)
+        });
+        return;
+      }
+      const payloadType = String(payload?.type || '').trim().toLowerCase();
+      if (payloadType === 'turn_completed' || payloadType === 'turn_failed' || payloadType === 'turn_canceled') {
+        owner.liveTurn = false;
+      } else if (payloadType === 'turn_started') {
+        owner.liveTurn = true;
+      }
+      chatState.streamSubscriptionEventSeq = Number(chatState.streamSubscriptionEventSeq || 0) + 1;
+      logStreamDebug(chatState, 'stream-js-event', {
+        subscriptionID,
+        generation,
+        subscriptionEventSeq: chatState.streamSubscriptionEventSeq,
+        type: String(payload?.type || '').trim(),
+        eventSeq: Number(payload?.eventSeq || 0) || 0,
+        messageID: String(payload?.messageId || payload?.assistantMessageId || payload?.id || '').trim(),
+        contentLength: content.length,
+        contentHash: streamDebugHash(content)
+      });
       handleStreamEvent(chatState, context, conversationID, payload);
     },
     onError: (error) => {
+      if (!isCurrentSubscription()) {
+        logStreamDebug(chatState, 'stream-error-ignored-stale-subscription', {
+          subscriptionID,
+          generation,
+          error: String(error || '').trim()
+        });
+        return;
+      }
       logStreamDebug(chatState, 'stream-error', {
         conversationId: String(conversationID || '').trim(),
         error: String(error || '').trim()
@@ -1731,12 +1835,26 @@ export function connectStream(context, conversationID) {
       scheduleStreamReconnect(context, conversationID, error);
     },
   });
+  owner.subscription = subscription;
+  streamSubscriptionOwners.set(targetConversationID, owner);
   chatState.stream = subscription;
   chatState.activeConversationID = String(conversationID || '').trim();
   chatState.streamOpenedAt = Date.now();
   logStreamDebug(chatState, 'stream-connect', {
-    conversationId: String(conversationID || '').trim()
+    conversationId: String(conversationID || '').trim(),
+    subscriptionID,
+    generation
   });
+}
+
+function streamDebugHash(value = '') {
+  const text = String(value || '');
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
 export function handleStreamEvent(chatState, context, conversationID, payload) {
@@ -2363,6 +2481,14 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
 export function disconnectStream(context) {
   const chatState = ensureContextResources(context);
   clearPendingStreamReconnect(chatState);
+  const targetConversationID = String(chatState.activeConversationID || '').trim();
+  const owner = streamSubscriptionOwners.get(targetConversationID);
+  if (owner?.chatState === chatState) {
+    owner.active = false;
+    streamSubscriptionOwners.delete(targetConversationID);
+  }
+  chatState.streamGeneration = Number(chatState.streamGeneration || 0) + 1;
+  chatState.activeStreamSubscriptionID = '';
   if (chatState.stream) {
     logStreamDebug(chatState, 'stream-close-manual', {
       conversationId: String(chatState.activeConversationID || '').trim()
@@ -2562,10 +2688,14 @@ export async function switchConversation(context, conversationID = '') {
       chatState.stream.close();
       chatState.stream = null;
     }
-    // Do not leave the previous transcript visible under the newly selected route.
-    messagesDS.setCollection?.([]);
-    messagesDS.setError?.('');
-    resetConversationSnapshotState(context);
+    // A fresh submit already populated the shared store with the local user
+    // entity. The route-mounted replacement context must adopt that live
+    // state rather than blanking it before the first server transcript exists.
+    if (!hasPendingConversationBootstrap(targetID)) {
+      messagesDS.setCollection?.([]);
+      messagesDS.setError?.('');
+      resetConversationSnapshotState(context);
+    }
   }
   const existing = await fetchConversation(targetID);
   if (!isCurrentRequest()) return;
@@ -2577,7 +2707,7 @@ export async function switchConversation(context, conversationID = '') {
   const staleConversationState = String(chatState.lastConversationID || '').trim() !== targetID;
   if (currentID === targetID) {
     chatState.switchingConversationID = '';
-    if (staleConversationState) {
+    if (staleConversationState && !hasPendingConversationBootstrap(targetID)) {
       messagesDS.setCollection?.([]);
       messagesDS.setError?.('');
       resetConversationSnapshotState(context);
@@ -2592,7 +2722,6 @@ export async function switchConversation(context, conversationID = '') {
       transcript: {
         includeExecutionDetails: true,
       },
-      allowLiveHydration: conversationLiveish,
       reason: conversationLiveish ? 'late-join' : 'poll',
     });
     if (!isCurrentRequest()) return;
@@ -2619,7 +2748,6 @@ export async function switchConversation(context, conversationID = '') {
     transcript: {
       includeExecutionDetails: true,
     },
-    allowLiveHydration: conversationLiveish,
     reason: conversationLiveish ? 'late-join' : 'poll',
   });
   if (!isCurrentRequest()) return;
@@ -2892,10 +3020,7 @@ export function stopPolling(context) {
     clearTimeout(chatState.postTurnRefreshTimer);
     chatState.postTurnRefreshTimer = null;
   }
-  if (chatState.stream) {
-    chatState.stream.close();
-    chatState.stream = null;
-  }
+  disconnectStream(context);
 }
 
 export function rememberSeedTitle(conversationID, query) {

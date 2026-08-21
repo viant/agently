@@ -1,7 +1,12 @@
 package com.viant.agently.android
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -268,6 +273,7 @@ internal fun TabletConversationSidebar(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ConversationHistoryScreen(
     workspaceTitle: String,
@@ -427,6 +433,8 @@ internal fun ConversationHistoryScreen(
         filteredConversations.forEach { conversation ->
             val isActive = conversation.id == activeConversationId
             val isOpening = conversation.id == openingConversationId
+            val hoverInteractionSource = remember(conversation.id) { MutableInteractionSource() }
+            val isHovered by hoverInteractionSource.collectIsHoveredAsState()
             Surface(
                 color = if (isActive) Color(0xFFF2F6FF) else Color.White,
                 border = BorderStroke(
@@ -436,7 +444,15 @@ internal fun ConversationHistoryScreen(
                 shape = MaterialTheme.shapes.large,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(enabled = !isOpening) { onSelectConversation(conversation.id) }
+                    .hoverable(hoverInteractionSource)
+                    .combinedClickable(
+                        enabled = !isOpening,
+                        onClick = { onSelectConversation(conversation.id) },
+                        onLongClickLabel = "Delete conversation",
+                        onLongClick = {
+                            if (!loading) pendingDeletion = conversation
+                        }
+                    )
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -477,13 +493,15 @@ internal fun ConversationHistoryScreen(
                         selected = isActive,
                         loading = isOpening
                     )
-                    PhoneToolbarAction(
-                        icon = Icons.Outlined.DeleteOutline,
-                        contentDescription = "Delete conversation",
-                        onClick = { pendingDeletion = conversation },
-                        accent = Color(0xFFB42318),
-                        enabled = !isOpening && !loading
-                    )
+                    if (isHovered) {
+                        PhoneToolbarAction(
+                            icon = Icons.Outlined.DeleteOutline,
+                            contentDescription = "Delete conversation",
+                            onClick = { pendingDeletion = conversation },
+                            accent = Color(0xFFB42318),
+                            enabled = !isOpening && !loading
+                        )
+                    }
                 }
             }
         }

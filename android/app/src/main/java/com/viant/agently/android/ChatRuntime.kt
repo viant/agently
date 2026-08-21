@@ -370,11 +370,23 @@ internal fun transcriptFromState(state: ConversationStateResponse): List<ChatEnt
 
 private fun canonicalAssistantParts(messages: List<AssistantMessageState>): List<RenderedContentPart>? {
     if (messages.none { it.renderedContent != null }) return null
-    return messages.flatMap { message ->
-        message.renderedContent?.parts.orEmpty().ifEmpty {
+    return buildList {
+        messages.forEach { message ->
+            val messageParts = message.renderedContent?.parts.orEmpty().ifEmpty {
             sanitizeAssistantTranscriptText(message.content)
                 ?.let { listOf(RenderedContentPart(kind = "markdown", text = it)) }
                 .orEmpty()
+            }
+            if (isNotEmpty() && messageParts.isNotEmpty()) {
+                val first = messageParts.first()
+                if (first.kind.equals("markdown", ignoreCase = true)) {
+                    add(first.copy(text = "\n\n${first.text.orEmpty().trimStart()}"))
+                    addAll(messageParts.drop(1))
+                    return@forEach
+                }
+                add(RenderedContentPart(kind = "markdown", text = "\n\n"))
+            }
+            addAll(messageParts)
         }
     }
 }

@@ -1088,58 +1088,6 @@ export function normalizeStreamingMarkdown(text = '') {
   };
 }
 
-export function suppressOrphanedForgeTransport(text = '') {
-  const raw = String(text || '');
-  if (!raw.trim() || /```forge-(?:report|data|ui)\b/i.test(raw)) return raw;
-  const hasReportIdentity = /reportRef"?\s*:/i.test(raw);
-  const hasSequence = /sequence"?\s*:/i.test(raw);
-  const hasPayloadShape = /(?:format|mode|data)"?\s*:/i.test(raw);
-  const hasBareFenceLabel = /(?:^|\n)\s*forge-(?:report|data|ui)\s*(?:\n|$)/i.test(raw);
-  return (hasBareFenceLabel || (hasReportIdentity && hasSequence && hasPayloadShape)) ? '' : raw;
-}
-
-export function normalizeStreamingDelta(existing = '', incoming = '') {
-  const current = String(existing || '');
-  const next = String(incoming || '');
-  if (!next || !current) return next;
-  // Some providers/reconnect paths emit a cumulative snapshot in text_delta.
-  // Convert that snapshot back to a suffix before it reaches the append-only
-  // UI store. Exact replay is also ignored. This keeps one model stream from
-  // multiplying a report payload in the visible transcript.
-  if (next.startsWith(current)) return next.slice(current.length);
-  if (current.endsWith(next)) return '';
-  // A few provider/reconnect paths send a rolling window rather than either a
-  // true delta or a full cumulative snapshot. For Forge transport this can
-  // repeat part of the JSON and corrupt both the payload and its closing fence.
-  // Only collapse a substantial, exact suffix/prefix overlap for Forge streams;
-  // ordinary prose and code fences must retain repeated text verbatim.
-  if (/^```forge-(?:report|data|ui)(?:\r?\n|(?=[\[{]))/i.test(current)) {
-    const overlap = suffixPrefixOverlapLength(current, next);
-    if (overlap >= 12) return next.slice(overlap);
-  }
-  return next;
-}
-
-function suffixPrefixOverlapLength(current = '', next = '') {
-  if (!current || !next) return 0;
-
-  // KMP prefix table keeps this linear even when report snapshots are large.
-  const prefix = new Array(next.length).fill(0);
-  for (let index = 1, matched = 0; index < next.length; index += 1) {
-    while (matched > 0 && next[index] !== next[matched]) matched = prefix[matched - 1];
-    if (next[index] === next[matched]) matched += 1;
-    prefix[index] = matched;
-  }
-
-  let matched = 0;
-  for (const ch of current) {
-    while (matched > 0 && ch !== next[matched]) matched = prefix[matched - 1];
-    if (ch === next[matched]) matched += 1;
-    if (matched === next.length) matched = prefix[matched - 1];
-  }
-  return matched;
-}
-
 export function applyStreamChunk(chatState = {}, payload = {}, conversationID = '') {
   if (isSuppressedSummaryEvent(chatState, payload)) {
     rememberSuppressedSummary(chatState, payload);
@@ -1149,9 +1097,7 @@ export function applyStreamChunk(chatState = {}, payload = {}, conversationID = 
   const streamMessageID = canonicalPayloadMessageId(payload);
   const liveRows = Array.isArray(chatState.liveRows) ? [...chatState.liveRows] : [];
   const index = findAssistantExecutionRowIndex(liveRows, turnId, streamMessageID);
-  const incoming = String(payload?.content || '');
-  const existingRow = index >= 0 ? liveRows[index] : null;
-  const delta = normalizeStreamingDelta(existingRow?._streamContent || '', incoming);
+  const delta = String(payload?.content || '');
   if (!delta) return chatState.liveRows || [];
 
   // Find the existing assistant execution row for this turn.
@@ -1165,13 +1111,13 @@ export function applyStreamChunk(chatState = {}, payload = {}, conversationID = 
       hasTrailingFence: normalized.hadTrailingFence,
       language: normalized.language,
     };
-    row.content = suppressOrphanedForgeTransport(normalized.content);
+    row.content = normalized.content;
     row.isStreaming = true;
-    // Clear narration once real content starts streaming — prevents
-    // concatenated narration+response in the bubble.
-    if (row.narration && row._streamContent.length > 0) {
-      row.narration = '';
-    }
+    // Pending report presentation must not erase prose that was already
+    // shown. Bubble selection prefers streamed response content when it is
+    // renderable, so retaining narration here does not concatenate it with
+    // the response; it only provides continuity while a report fence is
+    // incomplete.
     const groups = Array.isArray(row.executionGroups) ? [...row.executionGroups] : [];
     if (groups.length > 0) {
       const groupIndex = groups.length - 1;
@@ -1684,7 +1630,7 @@ export function finalizeStreamTurn(chatState = {}, payload = {}, fallbackConvers
       errorMessage: errorMessage || row?.errorMessage || '',
       interim: 0,
       isStreaming: false,
-      content: suppressOrphanedForgeTransport(finalizedContent),
+      content: finalizedContent,
       _streamContent: '',
       _streamFence: null,
       executionGroups: groups.map((group) => {
@@ -1704,7 +1650,7 @@ export function finalizeStreamTurn(chatState = {}, payload = {}, fallbackConvers
           finalResponse: shouldAssignTerminalContent
             ? (finalizedContent ? true : Boolean(group?.finalResponse || group?.FinalResponse))
             : Boolean(group?.finalResponse || group?.FinalResponse),
-          content: suppressOrphanedForgeTransport(finalizedContent || String(group?.content || '')),
+          content: finalizedContent || String(group?.content || ''),
           modelSteps
         };
       })
