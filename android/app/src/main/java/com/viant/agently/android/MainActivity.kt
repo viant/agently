@@ -110,6 +110,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import java.text.SimpleDateFormat
@@ -268,11 +269,20 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
                 )
             },
             commandHandler = { method, params ->
-                handleAndroidUIBridgeCommand(
+                val commandResult = handleAndroidUIBridgeCommand(
                     method = method,
                     params = params,
                     forgeRuntime = forgeRuntime
                 )
+                if (
+                    method == "ui.window.open" &&
+                    (commandResult["ok"] as? JsonPrimitive)?.booleanOrNull == true
+                ) {
+                    loading = false
+                    markLatestSubmittedUserEntryDelivered(transcript)
+                    error = null
+                }
+                commandResult
             }
         )
     }
@@ -436,8 +446,8 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
             state = resetState.authState
         )
         applyAuthUiState(
-            webUrl = authWebUrl,
-            busy = authBusy,
+            webUrl = resetState.authWebUrl,
+            busy = resetState.authBusy,
             error = resetState.authError
         )
         workspaceBootstrapRequested = resetState.workspaceBootstrapRequested
@@ -916,12 +926,23 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     }
 
     fun applyConversationSnapshot(snapshot: ConversationStreamSnapshot) {
+        val previousSnapshot = streamSnapshot
+        val completedTurnId = previousSnapshot?.activeTurnId?.trim().orEmpty()
+            .takeIf { it.isNotBlank() && snapshot.activeTurnId.isNullOrBlank() }
+        if (completedTurnId != null) {
+            if (!commitAssistantTurnFromSnapshot(transcript, snapshot, completedTurnId)) {
+                previousSnapshot?.let {
+                    commitAssistantTurnFromSnapshot(transcript, it, completedTurnId)
+                }
+            }
+        }
         streamSnapshot = snapshot
         if (snapshot.conversationId.isNotBlank()) {
             activeConversationId = snapshot.conversationId
         }
         streamedMarkdown = latestAssistantMarkdown(snapshot) ?: streamedMarkdown
-        if (!snapshot.activeTurnId.isNullOrBlank()) {
+        if (streamSnapshotHasAcceptedActivity(snapshot)) {
+            loading = false
             markLatestSubmittedUserEntryDelivered(transcript)
             setVisibleError(null)
         }
@@ -939,7 +960,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
                 client = resolvedClient,
                 conversationId = conversationId,
                 policy = conversationPolicy,
-                replaceTranscript = true,
+                replaceTranscript = false,
                 approvalEdits = approvalEdits,
                 transcriptBuilder = ::transcriptFromState
             )

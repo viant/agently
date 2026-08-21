@@ -127,6 +127,8 @@ internal data class WorkspaceSessionReset(
     val recentConversations: List<Conversation> = emptyList(),
     val authProviders: List<AuthProvider> = emptyList(),
     val authUser: AuthUser? = null,
+    val authWebUrl: String? = null,
+    val authBusy: Boolean = false,
     val authError: String? = null,
     val authState: AuthState = AuthState.Checking,
     val workspaceBootstrapRequested: Boolean = false,
@@ -256,18 +258,27 @@ internal suspend fun loadRecentConversations(
 internal suspend fun loadConversationBindingData(
     client: AgentlyClient,
     conversationId: String,
-    policy: ConversationLoadPolicy
+    policy: ConversationLoadPolicy,
+    useTranscript: Boolean = true
 ): ConversationBindingData = coroutineScope {
     val stateDeferred = async {
-        client.getTranscript(
-            GetTranscriptInput(
+        if (useTranscript) {
+            client.getTranscript(
+                GetTranscriptInput(
+                    conversationId = conversationId,
+                    includeModelCalls = policy.includeModelCalls,
+                    includeToolCalls = policy.includeToolCalls,
+                    includeFeeds = policy.includeFeeds
+                ),
+                maxResponseBytes = policy.maxTranscriptResponseBytes
+            )
+        } else {
+            client.getLiveState(
                 conversationId = conversationId,
-                includeModelCalls = policy.includeModelCalls,
-                includeToolCalls = policy.includeToolCalls,
-                includeFeeds = policy.includeFeeds
-            ),
-            maxResponseBytes = policy.maxTranscriptResponseBytes
-        )
+                includeFeeds = policy.includeFeeds,
+                maxResponseBytes = policy.maxTranscriptResponseBytes
+            )
+        }
     }
     val goalDeferred = async { client.getGoal(conversationId) }
     val approvalsDeferred = async {
@@ -302,7 +313,12 @@ internal suspend fun prepareConversationBinding(
     approvalEdits: Map<String, Map<String, JsonElement>>,
     transcriptBuilder: (ConversationStateResponse) -> List<ChatEntry>
 ): PreparedConversationBinding {
-    val binding = loadConversationBindingData(client, conversationId, policy)
+    val binding = loadConversationBindingData(
+        client = client,
+        conversationId = conversationId,
+        policy = policy,
+        useTranscript = replaceTranscript
+    )
     return PreparedConversationBinding(
         conversationId = conversationId,
         state = binding.state,

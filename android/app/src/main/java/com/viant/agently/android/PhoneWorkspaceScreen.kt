@@ -396,7 +396,7 @@ internal fun TurnProgressStatus(
             ) {
                 Text(presentation.title, style = MaterialTheme.typography.labelLarge, color = Color(0xFF172B4D))
                 Text(
-                    presentation.detail,
+                    progressStatusAnnotatedText(presentation.detail),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF667085),
                     maxLines = 2,

@@ -549,6 +549,30 @@ struct TurnProgressPresentation: Equatable {
     let canStop: Bool
 }
 
+func progressStatusAttributedText(_ markdown: String) -> AttributedString {
+    let options = AttributedString.MarkdownParsingOptions(
+        interpretedSyntax: .inlineOnlyPreservingWhitespace
+    )
+    let lines = markdown
+        .split(whereSeparator: { $0.isNewline })
+        .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+    var result = AttributedString()
+    for (index, rawLine) in lines.enumerated() {
+        if index > 0 { result.append(AttributedString("\n")) }
+        let headingRange = rawLine.range(of: #"^#{1,6}\s+"#, options: .regularExpression)
+        var normalized = headingRange.map { rawLine.replacingCharacters(in: $0, with: "") } ?? rawLine
+        if normalized.hasPrefix("- ") || normalized.hasPrefix("* ") {
+            normalized = "• " + normalized.dropFirst(2).trimmingCharacters(in: .whitespaces)
+        }
+        let source = headingRange == nil
+            ? normalized
+            : "**\(normalized.replacingOccurrences(of: "**", with: ""))**"
+        result.append((try? AttributedString(markdown: source, options: options)) ?? AttributedString(normalized))
+    }
+    return result
+}
+
 func turnProgressPresentation(
     isSending: Bool,
     activeTurnID: String?,
@@ -729,7 +753,7 @@ private struct TurnProgressBanner: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(presentation.title)
                     .font(.footnote.weight(.semibold))
-                Text(presentation.detail)
+                Text(progressStatusAttributedText(presentation.detail))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)

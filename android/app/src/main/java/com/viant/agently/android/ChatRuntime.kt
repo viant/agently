@@ -1,6 +1,10 @@
 package com.viant.agently.android
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import com.viant.agentlysdk.AssistantMessageState
 import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.RenderedContent
@@ -34,6 +38,7 @@ internal data class ChatEntry(
     val id: String,
     val role: String,
     val markdown: String,
+    val turnId: String? = null,
     val renderedParts: List<RenderedContentPart>? = null,
     val renderedReports: List<TranscriptCanonicalReport>? = null,
     val streaming: Boolean = false,
@@ -53,6 +58,12 @@ internal fun latestAssistantMarkdown(snapshot: ConversationStreamSnapshot): Stri
     return activeAssistantEntry(snapshot)?.markdown
 }
 
+internal fun streamSnapshotHasAcceptedActivity(snapshot: ConversationStreamSnapshot): Boolean =
+    !snapshot.activeTurnId.isNullOrBlank() ||
+        snapshot.bufferedMessages.isNotEmpty() ||
+        snapshot.liveExecutionGroupsById.isNotEmpty() ||
+        snapshot.pendingElicitation != null
+
 internal data class TurnProgressPresentation(
     val title: String,
     val detail: String,
@@ -61,6 +72,49 @@ internal data class TurnProgressPresentation(
     val tokenUsage: String?,
     val canStop: Boolean
 )
+
+internal fun progressStatusAnnotatedText(markdown: String): AnnotatedString = buildAnnotatedString {
+    val lines = markdown.lineSequence()
+        .map(String::trim)
+        .filter(String::isNotBlank)
+        .toList()
+    lines.forEachIndexed { index, rawLine ->
+        if (index > 0) append('\n')
+        val heading = Regex("^#{1,6}\\s+").find(rawLine)
+        val withoutHeading = heading?.let { rawLine.removeRange(it.range) } ?: rawLine
+        val normalized = when {
+            withoutHeading.startsWith("- ") || withoutHeading.startsWith("* ") ->
+                "• ${withoutHeading.drop(2).trimStart()}"
+            else -> withoutHeading
+        }
+        val lineStart = length
+        appendProgressInlineMarkdown(normalized)
+        if (heading != null && length > lineStart) {
+            addStyle(SpanStyle(fontWeight = FontWeight.Bold), lineStart, length)
+        }
+    }
+}
+
+private fun AnnotatedString.Builder.appendProgressInlineMarkdown(value: String) {
+    var cursor = 0
+    while (cursor < value.length) {
+        val boldStart = value.indexOf("**", cursor)
+        if (boldStart < 0) {
+            append(value.substring(cursor))
+            return
+        }
+        append(value.substring(cursor, boldStart))
+        val boldEnd = value.indexOf("**", boldStart + 2)
+        if (boldEnd < 0) {
+            append(value.substring(boldStart))
+            return
+        }
+        val start = length
+        append(value.substring(boldStart + 2, boldEnd))
+        addStyle(SpanStyle(fontWeight = FontWeight.Bold), start, length)
+        cursor = boldEnd + 2
+    }
+}
 
 internal fun turnProgressPresentation(
     loading: Boolean,
@@ -213,10 +267,32 @@ internal fun transcriptWithActiveAssistant(
     transcript: List<ChatEntry>,
     snapshot: ConversationStreamSnapshot?
 ): List<ChatEntry> {
-    val active = snapshot?.let(::activeAssistantEntry) ?: return transcript
+    val activeTurnId = snapshot?.activeTurnId?.trim().orEmpty()
+    if (snapshot == null || activeTurnId.isBlank()) return transcript
+    val active = assistantEntryForTurn(snapshot, activeTurnId, streaming = true) ?: return transcript
     return transcript.filterNot { entry ->
-        entry.id == active.id || entry.isTransientAssistantEntry()
+        entry.id == active.id ||
+            (entry.isTransientAssistantEntry() &&
+                (entry.turnId.isNullOrBlank() || entry.turnId == activeTurnId))
     } + active
+}
+
+internal fun commitAssistantTurnFromSnapshot(
+    transcript: MutableList<ChatEntry>,
+    snapshot: ConversationStreamSnapshot,
+    turnId: String
+): Boolean {
+    val completed = assistantEntryForTurn(snapshot, turnId.trim(), streaming = false) ?: return false
+    val replaceIndexes = transcript.indices.filter { index ->
+        val entry = transcript[index]
+        entry.role.equals("assistant", ignoreCase = true) &&
+            (entry.id == completed.id || entry.turnId == turnId ||
+                (entry.turnId.isNullOrBlank() && entry.isTransientAssistantEntry()))
+    }
+    val insertionIndex = replaceIndexes.firstOrNull() ?: transcript.size
+    replaceIndexes.asReversed().forEach(transcript::removeAt)
+    transcript.add(insertionIndex.coerceAtMost(transcript.size), completed)
+    return true
 }
 
 private fun ChatEntry.isTransientAssistantEntry(): Boolean {
@@ -234,35 +310,78 @@ private fun ChatEntry.isTransientAssistantEntry(): Boolean {
 
 private fun activeAssistantEntry(snapshot: ConversationStreamSnapshot): ChatEntry? {
     val activeTurnId = snapshot.activeTurnId?.trim().orEmpty()
-    if (activeTurnId.isBlank()) {
+    return assistantEntryForTurn(snapshot, activeTurnId, streaming = true)
+}
+
+private data class AssistantTurnFragment(
+    val message: BufferedMessage,
+    val markdown: String,
+    val rendered: RenderedContent?
+)
+
+private fun assistantEntryForTurn(
+    snapshot: ConversationStreamSnapshot,
+    turnId: String,
+    streaming: Boolean
+): ChatEntry? {
+    if (turnId.isBlank()) {
         return null
     }
-    var latest: BufferedMessage? = null
-    var markdown = ""
-    var rendered: RenderedContent? = null
-    snapshot.bufferedMessages.asReversed().forEach { message ->
-        if (latest != null ||
-            !message.role.equals("assistant", ignoreCase = true) ||
-            message.turnId?.trim() != activeTurnId
-        ) {
-            return@forEach
+    val fragments = snapshot.bufferedMessages.mapNotNull { message ->
+        if (!message.role.equals("assistant", ignoreCase = true) || message.turnId?.trim() != turnId) {
+            return@mapNotNull null
         }
         val candidateMarkdown = visibleAssistantContent(message).orEmpty()
         val candidateRendered = snapshot.liveExecutionGroupsById[message.id]?.renderedContent
         if (candidateMarkdown.isNotBlank() || candidateRendered?.reports?.isNotEmpty() == true) {
-            latest = message
-            markdown = candidateMarkdown
-            rendered = candidateRendered
+            AssistantTurnFragment(message, candidateMarkdown, candidateRendered)
+        } else {
+            null
         }
     }
-    val visibleLatest = latest ?: return null
+    if (fragments.isEmpty()) return null
+
+    val hasCanonicalContent = fragments.any { fragment ->
+        fragment.rendered?.parts?.isNotEmpty() == true || fragment.rendered?.reports?.isNotEmpty() == true
+    }
+    val renderedParts = if (hasCanonicalContent) {
+        buildList<RenderedContentPart> {
+            fragments.forEach { fragment ->
+                val fragmentParts = fragment.rendered?.parts.orEmpty().ifEmpty {
+                    fragment.markdown.takeIf { it.isNotBlank() }
+                        ?.let { listOf(RenderedContentPart(kind = "markdown", text = it)) }
+                        .orEmpty()
+                }
+                if (isNotEmpty() && fragmentParts.isNotEmpty()) {
+                    val first = fragmentParts.first()
+                    if (first.kind.equals("markdown", ignoreCase = true)) {
+                        add(first.copy(text = "\n\n${first.text.orEmpty().trimStart()}"))
+                        addAll(fragmentParts.drop(1))
+                        return@forEach
+                    }
+                    add(RenderedContentPart(kind = "markdown", text = "\n\n"))
+                }
+                addAll(fragmentParts)
+            }
+        }
+    } else {
+        null
+    }
+    val reportsByIdentity = linkedMapOf<String, TranscriptCanonicalReport>()
+    fragments.forEach { fragment ->
+        fragment.rendered?.let(::canonicalReports).orEmpty().forEach { report ->
+            reportsByIdentity["${report.scope}\u0000${report.id}"] = report
+        }
+    }
+    val visibleLatest = fragments.last().message
     return ChatEntry(
         id = visibleLatest.id,
         role = "assistant",
-        markdown = markdown,
-        renderedParts = rendered?.parts,
-        renderedReports = rendered?.let(::canonicalReports)?.takeIf { it.isNotEmpty() },
-        streaming = true,
+        markdown = fragments.mapNotNull { it.markdown.takeIf(String::isNotBlank) }.joinToString("\n\n"),
+        turnId = turnId,
+        renderedParts = renderedParts,
+        renderedReports = reportsByIdentity.values.toList().takeIf { it.isNotEmpty() },
+        streaming = streaming,
         timestampLabel = formatTimestampLabel(visibleLatest.createdAt)
     )
 }
@@ -334,6 +453,7 @@ internal fun transcriptFromState(state: ConversationStateResponse): List<ChatEnt
                     id = user.messageId,
                     role = "user",
                     markdown = content,
+                    turnId = turn.turnId,
                     timestampLabel = formatTimestampLabel(turn.createdAt)
                 )
             )
@@ -357,6 +477,7 @@ internal fun transcriptFromState(state: ConversationStateResponse): List<ChatEnt
                     id = assistantId,
                     role = "assistant",
                     markdown = assistantContent,
+                    turnId = turn.turnId,
                     renderedParts = canonicalAssistantParts(assistantMessages),
                     renderedReports = renderedReports,
                     streaming = false,
