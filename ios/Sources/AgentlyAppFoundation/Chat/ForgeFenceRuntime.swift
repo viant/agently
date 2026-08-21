@@ -111,6 +111,25 @@ private extension TranscriptCanonicalReport {
     }
 }
 
+internal func isPendingInlineReport(_ report: TranscriptCanonicalReport) -> Bool {
+    ["rendering", "pending", "incomplete", "building"].contains(
+        report.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    )
+}
+
+internal func inlineReportBuildStatus(_ report: TranscriptCanonicalReport) -> String {
+    let dataSourceCount = report.dataSources.count
+    let blockCount = report.source.objectValue?["blocks"]?.arrayValue?.count ?? 0
+    var parts = ["Building report"]
+    if dataSourceCount > 0 {
+        parts.append("\(dataSourceCount) \(dataSourceCount == 1 ? "data source" : "data sources")")
+    }
+    if blockCount > 0 {
+        parts.append("\(blockCount) \(blockCount == 1 ? "block" : "blocks")")
+    }
+    return parts.joined(separator: " · ")
+}
+
 private struct TranscriptInlineReportView: View {
     let report: TranscriptCanonicalReport
 	let client: AgentlyClient?
@@ -130,6 +149,13 @@ private struct TranscriptInlineReportView: View {
     var body: some View {
         inlineReportPreviewCard
         .task(id: report.refreshIdentity) {
+            if isPendingInlineReport(report) {
+                metadata = nil
+                windowContext = nil
+                errorMessage = nil
+                isReportPresented = false
+                return
+            }
             do {
 				if let client {
                     let scopedConversationID = conversationID
@@ -189,7 +215,14 @@ private struct TranscriptInlineReportView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            if metadata != nil, windowContext != nil {
+            if isPendingInlineReport(report) {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text(inlineReportBuildStatus(report))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if metadata != nil, windowContext != nil {
                 HStack(spacing: 10) {
                     Button {
                         isReportPresented = true

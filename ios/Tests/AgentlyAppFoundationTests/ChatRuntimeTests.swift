@@ -1,5 +1,6 @@
 import XCTest
 import AgentlySDK
+import ForgeIOSRuntime
 @testable import AgentlyAppFoundation
 
 final class ChatRuntimeTests: XCTestCase {
@@ -305,6 +306,69 @@ final class ChatRuntimeTests: XCTestCase {
 
         XCTAssertEqual(runtime.transcript.count, 1)
         XCTAssertEqual(runtime.transcript[0].markdown, "The report is ready.")
+    }
+
+    @MainActor
+    func testReplaceTranscriptSeparatesNarrationFromFinalMarkdownHeading() throws {
+        let narrationRendered = try JSONDecoder().decode(RenderedContent.self, from: Data(#"""
+        {"schemaVersion":"1","parts":[{"kind":"markdown","text":"I’ll check delivery evidence."}]}
+        """#.utf8))
+        let finalRendered = try JSONDecoder().decode(RenderedContent.self, from: Data(#"""
+        {"schemaVersion":"1","parts":[{"kind":"markdown","text":"### Key findings\n- **Primary blocker:** bid competitiveness."}]}
+        """#.utf8))
+        let runtime = ChatRuntime()
+        let state = ConversationStateResponse(
+            conversation: ConversationState(
+                conversationID: "conv-1",
+                turns: [
+                    TurnState(
+                        turnID: "turn-1",
+                        status: "completed",
+                        assistant: AssistantState(
+                            narration: AssistantMessageState(
+                                messageID: "n1",
+                                content: "I’ll check delivery evidence.",
+                                renderedContent: narrationRendered
+                            ),
+                            final: AssistantMessageState(
+                                messageID: "a1",
+                                content: "### Key findings\n- **Primary blocker:** bid competitiveness.",
+                                renderedContent: finalRendered
+                            )
+                        )
+                    )
+                ]
+            )
+        )
+
+        runtime.replaceTranscript(from: state)
+
+        let parts = try XCTUnwrap(runtime.transcript.first?.renderedParts)
+        XCTAssertEqual(parts[0].text, "I’ll check delivery evidence.")
+        XCTAssertEqual(parts[1].text, "\n\n### Key findings\n- **Primary blocker:** bid competitiveness.")
+    }
+
+    func testPendingInlineReportStatusIncludesDataSourcesAndBlocks() {
+        let report = TranscriptCanonicalReport(
+            scope: "order-1",
+            id: "delivery",
+            grammar: "report-document-v1",
+            status: "rendering",
+            source: .object([
+                "title": .string("Delivery"),
+                "blocks": .array([
+                    .object(["id": .string("summary")]),
+                    .object(["id": .string("details")])
+                ])
+            ]),
+            dataSources: [
+                "overview": TranscriptCanonicalData(id: "overview"),
+                "daily": TranscriptCanonicalData(id: "daily")
+            ]
+        )
+
+        XCTAssertTrue(isPendingInlineReport(report))
+        XCTAssertEqual(inlineReportBuildStatus(report), "Building report · 2 data sources · 2 blocks")
     }
 
     @MainActor

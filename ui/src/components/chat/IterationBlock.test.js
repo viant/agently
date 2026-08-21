@@ -18,6 +18,7 @@ import IterationBlock, {
   isActiveStatus,
   resolveIterationDisplayStatus,
   resolveIterationElapsedAnchor,
+  extractProgressiveReportLeadIn,
   resolveIterationAgentLabel,
   resolveIterationStatusDetail,
   resolveVisibleBubbleContent,
@@ -1203,6 +1204,40 @@ describe('mapCanonicalExecutionGroups', () => {
     ]);
 
     expect(text).toBe('Reading the remaining diagnostic payload so the blocker packet uses the complete snapshot.');
+  });
+
+  it('does not project model identity as an assistant narration bubble', () => {
+    const text = resolveVisibleBubbleContent([{
+      finalResponse: false,
+      narrationContent: '',
+      title: 'openai/gpt 5.6 sol',
+      groupKind: 'model',
+      modelStep: {
+        kind: 'model',
+        provider: 'openai',
+        model: 'gpt-5.6-sol',
+        status: 'running'
+      }
+    }]);
+
+    expect(text).toBe('');
+  });
+
+  it('preserves authored key findings before progressive report fences', () => {
+    const content = '### Key findings\n- Restrictive setup is leading.\n\n```forge-report\n{"version":1,"mode":"start"}\n```';
+    const text = resolveIterationBubbleContent({
+      visibleGroups: [{
+        finalResponse: false,
+        narrationContent: 'Building the report.',
+        title: 'openai/gpt 5.6 sol',
+        modelStep: { provider: 'openai', model: 'gpt-5.6-sol', status: 'running' }
+      }],
+      responseContent: content,
+      narrationContent: 'Building the report.'
+    });
+
+    expect(text).toBe(content);
+    expect(extractProgressiveReportLeadIn(content)).toBe('### Key findings\n- Restrictive setup is leading.');
   });
 
   it('prefers streamed text over narration while execution groups are still live', () => {

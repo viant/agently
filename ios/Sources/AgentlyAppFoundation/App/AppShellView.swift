@@ -614,7 +614,8 @@ private struct ConversationListView: View {
                 List(filteredConversations, selection: selection) { conversation in
                     ConversationRowView(
                         conversation: conversation,
-                        isActive: conversation.id == activeConversationID
+                        isActive: conversation.id == activeConversationID,
+                        onDelete: { onRequestDeleteConversation(conversation) }
                     )
                     .tag(Optional(conversation.id))
                     .contentShape(Rectangle())
@@ -632,15 +633,13 @@ private struct ConversationListView: View {
                 .id("selected-list-\(activeConversationID ?? "none")")
             } else if usesNavigationDestination {
                 List(filteredConversations, id: \.id) { conversation in
-                    Button {
-                        onSelectConversation(conversation.id)
-                    } label: {
-                        ConversationRowView(
-                            conversation: conversation,
-                            isActive: conversation.id == activeConversationID
-                        )
-                    }
-                    .buttonStyle(.plain)
+                    ConversationRowView(
+                        conversation: conversation,
+                        isActive: conversation.id == activeConversationID,
+                        onDelete: { onRequestDeleteConversation(conversation) }
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture { onSelectConversation(conversation.id) }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
                             onRequestDeleteConversation(conversation)
@@ -652,15 +651,13 @@ private struct ConversationListView: View {
                 .id("nav-list-\(activeConversationID ?? "none")")
             } else {
                 List(filteredConversations, id: \.id) { conversation in
-                    Button {
-                        onSelectConversation(conversation.id)
-                    } label: {
-                        ConversationRowView(
-                            conversation: conversation,
-                            isActive: conversation.id == activeConversationID
-                        )
-                    }
-                    .buttonStyle(.plain)
+                    ConversationRowView(
+                        conversation: conversation,
+                        isActive: conversation.id == activeConversationID,
+                        onDelete: { onRequestDeleteConversation(conversation) }
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture { onSelectConversation(conversation.id) }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
                             onRequestDeleteConversation(conversation)
@@ -805,10 +802,13 @@ private struct ConversationLoadingDetailView: View {
 
 private struct ConversationRowView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var isPointerHovering = false
     let conversation: Conversation
     let isActive: Bool
+    let onDelete: () -> Void
 
     var body: some View {
+        Group {
         if horizontalSizeClass == .compact {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 5) {
@@ -822,11 +822,7 @@ private struct ConversationRowView: View {
                     }
                 }
                 Spacer(minLength: 8)
-                AppleToolbarActionIcon(
-                    systemImage: "eye.fill",
-                    color: Color(red: 0.10, green: 0.45, blue: 0.95)
-                )
-                .accessibilityHidden(true)
+                trailingAction
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -839,7 +835,8 @@ private struct ConversationRowView: View {
                     .stroke(isActive ? Color.blue.opacity(0.30) : Color.secondary.opacity(0.10), lineWidth: 1)
             )
         } else {
-        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(conversation.title ?? "Untitled Conversation")
                     .font(.body.weight(isActive ? .semibold : .regular))
@@ -873,7 +870,41 @@ private struct ConversationRowView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
+        if isPointerHovering {
+            deleteButton
         }
+            }
+            }
+        }
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.12)) {
+                isPointerHovering = hovering
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var trailingAction: some View {
+        if isPointerHovering {
+            deleteButton
+        } else {
+            AppleToolbarActionIcon(
+                systemImage: "eye.fill",
+                color: Color(red: 0.10, green: 0.45, blue: 0.95)
+            )
+            .accessibilityHidden(true)
+        }
+    }
+
+    private var deleteButton: some View {
+        Button(role: .destructive, action: onDelete) {
+            AppleToolbarActionIcon(
+                systemImage: "trash.fill",
+                color: Color(red: 0.70, green: 0.14, blue: 0.12)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Delete conversation")
     }
 
     private var metadataChips: [ConversationMetadataChipModel] {

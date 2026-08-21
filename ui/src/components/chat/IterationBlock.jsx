@@ -828,11 +828,24 @@ export function resolveVisibleBubbleContent(visibleGroups = []) {
       && titleText.toLowerCase() !== 'execution step'
       && groupKind !== 'intake'
       && !!group?.modelStep
+      && !isModelIdentityTitle(titleText, group.modelStep)
     ) {
       return titleText;
     }
   }
   return '';
+}
+
+function isModelIdentityTitle(title = '', modelStep = {}) {
+  const normalize = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const normalizedTitle = normalize(title);
+  if (!normalizedTitle) return false;
+  const provider = String(modelStep?.provider || '').trim();
+  const model = String(modelStep?.model || '').trim();
+  const candidates = [model, provider && model ? `${provider}/${model}` : '']
+    .map(normalize)
+    .filter(Boolean);
+  return candidates.includes(normalizedTitle);
 }
 
 export function resolveVisibleBubbleRenderedContent(visibleGroups = [], fallback = null) {
@@ -969,6 +982,13 @@ export function resolveIterationBubbleContent({
   errorMessage = ''
 } = {}) {
   const groups = Array.isArray(visibleGroups) ? visibleGroups : [];
+  const authoredReportWithLeadIn = [streamContent, responseContent, iterationContent]
+    .map((value) => String(value || ''))
+    .find((value) => {
+      const fenceIndex = value.search(/```forge-(?:report|data)\b/i);
+      return fenceIndex > 0 && value.slice(0, fenceIndex).trim() !== '';
+    });
+  if (authoredReportWithLeadIn) return authoredReportWithLeadIn.trim();
   const finalVisibleBubble = String(resolveVisibleBubbleContent(visibleGroups) || '').trim();
   const visibleStreamBubble = isStructuredAssistantArtifact(streamContent) ? '' : String(streamContent || '').trim();
   const explicitNarrationBubble = isStructuredAssistantArtifact(narrationContent) ? '' : String(narrationContent || '').trim();
@@ -998,6 +1018,17 @@ export function resolveIterationBubbleContent({
     || resolveFailedBubbleContent(visibleGroups, errorMessage)
     || ''
   ).trim();
+}
+
+export function extractProgressiveReportLeadIn(...values) {
+  for (const value of values) {
+    const text = String(value || '');
+    const fenceIndex = text.search(/```forge-(?:report|data)\b/i);
+    if (fenceIndex <= 0) continue;
+    const leadIn = text.slice(0, fenceIndex).trim();
+    if (leadIn) return leadIn;
+  }
+  return '';
 }
 
 export function shouldShowNarrationBubble(visibleGroups = [], visibleText = '', responseContent = '') {
@@ -1966,6 +1997,25 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
     streamContent: data?.streamContent,
     errorMessage: data?.errorMessage
   }), [data?.errorMessage, data?.narration?.content, data?.response?.content, data?.streamContent, message?.content, visibleGroups]);
+  const currentReportLeadIn = useMemo(() => extractProgressiveReportLeadIn(
+    data?.streamContent,
+    data?.response?.content,
+    message?.content,
+    ...visibleGroups.map((group) => group?.finalContent)
+  ), [data?.response?.content, data?.streamContent, message?.content, visibleGroups]);
+  const reportLeadInRef = useRef('');
+  if (currentReportLeadIn) reportLeadInRef.current = currentReportLeadIn;
+  const effectiveReportLeadIn = currentReportLeadIn || reportLeadInRef.current;
+  const continuousRenderedText = useMemo(() => {
+    const rendered = String(visibleRenderedText || '').trim();
+    if (!effectiveReportLeadIn) return rendered;
+    if (!rendered) return effectiveReportLeadIn;
+    if (rendered.includes(effectiveReportLeadIn)) return rendered;
+    if (/```forge-(?:report|data)\b/i.test(rendered)) {
+      return `${effectiveReportLeadIn}\n\n${rendered}`;
+    }
+    return rendered;
+  }, [effectiveReportLeadIn, visibleRenderedText]);
   const visibleRenderedContent = useMemo(
     () => resolveVisibleBubbleRenderedContent(
       visibleGroups,
@@ -2533,13 +2583,13 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
         </section>
       ) : null}
       {showExecutionDetails && showToolFeedDetail && toolFeedDock !== 'right' ? <ToolFeedDetail context={context} /> : null}
-      {!suppressBubble && !hasPendingVisibleElicitation && !hasPendingExecutionElicitation && shouldShowNarrationBubble(visibleGroups, visibleRenderedText, data?.response?.content) ? (
+      {!suppressBubble && !hasPendingVisibleElicitation && !hasPendingExecutionElicitation && shouldShowNarrationBubble(visibleGroups, continuousRenderedText, data?.response?.content) ? (
         <BubbleMessage
           conversationId={iterationConversationId}
           message={{
             id: `${message?.id || 'iteration'}:narration`,
             role: 'assistant',
-            content: visibleRenderedText,
+            content: continuousRenderedText,
             renderedContent: visibleRenderedContent,
             generatedFiles
           }}

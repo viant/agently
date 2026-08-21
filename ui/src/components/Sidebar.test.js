@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyConversationMetaPatchToRows,
+  conversationMetaPatchFromSnapshot,
   conversationDeletionBlocked,
   conversationDeleteErrorMessage,
   fillDeletedSidebarPageFromOlder,
@@ -8,7 +9,8 @@ import {
   normalizeSidebarPage,
   removeConversationRow,
   sidebarPaginationRequest,
-  sidebarPageStatusLabel
+  sidebarPageStatusLabel,
+  terminalConversationMetaPatch
 } from './Sidebar';
 
 describe('applyConversationMetaPatchToRows', () => {
@@ -48,6 +50,29 @@ describe('applyConversationMetaPatchToRows', () => {
     expect(got[0].stage).toBe('done');
     expect(got[0].Running).toBe(false);
     expect(got[0].running).toBe(false);
+  });
+});
+
+describe('sidebar status reconciliation', () => {
+  it('maps a canonical completed snapshot over a stale running row', () => {
+    expect(conversationMetaPatchFromSnapshot({
+      Status: 'succeeded',
+      Stage: 'done',
+      Running: false
+    })).toEqual({ status: 'succeeded', stage: 'done', running: false });
+  });
+
+  it('maps terminal stream events without waiting for a list refresh', () => {
+    expect(terminalConversationMetaPatch('turn_completed')).toEqual({
+      status: 'succeeded',
+      stage: 'done',
+      running: false
+    });
+    expect(terminalConversationMetaPatch('turn_failed')).toEqual({
+      status: 'failed',
+      stage: 'error',
+      running: false
+    });
   });
 });
 

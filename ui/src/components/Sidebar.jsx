@@ -118,6 +118,30 @@ export function applyConversationMetaPatchToRows(rows = [], conversationID = '',
   return changed ? sortConversations(next) : rows;
 }
 
+export function conversationMetaPatchFromSnapshot(snapshot = {}) {
+  const patch = {};
+  const title = String(snapshot?.Title || snapshot?.title || '').trim();
+  const summary = String(snapshot?.Summary || snapshot?.summary || '').trim();
+  const status = String(snapshot?.Status || snapshot?.status || '').trim();
+  const stage = String(snapshot?.Stage || snapshot?.stage || '').trim();
+  if (title) patch.title = title;
+  if (summary) patch.summary = summary;
+  if (status) patch.status = status;
+  if (stage) patch.stage = stage;
+  if (typeof snapshot?.Running === 'boolean') patch.running = snapshot.Running;
+  else if (typeof snapshot?.running === 'boolean') patch.running = snapshot.running;
+  else patch.running = conversationDeletionBlocked(snapshot);
+  return patch;
+}
+
+export function terminalConversationMetaPatch(type = '') {
+  const value = String(type || '').trim().toLowerCase();
+  if (value === 'turn_failed') return { status: 'failed', stage: 'error', running: false };
+  if (value === 'turn_canceled') return { status: 'canceled', stage: 'canceled', running: false };
+  if (value === 'turn_completed') return { status: 'succeeded', stage: 'done', running: false };
+  return null;
+}
+
 function conversationStatusTone(row = {}) {
   const status = String(row?.Status || row?.status || '').trim().toLowerCase();
   const stage = String(row?.Stage || row?.stage || '').trim().toLowerCase();
@@ -497,6 +521,15 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
       if (windowId && isLinkedChildWindow(getWindowById(windowId))) return;
       const id = String(event?.detail?.id || '').trim();
       setSelectedID(id);
+      if (id) {
+        void client.getConversation(id).then((snapshot) => {
+          setRows((current) => applyConversationMetaPatchToRows(
+            current,
+            id,
+            conversationMetaPatchFromSnapshot(snapshot)
+          ));
+        }).catch(() => {});
+      }
       if (queryReloadTimerRef.current) {
         clearTimeout(queryReloadTimerRef.current);
         queryReloadTimerRef.current = null;
@@ -527,7 +560,13 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
       // before the sidebar queries the list.
       setTimeout(() => void reload('latest', ''), 300);
     };
-    const onConversationActivity = () => {
+    const onConversationActivity = (event) => {
+      const id = String(event?.detail?.id || '').trim();
+      const terminalPatch = terminalConversationMetaPatch(event?.detail?.type);
+      if (id && terminalPatch) {
+        setRows((current) => applyConversationMetaPatchToRows(current, id, terminalPatch));
+        return;
+      }
       if (activityReloadTimerRef.current) {
         clearTimeout(activityReloadTimerRef.current);
       }

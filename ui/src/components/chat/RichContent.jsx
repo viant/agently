@@ -2480,9 +2480,12 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
   if (!descriptors.length) return <span>&nbsp;</span>;
 
   const out = [];
-  if (reportIsBuilding) {
+  let pendingIndicatorRendered = false;
+  const renderPendingIndicator = () => {
+    if (!reportIsBuilding || pendingIndicatorRendered) return;
+    pendingIndicatorRendered = true;
     out.push(<ForgeFenceLoading key="forge-report-progress" {...progressCounts} />);
-  }
+  };
   const renderedReportKeys = new Set();
   let idx = 0;
   for (let descriptorIndex = 0; descriptorIndex < descriptors.length; descriptorIndex += 1) {
@@ -2510,6 +2513,16 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
 
     const fence = part.fence;
     const body = fence.body;
+    const assemblyAtIndex = progressiveReportByIndex.get(descriptorIndex);
+    const assemblyPending = String(assemblyAtIndex?.status || '').trim().toLowerCase() === 'rendering';
+    const trailingPendingFence = !!trailingForgeFence && descriptorIndex === descriptors.length - 1;
+    if ((assemblyPending || trailingPendingFence) && (
+      isForgeReportFence(fence) || isForgeDataFence(fence) || isForgeUIFence(fence)
+    )) {
+      // Pending is an ordered presentation segment. Render it where the
+      // incomplete report fence occurs so preceding prose remains visible.
+      renderPendingIndicator();
+    }
     if (isForgeDataFence(fence)) {
       const assembly = progressiveReportByIndex.get(descriptorIndex);
       if (assembly?.status === 'orphaned' || (assembly?.status === 'incomplete' && !assembly?.source?.blocks?.length)) {
@@ -2576,6 +2589,11 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
         break;
     }
   }
+
+  // Canonical rendering snapshots can report a pending assembly before its
+  // first fence is available locally. Keep the indicator without replacing
+  // any text descriptors already rendered above.
+  renderPendingIndicator();
 
   progressiveReports.assemblies.forEach((assembly) => {
     const key = `${assembly?.scope || 'message'}:${assembly?.id || ''}`;

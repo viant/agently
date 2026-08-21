@@ -12,6 +12,31 @@ import org.junit.Test
 class ForgeFenceRuntimeTest {
 
     @Test
+    fun `pending inline report is inactive and exposes build counts`() {
+        val report = TranscriptCanonicalReport(
+            scope = "message",
+            id = "delivery",
+            grammar = "report-document-v1",
+            status = "rendering",
+            source = JsonObject(mapOf(
+                "title" to JsonPrimitive("Delivery"),
+                "blocks" to JsonArray(listOf(
+                    JsonObject(mapOf("id" to JsonPrimitive("one"))),
+                    JsonObject(mapOf("id" to JsonPrimitive("two")))
+                ))
+            )),
+            dataSources = mapOf(
+                "summary" to TranscriptCanonicalData(id = "summary"),
+                "trend" to TranscriptCanonicalData(id = "trend")
+            )
+        )
+
+        assertTrue(isPendingInlineReport(report))
+        assertEquals("Building report · 2 data sources · 2 blocks", inlineReportBuildStatus(report))
+        assertEquals(false, isPendingInlineReport(report.copy(status = "committed")))
+    }
+
+    @Test
     fun `inline report export fences preserve report and hydrated data without ids leaking into labels`() {
         val report = TranscriptCanonicalReport(
             scope = "message",

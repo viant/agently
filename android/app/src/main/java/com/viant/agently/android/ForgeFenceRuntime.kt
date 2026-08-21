@@ -16,6 +16,7 @@ import androidx.compose.material.icons.outlined.OpenInFull
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -154,13 +155,14 @@ private fun TranscriptInlineReportBlock(
         ?.takeIf { it.isNotBlank() }
     var reportOpen by remember(report.scope, report.id, report.resetVersion) { mutableStateOf(false) }
     var pdfExporting by remember(report.scope, report.id, report.resetVersion) { mutableStateOf(false) }
+    val reportPending = isPendingInlineReport(report)
 
     Surface(
         color = Color(0xFFF8FAFD),
         shape = MaterialTheme.shapes.large,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { reportOpen = true }
+            .clickable(enabled = !reportPending) { reportOpen = true }
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -170,7 +172,16 @@ private fun TranscriptInlineReportBlock(
             previewSubtitle?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFF667085))
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (reportPending) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Text(
+                        inlineReportBuildStatus(report),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF667085)
+                    )
+                }
+            } else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PhoneToolbarAction(
                     icon = Icons.Outlined.OpenInFull,
                     contentDescription = "Open report",
@@ -199,7 +210,7 @@ private fun TranscriptInlineReportBlock(
             }
         }
     }
-    if (reportOpen) {
+    if (reportOpen && !reportPending) {
         TranscriptInlineReportDialog(
             report = report,
             client = client,
@@ -207,6 +218,31 @@ private fun TranscriptInlineReportBlock(
             onOpenInlineReportPdf = onOpenInlineReportPdf,
             onDismiss = { reportOpen = false }
         )
+    }
+}
+
+internal fun isPendingInlineReport(report: ForgeTranscriptCanonicalReport): Boolean =
+    report.status.trim().lowercase() in setOf("rendering", "pending", "incomplete", "building")
+
+internal fun inlineReportBuildStatus(report: ForgeTranscriptCanonicalReport): String {
+    val blockCount = (report.source as? JsonObject)
+        ?.get("blocks")
+        ?.let { it as? JsonArray }
+        ?.size
+        ?: 0
+    val dataSourceCount = report.dataSources.size
+    return buildString {
+        append("Building report")
+        if (dataSourceCount > 0) {
+            append(" · ")
+            append(dataSourceCount)
+            append(if (dataSourceCount == 1) " data source" else " data sources")
+        }
+        if (blockCount > 0) {
+            append(" · ")
+            append(blockCount)
+            append(if (blockCount == 1) " block" else " blocks")
+        }
     }
 }
 

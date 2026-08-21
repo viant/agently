@@ -423,6 +423,21 @@ describe('RichContent fence parsing', () => {
     expect(html).not.toContain('Export PDF');
   });
 
+  it('keeps prose before the pending report indicator in authored order', () => {
+    const content = [
+      '### Key findings',
+      '- Restrictive setup is leading.',
+      '',
+      '```forge-report',
+      '{"version":1,"scope":"message","id":"brief","sequence":1,"mode":"start","grammar":"report-document-v1","blocks":['
+    ].join('\n');
+
+    const html = renderToStaticMarkup(React.createElement(RichContent, { content, messageId: 'message-pending-order' }));
+    expect(html).toContain('Key findings');
+    expect(html).toContain('Building report');
+    expect(html.indexOf('Key findings')).toBeLessThan(html.indexOf('Building report'));
+  });
+
   it('normalizes legacy forge marker plus json fence form into proper forge fences', () => {
     const normalized = normalizeLegacyForgeFenceBlocks([
       'Before summary',

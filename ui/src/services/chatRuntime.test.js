@@ -18,7 +18,7 @@ vi.mock('./elicitationBus', () => ({
   replacePendingElicitationsForConversation: replacePendingElicitationsForConversationMock,
 }));
 
-import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, connectStream, createNewConversation, dsTick, enqueueConversationSwitch, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, handleStreamEvent, hydrateMeta, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
+import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, clearPendingConversationBootstrap, connectStream, createNewConversation, dsTick, enqueueConversationSwitch, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, getSettledConversationBootstrapSnapshot, handleStreamEvent, hydrateMeta, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
 import { client } from './agentlyClient';
 import { applyFeedEvent, clearFeedState, getFeedData } from './toolFeedBus';
 
@@ -50,14 +50,15 @@ function createStorage() {
 }
 
 describe('publishActiveConversation', () => {
-  it('does not overwrite a different explicit route with stale async conversation completion', () => {
+  it('does not overwrite route or sidebar selection with stale async conversation completion', () => {
     const replaceState = vi.fn();
+    const dispatchEvent = vi.fn();
     global.window = {
       location: { pathname: '/conversation/conv-route', port: '5176', hostname: '127.0.0.1' },
       history: { state: null, replaceState },
       localStorage: createStorage(),
       sessionStorage: createStorage(),
-      dispatchEvent: () => {}
+      dispatchEvent
     };
     global.CustomEvent = class CustomEvent extends Event {
       constructor(type, init = {}) {
@@ -69,6 +70,8 @@ describe('publishActiveConversation', () => {
     publishActiveConversation('conv-stale', { identity: { windowId: 'chat/new' } });
 
     expect(replaceState).not.toHaveBeenCalled();
+    expect(dispatchEvent).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem('agently.selectedConversationId:chat/new')).toBeNull();
     expect(window.location.pathname).toBe('/conversation/conv-route');
   });
 
@@ -82,12 +85,13 @@ describe('publishActiveConversation', () => {
     const replaceState = vi.fn((state, _title, url) => {
       window.location.pathname = String(url || '');
     });
+    const dispatchEvent = vi.fn();
     global.window = {
       location: { pathname: '/conversation/conv-route', port: '5176', hostname: '127.0.0.1' },
       history: { state: null, replaceState },
       localStorage: createStorage(),
       sessionStorage: createStorage(),
-      dispatchEvent: () => {}
+      dispatchEvent
     };
     global.CustomEvent = class CustomEvent extends Event {
       constructor(type, init = {}) {
@@ -109,6 +113,7 @@ describe('publishActiveConversation', () => {
     publishActiveConversation('conv-active', staleContext);
 
     expect(replaceState).not.toHaveBeenCalled();
+    expect(dispatchEvent).not.toHaveBeenCalled();
     expect(window.location.pathname).toBe('/conversation/conv-route');
   });
 
@@ -1154,7 +1159,7 @@ describe('handleStreamEvent', () => {
     }
   });
 
-  it('coalesces cumulative forge-report snapshots without replaying the transcript', async () => {
+  it('coalesces canonical forge-report deltas without rewriting them', async () => {
     vi.useFakeTimers();
     const originalWindow = globalThis.window;
     globalThis.window = {
@@ -1182,60 +1187,14 @@ describe('handleStreamEvent', () => {
         }
       };
       const first = '```forge-report\n{"version":1';
-      const second = '```forge-report\n{"version":1,"id":"brief"}';
+      const second = ',"id":"brief"}';
       handleStreamEvent(chatState, context, 'conv-1', { type: 'text_delta', conversationId: 'conv-1', turnId: 'turn-1', id: 'msg-1', content: first });
       handleStreamEvent(chatState, context, 'conv-1', { type: 'text_delta', conversationId: 'conv-1', turnId: 'turn-1', id: 'msg-1', content: second });
 
       await vi.advanceTimersByTimeAsync(20);
 
-      expect(chatState.liveRows[0]?._streamContent).toBe(second);
-      expect(chatState.liveRows[0]?.content).toBe(second);
-    } finally {
-      globalThis.window = originalWindow;
-      vi.useRealTimers();
-    }
-  });
-
-  it('normalizes a cumulative snapshot against rendered and same-frame report content', async () => {
-    vi.useFakeTimers();
-    const originalWindow = globalThis.window;
-    globalThis.window = {
-      requestAnimationFrame: (cb) => setTimeout(cb, 16),
-      cancelAnimationFrame: (id) => clearTimeout(id),
-      setTimeout: globalThis.setTimeout.bind(globalThis),
-      clearTimeout: globalThis.clearTimeout.bind(globalThis),
-      localStorage: createStorage(),
-      sessionStorage: createStorage(),
-      location: { pathname: '/conversation/conv-1' }
-    };
-    try {
-      const rendered = '```forge-report\n{"version":1';
-      const suffix = ',"id":"brief"';
-      const snapshot = `${rendered}${suffix},"mode":"commit"}`;
-      const chatState = {
-        liveRows: [{
-          id: 'msg-1', role: 'assistant', turnId: 'turn-1', interim: 1,
-          _streamContent: rendered, content: rendered, executionGroups: [{}]
-        }],
-        transcriptRows: [], renderRows: [], lastHasRunning: true,
-        activeConversationID: 'conv-1', liveOwnedConversationID: 'conv-1', liveOwnedTurnIds: ['turn-1']
-      };
-      const context = {
-        identity: { windowId: 'chat/main' },
-        resources: { chat: chatState },
-        Context(name) {
-          if (name === 'conversations') return { handlers: { dataSource: { peekFormData: () => ({ id: 'conv-1' }), setFormData: vi.fn() } } };
-          if (name === 'messages') return { handlers: { dataSource: { setCollection: vi.fn(), setError: vi.fn() } } };
-          if (name === 'meta') return { handlers: { dataSource: { peekFormData: () => ({ defaults: {}, agentInfos: [] }) } } };
-          return null;
-        }
-      };
-      handleStreamEvent(chatState, context, 'conv-1', { type: 'text_delta', conversationId: 'conv-1', turnId: 'turn-1', id: 'msg-1', content: suffix });
-      handleStreamEvent(chatState, context, 'conv-1', { type: 'text_delta', conversationId: 'conv-1', turnId: 'turn-1', id: 'msg-1', content: snapshot });
-
-      await vi.advanceTimersByTimeAsync(20);
-
-      expect(chatState.liveRows[0]?._streamContent).toBe(snapshot);
+      expect(chatState.liveRows[0]?._streamContent).toBe(`${first}${second}`);
+      expect(chatState.liveRows[0]?.content).toBe(`${first}${second}`);
     } finally {
       globalThis.window = originalWindow;
       vi.useRealTimers();
@@ -2971,6 +2930,17 @@ describe('switchConversation', () => {
     clearFeedState();
   });
 
+  it('rejects a settled bootstrap snapshot stored under another conversation id', () => {
+    cacheSettledConversationBootstrapSnapshot('conv-target', {
+      conversation: { id: 'conv-other', status: 'succeeded' },
+      turns: [{ turnId: 'turn-other', status: 'completed' }],
+      pendingElicitations: [],
+      generatedFiles: []
+    });
+
+    expect(getSettledConversationBootstrapSnapshot('conv-target')).toBeNull();
+  });
+
   it('clears the previous transcript before the target conversation request settles', async () => {
     const messageState = { collection: [{ id: 'old-msg', role: 'assistant', content: 'stale report' }] };
     const conversationState = { values: { id: 'conv-old', queuedTurns: [] } };
@@ -3161,7 +3131,7 @@ describe('switchConversation', () => {
     expect(messageState.collection).toEqual(expect.any(Array));
   });
 
-  it('hydrates execution history when joining a live conversation started by another client', async () => {
+  it('uses SSE only when joining a live conversation started by another client', async () => {
     const messageState = { collection: [] };
     const conversationState = { values: { id: 'conv-live-target', queuedTurns: [] } };
     const context = {
@@ -3228,16 +3198,8 @@ describe('switchConversation', () => {
 
     await switchConversation(context, 'conv-live-target');
 
-    expect(client.getTranscript).toHaveBeenCalledWith(
-      expect.objectContaining({
-        conversationId: 'conv-live-target',
-        includeModelCalls: true,
-        includeToolCalls: true,
-        includeFeeds: true,
-        since: undefined
-      }),
-      undefined
-    );
+    expect(client.streamEvents).toHaveBeenCalledWith('conv-live-target', expect.any(Object));
+    expect(client.getTranscript).not.toHaveBeenCalled();
     expect(messageState.collection).toEqual(expect.any(Array));
   });
 
@@ -5710,7 +5672,7 @@ describe('shouldUseLiveStream', () => {
     }
   });
 
-  it('forwards only static transcript rows into chatStore while the latest turn is live-owned', async () => {
+  it('does not fetch transcript while the latest turn is live-owned', async () => {
     const onTranscript = vi.fn();
     installChatStoreMirror({ onTranscript });
     const originalWindow = global.window;
@@ -5733,7 +5695,8 @@ describe('shouldUseLiveStream', () => {
 
     try {
       const turns = await fetchTranscript('conv-live');
-      expect(turns).toHaveLength(1);
+      expect(turns).toEqual([]);
+      expect(client.getTranscript).not.toHaveBeenCalled();
       expect(onTranscript).not.toHaveBeenCalled();
       expect(global.window.__agentlyActiveChatState.lastTranscriptFeedsByConversation).toBeUndefined();
     } finally {
@@ -5742,13 +5705,32 @@ describe('shouldUseLiveStream', () => {
     }
   });
 
-  it('forwards terminal transcript into chatStore but does not reset while pre-fetch state still looks live-owned', async () => {
-    // While SSE owns the conversation, the destructive `reset()` is unsafe:
-    // it wipes per-conversation entity identity (renderKey), which forces a
-    // mounted MCP UI iframe bubble to unmount and remount on every SSE
-    // reconnect/transcript-refresh. applyTranscript settles lifecycle via
-    // field-level refinement without needing reset, so reset must be skipped
-    // here.
+  it('does not reset or replace local user state during pending conversation bootstrap', async () => {
+    const onTranscript = vi.fn();
+    const reset = vi.fn();
+    installChatStoreMirror({ onTranscript, reset });
+    const originalWindow = global.window;
+    global.window = { __agentlyActiveChatState: null };
+    markPendingConversationBootstrap('conv-bootstrap');
+    client.getTranscript.mockResolvedValueOnce({
+      conversation: {
+        conversationId: 'conv-bootstrap',
+        turns: [],
+      }
+    });
+
+    try {
+      await fetchTranscript('conv-bootstrap');
+      expect(reset).not.toHaveBeenCalled();
+      expect(onTranscript).not.toHaveBeenCalled();
+    } finally {
+      clearPendingConversationBootstrap('conv-bootstrap');
+      installChatStoreMirror(null);
+      global.window = originalWindow;
+    }
+  });
+
+  it('does not fetch a terminal transcript while pre-fetch state is still SSE-owned', async () => {
     const onTranscript = vi.fn();
     const reset = vi.fn();
     installChatStoreMirror({ onTranscript, reset });
@@ -5762,25 +5744,12 @@ describe('shouldUseLiveStream', () => {
         lastHasRunning: true,
       }
     };
-    client.getTranscript.mockResolvedValueOnce({
-      conversation: {
-        conversationId: 'conv-live',
-        turns: [{ turnId: 'turn-1', status: 'completed' }],
-        feeds: [{ feedId: 'plan', title: 'Plan', itemCount: 1, data: { note: 'terminal' } }],
-      }
-    });
-
     try {
       const turns = await fetchTranscript('conv-live');
-      expect(turns).toHaveLength(1);
+      expect(turns).toEqual([]);
+      expect(client.getTranscript).not.toHaveBeenCalled();
       expect(reset).not.toHaveBeenCalled();
-      expect(onTranscript).toHaveBeenCalledTimes(1);
-      expect(onTranscript).toHaveBeenCalledWith('conv-live', expect.objectContaining({
-        conversationId: 'conv-live',
-      }));
-      expect(global.window.__agentlyActiveChatState.lastTranscriptFeedsByConversation?.['conv-live']).toEqual([
-        expect.objectContaining({ feedId: 'plan' })
-      ]);
+      expect(onTranscript).not.toHaveBeenCalled();
     } finally {
       installChatStoreMirror(null);
       global.window = originalWindow;
@@ -5832,9 +5801,9 @@ describe('shouldUseLiveStream', () => {
     expect(mcpuiBefore.uri).toBe(URI);
     const renderKeyBefore = mcpuiBefore.renderKey;
 
-    // Simulate the post-reconnect transcript refetch path: SSE state is still
-    // live-owned for this turn, but the canonical transcript API reports the
-    // turn as completed (the race window).
+    // A reconnect attempt while SSE still owns the turn must not issue a
+    // transcript request at all; preserving the existing renderKey follows
+    // from keeping the canonical live store untouched.
     global.window = {
       __agentlyActiveChatState: {
         liveOwnedConversationID: CONV,
@@ -5844,30 +5813,9 @@ describe('shouldUseLiveStream', () => {
         lastHasRunning: true,
       }
     };
-    client.getTranscript.mockResolvedValueOnce({
-      conversation: {
-        conversationId: CONV,
-        turns: [{
-          turnId: TURN,
-          status: 'completed',
-          execution: {
-            pages: [{
-              pageId: 'page-1',
-              iteration: 0,
-              toolSteps: [{
-                toolCallId: TOOL,
-                toolName: 'mcp-ui-verifier:show_widget',
-                status: 'completed',
-                uiResourceUri: URI,
-              }],
-            }],
-          },
-        }],
-      }
-    });
-
     try {
       await fetchTranscript(CONV);
+      expect(client.getTranscript).not.toHaveBeenCalled();
 
       const rowsAfter = chatStore.getProjection(CONV);
       const mcpuiAfter = rowsAfter.find((row) => row.kind === 'mcpui');
@@ -5899,6 +5847,7 @@ describe('shouldUseLiveStream', () => {
         lastHasRunning: false,
       }
     };
+    client.getTranscript.mockReset();
     client.getTranscript.mockResolvedValueOnce({
       conversation: {
         conversationId: 'conv-idle',
@@ -6049,6 +5998,114 @@ describe('iframe-mounted SSE reconnect stability', () => {
       vi.useRealTimers();
       installChatStoreMirror(null);
       chatStore.__resetAll();
+      global.window = originalWindow;
+    }
+  });
+});
+
+describe('SSE subscription fencing', () => {
+  it('ignores events queued by a replaced subscription', () => {
+    const originalWindow = global.window;
+    const subscriptions = [];
+    client.streamEvents = vi.fn((_id, handlers) => {
+      const subscription = { handlers, close: vi.fn() };
+      subscriptions.push(subscription);
+      return subscription;
+    });
+    global.window = {
+      setTimeout,
+      clearTimeout,
+      localStorage: createStorage(),
+      location: { pathname: '/conversation/conv-fenced' }
+    };
+    const conversationState = { id: 'conv-fenced', running: true };
+    const context = {
+      resources: { chat: { lastHasRunning: false } },
+      Context(name) {
+        if (name === 'conversations') {
+          return { handlers: { dataSource: { peekFormData: () => conversationState, setFormData: vi.fn() } } };
+        }
+        if (name === 'messages') {
+          return { handlers: { dataSource: { setCollection: vi.fn(), setError: vi.fn() } } };
+        }
+        return null;
+      }
+    };
+
+    try {
+      connectStream(context, 'conv-fenced');
+      connectStream(context, 'conv-fenced');
+      expect(subscriptions).toHaveLength(2);
+      expect(subscriptions[0].close).toHaveBeenCalledTimes(1);
+
+      subscriptions[0].handlers.onEvent({
+        type: 'reasoning_delta',
+        conversationId: 'conv-fenced',
+        turnId: 'turn-1'
+      });
+      expect(context.resources.chat.lastHasRunning).toBe(false);
+
+      subscriptions[1].handlers.onEvent({
+        type: 'reasoning_delta',
+        conversationId: 'conv-fenced',
+        turnId: 'turn-1'
+      });
+      expect(context.resources.chat.lastHasRunning).toBe(true);
+    } finally {
+      global.window = originalWindow;
+    }
+  });
+
+  it('enforces one subscription owner across separate chat contexts', () => {
+    const originalWindow = global.window;
+    const subscriptions = [];
+    client.streamEvents = vi.fn((_id, handlers) => {
+      const subscription = { handlers, close: vi.fn() };
+      subscriptions.push(subscription);
+      return subscription;
+    });
+    global.window = {
+      setTimeout,
+      clearTimeout,
+      localStorage: createStorage(),
+      location: { pathname: '/conversation/conv-global-fence' }
+    };
+    const makeContext = () => ({
+      resources: { chat: { lastHasRunning: false } },
+      Context(name) {
+        if (name === 'conversations') {
+          return { handlers: { dataSource: { peekFormData: () => ({ id: 'conv-global-fence', running: true }), setFormData: vi.fn() } } };
+        }
+        if (name === 'messages') {
+          return { handlers: { dataSource: { setCollection: vi.fn(), setError: vi.fn() } } };
+        }
+        return null;
+      }
+    });
+    const firstContext = makeContext();
+    const secondContext = makeContext();
+
+    try {
+      connectStream(firstContext, 'conv-global-fence');
+      connectStream(secondContext, 'conv-global-fence');
+      expect(subscriptions).toHaveLength(2);
+      expect(subscriptions[0].close).toHaveBeenCalledTimes(1);
+
+      subscriptions[0].handlers.onEvent({
+        type: 'reasoning_delta',
+        conversationId: 'conv-global-fence',
+        turnId: 'turn-1'
+      });
+      expect(firstContext.resources.chat.lastHasRunning).toBe(false);
+      expect(secondContext.resources.chat.lastHasRunning).toBe(false);
+
+      subscriptions[1].handlers.onEvent({
+        type: 'reasoning_delta',
+        conversationId: 'conv-global-fence',
+        turnId: 'turn-1'
+      });
+      expect(secondContext.resources.chat.lastHasRunning).toBe(true);
+    } finally {
       global.window = originalWindow;
     }
   });
