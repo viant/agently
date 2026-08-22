@@ -153,6 +153,25 @@ class AppRuntimeTest {
     }
 
     @Test
+    fun `auth refresh classifies provider connectivity failure as unavailable`() {
+        val client = AgentlyClient(mapOf())
+
+        val result = runBlocking {
+            refreshAuthSession(
+                currentBaseUrl = "https://steward.agently.viantinc.com",
+                candidates = listOf("https://steward.agently.viantinc.com"),
+                currentClient = client,
+                buildClient = { client },
+                loadOnSuccess = false,
+                targetContext = metadataTargetContext
+            )
+        }
+
+        assertEquals(AuthState.Unavailable, result.authState)
+        assertNotNull(result.error)
+    }
+
+    @Test
     fun `loadWorkspaceSession returns visible error for non auth failures`() {
         val result = kotlinx.coroutines.runBlocking {
             loadWorkspaceSession({

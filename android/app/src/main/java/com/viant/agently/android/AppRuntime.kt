@@ -79,7 +79,7 @@ internal data class AuthRefreshResult(
     val providers: List<AuthProvider>,
     val user: AuthUser?,
     val workspaceSnapshot: WorkspaceSnapshot? = null,
-    val authRequiredError: Throwable? = null
+    val error: Throwable? = null
 )
 
 internal data class WorkspaceLoadResult(
@@ -522,10 +522,10 @@ internal suspend fun refreshAuthSession(
     } catch (err: Throwable) {
         return AuthRefreshResult(
             resolvedBaseUrl = currentBaseUrl,
-            authState = AuthState.Required,
+            authState = AuthState.Unavailable,
             providers = emptyList(),
             user = null,
-            authRequiredError = err
+            error = err
         )
     }
     val authClient = authResolved.client
@@ -538,10 +538,10 @@ internal suspend fun refreshAuthSession(
     } catch (err: Throwable) {
         return AuthRefreshResult(
             resolvedBaseUrl = resolvedBaseUrl,
-            authState = AuthState.Required,
+            authState = if (isAuthRequiredFailure(err)) AuthState.Required else AuthState.Unavailable,
             providers = providers,
             user = null,
-            authRequiredError = err
+            error = err
         )
     }
     val nextAuthState = resolveAuthState(providers, user)
