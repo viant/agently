@@ -114,7 +114,6 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import java.text.SimpleDateFormat
-import java.net.URI
 import java.io.File
 import java.util.Date
 import java.util.Locale
@@ -211,9 +210,6 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
             )
         )
     )
-    val appApiCandidates = remember(configuredAppApiBaseUrl) {
-        buildApiCandidates(configuredAppApiBaseUrl)
-    }
     val client = remember(appApiBaseUrl) { buildClient(appApiBaseUrl) }
     var loading by remember { mutableStateOf(false) }
     var metadata by remember { mutableStateOf<WorkspaceMetadata?>(null) }
@@ -347,7 +343,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     suspend fun resolveClient(): AgentlyClient {
         return resolveWorkspaceClient(
             currentBaseUrl = appApiBaseUrl,
-            candidates = mergeApiCandidates(appApiBaseUrl, appApiCandidates),
+            candidates = listOf(appApiBaseUrl),
             currentClient = client,
             buildClient = ::buildClient,
             onResolvedBaseUrl = ::setAppApiBaseUrl,
@@ -358,7 +354,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     suspend fun resolveAuthClient(): AgentlyClient {
         return resolveAuthClientWithFallback(
             currentBaseUrl = appApiBaseUrl,
-            candidates = mergeApiCandidates(appApiBaseUrl, appApiCandidates),
+            candidates = listOf(appApiBaseUrl),
             currentClient = client,
             buildClient = ::buildClient,
             onResolvedBaseUrl = ::setAppApiBaseUrl
@@ -496,6 +492,21 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         applyAuthRequiredErrorState(err)
     }
 
+    fun setWorkspaceUnavailable(err: Throwable) {
+        clearActiveStreamJob()
+        val resetState = buildAuthRequiredSessionReset()
+        applyAuthRequiredSessionReset(resetState)
+        setAuthState(AuthState.Unavailable)
+        setVisibleError(null)
+        authError = normalizeAuthThrowable(err, ::normalizeAuthError)
+        if (BuildConfig.DEBUG) {
+            Log.w(
+                AUTH_LOG_TAG,
+                "Workspace unavailable: ${err.javaClass.simpleName}: ${err.message.orEmpty()}"
+            )
+        }
+    }
+
     fun applyWorkspaceSnapshotIfPresent(snapshot: WorkspaceSnapshot?) {
         snapshot?.let(::applyWorkspaceSnapshot)
     }
@@ -518,11 +529,15 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
                 "Auth refresh result state=${authRefreshResult.authState} userPresent=${authRefreshResult.user != null} " +
                     "providers=${authRefreshResult.providers.joinToString(",") { it.type }} " +
                     "hasWorkspace=${authRefreshResult.workspaceSnapshot != null} " +
-                    "authError=${authRefreshResult.authRequiredError?.message.orEmpty()}"
+                    "authError=${authRefreshResult.error?.message.orEmpty()}"
             )
         }
-        if (authRefreshResult.authRequiredError != null) {
-            setAuthRequired(authRefreshResult.authRequiredError)
+        if (authRefreshResult.error != null) {
+            if (authRefreshResult.authState == AuthState.Required) {
+                setAuthRequired(authRefreshResult.error)
+            } else {
+                setWorkspaceUnavailable(authRefreshResult.error)
+            }
             return
         }
         applyAuthSessionState(
@@ -587,7 +602,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         enterAuthCheckingState()
         val authRefreshResult = refreshAuthSession(
             currentBaseUrl = appApiBaseUrl,
-            candidates = mergeApiCandidates(appApiBaseUrl, appApiCandidates),
+            candidates = listOf(appApiBaseUrl),
             currentClient = client,
             buildClient = ::buildClient,
             loadOnSuccess = loadOnSuccess,
@@ -597,14 +612,14 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
                 startedSessionId = previousSessionId,
                 currentSessionId = authSessionId,
                 currentUser = authUser,
-                err = authRefreshResult.authRequiredError
+                err = authRefreshResult.error
             )
         ) {
             if (BuildConfig.DEBUG) {
                 Log.w(
                     AUTH_LOG_TAG,
                     "Ignoring stale auth refresh failure after session changed: " +
-                        authRefreshResult.authRequiredError?.message.orEmpty()
+                        authRefreshResult.error?.message.orEmpty()
                 )
             }
             setAuthState(AuthState.Ready)
@@ -614,14 +629,14 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
                 previousAuthState = previousAuthState,
                 previousUser = previousAuthUser,
                 previousSessionId = previousSessionId,
-                err = authRefreshResult.authRequiredError
+                err = authRefreshResult.error
             )
         ) {
             if (BuildConfig.DEBUG) {
                 Log.w(
                     AUTH_LOG_TAG,
                     "Preserving authenticated session after transient auth refresh failure: " +
-                        authRefreshResult.authRequiredError?.message.orEmpty()
+                        authRefreshResult.error?.message.orEmpty()
                 )
             }
             setAuthState(previousAuthState)
@@ -702,17 +717,14 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         // endpoint, so honor the cookie formats accepted by the developer UI by
         // installing the value in the app's persistent cookie jar and verifying it.
         val cookieResult = runCatching {
-            val candidateEndpoints = mergeApiCandidates(appApiBaseUrl, appApiCandidates)
-            val installedEndpoints = candidateEndpoints.filter { endpoint ->
-                sessionCookieJar.installSession(endpoint, credential)
-            }
-            require(installedEndpoints.isNotEmpty()) {
+            val installed = sessionCookieJar.installSession(appApiBaseUrl, credential)
+            require(installed) {
                 "Invalid workspace endpoint or session cookie"
             }
             if (BuildConfig.DEBUG) {
                 Log.d(
                     AUTH_LOG_TAG,
-                    "Installed local OOB session cookie for ${installedEndpoints.joinToString()}"
+                    "Installed local OOB session cookie for $appApiBaseUrl"
                 )
             }
             authClient.authMe()
@@ -1646,40 +1658,6 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     }
 }
 
-internal fun buildApiCandidates(configuredBaseUrl: String): List<String> {
-    val trimmed = configuredBaseUrl.trim().ifBlank { "https://steward.agently.viantinc.com" }
-    val parsed = runCatching { URI(trimmed) }.getOrNull()
-    val scheme = parsed?.scheme?.takeIf { it.isNotBlank() } ?: "http"
-    val host = parsed?.host?.trim().orEmpty()
-    val port = when {
-        parsed?.port != null && parsed.port > 0 -> parsed.port
-        scheme.equals("https", ignoreCase = true) -> 443
-        else -> 80
-    }
-    val path = parsed?.rawPath?.takeIf { it.isNotBlank() && it != "/" }.orEmpty()
-    val prefersDeviceLoopback =
-        host.equals("localhost", ignoreCase = true) || host == "127.0.0.1"
-    val prefersAndroidHostAlias = host == "10.0.2.2" || host == "10.0.3.2"
-    val candidates = mutableListOf(trimmed)
-    if (prefersDeviceLoopback) {
-        candidates += listOf(
-            "$scheme://localhost:$port$path",
-            "$scheme://127.0.0.1:$port$path"
-        )
-    } else if (prefersAndroidHostAlias) {
-        candidates += listOf(
-            "$scheme://10.0.2.2:$port$path",
-            "$scheme://10.0.3.2:$port$path"
-        )
-    } else if (
-        host.isNotBlank() &&
-        !trimmed.equals("$scheme://$host:$port$path", ignoreCase = true)
-    ) {
-        candidates += "$scheme://$host:$port$path"
-    }
-    return candidates.distinct()
-}
-
 internal fun sanitizeDownloadFileName(value: String): String {
     val name = value.substringAfterLast('/').substringAfterLast('\\').trim()
     return name.replace(Regex("[^A-Za-z0-9._ -]"), "_")
@@ -1715,17 +1693,6 @@ internal fun shouldShowDeveloperSessionEntry(
     interactiveAuthFailure: Boolean
 ): Boolean =
     debugBuild && interactiveAuthFailure
-
-internal fun mergeApiCandidates(
-    currentBaseUrl: String,
-    configuredCandidates: List<String>
-): List<String> {
-    return buildList {
-        add(currentBaseUrl)
-        addAll(configuredCandidates)
-        addAll(buildApiCandidates(currentBaseUrl))
-    }.distinct()
-}
 
 internal enum class AppScreen {
     Chat,

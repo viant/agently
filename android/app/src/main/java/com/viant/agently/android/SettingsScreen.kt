@@ -61,6 +61,7 @@ internal fun SettingsScreen(
     var preferredAgentDraft by remember(currentPreferredAgentId) { mutableStateOf(currentPreferredAgentId) }
     var oobSecretRefDraft by remember(savedLoginConfig) { mutableStateOf(savedLoginConfig.oobSecretRef) }
     var actionsMenuExpanded by remember { mutableStateOf(false) }
+    val endpointValid = isValidWorkspaceBaseUrl(endpointDraft)
     val discoveredAgents = remember(metadata) { workspaceAgentChoices(metadata) }
     val saveSettings = {
         onSave(
@@ -140,7 +141,7 @@ internal fun SettingsScreen(
                         icon = Icons.Outlined.Check,
                         accent = Color(0xFF16835D),
                         onClick = saveSettings,
-                        enabled = !loading
+                        enabled = !loading && endpointValid
                     )
                 }
                 error?.let {
@@ -195,7 +196,13 @@ internal fun SettingsScreen(
                         label = { Text("Developer endpoint") },
                         placeholder = { Text(configuredAppApiBaseUrl) },
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
+                        singleLine = true,
+                        isError = !endpointValid,
+                        supportingText = if (!endpointValid) {
+                            { Text("Use a complete http:// or https:// URL.") }
+                        } else {
+                            null
+                        }
                     )
                     Text(
                         "Build default: $configuredAppApiBaseUrl",

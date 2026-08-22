@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import java.net.URI
 
 internal data class WorkspaceEndpointOption(
     val title: String,
@@ -78,20 +79,34 @@ internal fun normalizeApiBaseUrl(value: String): String {
     return normalized.trimEnd('/')
 }
 
+internal fun isValidWorkspaceBaseUrl(value: String): Boolean {
+    val normalized = normalizeApiBaseUrl(value)
+    val uri = runCatching { URI(normalized) }.getOrNull() ?: return false
+    return (uri.scheme.equals("http", ignoreCase = true) ||
+        uri.scheme.equals("https", ignoreCase = true)) &&
+        !uri.host.isNullOrBlank() &&
+        uri.userInfo.isNullOrBlank()
+}
+
 internal fun resolveInitialApiBaseUrl(
     configuredBaseUrl: String,
     storedSettings: AppSettings,
     preferExplicitBuildEndpoint: Boolean
 ): String {
     val configured = normalizeApiBaseUrl(configuredBaseUrl)
-    if (preferExplicitBuildEndpoint && configured.isNotBlank()) return configured
+    if (preferExplicitBuildEndpoint && isValidWorkspaceBaseUrl(configured)) return configured
 
-    return normalizeApiBaseUrl(
+    val candidate = normalizeApiBaseUrl(
         storedSettings.baseUrlOverride.trim().ifBlank {
             if (storedSettings.hasWorkspaceEndpointSelection) configured
             else workspaceEndpointOptions.first().value
         }
     )
+    return when {
+        isValidWorkspaceBaseUrl(candidate) -> candidate
+        isValidWorkspaceBaseUrl(configured) -> configured
+        else -> workspaceEndpointOptions.first().value
+    }
 }
 
 internal fun hasInitialWorkspaceEndpointSelection(
@@ -115,6 +130,9 @@ internal fun persistAppSettings(
     hasWorkspaceEndpointSelection: Boolean = true
 ) {
     val normalizedBaseUrl = normalizeApiBaseUrl(nextBaseUrl)
+    require(isValidWorkspaceBaseUrl(normalizedBaseUrl)) {
+        "Workspace endpoint must be an http or https URL with a valid host."
+    }
     val normalizedConfiguredBaseUrl = normalizeApiBaseUrl(configuredBaseUrl)
     store.save(
         AppSettings(
@@ -132,6 +150,9 @@ internal fun buildSettingsApplyTransition(
     nextPreferredAgentId: String
 ): SettingsApplyTransition {
     val resolvedBaseUrl = normalizeApiBaseUrl(nextBaseUrl).ifBlank { normalizeApiBaseUrl(configuredBaseUrl) }
+    require(isValidWorkspaceBaseUrl(resolvedBaseUrl)) {
+        "Workspace endpoint must be an http or https URL with a valid host."
+    }
     return SettingsApplyTransition(
         resolvedBaseUrl = resolvedBaseUrl,
         preferredAgentId = nextPreferredAgentId.trim(),

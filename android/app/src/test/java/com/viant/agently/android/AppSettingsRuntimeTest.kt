@@ -267,4 +267,27 @@ class AppSettingsRuntimeTest {
             )
         )
     }
+
+    @Test
+    fun resolveInitialApiBaseUrl_ignoresInvalidStoredScheme() {
+        assertEquals(
+            "https://steward.agently.viantinc.com",
+            resolveInitialApiBaseUrl(
+                configuredBaseUrl = "https://steward.agently.viantinc.com",
+                storedSettings = AppSettings(
+                    baseUrlOverride = "hqttps://steward.agently.viantinc.com",
+                    hasWorkspaceEndpointSelection = true
+                ),
+                preferExplicitBuildEndpoint = false
+            )
+        )
+    }
+
+    @Test
+    fun workspaceEndpointValidation_acceptsOnlyHttpUrlsWithHosts() {
+        assertTrue(isValidWorkspaceBaseUrl("https://steward.agently.viantinc.com"))
+        assertTrue(isValidWorkspaceBaseUrl("http://127.0.0.1:9191"))
+        assertFalse(isValidWorkspaceBaseUrl("hqttps://steward.agently.viantinc.com"))
+        assertFalse(isValidWorkspaceBaseUrl("https://"))
+    }
 }

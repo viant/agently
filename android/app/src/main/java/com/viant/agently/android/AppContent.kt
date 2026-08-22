@@ -146,6 +146,32 @@ internal fun AppBody(
             }
             return
         }
+        if (authState == AuthState.Unavailable) {
+            if (currentScreen == AppScreen.Settings) {
+                SettingsScreen(
+                    configuredAppApiBaseUrl = configuredAppApiBaseUrl,
+                    currentAppApiBaseUrl = appApiBaseUrl,
+                    metadata = metadata,
+                    currentPreferredAgentId = preferredAgentId,
+                    savedLoginConfig = savedLoginConfig,
+                    authSessionId = authSessionId,
+                    loading = loading,
+                    error = authError ?: error,
+                    onBack = callbacks.onBackFromSettings,
+                    onRefreshWorkspace = callbacks.onRefreshAuth,
+                    onSave = callbacks.onSaveSettings,
+                    onResetAppOverrides = callbacks.onResetAppOverrides,
+                    onClearAuthSecrets = callbacks.onClearAuthSecrets
+                )
+            } else {
+                WorkspaceUnavailableScreen(
+                    error = authError,
+                    onRetry = callbacks.onAuthRetry,
+                    onOpenSettings = callbacks.onOpenSettings
+                )
+            }
+            return
+        }
         when (currentScreen) {
             AppScreen.Chat -> {
                 val workspaceTitle = resolveWorkspaceBrandTitle(

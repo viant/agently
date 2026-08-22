@@ -48,8 +48,51 @@ import java.net.URI
 
 internal enum class AuthState {
     Checking,
+    Unavailable,
     Required,
     Ready
+}
+
+@Composable
+internal fun WorkspaceUnavailableScreen(
+    error: String?,
+    onRetry: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 28.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 760.dp)
+                .wrapContentHeight(),
+            shape = RoundedCornerShape(32.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.35f)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF7F7)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 26.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text("Can't connect to workspace", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    error ?: "Check the device internet or VPN connection, then try again.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(onClick = onRetry) { Text("Try again") }
+                    TextButton(onClick = onOpenSettings) { Text("Workspace settings") }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -381,8 +424,8 @@ internal fun normalizeAuthError(raw: String?): String? {
             lowered.contains("job was cancelled") ||
             lowered.contains("job was canceled") ->
             null
-        lowered == "timeout" ->
-            "The sign-in request timed out. The Agently endpoint is reachable, but the upstream identity provider did not respond in time."
+        lowered == "timeout" || lowered.contains("timed out") ->
+            "The workspace did not respond. Check this device's internet or VPN connection, then try again."
         lowered.contains("401") || lowered.contains("403") ->
             "Authentication required. Sign in to load the Agently workspace."
         lowered.contains("unable to reach app api") ||
