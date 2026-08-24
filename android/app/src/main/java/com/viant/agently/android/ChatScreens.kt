@@ -33,6 +33,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -180,8 +181,16 @@ internal fun TabletChatScreen(
     onRunQuery: () -> Unit,
     onCancelTurn: () -> Unit = {}
 ) {
+    val runtimeWindows by forgeRuntime.windows.collectAsState(initial = emptyList())
+    val localWorkspaceSnapshot = remember(activeConversationId, runtimeWindows) {
+        buildAndroidUIBridgeSnapshot(activeConversationId, forgeRuntime)
+    }
     val activeConversationHasWorkspace =
-        deriveAgentlyHostedWorkspaceRestoreState(conversationState, streamSnapshot) != null
+        deriveAgentlyHostedWorkspaceRestoreState(
+            conversationState,
+            streamSnapshot,
+            localWorkspaceSnapshot
+        ) != null
     Row(
         modifier = Modifier.fillMaxSize(),
         horizontalArrangement = Arrangement.spacedBy(0.dp)

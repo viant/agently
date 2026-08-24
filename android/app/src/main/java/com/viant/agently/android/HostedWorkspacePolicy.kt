@@ -10,10 +10,52 @@ import kotlinx.serialization.json.JsonObject
 
 internal fun deriveAgentlyHostedWorkspaceRestoreState(
     state: ConversationStateResponse?,
-    streamSnapshot: ConversationStreamSnapshot? = null
+    streamSnapshot: ConversationStreamSnapshot? = null,
+    localSnapshot: NativeUIBridgeSnapshot? = null
 ): HostedWorkspaceRestoreState? {
+    deriveAgentlyHostedWorkspaceRestoreState(localSnapshot)?.let { return it }
     return filterAgentlyHostedWorkspaceRestoreState(
         deriveHostedWorkspaceRestoreState(state, streamSnapshot)
+    )
+}
+
+internal fun deriveAgentlyHostedWorkspaceRestoreState(
+    localSnapshot: NativeUIBridgeSnapshot?
+): HostedWorkspaceRestoreState? {
+    localSnapshot ?: return null
+    val conversationId = localSnapshot.conversationId?.trim().orEmpty()
+    if (conversationId.isEmpty()) {
+        return null
+    }
+    val windows = localSnapshot.windows
+        .asSequence()
+        .filterNot { it.isModal || it.windowKey == "chat/new" }
+        .filter { window ->
+            val windowConversationId = window.conversationId?.trim().orEmpty()
+            conversationId.isEmpty() || windowConversationId.isEmpty() || windowConversationId == conversationId
+        }
+        .map { window ->
+            WorkspaceWindowSnapshot(
+                windowId = window.windowId,
+                conversationId = window.conversationId,
+                windowKey = window.windowKey,
+                windowTitle = window.windowTitle,
+                presentation = window.presentation,
+                region = window.region,
+                parentKey = window.parentKey,
+                workspaceSharePct = window.workspaceSharePct,
+                workspaceMinHeight = window.workspaceMinHeight,
+                inTab = window.inTab,
+                parameters = window.parameters,
+                windowForm = window.windowForm
+            )
+        }
+        .toList()
+    return filterAgentlyHostedWorkspaceRestoreState(
+        HostedWorkspaceRestoreState(
+            windows = windows,
+            selectedWindowId = windows.lastOrNull()?.windowId
+        )
     )
 }
 

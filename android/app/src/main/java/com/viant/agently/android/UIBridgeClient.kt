@@ -244,9 +244,11 @@ internal fun buildAndroidUIBridgeSnapshot(
         )
     }
     forgeRuntime.windows.value
+        .asSequence()
+        .filter { conversationId.isNotEmpty() }
         .filter { window ->
             val windowConversationId = window.conversationId?.trim().orEmpty()
-            conversationId.isEmpty() || windowConversationId.isEmpty() || windowConversationId == conversationId
+            windowConversationId.isEmpty() || windowConversationId == conversationId
         }
         .forEach { window ->
             val windowForm = runCatching {

@@ -192,6 +192,7 @@ public final class AppRuntime: ObservableObject {
             } else {
                 settingsStore.saveActiveConversationID(nil)
             }
+            await openDeveloperInitialWorkspaceIfRequested()
         } catch {
             logger.error("Bootstrap failed: \(String(describing: error), privacy: .public)")
             bootstrapTimeoutTask?.cancel()
@@ -234,6 +235,50 @@ public final class AppRuntime: ObservableObject {
             }
         }
         state.isRefreshingConversations = false
+    }
+
+    private func openDeveloperInitialWorkspaceIfRequested() async {
+        guard let request = resolvedDeveloperInitialWorkspaceRequest(
+            launchArguments: CommandLine.arguments,
+            developerAuthEnabled: developerAuthFeaturesEnabled()
+        ) else {
+            return
+        }
+        let conversationID = state.activeConversationID?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+        let windowID = "developer-preview:\(request.windowKey)"
+        do {
+            _ = try await handleAppleUIBridgeCommand(
+                method: "ui.window.open",
+                params: [
+                    "windowKey": .string(request.windowKey),
+                    "windowTitle": .string(request.windowTitle ?? request.windowKey),
+                    "windowId": .string(windowID),
+                    "parameters": .object(request.parameters),
+                    "options": .object([
+                        "presentation": .string("hosted"),
+                        "region": .string("chat.top"),
+                        "parentKey": .string("chat/new"),
+                        "replaceHostedRegion": .bool(true),
+                        "workspaceSharePct": .number(100),
+                        "workspaceMinHeight": .number(640),
+                        "conversationId": conversationID.map(BridgeJSONValue.string) ?? .null
+                    ])
+                ],
+                forgeRuntime: state.forgeRuntime,
+                baseURL: state.bootstrapBaseURL
+            )
+            let snapshot = await buildAppleUIBridgeSnapshot(
+                activeConversationID: conversationID,
+                selectedWindowID: windowID,
+                forgeRuntime: state.forgeRuntime
+            )
+            state.activeHostedWorkspace = hostedWorkspaceRestoreState(
+                from: snapshot,
+                selectedWindowID: windowID
+            )
+        } catch {
+            logger.error("Developer initial workspace failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     public func applySettingsAndReload(
@@ -1333,6 +1378,47 @@ internal func resolvedBootstrapActiveConversationID(
         return launchOverride
     }
     return storedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+internal struct DeveloperInitialWorkspaceRequest {
+    let windowKey: String
+    let windowTitle: String?
+    let parameters: [String: JSONValue]
+}
+
+internal func resolvedDeveloperInitialWorkspaceRequest(
+    launchArguments: [String],
+    developerAuthEnabled: Bool
+) -> DeveloperInitialWorkspaceRequest? {
+    guard developerAuthEnabled else {
+        return nil
+    }
+    let value: (String) -> String = { prefix in
+        launchArguments.first { $0.hasPrefix(prefix) }
+            .flatMap { $0.split(separator: "=", maxSplits: 1).last.map(String.init) }?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+    let windowKey = value("--initialWorkspaceWindowKey=")
+    guard !windowKey.isEmpty else {
+        return nil
+    }
+    let title = value("--initialWorkspaceWindowTitle=").nonEmpty
+    let encodedParameters = value("--initialWorkspaceWindowParametersJSON=")
+    let parameters: [String: JSONValue]
+    if encodedParameters.isEmpty {
+        parameters = [:]
+    } else {
+        guard let data = encodedParameters.data(using: .utf8),
+              let decoded = try? JSONDecoder.agently().decode([String: JSONValue].self, from: data) else {
+            return nil
+        }
+        parameters = decoded
+    }
+    return DeveloperInitialWorkspaceRequest(
+        windowKey: windowKey,
+        windowTitle: title,
+        parameters: parameters
+    )
 }
 
 private extension String {

@@ -147,6 +147,39 @@ final class AppStateTargetingTests: XCTestCase {
         )
     }
 
+    func testDeveloperInitialWorkspaceRequestIsGenericAndDevOnly() {
+        let arguments = [
+            "Agently",
+            "--initialWorkspaceWindowKey=line",
+            "--initialWorkspaceWindowTitle=Line preview",
+            "--initialWorkspaceWindowParametersJSON={\"AudienceId\":[7364938]}"
+        ]
+
+        XCTAssertNil(resolvedDeveloperInitialWorkspaceRequest(
+            launchArguments: arguments,
+            developerAuthEnabled: false
+        ))
+
+        let request = resolvedDeveloperInitialWorkspaceRequest(
+            launchArguments: arguments,
+            developerAuthEnabled: true
+        )
+        XCTAssertEqual(request?.windowKey, "line")
+        XCTAssertEqual(request?.windowTitle, "Line preview")
+        XCTAssertEqual(request?.parameters["AudienceId"], .array([.number(7_364_938)]))
+    }
+
+    func testDeveloperInitialWorkspaceRejectsMalformedParameters() {
+        XCTAssertNil(resolvedDeveloperInitialWorkspaceRequest(
+            launchArguments: [
+                "Agently",
+                "--initialWorkspaceWindowKey=order",
+                "--initialWorkspaceWindowParametersJSON={invalid"
+            ],
+            developerAuthEnabled: true
+        ))
+    }
+
     func testComposerLookupSearchSupportsIdentifierAndNameFromOneField() throws {
         let entry = try JSONDecoder().decode(LookupRegistryEntry.self, from: Data(#"""
         {
