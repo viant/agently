@@ -174,7 +174,7 @@ class AppRuntimeTest {
     }
 
     @Test
-    fun `auth refresh returns recoverable error when workspace hydration fails`() {
+    fun `auth refresh keeps workspace ready when recent conversation hydration fails`() {
         val server = MockWebServer()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
@@ -207,6 +207,47 @@ class AppRuntimeTest {
 
             assertEquals(AuthState.Ready, result.authState)
             assertEquals("test-user", result.user?.username)
+            assertNotNull(result.workspaceSnapshot)
+            assertTrue(result.workspaceSnapshot?.conversations?.isEmpty() == true)
+            assertNull(result.error)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `auth refresh returns recoverable error when workspace metadata hydration fails`() {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                return when {
+                    request.path == "/v1/api/auth/providers" ->
+                        MockResponse().setBody("""[{"name":"bff","type":"bff"}]""")
+                    request.path == "/v1/api/auth/me" ->
+                        MockResponse().setBody("""{"username":"test-user"}""")
+                    request.path?.contains("conversation", ignoreCase = true) == true ->
+                        MockResponse().setBody("""{"rows":[],"hasMore":false}""")
+                    else -> MockResponse().setResponseCode(503).setBody("workspace temporarily unavailable")
+                }
+            }
+        }
+        server.start()
+        try {
+            val baseUrl = server.url("/").toString().trimEnd('/')
+            val client = AgentlyClient(mapOf("appAPI" to EndpointConfig(baseUrl = baseUrl)))
+
+            val result = runBlocking {
+                refreshAuthSession(
+                    currentBaseUrl = baseUrl,
+                    candidates = listOf(baseUrl),
+                    currentClient = client,
+                    buildClient = { client },
+                    loadOnSuccess = true,
+                    targetContext = metadataTargetContext
+                )
+            }
+
+            assertEquals(AuthState.Ready, result.authState)
             assertNull(result.workspaceSnapshot)
             assertNotNull(result.error)
         } finally {

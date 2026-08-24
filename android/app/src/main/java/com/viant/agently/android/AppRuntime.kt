@@ -238,8 +238,17 @@ internal suspend fun loadWorkspaceSnapshot(
     targetContext: MetadataTargetContext
 ): WorkspaceSnapshot = coroutineScope {
     val metadata = async { client.getWorkspaceMetadata(targetContext) }
-    val conversations = async { loadRecentConversations(client) }
-    WorkspaceSnapshot(metadata = metadata.await(), conversations = conversations.await())
+    val conversations = async { runCatching { loadRecentConversations(client) } }
+    val resolvedMetadata = metadata.await()
+    val conversationResult = conversations.await()
+    val conversationError = conversationResult.exceptionOrNull()
+    if (conversationError != null && isAuthRequiredFailure(conversationError)) {
+        throw conversationError
+    }
+    WorkspaceSnapshot(
+        metadata = resolvedMetadata,
+        conversations = conversationResult.getOrDefault(emptyList())
+    )
 }
 
 internal suspend fun loadRecentConversations(

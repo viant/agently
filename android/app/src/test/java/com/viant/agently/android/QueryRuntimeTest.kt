@@ -39,8 +39,8 @@ class QueryRuntimeTest {
         val streamClient = appStreamHttpClient()
 
         assertEquals(10_000, client.connectTimeoutMillis)
-        assertEquals(10_000, client.readTimeoutMillis)
-        assertEquals(10_000, client.callTimeoutMillis)
+        assertEquals(30_000, client.readTimeoutMillis)
+        assertEquals(45_000, client.callTimeoutMillis)
 
         assertEquals(10_000, longRunningClient.connectTimeoutMillis)
         assertEquals(0, longRunningClient.readTimeoutMillis)
