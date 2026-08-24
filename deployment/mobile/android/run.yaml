@@ -72,7 +72,7 @@ pipeline:
     TimeoutMs: 120000
     checkError: true
     errors:
-      - ANDROID_HOME or ANDROID_SDK_ROOT is required.
+      - Android adb executable is required.
       - No connected Android device or emulator is available.
       - Requested Android device is not connected.
       - Android APK is missing; run build or buildLocal first.
@@ -80,11 +80,16 @@ pipeline:
       - |
         set -eu
         ANDROID_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-        if [ -z "$ANDROID_SDK" ]; then
-          echo "ANDROID_HOME or ANDROID_SDK_ROOT is required."
+        if [ -n "$ANDROID_SDK" ] && [ -x "$ANDROID_SDK/platform-tools/adb" ]; then
+          ADB="$ANDROID_SDK/platform-tools/adb"
+        elif command -v adb >/dev/null 2>&1; then
+          ADB="$(command -v adb)"
+        elif [ -x "$HOME/Library/Android/sdk/platform-tools/adb" ]; then
+          ADB="$HOME/Library/Android/sdk/platform-tools/adb"
+        else
+          echo "Android adb executable is required. Install Android SDK Platform-Tools or add adb to PATH."
           exit 1
         fi
-        ADB="$ANDROID_SDK/platform-tools/adb"
         APK="${repoPath}/android/app/build/outputs/apk/debug/app-debug.apk"
         devices="$($ADB devices -l | awk 'NR > 1 && $2 == "device" {print $0}')"
         physical="$(printf '%s\n' "$devices" | awk '$1 !~ /^emulator-/ {print $1; exit}')"
@@ -126,7 +131,7 @@ pipeline:
     description: reverse the selected Android loopback port to the local Agently listener
     checkError: true
     errors:
-      - ANDROID_HOME or ANDROID_SDK_ROOT is required.
+      - Android adb executable is required.
       - No connected Android device or emulator is available.
       - Requested Android device is not connected.
       - Local Agently health check failed.
@@ -134,11 +139,16 @@ pipeline:
       - |
         set -eu
         ANDROID_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-        if [ -z "$ANDROID_SDK" ]; then
-          echo "ANDROID_HOME or ANDROID_SDK_ROOT is required."
+        if [ -n "$ANDROID_SDK" ] && [ -x "$ANDROID_SDK/platform-tools/adb" ]; then
+          ADB="$ANDROID_SDK/platform-tools/adb"
+        elif command -v adb >/dev/null 2>&1; then
+          ADB="$(command -v adb)"
+        elif [ -x "$HOME/Library/Android/sdk/platform-tools/adb" ]; then
+          ADB="$HOME/Library/Android/sdk/platform-tools/adb"
+        else
+          echo "Android adb executable is required. Install Android SDK Platform-Tools or add adb to PATH."
           exit 1
         fi
-        ADB="$ANDROID_SDK/platform-tools/adb"
         PORT="${LOCAL_AGENTLY_PORT:-8080}"
         devices="$($ADB devices -l | awk 'NR > 1 && $2 == "device" {print $0}')"
         physical="$(printf '%s\n' "$devices" | awk '$1 !~ /^emulator-/ {print $1; exit}')"
@@ -176,7 +186,7 @@ pipeline:
     description: confirm Agently is the resumed activity on the selected Android device
     checkError: true
     errors:
-      - ANDROID_HOME or ANDROID_SDK_ROOT is required.
+      - Android adb executable is required.
       - No connected Android device or emulator is available.
       - Requested Android device is not connected.
       - Agently is not the resumed activity.
@@ -184,11 +194,16 @@ pipeline:
       - |
         set -eu
         ANDROID_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-        if [ -z "$ANDROID_SDK" ]; then
-          echo "ANDROID_HOME or ANDROID_SDK_ROOT is required."
+        if [ -n "$ANDROID_SDK" ] && [ -x "$ANDROID_SDK/platform-tools/adb" ]; then
+          ADB="$ANDROID_SDK/platform-tools/adb"
+        elif command -v adb >/dev/null 2>&1; then
+          ADB="$(command -v adb)"
+        elif [ -x "$HOME/Library/Android/sdk/platform-tools/adb" ]; then
+          ADB="$HOME/Library/Android/sdk/platform-tools/adb"
+        else
+          echo "Android adb executable is required. Install Android SDK Platform-Tools or add adb to PATH."
           exit 1
         fi
-        ADB="$ANDROID_SDK/platform-tools/adb"
         devices="$($ADB devices -l | awk 'NR > 1 && $2 == "device" {print $0}')"
         physical="$(printf '%s\n' "$devices" | awk '$1 !~ /^emulator-/ {print $1; exit}')"
         emulator="$(printf '%s\n' "$devices" | awk '$1 ~ /^emulator-/ {print $1; exit}')"
@@ -213,6 +228,37 @@ pipeline:
           echo "Agently is not the resumed activity."
           exit 1
         fi
+        ENDPOINT="${AGENTLY_ANDROID_BASE_URL:-}"
+        case "$ENDPOINT" in
+          https://*)
+            BUILD_CONFIG="${repoPath}/android/app/build/generated/source/buildConfig/debug/com/viant/agently/android/BuildConfig.java"
+            if [ ! -f "$BUILD_CONFIG" ] || ! grep -Fq "APP_API_BASE_URL = \"$ENDPOINT\";" "$BUILD_CONFIG"; then
+              echo "The Android build does not contain the requested public workspace endpoint: $ENDPOINT"
+              exit 1
+            fi
+            expected_version="$(git -C ${repoPath} describe --tags --always --dirty)"
+            installed_version="$("$ADB" -s "$selected" shell dumpsys package com.viant.agently.android \
+              | awk -F= '/^[[:space:]]*versionName=/{print $2; exit}' \
+              | tr -d '\r')"
+            if [ "$installed_version" != "$expected_version" ]; then
+              echo "Installed Agently version does not match the current checkout: expected $expected_version, found $installed_version"
+              exit 1
+            fi
+            reverse_mappings="$("$ADB" -s "$selected" reverse --list)"
+            if [ -n "$reverse_mappings" ]; then
+              echo "Public workspace verification requires no ADB reverse mappings:"
+              printf '%s\n' "$reverse_mappings"
+              exit 1
+            fi
+            proxy="$("$ADB" -s "$selected" shell settings get global http_proxy | tr -d '\r')"
+            case "$proxy" in
+              ''|null|:0) ;;
+              *) echo "Public workspace verification requires no global HTTP proxy; found: $proxy"; exit 1 ;;
+            esac
+            echo "Installed Agently version verified: $installed_version"
+            echo "Public workspace endpoint verified with no proxy or reverse tunnel: $ENDPOINT"
+            ;;
+        esac
         echo "Agently is running on $selected."
 
   removeProxy:
@@ -220,17 +266,22 @@ pipeline:
     description: remove the local Agently reverse-port mapping from the selected device
     checkError: true
     errors:
-      - ANDROID_HOME or ANDROID_SDK_ROOT is required.
+      - Android adb executable is required.
       - DEVICE_SERIAL is required when removing a reverse mapping.
     commands:
       - |
         set -eu
         ANDROID_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-        if [ -z "$ANDROID_SDK" ]; then
-          echo "ANDROID_HOME or ANDROID_SDK_ROOT is required."
+        if [ -n "$ANDROID_SDK" ] && [ -x "$ANDROID_SDK/platform-tools/adb" ]; then
+          ADB="$ANDROID_SDK/platform-tools/adb"
+        elif command -v adb >/dev/null 2>&1; then
+          ADB="$(command -v adb)"
+        elif [ -x "$HOME/Library/Android/sdk/platform-tools/adb" ]; then
+          ADB="$HOME/Library/Android/sdk/platform-tools/adb"
+        else
+          echo "Android adb executable is required. Install Android SDK Platform-Tools or add adb to PATH."
           exit 1
         fi
-        ADB="$ANDROID_SDK/platform-tools/adb"
         PORT="${LOCAL_AGENTLY_PORT:-8080}"
         if [ -z "${DEVICE_SERIAL:-}" ]; then
           echo "DEVICE_SERIAL is required when removing a reverse mapping."
