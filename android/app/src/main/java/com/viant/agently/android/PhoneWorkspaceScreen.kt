@@ -35,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -105,7 +106,15 @@ internal fun PhoneWorkspacePane(
     onToggleComposer: () -> Unit = {}
 ) {
     val headerTitle = resolveWorkspaceHeaderTitle(metadata, workspaceTitle)
-    val hostedWorkspaceState = deriveAgentlyHostedWorkspaceRestoreState(conversationState, streamSnapshot)
+    val runtimeWindows by forgeRuntime.windows.collectAsState(initial = emptyList())
+    val localWorkspaceSnapshot = remember(activeConversationId, runtimeWindows) {
+        buildAndroidUIBridgeSnapshot(activeConversationId, forgeRuntime)
+    }
+    val hostedWorkspaceState = deriveAgentlyHostedWorkspaceRestoreState(
+        conversationState,
+        streamSnapshot,
+        localWorkspaceSnapshot
+    )
     val displayTranscript = transcriptWithActiveAssistant(transcript, streamSnapshot)
     val hostedWorkspaceMinHeight = remember(hostedWorkspaceState) {
         hostedWorkspaceState?.windows

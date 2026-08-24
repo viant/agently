@@ -363,6 +363,93 @@ final class ForecastingPrefillUITests: XCTestCase {
         add(screenshot)
     }
 
+    func testLivePhoneEntityWorkspaceViewsMatchAndroid() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["AGENTLY_IOS_LIVE_ENTITY_WORKSPACE_TESTS"] == "1"
+                || ProcessInfo.processInfo.environment["AGENTLY_IOS_LIVE_UI_TESTS"] == "1",
+            "Enable the live campaign/order/line workspace test explicitly."
+        )
+        let baseURL = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_BASE_URL"] ?? ""
+        let oobSecret = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_OOB_SECRET"] ?? ""
+        let lineID = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_LINE_ID"] ?? "7364938"
+        let activeConversationID = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_ACTIVE_CONVERSATION_ID"] ?? ""
+        try XCTSkipUnless(!baseURL.isEmpty && !oobSecret.isEmpty)
+
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--enableDevAuth=1",
+            "--apiBaseURL=\(baseURL)",
+            "--oobSecretReference=\(oobSecret)",
+            "--autoOOBSignIn=1",
+            "--uiBridgeClientID=ios-ui-entity-workspace-\(UUID().uuidString)",
+            "--initialWorkspaceWindowKey=line",
+            "--initialWorkspaceWindowTitle=Line preview",
+            "--initialWorkspaceWindowParametersJSON={\"AudienceId\":[\(lineID)]}"
+        ]
+        if !activeConversationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            app.launchArguments.append("--activeConversationID=\(activeConversationID)")
+        }
+        app.launch()
+
+        let continueButton = app.buttons["workspace-selection-continue"]
+        if continueButton.waitForExistence(timeout: 15) {
+            continueButton.tap()
+        }
+
+        let orderLink = app.buttons["↑ Order"]
+        let campaignLink = app.buttons["↑ Campaign"]
+        XCTAssertTrue(orderLink.waitForExistence(timeout: 60), "Line workspace did not expose its order parent")
+        XCTAssertTrue(campaignLink.waitForExistence(timeout: 10), "Line workspace did not expose its campaign parent")
+        XCTAssertTrue(app.staticTexts["Range"].exists, "Line workspace did not expose the compact range control")
+        XCTAssertTrue(app.staticTexts["Resolution"].exists, "Line workspace did not expose the compact resolution control")
+        XCTAssertTrue(app.buttons["Delivery"].exists, "Line workspace did not expose the Delivery tab")
+        XCTAssertTrue(app.buttons["KPIs"].exists, "Line workspace did not expose the KPIs tab")
+        XCTAssertTrue(app.buttons["Summary"].exists, "Line workspace did not expose the Summary tab")
+
+        let rangeControl = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Range,")).firstMatch
+        let resolutionControl = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Resolution,")).firstMatch
+        XCTAssertTrue(rangeControl.exists && resolutionControl.exists, "Compact selector buttons did not render")
+        XCTAssertLessThanOrEqual(
+            abs(rangeControl.frame.minY - resolutionControl.frame.minY),
+            4,
+            "Range and Resolution should share one compact phone row"
+        )
+
+        let dailyResolution = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Daily")).firstMatch
+        if dailyResolution.exists && dailyResolution.isHittable {
+            dailyResolution.tap()
+            let hourlyResolution = app.buttons["Hourly"]
+            XCTAssertTrue(hourlyResolution.waitForExistence(timeout: 5), "Hourly resolution option did not appear")
+            hourlyResolution.tap()
+        }
+        let lineScreenshot = XCTAttachment(screenshot: app.screenshot())
+        lineScreenshot.name = "iOS phone line workspace"
+        lineScreenshot.lifetime = .keepAlways
+        add(lineScreenshot)
+
+        if app.staticTexts["Unable to load chart data"].exists {
+            throw XCTSkip("Steward datasource is unavailable; shell parity was verified but hierarchy navigation requires data.")
+        }
+
+        orderLink.tap()
+        XCTAssertTrue(app.buttons["Lines"].waitForExistence(timeout: 90), "Order workspace did not expose child lines")
+        XCTAssertTrue(app.buttons["Pacing"].exists, "Order workspace did not expose the Pacing tab")
+        let orderScreenshot = XCTAttachment(screenshot: app.screenshot())
+        orderScreenshot.name = "iOS phone order workspace"
+        orderScreenshot.lifetime = .keepAlways
+        add(orderScreenshot)
+
+        let orderCampaignLink = app.buttons["↑ Campaign"]
+        XCTAssertTrue(orderCampaignLink.waitForExistence(timeout: 30), "Order workspace did not expose its campaign parent")
+        orderCampaignLink.tap()
+        XCTAssertTrue(app.buttons["Orders"].waitForExistence(timeout: 90), "Campaign workspace did not expose child orders")
+        XCTAssertTrue(app.buttons["Viewability"].exists, "Campaign workspace did not expose the Viewability tab")
+        let campaignScreenshot = XCTAttachment(screenshot: app.screenshot())
+        campaignScreenshot.name = "iOS phone campaign workspace"
+        campaignScreenshot.lifetime = .keepAlways
+        add(campaignScreenshot)
+    }
+
     func testLiveAuthoredReportSectionsRenderOnPhone() throws {
         try XCTSkipUnless(
             ProcessInfo.processInfo.environment["AGENTLY_IOS_LIVE_UI_TESTS"] == "1",

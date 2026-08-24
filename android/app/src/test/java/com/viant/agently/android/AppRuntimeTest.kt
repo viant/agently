@@ -13,6 +13,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.RecordedRequest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -169,6 +171,47 @@ class AppRuntimeTest {
 
         assertEquals(AuthState.Unavailable, result.authState)
         assertNotNull(result.error)
+    }
+
+    @Test
+    fun `auth refresh returns recoverable error when workspace hydration fails`() {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                return when {
+                    request.path == "/v1/api/auth/providers" ->
+                        MockResponse().setBody("""[{"name":"bff","type":"bff"}]""")
+                    request.path == "/v1/api/auth/me" ->
+                        MockResponse().setBody("""{"username":"test-user"}""")
+                    request.path?.contains("conversation", ignoreCase = true) == true ->
+                        MockResponse().setResponseCode(503).setBody("workspace temporarily unavailable")
+                    else -> MockResponse().setBody("{}")
+                }
+            }
+        }
+        server.start()
+        try {
+            val baseUrl = server.url("/").toString().trimEnd('/')
+            val client = AgentlyClient(mapOf("appAPI" to EndpointConfig(baseUrl = baseUrl)))
+
+            val result = runBlocking {
+                refreshAuthSession(
+                    currentBaseUrl = baseUrl,
+                    candidates = listOf(baseUrl),
+                    currentClient = client,
+                    buildClient = { client },
+                    loadOnSuccess = true,
+                    targetContext = metadataTargetContext
+                )
+            }
+
+            assertEquals(AuthState.Ready, result.authState)
+            assertEquals("test-user", result.user?.username)
+            assertNull(result.workspaceSnapshot)
+            assertNotNull(result.error)
+        } finally {
+            server.shutdown()
+        }
     }
 
     @Test

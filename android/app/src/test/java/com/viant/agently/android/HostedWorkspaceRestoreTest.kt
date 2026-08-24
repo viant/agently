@@ -381,4 +381,109 @@ class HostedWorkspaceRestoreTest {
         assertEquals(72, restore?.windows?.singleOrNull()?.workspaceSharePct)
         assertEquals(500, restore?.windows?.singleOrNull()?.workspaceMinHeight)
     }
+
+    @Test
+    fun `local bridge window is visible before transcript contains ui open step`() {
+        val localSnapshot = NativeUIBridgeSnapshot(
+            conversationId = "conv-1",
+            windows = listOf(
+                NativeUIBridgeWindow(
+                    windowId = "chat/new",
+                    windowKey = "chat/new",
+                    windowTitle = "Chat",
+                    conversationId = "conv-1"
+                ),
+                NativeUIBridgeWindow(
+                    windowId = "order__conv-1",
+                    windowKey = "order",
+                    windowTitle = "Order 2626512",
+                    conversationId = "conv-1",
+                    presentation = "hosted",
+                    region = "chat.top",
+                    parentKey = "chat/new",
+                    parameters = JsonObject(mapOf("OrderId" to JsonPrimitive(2626512)))
+                )
+            )
+        )
+
+        val restore = deriveAgentlyHostedWorkspaceRestoreState(
+            state = null,
+            streamSnapshot = null,
+            localSnapshot = localSnapshot
+        )
+
+        assertNotNull(restore)
+        assertEquals("order__conv-1", restore?.selectedWindowId)
+        assertEquals("order", restore?.windows?.singleOrNull()?.windowKey)
+    }
+
+    @Test
+    fun `local bridge window remains authoritative during transcript rehydrate`() {
+        val localSnapshot = NativeUIBridgeSnapshot(
+            conversationId = "conv-1",
+            windows = listOf(
+                NativeUIBridgeWindow(
+                    windowId = "order__conv-1",
+                    windowKey = "order",
+                    windowTitle = "Order 2626512",
+                    conversationId = "conv-1",
+                    presentation = "hosted",
+                    region = "chat.top",
+                    parentKey = "chat/new"
+                )
+            )
+        )
+        val rehydratedStateWithoutWindow = ConversationStateResponse(
+            conversation = ConversationState(conversationId = "conv-1")
+        )
+
+        val restore = deriveAgentlyHostedWorkspaceRestoreState(
+            rehydratedStateWithoutWindow,
+            streamSnapshot = null,
+            localSnapshot = localSnapshot
+        )
+
+        assertEquals("order__conv-1", restore?.selectedWindowId)
+    }
+
+    @Test
+    fun `local bridge snapshot does not expose window from another conversation`() {
+        val localSnapshot = NativeUIBridgeSnapshot(
+            conversationId = "conv-2",
+            windows = listOf(
+                NativeUIBridgeWindow(
+                    windowId = "order__conv-1",
+                    windowKey = "order",
+                    windowTitle = "Order 2626512",
+                    conversationId = "conv-1",
+                    presentation = "hosted",
+                    region = "chat.top",
+                    parentKey = "chat/new"
+                )
+            )
+        )
+
+        val restore = deriveAgentlyHostedWorkspaceRestoreState(localSnapshot)
+
+        assertNull(restore)
+    }
+
+    @Test
+    fun `local bridge snapshot does not expose stale window without active conversation`() {
+        val localSnapshot = NativeUIBridgeSnapshot(
+            windows = listOf(
+                NativeUIBridgeWindow(
+                    windowId = "order__conv-1",
+                    windowKey = "order",
+                    windowTitle = "Order 2626512",
+                    conversationId = "conv-1",
+                    presentation = "hosted",
+                    region = "chat.top",
+                    parentKey = "chat/new"
+                )
+            )
+        )
+
+        assertNull(deriveAgentlyHostedWorkspaceRestoreState(localSnapshot))
+    }
 }

@@ -546,7 +546,17 @@ internal suspend fun refreshAuthSession(
     }
     val nextAuthState = resolveAuthState(providers, user)
     val workspaceSnapshot = if (nextAuthState == AuthState.Ready && loadOnSuccess) {
-        loadWorkspaceSnapshot(authClient, targetContext)
+        try {
+            loadWorkspaceSnapshot(authClient, targetContext)
+        } catch (err: Throwable) {
+            return AuthRefreshResult(
+                resolvedBaseUrl = resolvedBaseUrl,
+                authState = nextAuthState,
+                providers = providers,
+                user = user,
+                error = err
+            )
+        }
     } else {
         null
     }
