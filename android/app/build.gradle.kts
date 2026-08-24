@@ -3,6 +3,43 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+fun gitOutput(vararg arguments: String): String {
+    return runCatching {
+        val command = listOf(
+            "git",
+            "-C",
+            rootProject.projectDir.parentFile.absolutePath,
+        ) + arguments
+        val process = ProcessBuilder(command)
+            .redirectErrorStream(true)
+            .start()
+        val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
+        check(process.waitFor() == 0) { output }
+        output
+    }.getOrDefault("")
+}
+
+val agentlyGitRevision = providers
+    .gradleProperty("agently.gitRevision")
+    .orElse(providers.environmentVariable("AGENTLY_GIT_REVISION"))
+    .orElse(gitOutput("rev-parse", "HEAD"))
+    .get()
+    .ifBlank { "unknown" }
+val agentlyGitVersion = providers
+    .gradleProperty("agently.gitVersion")
+    .orElse(providers.environmentVariable("AGENTLY_GIT_VERSION"))
+    .orElse(gitOutput("describe", "--tags", "--always", "--dirty"))
+    .get()
+    .ifBlank { agentlyGitRevision.take(12) }
+val agentlyGitVersionCode = providers
+    .gradleProperty("agently.gitVersionCode")
+    .orElse(providers.environmentVariable("AGENTLY_GIT_VERSION_CODE"))
+    .orElse(gitOutput("rev-list", "--count", "HEAD"))
+    .get()
+    .toIntOrNull()
+    ?.coerceAtLeast(1)
+    ?: 1
+
 val agentlyAndroidBaseUrlProvider = providers
     .gradleProperty("agently.android.baseUrl")
     .orElse(providers.environmentVariable("AGENTLY_ANDROID_BASE_URL"))
@@ -69,8 +106,10 @@ android {
         applicationId = "com.viant.agently.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = agentlyGitVersionCode
+        versionName = agentlyGitVersion
+        buildConfigField("String", "GIT_REVISION", "\"$agentlyGitRevision\"")
+        buildConfigField("String", "GIT_VERSION", "\"$agentlyGitVersion\"")
         buildConfigField("String", "APP_API_BASE_URL", "\"$agentlyAndroidBaseUrl\"")
         buildConfigField("boolean", "APP_API_BASE_URL_EXPLICIT", agentlyAndroidBaseUrlExplicit.toString())
         buildConfigField("String", "BOOTSTRAP_OAUTH_CONFIG_URL", "\"$agentlyAndroidOauthConfig\"")

@@ -33,6 +33,10 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>AgentlyGitRevision</key>
+	<string>$(AGENTLY_GIT_REVISION)</string>
+	<key>AgentlyGitVersion</key>
+	<string>$(AGENTLY_GIT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
