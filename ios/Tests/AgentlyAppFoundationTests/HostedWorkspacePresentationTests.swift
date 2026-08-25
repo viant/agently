@@ -3,6 +3,11 @@ import XCTest
 import AgentlySDK
 
 final class HostedWorkspacePresentationTests: XCTestCase {
+    func testWorkspaceOpeningToolNamesNormalizeColonAndSlashForms() {
+        XCTAssertTrue(isHostedWorkspaceOpeningToolName("ui/view:open"))
+        XCTAssertTrue(isHostedWorkspaceOpeningToolName("ui/window/open"))
+        XCTAssertFalse(isHostedWorkspaceOpeningToolName("ui/window/list"))
+    }
     func testResolveHostedWorkspacePresentationUsesNavigationMetadata() {
         let window = WorkspaceWindowSnapshot(
             windowId: "report_1",

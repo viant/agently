@@ -1696,7 +1696,7 @@ export function resolveCanonicalDetailStep(canonicalRow = null, step = {}) {
   return step;
 }
 
-export default function IterationBlock({ message, canonicalRow = null, context, showToolFeedDetail = true, suppressBubble = false, retryPrompt = '' }) {
+export default function IterationBlock({ message, canonicalRow = null, context, showToolFeedDetail = true, suppressBubble = false, retryPrompt = '', attachment = null }) {
   const { showDetail } = useContext(DetailContext);
   const { developerMode = false, showIntakeDetails = false, toolFeedDock = 'inline' } = useContext(ConversationViewContext);
   const showExecutionDetails = developerMode;
@@ -2634,6 +2634,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
       {!showTerminalNotice && !suppressBubble && !hasPendingVisibleElicitation && !hasPendingExecutionElicitation && shouldShowNarrationBubble(visibleGroups, continuousRenderedText, data?.response?.content) ? (
         <BubbleMessage
           conversationId={iterationConversationId}
+          attachment={attachment}
           message={{
             id: `${message?.id || 'iteration'}:narration`,
             role: 'assistant',

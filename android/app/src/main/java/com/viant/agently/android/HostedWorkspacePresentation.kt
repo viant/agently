@@ -1,6 +1,7 @@
 package com.viant.agently.android
 
 import com.viant.agentlysdk.HostedWorkspaceRestoreState
+import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.WorkspaceWindowSnapshot
 
 internal data class HostedWorkspacePresentation(
@@ -9,6 +10,33 @@ internal data class HostedWorkspacePresentation(
     val subtitle: String? = null,
     val supportingText: String = "",
 )
+
+internal data class HostedWorkspaceAttachment(
+    val turnId: String,
+    val presentation: HostedWorkspacePresentation,
+)
+
+internal fun isHostedWorkspaceOpeningToolName(value: String): Boolean {
+    val normalized = value.trim().lowercase().replace(':', '/')
+    return normalized in setOf("ui/view/open", "ui/window/open", "ui/window/show")
+}
+
+internal fun hostedWorkspaceAttachment(
+    conversationState: ConversationStateResponse?,
+    restoreState: HostedWorkspaceRestoreState?,
+): HostedWorkspaceAttachment? {
+    val presentation = resolveHostedWorkspacePresentation(restoreState) ?: return null
+    val turn = conversationState?.conversation?.turns?.asReversed()?.firstOrNull { current ->
+        current.execution?.pages.orEmpty().any { page ->
+            page.toolSteps.any { step ->
+                val status = step.status?.trim()?.lowercase().orEmpty()
+                (status.isEmpty() || status in setOf("completed", "succeeded", "success", "done")) &&
+                    isHostedWorkspaceOpeningToolName(step.toolName)
+            }
+        }
+    } ?: return null
+    return turn.turnId.trim().takeIf(String::isNotEmpty)?.let { HostedWorkspaceAttachment(it, presentation) }
+}
 
 internal fun resolveHostedWorkspacePresentation(
     restoreState: HostedWorkspaceRestoreState?
@@ -35,7 +63,7 @@ internal fun resolveHostedWorkspacePresentation(
         badgeLabel = badgeLabel,
         title = title,
         subtitle = null,
-        supportingText = "",
+        supportingText = "Open the ${badgeLabel.lowercase()} workspace.",
     )
 }
 

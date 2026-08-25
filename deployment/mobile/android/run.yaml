@@ -23,7 +23,11 @@ pipeline:
           https://*) ;;
           *) echo "AGENTLY_ANDROID_BASE_URL must be an HTTPS URL."; exit 1 ;;
         esac
-        git -C ${repoPath} submodule update --init --recursive
+        if [ "${AGENTLY_ANDROID_USE_SIBLING_SOURCES:-false}" = "true" ]; then
+          echo "Using sibling Forge and Agently Core working trees."
+        else
+          git -C ${repoPath} submodule update --init --recursive
+        fi
         GIT_REVISION="$(git -C ${repoPath} rev-parse HEAD)"
         GIT_VERSION="$(git -C ${repoPath} describe --tags --always --dirty)"
         GIT_VERSION_CODE="$(git -C ${repoPath} rev-list --count HEAD)"
@@ -49,7 +53,11 @@ pipeline:
       - |
         set -eu
         PORT="${LOCAL_AGENTLY_PORT:-8080}"
-        git -C ${repoPath} submodule update --init --recursive
+        if [ "${AGENTLY_ANDROID_USE_SIBLING_SOURCES:-false}" = "true" ]; then
+          echo "Using sibling Forge and Agently Core working trees."
+        else
+          git -C ${repoPath} submodule update --init --recursive
+        fi
         GIT_REVISION="$(git -C ${repoPath} rev-parse HEAD)"
         GIT_VERSION="$(git -C ${repoPath} describe --tags --always --dirty)"
         GIT_VERSION_CODE="$(git -C ${repoPath} rev-list --count HEAD)"

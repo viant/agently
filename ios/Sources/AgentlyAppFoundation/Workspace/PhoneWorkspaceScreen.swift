@@ -219,7 +219,15 @@ public struct PhoneWorkspaceScreen: View {
             ToolFeedsSection(
                 feeds: mergedToolFeeds(live: streamSnapshot?.feeds ?? [], persisted: conversationState?.feeds ?? []),
                 conversationID: conversationState?.conversation?.conversationID,
-                client: client
+                client: client,
+                collapsible: true,
+                isTurnActive: turnProgressPresentation(
+                    isSending: isSending,
+                    activeTurnID: activeTurnID,
+                    isStoppingTurn: isStoppingTurn,
+                    conversationState: conversationState,
+                    streamSnapshot: streamSnapshot
+                ) != nil
             )
             Group {
                 switch visiblePane {
@@ -440,7 +448,12 @@ public struct PhoneWorkspaceScreen: View {
                 onReuseAndSendPrompt: isSending ? nil : { prompt in
                     composerRuntime.query = prompt
                     onSend()
-                }
+                },
+                workspaceAttachment: hostedWorkspaceAttachment(
+                    conversationState: conversationState,
+                    restoreState: hostedWorkspaceRestoreState
+                ),
+                onOpenWorkspace: { isHostedWorkspacePresented = true }
             )
         }
     }

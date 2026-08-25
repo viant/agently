@@ -582,6 +582,10 @@ function normalizeWorkspaceStateSnapshot(raw = null, { preferLiveSignals = true 
     navigation: raw.navigation && typeof raw.navigation === 'object' ? {
       label: String(raw.navigation.label || '').trim(),
       icon: String(raw.navigation.icon || '').trim(),
+      subtitle: String(raw.navigation.subtitle || '').trim(),
+      supportingText: String(raw.navigation.supportingText || '').trim(),
+      tooltip: String(raw.navigation.tooltip || '').trim(),
+      accent: String(raw.navigation.accent || '').trim(),
     } : null,
     mcpUI: raw.mcpUI && typeof raw.mcpUI === 'object' ? { ...raw.mcpUI } : null,
     windowForm: resolvedWindowForm,

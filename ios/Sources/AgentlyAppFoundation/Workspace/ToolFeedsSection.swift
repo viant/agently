@@ -54,6 +54,15 @@ func mergedToolFeeds(live: [ActiveFeedState], persisted: [ActiveFeedState]) -> [
     return Array(rows.values)
 }
 
+func toolFeedLauncherExpanded(
+    collapsible: Bool,
+    isTurnActive: Bool,
+    userOverride: Bool?
+) -> Bool {
+    guard collapsible else { return true }
+    return userOverride ?? isTurnActive
+}
+
 func toolFeedSummaryLines(_ value: AgentlySDK.JSONValue?, limit: Int = 8) -> [String] {
     guard let value, limit > 0 else { return [] }
     var lines: [String] = []
@@ -189,12 +198,29 @@ struct ToolFeedsSection: View {
     let feeds: [ActiveFeedState]
     let conversationID: String?
     let client: AgentlyClient
+    let collapsible: Bool
+    let isTurnActive: Bool
 
     @State private var selectedFeedID = ""
     @State private var payload: FeedDataResponse?
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var isFeedSheetPresented = false
+    @State private var expansionOverrides: [String: Bool] = [:]
+
+    init(
+        feeds: [ActiveFeedState],
+        conversationID: String?,
+        client: AgentlyClient,
+        collapsible: Bool = false,
+        isTurnActive: Bool = false
+    ) {
+        self.feeds = feeds
+        self.conversationID = conversationID
+        self.client = client
+        self.collapsible = collapsible
+        self.isTurnActive = isTurnActive
+    }
 
     private var visibleFeeds: [ActiveFeedState] { visibleToolFeeds(feeds) }
     private var selectedFeed: ActiveFeedState? { visibleFeeds.first { $0.feedID == selectedFeedID } ?? visibleFeeds.first }
@@ -203,40 +229,73 @@ struct ToolFeedsSection: View {
             ?? visibleFeeds.first?.conversationID?.trimmingCharacters(in: .whitespacesAndNewlines)
             ?? ""
     }
+    private var isLauncherExpanded: Bool {
+        toolFeedLauncherExpanded(
+            collapsible: collapsible,
+            isTurnActive: isTurnActive,
+            userOverride: expansionOverrides[effectiveConversationID]
+        )
+    }
 
     var body: some View {
         if !visibleFeeds.isEmpty, !effectiveConversationID.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
+                HStack(spacing: 10) {
                     Text("Tool feeds").font(.headline)
+                    if collapsible && !isLauncherExpanded {
+                        Text("\(visibleFeeds.count)")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(Color.secondary.opacity(0.10), in: Capsule())
+                    }
                     Spacer()
+                    if collapsible {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                expansionOverrides[effectiveConversationID] = !isLauncherExpanded
+                            }
+                        } label: {
+                            Image(systemName: isLauncherExpanded ? "chevron.up" : "chevron.down")
+                                .font(.caption.weight(.bold))
+                                .frame(width: 28, height: 28)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel(isLauncherExpanded ? "Collapse tool feeds" : "Expand tool feeds")
+                    }
                     Button("Open") { isFeedSheetPresented = true }
                         .font(.caption.weight(.semibold))
                 }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(visibleFeeds) { feed in
-                            Button {
-                                selectedFeedID = feed.feedID ?? ""
-                                isFeedSheetPresented = true
-                            } label: {
-                                HStack(spacing: 5) {
-                                    Image(systemName: toolFeedSymbol(feed.presentation))
-                                    Text(feed.title ?? feed.feedID ?? "Feed")
-                                    if (feed.itemCount ?? 0) > 0 {
-                                        Text("\(feed.itemCount ?? 0)").font(.caption2.weight(.bold))
+                if isLauncherExpanded {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(visibleFeeds) { feed in
+                                Button {
+                                    selectedFeedID = feed.feedID ?? ""
+                                    isFeedSheetPresented = true
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: toolFeedSymbol(feed.presentation))
+                                        Text(feed.title ?? feed.feedID ?? "Feed")
+                                        if (feed.itemCount ?? 0) > 0 {
+                                            Text("\(feed.itemCount ?? 0)").font(.caption2.weight(.bold))
+                                        }
                                     }
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(toolFeedAccent(feed.presentation))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(toolFeedAccent(feed.presentation).opacity(selectedFeedID == feed.feedID ? 0.16 : 0.08), in: Capsule())
+                                    .overlay(Capsule().stroke(toolFeedAccent(feed.presentation).opacity(0.22), lineWidth: 1))
                                 }
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(toolFeedAccent(feed.presentation))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(toolFeedAccent(feed.presentation).opacity(selectedFeedID == feed.feedID ? 0.16 : 0.08), in: Capsule())
-                                .overlay(Capsule().stroke(toolFeedAccent(feed.presentation).opacity(0.22), lineWidth: 1))
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
             .padding(12)

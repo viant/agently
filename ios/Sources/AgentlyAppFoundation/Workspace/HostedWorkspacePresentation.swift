@@ -1,12 +1,41 @@
 import Foundation
 import AgentlySDK
 
-struct HostedWorkspacePresentation: Equatable {
-    let badgeLabel: String
-    let badgeSymbolName: String
-    let title: String
-    let subtitle: String?
-    let supportingText: String
+public struct HostedWorkspacePresentation: Equatable {
+    public let badgeLabel: String
+    public let badgeSymbolName: String
+    public let title: String
+    public let subtitle: String?
+    public let supportingText: String
+}
+
+public struct HostedWorkspaceAttachment: Equatable {
+    public let turnID: String
+    public let presentation: HostedWorkspacePresentation
+}
+
+func isHostedWorkspaceOpeningToolName(_ value: String) -> Bool {
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        .replacingOccurrences(of: ":", with: "/")
+    return ["ui/view/open", "ui/window/open", "ui/window/show"].contains(normalized)
+}
+
+func hostedWorkspaceAttachment(
+    conversationState: ConversationStateResponse?,
+    restoreState: HostedWorkspaceRestoreState?
+) -> HostedWorkspaceAttachment? {
+    guard let presentation = resolveHostedWorkspacePresentation(restoreState: restoreState) else { return nil }
+    let turn = conversationState?.conversation?.turns.reversed().first(where: { turn in
+        turn.execution?.pages.contains(where: { page in
+            page.toolSteps.contains(where: { step in
+                let status = step.status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+                return (status.isEmpty || ["completed", "succeeded", "success", "done"].contains(status))
+                    && isHostedWorkspaceOpeningToolName(step.toolName)
+            })
+        }) == true
+    })
+    guard let turnID = turn?.turnID.trimmingCharacters(in: .whitespacesAndNewlines), !turnID.isEmpty else { return nil }
+    return HostedWorkspaceAttachment(turnID: turnID, presentation: presentation)
 }
 
 func resolveHostedWorkspacePresentation(
@@ -41,7 +70,7 @@ func resolveHostedWorkspacePresentation(
         badgeSymbolName: hostedWorkspaceSymbol(window.navigation?.icon),
         title: title,
         subtitle: nil,
-        supportingText: ""
+        supportingText: "Open the \(badgeLabel.lowercased()) workspace."
     )
 }
 

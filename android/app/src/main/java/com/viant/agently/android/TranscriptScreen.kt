@@ -1,6 +1,7 @@
 package com.viant.agently.android
 
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,11 +9,16 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -44,7 +50,9 @@ internal fun RenderTranscript(
     showStreamingStatusInHeader: Boolean = true,
     onClosePreview: () -> Unit,
     onOpenFile: (GeneratedFileEntry) -> Unit,
-    onOpenInlineReportPdf: (Map<String, Any?>, () -> Unit) -> Unit
+    onOpenInlineReportPdf: (Map<String, Any?>, () -> Unit) -> Unit,
+    workspaceAttachment: HostedWorkspaceAttachment? = null,
+    onOpenWorkspace: (() -> Unit)? = null,
 ) {
     if (items.isEmpty()) {
         return
@@ -54,6 +62,9 @@ internal fun RenderTranscript(
     }
     val windowStart = transcriptWindowStart(items.size, visibleItemCount)
     val visibleItems = items.subList(windowStart, items.size)
+    val attachmentItemId = workspaceAttachment?.let { attachment ->
+        items.lastOrNull { it.role != "user" && it.turnId == attachment.turnId }?.id
+    }
     Text("Transcript", style = MaterialTheme.typography.titleMedium)
     if (windowStart > 0) {
         OutlinedButton(
@@ -159,6 +170,9 @@ internal fun RenderTranscript(
                         messageKey = item.id,
                         onOpenInlineReportPdf = onOpenInlineReportPdf
                     )
+                    workspaceAttachment
+                        ?.takeIf { item.id == attachmentItemId && onOpenWorkspace != null }
+                        ?.let { attachment -> WorkspaceAttachmentCard(attachment, onOpenWorkspace!!) }
                     if (messageApprovals.isNotEmpty()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
@@ -207,6 +221,47 @@ internal fun RenderTranscript(
             }
         }
         Spacer(modifier = Modifier.height(if (startsGroup) 10.dp else 4.dp))
+    }
+}
+
+@Composable
+private fun WorkspaceAttachmentCard(
+    attachment: HostedWorkspaceAttachment,
+    onOpen: () -> Unit,
+) {
+    Surface(
+        color = Color(0xFFF5F9FF),
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
+    ) {
+        Row(
+            modifier = Modifier.padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Surface(color = Color(0xFFE3EEFF), shape = MaterialTheme.shapes.small) {
+                Icon(
+                    imageVector = Icons.Outlined.Description,
+                    contentDescription = null,
+                    tint = Color(0xFF2768C7),
+                    modifier = Modifier.padding(8.dp).size(18.dp),
+                )
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(attachment.presentation.badgeLabel, style = MaterialTheme.typography.labelLarge)
+                Text(
+                    attachment.presentation.supportingText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF667085),
+                    maxLines = 1,
+                )
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
+                contentDescription = "Open ${attachment.presentation.badgeLabel}",
+                tint = Color(0xFF2768C7),
+            )
+        }
     }
 }
 
