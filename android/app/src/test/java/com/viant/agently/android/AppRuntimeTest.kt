@@ -6,9 +6,16 @@ import com.viant.agentlysdk.AuthProvider
 import com.viant.agentlysdk.AuthUser
 import com.viant.agentlysdk.Conversation
 import com.viant.agentlysdk.ConversationStateResponse
+import com.viant.agentlysdk.ConversationState
+import com.viant.agentlysdk.ExecutionPageState
+import com.viant.agentlysdk.ExecutionState
 import com.viant.agentlysdk.EndpointConfig
 import com.viant.agentlysdk.MetadataTargetContext
 import com.viant.agentlysdk.PendingToolApproval
+import com.viant.agentlysdk.PayloadView
+import com.viant.agentlysdk.ToolStepState
+import com.viant.agentlysdk.TurnState
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
@@ -21,6 +28,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Base64
 
 class AppRuntimeTest {
     private val metadataTargetContext = MetadataTargetContext(
@@ -29,6 +37,44 @@ class AppRuntimeTest {
         surface = "app",
         capabilities = listOf("markdown", "chart")
     )
+
+    @Test
+    fun `workspace mutation hydration decodes base64 payload returned by batch API`() {
+        val requestBody = """{"windowId":"report__conv-1","values":{"reportDefinition":{"id":"delivery"}}}"""
+        val encodedBody = Base64.getEncoder().encodeToString(requestBody.toByteArray())
+        val state = ConversationStateResponse(
+            conversation = ConversationState(
+                conversationId = "conv-1",
+                turns = listOf(TurnState(
+                    turnId = "turn-1",
+                    execution = ExecutionState(pages = listOf(ExecutionPageState(
+                        pageId = "page-1",
+                        toolSteps = listOf(ToolStepState(
+                            toolCallId = "tool-1",
+                            toolName = "ui/window/setFormData",
+                            status = "completed",
+                            requestPayloadId = "payload-1",
+                            requestPayload = JsonObject(emptyMap())
+                        ))
+                    )))
+                ))
+            )
+        )
+        val hydrated = hydrateWorkspaceMutationPayloads(
+            state,
+            mapOf("payload-1" to PayloadView(
+                id = "payload-1",
+                inlineBody = encodedBody,
+                compression = ""
+            ))
+        )
+
+        val request = hydrated.conversation?.turns?.single()?.execution?.pages?.single()
+            ?.toolSteps?.single()?.requestPayload as? JsonObject
+        assertEquals("report__conv-1", (request?.get("windowId") as? JsonPrimitive)?.content)
+        assertEquals("delivery", (((request?.get("values") as? JsonObject)
+            ?.get("reportDefinition") as? JsonObject)?.get("id") as? JsonPrimitive)?.content)
+    }
 
     @Test
     fun `phone conversation policy omits model calls and payload previews`() {

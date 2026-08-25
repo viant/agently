@@ -770,12 +770,38 @@ private func progressTokenDetails(
             models: models
         )
     }
-    let input = snapshot?.usage?.inputTokens ?? conversationState?.usage?.totalInputTokens ?? 0
-    let output = snapshot?.usage?.outputTokens ?? conversationState?.usage?.totalOutputTokens ?? 0
-    let embedding = snapshot?.usage?.embeddingTokens ?? 0
-    let total = snapshot?.usage?.totalTokens ?? (input + output + embedding)
+    let conversationUsage = conversationState?.usage
+    let input = snapshot?.usage?.inputTokens ?? conversationUsage?.totalInputTokens ?? 0
+    let output = snapshot?.usage?.outputTokens ?? conversationUsage?.totalOutputTokens ?? 0
+    let embedding = snapshot?.usage?.embeddingTokens ?? conversationUsage?.totalEmbeddingTokens ?? 0
+    let total = snapshot?.usage?.totalTokens ?? conversationUsage?.totalTokens ?? (input + output + embedding)
     guard total > 0 else { return nil }
-    return TurnProgressTokenDetails(scope: "conversation", total: total, input: input, output: output, cachedInput: 0, reasoning: 0, embedding: embedding, models: [])
+    let models = (conversationUsage?.models ?? []).enumerated().map { index, model in
+        let role = model.executionRole?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let modelLabel = [model.provider, model.model]
+            .compactMap { $0?.isEmpty == false ? $0 : nil }
+            .joined(separator: "/")
+        return TurnProgressTokenModel(
+            id: "\(model.provider ?? ""):\(model.model):\(role):\(index)",
+            label: role.isEmpty ? modelLabel : "\(modelLabel) · \(role)",
+            total: model.totalTokens ?? ((model.inputTokens ?? 0) + (model.outputTokens ?? 0)),
+            input: model.inputTokens,
+            output: model.outputTokens,
+            cachedInput: model.cachedInputTokens,
+            reasoning: model.reasoningTokens,
+            embedding: nil
+        )
+    }.sorted { $0.total > $1.total }
+    return TurnProgressTokenDetails(
+        scope: "conversation",
+        total: total,
+        input: input,
+        output: output,
+        cachedInput: conversationUsage?.totalCachedInputTokens ?? 0,
+        reasoning: conversationUsage?.totalReasoningTokens ?? 0,
+        embedding: embedding,
+        models: models
+    )
 }
 
 private func formattedTokenUsage(_ details: TurnProgressTokenDetails?) -> String? {

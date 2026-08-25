@@ -13,10 +13,74 @@ internal fun deriveAgentlyHostedWorkspaceRestoreState(
     streamSnapshot: ConversationStreamSnapshot? = null,
     localSnapshot: NativeUIBridgeSnapshot? = null
 ): HostedWorkspaceRestoreState? {
-    deriveAgentlyHostedWorkspaceRestoreState(localSnapshot)?.let { return it }
-    return filterAgentlyHostedWorkspaceRestoreState(
+    val transcript = filterAgentlyHostedWorkspaceRestoreState(
         deriveHostedWorkspaceRestoreState(state, streamSnapshot)
     )
+    val local = deriveAgentlyHostedWorkspaceRestoreState(localSnapshot)
+    return mergeHostedWorkspaceRestoreStates(transcript, local)
+}
+
+private fun mergeHostedWorkspaceRestoreStates(
+    transcript: HostedWorkspaceRestoreState?,
+    local: HostedWorkspaceRestoreState?
+): HostedWorkspaceRestoreState? {
+    if (transcript == null) return local
+    if (local == null) return transcript
+    val localById = local.windows.associateBy { it.windowId }
+    val merged = transcript.windows.map { durable ->
+        val live = localById[durable.windowId] ?: return@map durable
+        durable.copy(
+            conversationId = durable.conversationId ?: live.conversationId,
+            windowTitle = durable.windowTitle ?: live.windowTitle,
+            presentation = durable.presentation ?: live.presentation,
+            region = durable.region ?: live.region,
+            parentKey = durable.parentKey ?: live.parentKey,
+            workspaceSharePct = durable.workspaceSharePct ?: live.workspaceSharePct,
+            workspaceMinHeight = durable.workspaceMinHeight ?: live.workspaceMinHeight,
+            inTab = durable.inTab ?: live.inTab,
+            parameters = mergeHostedWorkspaceJson(live.parameters, durable.parameters),
+            windowForm = mergeHostedWorkspaceWindowForm(durable.windowForm, live.windowForm)
+        )
+    }
+    val selected = local.selectedWindowId
+        ?.takeIf { candidate -> merged.any { it.windowId == candidate } }
+        ?: transcript.selectedWindowId
+        ?: merged.lastOrNull()?.windowId
+    return HostedWorkspaceRestoreState(merged, selected)
+}
+
+private fun mergeHostedWorkspaceWindowForm(
+    durable: JsonObject?,
+    live: JsonObject?
+): JsonObject? {
+    if (durable == null || durable.isEmpty()) return live
+    if (live == null || live.isEmpty()) return durable
+    // reportBuilder:* is renderer-derived state. When a durable authored
+    // reportDefinition exists, a just-opened local window may already contain
+    // the default builder state; retaining it prevents the authored definition
+    // from being projected. The conversation transcript is authoritative.
+    val sanitizedLive = if (durable["reportDefinition"] is JsonObject) {
+        JsonObject(live.filterKeys { !it.startsWith("reportBuilder:") })
+    } else {
+        live
+    }
+    return mergeHostedWorkspaceJson(sanitizedLive, durable)
+}
+
+private fun mergeHostedWorkspaceJson(base: JsonObject?, overlay: JsonObject?): JsonObject? {
+    if (overlay == null || overlay.isEmpty()) return base
+    if (base == null || base.isEmpty()) return overlay
+    val merged = base.toMutableMap()
+    overlay.forEach { (key, value) ->
+        val baseObject = merged[key] as? JsonObject
+        val overlayObject = value as? JsonObject
+        merged[key] = when {
+            value is kotlinx.serialization.json.JsonPrimitive && value.isString && value.content == "[MaxDepth]" -> merged[key] ?: value
+            baseObject != null && overlayObject != null -> mergeHostedWorkspaceJson(baseObject, overlayObject) ?: overlayObject
+            else -> value
+        }
+    }
+    return JsonObject(merged)
 }
 
 internal fun deriveAgentlyHostedWorkspaceRestoreState(

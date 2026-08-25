@@ -495,6 +495,39 @@ func handleAppleUIBridgeCommand(
     case "ui.window.activate":
         return ["ok": .bool(true)]
 
+    case "ui.report.getCurrent":
+        let windowID = params["windowId"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !windowID.isEmpty else {
+            throw AppleUIBridgeReportError.missingWindowID
+        }
+        let form = await forgeRuntime.windowFormJSONValue(windowID: windowID)
+        return appleReportCurrentResult(windowID: windowID, form: form)
+
+    case "ui.report.run":
+        let windowID = params["windowId"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !windowID.isEmpty else {
+            throw AppleUIBridgeReportError.missingWindowID
+        }
+        guard await forgeRuntime.windowState(id: windowID) != nil else {
+            throw AppleUIBridgeReportError.windowNotFound(windowID)
+        }
+        let requestID = "native-\(UUID().uuidString)"
+        await forgeRuntime.setWindowFormValue(
+            windowID: windowID,
+            values: [
+                "reportRunRequest": .object([
+                    "id": .string(requestID),
+                    "origin": .string("ui.report.run")
+                ])
+            ],
+            replace: false
+        )
+        return try await waitForAppleReportMaterialization(
+            windowID: windowID,
+            requestID: requestID,
+            forgeRuntime: forgeRuntime
+        )
+
     case "ui.data.fetch":
         let windowID = params["windowId"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !windowID.isEmpty else {
@@ -514,6 +547,90 @@ func handleAppleUIBridgeCommand(
     default:
         throw AgentlySDKError.invalidResponse
     }
+}
+
+private enum AppleUIBridgeReportError: LocalizedError {
+    case missingWindowID
+    case windowNotFound(String)
+    case reportNotReady
+    case runFailed(String)
+    case timedOut
+
+    var errorDescription: String? {
+        switch self {
+        case .missingWindowID:
+            return "windowId is required"
+        case .windowNotFound(let id):
+            return "report window not found: \(id)"
+        case .reportNotReady:
+            return "The current report is not ready to run."
+        case .runFailed(let message):
+            return message.isEmpty ? "The native report run failed." : message
+        case .timedOut:
+            return "The native report run did not finish in time."
+        }
+    }
+}
+
+private func appleReportCurrentResult(
+    windowID: String,
+    form: [String: ForgeIOSRuntime.JSONValue]
+) -> [String: BridgeJSONValue] {
+    let definition = form["reportDefinition"]?.objectValue
+    let document = definition?["documentPatch"]?.objectValue
+        ?? definition?["reportDocument"]?.objectValue
+        ?? form["documentPatch"]?.objectValue
+        ?? form["reportDocument"]?.objectValue
+    let canRun = !(document?["blocks"]?.arrayValue ?? []).isEmpty
+    let materialization = form["reportMaterialization"]?.objectValue
+    let status = materialization?["status"]?.stringValue?.lowercased() ?? ""
+    return [
+        "ok": .bool(true),
+        "windowId": .string(windowID),
+        "reportId": definition?["id"]?.appValue ?? .null,
+        "reportName": document?["title"]?.appValue ?? .null,
+        "canRun": .bool(canRun),
+        "canSave": .bool(false),
+        "hasCompletedRun": .bool(status == "completed"),
+        "materialization": materialization.map { .object($0.mapValues(\.appValue)) } ?? .null
+    ]
+}
+
+private func waitForAppleReportMaterialization(
+    windowID: String,
+    requestID: String,
+    forgeRuntime: ForgeRuntime
+) async throws -> [String: BridgeJSONValue] {
+    let deadline = Date().addingTimeInterval(300)
+    while Date() < deadline {
+        try Task.checkCancellation()
+        let form = await forgeRuntime.windowFormJSONValue(windowID: windowID)
+        guard let materialization = form["reportMaterialization"]?.objectValue,
+              materialization["requestId"]?.stringValue == requestID else {
+            try await Task.sleep(nanoseconds: 100_000_000)
+            continue
+        }
+        let status = materialization["status"]?.stringValue?.lowercased() ?? ""
+        if status == "completed" {
+            return [
+                "ok": .bool(true),
+                "windowId": .string(windowID),
+                "materialized": .bool(true),
+                "materializationId": .string(requestID),
+                "status": .string(status),
+                "datasetRefs": materialization["datasetRefs"]?.appValue ?? .array([]),
+                "rowCounts": materialization["rowCounts"]?.appValue ?? .object([:])
+            ]
+        }
+        if status == "failed" {
+            let message = materialization["errors"]?.arrayValue?
+                .compactMap(\.stringValue)
+                .joined(separator: "; ") ?? ""
+            throw AppleUIBridgeReportError.runFailed(message)
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
+    }
+    throw AppleUIBridgeReportError.timedOut
 }
 
 private extension WindowMetadata? {

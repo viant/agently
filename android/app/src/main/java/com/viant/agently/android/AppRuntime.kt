@@ -12,11 +12,17 @@ import com.viant.agentlysdk.ListConversationsInput
 import com.viant.agentlysdk.MetadataTargetContext
 import com.viant.agentlysdk.ListPendingToolApprovalsInput
 import com.viant.agentlysdk.PendingToolApproval
+import com.viant.agentlysdk.PayloadView
 import com.viant.agentlysdk.WorkspaceMetadata
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import java.nio.charset.StandardCharsets
+import java.util.Base64
 
 internal data class ResolvedClient(
     val baseUrl: String,
@@ -300,7 +306,7 @@ internal suspend fun loadConversationBindingData(
         )
     }
     val generatedFilesDeferred = async { client.listGeneratedFiles(conversationId) }
-    val state = stateDeferred.await()
+    val state = hydrateWorkspaceMutationPayloads(client, stateDeferred.await())
     ConversationBindingData(
         state = state,
         goal = goalDeferred.await(),
@@ -312,6 +318,62 @@ internal suspend fun loadConversationBindingData(
             emptyMap()
         }
     )
+}
+
+private suspend fun hydrateWorkspaceMutationPayloads(
+    client: AgentlyClient,
+    state: ConversationStateResponse
+): ConversationStateResponse {
+    val payloadIds = state.conversation?.turns.orEmpty()
+        .flatMap { it.execution?.pages.orEmpty() }
+        .flatMap { it.toolSteps }
+        .filter { it.toolName.trim().lowercase().replace(":", "/") == "ui/window/setformdata" }
+        .mapNotNull { it.requestPayloadId?.trim()?.takeIf(String::isNotEmpty) }
+        .distinct()
+    if (payloadIds.isEmpty()) return state
+    val payloads = runCatching { client.getPayloads(payloadIds) }.getOrElse { return state }
+    return hydrateWorkspaceMutationPayloads(state, payloads)
+}
+
+internal fun hydrateWorkspaceMutationPayloads(
+    state: ConversationStateResponse,
+    payloads: Map<String, PayloadView>
+): ConversationStateResponse {
+    if (payloads.isEmpty()) return state
+    fun payloadElement(id: String?): JsonElement? {
+        val payload = payloads[id?.trim().orEmpty()] ?: return null
+        val body = payload.inlineBody?.trim().orEmpty()
+        if (body.isEmpty()) return null
+        runCatching { Json.parseToJsonElement(body) }.getOrNull()
+            ?.takeIf { it is JsonObject || it is JsonArray }
+            ?.let { return it }
+        // Payload JSON models expose the backend []byte InlineBody as base64.
+        // The batch endpoint may already decompress it and clear Compression,
+        // so decode base64 regardless of that metadata and then detect gzip by
+        // its wire header.
+        val decodedBody = runCatching {
+            val encoded = Base64.getDecoder().decode(body)
+            String(decodePreviewBytes(encoded), StandardCharsets.UTF_8)
+        }.getOrNull() ?: return null
+        return runCatching { Json.parseToJsonElement(decodedBody) }.getOrNull()
+    }
+    val conversation = state.conversation ?: return state
+    val turns = conversation.turns.map { turn ->
+        val execution = turn.execution ?: return@map turn
+        turn.copy(execution = execution.copy(pages = execution.pages.map { page ->
+            page.copy(toolSteps = page.toolSteps.map { step ->
+                if (step.toolName.trim().lowercase().replace(":", "/") != "ui/window/setformdata") {
+                    step
+                } else {
+                    step.copy(
+                        requestPayload = payloadElement(step.requestPayloadId) ?: step.requestPayload,
+                        responsePayload = payloadElement(step.responsePayloadId) ?: step.responsePayload
+                    )
+                }
+            })
+        }))
+    }
+    return state.copy(conversation = conversation.copy(turns = turns))
 }
 
 internal suspend fun prepareConversationBinding(

@@ -636,17 +636,18 @@ function workspaceToolName(step = {}) {
 
 function workspacePayloadTargets(turns = []) {
   const list = Array.isArray(turns) ? turns : [];
-  const turn = list[list.length - 1];
-  const pages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
   const targets = [];
-  pages.forEach((page, pageIndex) => {
-    const steps = Array.isArray(page?.toolSteps) ? page.toolSteps : [];
-    steps.forEach((step, stepIndex) => {
-      const toolName = workspaceToolName(step);
-      if (!['ui/view/open', 'ui/window/list', 'ui/window/show', 'ui/window/setformdata'].includes(toolName)) return;
-      ['requestPayload', 'responsePayload'].forEach((field) => {
-        const payloadId = workspaceToolPayloadReference(step, field);
-        if (payloadId) targets.push({ pageIndex, stepIndex, field, payloadId });
+  list.forEach((turn, turnIndex) => {
+    const pages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
+    pages.forEach((page, pageIndex) => {
+      const steps = Array.isArray(page?.toolSteps) ? page.toolSteps : [];
+      steps.forEach((step, stepIndex) => {
+        const toolName = workspaceToolName(step);
+        if (!['ui/view/open', 'ui/window/open', 'ui/window/list', 'ui/window/show', 'ui/window/close', 'ui/window/setformdata'].includes(toolName)) return;
+        ['requestPayload', 'responsePayload'].forEach((field) => {
+          const payloadId = workspaceToolPayloadReference(step, field);
+          if (payloadId) targets.push({ turnIndex, pageIndex, stepIndex, field, payloadId });
+        });
       });
     });
   });
@@ -668,31 +669,29 @@ export async function hydrateWorkspaceTranscriptTurns(turns = [], payloadLoader 
   const targets = workspacePayloadTargets(turns);
   if (targets.length === 0) return turns;
   const list = Array.isArray(turns) ? turns : [];
-  const latestIndex = list.length - 1;
-  const latestTurn = list[latestIndex];
-  const execution = latestTurn?.execution || {};
-  const pages = Array.isArray(execution?.pages) ? execution.pages : [];
-  const nextPages = pages.map((page) => ({
-    ...page,
-    toolSteps: Array.isArray(page?.toolSteps) ? page.toolSteps.map((step) => ({ ...step })) : [],
-  }));
+  const nextTurns = list.map((turn) => {
+    const execution = turn?.execution || {};
+    const pages = Array.isArray(execution?.pages) ? execution.pages : [];
+    return {
+      ...turn,
+      execution: {
+        ...execution,
+        pages: pages.map((page) => ({
+          ...page,
+          toolSteps: Array.isArray(page?.toolSteps) ? page.toolSteps.map((step) => ({ ...step })) : [],
+        })),
+      },
+    };
+  });
   const loaded = await Promise.all(targets.map(async (target) => ({
     ...target,
     payload: await payloadLoader(target.payloadId),
   })));
-  loaded.forEach(({ pageIndex, stepIndex, field, payload }) => {
+  loaded.forEach(({ turnIndex, pageIndex, stepIndex, field, payload }) => {
     if (!payload || typeof payload !== 'object') return;
-    const step = nextPages[pageIndex]?.toolSteps?.[stepIndex];
+    const step = nextTurns[turnIndex]?.execution?.pages?.[pageIndex]?.toolSteps?.[stepIndex];
     if (step) step[field] = payload;
   });
-  const nextTurns = list.slice();
-  nextTurns[latestIndex] = {
-    ...latestTurn,
-    execution: {
-      ...execution,
-      pages: nextPages,
-    },
-  };
   return nextTurns;
 }
 

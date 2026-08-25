@@ -1194,7 +1194,7 @@ describe('conversationWindow', () => {
     });
   });
 
-  it('restores transcript-backed workspace state from the last turn only', () => {
+  it('preserves prior transcript-backed workspace state when a later list is empty', () => {
     expect(deriveWorkspaceStateFromTranscriptTurns([
       {
         turnId: 'turn-1',
@@ -1244,7 +1244,52 @@ describe('conversationWindow', () => {
           ]
         }
       }
-    ])).toBeNull();
+    ])).toMatchObject({
+      selectedWindowId: 'order_legacy',
+      windows: [{ windowId: 'order_legacy', parameters: { AdOrderId: [111] } }],
+    });
+  });
+
+  it('folds report form mutations across conversation turns', () => {
+    const state = deriveWorkspaceStateFromTranscriptTurns([
+      {
+        execution: { pages: [{ toolSteps: [
+          {
+            toolName: 'ui/view/open', status: 'completed',
+            responsePayload: {
+              windowId: 'report__conv-1', windowKey: 'reportBuilder', windowTitle: 'Report',
+              conversationId: 'conv-1', presentation: 'hosted', region: 'chat.top', parentKey: MAIN_CHAT_WINDOW_ID,
+            },
+          },
+          {
+            toolName: 'ui/window/setFormData', status: 'completed',
+            requestPayload: {
+              windowId: 'report__conv-1', values: {
+                reportDefinition: { id: 'delivery', documentPatch: { blocks: [{ id: 'spend', datasetRef: 'summary' }] } },
+              },
+            },
+          },
+        ] }] },
+      },
+      {
+        execution: { pages: [{ toolSteps: [
+          {
+            toolName: 'ui/window/setFormData', status: 'completed',
+            requestPayload: {
+              windowId: 'report__conv-1', values: {
+                reportDefinition: { documentPatch: { blocks: [{ id: 'sites', datasetRef: 'site' }] } },
+              },
+            },
+          },
+        ] }] },
+      },
+    ]);
+    expect(state?.windows?.[0]?.windowForm).toEqual({
+      reportDefinition: {
+        id: 'delivery',
+        documentPatch: { blocks: [{ id: 'sites', datasetRef: 'site' }] },
+      },
+    });
   });
 
   it('derives workspace state from tool content when response payload is only an envelope', () => {

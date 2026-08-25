@@ -611,6 +611,17 @@ export default function MenuBar({
               })}
             />
           </Tooltip>
+          <Tooltip content={pendingCount > 0 ? `${pendingCount} pending approvals` : 'Approvals'} placement="bottom">
+            <Button
+              minimal
+              icon="notifications"
+              aria-label={pendingCount > 0 ? `${pendingCount} pending approvals` : 'Approvals'}
+              intent={pendingCount > 0 ? 'warning' : 'none'}
+              className={pendingCount > 0 ? 'app-topbar-icon-btn app-approval-bell is-pending' : 'app-topbar-icon-btn app-approval-bell'}
+              data-testid="approval-bell"
+              onClick={() => setOpen?.(!open)}
+            />
+          </Tooltip>
           {shouldShowConversationUsage(conversationId) ? (
             <Tooltip content="Conversation usage" placement="bottom">
               <Button
@@ -623,17 +634,6 @@ export default function MenuBar({
               />
             </Tooltip>
           ) : null}
-          <Tooltip content={pendingCount > 0 ? `${pendingCount} pending approvals` : 'Approvals'} placement="bottom">
-            <Button
-              minimal
-              icon="notifications"
-              aria-label={pendingCount > 0 ? `${pendingCount} pending approvals` : 'Approvals'}
-              intent={pendingCount > 0 ? 'warning' : 'none'}
-              className={pendingCount > 0 ? 'app-topbar-icon-btn app-approval-bell is-pending' : 'app-topbar-icon-btn app-approval-bell'}
-              data-testid="approval-bell"
-              onClick={() => setOpen?.(!open)}
-            />
-          </Tooltip>
         </div>
       </div>
       <div className="app-topbar-right" style={{ position: 'relative' }} ref={userMenuRef}>
