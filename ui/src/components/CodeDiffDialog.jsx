@@ -13,19 +13,17 @@ export function resolveCodeDiffContent(state = {}, mode = 'current') {
 }
 
 export function normalizeCodeDiffMode(mode = 'current', state = {}) {
-  if (mode === 'prev' && !hasPreviousDiffVersion(state)) {
-    return 'current';
-  }
-  return mode;
+  const tabs = resolveCodeDiffTabs(state);
+  return tabs.includes(mode) ? mode : (tabs[0] || 'current');
 }
 
 export function resolveCodeDiffTabs(state = {}) {
-  const tabs = ['current'];
-  if (hasPreviousDiffVersion(state)) {
-    tabs.push('prev');
-  }
-  tabs.push('diff');
-  return tabs;
+  const requested = Array.isArray(state?.modes) && state.modes.length
+    ? state.modes.map((mode) => String(mode || '').trim().toLowerCase())
+    : ['current', 'prev', 'diff'];
+  return [...new Set(requested)].filter((mode) => (
+    ['current', 'diff'].includes(mode) || (mode === 'prev' && hasPreviousDiffVersion(state))
+  ));
 }
 
 function PlainCode({ text = '' }) {
@@ -72,8 +70,8 @@ export default function CodeDiffDialog() {
   const state = useCodeDiffDialogState();
 
   React.useEffect(() => {
-    if (state.open) setMode('current');
-  }, [state.open]);
+    if (state.open) setMode(normalizeCodeDiffMode(state.defaultMode || 'current', state));
+  }, [state.open, state.defaultMode]);
 
   const showPrev = hasPreviousDiffVersion(state);
   const resolvedMode = normalizeCodeDiffMode(mode, state);
@@ -101,9 +99,9 @@ export default function CodeDiffDialog() {
             ) : null}
           </div>
           <ButtonGroup minimal>
-            <Button icon="document" active={resolvedMode === 'current'} onClick={() => setMode('current')}>Current</Button>
-            {showPrev ? <Button icon="history" active={resolvedMode === 'prev'} onClick={() => setMode('prev')}>Prev</Button> : null}
-            <Button icon="changes" active={resolvedMode === 'diff'} onClick={() => setMode('diff')}>Diff</Button>
+            {resolveCodeDiffTabs(state).includes('current') ? <Button icon="document" active={resolvedMode === 'current'} onClick={() => setMode('current')}>Current</Button> : null}
+            {showPrev && resolveCodeDiffTabs(state).includes('prev') ? <Button icon="history" active={resolvedMode === 'prev'} onClick={() => setMode('prev')}>Prev</Button> : null}
+            {resolveCodeDiffTabs(state).includes('diff') ? <Button icon="changes" active={resolvedMode === 'diff'} onClick={() => setMode('diff')}>Diff</Button> : null}
           </ButtonGroup>
         </div>
         <div style={{ flex: 1, minHeight: 0 }}>

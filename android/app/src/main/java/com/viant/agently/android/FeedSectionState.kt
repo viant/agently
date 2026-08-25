@@ -33,11 +33,12 @@ internal fun rememberFeedSectionUiState(
     feeds: List<ActiveFeed>,
     conversationId: String,
     client: AgentlyClient,
-    forgeRuntime: ForgeRuntime
+    forgeRuntime: ForgeRuntime,
+    loadEnabled: Boolean = true
 ): FeedSectionUiState {
     val visibleFeeds = remember(feeds) { visibleFeeds(feeds) }
     var selectedFeedId by remember(conversationId, visibleFeeds.map { it.feedId }) {
-        mutableStateOf(visibleFeeds.first().feedId)
+        mutableStateOf(visibleFeeds.firstOrNull()?.feedId.orEmpty())
     }
     var payload by remember(conversationId, selectedFeedId) { mutableStateOf<FeedDataResponse?>(null) }
     var loading by remember(conversationId, selectedFeedId) { mutableStateOf(false) }
@@ -49,6 +50,7 @@ internal fun rememberFeedSectionUiState(
         registerFeedInteractionHandlers(
             forgeRuntime = forgeRuntime,
             client = client,
+            conversationId = conversationId,
             onError = { error = it },
             onPreview = { preview = it },
             onRefreshRequested = { refreshTick += 1 }
@@ -61,7 +63,8 @@ internal fun rememberFeedSectionUiState(
         }
     }
 
-    LaunchedEffect(conversationId, selectedFeedId, refreshTick, visibleFeeds.firstOrNull { it.feedId == selectedFeedId }?.updatedAt) {
+    LaunchedEffect(conversationId, selectedFeedId, refreshTick, visibleFeeds.firstOrNull { it.feedId == selectedFeedId }?.updatedAt, loadEnabled) {
+        if (!loadEnabled || selectedFeedId.isBlank()) return@LaunchedEffect
         loading = true
         error = null
         val nextState = loadFeedPayloadState(client, selectedFeedId, conversationId)

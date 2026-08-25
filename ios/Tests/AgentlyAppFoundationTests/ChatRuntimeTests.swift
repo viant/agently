@@ -89,7 +89,7 @@ final class ChatRuntimeTests: XCTestCase {
             liveExecutionGroupsByID: [:]
         )
 
-        XCTAssertNil(runtime.latestAssistantMarkdown(snapshot: snapshot))
+        XCTAssertEqual(runtime.latestAssistantMarkdown(snapshot: snapshot), "Checking delivery evidence")
     }
 
     @MainActor
@@ -173,11 +173,99 @@ final class ChatRuntimeTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation?.title, "Working on your request")
-        XCTAssertEqual(presentation?.detail, "Validating performance metrics.")
+        XCTAssertEqual(presentation?.detail, "Using a workspace tool.")
         XCTAssertEqual(presentation?.activity, "Reporting")
-        XCTAssertEqual(presentation?.toolProgress, "Tools 0/1")
-        XCTAssertEqual(presentation?.tokenUsage, "150 tokens")
+        XCTAssertEqual(presentation?.toolProgress, "0/1 done · 1 active")
+        XCTAssertEqual(presentation?.toolDetails.map(\.name), ["reporting:run_report"])
+        XCTAssertEqual(presentation?.toolDetails.map(\.status), ["running"])
+        XCTAssertEqual(presentation?.tokenUsage, "150 total tokens")
         XCTAssertEqual(presentation?.canStop, true)
+    }
+
+    func testTurnProgressDistinguishesQueuedToolsAndWaitingForInput() {
+        let state = ConversationStateResponse(
+            conversation: ConversationState(
+                conversationID: "conv-1",
+                turns: [TurnState(turnID: "turn-1", status: "waiting_for_user")]
+            )
+        )
+        let snapshot = ConversationStreamSnapshot(
+            conversationID: "conv-1",
+            activeTurnID: "turn-1",
+            liveExecutionGroupsByID: [
+                "assistant-1": LiveExecutionGroup(
+                    pageID: "page-1",
+                    assistantMessageID: "assistant-1",
+                    turnID: "turn-1",
+                    status: "running",
+                    toolSteps: [LiveToolStepState(toolCallID: "queued-1", toolName: "search_orders", status: "queued")]
+                )
+            ]
+        )
+
+        let presentation = turnProgressPresentation(
+            isSending: true,
+            activeTurnID: "turn-1",
+            isStoppingTurn: false,
+            conversationState: state,
+            streamSnapshot: snapshot
+        )
+
+        XCTAssertEqual(presentation?.title, "Needs your input")
+        XCTAssertEqual(presentation?.activity, "Needs your input")
+        XCTAssertEqual(presentation?.toolProgress, "0/1 done · 1 queued")
+        XCTAssertEqual(presentation?.toolDetails.first?.status, "queued")
+        XCTAssertEqual(presentation?.isWaitingForUser, true)
+        XCTAssertEqual(presentation?.canStop, false)
+    }
+
+    func testTurnProgressPrefersPerModelTurnTokenDetails() {
+        let snapshot = ConversationStreamSnapshot(
+            conversationID: "conv-1",
+            activeTurnID: "turn-1",
+            liveExecutionGroupsByID: [
+                "assistant-1": LiveExecutionGroup(
+                    pageID: "page-1",
+                    assistantMessageID: "assistant-1",
+                    turnID: "turn-1",
+                    status: "running",
+                    modelSteps: [
+                        LiveModelStepState(
+                            modelCallID: "model-1",
+                            provider: "openai",
+                            model: "gpt-5",
+                            usage: ModelUsageState(inputTokens: 100, outputTokens: 30, cachedInputTokens: 20, reasoningTokens: 5, totalTokens: 130)
+                        ),
+                        LiveModelStepState(
+                            modelCallID: "model-2",
+                            provider: "openai",
+                            model: "gpt-5-mini",
+                            usage: ModelUsageState(inputTokens: 20, outputTokens: 10, totalTokens: 30)
+                        )
+                    ]
+                )
+            ],
+            usage: StreamUsageState(inputTokens: 900, outputTokens: 100, totalTokens: 1_000)
+        )
+
+        let presentation = turnProgressPresentation(
+            isSending: true,
+            activeTurnID: "turn-1",
+            isStoppingTurn: false,
+            conversationState: nil,
+            streamSnapshot: snapshot
+        )
+
+        XCTAssertEqual(presentation?.tokenUsage, "160 turn tokens")
+        XCTAssertEqual(presentation?.tokenDetails?.scope, "turn")
+        XCTAssertEqual(presentation?.tokenDetails?.cachedInput, 20)
+        XCTAssertEqual(presentation?.tokenDetails?.reasoning, 5)
+        XCTAssertEqual(presentation?.tokenDetails?.models.map(\.label), ["openai/gpt-5", "openai/gpt-5-mini"])
+        XCTAssertEqual(presentation?.tokenDetails?.models.first?.input, 100)
+        XCTAssertEqual(presentation?.tokenDetails?.models.first?.output, 30)
+        XCTAssertEqual(presentation?.tokenDetails?.models.first?.cachedInput, 20)
+        XCTAssertEqual(presentation?.tokenDetails?.models.first?.reasoning, 5)
+        XCTAssertNil(presentation?.tokenDetails?.models.first?.embedding)
     }
 
     func testTurnProgressSurvivesStreamGapUsingPersistedPendingTurn() {
@@ -208,7 +296,7 @@ final class ChatRuntimeTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation?.title, "Working on your request")
-        XCTAssertEqual(presentation?.detail, "Checking delivery evidence.")
+        XCTAssertEqual(presentation?.detail, "Planning the next step.")
         XCTAssertEqual(presentation?.activity, "Thinking")
         XCTAssertEqual(presentation?.canStop, true)
     }
@@ -372,7 +460,7 @@ final class ChatRuntimeTests: XCTestCase {
     }
 
     @MainActor
-    func testReplaceTranscriptKeepsPendingNarrationOutOfTranscript() {
+    func testReplaceTranscriptUsesPendingNarrationAsAssistantBubble() {
         let runtime = ChatRuntime()
         let state = ConversationStateResponse(
             conversation: ConversationState(
@@ -391,7 +479,7 @@ final class ChatRuntimeTests: XCTestCase {
 
         runtime.replaceTranscript(from: state)
 
-        XCTAssertTrue(runtime.transcript.isEmpty)
+        XCTAssertEqual(runtime.transcript.last?.markdown, "Waiting for response")
     }
 
     @MainActor

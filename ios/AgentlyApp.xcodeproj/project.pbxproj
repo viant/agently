@@ -267,6 +267,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				AGENTLY_GIT_REVISION = unknown;
 				AGENTLY_GIT_VERSION = unknown;
+				AGENTLY_WORKSPACE_ENDPOINT = "https://steward.agently.viantinc.com/";
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -329,6 +330,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				AGENTLY_GIT_REVISION = unknown;
 				AGENTLY_GIT_VERSION = unknown;
+				AGENTLY_WORKSPACE_ENDPOINT = "https://steward.agently.viantinc.com/";
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;

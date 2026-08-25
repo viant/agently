@@ -20,7 +20,7 @@ export default function MCPUIBubble({ row }) {
       <div className="app-bubble app-bubble-assistant app-mcpui-bubble">
         <div className="app-bubble-content app-mcpui-bubble-content">
           <div className="app-mcpui-bubble-label">{title}</div>
-          <AppRenderer uri={uri} title={title} toolInput={row?.toolInput ?? null} />
+          <AppRenderer uri={uri} title={title} toolInput={row?.toolInput ?? null} conversationId={String(row?.conversationId || '').trim()} />
         </div>
       </div>
     </div>

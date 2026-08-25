@@ -3,6 +3,20 @@ import XCTest
 import AgentlySDK
 
 final class HostedWorkspacePresentationTests: XCTestCase {
+    func testResolveHostedWorkspacePresentationUsesNavigationMetadata() {
+        let window = WorkspaceWindowSnapshot(
+            windowId: "report_1",
+            windowKey: "reportBuilder",
+            windowTitle: "Technical title",
+            navigation: WorkspaceNavigation(label: "Reports", icon: "chart")
+        )
+
+        let presentation = resolveHostedWorkspacePresentation(window: window)
+
+        XCTAssertEqual(presentation?.badgeLabel, "Reports")
+        XCTAssertEqual(presentation?.badgeSymbolName, "chart.xyaxis.line")
+    }
+
     func testResolveHostedWorkspacePresentationUsesTitleWhenAvailable() {
         let window = WorkspaceWindowSnapshot(
             windowId: "line_1",

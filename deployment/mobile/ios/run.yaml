@@ -52,6 +52,8 @@ pipeline:
     checkError: true
     errors:
       - AGENTLY_IOS_DEVELOPMENT_TEAM is required.
+      - AGENTLY_IOS_BASE_URL is required.
+      - AGENTLY_IOS_BASE_URL must be an HTTPS URL.
     commands:
       - |
         set -eu
@@ -65,6 +67,12 @@ pipeline:
           echo "AGENTLY_IOS_DEVELOPMENT_TEAM is required."
           exit 1
         fi
+        ENDPOINT="${AGENTLY_IOS_BASE_URL:-}"
+        case "$ENDPOINT" in
+          https://*) ;;
+          '') echo "AGENTLY_IOS_BASE_URL is required."; exit 1 ;;
+          *) echo "AGENTLY_IOS_BASE_URL must be an HTTPS URL."; exit 1 ;;
+        esac
         GIT_REVISION="$(git -C ${repoPath} rev-parse HEAD)"
         GIT_VERSION="$(git -C ${repoPath} describe --tags --always --dirty)"
         GIT_VERSION_CODE="$(git -C ${repoPath} rev-list --count HEAD)"
@@ -87,6 +95,7 @@ pipeline:
           MARKETING_VERSION="$MARKETING_VERSION" \
           AGENTLY_GIT_REVISION="$GIT_REVISION" \
           AGENTLY_GIT_VERSION="$GIT_VERSION" \
+          AGENTLY_WORKSPACE_ENDPOINT="$ENDPOINT" \
           CODE_SIGN_STYLE=Automatic \
           -allowProvisioningUpdates \
           build
@@ -184,8 +193,11 @@ pipeline:
 
   verify:
     action: exec:run
-    description: verify Agently is installed and running on the selected physical iPhone
+    description: verify the current Agently build is installed and running against the public workspace
     checkError: true
+    errors:
+      - AGENTLY_IOS_BASE_URL is required.
+      - AGENTLY_IOS_BASE_URL must be an HTTPS URL.
     commands:
       - |
         set -eu
@@ -194,11 +206,57 @@ pipeline:
         elif [ -d /Applications/Xcode-beta.app/Contents/Developer ]; then
           export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
         fi
+        ENDPOINT="${AGENTLY_IOS_BASE_URL:-}"
+        case "$ENDPOINT" in
+          https://*) ;;
+          '') echo "AGENTLY_IOS_BASE_URL is required."; exit 1 ;;
+          *) echo "AGENTLY_IOS_BASE_URL must be an HTTPS URL."; exit 1 ;;
+        esac
         DEVICE="${IOS_DEVICE_ID:-}"
         if [ -z "$DEVICE" ]; then
           /usr/bin/xcrun devicectl list devices --json-output /tmp/agently-ios-endly-devices.json >/dev/null
           DEVICE="$(/usr/bin/python3 -c 'import json; rows=json.load(open("/tmp/agently-ios-endly-devices.json")).get("result",{}).get("devices",[]); print(next((r.get("identifier","") for r in rows if r.get("properties",{}).get("hardware",{}).get("reality")=="physical" and r.get("properties",{}).get("hardware",{}).get("platform")=="iOS"),""))')"
         fi
-        /usr/bin/xcrun devicectl device info apps --device "$DEVICE" --bundle-id com.viant.agently.ios | grep -q com.viant.agently.ios
+        APP="${repoPath}/ios/build/DerivedData/Build/Products/Debug-iphoneos/Agently.app"
+        PLIST="$APP/Info.plist"
+        if [ ! -f "$PLIST" ]; then
+          echo "Built Agently Info.plist is missing; run deploy or build first: $PLIST"
+          exit 1
+        fi
+        expected_revision="$(git -C ${repoPath} rev-parse HEAD)"
+        expected_version="$(git -C ${repoPath} describe --tags --always --dirty)"
+        built_revision="$(/usr/libexec/PlistBuddy -c 'Print :AgentlyGitRevision' "$PLIST")"
+        built_version="$(/usr/libexec/PlistBuddy -c 'Print :AgentlyGitVersion' "$PLIST")"
+        built_endpoint="$(/usr/libexec/PlistBuddy -c 'Print :AgentlyWorkspaceEndpoint' "$PLIST")"
+        built_bundle_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")"
+        built_marketing_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")"
+        if [ "$built_revision" != "$expected_revision" ] || [ "$built_version" != "$expected_version" ]; then
+          echo "Built Agently version does not match the current checkout: expected $expected_version ($expected_revision), found $built_version ($built_revision)"
+          exit 1
+        fi
+        if [ "$built_endpoint" != "$ENDPOINT" ]; then
+          echo "Built Agently workspace endpoint does not match: expected $ENDPOINT, found $built_endpoint"
+          exit 1
+        fi
+        APP_INFO=/tmp/agently-ios-endly-app-info.json
+        /usr/bin/xcrun devicectl device info apps \
+          --device "$DEVICE" \
+          --bundle-id com.viant.agently.ios \
+          --json-output "$APP_INFO" >/dev/null
+        installed_versions="$(/usr/bin/python3 - <<'PY'
+        import json
+        rows=json.load(open('/tmp/agently-ios-endly-app-info.json')).get('result',{}).get('apps',[])
+        row=next((item for item in rows if item.get('bundleIdentifier')=='com.viant.agently.ios'), {})
+        print(f"{row.get('bundleVersion','')}|{row.get('version','')}")
+        PY
+        )"
+        installed_bundle_version="${installed_versions%%|*}"
+        installed_marketing_version="${installed_versions#*|}"
+        if [ "$installed_bundle_version" != "$built_bundle_version" ] || [ "$installed_marketing_version" != "$built_marketing_version" ]; then
+          echo "Installed Agently bundle does not match the current build: expected $built_marketing_version ($built_bundle_version), found $installed_marketing_version ($installed_bundle_version)"
+          exit 1
+        fi
         /usr/bin/xcrun devicectl device info processes --device "$DEVICE" | grep -q '/Agently.app/Agently'
+        echo "Installed Agently version verified: $built_version"
+        echo "Public workspace endpoint verified without a local proxy or tunnel: $ENDPOINT"
         echo "Agently is installed and running on $DEVICE."

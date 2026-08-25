@@ -409,7 +409,7 @@ describe('handleStreamEvent', () => {
 
     expect(chatState.lastTranscriptFeedsByConversation['conv-1']).toEqual([
       { feedId: 'plan', title: 'Plan', itemCount: 1, data: { output: { rows: [{ step: 'old' }] } } },
-      { feedId: 'changes', title: 'Changes', itemCount: 2, data: { output: { changes: [{ path: 'a.go' }, { path: 'b.go' }] } } }
+      { feedId: 'changes', title: 'Changes', developerOnly: false, itemCount: 2, data: { output: { changes: [{ path: 'a.go' }, { path: 'b.go' }] } } }
     ]);
 
     handleStreamEvent(chatState, context, 'conv-1', {
@@ -419,7 +419,7 @@ describe('handleStreamEvent', () => {
     });
 
     expect(chatState.lastTranscriptFeedsByConversation['conv-1']).toEqual([
-      { feedId: 'changes', title: 'Changes', itemCount: 2, data: { output: { changes: [{ path: 'a.go' }, { path: 'b.go' }] } } }
+      { feedId: 'changes', title: 'Changes', developerOnly: false, itemCount: 2, data: { output: { changes: [{ path: 'a.go' }, { path: 'b.go' }] } } }
     ]);
   });
 

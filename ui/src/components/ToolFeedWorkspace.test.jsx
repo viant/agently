@@ -4,9 +4,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 const getActiveFeedsMock = vi.hoisted(() => vi.fn(() => []));
 const getSelectedFeedIdMock = vi.hoisted(() => vi.fn(() => ''));
+const fetchFeedDataNowMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../services/toolFeedBus', () => ({
   getActiveFeeds: getActiveFeedsMock,
+  fetchFeedDataNow: fetchFeedDataNowMock,
   onFeedChange: vi.fn(() => () => {}),
   splitFeedKey: vi.fn((feedKey = '') => {
     const raw = String(feedKey || '').trim();
@@ -36,7 +38,7 @@ vi.mock('./ToolFeedDetail.jsx', () => ({
   ),
 }));
 
-import ToolFeedWorkspace, { filterWorkspaceFeeds, sortWorkspaceFeeds } from './ToolFeedWorkspace.jsx';
+import ToolFeedWorkspace, { filterWorkspaceFeeds, isStackedToolFeedViewport, sortWorkspaceFeeds } from './ToolFeedWorkspace.jsx';
 
 describe('sortWorkspaceFeeds', () => {
   it('preserves incoming feed order instead of applying hardcoded priorities', () => {
@@ -51,6 +53,14 @@ describe('sortWorkspaceFeeds', () => {
   });
 });
 
+describe('isStackedToolFeedViewport', () => {
+  it('uses a launcher/drawer until chat and a 320px rail both have practical width', () => {
+    expect(isStackedToolFeedViewport(820)).toBe(true);
+    expect(isStackedToolFeedViewport(1100)).toBe(true);
+    expect(isStackedToolFeedViewport(1101)).toBe(false);
+  });
+});
+
 describe('filterWorkspaceFeeds', () => {
   it('keeps only feeds for the active conversation and sorts them', () => {
     const result = filterWorkspaceFeeds([
@@ -60,6 +70,15 @@ describe('filterWorkspaceFeeds', () => {
     ], 'conv-1');
 
     expect(result.map((item) => item.rawFeedId)).toEqual(['changes', 'plan']);
+  });
+
+  it('shows feeds by default and gates only explicitly developer-only feeds', () => {
+    const feeds = [
+      { feedId: 'conv-1::plan', title: 'Plan', conversationId: 'conv-1' },
+      { feedId: 'conv-1::terminal', title: 'Terminal', conversationId: 'conv-1', developerOnly: true },
+    ];
+    expect(filterWorkspaceFeeds(feeds, 'conv-1', false).map((feed) => feed.title)).toEqual(['Plan']);
+    expect(filterWorkspaceFeeds(feeds, 'conv-1', true).map((feed) => feed.title)).toEqual(['Plan', 'Terminal']);
   });
 });
 
@@ -88,8 +107,8 @@ describe('ToolFeedWorkspace', () => {
     expect(html).toContain('Terminal');
     expect(html).toContain('Changes');
     expect(html).toContain('Close tool feeds');
-    expect(html).toContain('Collapse tool feeds to tabs');
-    expect(html).toContain('Expand tool feed width');
+    expect(html).toContain('Collapse Tool feeds to header');
+    expect(html).toContain('Maximize Tool feeds');
     expect(html).toContain('detail:conv-1:rail');
   });
 
@@ -108,6 +127,20 @@ describe('ToolFeedWorkspace', () => {
     expect(html).toContain('Terminal');
   });
 
+  it('renders a compact top launcher without mounting the full feed body', () => {
+    getActiveFeedsMock.mockReturnValueOnce([
+      { feedId: 'conv-1::plan', rawFeedId: 'plan', title: 'Plan', conversationId: 'conv-1', itemCount: 3 },
+    ]);
+    getSelectedFeedIdMock.mockReturnValueOnce('conv-1::plan');
+    const html = renderToStaticMarkup(React.createElement(ToolFeedWorkspace, {
+      conversationId: 'conv-1',
+      stackedOverride: true,
+    }));
+    expect(html).toContain('is-compact-launcher');
+    expect(html).toContain('Open Tool feeds drawer');
+    expect(html).not.toContain('detail:conv-1:rail');
+  });
+
   it('renders a reopen affordance when feeds are dismissed', () => {
     getActiveFeedsMock.mockReturnValueOnce([
       { feedId: 'conv-1::plan', rawFeedId: 'plan', title: 'Plan', conversationId: 'conv-1', itemCount: 1 },
@@ -120,7 +153,7 @@ describe('ToolFeedWorkspace', () => {
       initialDismissed: true,
     }));
 
-    expect(html).toContain('Reopen tool feeds');
+    expect(html).toContain('Reopen Tool feeds');
     expect(html).toContain('2 active');
     expect(html).not.toContain('detail:conv-1:rail');
   });

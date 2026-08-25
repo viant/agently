@@ -37,6 +37,8 @@
 	<string>$(AGENTLY_GIT_REVISION)</string>
 	<key>AgentlyGitVersion</key>
 	<string>$(AGENTLY_GIT_VERSION)</string>
+	<key>AgentlyWorkspaceEndpoint</key>
+	<string>$(AGENTLY_WORKSPACE_ENDPOINT)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>

@@ -413,7 +413,7 @@ describe('ToolFeedDetail', () => {
     expect(html).toContain('/tmp/project/service.go');
   });
 
-  it('renders nothing for feeds with no spec and no data instead of a loading placeholder', async () => {
+  it('renders an explicit empty state for a loaded feed with no content', async () => {
     const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
     const toolFeedBar = await import('../services/toolFeedSelection');
 
@@ -435,7 +435,20 @@ describe('ToolFeedDetail', () => {
 
     const html = renderToStaticMarkup(React.createElement(ToolFeedDetail));
 
-    expect(html).toBe('');
+    expect(html).toContain('No feed content is available.');
+  });
+
+  it('renders a loading state while the selected feed payload is pending', async () => {
+    const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
+    const toolFeedBar = await import('../services/toolFeedSelection');
+    getActiveFeedsMock.mockReturnValueOnce([{ feedId: 'conv-1::plan', title: 'Plan', conversationId: 'conv-1' }]);
+    toolFeedBar.getExpandedFeedIds.mockImplementation(() => new Set(['conv-1::plan']));
+    toolFeedBar.getSelectedFeedId.mockImplementation(() => 'conv-1::plan');
+    getFeedDataMock.mockImplementation(() => null);
+
+    const html = renderToStaticMarkup(React.createElement(ToolFeedDetail));
+
+    expect(html).toContain('Loading feed content…');
   });
 
   it('renders the queue feed detail when queue feed is expanded', async () => {

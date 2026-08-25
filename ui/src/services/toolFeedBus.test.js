@@ -86,6 +86,7 @@ describe('toolFeedBus conversation scoping', () => {
       data: { output: { lines: ['scoped'] } },
       ui: { name: 'terminal' },
       dataSources: { output: { source: 'output' } },
+      presentation: { icon: 'terminal', accent: 'orange' },
     });
 
     mod.applyFeedEvent({
@@ -104,6 +105,7 @@ describe('toolFeedBus conversation scoping', () => {
 
     expect(client.getFeedData).toHaveBeenLastCalledWith('terminal', 'conv-a');
     expect(mod.getFeedData('conv-a::terminal', 'conv-a')?.data?.output?.lines).toEqual(['scoped']);
+    expect(mod.getActiveFeeds()[0]?.presentation).toEqual({ icon: 'terminal', accent: 'orange' });
   });
 
   it('preserves inline feed data when a spec fetch returns ui without data', async () => {
@@ -133,6 +135,25 @@ describe('toolFeedBus conversation scoping', () => {
       { id: 'turn-q1', preview: 'queued follow-up' },
     ]);
     expect(mod.getFeedData('queue', 'conv-q')?.ui?.title).toBe('Queue');
+  });
+
+  it('preserves fetched UI metadata across later live feed updates', async () => {
+    const mod = await import('./toolFeedBus');
+    mod.applyFeedEvent({
+      type: 'tool_feed_active', feedId: 'changes', conversationId: 'conv-live',
+      feedTitle: 'Changes', feedItemCount: 1, feedData: { output: { changes: [{ url: '/tmp/a' }] } },
+    });
+    mod.updateFeedData('changes', {
+      ui: { containers: [{ fileBrowser: { preview: { kind: 'codeDiff' } } }] },
+      dataSources: { changes: { source: 'output.changes' } },
+    }, 'conv-live');
+    mod.applyFeedEvent({
+      type: 'tool_feed_active', feedId: 'changes', conversationId: 'conv-live',
+      feedTitle: 'Changes', feedItemCount: 1, feedData: { output: { changes: [{ url: '/tmp/b' }] } },
+    });
+
+    expect(mod.getFeedData('changes', 'conv-live')?.ui?.containers?.[0]?.fileBrowser?.preview?.kind).toBe('codeDiff');
+    expect(mod.getFeedData('changes', 'conv-live')?.data?.output?.changes?.[0]?.url).toBe('/tmp/b');
   });
 
   it('remembers inactive feeds until a fresh active event arrives', async () => {

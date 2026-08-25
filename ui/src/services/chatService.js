@@ -73,6 +73,7 @@ import { composerPresentation } from './composerPresentation';
 import { publishWorkspaceMetadataSnapshot } from './workspaceMetadata';
 import { connectForgeUIActionsToCallbacksOrChat } from './forgeUIActions';
 import { openCodeDiffDialog, openFileViewDialog, updateCodeDiffDialog, updateFileViewDialog } from '../utils/dialogBus';
+import { derivePreviousTextFromUnifiedDiff } from 'forge/utils/unifiedDiff';
 import ChatFeedFromChatStore from '../components/chat/ChatFeedFromChatStore.jsx';
 import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore } from './chatStore.js';
 import { conversationIDFromPath } from './chatRuntime';
@@ -1592,13 +1593,32 @@ export async function onChangedFileSelect(props = {}) {
   const uri = String(props?.uri || record?.uri || record?.url || record?.path || '').trim();
   const prevUri = String(props?.origUri || record?.origUri || record?.origUrl || '').trim();
   const diff = String(props?.diff || record?.diff || '').trim();
+  const modes = Array.isArray(props?.modes) ? props.modes : undefined;
+  const defaultMode = String(props?.defaultMode || '').trim() || undefined;
+  const previewTool = String(props?.previewTool || '').trim();
   const title = uri.split('/').pop() || prevUri.split('/').pop() || 'Changed File';
-  openCodeDiffDialog({ title, loading: true, currentUri: uri, prevUri, hasPrev: !!prevUri });
+  openCodeDiffDialog({ title, loading: true, currentUri: uri, prevUri, hasPrev: !!prevUri, modes, defaultMode });
   try {
-    const [current, prev] = await Promise.all([
+    if (previewTool) {
+      const raw = await client.executeTool(previewTool, { url: uri }, {
+        conversationId: String(props?.conversationId || '').trim() || undefined,
+      });
+      const resolved = typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {});
+      updateCodeDiffDialog({
+        current: String(resolved?.current || ''),
+        prev: String(resolved?.previous || ''),
+        diff: String(resolved?.diff || ''),
+        hasPrev: !!String(resolved?.previous || ''),
+        loading: false,
+      });
+      return true;
+    }
+    const [current, downloadedPrev] = await Promise.all([
       fetchWorkspaceText(uri),
       prevUri ? fetchWorkspaceText(prevUri) : Promise.resolve(''),
     ]);
+    const derivedPrev = derivePreviousTextFromUnifiedDiff(current, diff);
+    const prev = prevUri === uri ? (derivedPrev || downloadedPrev) : (downloadedPrev || derivedPrev);
     updateCodeDiffDialog({
       current,
       prev,
@@ -1732,6 +1752,25 @@ export async function runPatchRollback() {
   }
 }
 
+export async function executeDeclaredTool(props = {}) {
+  const tool = props?.execution?.target || props?.item?.tool || props?.tool || {};
+  const name = String(tool?.name || '').trim();
+  if (!name) {
+    showToast('Tool action is missing its tool name.', { intent: 'danger' });
+    return false;
+  }
+  const confirmMessage = String(tool?.confirmMessage || '').trim();
+  if (confirmMessage && typeof window !== 'undefined' && !window.confirm(confirmMessage)) return false;
+  try {
+    await client.executeTool(name, tool?.arguments && typeof tool.arguments === 'object' ? tool.arguments : {});
+    showToast(String(tool?.successMessage || 'Action completed.'), { intent: 'success', ttlMs: 2200 });
+    return true;
+  } catch (err) {
+    showToast(String(err?.message || err || 'Tool action failed'), { intent: 'danger' });
+    return false;
+  }
+}
+
 export const chatService = {
   classifyMessage,
   normalizeMessages,
@@ -1797,6 +1836,7 @@ export const chatService = {
   prepareChangeFiles,
   runPatchCommit,
   runPatchRollback,
+  executeDeclaredTool,
   explorerOpenIcon,
   explorerOpen,
   explorerRead,

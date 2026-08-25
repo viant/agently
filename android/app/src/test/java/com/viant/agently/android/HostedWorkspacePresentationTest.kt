@@ -1,10 +1,25 @@
 package com.viant.agently.android
 
 import com.viant.agentlysdk.WorkspaceWindowSnapshot
+import com.viant.agentlysdk.WorkspaceNavigation
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class HostedWorkspacePresentationTest {
+    @Test
+    fun `resolve hosted workspace presentation uses navigation metadata`() {
+        val window = WorkspaceWindowSnapshot(
+            windowId = "report_1",
+            windowKey = "reportBuilder",
+            windowTitle = "Technical title",
+            navigation = WorkspaceNavigation(label = "Reports", icon = "chart")
+        )
+
+        val presentation = resolveHostedWorkspacePresentation(window)
+
+        assertEquals("Reports", presentation?.badgeLabel)
+    }
+
     @Test
     fun `resolve hosted workspace presentation uses title when available`() {
         val window = WorkspaceWindowSnapshot(

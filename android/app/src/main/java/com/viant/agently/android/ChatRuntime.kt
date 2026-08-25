@@ -69,8 +69,33 @@ internal data class TurnProgressPresentation(
     val detail: String,
     val activity: String,
     val toolProgress: String?,
+    val toolDetails: List<TurnProgressToolDetail> = emptyList(),
     val tokenUsage: String?,
+    val tokenDetails: TurnProgressTokenDetails? = null,
+    val isWaitingForUser: Boolean = false,
     val canStop: Boolean
+)
+
+internal data class TurnProgressToolDetail(val id: String, val name: String, val status: String)
+internal data class TurnProgressTokenModel(
+    val id: String,
+    val label: String,
+    val total: Int,
+    val input: Int? = null,
+    val output: Int? = null,
+    val cachedInput: Int? = null,
+    val reasoning: Int? = null,
+    val embedding: Int? = null
+)
+internal data class TurnProgressTokenDetails(
+    val scope: String,
+    val total: Int,
+    val input: Int,
+    val output: Int,
+    val cachedInput: Int,
+    val reasoning: Int,
+    val embedding: Int,
+    val models: List<TurnProgressTokenModel>
 )
 
 internal fun progressStatusAnnotatedText(markdown: String): AnnotatedString = buildAnnotatedString {
@@ -128,84 +153,178 @@ internal fun turnProgressPresentation(
     }
     if (!loading && activeTurnId.isBlank()) return null
     if (activeTurnId.isBlank()) {
+        val tokenDetails = progressTokenDetails(emptyList(), snapshot, conversationState)
         return TurnProgressPresentation(
             title = "Sending request",
             detail = "Connecting to the workspace.",
             activity = "Connecting",
             toolProgress = null,
-            tokenUsage = formattedConversationTokenUsage(snapshot, conversationState),
+            tokenUsage = formattedTokenUsage(tokenDetails),
+            tokenDetails = tokenDetails,
             canStop = false
         )
     }
     val groups = snapshot?.liveExecutionGroupsById.orEmpty().values
         .filter { it.turnId?.trim() == activeTurnId }
         .sortedWith(compareBy<LiveExecutionGroup> { it.sequence ?: Int.MIN_VALUE }.thenBy { it.iteration ?: Int.MIN_VALUE })
-    val latestGroup = groups.lastOrNull()
-    val narration = sequenceOf(
-        latestGroup?.narration,
-        snapshot?.bufferedMessages.orEmpty().asReversed().firstOrNull { message ->
-            message.role.equals("assistant", ignoreCase = true) &&
-                message.turnId?.trim() == activeTurnId &&
-                !message.narration.isNullOrBlank()
-        }?.narration,
-        latestPendingNarration(conversationState)
-    ).mapNotNull(::sanitizeAssistantTranscriptText).firstOrNull { it.isNotBlank() }
-    val activeToolName = groups.asReversed().asSequence()
-        .flatMap { it.toolSteps.asReversed().asSequence() }
-        .firstOrNull { isActiveExecutionStatus(it.status) }
-        ?.toolName
-    val plannedToolName = latestGroup?.toolCallsPlanned?.asReversed()?.firstNotNullOfOrNull { it.toolName }
-    val bufferedToolName = snapshot?.bufferedMessages.orEmpty().asReversed().firstOrNull { message ->
-        message.turnId?.trim() == activeTurnId && !message.toolName.isNullOrBlank()
-    }?.toolName
+    val toolDetails = progressToolDetails(groups)
+    val activeTurnStatus = conversationState?.conversation?.turns.orEmpty()
+        .lastOrNull { it.turnId.trim() == activeTurnId }
+        ?.status
+    val waitingForUser = snapshot?.pendingElicitation != null || isWaitingForUserStatus(activeTurnStatus)
+    if (waitingForUser) {
+        val tokenDetails = progressTokenDetails(groups, snapshot, conversationState)
+        return TurnProgressPresentation(
+            title = "Needs your input",
+            detail = "Review the requested action to continue.",
+            activity = "Needs your input",
+            toolProgress = explicitToolProgress(groups),
+            toolDetails = toolDetails,
+            tokenUsage = formattedTokenUsage(tokenDetails),
+            tokenDetails = tokenDetails,
+            isWaitingForUser = true,
+            canStop = false
+        )
+    }
+    val activeTools = groups.flatMap { it.toolSteps }.filter { isActiveExecutionStatus(it.status) }
     val activeModel = groups.asReversed().asSequence()
         .flatMap { it.modelSteps.asReversed().asSequence() }
         .firstOrNull { isActiveExecutionStatus(it.status) }
     val plannerStatus = snapshot?.plannerByTurnId?.get(activeTurnId)?.status?.trim().orEmpty()
-    val activity = userFacingToolActivity(activeToolName ?: plannedToolName ?: bufferedToolName)
-        ?: when {
+    val activity = when {
+        activeTools.size == 1 -> userFacingToolActivity(activeTools.single().toolName) ?: "Using tool"
+        activeTools.size > 1 -> "Calling tools"
+        else -> when {
             activeAssistantHasVisibleOutput(snapshot) -> "Writing response"
             activeModel != null -> "Thinking"
             plannerStatus.isNotBlank() -> "Planning"
             else -> "Thinking"
         }
+    }
     val fallback = when (activity) {
         "Writing response" -> "Preparing the response for display."
         "Planning" -> "Preparing the execution plan."
         "Thinking" -> if (activeModel != null) "The model is analyzing the request." else "Planning the next step."
         else -> "Using a workspace tool."
     }
-    val toolSteps = groups.flatMap { it.toolSteps }
-    val plannedToolCount = groups.sumOf { it.toolCallsPlanned.size }
-    val toolTotal = maxOf(toolSteps.size, plannedToolCount)
-    val toolCompleted = toolSteps.count { isTerminalExecutionStatus(it.status) }.coerceAtMost(toolTotal)
+    val toolProgress = explicitToolProgress(groups)
+    val tokenDetails = progressTokenDetails(groups, snapshot, conversationState)
     return TurnProgressPresentation(
         title = "Working on your request",
-        detail = narration ?: fallback,
+        detail = fallback,
         activity = activity,
-        toolProgress = toolTotal.takeIf { it > 0 }?.let { "Tools $toolCompleted/$it" },
-        tokenUsage = formattedConversationTokenUsage(snapshot, conversationState),
+        toolProgress = toolProgress,
+        toolDetails = toolDetails,
+        tokenUsage = formattedTokenUsage(tokenDetails),
+        tokenDetails = tokenDetails,
         canStop = true
     )
 }
 
-private fun formattedConversationTokenUsage(
+private fun progressTokenDetails(
+    groups: List<LiveExecutionGroup>,
     snapshot: ConversationStreamSnapshot?,
     conversationState: ConversationStateResponse?
-): String? {
-    val streamedTotal = snapshot?.usage?.totalTokens ?: 0
-    val persistedTotal = (conversationState?.usage?.totalInputTokens ?: 0) +
-        (conversationState?.usage?.totalOutputTokens ?: 0)
-    val total = if (streamedTotal > 0) streamedTotal else persistedTotal
-    return total.takeIf { it > 0 }?.let {
-        "${java.text.NumberFormat.getIntegerInstance(Locale.US).format(it)} tokens"
+): TurnProgressTokenDetails? {
+    val modelRows = groups.flatMap { it.modelSteps }.mapNotNull { step ->
+        step.usage?.takeIf { (it.totalTokens ?: 0) > 0 }?.let { step to it }
     }
+    if (modelRows.isNotEmpty()) {
+        return TurnProgressTokenDetails(
+            scope = "turn",
+            total = modelRows.sumOf { it.second.totalTokens ?: 0 },
+            input = modelRows.sumOf { it.second.inputTokens ?: 0 },
+            output = modelRows.sumOf { it.second.outputTokens ?: 0 },
+            cachedInput = modelRows.sumOf { it.second.cachedInputTokens ?: 0 },
+            reasoning = modelRows.sumOf { it.second.reasoningTokens ?: 0 },
+            embedding = modelRows.sumOf { it.second.embeddingTokens ?: 0 },
+            models = modelRows.map { (step, usage) ->
+                TurnProgressTokenModel(
+                    id = step.modelCallId,
+                    label = listOfNotNull(step.provider, step.model).joinToString("/"),
+                    total = usage.totalTokens ?: 0,
+                    input = usage.inputTokens,
+                    output = usage.outputTokens,
+                    cachedInput = usage.cachedInputTokens,
+                    reasoning = usage.reasoningTokens,
+                    embedding = usage.embeddingTokens
+                )
+            }.sortedByDescending { it.total }
+        )
+    }
+    val input = snapshot?.usage?.inputTokens ?: conversationState?.usage?.totalInputTokens ?: 0
+    val output = snapshot?.usage?.outputTokens ?: conversationState?.usage?.totalOutputTokens ?: 0
+    val embedding = snapshot?.usage?.embeddingTokens ?: 0
+    val total = snapshot?.usage?.totalTokens ?: (input + output + embedding)
+    if (total <= 0) return null
+    return TurnProgressTokenDetails("conversation", total, input, output, 0, 0, embedding, emptyList())
+}
+
+private fun formattedTokenUsage(details: TurnProgressTokenDetails?): String? {
+    details ?: return null
+    return "${"%,d".format(details.total)} ${if (details.scope == "turn") "turn tokens" else "total tokens"}"
+}
+
+private fun explicitToolProgress(groups: List<LiveExecutionGroup>): String? {
+    val statuses = linkedMapOf<String, String>()
+    var identityComplete = true
+    groups.forEach { group ->
+        group.toolCallsPlanned.forEach { planned ->
+            val id = planned.toolCallId?.trim().orEmpty()
+            if (id.isEmpty()) identityComplete = false else statuses.putIfAbsent(id, "queued")
+        }
+        group.toolSteps.forEach { step ->
+            val id = step.toolCallId?.trim().orEmpty()
+            if (id.isEmpty()) identityComplete = false else statuses[id] = step.status?.trim()?.lowercase(Locale.US).orEmpty()
+        }
+    }
+    if (!identityComplete || statuses.isEmpty()) return null
+    val done = statuses.values.count { it in setOf("completed", "done", "success", "succeeded") }
+    val failed = statuses.values.count { it in setOf("canceled", "cancelled", "declined", "error", "failed", "terminated", "timed_out", "timeout") }
+    val queued = statuses.values.count { it in setOf("open", "pending", "planned", "queued", "waiting") }
+    val active = statuses.size - done - failed - queued
+    return buildList {
+        add("$done/${statuses.size} done")
+        if (active > 0) add("$active active")
+        if (queued > 0) add("$queued queued")
+        if (failed > 0) add("$failed failed")
+    }.joinToString(" · ")
+}
+
+private fun progressToolDetails(groups: List<LiveExecutionGroup>): List<TurnProgressToolDetail> {
+    val rows = linkedMapOf<String, TurnProgressToolDetail>()
+    groups.forEach { group ->
+        group.toolCallsPlanned.forEach { planned ->
+            val id = planned.toolCallId?.trim().orEmpty()
+            if (id.isNotEmpty()) {
+                rows[id] = TurnProgressToolDetail(
+                    id = id,
+                    name = planned.toolName?.trim().takeUnless { it.isNullOrEmpty() } ?: "Tool",
+                    status = rows[id]?.status ?: "queued"
+                )
+            }
+        }
+        group.toolSteps.forEach { step ->
+            val id = step.toolCallId?.trim().orEmpty()
+            if (id.isNotEmpty()) {
+                rows[id] = TurnProgressToolDetail(
+                    id = id,
+                    name = step.toolName?.trim().takeUnless { it.isNullOrEmpty() } ?: rows[id]?.name ?: "Tool",
+                    status = step.status?.trim()?.lowercase(Locale.US).takeUnless { it.isNullOrEmpty() } ?: rows[id]?.status ?: "running"
+                )
+            }
+        }
+    }
+    return rows.values.sortedWith(compareBy<TurnProgressToolDetail> { it.status }.thenBy { it.name.lowercase(Locale.US) })
 }
 
 private fun isActiveExecutionStatus(status: String?): Boolean {
     val value = status?.trim()?.lowercase(Locale.US).orEmpty()
-    return value.isEmpty() || value in setOf("queued", "pending", "starting", "started", "running", "streaming", "processing")
+    return value.isEmpty() || value in setOf("active", "executing", "in_progress", "processing", "starting", "started", "running", "streaming")
 }
+
+private fun isWaitingForUserStatus(status: String?): Boolean =
+    status?.trim()?.lowercase(Locale.US) in setOf("blocked", "eliciting", "waiting_for_user")
 
 private fun isTerminalExecutionStatus(status: String?): Boolean =
     status?.trim()?.lowercase(Locale.US) in setOf(
@@ -215,7 +334,7 @@ private fun isTerminalExecutionStatus(status: String?): Boolean =
 private fun isPendingTurnStatus(status: String?): Boolean =
     status?.trim()?.lowercase(Locale.US) in setOf(
         "queued", "pending", "starting", "running", "streaming", "processing",
-        "waiting", "waiting_for_model", "waiting_for_tool"
+        "waiting", "waiting_for_model", "waiting_for_tool", "waiting_for_user", "blocked", "eliciting"
     )
 
 internal fun userFacingToolActivity(rawName: String?): String? {
@@ -388,7 +507,8 @@ private fun assistantEntryForTurn(
 
 private fun visibleAssistantContent(message: BufferedMessage): String? {
     val content = sanitizeAssistantTranscriptText(message.content).orEmpty()
-    return content.takeIf { it.isNotEmpty() }
+    if (content.isNotEmpty()) return content
+    return sanitizeAssistantTranscriptText(message.narration)?.takeIf { it.isNotEmpty() }
 }
 
 internal fun updateChatEntryDeliveryState(
@@ -460,15 +580,10 @@ internal fun transcriptFromState(state: ConversationStateResponse): List<ChatEnt
         }
         val assistantMessages = listOfNotNull(turn.assistant?.narration, turn.assistant?.final)
         val assistantId = turn.assistant?.final?.messageId ?: turn.assistant?.narration?.messageId
-        // Narration is live progress and is already rendered by the single
-        // global turn-status card. Do not duplicate it in the transcript. For
-        // old terminal turns without a final message, preserve it as fallback.
+        // Narration is the active assistant bubble. The global turn-status card
+        // carries compact metadata only; final content replaces narration.
         val finalContent = sanitizeAssistantTranscriptText(turn.assistant?.final?.content).orEmpty()
-        val narrationFallback = if (isPendingTurnStatus(turn.status)) {
-            ""
-        } else {
-            sanitizeAssistantTranscriptText(turn.assistant?.narration?.content).orEmpty()
-        }
+        val narrationFallback = sanitizeAssistantTranscriptText(turn.assistant?.narration?.content).orEmpty()
         val assistantContent = (finalContent.ifBlank { narrationFallback }).trim()
         val renderedReports = canonicalAssistantReports(assistantMessages)
         if (!assistantId.isNullOrBlank() && (assistantContent.isNotBlank() || !renderedReports.isNullOrEmpty())) {

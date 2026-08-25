@@ -45,4 +45,12 @@ describe('ToolFeedBar state helpers', () => {
     expect(mod.isFeedExpanded('conv-1::explorer')).toBe(false);
     expect(mod.getSelectedFeedId()).toBe('');
   });
+
+  it('resolves presentation metadata without classifying feed ids', async () => {
+    const mod = await import('./ToolFeedBar.jsx');
+    expect(mod.feedIconName({ icon: 'chart' })).toBe('chart');
+    expect(mod.feedAccent({ accent: 'teal' })).toBe('#0a9b98');
+    expect(mod.feedIconName()).toBe('wrench');
+    expect(mod.feedAccent({ accent: 'not-a-color' })).toBe('#5965d8');
+  });
 });

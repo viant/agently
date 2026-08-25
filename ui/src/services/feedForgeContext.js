@@ -83,6 +83,7 @@ export function createFeedContext(feedId, dataSources = {}, conversationId = '')
       const fn = chatService?.[key.slice('chat.'.length)];
       return typeof fn === 'function' ? fn : null;
     }
+    if (key === 'tool.execute') return chatService?.executeDeclaredTool || null;
     const fn = chatService?.[key];
     return typeof fn === 'function' ? fn : null;
   };
@@ -305,6 +306,16 @@ export function createFeedContext(feedId, dataSources = {}, conversationId = '')
       signals,
       handlers: {
         dataSource: dataSourceHandlers,
+        filePreview: { open: (payload) => chatService?.onChangedFileSelect?.({
+          uri: payload?.currentUri,
+          origUri: payload?.previousUri,
+          diff: payload?.diff,
+          modes: payload?.modes,
+          defaultMode: payload?.preview?.defaultMode,
+          previewTool: payload?.tool,
+          conversationId,
+          item: payload?.row,
+        }) },
         ...reportingHostServices,
         on: () => () => {},
         emit: () => {},
@@ -325,6 +336,7 @@ export function createFeedContext(feedId, dataSources = {}, conversationId = '')
     signals: getSignals(firstDS),
     handlers: {
       dataSource: rootSubContext.handlers.dataSource,
+      filePreview: rootSubContext.handlers.filePreview,
       ...reportingHostServices,
       on: () => () => {},
       emit: () => {},

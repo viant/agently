@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.outlined.KeyboardHide
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,6 +35,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -344,6 +347,12 @@ internal fun PhoneWorkspacePane(
             }
 
             else -> {
+                ActiveFeedsSection(
+                    feeds = mergedVisibleFeeds(streamSnapshot, conversationState, activeConversationId),
+                    conversationId = activeConversationId,
+                    client = client,
+                    forgeRuntime = forgeRuntime
+                )
                 RenderTranscript(
                     items = displayTranscript,
                     pendingApprovals = pendingApprovals,
@@ -371,6 +380,8 @@ internal fun TurnProgressStatus(
     presentation: TurnProgressPresentation,
     onStop: (() -> Unit)? = null
 ) {
+    var tokenDetailsOpen by remember { mutableStateOf(false) }
+    var toolDetailsOpen by remember { mutableStateOf(false) }
     var elapsedSeconds by remember(
         presentation.title,
         presentation.detail,
@@ -398,26 +409,23 @@ internal fun TurnProgressStatus(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            if (presentation.isWaitingForUser) {
+                Text("!", color = Color(0xFFC26A00), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            } else {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            }
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Text(presentation.title, style = MaterialTheme.typography.labelLarge, color = Color(0xFF172B4D))
-                Text(
-                    progressStatusAnnotatedText(presentation.detail),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF667085),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     StatusChip(activityLabel, Color(0xFF1A73F0))
-                    presentation.toolProgress?.let { StatusChip(it, Color(0xFF7D52D9)) }
-                    presentation.tokenUsage?.let { StatusChip(it, Color(0xFF667085)) }
+                    presentation.toolProgress?.let { StatusChip(it, Color(0xFF7D52D9)) { toolDetailsOpen = true } }
+                    presentation.tokenUsage?.let { StatusChip(it, Color(0xFF667085)) { tokenDetailsOpen = true } }
                 }
             }
             if (presentation.canStop && onStop != null) {
@@ -427,6 +435,54 @@ internal fun TurnProgressStatus(
             }
         }
     }
+    if (toolDetailsOpen) {
+        AlertDialog(
+            onDismissRequest = { toolDetailsOpen = false },
+            confirmButton = { TextButton(onClick = { toolDetailsOpen = false }) { Text("Done") } },
+            title = { Text("Tool progress") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (presentation.toolDetails.isEmpty()) {
+                        Text("Tool identities are not available yet.")
+                    } else {
+                        presentation.toolDetails.forEach { tool ->
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(userFacingToolActivity(tool.name) ?: tool.name)
+                                Text(tool.status.replace('_', ' ').replaceFirstChar { it.uppercase() })
+                            }
+                        }
+                    }
+                }
+            }
+        )
+    }
+    if (tokenDetailsOpen && presentation.tokenDetails != null) {
+        val details = presentation.tokenDetails
+        AlertDialog(
+            onDismissRequest = { tokenDetailsOpen = false },
+            confirmButton = { TextButton(onClick = { tokenDetailsOpen = false }) { Text("Done") } },
+            title = { Text(if (details.scope == "turn") "This turn" else "Conversation total") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TokenDetailRow("Total", details.total)
+                    TokenDetailRow("Input", details.input)
+                    TokenDetailRow("Output", details.output)
+                    if (details.cachedInput > 0) TokenDetailRow("Cached input", details.cachedInput)
+                    if (details.reasoning > 0) TokenDetailRow("Reasoning", details.reasoning)
+                    if (details.embedding > 0) TokenDetailRow("Embedding", details.embedding)
+                    details.models.forEach { model ->
+                        Text(model.label.ifBlank { "Model" }, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                        TokenDetailRow("Total", model.total)
+                        TokenDetailRow("Input", model.input)
+                        TokenDetailRow("Output", model.output)
+                        TokenDetailRow("Cached input", model.cachedInput)
+                        TokenDetailRow("Reasoning", model.reasoning)
+                        TokenDetailRow("Embedding", model.embedding)
+                    }
+                }
+            }
+        )
+    }
 }
 
 private fun formatProgressElapsed(seconds: Int): String = when {
@@ -435,15 +491,36 @@ private fun formatProgressElapsed(seconds: Int): String = when {
 }
 
 @Composable
-private fun StatusChip(label: String, color: Color) {
+private fun StatusChip(label: String, color: Color, onClick: (() -> Unit)? = null) {
     Text(
         label,
         style = MaterialTheme.typography.labelSmall,
         color = color,
         modifier = Modifier
             .background(color.copy(alpha = 0.09f), CircleShape)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 7.dp, vertical = 2.dp)
     )
+}
+
+@Composable
+private fun TokenDetailRow(label: String, value: Int) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label)
+        Text("%,d".format(value), fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun TokenDetailRow(label: String, value: Int?) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label)
+        Text(
+            value?.let { "%,d".format(it) } ?: "Not reported",
+            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+            color = if (value == null) Color(0xFF667085) else Color.Unspecified
+        )
+    }
 }
 
 @Composable

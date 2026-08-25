@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Icon } from '@blueprintjs/core';
 import { getActiveFeeds, onFeedChange, splitFeedKey } from '../services/toolFeedBus';
 import { getScopedConversationSelection, getSelectedWindow } from '../services/conversationWindow';
 import {
@@ -27,6 +28,27 @@ export function feedIcon(feedId, title = '') {
   const source = rawTitle || rawFeedId;
   const match = source.match(/[A-Za-z0-9]/);
   return match ? match[0].toUpperCase() : '•';
+}
+
+const FEED_ICON_NAMES = Object.freeze({
+  list: 'properties', checklist: 'properties', terminal: 'console', console: 'console',
+  changes: 'changes', refresh: 'refresh', chart: 'chart', report: 'chart',
+  database: 'database', data: 'database', document: 'document', file: 'document',
+  folder: 'folder-open', explorer: 'folder-open',
+});
+const FEED_ACCENTS = Object.freeze({
+  blue: '#1a73f0', orange: '#e08a1e', purple: '#7d52d9', teal: '#0a9b98', pink: '#df5b78',
+});
+
+export function feedIconName(presentation = null) {
+  const token = String(presentation?.icon || '').trim().toLowerCase();
+  return FEED_ICON_NAMES[token] || 'wrench';
+}
+
+export function feedAccent(presentation = null) {
+  const token = String(presentation?.accent || '').trim().toLowerCase();
+  if (FEED_ACCENTS[token]) return FEED_ACCENTS[token];
+  return /^#[0-9a-f]{6}$/i.test(token) ? token : '#5965d8';
 }
 
 export function dedupeFeeds(feeds = []) {
@@ -119,8 +141,9 @@ export default function ToolFeedBar() {
             onClick={() => expandFeed(feed.feedId, feed.conversationId)}
             role="button"
             tabIndex={0}
+            style={{ '--feed-accent': feedAccent(feed.presentation) }}
           >
-            <span className="app-tool-feed-bar-icon">{feedIcon(feed.rawFeedId || feed.feedId, feed.title || feed.feedId)}</span>
+            <span className="app-tool-feed-bar-icon"><Icon icon={feedIconName(feed.presentation)} size={13} /></span>
             <span className="app-tool-feed-bar-title">{feed.title || feed.feedId}</span>
             {feed.itemCount > 0 ? (
               <span className="app-tool-feed-bar-badge">{feed.itemCount}</span>

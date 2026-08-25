@@ -754,6 +754,7 @@ describe('syncTranscriptSnapshot', () => {
           {
             feedId: 'changes',
             title: 'Changes',
+            developerOnly: true,
             itemCount: 1,
             data: { output: { changes: [{ path: 'sample.txt' }] } }
           }
@@ -800,9 +801,10 @@ describe('syncTranscriptSnapshot', () => {
 
     expect(applyFeedEvent).toHaveBeenCalledWith({
       type: 'tool_feed_active',
-      feedId: 'changes',
-      feedTitle: 'Changes',
-      feedItemCount: 1,
+        feedId: 'changes',
+        feedTitle: 'Changes',
+        feedDeveloperOnly: true,
+        feedItemCount: 1,
       feedData: { output: { changes: [{ path: 'sample.txt' }] } },
       conversationId: 'conv-1',
     });

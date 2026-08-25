@@ -26,7 +26,8 @@ func resolveHostedWorkspacePresentation(
     guard let window else {
         return nil
     }
-    let badgeLabel = humanizeHostedWorkspaceKey(window.windowKey) ?? "Workspace"
+    let explicitLabel = normalizeHostedWorkspaceText(window.navigation?.label)
+    let badgeLabel = explicitLabel ?? humanizeHostedWorkspaceKey(window.windowKey) ?? "Workspace"
     let normalizedTitle = normalizeHostedWorkspaceText(window.windowTitle)
     let title: String
     if let normalizedTitle,
@@ -37,11 +38,20 @@ func resolveHostedWorkspacePresentation(
     }
     return HostedWorkspacePresentation(
         badgeLabel: badgeLabel,
-        badgeSymbolName: "rectangle.topthird.inset.filled",
+        badgeSymbolName: hostedWorkspaceSymbol(window.navigation?.icon),
         title: title,
         subtitle: nil,
         supportingText: ""
     )
+}
+
+private func hostedWorkspaceSymbol(_ value: String?) -> String {
+    switch value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "chart": return "chart.xyaxis.line"
+    case "document": return "doc.text"
+    case "application": return "app"
+    default: return "rectangle.topthird.inset.filled"
+    }
 }
 
 private func humanizeHostedWorkspaceKey(_ key: String) -> String? {

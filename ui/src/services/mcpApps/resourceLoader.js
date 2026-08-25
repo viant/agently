@@ -144,6 +144,22 @@ export function resolveMCPUIFrameConfig(payload = null) {
   };
 }
 
+export function resolveMCPUIHostPresentation(payload = null, { allowWorkspace = false } = {}) {
+  const agently = payload?._meta?.ui?.agently;
+  const requested = String(agently?.placement || '').trim().toLowerCase();
+  const navigation = agently?.navigation && typeof agently.navigation === 'object'
+    ? {
+        label: String(agently.navigation.label || '').trim(),
+        icon: String(agently.navigation.icon || '').trim(),
+      }
+    : null;
+  return {
+    requestedPlacement: requested === 'workspace' ? 'workspace' : 'inline',
+    placement: requested === 'workspace' && allowWorkspace ? 'workspace' : 'inline',
+    navigation,
+  };
+}
+
 export async function readMCPUIResource(uri, fetchImpl = globalThis.fetch) {
   const normalized = String(uri || '').trim();
   if (!normalized) {

@@ -28,7 +28,8 @@ vi.mock('@blueprintjs/core', () => ({
   Button: () => null,
   Dialog: () => null,
   Spinner: () => null,
-  Switch: () => null
+  Switch: () => null,
+  Tooltip: ({ children }) => children
 }));
 
 vi.mock('forge/widgets/SchemaBasedForm.jsx', () => ({

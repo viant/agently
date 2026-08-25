@@ -7,9 +7,18 @@ vi.mock('forge/components', () => ({
 }));
 
 import IterationRowBlock from './IterationRowBlock.jsx';
+import { ConversationViewContext } from '../../context/ConversationViewContext';
 
 
 const h = React.createElement;
+
+function renderRow(iterationRow) {
+  return renderToStaticMarkup(h(
+    ConversationViewContext.Provider,
+    { value: { developerMode: true, showIntakeDetails: true, toolFeedDock: 'inline' } },
+    h(IterationRowBlock, { iterationRow })
+  ));
+}
 
 function makeRow(partial = {}) {
   return {
@@ -29,23 +38,23 @@ function makeRow(partial = {}) {
 
 describe('IterationRowBlock', () => {
   it('renders nothing for a non-iteration row', () => {
-    const html = renderToStaticMarkup(h(IterationRowBlock, { iterationRow: null }));
+    const html = renderRow(null);
     expect(html).toBe('');
   });
 
   it('renders the header label from row.header — no (0) for lifecycle-only', () => {
-    const html = renderToStaticMarkup(h(IterationRowBlock, { iterationRow: makeRow({
+    const html = renderRow(makeRow({
       header: { label: 'Starting turn…', tone: 'running', count: 0 },
-    }) }));
+    }));
     expect(html).toContain('Execution details');
     expect(html).not.toContain('(0)');
   });
 
   it('applies tone class from header.tone', () => {
-    const html = renderToStaticMarkup(h(IterationRowBlock, { iterationRow: makeRow({
+    const html = renderRow(makeRow({
       header: { label: 'Completed', tone: 'success', count: 0 },
       lifecycle: 'completed',
-    }) }));
+    }));
     expect(html).toContain('tone-success');
     expect(html).toContain('Execution details');
   });
@@ -68,7 +77,7 @@ describe('IterationRowBlock', () => {
         finalResponse: false,
       }],
     });
-    const html = renderToStaticMarkup(h(IterationRowBlock, { iterationRow: row }));
+    const html = renderRow(row);
     expect(html).not.toContain('Turn started');
     expect(html).toContain('Execution details');
   });
@@ -96,7 +105,7 @@ describe('IterationRowBlock', () => {
         finalResponse: false,
       }],
     });
-    const html = renderToStaticMarkup(h(IterationRowBlock, { iterationRow: row }));
+    const html = renderRow(row);
     expect(html).toContain('openai/gpt-5');
     expect(html).toContain('search');
     expect(html).toContain('Execution details');
@@ -122,7 +131,7 @@ describe('IterationRowBlock', () => {
         finalResponse: false,
       }],
     });
-    const html = renderToStaticMarkup(h(IterationRowBlock, { iterationRow: row }));
+    const html = renderRow(row);
     expect(html).toContain('Checking intake.');
     expect(html).toContain('Execution details');
   });
@@ -141,7 +150,7 @@ describe('IterationRowBlock', () => {
         finalResponse: false,
       }],
     });
-    const html = renderToStaticMarkup(h(IterationRowBlock, { iterationRow: row }));
+    const html = renderRow(row);
     expect(html).toContain('Calling updatePlan.');
     expect(html).toContain('app-bubble');
   });

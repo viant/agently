@@ -331,6 +331,12 @@ internal fun TabletWorkspacePane(
                                 }
                             }
                             if (workspacePanelMode != WorkspacePanelMode.Expanded) {
+                                ActiveFeedsSection(
+                                    feeds = mergedVisibleFeeds(streamSnapshot, conversationState, activeConversationId),
+                                    conversationId = activeConversationId,
+                                    client = client,
+                                    forgeRuntime = forgeRuntime
+                                )
                                 if (hasExecutionDetails) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),

@@ -1,4 +1,7 @@
 id: resources
+presentation:
+  icon: database
+  accent: blue
 match:
   service: resources
   method: read

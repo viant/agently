@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import AppFrame from './AppFrame.jsx';
-import { buildSandboxedSrcDoc, readMCPUIResource, resolveMCPUIFrameConfig } from '../../services/mcpApps/resourceLoader.js';
+import { buildSandboxedSrcDoc, readMCPUIResource, resolveMCPUIFrameConfig, resolveMCPUIHostPresentation } from '../../services/mcpApps/resourceLoader.js';
+import { connectorConfig } from '../../connector.js';
 import { buildEnvelope, MCPUI_METHODS, MCPUI_VERSION, validateEnvelope } from '../../services/mcpApps/appproto.js';
 import { dispatchMCPUIApprovalRequest, subscribeMCPUIApprovalOutcomes } from '../../services/mcpApps/approvalEvents.js';
 import { handleGuestEnvelope } from '../../services/mcpApps/bridge.js';
@@ -157,7 +158,7 @@ export function buildApprovalOutcomeToolResultEnvelope({ windowId = '', resource
   });
 }
 
-export default function AppRenderer({ uri = '', title = 'MCP UI Preview', toolInput = null, toolInputPartial = null }) {
+export default function AppRenderer({ uri = '', title = 'MCP UI Preview', toolInput = null, toolInputPartial = null, conversationId = '', hosted = false }) {
   const frameRef = useRef(null);
   const windowId = useMemo(() => `mcpui-preview:${String(uri || '').trim()}`, [uri]);
   const [frameLoaded, setFrameLoaded] = useState(false);
@@ -178,6 +179,7 @@ export default function AppRenderer({ uri = '', title = 'MCP UI Preview', toolIn
     toolResult: '',
     pendingApproval: false,
     pendingApprovalTitle: '',
+    placement: 'inline',
   });
 
   useEffect(() => {
@@ -199,12 +201,21 @@ export default function AppRenderer({ uri = '', title = 'MCP UI Preview', toolIn
       toolResult: '',
       pendingApproval: false,
       pendingApprovalTitle: '',
+      placement: 'inline',
     }));
     readMCPUIResource(uri)
       .then((payload) => {
         if (!active) return;
         const uiMeta = payload?._meta?.ui || {};
         const frame = resolveMCPUIFrameConfig(payload);
+        const hostPresentation = resolveMCPUIHostPresentation(payload, {
+          allowWorkspace: connectorConfig?.mcpUI?.allowWorkspacePlacement === true,
+        });
+        if (!hosted && hostPresentation.placement === 'workspace' && typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('agently:mcpui-workspace-open', {
+            detail: { uri, title, conversationId, navigation: hostPresentation.navigation },
+          }));
+        }
         setState({
           loading: false,
           error: '',
@@ -218,7 +229,7 @@ export default function AppRenderer({ uri = '', title = 'MCP UI Preview', toolIn
           sandbox: frame.sandbox,
           allowedTools: Array.isArray(uiMeta.allowedTools) ? uiMeta.allowedTools : [],
           allowedToolBundles: Array.isArray(uiMeta.allowedToolBundles) ? uiMeta.allowedToolBundles : [],
-          conversationId: '',
+          conversationId: String(conversationId || '').trim(),
           protocolVersion: String(uiMeta.protocolVersion || MCPUI_VERSION).trim() || MCPUI_VERSION,
           messages: [],
           openLink: '',
@@ -227,6 +238,7 @@ export default function AppRenderer({ uri = '', title = 'MCP UI Preview', toolIn
           toolResult: '',
           pendingApproval: false,
           pendingApprovalTitle: '',
+          placement: hostPresentation.placement,
         });
         setFrameLoaded(false);
       })
@@ -249,13 +261,14 @@ export default function AppRenderer({ uri = '', title = 'MCP UI Preview', toolIn
           toolResult: '',
           pendingApproval: false,
           pendingApprovalTitle: '',
+          placement: 'inline',
         });
         setFrameLoaded(false);
       });
     return () => {
       active = false;
     };
-  }, [uri, title]);
+  }, [conversationId, hosted, uri, title]);
 
   useEffect(() => {
     if (!frameLoaded || (!state.srcDoc && !state.src) || !frameRef.current?.contentWindow) return;
@@ -357,6 +370,9 @@ export default function AppRenderer({ uri = '', title = 'MCP UI Preview', toolIn
   }
   if (state.error) {
     return <div data-testid="mcpui-error" style={{ color: '#b42318' }}>{state.error}</div>;
+  }
+  if (!hosted && state.placement === 'workspace') {
+    return <div className="app-mcpui-workspace-promoted">Opened in Workspace</div>;
   }
   return (
     <div>

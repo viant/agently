@@ -1,4 +1,7 @@
 id: terminal
+presentation:
+  icon: terminal
+  accent: orange
 match:
   service: system/exec
   method: execute
