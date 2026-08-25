@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -25,6 +26,11 @@ import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.StarterTask
 import com.viant.agentlysdk.WorkspaceMetadata
 import java.util.Locale
+
+internal enum class StarterTaskLayout {
+    HorizontalCards,
+    VerticalList,
+}
 
 internal fun resolveSelectedAgentChoice(
     preferredAgentId: String?,
@@ -82,6 +88,7 @@ internal fun WorkspaceTaskStartSection(
     preferredAgentId: String,
     onSelectAgent: (String?) -> Unit,
     onSelectStarterTask: (String) -> Unit,
+    starterTaskLayout: StarterTaskLayout = StarterTaskLayout.HorizontalCards,
     modifier: Modifier = Modifier
 ) {
     val agentChoices = remember(metadata) { workspaceAgentChoices(metadata) }
@@ -157,50 +164,61 @@ internal fun WorkspaceTaskStartSection(
                     color = Color(0xFF667085)
                 )
             } else {
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    starterTasks.forEach { task ->
-                        val prompt = task.prompt?.trim().orEmpty()
-                        ElevatedCard(
-                            modifier = Modifier
-                                .widthIn(min = 220.dp, max = 280.dp)
-                                .clickable {
-                                    if (prompt.isNotBlank()) {
-                                        onSelectStarterTask(prompt)
-                                    }
-                                }
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text(
-                                    text = task.title?.trim().orEmpty(),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = Color(0xFF101828),
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = task.description?.trim().takeUnless { it.isNullOrBlank() }
-                                        ?: selectedAgentLabel.orEmpty(),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFF667085),
-                                    maxLines = 3,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                TextButton(
-                                    onClick = { onSelectStarterTask(prompt) },
-                                    enabled = prompt.isNotBlank()
-                                ) {
-                                    Text("Use task")
-                                }
-                            }
+                if (starterTaskLayout == StarterTaskLayout.VerticalList) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        starterTasks.forEach { task ->
+                            StarterTaskCard(task, selectedAgentLabel.orEmpty(), starterTaskLayout, onSelectStarterTask)
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        starterTasks.forEach { task ->
+                            StarterTaskCard(task, selectedAgentLabel.orEmpty(), starterTaskLayout, onSelectStarterTask)
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StarterTaskCard(
+    task: StarterTask,
+    fallbackDescription: String,
+    layout: StarterTaskLayout,
+    onSelect: (String) -> Unit,
+) {
+    val prompt = task.prompt?.trim().orEmpty()
+    val vertical = layout == StarterTaskLayout.VerticalList
+    ElevatedCard(
+        modifier = Modifier
+            .then(if (vertical) Modifier.fillMaxWidth().heightIn(min = 96.dp) else Modifier.widthIn(min = 220.dp, max = 280.dp))
+            .clickable(enabled = prompt.isNotBlank()) { onSelect(prompt) }
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = task.title?.trim().orEmpty(),
+                style = MaterialTheme.typography.titleSmall,
+                color = Color(0xFF101828),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = task.description?.trim().takeUnless { it.isNullOrBlank() } ?: fallbackDescription,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF667085),
+                maxLines = if (vertical) 4 else 3,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (!vertical) {
+                TextButton(onClick = { onSelect(prompt) }, enabled = prompt.isNotBlank()) { Text("Use task") }
             }
         }
     }

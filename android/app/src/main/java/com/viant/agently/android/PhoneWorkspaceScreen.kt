@@ -286,7 +286,8 @@ internal fun PhoneWorkspacePane(
                 metadata = metadata,
                 preferredAgentId = preferredAgentId,
                 onSelectAgent = onSelectAgent,
-                onSelectStarterTask = onStarterTaskSelected
+                onSelectStarterTask = onStarterTaskSelected,
+                starterTaskLayout = StarterTaskLayout.VerticalList,
             )
         }
         turnProgressPresentation(loading, conversationState, streamSnapshot)?.let { progress ->
