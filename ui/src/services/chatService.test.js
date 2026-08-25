@@ -604,6 +604,21 @@ describe('onChangedFileSelect', () => {
       loading: false,
     }));
   });
+
+  it('loads preview lazily through the metadata-declared preview tool', async () => {
+    client.executeTool.mockResolvedValueOnce(JSON.stringify({
+      current: 'new body', previous: 'old body', diff: '-old body\n+new body', status: 'ok',
+    }));
+    const ok = await onChangedFileSelect({
+      uri: '/repo/a.txt', previewTool: 'system_patch-preview', conversationId: 'conv-1',
+      modes: ['diff', 'current', 'prev'], defaultMode: 'diff',
+    });
+    expect(ok).toBe(true);
+    expect(client.executeTool).toHaveBeenCalledWith('system_patch-preview', { url: '/repo/a.txt' }, { conversationId: 'conv-1' });
+    expect(client.downloadWorkspaceFile).not.toHaveBeenCalled();
+    expect(openCodeDiffDialog).toHaveBeenCalledWith(expect.objectContaining({ modes: ['diff', 'current', 'prev'], defaultMode: 'diff' }));
+    expect(updateCodeDiffDialog).toHaveBeenCalledWith(expect.objectContaining({ current: 'new body', prev: 'old body', hasPrev: true }));
+  });
 });
 
 describe('openResourceFeedPath', () => {

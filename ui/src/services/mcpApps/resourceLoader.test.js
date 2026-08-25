@@ -13,6 +13,7 @@ import {
   normalizeMCPUICSPPolicy,
   resolveMCPUICSP,
   resolveMCPUIFrameConfig,
+  resolveMCPUIHostPresentation,
 } from './resourceLoader.js';
 
 describe('mcpApps/resourceLoader', () => {
@@ -57,6 +58,19 @@ describe('mcpApps/resourceLoader', () => {
       cspPolicy: null,
       useSrc: false,
     });
+  });
+
+  it('keeps MCP UI inline unless host policy approves requested workspace placement', () => {
+    const payload = {
+      _meta: { ui: { agently: { placement: 'workspace', navigation: { label: 'Diagnostics', icon: 'application' } } } },
+    };
+    expect(resolveMCPUIHostPresentation(payload)).toEqual({
+      requestedPlacement: 'workspace',
+      placement: 'inline',
+      navigation: { label: 'Diagnostics', icon: 'application' },
+    });
+    expect(resolveMCPUIHostPresentation(payload, { allowWorkspace: true }).placement).toBe('workspace');
+    expect(resolveMCPUIHostPresentation({ _meta: { ui: { agently: { placement: 'unknown' } } } }, { allowWorkspace: true }).placement).toBe('inline');
   });
 
   it('surfaces explicit legacy csp override from resource meta without changing normal frame config behavior', () => {

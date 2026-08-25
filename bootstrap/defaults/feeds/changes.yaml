@@ -1,4 +1,7 @@
 id: changes
+presentation:
+  icon: changes
+  accent: teal
 match:
   service: system/patch
   method: apply
@@ -15,7 +18,7 @@ dataSource:
   changes:
     dataSourceRef: snapshot
     uniqueKey:
-      - field: changes
+      - field: url
     selectors:
       data: changes
 
@@ -27,6 +30,17 @@ ui:
       dataSourceRef: changes
       fileBrowser:
         title: Browser
+        dedupeBy: url
+        display: tree
+        pathField: url
+        preview:
+          kind: codeDiff
+          tool: system_patch-preview
+          defaultMode: diff
+          currentField: url
+          previousField: origUrl
+          diffField: diff
+          modes: [diff, current, prev]
         className: app-feed-browser app-feed-browser-changes
         style:
           height: min(18vh, 180px)
@@ -34,11 +48,6 @@ ui:
           border: 1px solid #ead9cb
           borderRadius: 10px
           padding: 6px 8px
-        on:
-          - event: onFileSelect
-            handler: chat.onChangedFileSelect
-          - event: onPrepareTreeData
-            handler: chat.prepareChangeFiles
     - id: toolbar
       dataSourceRef: snapshot
       style:
@@ -48,20 +57,30 @@ ui:
         borderRadius: 10px
         padding: 6px 8px
       toolbar:
-        className: app-feed-toolbar app-feed-toolbar-changes
+        className: app-feed-toolbar app-feed-toolbar-actions
         items:
           - id: revert
             label: Revert
             icon: undo
+            appearance: minimal
             align: right
             on:
               - event: onClick
-                handler: chat.runPatchRollback
+                handler: tool.execute
+                target:
+                  name: system_patch-rollback
+                  arguments: {}
+                  successMessage: Changes reverted.
 
           - id: apply
             label: Apply
-            icon: confirm
+            icon: tick
+            intent: primary
             align: right
             on:
               - event: onClick
-                handler: chat.runPatchCommit
+                handler: tool.execute
+                target:
+                  name: system_patch-commit
+                  arguments: {}
+                  successMessage: Changes applied.

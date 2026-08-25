@@ -242,6 +242,12 @@ public struct WorkspaceScreen: View {
                 onRetryStreaming: onRetryStreaming
             )
 
+            ToolFeedsSection(
+                feeds: mergedToolFeeds(live: streamSnapshot?.feeds ?? [], persisted: conversationState?.feeds ?? []),
+                conversationID: conversationState?.conversation?.conversationID,
+                client: client
+            )
+
             GeometryReader { proxy in
                 let availableHeight = max(proxy.size.height, 0)
                 let layoutPlan = resolveHostedWorkspaceLayoutPlan(
@@ -545,8 +551,61 @@ struct TurnProgressPresentation: Equatable {
     let detail: String
     let activity: String
     let toolProgress: String?
+    let toolDetails: [TurnProgressToolDetail]
     let tokenUsage: String?
+    let tokenDetails: TurnProgressTokenDetails?
+    let isWaitingForUser: Bool
     let canStop: Bool
+
+    init(
+        title: String,
+        detail: String,
+        activity: String,
+        toolProgress: String?,
+        toolDetails: [TurnProgressToolDetail] = [],
+        tokenUsage: String?,
+        tokenDetails: TurnProgressTokenDetails? = nil,
+        isWaitingForUser: Bool = false,
+        canStop: Bool
+    ) {
+        self.title = title
+        self.detail = detail
+        self.activity = activity
+        self.toolProgress = toolProgress
+        self.toolDetails = toolDetails
+        self.tokenUsage = tokenUsage
+        self.tokenDetails = tokenDetails
+        self.isWaitingForUser = isWaitingForUser
+        self.canStop = canStop
+    }
+}
+
+struct TurnProgressToolDetail: Equatable, Identifiable {
+    let id: String
+    let name: String
+    let status: String
+}
+
+struct TurnProgressTokenModel: Equatable, Identifiable {
+    let id: String
+    let label: String
+    let total: Int
+    let input: Int?
+    let output: Int?
+    let cachedInput: Int?
+    let reasoning: Int?
+    let embedding: Int?
+}
+
+struct TurnProgressTokenDetails: Equatable {
+    let scope: String
+    let total: Int
+    let input: Int
+    let output: Int
+    let cachedInput: Int
+    let reasoning: Int
+    let embedding: Int
+    let models: [TurnProgressTokenModel]
 }
 
 func progressStatusAttributedText(_ markdown: String) -> AttributedString {
@@ -592,22 +651,26 @@ func turnProgressPresentation(
             : (!persistedPendingTurnID.isEmpty ? persistedPendingTurnID : nil))
     guard isSending || activeID != nil || isStoppingTurn else { return nil }
     if isStoppingTurn {
+        let tokenDetails = progressTokenDetails(groups: [], snapshot: streamSnapshot, conversationState: conversationState)
         return TurnProgressPresentation(
             title: "Stopping request",
             detail: "Stopping the current turn.",
             activity: "Stopping",
             toolProgress: nil,
-            tokenUsage: formattedConversationTokenUsage(streamSnapshot, conversationState: conversationState),
+            tokenUsage: formattedTokenUsage(tokenDetails),
+            tokenDetails: tokenDetails,
             canStop: false
         )
     }
     guard let activeID else {
+        let tokenDetails = progressTokenDetails(groups: [], snapshot: streamSnapshot, conversationState: conversationState)
         return TurnProgressPresentation(
             title: "Sending request",
             detail: "Connecting to the workspace.",
             activity: "Connecting",
             toolProgress: nil,
-            tokenUsage: formattedConversationTokenUsage(streamSnapshot, conversationState: conversationState),
+            tokenUsage: formattedTokenUsage(tokenDetails),
+            tokenDetails: tokenDetails,
             canStop: false
         )
     }
@@ -615,39 +678,43 @@ func turnProgressPresentation(
     let groups = streamSnapshot?.liveExecutionGroupsByID.values
         .filter { ($0.turnID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") == activeID }
         .sorted(by: executionGroupComesBefore) ?? []
-    let latestGroup = groups.last
-    let narrationCandidates = [
-        latestGroup?.narration,
-        streamSnapshot?.bufferedMessages.reversed().first(where: { message in
-            message.role.lowercased() == "assistant" &&
-                message.turnID?.trimmingCharacters(in: .whitespacesAndNewlines) == activeID &&
-                message.narration?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        })?.narration,
-        conversationState?.conversation?.turns.reversed().first(where: { turn in
-            turn.turnID == activeID || isPendingTurnStatus(turn.status)
-        })?.assistant?.narration?.content
-    ]
-    let narration = narrationCandidates
-        .compactMap(sanitizeAssistantTranscriptText)
-        .first(where: { !$0.isEmpty })
-
-    let liveToolName = groups.reversed().lazy.flatMap(\.toolSteps).first(where: { step in
+    let toolDetails = progressToolDetails(groups)
+    let persistedActiveStatus = conversationState?.conversation?.turns.reversed().first(where: {
+        $0.turnID.trimmingCharacters(in: .whitespacesAndNewlines) == activeID
+    })?.status
+    let waitingForUser = streamSnapshot?.pendingElicitation != nil || isWaitingForUserStatus(persistedActiveStatus)
+    if waitingForUser {
+        let tokenDetails = progressTokenDetails(groups: groups, snapshot: streamSnapshot, conversationState: conversationState)
+        return TurnProgressPresentation(
+            title: "Needs your input",
+            detail: "Review the requested action to continue.",
+            activity: "Needs your input",
+            toolProgress: explicitToolProgress(groups),
+            toolDetails: toolDetails,
+            tokenUsage: formattedTokenUsage(tokenDetails),
+            tokenDetails: tokenDetails,
+            isWaitingForUser: true,
+            canStop: false
+        )
+    }
+    let activeTools = groups.flatMap(\.toolSteps).filter { step in
         isActiveExecutionStatus(step.status)
-    })?.toolName
-    let plannedToolName = latestGroup?.toolCallsPlanned.reversed().compactMap(\.toolName).first
-    let bufferedToolName = streamSnapshot?.bufferedMessages.reversed().first(where: { message in
-        message.turnID?.trimmingCharacters(in: .whitespacesAndNewlines) == activeID &&
-            message.toolName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-    })?.toolName
+    }
     let activeModel = groups.reversed().lazy.flatMap(\.modelSteps).first(where: { step in
         isActiveExecutionStatus(step.status)
     })
     let plannerStatus = streamSnapshot?.plannerByTurnID[activeID]?.status?
         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    let activity = userFacingToolActivity(liveToolName ?? plannedToolName ?? bufferedToolName)
-        ?? (activeAssistantHasContent(streamSnapshot, activeTurnID: activeID)
+    let activity: String
+    if activeTools.count == 1 {
+        activity = userFacingToolActivity(activeTools[0].toolName) ?? "Using tool"
+    } else if activeTools.count > 1 {
+        activity = "Calling tools"
+    } else {
+        activity = activeAssistantHasContent(streamSnapshot, activeTurnID: activeID)
             ? "Writing response"
-            : (activeModel != nil ? "Thinking" : (!plannerStatus.isEmpty ? "Planning" : "Thinking")))
+            : (activeModel != nil ? "Thinking" : (!plannerStatus.isEmpty ? "Planning" : "Thinking"))
+    }
     let fallbackDetail: String
     switch activity {
     case "Writing response": fallbackDetail = "Preparing the response for display."
@@ -657,30 +724,129 @@ func turnProgressPresentation(
         : "Planning the next step."
     default: fallbackDetail = "Using a workspace tool."
     }
-    let toolSteps = groups.flatMap(\.toolSteps)
-    let plannedToolCount = groups.reduce(0) { $0 + $1.toolCallsPlanned.count }
-    let toolTotal = max(toolSteps.count, plannedToolCount)
-    let toolCompleted = min(toolTotal, toolSteps.filter { isTerminalExecutionStatus($0.status) }.count)
+    let tokenDetails = progressTokenDetails(groups: groups, snapshot: streamSnapshot, conversationState: conversationState)
     return TurnProgressPresentation(
         title: "Working on your request",
-        detail: narration ?? fallbackDetail,
+        detail: fallbackDetail,
         activity: activity,
-        toolProgress: toolTotal > 0 ? "Tools \(toolCompleted)/\(toolTotal)" : nil,
-        tokenUsage: formattedConversationTokenUsage(streamSnapshot, conversationState: conversationState),
+        toolProgress: explicitToolProgress(groups),
+        toolDetails: toolDetails,
+        tokenUsage: formattedTokenUsage(tokenDetails),
+        tokenDetails: tokenDetails,
         canStop: true
     )
 }
 
-private func formattedConversationTokenUsage(
-    _ snapshot: ConversationStreamSnapshot?,
+private func progressTokenDetails(
+    groups: [LiveExecutionGroup],
+    snapshot: ConversationStreamSnapshot?,
     conversationState: ConversationStateResponse?
-) -> String? {
-    let streamedTotal = snapshot?.usage?.totalTokens ?? 0
-    let persistedTotal = (conversationState?.usage?.totalInputTokens ?? 0) +
-        (conversationState?.usage?.totalOutputTokens ?? 0)
-    let total = streamedTotal > 0 ? streamedTotal : persistedTotal
+) -> TurnProgressTokenDetails? {
+    let modelRows = groups.flatMap(\.modelSteps).compactMap { step -> (LiveModelStepState, ModelUsageState)? in
+        guard let usage = step.usage, (usage.totalTokens ?? 0) > 0 else { return nil }
+        return (step, usage)
+    }
+    if !modelRows.isEmpty {
+        let models = modelRows.map { step, usage in
+            TurnProgressTokenModel(
+                id: step.modelCallID,
+                label: [step.provider, step.model].compactMap { $0 }.joined(separator: "/"),
+                total: usage.totalTokens ?? 0,
+                input: usage.inputTokens,
+                output: usage.outputTokens,
+                cachedInput: usage.cachedInputTokens,
+                reasoning: usage.reasoningTokens,
+                embedding: usage.embeddingTokens
+            )
+        }.sorted { $0.total > $1.total }
+        return TurnProgressTokenDetails(
+            scope: "turn",
+            total: modelRows.reduce(0) { $0 + ($1.1.totalTokens ?? 0) },
+            input: modelRows.reduce(0) { $0 + ($1.1.inputTokens ?? 0) },
+            output: modelRows.reduce(0) { $0 + ($1.1.outputTokens ?? 0) },
+            cachedInput: modelRows.reduce(0) { $0 + ($1.1.cachedInputTokens ?? 0) },
+            reasoning: modelRows.reduce(0) { $0 + ($1.1.reasoningTokens ?? 0) },
+            embedding: modelRows.reduce(0) { $0 + ($1.1.embeddingTokens ?? 0) },
+            models: models
+        )
+    }
+    let input = snapshot?.usage?.inputTokens ?? conversationState?.usage?.totalInputTokens ?? 0
+    let output = snapshot?.usage?.outputTokens ?? conversationState?.usage?.totalOutputTokens ?? 0
+    let embedding = snapshot?.usage?.embeddingTokens ?? 0
+    let total = snapshot?.usage?.totalTokens ?? (input + output + embedding)
     guard total > 0 else { return nil }
-    return "\(total.formatted(.number.grouping(.automatic))) tokens"
+    return TurnProgressTokenDetails(scope: "conversation", total: total, input: input, output: output, cachedInput: 0, reasoning: 0, embedding: embedding, models: [])
+}
+
+private func formattedTokenUsage(_ details: TurnProgressTokenDetails?) -> String? {
+    guard let details else { return nil }
+    let suffix = details.scope == "turn" ? "turn tokens" : "total tokens"
+    return "\(details.total.formatted(.number.grouping(.automatic))) \(suffix)"
+}
+
+private func explicitToolProgress(_ groups: [LiveExecutionGroup]) -> String? {
+    var statuses: [String: String] = [:]
+    var identityComplete = true
+    for group in groups {
+        for planned in group.toolCallsPlanned {
+            let id = planned.toolCallID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if id.isEmpty { identityComplete = false } else if statuses[id] == nil { statuses[id] = "queued" }
+        }
+        for step in group.toolSteps {
+            let id = step.toolCallID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if id.isEmpty {
+                identityComplete = false
+            } else {
+                statuses[id] = step.status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+            }
+        }
+    }
+    guard identityComplete, !statuses.isEmpty else { return nil }
+    let doneStatuses = Set(["completed", "done", "success", "succeeded"])
+    let failedStatuses = Set(["canceled", "cancelled", "declined", "error", "failed", "terminated", "timed_out", "timeout"])
+    let queuedStatuses = Set(["open", "pending", "planned", "queued", "waiting"])
+    let done = statuses.values.filter(doneStatuses.contains).count
+    let failed = statuses.values.filter(failedStatuses.contains).count
+    let queued = statuses.values.filter(queuedStatuses.contains).count
+    let active = statuses.count - done - failed - queued
+    var parts = ["\(done)/\(statuses.count) done"]
+    if active > 0 { parts.append("\(active) active") }
+    if queued > 0 { parts.append("\(queued) queued") }
+    if failed > 0 { parts.append("\(failed) failed") }
+    return parts.joined(separator: " · ")
+}
+
+private func progressToolDetails(_ groups: [LiveExecutionGroup]) -> [TurnProgressToolDetail] {
+    var rows: [String: TurnProgressToolDetail] = [:]
+    for group in groups {
+        for planned in group.toolCallsPlanned {
+            let id = planned.toolCallID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !id.isEmpty else { continue }
+            rows[id] = TurnProgressToolDetail(
+                id: id,
+                name: nonEmptyProgressText(planned.toolName, fallback: "Tool"),
+                status: rows[id]?.status ?? "queued"
+            )
+        }
+        for step in group.toolSteps {
+            let id = step.toolCallID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !id.isEmpty else { continue }
+            rows[id] = TurnProgressToolDetail(
+                id: id,
+                name: nonEmptyProgressText(step.toolName, fallback: rows[id]?.name ?? "Tool"),
+                status: nonEmptyProgressText(step.status?.lowercased(), fallback: rows[id]?.status ?? "running")
+            )
+        }
+    }
+    return rows.values.sorted {
+        if $0.status != $1.status { return $0.status < $1.status }
+        return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+    }
+}
+
+private func nonEmptyProgressText(_ value: String?, fallback: String) -> String {
+    let text = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return text.isEmpty ? fallback : text
 }
 
 private func executionGroupComesBefore(_ lhs: LiveExecutionGroup, _ rhs: LiveExecutionGroup) -> Bool {
@@ -691,7 +857,12 @@ private func executionGroupComesBefore(_ lhs: LiveExecutionGroup, _ rhs: LiveExe
 
 private func isActiveExecutionStatus(_ status: String?) -> Bool {
     let normalized = status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-    return normalized.isEmpty || ["queued", "pending", "starting", "started", "running", "streaming", "processing"].contains(normalized)
+    return normalized.isEmpty || ["active", "executing", "in_progress", "processing", "starting", "started", "running", "streaming"].contains(normalized)
+}
+
+private func isWaitingForUserStatus(_ status: String?) -> Bool {
+    let normalized = status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+    return ["blocked", "eliciting", "waiting_for_user"].contains(normalized)
 }
 
 private func isTerminalExecutionStatus(_ status: String?) -> Bool {
@@ -701,7 +872,7 @@ private func isTerminalExecutionStatus(_ status: String?) -> Bool {
 
 private func isPendingTurnStatus(_ status: String?) -> Bool {
     let normalized = status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-    return ["queued", "pending", "starting", "running", "streaming", "processing", "waiting", "waiting_for_model", "waiting_for_tool"].contains(normalized)
+    return ["queued", "pending", "starting", "running", "streaming", "processing", "waiting", "waiting_for_model", "waiting_for_tool", "waiting_for_user", "blocked", "eliciting"].contains(normalized)
 }
 
 private func activeAssistantHasContent(_ snapshot: ConversationStreamSnapshot?, activeTurnID: String) -> Bool {
@@ -735,28 +906,31 @@ private struct TurnProgressBanner: View {
     let presentation: TurnProgressPresentation
     let onStop: () -> Void
     @State private var phaseStartedAt = Date()
+    @State private var disclosure: TurnProgressDisclosure?
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             content(now: context.date)
         }
-        .onChange(of: "\(presentation.title)|\(presentation.detail)|\(presentation.activity)") { _, _ in
+        .onChange(of: "\(presentation.title)|\(presentation.activity)") { _, _ in
             phaseStartedAt = Date()
         }
     }
 
     private func content(now: Date) -> some View {
         HStack(alignment: .center, spacing: 8) {
-            ProgressView()
-                .controlSize(.small)
-                .accessibilityLabel("Request in progress")
+            if presentation.isWaitingForUser {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(Color.orange)
+                    .accessibilityLabel("Needs your input")
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Request in progress")
+            }
             VStack(alignment: .leading, spacing: 3) {
                 Text(presentation.title)
                     .font(.footnote.weight(.semibold))
-                Text(progressStatusAttributedText(presentation.detail))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 5) {
                         Text(activityLabel(now: now))
@@ -765,14 +939,16 @@ private struct TurnProgressBanner: View {
                             .padding(.vertical, 2)
                             .background(Color.blue.opacity(0.10), in: Capsule())
                         if let toolProgress = presentation.toolProgress {
-                            Text(toolProgress)
+                            Button(toolProgress) { disclosure = .tools }
+                                .buttonStyle(.plain)
                                 .foregroundStyle(Color.purple)
                                 .padding(.horizontal, 7)
                                 .padding(.vertical, 2)
                                 .background(Color.purple.opacity(0.10), in: Capsule())
                         }
                         if let tokenUsage = presentation.tokenUsage {
-                            Text(tokenUsage)
+                            Button(tokenUsage) { disclosure = .tokens }
+                                .buttonStyle(.plain)
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal, 7)
                                 .padding(.vertical, 2)
@@ -800,6 +976,79 @@ private struct TurnProgressBanner: View {
         .padding(.vertical, 8)
         .background(Color.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.blue.opacity(0.20), lineWidth: 1))
+        .popover(item: $disclosure) { selected in
+            switch selected {
+            case .tools:
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Tool progress").font(.headline)
+                    if presentation.toolDetails.isEmpty {
+                        Text("Tool identities are not available yet.").foregroundStyle(.secondary)
+                    } else {
+                        ForEach(presentation.toolDetails) { tool in
+                            HStack {
+                                Text(userFacingToolActivity(tool.name) ?? tool.name)
+                                Spacer()
+                                Text(tool.status.replacingOccurrences(of: "_", with: " ").capitalized)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .padding()
+                .frame(minWidth: 280)
+            case .tokens:
+                if let details = presentation.tokenDetails {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(details.scope == "turn" ? "This turn" : "Conversation total").font(.headline)
+                    tokenDetailRow("Total", details.total)
+                    tokenDetailRow("Input", details.input)
+                    tokenDetailRow("Output", details.output)
+                    if details.cachedInput > 0 { tokenDetailRow("Cached input", details.cachedInput) }
+                    if details.reasoning > 0 { tokenDetailRow("Reasoning", details.reasoning) }
+                    if details.embedding > 0 { tokenDetailRow("Embedding", details.embedding) }
+                    ForEach(details.models) { model in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Divider()
+                            Text(model.label.isEmpty ? "Model" : model.label).font(.subheadline.weight(.semibold))
+                            tokenDetailRow("Total", model.total)
+                            tokenDetailRow("Input", model.input)
+                            tokenDetailRow("Output", model.output)
+                            tokenDetailRow("Cached input", model.cachedInput)
+                            tokenDetailRow("Reasoning", model.reasoning)
+                            tokenDetailRow("Embedding", model.embedding)
+                        }
+                    }
+                }
+                .padding()
+                .frame(minWidth: 260)
+                } else {
+                    Text("Token details are not available.").padding()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func tokenDetailRow(_ label: String, _ value: Int) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text(value.formatted(.number.grouping(.automatic))).fontWeight(.semibold)
+        }
+    }
+
+    @ViewBuilder
+    private func tokenDetailRow(_ label: String, _ value: Int?) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            if let value {
+                Text(value.formatted(.number.grouping(.automatic))).fontWeight(.semibold)
+            } else {
+                Text("Not reported").foregroundStyle(.secondary)
+            }
+        }
     }
 
     private func activityLabel(now: Date) -> String {
@@ -808,6 +1057,12 @@ private struct TurnProgressBanner: View {
         let elapsed = seconds < 60 ? "\(seconds)s" : "\(seconds / 60)m \(seconds % 60)s"
         return "\(presentation.activity) · \(elapsed)"
     }
+}
+
+private enum TurnProgressDisclosure: String, Identifiable {
+    case tools
+    case tokens
+    var id: String { rawValue }
 }
 
 struct WorkspaceStatusSection: View {

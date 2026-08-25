@@ -1190,6 +1190,8 @@ github.com/viant/afs v1.30.1-0.20260707124824-0373fe4ae4cb h1:W7iN1WKagshu1XOInw
 github.com/viant/afs v1.30.1-0.20260707124824-0373fe4ae4cb/go.mod h1:rScbFd9LJPGTM8HOI8Kjwee0AZ+MZMupAvFpPg+Qdj4=
 github.com/viant/afsc v1.17.0 h1:JvQFYIOOPJY0JuL3DoocBbuut5tH0UwwFRYWh1EHfZg=
 github.com/viant/afsc v1.17.0/go.mod h1:Z6fP3VcmzS8Sg2lowctR6KkVEX7XxJ8aNaoHqhUiZkY=
+github.com/viant/agently-core v0.1.25 h1:sj94pbiYSgq3nzOQtsgUlTrQ9xPSnrZnlxKZTksx0ms=
+github.com/viant/agently-core v0.1.25/go.mod h1:7BMsmV8ghKroXBpe2lUdn57QKj5vWtwHXcrhd5GT6yc=
 github.com/viant/assertly v0.4.8/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.0/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.1-0.20220620174148-bab013f93a60 h1:VFJvCOHKXv4IqX8rJwn1otpHWQGgMDv2bXtAPgEzndM=
@@ -1214,6 +1216,8 @@ github.com/viant/firebase v0.1.1 h1:a4IiehQ2GWoH4qTnUD7JnJ5lTc87nfxX8ClUwBO7AKU=
 github.com/viant/firebase v0.1.1/go.mod h1:Q2DK7L/pdGS5xNQRgMJ9B/x9VhIeXAfXCeh3cKpSIkM=
 github.com/viant/forge v0.3.16 h1:qMifihcR1IH0aa1EUppkzavAVQCO8A+SOkXbMmGGf4w=
 github.com/viant/forge v0.3.16/go.mod h1:Q2cbakSthK9Qyke1HiFFm2UG9cFbIvwxLiTL6yFbs7U=
+github.com/viant/forge v0.3.17 h1:QWbM3N6XsnbZ30Gyl/BCh1DsD4SejuIVZkkrG7ryovw=
+github.com/viant/forge v0.3.17/go.mod h1:Q2cbakSthK9Qyke1HiFFm2UG9cFbIvwxLiTL6yFbs7U=
 github.com/viant/gds v0.6.0 h1:HdjogZeJrs5X0aR8yNCep7TxlhkhrH/lrSFW02RZzOI=
 github.com/viant/gds v0.6.0/go.mod h1:oLW99/zRR67jOhDj4qnVoquDMtQd1z2mWxVc9KRvOs4=
 github.com/viant/gmetric v0.3.2 h1:zTdW9QrPk2P0i/do9fokxtHesFQCvYqIc5Yktzmyxtg=

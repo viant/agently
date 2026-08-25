@@ -40,6 +40,17 @@ import IterationBlock, {
   toolStepSummaryText
 } from './IterationBlock';
 import { summarizeLinkedConversationTranscript } from 'agently-core-ui-sdk';
+import { ConversationViewContext } from '../../context/ConversationViewContext';
+
+function renderDeveloperIteration(props) {
+  return renderToStaticMarkup(
+    React.createElement(
+      ConversationViewContext.Provider,
+      { value: { developerMode: true, showIntakeDetails: false, toolFeedDock: 'inline' } },
+      React.createElement(IterationBlock, props)
+    )
+  );
+}
 
 describe('mapCanonicalExecutionGroups', () => {
   it('preserves the canonical rendered report for the visible final response', () => {
@@ -1377,7 +1388,7 @@ describe('mapCanonicalExecutionGroups', () => {
   });
 
   it('renders every live elicitation as a separate execution row', () => {
-    const html = renderToStaticMarkup(React.createElement(IterationBlock, {
+    const html = renderDeveloperIteration({
       message: {
         id: 'msg-live',
         turnId: 'turn-live',
@@ -1421,7 +1432,7 @@ describe('mapCanonicalExecutionGroups', () => {
       },
       context: null,
       showToolFeedDetail: true
-    }));
+    });
 
     expect(html).toContain('Root critical dependency: please provide the run authorizati');
     expect(html).toContain('A3 critical dependency: please provide the release approval ');
@@ -1429,7 +1440,7 @@ describe('mapCanonicalExecutionGroups', () => {
   });
 
   it('does not advance a live wall-clock for transcript-owned running history rows', () => {
-    const html = renderToStaticMarkup(React.createElement(IterationBlock, {
+    const html = renderDeveloperIteration({
       canonicalRow: {
         kind: 'iteration',
         turnId: 'tn_history_running',
@@ -1462,7 +1473,7 @@ describe('mapCanonicalExecutionGroups', () => {
       },
       context: null,
       showToolFeedDetail: true
-    }));
+    });
 
     expect(html).toContain('Execution details (1)');
     expect(html).toContain('00:00');
@@ -1561,8 +1572,7 @@ describe('mapCanonicalExecutionGroups', () => {
   });
 
   it('renders a visible header row for bootstrap tool-only groups', () => {
-    const html = renderToStaticMarkup(
-      React.createElement(IterationBlock, {
+    const html = renderDeveloperIteration({
         message: {
           _iterationData: {
             turnId: 'turn-1',
@@ -1585,8 +1595,7 @@ describe('mapCanonicalExecutionGroups', () => {
           }
         },
         context: null
-      })
-    );
+      });
 
     expect(html).toContain('Bootstrap');
     expect(html).toContain('llm/agents:list');
@@ -1594,8 +1603,7 @@ describe('mapCanonicalExecutionGroups', () => {
   });
 
   it('renders nested child tool calls under their parent execution row', () => {
-    const html = renderToStaticMarkup(
-      React.createElement(IterationBlock, {
+    const html = renderDeveloperIteration({
         message: {
           _iterationData: {
             turnId: 'turn-nested',
@@ -1628,8 +1636,7 @@ describe('mapCanonicalExecutionGroups', () => {
           }
         },
         context: null
-      })
-    );
+      });
 
     expect(html).toContain('llm/skills:activate');
     expect(html).toContain('llm/agents:start');
@@ -2242,7 +2249,7 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(groups[0].id).toBe('p1');
   });
 
-  it('exposes export for a committed canonical inline report rendered from an iteration page', () => {
+  it('passes a committed canonical inline report to the lazy assistant renderer', () => {
     const content = [
       '```forge-data',
       '{"version":2,"reportRef":"brief","id":"delivery","sequence":1,"data":[{"channel":"CTV","spend":12}]}',
@@ -2286,13 +2293,13 @@ describe('mapCanonicalExecutionGroups', () => {
       }],
       diagnostics: [],
     };
-    const html = renderToStaticMarkup(React.createElement(IterationBlock, {
+    const html = renderDeveloperIteration({
       canonicalRow: {
         kind: 'iteration',
         conversationId: 'conversation-1',
         turnId: 'turn-report',
-        lifecycle: 'completed',
-        isStreaming: false,
+        lifecycle: 'running',
+        isStreaming: true,
         rounds: [{
           pageId: 'page-report',
           status: 'completed',
@@ -2306,10 +2313,45 @@ describe('mapCanonicalExecutionGroups', () => {
       message: { id: 'message-report' },
       context: null,
       showToolFeedDetail: false,
+    });
+
+    expect(resolveVisibleBubbleRenderedContent([{
+      finalResponse: true,
+      finalContent: content,
+      renderedContent,
+    }])).toBe(renderedContent);
+    expect(html).toContain('app-rich-content-loading');
+  });
+
+  it('renders a safe terminal notice with category, developer details, and explicit retry prefill', () => {
+    const html = renderToStaticMarkup(React.createElement(IterationBlock, {
+      canonicalRow: {
+        kind: 'iteration',
+        conversationId: 'conversation-1',
+        turnId: 'turn-failed',
+        lifecycle: 'failed',
+        rounds: [{
+          pageId: 'page-failed',
+          status: 'failed',
+          modelSteps: [],
+          toolCalls: [{
+            toolCallId: 'tool-failed',
+            toolName: 'delivery/check',
+            status: 'failed',
+            errorMessage: 'private backend diagnostic',
+          }],
+        }],
+      },
+      message: { id: 'message-failed' },
+      context: null,
+      retryPrompt: 'Check delivery',
     }));
 
-    expect(html).toContain('Delivery Brief');
-    expect(html).toContain('Export PDF');
-    expect(html).not.toContain('Run report');
+    expect(html).toContain('Request couldn’t be completed');
+    expect(html).toContain('Tool failed');
+    expect(html).toContain('Developer details');
+    expect(html).toContain('Try again');
+    expect(html).not.toContain('private backend diagnostic');
+    expect(html).not.toContain('Execution details');
   });
 });

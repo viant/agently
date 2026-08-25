@@ -1,4 +1,7 @@
 id: explorer
+presentation:
+  icon: folder
+  accent: purple
 match:
   service: resources
   method: "*"

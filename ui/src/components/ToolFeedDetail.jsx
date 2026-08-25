@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CompactFeedList, Container, Terminal } from 'forge/components';
 import { getFeedData, onFeedDataChange, getActiveFeeds, onFeedChange, splitFeedKey } from '../services/toolFeedBus';
 import { openResourceFeedPath } from '../services/chatService';
@@ -100,6 +100,14 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
     if (data?.ui && rawDS && Object.keys(rawDS).length > 0) return true;
     return hasRenderableFeedData(data);
   });
+  const selectedActiveFeed = dedupeFeeds((feeds || []).filter((feed) => {
+    const feedConversationId = String(feed?.conversationId || '').trim();
+    return feed?.feedId === selectedFeedId
+      && (!scopedConversationId || !feedConversationId || feedConversationId === scopedConversationId);
+  }))[0] || null;
+  const selectedFeedData = selectedActiveFeed
+    ? getFeedData(selectedActiveFeed.feedId, selectedActiveFeed.conversationId)
+    : null;
 
   useEffect(() => {
     setIsExpanded(false);
@@ -131,7 +139,14 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
     };
   }, [collapsedHeight, dataVersion, selectedFeedId, visibleFeeds.map((feed) => feed.feedId).join('|')]);
 
-  if (renderableFeeds.length === 0) return null;
+  if (renderableFeeds.length === 0) {
+    if (!selectedActiveFeed) return null;
+    return (
+      <div className={`app-tool-feed-detail app-tool-feed-detail--${variant} is-placeholder`} role="status">
+        {selectedFeedData ? 'No feed content is available.' : 'Loading feed content…'}
+      </div>
+    );
+  }
 
   return (
     <div className={`app-tool-feed-detail app-tool-feed-detail--${variant}${isOverflowing ? ' has-overflow' : ''}${isExpanded ? ' is-expanded' : ' is-collapsed'}`}>
@@ -181,7 +196,7 @@ function FeedPanel({ feedId, context, variant = 'inline' }) {
   const onPathActivate = rawFeedId === 'resources'
     ? (row) => openResourceFeedPath({ row, context })
     : null;
-  if (String(data?.ui?.renderMode || data?.renderMode || '').trim().toLowerCase() === 'forge') {
+  if (hasForgeFeedUI(data?.ui, data?.renderMode)) {
     return (
       <ForgeFeedRenderer
         data={data}
@@ -192,6 +207,19 @@ function FeedPanel({ feedId, context, variant = 'inline' }) {
     );
   }
   return <InlineRenderer data={data} variant={variant} onPathActivate={onPathActivate} />;
+}
+
+function hasForgeFeedUI(ui = null, fallbackRenderMode = '') {
+  if (!ui || typeof ui !== 'object' || Array.isArray(ui)) return false;
+  const renderMode = String(ui.renderMode || fallbackRenderMode || '').trim().toLowerCase();
+  if (renderMode === 'compact') return false;
+  if (renderMode === 'forge') return true;
+  const hasDeclaredFilePreview = (node) => {
+    if (!node || typeof node !== 'object') return false;
+    if (node.fileBrowser?.preview) return true;
+    return (Array.isArray(node.containers) ? node.containers : []).some(hasDeclaredFilePreview);
+  };
+  return hasDeclaredFilePreview(ui);
 }
 
 function cloneFeedNode(node) {
@@ -240,24 +268,70 @@ function buildForgeFeedContainer(feedId = '', payload = {}, dataMap = {}) {
   if (container && !container.dataSourceRef && defaultDataSourceRef) {
     container.dataSourceRef = defaultDataSourceRef;
   }
-  return applyAutoTableColumns(container, dataMap);
+  const resolved = applyAutoTableColumns(container, dataMap);
+  const attachResolvedRows = (node) => {
+    if (!node || typeof node !== 'object') return;
+    const dataSourceRef = String(node.dataSourceRef || '').trim();
+    if (node.fileBrowser && dataSourceRef && Array.isArray(dataMap[dataSourceRef])) {
+      node.fileBrowser.rows = dataMap[dataSourceRef];
+    }
+    for (const child of Array.isArray(node.containers) ? node.containers : []) attachResolvedRows(child);
+  };
+  attachResolvedRows(resolved);
+  return resolved;
 }
 
 function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = 'inline' }) {
-  const normalized = normalizeFeedPayload(data);
-  const dataSources = normalizeDataSources(normalized?.ui?.dataSources || normalized?.dataSources || {});
-  const context = createFeedContext(feedId, dataSources, conversationId);
-  const execution = {
+  const payloadSignature = JSON.stringify(data || {});
+  const normalized = useMemo(() => normalizeFeedPayload(data), [payloadSignature]);
+  const dataSources = useMemo(
+    () => normalizeDataSources(normalized?.ui?.dataSources || normalized?.dataSources || {}),
+    [normalized]
+  );
+  const context = useMemo(
+    () => createFeedContext(feedId, dataSources, conversationId),
+    [conversationId, dataSources, feedId]
+  );
+  const execution = useMemo(() => ({
     dataSources,
     dataFeed: {
-      name: Object.keys(dataSources)[0] || feedId,
+      name: Object.entries(dataSources).find(([, definition]) => (
+        String(definition?.source || '').trim() && !String(definition?.dataSourceRef || '').trim()
+      ))?.[0] || '',
       data: normalized?.data,
     },
-  };
-  const dataMap = computeDataMap(execution);
-  wireFeedSignals(execution, context.identity.windowId);
-  const container = buildForgeFeedContainer(feedId, normalized, dataMap);
+  }), [dataSources, feedId, normalized?.data]);
+  const dataMap = useMemo(() => computeDataMap(execution), [execution]);
+  const container = useMemo(
+    () => buildForgeFeedContainer(feedId, normalized, dataMap),
+    [dataMap, feedId, normalized]
+  );
+  const requiresSignalWiring = useMemo(() => {
+    const hasProvidedFileRows = (node) => {
+      if (!node || typeof node !== 'object') return false;
+      if (Array.isArray(node.fileBrowser?.rows)) return true;
+      return (Array.isArray(node.containers) ? node.containers : []).some(hasProvidedFileRows);
+    };
+    return !hasProvidedFileRows(container);
+  }, [container]);
+  const isServerRender = typeof document === 'undefined';
+  if (isServerRender && requiresSignalWiring) wireFeedSignals(execution, context.identity.windowId);
+  const [signalsReady, setSignalsReady] = useState(isServerRender || !requiresSignalWiring);
+  useEffect(() => {
+    if (isServerRender || !requiresSignalWiring) {
+      setSignalsReady(true);
+      return undefined;
+    }
+    setSignalsReady(false);
+    const timer = window.setTimeout(() => {
+      wireFeedSignals(execution, context.identity.windowId);
+      setSignalsReady(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [context, execution, isServerRender, requiresSignalWiring]);
+
   if (!container) return null;
+  if (!signalsReady) return <div className="app-tool-feed-detail-loading" role="status">Loading feed content…</div>;
   const railStyle = variant === 'rail'
     ? { height: '100%', minHeight: 0, overflowY: 'auto' }
     : { maxHeight: 'min(18vh, 220px)', overflowY: 'auto' };

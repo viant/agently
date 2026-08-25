@@ -1,10 +1,15 @@
 package com.viant.agently.android
 
 import com.viant.agentlysdk.AgentlyClient
+import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.FeedDataResponse
 import com.viant.agentlysdk.stream.ActiveFeed
+import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import com.viant.forgeandroid.runtime.ForgeRuntime
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.Json
 
 internal data class FeedTextPreview(
     val title: String,
@@ -13,7 +18,28 @@ internal data class FeedTextPreview(
 )
 
 internal fun visibleFeeds(feeds: List<ActiveFeed>): List<ActiveFeed> {
-    return feeds.distinctBy { it.feedId }.sortedBy { it.title.lowercase() }
+    return feeds.filterNot { it.developerOnly }.distinctBy { it.feedId }.sortedBy { it.title.lowercase() }
+}
+
+internal fun mergedVisibleFeeds(
+    snapshot: ConversationStreamSnapshot?,
+    state: ConversationStateResponse?,
+    conversationId: String?
+): List<ActiveFeed> {
+    val rows = linkedMapOf<String, ActiveFeed>()
+    state?.feeds.orEmpty().forEach { feed ->
+        rows[feed.feedId] = ActiveFeed(
+            feedId = feed.feedId,
+            title = feed.title,
+            itemCount = feed.itemCount,
+            conversationId = conversationId,
+            data = feed.data,
+            developerOnly = feed.developerOnly,
+            presentation = feed.presentation
+        )
+    }
+    snapshot?.feeds.orEmpty().forEach { feed -> rows[feed.feedId] = feed }
+    return visibleFeeds(rows.values.toList())
 }
 
 internal suspend fun loadFeedPayload(
@@ -27,10 +53,28 @@ internal suspend fun loadFeedPayload(
 internal fun registerFeedInteractionHandlers(
     forgeRuntime: ForgeRuntime,
     client: AgentlyClient,
+    conversationId: String,
     onError: (String?) -> Unit,
     onPreview: (FeedTextPreview?) -> Unit,
     onRefreshRequested: () -> Unit
 ) {
+    forgeRuntime.registerFileTextLoader { uri -> client.downloadWorkspaceFile(uri) }
+    forgeRuntime.registerFilePreviewLoader { tool, uri ->
+        val raw = client.executeTool(tool, mapOf("url" to JsonPrimitive(uri)), conversationId = conversationId)
+        val value = runCatching { Json.parseToJsonElement(raw) as? JsonObject }.getOrNull() ?: JsonObject(emptyMap())
+        fun text(key: String) = (value[key] as? JsonPrimitive)?.content.orEmpty()
+        ForgeRuntime.FilePreviewContent(current = text("current"), previous = text("previous"), diff = text("diff"))
+    }
+    forgeRuntime.registerHandler("tool.execute") { args ->
+        val target = args.execution.target as? JsonObject ?: return@registerHandler false
+        val name = (target["name"] as? JsonPrimitive)?.content?.trim().orEmpty()
+        if (name.isBlank()) return@registerHandler false
+        val arguments = (target["arguments"] as? JsonObject)?.toMap().orEmpty()
+        client.executeTool(name, arguments, conversationId = conversationId)
+        onError(null)
+        onRefreshRequested()
+        true
+    }
     registerWorkspacePreviewHandler(
         forgeRuntime = forgeRuntime,
         name = "chat.explorerOpen",

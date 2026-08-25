@@ -1,8 +1,7 @@
 import React from 'react';
 
 export const ConversationViewContext = React.createContext({
-  showExecutionDetails: true,
-  setShowExecutionDetails: () => {},
+  developerMode: false,
   showIntakeDetails: false,
   setShowIntakeDetails: () => {},
   toolFeedDock: 'inline',

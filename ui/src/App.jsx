@@ -7,6 +7,8 @@ import Root from './components/Root';
 import OAuthCallback from './components/OAuthCallback';
 import LookupChipPreview from './lookupChipPreview.jsx';
 import MCPUIForgeWindowPage from './components/mcpApps/MCPUIForgeWindowPage.jsx';
+import UISettingsPage from './components/UISettingsPage.jsx';
+import ConversationUsagePage from './components/ConversationUsagePage.jsx';
 import { endpoints } from './endpoint';
 import { connectorConfig } from './connector';
 import { appRoutePaths } from './appRoutePaths.js';
@@ -61,6 +63,8 @@ export const routes = [
   { path: '/ui/lookup-chip-preview', element: <LookupChipPreview /> },
   { path: '/mcp-ui/forge-window', element: <MCPUIForgeWindowPage /> },
   { path: '/ui/mcp-ui/forge-window', element: <MCPUIForgeWindowPage /> },
+  { path: '/ui/settings', element: <UISettingsPage /> },
+  { path: '/conversation/:conversationId/usage', element: <ConversationUsagePage /> },
   { path: '*', element: <Root /> }
 ];
 

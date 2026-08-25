@@ -83,6 +83,13 @@ function notifyDataChange() {
   for (const fn of dataListeners) fn();
 }
 
+function syncFeedPresentation(feedKey, presentation) {
+  if (!presentation || typeof presentation !== 'object') return;
+  const current = feedTracker.get(feedKey);
+  if (!current) return;
+  feedTracker.setActive({ ...current, presentation });
+}
+
 export function getActiveFeeds() {
   return feedTracker.feeds;
 }
@@ -141,6 +148,7 @@ export function fetchFeedDataNow(feedId, conversationId) {
   }
   client.getFeedData(normalizedFeedId, normalizedConversationId).then((data) => {
     if (data) {
+      syncFeedPresentation(scopedKey, data.presentation);
       feedDataCache[scopedKey] = normalizeFeedPayload({
         ...(existing || {}),
         ...data,
@@ -221,6 +229,7 @@ export function applyFeedEvent(payload) {
     // Set inline data immediately for fast rendering.
     if (payload.feedData) {
       feedDataCache[scopedKey] = normalizeFeedPayload({
+        ...(existing || {}),
         data: payload.feedData,
         feedKey: scopedKey,
         feedId,
@@ -236,6 +245,7 @@ export function applyFeedEvent(payload) {
     if (conversationId && needsSpecFetch) {
       client.getFeedData(feedId, conversationId).then((data) => {
         if (data) {
+          syncFeedPresentation(scopedKey, data.presentation);
           const latest = feedDataCache[scopedKey] || existing || {};
           feedDataCache[scopedKey] = normalizeFeedPayload({
             ...latest,

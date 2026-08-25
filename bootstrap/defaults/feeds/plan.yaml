@@ -1,4 +1,7 @@
 id: plan
+presentation:
+  icon: list
+  accent: blue
 match:
   service: orchestration
   method: updatePlan
@@ -21,6 +24,7 @@ dataSource:
 
 
 ui:
+  renderMode: compact
   title: Plan
   containers:
   - id: header

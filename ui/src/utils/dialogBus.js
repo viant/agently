@@ -9,7 +9,9 @@ const defaultCodeDiffState = {
   diff: '',
   loading: false,
   currentUri: '',
-  prevUri: ''
+  prevUri: '',
+  modes: ['current', 'prev', 'diff'],
+  defaultMode: 'current'
 };
 
 const defaultFileViewState = {
@@ -70,8 +72,8 @@ export function useConfirmDialogState() {
   return useSyncExternalStore(confirmStore.subscribe, confirmStore.get, confirmStore.get);
 }
 
-export function openCodeDiffDialog({ title = 'Changed File', current = '', prev = '', diff = '', hasPrev = false, loading = false, currentUri = '', prevUri = '' }) {
-  codeDiffStore.set({ open: true, title, hasPrev: hasPrev || !!prev, current, prev, diff, loading, currentUri, prevUri });
+export function openCodeDiffDialog({ title = 'Changed File', current = '', prev = '', diff = '', hasPrev = false, loading = false, currentUri = '', prevUri = '', modes = ['current', 'prev', 'diff'], defaultMode = 'current' }) {
+  codeDiffStore.set({ open: true, title, hasPrev: hasPrev || !!prev, current, prev, diff, loading, currentUri, prevUri, modes, defaultMode });
 }
 
 export function closeCodeDiffDialog() {

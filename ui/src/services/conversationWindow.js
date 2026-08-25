@@ -18,6 +18,7 @@ const LEGACY_SELECTED_CONVERSATION_KEY = 'agently.selectedConversationId';
 const WORKSPACE_SELECTION_KEY = 'agently.selectedWorkspaceWindowId';
 const WORKSPACE_STATE_KEY = 'agently.workspaceState';
 const WORKSPACE_PRESENTATION_MODE_KEY = 'agently.workspacePresentationMode';
+const ACTIVE_SURFACE_KEY = 'agently.activeSurface';
 
 function uiStateStorage() {
   if (typeof window === 'undefined') return null;
@@ -73,6 +74,28 @@ function workspaceStateKey(conversationId = '') {
 function workspacePresentationModeKey(conversationId = '') {
   const id = String(conversationId || '').trim();
   return id ? `${WORKSPACE_PRESENTATION_MODE_KEY}:${id}` : WORKSPACE_PRESENTATION_MODE_KEY;
+}
+
+function activeSurfaceKey(conversationId = '') {
+  const id = String(conversationId || '').trim();
+  return id ? `${ACTIVE_SURFACE_KEY}:${id}` : ACTIVE_SURFACE_KEY;
+}
+
+export function getScopedActiveSurface(conversationId = '') {
+  const storage = uiStateStorage();
+  const id = String(conversationId || '').trim();
+  if (!storage || !id) return 'conversation';
+  return String(storage.getItem(activeSurfaceKey(id)) || '').trim().toLowerCase() === 'workspace'
+    ? 'workspace'
+    : 'conversation';
+}
+
+export function setScopedActiveSurface(conversationId = '', surface = 'conversation') {
+  const storage = uiStateStorage();
+  const id = String(conversationId || '').trim();
+  if (!storage || !id) return;
+  const next = String(surface || '').trim().toLowerCase() === 'workspace' ? 'workspace' : 'conversation';
+  try { storage.setItem(activeSurfaceKey(id), next); } catch (_) {}
 }
 
 const RUNNING_TRANSCRIPT_STATUSES = new Set(['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress']);
@@ -456,6 +479,8 @@ function restoreWorkspaceWindowForConversation(conversationId = '', { focus = tr
         workspaceSharePct: saved.workspaceSharePct ?? undefined,
         workspaceMinHeight: saved.workspaceMinHeight ?? undefined,
         workspaceCollapsed: saved.workspaceCollapsed === true,
+        navigation: saved.navigation && typeof saved.navigation === 'object' ? saved.navigation : undefined,
+        mcpUI: saved.mcpUI && typeof saved.mcpUI === 'object' ? saved.mcpUI : undefined,
         hostOpenState: 'historical_replay',
       }
     );
@@ -554,6 +579,11 @@ function normalizeWorkspaceStateSnapshot(raw = null, { preferLiveSignals = true 
     workspaceSharePct: normalizeOptionalFiniteNumber(raw.workspaceSharePct),
     workspaceMinHeight: normalizeOptionalFiniteNumber(raw.workspaceMinHeight),
     workspaceCollapsed: raw.workspaceCollapsed === true,
+    navigation: raw.navigation && typeof raw.navigation === 'object' ? {
+      label: String(raw.navigation.label || '').trim(),
+      icon: String(raw.navigation.icon || '').trim(),
+    } : null,
+    mcpUI: raw.mcpUI && typeof raw.mcpUI === 'object' ? { ...raw.mcpUI } : null,
     windowForm: resolvedWindowForm,
     viewState: resolvedViewState,
     parameters,

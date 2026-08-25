@@ -1,5 +1,8 @@
 id: goal
 title: Goal
+presentation:
+  icon: checklist
+  accent: purple
 
 dataSource:
   goalState:

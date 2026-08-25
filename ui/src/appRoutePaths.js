@@ -4,5 +4,7 @@ export const appRoutePaths = [
   '/ui/lookup-chip-preview',
   '/mcp-ui/forge-window',
   '/ui/mcp-ui/forge-window',
+  '/ui/settings',
+  '/conversation/:conversationId/usage',
   '*',
 ];

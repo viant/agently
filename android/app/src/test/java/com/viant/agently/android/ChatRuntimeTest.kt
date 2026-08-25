@@ -7,11 +7,13 @@ import com.viant.agentlysdk.AssistantMessageState
 import com.viant.agentlysdk.AssistantState
 import com.viant.agentlysdk.ConversationState
 import com.viant.agentlysdk.ConversationStateResponse
+import com.viant.agentlysdk.ModelUsageState
 import com.viant.agentlysdk.TurnState
 import com.viant.agentlysdk.UserMessageState
 import com.viant.agentlysdk.stream.BufferedMessage
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import com.viant.agentlysdk.stream.LiveExecutionGroup
+import com.viant.agentlysdk.stream.LiveModelStepState
 import com.viant.agentlysdk.stream.LiveToolStepState
 import com.viant.agentlysdk.stream.StreamUsageState
 import kotlinx.serialization.json.Json
@@ -101,7 +103,7 @@ class ChatRuntimeTest {
     }
 
     @Test
-    fun activeAssistant_hidesProgressiveReportTransportAndLeavesNarrationToGlobalStatus() {
+    fun activeAssistant_hidesProgressiveReportTransportAndUsesNarrationBubble() {
         val snapshot = ConversationStreamSnapshot(
             conversationId = "conv-1",
             activeTurnId = "turn-1",
@@ -121,8 +123,8 @@ class ChatRuntimeTest {
             liveExecutionGroupsById = emptyMap()
         )
 
-        assertNull(latestAssistantMarkdown(snapshot))
-        assertEquals(false, activeAssistantHasVisibleOutput(snapshot))
+        assertEquals("Comparing forecast evidence", latestAssistantMarkdown(snapshot))
+        assertEquals(true, activeAssistantHasVisibleOutput(snapshot))
     }
 
     @Test
@@ -163,10 +165,94 @@ class ChatRuntimeTest {
         val presentation = turnProgressPresentation(true, null, snapshot)
 
         assertEquals("Working on your request", presentation?.title)
-        assertEquals("Validating performance metrics.", presentation?.detail)
+        assertEquals("Using a workspace tool.", presentation?.detail)
         assertEquals("Reporting", presentation?.activity)
-        assertEquals("Tools 0/1", presentation?.toolProgress)
-        assertEquals("150 tokens", presentation?.tokenUsage)
+        assertEquals("0/1 done · 1 active", presentation?.toolProgress)
+        assertEquals(listOf("reporting:run_report"), presentation?.toolDetails?.map { it.name })
+        assertEquals(listOf("running"), presentation?.toolDetails?.map { it.status })
+        assertEquals("150 total tokens", presentation?.tokenUsage)
+    }
+
+    @Test
+    fun turnProgress_distinguishesQueuedToolsAndWaitingForInput() {
+        val state = ConversationStateResponse(
+            conversation = ConversationState(
+                conversationId = "conv-1",
+                turns = listOf(TurnState(turnId = "turn-1", status = "waiting_for_user"))
+            )
+        )
+        val snapshot = ConversationStreamSnapshot(
+            conversationId = "conv-1",
+            activeTurnId = "turn-1",
+            feeds = emptyList(),
+            pendingElicitation = null,
+            bufferedMessages = emptyList(),
+            liveExecutionGroupsById = mapOf(
+                "assistant-1" to LiveExecutionGroup(
+                    pageId = "page-1",
+                    assistantMessageId = "assistant-1",
+                    turnId = "turn-1",
+                    status = "running",
+                    toolSteps = listOf(LiveToolStepState(toolCallId = "queued-1", toolName = "search_orders", status = "queued"))
+                )
+            )
+        )
+
+        val presentation = turnProgressPresentation(true, state, snapshot)
+
+        assertEquals("Needs your input", presentation?.title)
+        assertEquals("Needs your input", presentation?.activity)
+        assertEquals("0/1 done · 1 queued", presentation?.toolProgress)
+        assertEquals("queued", presentation?.toolDetails?.firstOrNull()?.status)
+        assertEquals(true, presentation?.isWaitingForUser)
+        assertEquals(false, presentation?.canStop)
+    }
+
+    @Test
+    fun turnProgress_prefersPerModelTurnTokenDetails() {
+        val snapshot = ConversationStreamSnapshot(
+            conversationId = "conv-1",
+            activeTurnId = "turn-1",
+            feeds = emptyList(),
+            pendingElicitation = null,
+            bufferedMessages = emptyList(),
+            liveExecutionGroupsById = mapOf(
+                "assistant-1" to LiveExecutionGroup(
+                    pageId = "page-1",
+                    assistantMessageId = "assistant-1",
+                    turnId = "turn-1",
+                    status = "running",
+                    modelSteps = listOf(
+                        LiveModelStepState(
+                            modelCallId = "model-1",
+                            provider = "openai",
+                            model = "gpt-5",
+                            usage = ModelUsageState(inputTokens = 100, outputTokens = 30, cachedInputTokens = 20, reasoningTokens = 5, totalTokens = 130)
+                        ),
+                        LiveModelStepState(
+                            modelCallId = "model-2",
+                            provider = "openai",
+                            model = "gpt-5-mini",
+                            usage = ModelUsageState(inputTokens = 20, outputTokens = 10, totalTokens = 30)
+                        )
+                    )
+                )
+            ),
+            usage = StreamUsageState(inputTokens = 900, outputTokens = 100, totalTokens = 1_000)
+        )
+
+        val presentation = turnProgressPresentation(true, null, snapshot)
+
+        assertEquals("160 turn tokens", presentation?.tokenUsage)
+        assertEquals("turn", presentation?.tokenDetails?.scope)
+        assertEquals(20, presentation?.tokenDetails?.cachedInput)
+        assertEquals(5, presentation?.tokenDetails?.reasoning)
+        assertEquals(listOf("openai/gpt-5", "openai/gpt-5-mini"), presentation?.tokenDetails?.models?.map { it.label })
+        assertEquals(100, presentation?.tokenDetails?.models?.firstOrNull()?.input)
+        assertEquals(30, presentation?.tokenDetails?.models?.firstOrNull()?.output)
+        assertEquals(20, presentation?.tokenDetails?.models?.firstOrNull()?.cachedInput)
+        assertEquals(5, presentation?.tokenDetails?.models?.firstOrNull()?.reasoning)
+        assertNull(presentation?.tokenDetails?.models?.firstOrNull()?.embedding)
     }
 
     @Test
@@ -259,7 +345,7 @@ class ChatRuntimeTest {
     }
 
     @Test
-    fun transcriptFromState_keepsPendingNarrationOutOfTranscript() {
+    fun transcriptFromState_usesPendingNarrationAsAssistantBubble() {
         val state = ConversationStateResponse(
             conversation = ConversationState(
                 conversationId = "conv-1",
@@ -275,7 +361,7 @@ class ChatRuntimeTest {
             )
         )
 
-        assertEquals(emptyList<ChatEntry>(), transcriptFromState(state))
+        assertEquals("Waiting for response", transcriptFromState(state).single().markdown)
     }
 
     @Test

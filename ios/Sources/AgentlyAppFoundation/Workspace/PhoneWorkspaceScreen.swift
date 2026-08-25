@@ -216,6 +216,11 @@ public struct PhoneWorkspaceScreen: View {
                 .padding(.top, 12)
                 .padding(.bottom, 12)
             }
+            ToolFeedsSection(
+                feeds: mergedToolFeeds(live: streamSnapshot?.feeds ?? [], persisted: conversationState?.feeds ?? []),
+                conversationID: conversationState?.conversation?.conversationID,
+                client: client
+            )
             Group {
                 switch visiblePane {
                 case .workspace:

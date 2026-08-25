@@ -23,7 +23,9 @@ internal fun resolveHostedWorkspacePresentation(
     window: WorkspaceWindowSnapshot?
 ): HostedWorkspacePresentation? {
     window ?: return null
-    val badgeLabel = humanizeHostedWorkspaceKey(window.windowKey) ?: "Workspace"
+    val badgeLabel = normalizeHostedWorkspaceText(window.navigation?.label)
+        ?: humanizeHostedWorkspaceKey(window.windowKey)
+        ?: "Workspace"
     val normalizedTitle = normalizeHostedWorkspaceText(window.windowTitle)
     val title = when {
         normalizedTitle != null && !normalizedTitle.equals(window.windowKey, ignoreCase = true) -> normalizedTitle

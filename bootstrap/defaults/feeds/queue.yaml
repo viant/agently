@@ -1,4 +1,7 @@
 id: queue
+presentation:
+  icon: list
+  accent: orange
 
 dataSource:
   queueTurns:

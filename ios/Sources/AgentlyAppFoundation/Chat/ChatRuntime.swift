@@ -217,14 +217,10 @@ public final class ChatRuntime: ObservableObject {
             }
 
             let assistantMessages = [turn.assistant?.narration, turn.assistant?.final].compactMap { $0 }
-            // Narration is live progress, not a second assistant answer. While a
-            // turn is active it belongs exclusively in the global progress card;
-            // after completion the final message wins. Keep narration only as a
-            // compatibility fallback for terminal turns that have no final text.
+            // Narration is the active assistant bubble. The global progress card
+            // carries only compact status metadata; final content replaces it.
             let finalMarkdown = sanitizeAssistantTranscriptText(turn.assistant?.final?.content) ?? ""
-            let narrationFallback = Self.isPendingStatus(turn.status)
-                ? ""
-                : (sanitizeAssistantTranscriptText(turn.assistant?.narration?.content) ?? "")
+            let narrationFallback = sanitizeAssistantTranscriptText(turn.assistant?.narration?.content) ?? ""
             let assistantMarkdown = finalMarkdown.isEmpty ? narrationFallback : finalMarkdown
             let renderedReports = Self.canonicalAssistantReports(assistantMessages)
 
@@ -326,7 +322,9 @@ public final class ChatRuntime: ObservableObject {
                   message.turnID?.trimmingCharacters(in: .whitespacesAndNewlines) == turnID else {
                 return nil
             }
-            let markdown = sanitizeAssistantTranscriptText(message.content) ?? ""
+            let markdown = sanitizeAssistantTranscriptText(message.content)
+                ?? sanitizeAssistantTranscriptText(message.narration)
+                ?? ""
             let rendered = snapshot.liveExecutionGroupsByID[message.id]?.renderedContent
             guard !markdown.isEmpty || rendered?.reports.isEmpty == false else { return nil }
             return AssistantTurnFragment(message: message, markdown: markdown, rendered: rendered)

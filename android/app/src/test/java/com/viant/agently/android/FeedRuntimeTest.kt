@@ -1,7 +1,14 @@
 package com.viant.agently.android
 
+import com.viant.agentlysdk.stream.ActiveFeed
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import com.viant.agentlysdk.ActiveFeedState
+import com.viant.agentlysdk.ConversationStateResponse
+import com.viant.agentlysdk.FeedPresentation
+import androidx.compose.ui.graphics.Color
+import com.viant.forgeandroid.runtime.deduplicateFileBrowserRows
+import com.viant.forgeandroid.runtime.previousTextFromUnifiedDiff
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -9,6 +16,55 @@ import org.junit.Test
 
 class FeedRuntimeTest {
     private val json = Json { ignoreUnknownKeys = true }
+
+    @Test
+    fun `visible feeds hide only explicitly developer-only metadata`() {
+        val feeds = listOf(
+            ActiveFeed(feedId = "plan", title = "Plan", itemCount = 1),
+            ActiveFeed(feedId = "terminal", title = "Terminal", itemCount = 1, developerOnly = true)
+        )
+
+        assertEquals(listOf("plan"), visibleFeeds(feeds).map { it.feedId })
+    }
+
+    @Test
+    fun `feed accent comes from generic presentation metadata`() {
+        assertEquals(Color(0xFF0A9B98), toolFeedAccent(FeedPresentation(icon = "changes", accent = "teal")))
+        assertEquals(Color(0xFF5965D8), toolFeedAccent(null))
+    }
+
+    @Test
+    fun `file preview primitives dedupe and reconstruct previous content`() {
+        val rows = listOf(
+            mapOf<String, Any?>("url" to "/tmp/a.txt", "diff" to "first"),
+            mapOf<String, Any?>("url" to "/tmp/a.txt", "diff" to "latest")
+        )
+        assertEquals("latest", deduplicateFileBrowserRows(rows, "url").single()["diff"])
+        assertEquals(
+            "old\nkeep\n",
+            previousTextFromUnifiedDiff("new\nkeep\nadded\n", "@@ -1,2 +1,3 @@\n-old\n+new\n keep\n+added")
+        )
+    }
+
+    @Test
+    fun `merged visible feeds preserve persisted feeds and let live metadata win`() {
+        val state = ConversationStateResponse(
+            feeds = listOf(ActiveFeedState("plan", "Persisted Plan", 1))
+        )
+        assertEquals("Persisted Plan", mergedVisibleFeeds(null, state, "conv-1").first().title)
+
+        val snapshot = com.viant.agentlysdk.stream.ConversationStreamSnapshot(
+            conversationId = "conv-1",
+            activeTurnId = null,
+            feeds = listOf(ActiveFeed("plan", "Live Plan", 2, conversationId = "conv-1")),
+            pendingElicitation = null,
+            bufferedMessages = emptyList(),
+            liveExecutionGroupsById = emptyMap()
+        )
+        val merged = mergedVisibleFeeds(snapshot, state, "conv-1")
+        assertEquals(1, merged.size)
+        assertEquals("Live Plan", merged.first().title)
+    }
 
     @Test
     fun `computeFeedCollections resolves root and child data sources from feed payload`() {

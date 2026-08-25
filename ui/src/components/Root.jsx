@@ -14,25 +14,24 @@ import GoalDraftDialog from './GoalDraftDialog';
 import MenuBar, { refreshWindowDataSources } from './MenuBar';
 import ToolFeedWorkspace from './ToolFeedWorkspace';
 import UsageBar from './UsageBar';
+import TurnProgressStatus from './TurnProgressStatus';
+import ConversationWorkspaceSurface from './ConversationWorkspaceSurface';
 import StatusBar from './StatusBar';
 import Sidebar from './Sidebar';
 import ElicitationOverlay from './ElicitationOverlay';
 import { useApprovalQueue } from '../hooks/useApprovalQueue';
-import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, ensureWorkspaceWindowForConversation, getScopedConversationSelection, getScopedWorkspacePresentationMode, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, returnToParentConversation, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
+import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, ensureWorkspaceWindowForConversation, getScopedActiveSurface, getScopedConversationSelection, getScopedWorkspacePresentationMode, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
 import { conversationIDFromPath, publishActiveConversation } from '../services/chatRuntime';
 import { beginLogin, getAuthMeSilently, getAuthProvidersSilently, recoverSessionSilently } from '../services/agentlyClient';
 import { onGoalDraftOpen } from '../services/goalDraftBus';
+import { useDeveloperMode } from '../services/uiPreferences';
 
 const SIDEBAR_WIDTH_KEY = 'agently.sidebarWidth';
 const SIDEBAR_DEFAULT_WIDTH = 320;
 const SIDEBAR_MIN_WIDTH = 220;
 const SIDEBAR_MAX_WIDTH = 520;
 const COMPACT_SHELL_BREAKPOINT = 820;
-const SHOW_EXECUTION_DETAILS_KEY = 'agently.showExecutionDetails';
-const SHOW_INTAKE_DETAILS_KEY = 'agently.showIntakeDetails';
-const SHOW_WORKSPACE_WINDOW_KEY = 'agently.showWorkspaceWindow';
-const SHOW_TOOL_FEEDS_KEY = 'agently.showToolFeeds';
 const WORKSPACE_HEIGHT_KEY = 'agently.workspaceHeight';
 const WORKSPACE_DEFAULT_HEIGHT = 620;
 const WORKSPACE_MIN_HEIGHT = 240;
@@ -458,40 +457,10 @@ export default function Root() {
   });
   const [authState, setAuthState] = useState('checking');
   const [oauthProviderLabel, setOAuthProviderLabel] = useState('');
-  const [showExecutionDetails, setShowExecutionDetails] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    try {
-      const stored = String(window.localStorage?.getItem(SHOW_EXECUTION_DETAILS_KEY) || '').trim().toLowerCase();
-      if (stored === 'false') return false;
-    } catch (_) {}
-    return true;
-  });
-  const [showIntakeDetails, setShowIntakeDetails] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    try {
-      const stored = String(window.localStorage?.getItem(SHOW_INTAKE_DETAILS_KEY) || '').trim().toLowerCase();
-      if (stored === 'true') return true;
-    } catch (_) {}
-    return false;
-  });
-  const [showWorkspaceWindow, setShowWorkspaceWindow] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    try {
-      const stored = String(window.localStorage?.getItem(SHOW_WORKSPACE_WINDOW_KEY) || '').trim().toLowerCase();
-      if (stored === 'false') return false;
-    } catch (_) {}
-    return true;
-  });
-  const [showToolFeeds, setShowToolFeeds] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    try {
-      const stored = String(window.localStorage?.getItem(SHOW_TOOL_FEEDS_KEY) || '').trim().toLowerCase();
-      if (stored === 'false') return false;
-    } catch (_) {}
-    return true;
-  });
+  const developerMode = useDeveloperMode();
   const [goalDraftState, setGoalDraftState] = useState({ isOpen: false, conversationId: '', initialDraft: '' });
   const [workspacePresentationMode, setWorkspacePresentationModeState] = useState('split');
+  const [activeSurface, setActiveSurfaceState] = useState('conversation');
   const [workspaceHeight, setWorkspaceHeight] = useState(WORKSPACE_DEFAULT_HEIGHT);
   const [stableMainChatWindow, setStableMainChatWindow] = useState(null);
   const [isCompactShell, setIsCompactShell] = useState(() => {
@@ -593,7 +562,7 @@ export default function Root() {
     mainConversationId,
     scopedConversationId: getScopedConversationSelection(String(chatChromeWindow?.windowId || '').trim()),
   });
-  const showWorkspacePane = !!(workspaceWindows.length > 0 && activeWorkspaceWindow && showWorkspaceWindow);
+  const showWorkspacePane = !!(workspaceWindows.length > 0 && activeWorkspaceWindow);
   const isWorkspaceFull = workspacePresentationMode === 'full';
   const forceWorkspaceFull = shouldForceWorkspaceFull({ isCompactShell, showWorkspacePane });
   const effectiveWorkspaceFull = isWorkspaceFull || forceWorkspaceFull;
@@ -615,6 +584,62 @@ export default function Root() {
     }
   };
 
+  const setActiveSurface = React.useCallback((surface) => {
+    const next = String(surface || '').trim().toLowerCase() === 'workspace' ? 'workspace' : 'conversation';
+    setActiveSurfaceState(next);
+    if (mainConversationId) setScopedActiveSurface(mainConversationId, next);
+  }, [mainConversationId]);
+
+  const openWorkspaceSurface = React.useCallback(() => {
+    if (!activeWorkspaceWindow?.windowId) return;
+    selectedWindowId.value = activeWorkspaceWindow.windowId;
+    selectedTabId.value = activeWorkspaceWindow.windowId;
+    setActiveSurface('workspace');
+  }, [activeWorkspaceWindow?.windowId, setActiveSurface]);
+
+  const returnToConversationSurface = React.useCallback(() => {
+    const chatWindowId = String(effectiveMainChatWindow?.windowId || MAIN_CHAT_WINDOW_ID).trim() || MAIN_CHAT_WINDOW_ID;
+    selectedWindowId.value = chatWindowId;
+    selectedTabId.value = chatWindowId;
+    setActiveSurface('conversation');
+  }, [effectiveMainChatWindow?.windowId, setActiveSurface]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return () => {};
+    const onOpenMCPUIWorkspace = (event) => {
+      const detail = event?.detail || {};
+      const uri = String(detail?.uri || '').trim();
+      const conversationId = String(detail?.conversationId || mainConversationId || '').trim();
+      if (!uri || !conversationId || conversationId !== String(mainConversationId || '').trim()) return;
+      const navigation = detail?.navigation && typeof detail.navigation === 'object'
+        ? detail.navigation
+        : { label: String(detail?.title || 'Interactive app').trim(), icon: 'application' };
+      const opened = addWindow(
+        String(navigation?.label || detail?.title || 'Interactive app').trim(),
+        MAIN_CHAT_WINDOW_ID,
+        'mcpui/workspace',
+        null,
+        true,
+        { uri, conversationId },
+        {
+          autoIndexTitle: false,
+          conversationId,
+          presentation: 'hosted',
+          region: 'chat.top',
+          navigation,
+          mcpUI: { uri, title: String(detail?.title || navigation?.label || 'Interactive app').trim() },
+        }
+      );
+      if (opened?.windowId) {
+        selectedWindowId.value = opened.windowId;
+        selectedTabId.value = opened.windowId;
+        setActiveSurface('workspace');
+      }
+    };
+    window.addEventListener('agently:mcpui-workspace-open', onOpenMCPUIWorkspace);
+    return () => window.removeEventListener('agently:mcpui-workspace-open', onOpenMCPUIWorkspace);
+  }, [mainConversationId, setActiveSurface]);
+
   const setActiveWorkspaceCollapsed = (collapsed) => {
     const targetWindowId = String(activeWorkspaceWindow?.windowId || '').trim();
     if (!targetWindowId) return;
@@ -633,6 +658,7 @@ export default function Root() {
     if (!target) return;
     selectedWindowId.value = target.windowId;
     selectedTabId.value = target.windowId;
+    setActiveSurface('workspace');
     if (mainConversationId) {
       setScopedWorkspaceSelection(mainConversationId, target.windowId);
       setScopedWorkspaceState(mainConversationId, workspaceWindows);
@@ -664,24 +690,9 @@ export default function Root() {
     }
     setScopedWorkspaceSelection(restoreConversationId, '');
     setScopedWorkspaceState(restoreConversationId, null);
+    setActiveSurface('conversation');
     openConversationInMainWindow(restoreConversationId);
   };
-
-  const toggleWorkspaceVisibility = React.useCallback(() => {
-    setShowWorkspaceWindow((current) => {
-      const next = !current;
-      const fallbackWindowId = resolveWorkspaceVisibilitySelection({
-        nextVisible: next,
-        activeWorkspaceWindowId: activeWorkspaceWindow?.windowId,
-        mainChatWindowId: effectiveMainChatWindow?.windowId,
-      });
-      if (fallbackWindowId) {
-        selectedWindowId.value = fallbackWindowId;
-        selectedTabId.value = fallbackWindowId;
-      }
-      return next;
-    });
-  }, [activeWorkspaceWindow?.windowId, effectiveMainChatWindow?.windowId]);
 
   const setMode = (mode) => {
     const next = mode === 'left' || mode === 'window' ? mode : 'right';
@@ -836,32 +847,6 @@ export default function Root() {
     }
     previousCompactShellRef.current = isCompactShell;
   }, [isCompactShell]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      window.localStorage?.setItem(SHOW_EXECUTION_DETAILS_KEY, showExecutionDetails ? 'true' : 'false');
-    } catch (_) {}
-  }, [showExecutionDetails]);
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      window.localStorage?.setItem(SHOW_INTAKE_DETAILS_KEY, showIntakeDetails ? 'true' : 'false');
-    } catch (_) {}
-  }, [showIntakeDetails]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      window.localStorage?.setItem(SHOW_WORKSPACE_WINDOW_KEY, showWorkspaceWindow ? 'true' : 'false');
-    } catch (_) {}
-  }, [showWorkspaceWindow]);
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      window.localStorage?.setItem(SHOW_TOOL_FEEDS_KEY, showToolFeeds ? 'true' : 'false');
-    } catch (_) {}
-  }, [showToolFeeds]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
@@ -1113,19 +1098,6 @@ export default function Root() {
   }, [activeWorkspaceWindow?.windowId, workspaceWindows, selectedWindow?.windowId, mainConversationId, workspaceStatePersistenceSignature]);
 
   useEffect(() => {
-    if (!shouldReturnSelectionToMainChat({
-      showWorkspaceWindow,
-      activeWorkspaceWindowId: activeWorkspaceWindow?.windowId,
-      selectedWindowId: selectedWindow?.windowId,
-    })) {
-      return;
-    }
-    const fallbackWindowId = String(effectiveMainChatWindow?.windowId || MAIN_CHAT_WINDOW_ID).trim() || MAIN_CHAT_WINDOW_ID;
-    selectedWindowId.value = fallbackWindowId;
-    selectedTabId.value = fallbackWindowId;
-  }, [activeWorkspaceWindow?.windowId, effectiveMainChatWindow?.windowId, selectedWindow?.windowId, showWorkspaceWindow]);
-
-  useEffect(() => {
     if (!shouldReturnCollapsedWorkspaceSelectionToMainChat({
       effectiveWorkspaceCollapsed,
       activeWorkspaceWindowId: activeWorkspaceWindow?.windowId,
@@ -1146,6 +1118,25 @@ export default function Root() {
     }
     setWorkspacePresentationModeState(getScopedWorkspacePresentationMode(conversationId));
   }, [mainConversationId]);
+
+  useEffect(() => {
+    const conversationId = String(mainConversationId || '').trim();
+    setActiveSurfaceState(conversationId ? getScopedActiveSurface(conversationId) : 'conversation');
+  }, [mainConversationId]);
+
+  useEffect(() => {
+    if (showWorkspacePane) return;
+    if (activeSurface !== 'workspace') return;
+    setActiveSurface('conversation');
+  }, [activeSurface, setActiveSurface, showWorkspacePane]);
+
+  useEffect(() => {
+    const selectedId = String(selectedWindow?.windowId || '').trim();
+    const workspaceId = String(activeWorkspaceWindow?.windowId || '').trim();
+    if (!selectedId || !workspaceId || selectedId !== workspaceId) return;
+    if (activeSurface === 'workspace') return;
+    setActiveSurface('workspace');
+  }, [activeSurface, activeWorkspaceWindow?.windowId, selectedWindow?.windowId, setActiveSurface]);
 
   useEffect(() => {
     const conversationId = String(mainConversationId || '').trim();
@@ -1189,7 +1180,7 @@ export default function Root() {
 
   return (
     <DetailContext.Provider value={value}>
-      <ConversationViewContext.Provider value={{ showExecutionDetails, setShowExecutionDetails, showIntakeDetails, setShowIntakeDetails, toolFeedDock: showChatChrome ? 'right' : 'inline' }}>
+      <ConversationViewContext.Provider value={{ developerMode, showIntakeDetails: false, toolFeedDock: showChatChrome ? 'right' : 'inline' }}>
         <div
           className={`app-shell${isCompactShell ? ' is-compact-shell' : ''}`}
           style={{
@@ -1199,14 +1190,7 @@ export default function Root() {
           <MenuBar
             approvals={approvals}
             onToggleSidebar={() => setIsSidebarOpen((open) => !open)}
-            showExecutionDetails={showExecutionDetails}
-            onToggleExecutionDetails={() => setShowExecutionDetails((value) => !value)}
-            showIntakeDetails={showIntakeDetails}
-            onToggleIntakeDetails={() => setShowIntakeDetails((value) => !value)}
-            showWorkspaceWindow={showWorkspaceWindow}
-            onToggleWorkspaceWindow={toggleWorkspaceVisibility}
-            showToolFeeds={showToolFeeds}
-            onToggleToolFeeds={() => setShowToolFeeds((value) => !value)}
+            conversationId={conversationIDFromPath(typeof window !== 'undefined' ? window.location.pathname : '')}
           />
 
         <div className={`app-main${isCompactShell ? ' is-compact-shell' : ''}`}>
@@ -1269,7 +1253,8 @@ export default function Root() {
                   <div className="app-main-window-header-title">{linkedChildWindow ? 'Linked conversation' : activeWindowTitle}</div>
                 </div>
               ) : null}
-              {shouldRenderSplitShell ? (
+              {showChatChrome ? <TurnProgressStatus conversationId={activeConversationId} developerMode={developerMode} /> : null}
+              {shouldRenderSplitShell ? (developerMode ? (
                 <div className={`app-window-split-stack${effectiveWorkspaceFull ? ' is-full' : ''}${effectiveWorkspaceCollapsed ? ' is-collapsed' : ''}${!showWorkspacePane ? ' is-chat-only' : ''}`}>
                   <div
                     className={`app-window-split-shell${effectiveWorkspaceFull ? ' is-full' : ''}${effectiveWorkspaceCollapsed ? ' is-collapsed' : ''}${!showWorkspacePane ? ' is-chat-only' : ''}`}
@@ -1374,12 +1359,22 @@ export default function Root() {
                   </div>
                 </div>
               ) : (
+                <ConversationWorkspaceSurface
+                  activeSurface={activeSurface}
+                  chatWindow={hostedBottomWindow}
+                  workspaceWindow={showWorkspacePane ? activeWorkspaceWindow : null}
+                  workspaceTabs={workspaceTabs}
+                  onOpenWorkspace={openWorkspaceSurface}
+                  onBackToConversation={returnToConversationSurface}
+                  onSelectWorkspaceTab={focusWorkspaceWindow}
+                />
+              )) : (
                 <WindowManager />
               )}
             </div>
-            {showChatChrome && showToolFeeds ? <ToolFeedWorkspace conversationId={activeConversationId} /> : null}
+            {showChatChrome ? <ToolFeedWorkspace conversationId={activeConversationId} developerMode={developerMode} /> : null}
             </div>
-            {showChatChrome ? <UsageBar /> : null}
+            {showChatChrome && developerMode ? <UsageBar /> : null}
           </main>
         </div>
 

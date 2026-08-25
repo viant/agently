@@ -5,6 +5,9 @@
 @import './styles/shell.css';
 @import './styles/approval.css';
 @import './styles/iteration.css';
+@import './styles/progress.css';
+@import './styles/ui-settings.css';
+@import './styles/conversation-usage.css';
 @import './styles/detail-panel.css';
 @import './styles/steer.css';
 @import './styles/rich-content.css';

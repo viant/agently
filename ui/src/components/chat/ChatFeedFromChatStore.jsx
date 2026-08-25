@@ -144,6 +144,13 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
     );
   }
   const lastIndexByTurn = latestTurnRowIndex(rows);
+  const retryPromptByTurn = new Map();
+  rows.forEach((row) => {
+    const turnId = String(row?.turnId || '').trim();
+    if (row?.kind === 'user' && turnId && String(row?.content || '').trim()) {
+      retryPromptByTurn.set(turnId, String(row.content).trim());
+    }
+  });
 
   return (
     <div className="app-chat-feed" data-source="chatStore">
@@ -159,6 +166,7 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
             iterationRow={row}
             context={context}
             suppressBubble={suppressBubble}
+            retryPrompt={retryPromptByTurn.get(turnId) || ''}
           />
         );
       })}

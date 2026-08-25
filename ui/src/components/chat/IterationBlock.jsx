@@ -1586,7 +1586,7 @@ export function buildIterationDataFromCanonicalRow(canonicalRow = null, message 
     executionRole: (Array.isArray(round?.modelSteps) ? round.modelSteps[0]?.executionRole : '') || round?.executionRole || '',
     modelSteps: Array.isArray(round?.modelSteps) ? round.modelSteps : [],
     toolSteps: Array.isArray(round?.toolCalls) ? round.toolCalls : [],
-    toolCallsPlanned: [],
+    toolCallsPlanned: Array.isArray(round?.toolCallsPlanned) ? round.toolCallsPlanned : [],
   }));
   const firstNarration = rounds.map((round) => String(round?.narration || '').trim()).find(Boolean) || '';
   const finalRound = [...rounds].reverse().find((round) => String(round?.content || '').trim()) || null;
@@ -1696,9 +1696,10 @@ export function resolveCanonicalDetailStep(canonicalRow = null, step = {}) {
   return step;
 }
 
-export default function IterationBlock({ message, canonicalRow = null, context, showToolFeedDetail = true, suppressBubble = false }) {
+export default function IterationBlock({ message, canonicalRow = null, context, showToolFeedDetail = true, suppressBubble = false, retryPrompt = '' }) {
   const { showDetail } = useContext(DetailContext);
-  const { showExecutionDetails = true, showIntakeDetails = false, toolFeedDock = 'inline' } = useContext(ConversationViewContext);
+  const { developerMode = false, showIntakeDetails = false, toolFeedDock = 'inline' } = useContext(ConversationViewContext);
+  const showExecutionDetails = developerMode;
   const data = buildIterationDataFromCanonicalRow(canonicalRow, message);
   const iterationConversationId = String(canonicalRow?.conversationId || data?.conversationId || message?.conversationId || '').trim() || currentConversationId();
   const toolCalls = Array.isArray(data.toolCalls) ? data.toolCalls : [];
@@ -2069,6 +2070,32 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
   );
   const summaryContent = String(summaryModeMessageContent(data?.summary)).trim();
   const generatedFiles = Array.isArray(message?.generatedFiles) ? message.generatedFiles : [];
+  const normalizedTerminalStatus = String(iterationDisplayStatus || '').trim().toLowerCase();
+  const showTerminalNotice = !developerMode && (
+    isErrorStatus(normalizedTerminalStatus)
+    || normalizedTerminalStatus === 'canceled'
+    || normalizedTerminalStatus === 'cancelled'
+  );
+  const terminalDetailStep = useMemo(() => {
+    const candidates = (Array.isArray(visibleGroups) ? visibleGroups : []).flatMap((group) => [
+      ...(Array.isArray(group?.toolSteps) ? group.toolSteps : []),
+      ...(Array.isArray(group?.modelSteps) ? group.modelSteps.map((step) => ({ ...step, kind: 'model' })) : []),
+    ]);
+    return [...candidates].reverse().find((step) => isErrorStatus(step?.status) || String(step?.errorMessage || step?.error || '').trim()) || null;
+  }, [visibleGroups]);
+  const terminalCategory = normalizedTerminalStatus.startsWith('cancel')
+    ? 'Canceled'
+    : (normalizedTerminalStatus.includes('timeout') ? 'Timed out' : 'Tool failed');
+
+  const prefillRetry = () => {
+    const prompt = String(retryPrompt || '').trim();
+    if (!prompt || typeof window === 'undefined') return;
+    try {
+      window.dispatchEvent(new CustomEvent('forge:composer-prefill', {
+        detail: { prompt, conversationId: iterationConversationId }
+      }));
+    } catch (_) {}
+  };
 
   const renderGroupRow = (group, groupIndex) => (
     (() => {
@@ -2470,6 +2497,27 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
 
   return (
     <>
+      {showTerminalNotice ? (
+        <section className={`app-turn-terminal-notice${normalizedTerminalStatus.startsWith('cancel') ? ' is-canceled' : ''}`} data-testid="turn-terminal-notice">
+          <div>
+            <div className="app-turn-terminal-title">{normalizedTerminalStatus.startsWith('cancel') ? 'Request canceled' : 'Request couldn’t be completed'}</div>
+            <div className="app-turn-terminal-message">{normalizedTerminalStatus.startsWith('cancel') ? 'The current request was stopped.' : 'The assistant could not finish this request.'}</div>
+          </div>
+          <div className="app-turn-terminal-actions">
+            <span className="app-turn-terminal-category">{terminalCategory}</span>
+            {terminalDetailStep ? (
+              <Button
+                minimal
+                small
+                icon="wrench"
+                text="Developer details"
+                onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, terminalDetailStep))}
+              />
+            ) : null}
+            {String(retryPrompt || '').trim() ? <Button minimal small icon="redo" text="Try again" onClick={prefillRetry} /> : null}
+          </div>
+        </section>
+      ) : null}
       {showExecutionDetails ? (
         <section className={`app-iteration-card tone-${statusTone(iterationDisplayStatus)}`}>
           <button type="button" className="app-iteration-head" onClick={() => setCollapsed((value) => !value)}>
@@ -2583,7 +2631,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
         </section>
       ) : null}
       {showExecutionDetails && showToolFeedDetail && toolFeedDock !== 'right' ? <ToolFeedDetail context={context} /> : null}
-      {!suppressBubble && !hasPendingVisibleElicitation && !hasPendingExecutionElicitation && shouldShowNarrationBubble(visibleGroups, continuousRenderedText, data?.response?.content) ? (
+      {!showTerminalNotice && !suppressBubble && !hasPendingVisibleElicitation && !hasPendingExecutionElicitation && shouldShowNarrationBubble(visibleGroups, continuousRenderedText, data?.response?.content) ? (
         <BubbleMessage
           conversationId={iterationConversationId}
           message={{

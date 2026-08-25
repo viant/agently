@@ -1238,6 +1238,10 @@ function updateTranscriptFeedCache(chatState = {}, payload = {}, fallbackConvers
   const nextFeed = {
     feedId,
     title: payload?.feedTitle || feedId,
+    developerOnly: payload?.feedDeveloperOnly === true,
+    presentation: payload?.feedIcon || payload?.feedAccent
+      ? { icon: payload?.feedIcon || undefined, accent: payload?.feedAccent || undefined }
+      : undefined,
     itemCount: payload?.feedItemCount || 0,
     data: payload?.feedData || null
   };

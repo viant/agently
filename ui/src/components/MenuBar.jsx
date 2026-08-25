@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Dialog, Spinner, Switch } from '@blueprintjs/core';
+import { Button, Dialog, Spinner, Tooltip } from '@blueprintjs/core';
 import { addWindow, activeWindows, getWindowContext, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
 import SchemaBasedForm from 'forge/widgets/SchemaBasedForm.jsx';
 import { client, getAuthMeSilently } from '../services/agentlyClient';
 import { subscribeMCPUIApprovalRequests } from '../services/mcpApps/approvalEvents.js';
 import { MAIN_CHAT_WINDOW_ID, resolveConversationSelection } from '../services/conversationWindow';
+import { uiSettingsHref } from '../services/uiSettingsNavigation';
+import { conversationUsageHref, shouldShowConversationUsage } from '../services/conversationUsage';
 import { getWorkspaceMetadataSnapshot, resolveWorkspaceBranding, subscribeWorkspaceMetadata } from '../services/workspaceMetadata';
 import { extractPlannerElicitationMeta, prepareRenderableRequestedSchema } from './elicitationHelpers';
 import { selectPath } from '../services/feedForgeWiring';
@@ -317,14 +319,7 @@ const plannerCellStyle = {
 export default function MenuBar({
   approvals,
   onToggleSidebar,
-  showExecutionDetails = true,
-  onToggleExecutionDetails,
-  showIntakeDetails = false,
-  onToggleIntakeDetails,
-  showWorkspaceWindow = true,
-  onToggleWorkspaceWindow,
-  showToolFeeds = true,
-  onToggleToolFeeds
+  conversationId = '',
 }) {
   const {
     items = [],
@@ -348,7 +343,7 @@ export default function MenuBar({
     fallbackIconRef: 'builtin:viant',
   }));
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const userMenuRef = useRef(null);
   const [approvalPage, setApprovalPage] = useState(0);
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
   const [approvalError, setApprovalError] = useState('');
@@ -357,6 +352,24 @@ export default function MenuBar({
   const queueFormValuesRef = useRef({});
   const returnFocusRef = useRef(null);
   const wasApprovalDialogOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (!userMenuOpen || typeof document === 'undefined') return undefined;
+    const closeOutside = (event) => {
+      if (!userMenuRef.current?.contains(event.target)) setUserMenuOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      setUserMenuOpen(false);
+      try { userMenuRef.current?.querySelector('[data-testid="user-menu-btn"]')?.focus(); } catch (_) {}
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [userMenuOpen]);
 
   const selectedQueueDialog = useMemo(() => normalizeQueueApprovalDialog(selected), [selected]);
   const selectedQueueSchema = selectedQueueDialog.preparedFormSchema;
@@ -569,100 +582,95 @@ export default function MenuBar({
         </div>
         <div className="app-topbar-divider" />
         <div className="app-topbar-actions">
-          <Button minimal icon="menu" data-testid="sidebar-toggle" onClick={onToggleSidebar} />
-          <Button
-            minimal
-            icon="time"
-            text="Automation"
-            className="app-topbar-nav-btn"
-            data-testid="automation-nav"
-            onClick={() => openWindow('schedule', 'Automation', ['schedules'], {
-              replaceTabbedWindows: true,
-              replaceMainChatTree: true,
-            })}
-          />
-          <Button
-            minimal
-            icon="history"
-            text="Runs"
-            className="app-topbar-nav-btn"
-            data-testid="runs-nav"
-            onClick={() => openWindow('schedule/history', 'Runs', ['runs'], {
-              replaceTabbedWindows: true,
-              replaceMainChatTree: true,
-            })}
-          />
-          <Button
-            minimal
-            icon="notifications"
-            intent={pendingCount > 0 ? 'warning' : 'none'}
-            className={pendingCount > 0 ? 'app-approval-bell is-pending' : 'app-approval-bell'}
-            data-testid="approval-bell"
-            onClick={() => setOpen?.(!open)}
-          />
-          <div className="app-topbar-settings-wrap">
+          <Tooltip content="Toggle conversations" placement="bottom">
+            <Button minimal icon="menu" aria-label="Toggle conversations" className="app-topbar-icon-btn is-conversations" data-testid="sidebar-toggle" onClick={onToggleSidebar} />
+          </Tooltip>
+          <Tooltip content="Automation" placement="bottom">
             <Button
               minimal
-              icon="eye-open"
-              text="View settings"
-              className="app-topbar-nav-btn app-topbar-settings-btn"
-              data-testid="view-settings-btn"
-              onClick={() => {
-                setSettingsOpen((value) => !value);
-                setUserMenuOpen(false);
-              }}
+              icon="time"
+              aria-label="Automation"
+              className="app-topbar-icon-btn is-automation"
+              data-testid="automation-nav"
+              onClick={() => openWindow('schedule', 'Automation', ['schedules'], {
+                replaceTabbedWindows: true,
+                replaceMainChatTree: true,
+              })}
             />
-            {settingsOpen ? (
-              <div className="app-topbar-settings-menu" data-testid="view-settings-menu">
-                <div className="app-topbar-settings-title">View settings</div>
-                <Switch
-                  checked={!!showExecutionDetails}
-                  label="Show execution details"
-                  onChange={() => onToggleExecutionDetails?.()}
-                />
-                <Switch
-                  checked={!!showIntakeDetails}
-                  label="Show intake details"
-                  onChange={() => onToggleIntakeDetails?.()}
-                />
-                <Switch
-                  checked={!!showToolFeeds}
-                  label="Show tool feeds"
-                  onChange={() => onToggleToolFeeds?.()}
-                />
-                <Switch
-                  checked={!!showWorkspaceWindow}
-                  label="Show workspace view"
-                  onChange={() => onToggleWorkspaceWindow?.()}
-                />
-              </div>
-            ) : null}
-          </div>
+          </Tooltip>
+          <Tooltip content="Runs" placement="bottom">
+            <Button
+              minimal
+              icon="history"
+              aria-label="Runs"
+              className="app-topbar-icon-btn is-runs"
+              data-testid="runs-nav"
+              onClick={() => openWindow('schedule/history', 'Runs', ['runs'], {
+                replaceTabbedWindows: true,
+                replaceMainChatTree: true,
+              })}
+            />
+          </Tooltip>
+          {shouldShowConversationUsage(conversationId) ? (
+            <Tooltip content="Conversation usage" placement="bottom">
+              <Button
+                minimal
+                icon="dashboard"
+                aria-label="Conversation usage"
+                className="app-topbar-icon-btn is-usage"
+                data-testid="conversation-usage-nav"
+                onClick={() => { window.location.href = conversationUsageHref(conversationId); }}
+              />
+            </Tooltip>
+          ) : null}
+          <Tooltip content={pendingCount > 0 ? `${pendingCount} pending approvals` : 'Approvals'} placement="bottom">
+            <Button
+              minimal
+              icon="notifications"
+              aria-label={pendingCount > 0 ? `${pendingCount} pending approvals` : 'Approvals'}
+              intent={pendingCount > 0 ? 'warning' : 'none'}
+              className={pendingCount > 0 ? 'app-topbar-icon-btn app-approval-bell is-pending' : 'app-topbar-icon-btn app-approval-bell'}
+              data-testid="approval-bell"
+              onClick={() => setOpen?.(!open)}
+            />
+          </Tooltip>
         </div>
       </div>
-      <div className="app-topbar-right" style={{ position: 'relative' }}>
+      <div className="app-topbar-right" style={{ position: 'relative' }} ref={userMenuRef}>
         <Button
           minimal
           icon="user"
           className="app-user-btn"
           data-testid="user-menu-btn"
+          aria-haspopup="menu"
+          aria-expanded={userMenuOpen}
+          aria-controls={userMenuOpen ? 'app-user-menu' : undefined}
           onClick={() => {
             setUserMenuOpen((v) => !v);
-            setSettingsOpen(false);
           }}
         >
           {displayName}
         </Button>
         {userMenuOpen ? (
-          <div className="app-user-menu" data-testid="user-menu">
+          <div className="app-user-menu" id="app-user-menu" data-testid="user-menu" role="menu">
             {user?.email ? <div className="app-user-menu-email">{user.email}</div> : null}
+            <Button
+              minimal
+              icon="cog"
+              text="UI Settings"
+              className="app-user-menu-settings"
+              data-testid="ui-settings-link"
+              role="menuitem"
+              onClick={() => { setUserMenuOpen(false); window.location.href = uiSettingsHref(); }}
+            />
             <Button
               minimal
               icon="log-out"
               text="Logout"
               className="app-user-menu-logout"
               data-testid="logout-btn"
-              onClick={handleLogout}
+              role="menuitem"
+              onClick={() => { setUserMenuOpen(false); handleLogout(); }}
             />
           </div>
         ) : null}

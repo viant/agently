@@ -15,6 +15,7 @@ import {
   resolveWorkspaceWindowsForConversation,
   getScopedWorkspaceSelection,
   getScopedWorkspaceState,
+  getScopedActiveSurface,
   isLinkedChildWindow,
   openConversationInMainWindow,
   openLinkedConversationWindow,
@@ -22,6 +23,7 @@ import {
   requestNewConversationInMainWindow,
   setScopedWorkspaceState,
   setScopedWorkspaceSelection,
+  setScopedActiveSurface,
   syncScopedWorkspaceStateFromTranscriptTurns,
   returnToParentConversation
 } from './conversationWindow';
@@ -64,6 +66,20 @@ describe('conversationWindow', () => {
     };
   });
 
+  it('persists Conversation/Workspace surface selection independently per conversation', () => {
+    expect(getScopedActiveSurface('conv-a')).toBe('conversation');
+    expect(getScopedActiveSurface('conv-b')).toBe('conversation');
+
+    setScopedActiveSurface('conv-a', 'workspace');
+    expect(getScopedActiveSurface('conv-a')).toBe('workspace');
+    expect(getScopedActiveSurface('conv-b')).toBe('conversation');
+
+    setScopedActiveSurface('conv-a', 'conversation');
+    expect(getScopedActiveSurface('conv-a')).toBe('conversation');
+    setScopedActiveSurface('conv-a', 'invalid');
+    expect(getScopedActiveSurface('conv-a')).toBe('conversation');
+  });
+
   it('opens a linked child conversation window and scopes the selection to it', () => {
     activeWindows.value = [{
       windowId: MAIN_CHAT_WINDOW_ID,
@@ -85,6 +101,14 @@ describe('conversationWindow', () => {
     });
     expect(String(window.sessionStorage.getItem(`agently.selectedConversationId:${linked.windowId}`))).toBe('child-456');
     expect(selectedWindowId.value).toBe(linked.windowId);
+  });
+
+  it('persists the active Conversation/Workspace surface per conversation', () => {
+    expect(getScopedActiveSurface('conv-1')).toBe('conversation');
+    setScopedActiveSurface('conv-1', 'workspace');
+    setScopedActiveSurface('conv-2', 'conversation');
+    expect(getScopedActiveSurface('conv-1')).toBe('workspace');
+    expect(getScopedActiveSurface('conv-2')).toBe('conversation');
   });
 
   it('syncs the browser path when opening a conversation in the main window', () => {
