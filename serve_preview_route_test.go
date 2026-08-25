@@ -11,7 +11,7 @@ import (
 	"testing/fstest"
 )
 
-func TestNewRouter_ServesLookupChipPreviewAsHTML(t *testing.T) {
+func TestNewRouter_ServesClientRoutesAsHTML(t *testing.T) {
 	uiDir := t.TempDir()
 	indexPath := filepath.Join(uiDir, "index.html")
 	if err := os.WriteFile(indexPath, []byte("<html><body>preview-shell</body></html>"), 0o644); err != nil {
@@ -44,7 +44,7 @@ func TestNewRouter_ServesLookupChipPreviewAsHTML(t *testing.T) {
 	}
 
 	handler := newRouter(api, meta, speech, uiDir, bundle)
-	for _, path := range []string{"/lookup-chip-preview", "/ui/lookup-chip-preview"} {
+	for _, path := range []string{"/lookup-chip-preview", "/ui/lookup-chip-preview", "/ui/settings"} {
 		apiCalled = false
 		metaCalled = false
 		speechCalled = false

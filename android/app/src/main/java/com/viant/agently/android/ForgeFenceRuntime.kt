@@ -92,7 +92,7 @@ internal fun TranscriptMessageContent(
         if (renderedReports.isNullOrEmpty()) {
             sourceParts
         } else {
-            sourceParts.map { part ->
+            suppressCanonicalReportTransportParts(sourceParts, renderedReports).map { part ->
                 when (part) {
                     is TranscriptContentPart.Markdown -> TranscriptContentPart.Markdown(
                         ForgeTranscriptEnvelope.suppressProgressiveTransport(part.text)
@@ -136,6 +136,29 @@ internal fun TranscriptMessageContent(
                 onOpenInlineReportPdf = onOpenInlineReportPdf
             )
         }
+    }
+}
+
+internal fun suppressCanonicalReportTransportParts(
+    parts: List<TranscriptContentPart>,
+    reports: List<ForgeTranscriptCanonicalReport>
+): List<TranscriptContentPart> {
+    if (parts.isEmpty() || reports.isEmpty()) return parts
+    val canonicalTitles = reports.flatMap { report ->
+        listOfNotNull(
+            report.id,
+            (report.source as? JsonObject)
+                ?.get("title")
+                ?.jsonPrimitive
+                ?.contentOrNull
+        )
+    }.map { it.trim().lowercase() }
+        .filter { it.isNotEmpty() }
+        .toSet()
+    if (canonicalTitles.isEmpty()) return parts
+    return parts.filterNot { part ->
+        part is TranscriptContentPart.ForgeUi &&
+            part.payload.title.orEmpty().trim().lowercase() in canonicalTitles
     }
 }
 

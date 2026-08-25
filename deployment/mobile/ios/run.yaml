@@ -38,12 +38,22 @@ pipeline:
         elif [ -d /Applications/Xcode-beta.app/Contents/Developer ]; then
           export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
         fi
-        git -C ${repoPath} submodule update --init --recursive
-        ln -sfn ../../android/deps/agently-core/sdk/ios ${repoPath}/ios/Packages/AgentlySDKPackage
-        ln -sfn ../../android/deps/forge/ios ${repoPath}/ios/Packages/ForgeIOSPackage
-        cd ${repoPath}/android/deps/agently-core/sdk/ios
+        if [ "${AGENTLY_IOS_USE_SIBLING_SOURCES:-false}" = "true" ]; then
+          echo "Using sibling Forge and Agently Core iOS working trees."
+          CORE_IOS="${repoPath}/../agently-core/sdk/ios"
+          FORGE_IOS="${repoPath}/../forge/ios"
+          ln -sfn ../../../agently-core/sdk/ios ${repoPath}/ios/Packages/AgentlySDKPackage
+          ln -sfn ../../../forge/ios ${repoPath}/ios/Packages/ForgeIOSPackage
+        else
+          git -C ${repoPath} submodule update --init --recursive
+          CORE_IOS="${repoPath}/android/deps/agently-core/sdk/ios"
+          FORGE_IOS="${repoPath}/android/deps/forge/ios"
+          ln -sfn ../../android/deps/agently-core/sdk/ios ${repoPath}/ios/Packages/AgentlySDKPackage
+          ln -sfn ../../android/deps/forge/ios ${repoPath}/ios/Packages/ForgeIOSPackage
+        fi
+        cd "$CORE_IOS"
         /usr/bin/swift test
-        cd ${repoPath}/android/deps/forge/ios
+        cd "$FORGE_IOS"
         /usr/bin/swift test
         cd ${repoPath}/ios
         /usr/bin/swift test
@@ -65,9 +75,15 @@ pipeline:
         elif [ -d /Applications/Xcode-beta.app/Contents/Developer ]; then
           export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
         fi
-        git -C ${repoPath} submodule update --init --recursive
-        ln -sfn ../../android/deps/agently-core/sdk/ios ${repoPath}/ios/Packages/AgentlySDKPackage
-        ln -sfn ../../android/deps/forge/ios ${repoPath}/ios/Packages/ForgeIOSPackage
+        if [ "${AGENTLY_IOS_USE_SIBLING_SOURCES:-false}" = "true" ]; then
+          echo "Using sibling Forge and Agently Core iOS working trees."
+          ln -sfn ../../../agently-core/sdk/ios ${repoPath}/ios/Packages/AgentlySDKPackage
+          ln -sfn ../../../forge/ios ${repoPath}/ios/Packages/ForgeIOSPackage
+        else
+          git -C ${repoPath} submodule update --init --recursive
+          ln -sfn ../../android/deps/agently-core/sdk/ios ${repoPath}/ios/Packages/AgentlySDKPackage
+          ln -sfn ../../android/deps/forge/ios ${repoPath}/ios/Packages/ForgeIOSPackage
+        fi
         TEAM="${AGENTLY_IOS_DEVELOPMENT_TEAM:-}"
         if [ -z "$TEAM" ]; then
           echo "AGENTLY_IOS_DEVELOPMENT_TEAM is required."
@@ -159,6 +175,7 @@ pipeline:
     errors:
       - AGENTLY_IOS_BASE_URL is required.
       - AGENTLY_IOS_BASE_URL must be an HTTPS URL.
+      - Agently failed to launch on the selected iPhone.
     commands:
       - |
         set -eu
@@ -185,12 +202,21 @@ pipeline:
         PY
         )"
         if [ -z "$DEVICE" ]; then echo "No paired physical iPhone is available."; exit 1; fi
-        /usr/bin/xcrun devicectl device process launch \
+        if ! LAUNCH_OUTPUT="$(/usr/bin/xcrun devicectl device process launch \
           --device "$DEVICE" \
           --terminate-existing \
           com.viant.agently.ios \
           --enableDevAuth=1 \
-          "--apiBaseURL=$ENDPOINT"
+          "--apiBaseURL=$ENDPOINT" 2>&1)"; then
+          printf '%s\n' "$LAUNCH_OUTPUT"
+          echo "Agently failed to launch on the selected iPhone. Keep the phone unlocked and retry."
+          exit 1
+        fi
+        printf '%s\n' "$LAUNCH_OUTPUT"
+        if printf '%s\n' "$LAUNCH_OUTPUT" | grep -q '^ERROR:'; then
+          echo "Agently failed to launch on the selected iPhone. Keep the phone unlocked and retry."
+          exit 1
+        fi
 
   deploy:
     action: run
@@ -204,6 +230,7 @@ pipeline:
     errors:
       - AGENTLY_IOS_BASE_URL is required.
       - AGENTLY_IOS_BASE_URL must be an HTTPS URL.
+      - Agently is not running on the selected iPhone.
     commands:
       - |
         set -eu
@@ -262,7 +289,10 @@ pipeline:
           echo "Installed Agently bundle does not match the current build: expected $built_marketing_version ($built_bundle_version), found $installed_marketing_version ($installed_bundle_version)"
           exit 1
         fi
-        /usr/bin/xcrun devicectl device info processes --device "$DEVICE" | grep -q '/Agently.app/Agently'
+        if ! /usr/bin/xcrun devicectl device info processes --device "$DEVICE" | grep -q '/Agently.app/Agently'; then
+          echo "Agently is not running on the selected iPhone."
+          exit 1
+        fi
         echo "Installed Agently version verified: $built_version"
         echo "Public workspace endpoint verified without a local proxy or tunnel: $ENDPOINT"
         echo "Agently is installed and running on $DEVICE."

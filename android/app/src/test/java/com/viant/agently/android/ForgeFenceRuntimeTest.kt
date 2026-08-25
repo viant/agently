@@ -12,6 +12,54 @@ import org.junit.Test
 class ForgeFenceRuntimeTest {
 
     @Test
+    fun `canonical report suppresses matching legacy forge ui transport`() {
+        val parts = parseTranscriptContentParts(
+            """
+            Before
+            ```forge-ui
+            {"version":1,"title":"order_2684577_troubleshoot","blocks":[]}
+            ```
+            After
+            """.trimIndent()
+        )
+        val report = TranscriptCanonicalReport(
+            scope = "turn-1",
+            id = "order_2684577_troubleshoot",
+            grammar = "dashboard-v1",
+            status = "ready",
+            source = JsonObject(mapOf("title" to JsonPrimitive("Delivery troubleshoot — Order 2684577")))
+        )
+
+        val filtered = suppressCanonicalReportTransportParts(parts, listOf(report))
+
+        assertTrue(filtered.none { it is TranscriptContentPart.ForgeUi })
+        assertTrue(filtered.filterIsInstance<TranscriptContentPart.Markdown>().joinToString("\n") { it.text }.contains("Before"))
+        assertTrue(filtered.filterIsInstance<TranscriptContentPart.Markdown>().joinToString("\n") { it.text }.contains("After"))
+    }
+
+    @Test
+    fun `canonical report keeps unrelated forge ui content`() {
+        val parts = parseTranscriptContentParts(
+            """
+            ```forge-ui
+            {"version":1,"title":"Approval details","blocks":[]}
+            ```
+            """.trimIndent()
+        )
+        val report = TranscriptCanonicalReport(
+            scope = "turn-1",
+            id = "delivery_report",
+            grammar = "dashboard-v1",
+            status = "ready",
+            source = JsonObject(mapOf("title" to JsonPrimitive("Delivery report")))
+        )
+
+        val filtered = suppressCanonicalReportTransportParts(parts, listOf(report))
+
+        assertEquals(1, filtered.filterIsInstance<TranscriptContentPart.ForgeUi>().size)
+    }
+
+    @Test
     fun `pending inline report is inactive and exposes build counts`() {
         val report = TranscriptCanonicalReport(
             scope = "message",
