@@ -597,6 +597,22 @@ export default function Root() {
     setActiveSurface('workspace');
   }, [activeWorkspaceWindow?.windowId, setActiveSurface]);
 
+  const activateWorkspaceAttachment = React.useCallback(() => {
+    if (!activeWorkspaceWindow?.windowId) return;
+    selectedWindowId.value = activeWorkspaceWindow.windowId;
+    selectedTabId.value = activeWorkspaceWindow.windowId;
+    if (developerMode) {
+      const targetWindowId = String(activeWorkspaceWindow.windowId || '').trim();
+      activeWindows.value = (Array.isArray(activeWindows.value) ? activeWindows.value : []).map((entry) => (
+        String(entry?.windowId || '').trim() === targetWindowId
+          ? { ...entry, workspaceCollapsed: false }
+          : entry
+      ));
+      return;
+    }
+    setActiveSurface('workspace');
+  }, [activeWorkspaceWindow?.windowId, developerMode, setActiveSurface]);
+
   const returnToConversationSurface = React.useCallback(() => {
     const chatWindowId = String(effectiveMainChatWindow?.windowId || MAIN_CHAT_WINDOW_ID).trim() || MAIN_CHAT_WINDOW_ID;
     selectedWindowId.value = chatWindowId;
@@ -1180,7 +1196,16 @@ export default function Root() {
 
   return (
     <DetailContext.Provider value={value}>
-      <ConversationViewContext.Provider value={{ developerMode, showIntakeDetails: false, toolFeedDock: showChatChrome ? 'right' : 'inline' }}>
+      <ConversationViewContext.Provider value={{
+        developerMode,
+        showIntakeDetails: false,
+        toolFeedDock: showChatChrome ? 'right' : 'inline',
+        workspaceWindow: showWorkspacePane ? activeWorkspaceWindow : null,
+        workspaceVisible: developerMode
+          ? (showWorkspacePane && !effectiveWorkspaceCollapsed)
+          : (showWorkspacePane && activeSurface === 'workspace'),
+        onOpenWorkspace: activateWorkspaceAttachment,
+      }}>
         <div
           className={`app-shell${isCompactShell ? ' is-compact-shell' : ''}`}
           style={{

@@ -5,4 +5,7 @@ export const ConversationViewContext = React.createContext({
   showIntakeDetails: false,
   setShowIntakeDetails: () => {},
   toolFeedDock: 'inline',
+  workspaceWindow: null,
+  workspaceVisible: false,
+  onOpenWorkspace: () => {},
 });

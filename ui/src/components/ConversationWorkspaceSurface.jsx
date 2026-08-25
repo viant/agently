@@ -26,7 +26,14 @@ export function resolveWorkspaceNavigation(windowEntry = null) {
     || humanize(windowKey)
     || 'Workspace';
   const candidateIcon = String(navigation?.icon || '').trim().toLowerCase();
-  return { label, icon: ICONS.has(candidateIcon) ? candidateIcon : 'application' };
+  return {
+    label,
+    icon: ICONS.has(candidateIcon) ? candidateIcon : 'application',
+    subtitle: String(navigation?.subtitle || '').trim(),
+    supportingText: String(navigation?.supportingText || '').trim(),
+    tooltip: String(navigation?.tooltip || '').trim(),
+    accent: String(navigation?.accent || '').trim(),
+  };
 }
 
 export default function ConversationWorkspaceSurface({

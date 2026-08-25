@@ -20,8 +20,8 @@ describe('ConversationWorkspaceSurface', () => {
       windowKey: 'reportBuilder',
       windowTitle: 'Reports',
       navigation: { label: 'Performance Reports', icon: 'chart' },
-    })).toEqual({ label: 'Performance Reports', icon: 'chart' });
-    expect(resolveWorkspaceNavigation({ windowKey: 'order', windowTitle: 'order' })).toEqual({
+    })).toMatchObject({ label: 'Performance Reports', icon: 'chart' });
+    expect(resolveWorkspaceNavigation({ windowKey: 'order', windowTitle: 'order' })).toMatchObject({
       label: 'Order',
       icon: 'application',
     });

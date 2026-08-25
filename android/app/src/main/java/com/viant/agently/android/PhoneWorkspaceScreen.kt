@@ -367,7 +367,9 @@ internal fun PhoneWorkspacePane(
                     showStreamingStatusInHeader = false,
                     onClosePreview = onClosePreview,
                     onOpenFile = onOpenFile,
-                    onOpenInlineReportPdf = onOpenInlineReportPdf
+                    onOpenInlineReportPdf = onOpenInlineReportPdf,
+                    workspaceAttachment = hostedWorkspaceAttachment(conversationState, hostedWorkspaceState),
+                    onOpenWorkspace = { selectedMode = PhoneWorkspaceContentMode.Workspace },
                 )
             }
         }

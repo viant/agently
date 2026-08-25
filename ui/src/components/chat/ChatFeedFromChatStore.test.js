@@ -33,7 +33,8 @@ vi.mock('./MCPUIBubble.jsx', () => ({
   default: (props) => mcpuiBubbleSpy(props),
 }));
 
-import ChatFeedFromChatStore from './ChatFeedFromChatStore.jsx';
+import ChatFeedFromChatStore, { resolveWorkspaceAttachmentOwnerIndex } from './ChatFeedFromChatStore.jsx';
+import { ConversationViewContext } from '../../context/ConversationViewContext.js';
 
 const h = React.createElement;
 
@@ -64,6 +65,44 @@ function makeContext({ conversation = {}, meta = {} } = {}) {
 }
 
 describe('ChatFeedFromChatStore', () => {
+  it('attaches a hosted workspace card to the final bubble from the opening turn only', () => {
+    const rows = [
+      {
+        kind: 'iteration', renderKey: 'rk_iter', turnId: 'turn-report', lifecycle: 'completed',
+        rounds: [{ toolCalls: [{ toolName: 'ui/view:open', status: 'completed' }] }],
+      },
+      { kind: 'assistant', renderKey: 'rk_answer', turnId: 'turn-report', content: 'Your Reports catalog is open.' },
+      { kind: 'assistant', renderKey: 'rk_later', turnId: 'turn-later', content: 'A later answer.' },
+    ];
+    const workspaceWindow = {
+      windowId: 'reports-window',
+      windowKey: 'reports',
+      navigation: { label: 'Reports', icon: 'chart', supportingText: 'Saved reports and built-in presets' },
+    };
+    expect(resolveWorkspaceAttachmentOwnerIndex(rows, workspaceWindow)).toBe(1);
+    const html = renderToStaticMarkup(
+      h(ConversationViewContext.Provider, {
+        value: { workspaceWindow, workspaceVisible: false, onOpenWorkspace: vi.fn() },
+      }, h(ChatFeedFromChatStore, { conversationId: 'c', rowsOverride: rows })),
+    );
+    expect(html).toContain('data-testid="workspace-attachment-card"');
+    expect(html).toContain('Saved reports and built-in presets');
+    expect(html.indexOf('workspace-attachment-card')).toBeLessThan(html.indexOf('data-render-key="rk_later"'));
+  });
+
+  it('does not attach the workspace card while that workspace is visible', () => {
+    const rows = [{
+      kind: 'iteration', renderKey: 'rk_iter', turnId: 'turn-report', lifecycle: 'completed',
+      rounds: [{ toolCalls: [{ toolName: 'ui/window/open', status: 'completed' }] }],
+    }];
+    const html = renderToStaticMarkup(
+      h(ConversationViewContext.Provider, {
+        value: { workspaceWindow: { windowId: 'reports', windowKey: 'reports' }, workspaceVisible: true },
+      }, h(ChatFeedFromChatStore, { conversationId: 'c', rowsOverride: rows })),
+    );
+    expect(html).not.toContain('workspace-attachment-card');
+  });
+
   it('passes the canonical iteration row directly to IterationRowBlock', () => {
     iterationRowBlockSpy.mockClear();
     mcpuiBubbleSpy.mockClear();

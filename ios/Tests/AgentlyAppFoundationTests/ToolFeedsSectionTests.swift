@@ -151,4 +151,12 @@ final class ToolFeedsSectionTests: XCTestCase {
         XCTAssertEqual(toolFeedSymbol(FeedPresentation(icon: "chart", accent: "blue")), "chart.bar")
         XCTAssertEqual(toolFeedSymbol(nil), "wrench.and.screwdriver")
     }
+
+    func testPhoneToolFeedLauncherDefaultsFromTurnActivityAndHonorsOverride() {
+        XCTAssertFalse(toolFeedLauncherExpanded(collapsible: true, isTurnActive: false, userOverride: nil))
+        XCTAssertTrue(toolFeedLauncherExpanded(collapsible: true, isTurnActive: true, userOverride: nil))
+        XCTAssertFalse(toolFeedLauncherExpanded(collapsible: true, isTurnActive: true, userOverride: false))
+        XCTAssertTrue(toolFeedLauncherExpanded(collapsible: true, isTurnActive: false, userOverride: true))
+        XCTAssertTrue(toolFeedLauncherExpanded(collapsible: false, isTurnActive: false, userOverride: false))
+    }
 }

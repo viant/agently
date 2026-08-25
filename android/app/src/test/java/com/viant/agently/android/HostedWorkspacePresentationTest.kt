@@ -3,9 +3,17 @@ package com.viant.agently.android
 import com.viant.agentlysdk.WorkspaceWindowSnapshot
 import com.viant.agentlysdk.WorkspaceNavigation
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HostedWorkspacePresentationTest {
+    @Test
+    fun workspaceOpeningToolNamesNormalizeColonAndSlashForms() {
+        assertTrue(isHostedWorkspaceOpeningToolName("ui/view:open"))
+        assertTrue(isHostedWorkspaceOpeningToolName("ui/window/open"))
+        assertFalse(isHostedWorkspaceOpeningToolName("ui/window/list"))
+    }
     @Test
     fun `resolve hosted workspace presentation uses navigation metadata`() {
         val window = WorkspaceWindowSnapshot(

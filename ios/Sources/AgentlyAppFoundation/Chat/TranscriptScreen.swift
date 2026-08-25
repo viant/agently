@@ -15,6 +15,8 @@ public struct TranscriptScreen: View {
     let conversationID: String?
     let onReusePrompt: ((String) -> Void)?
     let onReuseAndSendPrompt: ((String) -> Void)?
+    let workspaceAttachment: HostedWorkspaceAttachment?
+    let onOpenWorkspace: (() -> Void)?
     @State private var visibleItemCount: Int
 
     public init(
@@ -22,13 +24,17 @@ public struct TranscriptScreen: View {
 		client: AgentlyClient? = nil,
         conversationID: String? = nil,
         onReusePrompt: ((String) -> Void)? = nil,
-        onReuseAndSendPrompt: ((String) -> Void)? = nil
+        onReuseAndSendPrompt: ((String) -> Void)? = nil,
+        workspaceAttachment: HostedWorkspaceAttachment? = nil,
+        onOpenWorkspace: (() -> Void)? = nil
     ) {
         self.items = items
         self.client = client
         self.conversationID = conversationID
         self.onReusePrompt = onReusePrompt
         self.onReuseAndSendPrompt = onReuseAndSendPrompt
+        self.workspaceAttachment = workspaceAttachment
+        self.onOpenWorkspace = onOpenWorkspace
         _visibleItemCount = State(initialValue: min(items.count, Self.initialRenderCount))
     }
 
@@ -75,6 +81,9 @@ public struct TranscriptScreen: View {
             visibleItemCount: visibleItemCount
         )
         let visibleItems = items.dropFirst(start)
+        let attachmentItemID = workspaceAttachment.flatMap { attachment in
+            items.last(where: { $0.role != "user" && $0.turnID == attachment.turnID })?.id
+        }
         return LazyVStack(alignment: .leading, spacing: 12) {
             if start > 0 {
                 Button {
@@ -95,7 +104,9 @@ public struct TranscriptScreen: View {
 					client: client,
                     conversationID: conversationID,
                     onReusePrompt: onReusePrompt,
-                    onReuseAndSendPrompt: onReuseAndSendPrompt
+                    onReuseAndSendPrompt: onReuseAndSendPrompt,
+                    workspaceAttachment: item.id == attachmentItemID ? workspaceAttachment : nil,
+                    onOpenWorkspace: onOpenWorkspace
                 )
                 .id(item.id)
             }
@@ -121,6 +132,8 @@ private struct TranscriptBubble: View {
     let conversationID: String?
     let onReusePrompt: ((String) -> Void)?
     let onReuseAndSendPrompt: ((String) -> Void)?
+    let workspaceAttachment: HostedWorkspaceAttachment?
+    let onOpenWorkspace: (() -> Void)?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isExpanded = false
 
@@ -145,6 +158,10 @@ private struct TranscriptBubble: View {
             .frame(maxWidth: .infinity, alignment: item.role == "user" ? .trailing : .leading)
 
             transcriptContent
+
+            if let workspaceAttachment, item.role != "user", let onOpenWorkspace {
+                transcriptWorkspaceAttachment(workspaceAttachment, onOpen: onOpenWorkspace)
+            }
 
             if let timestampLabel = item.timestampLabel {
                 Text(timestampLabel)
@@ -194,6 +211,41 @@ private struct TranscriptBubble: View {
         Text(item.role == "user" ? "You" : "Assistant")
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
+    }
+
+    private func transcriptWorkspaceAttachment(
+        _ attachment: HostedWorkspaceAttachment,
+        onOpen: @escaping () -> Void
+    ) -> some View {
+        Button(action: onOpen) {
+            HStack(spacing: 10) {
+                Image(systemName: attachment.presentation.badgeSymbolName)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 34, height: 34)
+                    .background(Color.accentColor.opacity(0.11), in: RoundedRectangle(cornerRadius: 10))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(attachment.presentation.badgeLabel)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(attachment.presentation.supportingText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "arrow.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.accentColor.opacity(0.055), in: RoundedRectangle(cornerRadius: 13))
+            .overlay(RoundedRectangle(cornerRadius: 13).stroke(Color.accentColor.opacity(0.16), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open \(attachment.presentation.badgeLabel)")
+        .accessibilityIdentifier("transcript-workspace-attachment")
     }
 
     @ViewBuilder

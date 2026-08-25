@@ -4164,6 +4164,34 @@ td[data-col="enabled"] {
   font-size: 14px;
 }
 
+.app-workspace-attachment {
+  width: min(100%, 520px);
+  margin-top: 12px;
+  padding: 11px 12px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 1px solid #d9e3f0;
+  border-radius: 13px;
+  background: linear-gradient(135deg, #f8fbff 0%, #f2f8ff 100%);
+  color: #263752;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(36, 91, 160, 0.06);
+}
+
+.app-workspace-attachment:hover {
+  border-color: #b7cce8;
+  background: linear-gradient(135deg, #f3f8ff 0%, #eaf4ff 100%);
+}
+
+.app-workspace-attachment:focus-visible { outline: 2px solid #2684ff; outline-offset: 2px; }
+.app-workspace-attachment-icon { display: grid; place-items: center; flex: 0 0 34px; height: 34px; border-radius: 10px; color: #2768c7; background: #e4efff; }
+.app-workspace-attachment-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; }
+.app-workspace-attachment-copy strong { font-size: 13px; line-height: 1.25; }
+.app-workspace-attachment-copy span { overflow: hidden; color: #66758d; font-size: 11px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.app-workspace-attachment-arrow { flex: 0 0 auto; color: #4679b9; font-size: 18px; }
+
 .app-mcpui-bubble {
   padding: 12px;
 }

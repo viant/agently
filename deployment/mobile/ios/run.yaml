@@ -38,6 +38,9 @@ pipeline:
         elif [ -d /Applications/Xcode-beta.app/Contents/Developer ]; then
           export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
         fi
+        git -C ${repoPath} submodule update --init --recursive
+        ln -sfn ../../android/deps/agently-core/sdk/ios ${repoPath}/ios/Packages/AgentlySDKPackage
+        ln -sfn ../../android/deps/forge/ios ${repoPath}/ios/Packages/ForgeIOSPackage
         cd ${repoPath}/android/deps/agently-core/sdk/ios
         /usr/bin/swift test
         cd ${repoPath}/android/deps/forge/ios
@@ -62,6 +65,9 @@ pipeline:
         elif [ -d /Applications/Xcode-beta.app/Contents/Developer ]; then
           export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
         fi
+        git -C ${repoPath} submodule update --init --recursive
+        ln -sfn ../../android/deps/agently-core/sdk/ios ${repoPath}/ios/Packages/AgentlySDKPackage
+        ln -sfn ../../android/deps/forge/ios ${repoPath}/ios/Packages/ForgeIOSPackage
         TEAM="${AGENTLY_IOS_DEVELOPMENT_TEAM:-}"
         if [ -z "$TEAM" ]; then
           echo "AGENTLY_IOS_DEVELOPMENT_TEAM is required."

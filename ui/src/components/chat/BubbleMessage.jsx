@@ -26,7 +26,7 @@ export function shouldAutoScrollStreamingRow(rowRect, containerRect, threshold =
   return rowBottom - containerBottom <= threshold;
 }
 
-export default function BubbleMessage({ message, messageIndex = 0, conversationId = '' }) {
+export default function BubbleMessage({ message, messageIndex = 0, conversationId = '', attachment = null }) {
   const rowRef = useRef(null);
   const role = String(message?.role || 'assistant').toLowerCase();
   const isUser = role === 'user';
@@ -94,6 +94,7 @@ export default function BubbleMessage({ message, messageIndex = 0, conversationI
             conversationId={String(conversationId || message?.conversationId || '').trim()}
           />
           {isStreaming ? <span className="app-stream-caret" aria-label="streaming">▍</span> : null}
+          {!isUser && !isStreaming && attachment ? attachment : null}
         </div>
       </div>
     </div>

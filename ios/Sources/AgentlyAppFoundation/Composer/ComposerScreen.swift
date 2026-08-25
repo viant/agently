@@ -254,14 +254,14 @@ public struct ComposerScreen: View {
                 isCompactComposerExpanded = true
                 isEditorFocused = true
             } label: {
-                Text("Reply in the workspace")
+                Text("Message")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 8)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Reply in the workspace")
+            .accessibilityLabel("Compose message")
             .accessibilityIdentifier("agently-composer-expand")
 
             Button {
@@ -302,7 +302,7 @@ public struct ComposerScreen: View {
                     .autocorrectionDisabled(true)
                 #endif
                 if visibleEditorText.isEmpty {
-                    Text(runtime.lookupOccurrences.isEmpty ? "Reply in the workspace" : "Add details")
+                    Text(runtime.lookupOccurrences.isEmpty ? "Message" : "Add details")
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .padding(.top, 1)

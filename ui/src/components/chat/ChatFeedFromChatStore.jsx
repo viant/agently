@@ -14,7 +14,7 @@
  *   - §6.8 steering: `[u_first, IterationRow, u_rest…]` placement
  */
 
-import React from 'react';
+import React, { useContext } from 'react';
 
 import { useChatProjection } from '../../services/chatStore.js';
 import { isStreamDebugEnabled } from '../../services/debugFlags';
@@ -22,6 +22,8 @@ import IterationRowBlock from './IterationRowBlock.jsx';
 import BubbleMessage from './BubbleMessage.jsx';
 import MCPUIBubble from './MCPUIBubble.jsx';
 import StarterTasks from './StarterTasks.jsx';
+import WorkspaceAttachmentCard from './WorkspaceAttachmentCard.jsx';
+import { ConversationViewContext } from '../../context/ConversationViewContext.js';
 
 function UserBubble({ row, conversationId = '' }) {
   return (
@@ -44,7 +46,7 @@ function UserBubble({ row, conversationId = '' }) {
   );
 }
 
-function AssistantBubble({ row, conversationId = '' }) {
+function AssistantBubble({ row, conversationId = '', attachment = null }) {
   return (
     <div
       data-render-key={row.renderKey}
@@ -52,6 +54,7 @@ function AssistantBubble({ row, conversationId = '' }) {
     >
       <BubbleMessage
         conversationId={conversationId}
+        attachment={attachment}
         message={{
           id: row.messageId || row.renderKey,
           role: 'assistant',
@@ -67,12 +70,12 @@ function AssistantBubble({ row, conversationId = '' }) {
   );
 }
 
-function renderRow(row, context, conversationId = '') {
+function renderRow(row, context, conversationId = '', attachment = null) {
   switch (row.kind) {
     case 'user':
       return <UserBubble key={row.renderKey} row={row} conversationId={conversationId} />;
     case 'assistant':
-      return <AssistantBubble key={row.renderKey} row={row} conversationId={conversationId} />;
+      return <AssistantBubble key={row.renderKey} row={row} conversationId={conversationId} attachment={attachment} />;
     case 'mcpui':
       return <MCPUIBubble key={row.renderKey} row={row} />;
     case 'iteration':
@@ -80,6 +83,43 @@ function renderRow(row, context, conversationId = '') {
     default:
       return null;
   }
+}
+
+function normalizeToolName(value = '') {
+  return String(value || '').trim().toLowerCase().replace(/:/g, '/');
+}
+
+function iterationOpenedWorkspace(row = null) {
+  if (row?.kind !== 'iteration') return false;
+  const workspaceTools = new Set(['ui/view/open', 'ui/window/open', 'ui/window/show']);
+  return (Array.isArray(row?.rounds) ? row.rounds : []).some((round) => (
+    (Array.isArray(round?.toolCalls) ? round.toolCalls : []).some((tool) => {
+      const status = String(tool?.status || '').trim().toLowerCase();
+      return (!status || ['completed', 'succeeded', 'success', 'done'].includes(status))
+        && workspaceTools.has(normalizeToolName(tool?.toolName));
+    })
+  ));
+}
+
+export function resolveWorkspaceAttachmentOwnerIndex(rows = [], workspaceWindow = null) {
+  if (!workspaceWindow || !Array.isArray(rows)) return -1;
+  const explicitTurnId = String(workspaceWindow?.sourceTurnId || workspaceWindow?.turnId || '').trim();
+  let sourceTurnId = explicitTurnId;
+  if (!sourceTurnId) {
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      if (iterationOpenedWorkspace(rows[index])) {
+        sourceTurnId = String(rows[index]?.turnId || '').trim();
+        if (sourceTurnId) break;
+      }
+    }
+  }
+  if (!sourceTurnId) return -1;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (String(row?.turnId || '').trim() !== sourceTurnId) continue;
+    if (row?.kind === 'assistant' || row?.kind === 'iteration') return index;
+  }
+  return -1;
 }
 
 function latestTurnRowIndex(rows = []) {
@@ -101,6 +141,7 @@ function latestTurnRowIndex(rows = []) {
  *                    `useChatProjection(conversationId)`.
  */
 export default function ChatFeedFromChatStore({ conversationId, rowsOverride, context }) {
+  const viewContext = useContext(ConversationViewContext);
   const subscribed = useChatProjection(conversationId);
   const rows = rowsOverride !== undefined ? rowsOverride : subscribed;
   const conversationForm = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
@@ -144,6 +185,15 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
     );
   }
   const lastIndexByTurn = latestTurnRowIndex(rows);
+  const workspaceAttachmentOwnerIndex = viewContext?.workspaceVisible
+    ? -1
+    : resolveWorkspaceAttachmentOwnerIndex(rows, viewContext?.workspaceWindow);
+  const workspaceAttachment = workspaceAttachmentOwnerIndex >= 0 ? (
+    <WorkspaceAttachmentCard
+      workspaceWindow={viewContext.workspaceWindow}
+      onOpen={viewContext.onOpenWorkspace}
+    />
+  ) : null;
   const retryPromptByTurn = new Map();
   rows.forEach((row) => {
     const turnId = String(row?.turnId || '').trim();
@@ -156,7 +206,7 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
     <div className="app-chat-feed" data-source="chatStore">
       {rows.map((row, index) => {
         if (row?.kind !== 'iteration') {
-          return renderRow(row, context, conversationId);
+          return renderRow(row, context, conversationId, index === workspaceAttachmentOwnerIndex ? workspaceAttachment : null);
         }
         const turnId = String(row?.turnId || '').trim();
         const suppressBubble = !!turnId && (lastIndexByTurn.get(turnId) ?? index) > index;
@@ -167,6 +217,7 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
             context={context}
             suppressBubble={suppressBubble}
             retryPrompt={retryPromptByTurn.get(turnId) || ''}
+            attachment={index === workspaceAttachmentOwnerIndex ? workspaceAttachment : null}
           />
         );
       })}
