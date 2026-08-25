@@ -15,7 +15,6 @@ final class AppleUIBridgeControllerTests: XCTestCase {
                 ])
             ]
         )
-
         let result = try await handleAppleUIBridgeCommand(
             method: "ui.window.setFormData",
             params: [
@@ -102,11 +101,105 @@ final class AppleUIBridgeControllerTests: XCTestCase {
         XCTAssertEqual(returnedPrefill?["includeDealsPmp"], .array([.number(90473), .number(90476)]))
         XCTAssertEqual(returnedPrefill?["includePostalCodeList"], .array([.number(70731)]))
     }
+
+    func testReportCommandsUseExactNativeMaterializationIdentity() async throws {
+        let runtime = ForgeRuntime()
+        let window = await runtime.openWindow(
+            key: "reportBuilder",
+            title: "Report",
+            parameters: [
+                "reportDefinition": .object([
+                    "id": .string("delivery_report"),
+                    "documentPatch": .object([
+                        "title": .string("Delivery report"),
+                        "blocks": .array([.object([
+                            "id": .string("spend"),
+                            "kind": .string("kpiBlock"),
+                            "datasetRef": .string("summary")
+                        ])])
+                    ])
+                ])
+            ]
+        )
+        await runtime.setWindowFormValue(
+            windowID: window.id,
+            values: [
+                "reportDefinition": .object([
+                    "id": .string("delivery_report"),
+                    "documentPatch": .object([
+                        "title": .string("Delivery report"),
+                        "blocks": .array([.object([
+                            "id": .string("spend"),
+                            "kind": .string("kpiBlock"),
+                            "datasetRef": .string("summary")
+                        ])])
+                    ])
+                ])
+            ],
+            replace: false
+        )
+
+        let current = try await handleAppleUIBridgeCommand(
+            method: "ui.report.getCurrent",
+            params: ["windowId": .string(window.id)],
+            forgeRuntime: runtime,
+            baseURL: "http://localhost"
+        )
+        XCTAssertEqual(current["ok"], .bool(true))
+        XCTAssertEqual(current["canRun"], .bool(true))
+        XCTAssertEqual(current["hasCompletedRun"], .bool(false))
+
+        async let runResult = handleAppleUIBridgeCommand(
+            method: "ui.report.run",
+            params: ["windowId": .string(window.id)],
+            forgeRuntime: runtime,
+            baseURL: "http://localhost"
+        )
+        var requestID = ""
+        for _ in 0..<100 where requestID.isEmpty {
+            requestID = await runtime.windowFormJSONValue(windowID: window.id)["reportRunRequest"]?
+                .objectValue?["id"]?.stringValue ?? ""
+            if requestID.isEmpty {
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+        XCTAssertFalse(requestID.isEmpty)
+        await runtime.setWindowFormValue(
+            windowID: window.id,
+            values: [
+                "reportMaterialization": .object([
+                    "id": .string(requestID),
+                    "requestId": .string(requestID),
+                    "status": .string("completed"),
+                    "materialized": .bool(true),
+                    "datasetRefs": .array([.string("summary")]),
+                    "rowCounts": .object(["summary": .number(1)])
+                ])
+            ],
+            replace: false
+        )
+        let completed = try await runResult
+        XCTAssertEqual(completed["ok"], .bool(true))
+        XCTAssertEqual(completed["materialized"], .bool(true))
+        XCTAssertEqual(completed["materializationId"], .string(requestID))
+    }
 }
 
 private extension AgentlySDK.JSONValue {
     var objectValue: [String: AgentlySDK.JSONValue]? {
         guard case .object(let value) = self else { return nil }
+        return value
+    }
+}
+
+private extension ForgeIOSRuntime.JSONValue {
+    var objectValue: [String: ForgeIOSRuntime.JSONValue]? {
+        guard case .object(let value) = self else { return nil }
+        return value
+    }
+
+    var stringValue: String? {
+        guard case .string(let value) = self else { return nil }
         return value
     }
 }

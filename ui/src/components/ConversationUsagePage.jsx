@@ -21,15 +21,29 @@ function MetricCard({ icon, label, value, detail, tone }) {
   );
 }
 
+function usageRoleLabel(value = '') {
+  const role = String(value || '').trim().toLowerCase();
+  if (role === 'react' || role === 'main') return 'Main';
+  if (role === 'intake') return 'Intake';
+  if (role === 'sidecar') return 'Sidecar';
+  if (role === 'narrator') return 'Narrator';
+  if (role === 'summary') return 'Summary';
+  return role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Main';
+}
+
 function ModelRow({ model, overallTokens }) {
   const inputPct = model.totalTokens > 0 ? (model.inputTokens / model.totalTokens) * 100 : 0;
   const outputPct = model.totalTokens > 0 ? (model.outputTokens / model.totalTokens) * 100 : 0;
   const share = overallTokens > 0 ? Math.round((model.totalTokens / overallTokens) * 100) : 0;
+  const role = usageRoleLabel(model.executionRole);
   return (
     <article className="conversation-usage-model">
       <div className="conversation-usage-model-heading">
         <div>
-          <strong>{model.model}</strong>
+          <div className="conversation-usage-model-title">
+            <strong>{model.model}</strong>
+            <span className={`conversation-usage-role is-${String(model.executionRole || 'react').toLowerCase()}`}>{role}</span>
+          </div>
           <span>{model.provider || 'Model'} · {share}% of conversation</span>
         </div>
         <div className="conversation-usage-model-total">
@@ -97,7 +111,7 @@ export default function ConversationUsagePage() {
           </section>
 
           <section className="conversation-usage-metrics" aria-label="Usage summary">
-            <MetricCard icon="chart" label="Total tokens" value={formatTokenCount(summary.totalTokens)} detail={`${summary.models.length || 1} model${summary.models.length === 1 ? '' : 's'}`} tone="total" />
+            <MetricCard icon="chart" label="Total tokens" value={formatTokenCount(summary.totalTokens)} detail={`${summary.models.length || 1} model role${summary.models.length === 1 ? '' : 's'}`} tone="total" />
             <MetricCard icon="log-in" label="Input" value={formatTokenCount(summary.inputTokens)} detail={summary.cachedInputTokens > 0 ? `${cachedPct}% cached` : 'Prompt and context'} tone="input" />
             <MetricCard icon="log-out" label="Output" value={formatTokenCount(summary.outputTokens)} detail={summary.reasoningTokens > 0 ? `${formatTokenCount(summary.reasoningTokens)} reasoning` : 'Generated response'} tone="output" />
             <MetricCard icon="dollar" label="Estimated cost" value={formatUsageCost(summary.cost)} detail="Conversation total" tone="cost" />

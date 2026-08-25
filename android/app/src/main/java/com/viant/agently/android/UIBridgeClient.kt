@@ -7,10 +7,12 @@ import com.viant.forgeandroid.runtime.ForgeRuntime
 import com.viant.forgeandroid.runtime.WindowMetadata
 import com.viant.forgeandroid.runtime.WindowState
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -97,7 +99,11 @@ internal class AndroidUIBridgeClient(
         started = true
         if (pollJob?.isActive != true) {
             pollJob?.cancel()
-            pollJob = scope.launch {
+            // Keep the long-poll and command acknowledgement off the Compose main
+            // thread. A large report form mutation can schedule an expensive
+            // recomposition; if the acknowledgement shares that thread, the MCP
+            // command can time out even though the mutation was accepted.
+            pollJob = scope.launch(Dispatchers.IO) {
                 while (started) {
                     try {
                         helloIfNeeded()
@@ -145,7 +151,9 @@ internal class AndroidUIBridgeClient(
         val method = jsonString(params["method"]).ifBlank { return }
         val commandParams = params["params"] as? JsonObject ?: JsonObject(emptyMap())
         try {
-            val commandResult = commandHandler(method, commandParams)
+            val commandResult = withContext(Dispatchers.Main.immediate) {
+                commandHandler(method, commandParams)
+            }
             updateSelectedWindow(method, commandParams, commandResult)
             rpcClient.respond(commandId = commandId, ok = true, result = commandResult)
             try {
@@ -409,6 +417,42 @@ internal suspend fun handleAndroidUIBridgeCommand(
             put("ok", JsonPrimitive(true))
         }
 
+        "ui.report.getCurrent" -> {
+            val windowId = jsonString(params["windowId"]).ifBlank {
+                throw IllegalArgumentException("windowId is required")
+            }
+            androidReportCurrentResult(
+                windowId,
+                forgeRuntime.windowContext(windowId).peekWindowForm()
+            )
+        }
+
+        "ui.report.run" -> {
+            val windowId = jsonString(params["windowId"]).ifBlank {
+                throw IllegalArgumentException("windowId is required")
+            }
+            if (forgeRuntime.windows.value.none { it.windowId == windowId }) {
+                throw IllegalArgumentException("report window not found: $windowId")
+            }
+            val requestId = "native-${UUID.randomUUID()}"
+            forgeRuntime.setWindowFormValues(
+                windowId = windowId,
+                values = mapOf(
+                    "reportRunRequest" to mapOf(
+                        "id" to requestId,
+                        "origin" to "ui.report.run"
+                    )
+                ),
+                replace = false,
+                bumpPrefillRevision = false
+            )
+            waitForAndroidReportMaterialization(
+                windowId = windowId,
+                requestId = requestId,
+                forgeRuntime = forgeRuntime
+            )
+        }
+
         "ui.data.fetch" -> {
             val windowId = jsonString(params["windowId"]).ifBlank {
                 throw IllegalArgumentException("windowId is required")
@@ -430,6 +474,66 @@ internal suspend fun handleAndroidUIBridgeCommand(
         else -> throw IllegalArgumentException("unsupported UI bridge command: $method")
     }
 }
+
+private fun androidReportCurrentResult(
+    windowId: String,
+    form: Map<String, Any?>
+): JsonObject {
+    val definition = stringKeyMap(form["reportDefinition"])
+    val document = stringKeyMap(definition["documentPatch"])
+        .ifEmpty { stringKeyMap(definition["reportDocument"]) }
+        .ifEmpty { stringKeyMap(form["documentPatch"]) }
+        .ifEmpty { stringKeyMap(form["reportDocument"]) }
+    val blocks = document["blocks"] as? List<*>
+    val materialization = stringKeyMap(form["reportMaterialization"])
+    val status = materialization["status"]?.toString()?.lowercase().orEmpty()
+    return buildJsonObject {
+        put("ok", JsonPrimitive(true))
+        put("windowId", JsonPrimitive(windowId))
+        definition["id"]?.let { put("reportId", it.toJsonElement()) }
+        document["title"]?.let { put("reportName", it.toJsonElement()) }
+        put("canRun", JsonPrimitive(!blocks.isNullOrEmpty()))
+        put("canSave", JsonPrimitive(false))
+        put("hasCompletedRun", JsonPrimitive(status == "completed"))
+        if (materialization.isNotEmpty()) {
+            put("materialization", materialization.toJsonObject())
+        }
+    }
+}
+
+private suspend fun waitForAndroidReportMaterialization(
+    windowId: String,
+    requestId: String,
+    forgeRuntime: ForgeRuntime
+): JsonObject {
+    repeat(3_000) {
+        val form = forgeRuntime.windowContext(windowId).peekWindowForm()
+        val materialization = stringKeyMap(form["reportMaterialization"])
+        if (materialization["requestId"]?.toString() == requestId) {
+            when (materialization["status"]?.toString()?.lowercase()) {
+                "completed" -> return buildJsonObject {
+                    put("ok", JsonPrimitive(true))
+                    put("windowId", JsonPrimitive(windowId))
+                    put("materialized", JsonPrimitive(true))
+                    put("materializationId", JsonPrimitive(requestId))
+                    put("status", JsonPrimitive("completed"))
+                    put("datasetRefs", (materialization["datasetRefs"] ?: emptyList<String>()).toJsonElement())
+                    put("rowCounts", (materialization["rowCounts"] ?: emptyMap<String, Int>()).toJsonElement())
+                }
+                "failed" -> {
+                    val errors = (materialization["errors"] as? List<*>)
+                        .orEmpty().joinToString("; ") { it.toString() }
+                    throw IllegalStateException(errors.ifBlank { "The native report run failed." })
+                }
+            }
+        }
+        delay(100)
+    }
+    throw IllegalStateException("The native report run did not finish in time.")
+}
+
+private fun stringKeyMap(value: Any?): Map<String, Any?> =
+    (value as? Map<*, *>)?.entries?.associate { it.key.toString() to it.value }.orEmpty()
 
 private fun ForgeRuntime.refreshWindowDataSources(
     windowId: String,

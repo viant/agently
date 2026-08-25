@@ -13,7 +13,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -31,6 +33,92 @@ import kotlinx.serialization.json.longOrNull
 import java.util.concurrent.atomic.AtomicInteger
 
 class QueryRuntimeTest {
+
+    @Test
+    fun `ui report commands use exact native materialization identity`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val runtime = ForgeRuntime(endpoints = emptyMap(), scope = scope)
+        try {
+            runtime.openWindow(
+                windowKey = "reportBuilder",
+                title = "Report",
+                windowIdOverride = "report-window-1",
+                parameters = mapOf(
+                    "reportDefinition" to mapOf(
+                        "id" to "delivery_report",
+                        "documentPatch" to mapOf(
+                            "title" to "Delivery report",
+                            "blocks" to listOf(mapOf(
+                                "id" to "spend",
+                                "kind" to "kpiBlock",
+                                "datasetRef" to "summary"
+                            ))
+                        )
+                    )
+                )
+            )
+            runtime.setWindowFormValues(
+                "report-window-1",
+                mapOf(
+                    "reportDefinition" to mapOf(
+                        "id" to "delivery_report",
+                        "documentPatch" to mapOf(
+                            "title" to "Delivery report",
+                            "blocks" to listOf(mapOf(
+                                "id" to "spend",
+                                "kind" to "kpiBlock",
+                                "datasetRef" to "summary"
+                            ))
+                        )
+                    )
+                ),
+                replace = false
+            )
+            val current = handleAndroidUIBridgeCommand(
+                "ui.report.getCurrent",
+                buildJsonObject { put("windowId", JsonPrimitive("report-window-1")) },
+                runtime
+            )
+            assertEquals(true, (current["ok"] as? JsonPrimitive)?.booleanOrNull)
+            assertEquals(true, (current["canRun"] as? JsonPrimitive)?.booleanOrNull)
+
+            val running = async {
+                handleAndroidUIBridgeCommand(
+                    "ui.report.run",
+                    buildJsonObject { put("windowId", JsonPrimitive("report-window-1")) },
+                    runtime
+                )
+            }
+            var requestId = ""
+            repeat(100) {
+                requestId = ((runtime.windowContext("report-window-1").peekWindowForm()["reportRunRequest"] as? Map<*, *>)
+                    ?.get("id") as? String).orEmpty()
+                if (requestId.isNotEmpty()) return@repeat
+                delay(10)
+            }
+            assertTrue(requestId.isNotEmpty())
+            runtime.setWindowFormValues(
+                "report-window-1",
+                mapOf(
+                    "reportMaterialization" to mapOf(
+                        "id" to requestId,
+                        "requestId" to requestId,
+                        "status" to "completed",
+                        "materialized" to true,
+                        "datasetRefs" to listOf("summary"),
+                        "rowCounts" to mapOf("summary" to 1)
+                    )
+                ),
+                replace = false,
+                bumpPrefillRevision = false
+            )
+            val completed = running.await()
+            assertEquals(true, (completed["materialized"] as? JsonPrimitive)?.booleanOrNull)
+            assertEquals(requestId, (completed["materializationId"] as? JsonPrimitive)?.contentOrNull)
+        } finally {
+            scope.cancel()
+        }
+    }
 
     @Test
     fun `app session client bounds network waits`() {

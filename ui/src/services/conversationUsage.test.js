@@ -21,6 +21,20 @@ describe('conversation usage', () => {
     expect(summary.models.map((entry) => entry.model)).toEqual(['gpt-large', 'gpt-small']);
   });
 
+  it('keeps sidecar usage separate when it uses the same model', () => {
+    const summary = summarizeConversationUsage({
+      Usage: {
+        Model: [
+          { Provider: 'openai', Model: 'gpt-5-mini', ExecutionRole: 'react', PromptTokens: 800, CompletionTokens: 80 },
+          { Provider: 'openai', Model: 'gpt-5-mini', ExecutionRole: 'intake', PromptTokens: 200, CompletionTokens: 20 },
+        ],
+      },
+    });
+    expect(summary.models).toHaveLength(2);
+    expect(summary.models.map((entry) => entry.executionRole)).toEqual(['react', 'intake']);
+    expect(summary.totalTokens).toBe(1100);
+  });
+
   it('uses durable top-level conversation totals as a fallback', () => {
     expect(summarizeConversationUsage({ UsageInputTokens: 25, UsageOutputTokens: 5 })).toMatchObject({
       inputTokens: 25,

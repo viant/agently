@@ -252,12 +252,38 @@ private fun progressTokenDetails(
             }.sortedByDescending { it.total }
         )
     }
-    val input = snapshot?.usage?.inputTokens ?: conversationState?.usage?.totalInputTokens ?: 0
-    val output = snapshot?.usage?.outputTokens ?: conversationState?.usage?.totalOutputTokens ?: 0
-    val embedding = snapshot?.usage?.embeddingTokens ?: 0
-    val total = snapshot?.usage?.totalTokens ?: (input + output + embedding)
+    val conversationUsage = conversationState?.usage
+    val input = snapshot?.usage?.inputTokens ?: conversationUsage?.totalInputTokens ?: 0
+    val output = snapshot?.usage?.outputTokens ?: conversationUsage?.totalOutputTokens ?: 0
+    val embedding = snapshot?.usage?.embeddingTokens ?: conversationUsage?.totalEmbeddingTokens ?: 0
+    val total = snapshot?.usage?.totalTokens ?: conversationUsage?.totalTokens ?: (input + output + embedding)
     if (total <= 0) return null
-    return TurnProgressTokenDetails("conversation", total, input, output, 0, 0, embedding, emptyList())
+    val models = conversationUsage?.models.orEmpty().mapIndexed { index, model ->
+        val role = model.executionRole?.trim().orEmpty()
+        TurnProgressTokenModel(
+            id = "${model.provider.orEmpty()}:${model.model}:$role:$index",
+            label = buildString {
+                append(listOfNotNull(model.provider, model.model).filter(String::isNotBlank).joinToString("/"))
+                if (role.isNotEmpty()) append(" · $role")
+            },
+            total = model.totalTokens ?: ((model.inputTokens ?: 0) + (model.outputTokens ?: 0)),
+            input = model.inputTokens,
+            output = model.outputTokens,
+            cachedInput = model.cachedInputTokens,
+            reasoning = model.reasoningTokens,
+            embedding = null
+        )
+    }.sortedByDescending { it.total }
+    return TurnProgressTokenDetails(
+        "conversation",
+        total,
+        input,
+        output,
+        conversationUsage?.totalCachedInputTokens ?: 0,
+        conversationUsage?.totalReasoningTokens ?: 0,
+        embedding,
+        models
+    )
 }
 
 private fun formattedTokenUsage(details: TurnProgressTokenDetails?): String? {

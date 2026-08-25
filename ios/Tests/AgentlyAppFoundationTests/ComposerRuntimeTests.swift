@@ -17,14 +17,14 @@ final class ComposerRuntimeTests: XCTestCase {
     }
 
     @MainActor
-    func testRequiredLookupAutoPresentationIsClaimedOncePerDraft() {
+    func testRequiredLookupRemainsUnresolvedUntilExplicitSelection() async throws {
         let runtime = ComposerRuntime()
+        try await configureLookupRuntime(runtime)
+        runtime.query = "Troubleshoot /order"
 
-        XCTAssertTrue(runtime.claimRequiredLookupAutoPresentation(key: "order#0|Troubleshoot /order"))
-        XCTAssertFalse(runtime.claimRequiredLookupAutoPresentation(key: "order#0|Troubleshoot /order"))
-
-        runtime.clearDraft()
-        XCTAssertTrue(runtime.claimRequiredLookupAutoPresentation(key: "order#0|Troubleshoot /order"))
+        let occurrence = try XCTUnwrap(runtime.lookupOccurrences.first)
+        XCTAssertTrue(occurrence.required)
+        XCTAssertNil(runtime.selectionForLookup(occurrence))
     }
 
     @MainActor

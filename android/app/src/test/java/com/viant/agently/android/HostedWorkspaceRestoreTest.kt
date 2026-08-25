@@ -286,7 +286,7 @@ class HostedWorkspaceRestoreTest {
     }
 
     @Test
-    fun `deriveHostedWorkspaceRestoreState restores from the last turn only`() {
+    fun `deriveHostedWorkspaceRestoreState preserves workspace opened by an earlier turn`() {
         val state = ConversationStateResponse(
             conversation = ConversationState(
                 conversationId = "conv-1",
@@ -335,7 +335,8 @@ class HostedWorkspaceRestoreTest {
 
         val restore = deriveAgentlyHostedWorkspaceRestoreState(state)
 
-        assertNull(restore)
+        assertEquals("record_legacy", restore?.selectedWindowId)
+        assertEquals(1, restore?.windows?.size)
     }
 
     @Test
@@ -444,6 +445,66 @@ class HostedWorkspaceRestoreTest {
         )
 
         assertEquals("order__conv-1", restore?.selectedWindowId)
+    }
+
+    @Test
+    fun `durable authored report survives stale local default window`() {
+        val windowId = "report__conv-1"
+        val state = ConversationStateResponse(
+            conversation = ConversationState(
+                conversationId = "conv-1",
+                turns = listOf(TurnState(
+                    turnId = "turn-1",
+                    execution = ExecutionState(pages = listOf(ExecutionPageState(
+                        pageId = "page-1",
+                        toolSteps = listOf(
+                            ToolStepState(
+                                toolCallId = "open",
+                                toolName = "ui/view/open",
+                                status = "completed",
+                                responsePayload = json.parseToJsonElement(
+                                    """{"windowId":"$windowId","windowKey":"reportBuilder","windowTitle":"Report","conversationId":"conv-1","presentation":"hosted","region":"chat.top","parentKey":"chat/new"}"""
+                                )
+                            ),
+                            ToolStepState(
+                                toolCallId = "set",
+                                toolName = "ui/window/setFormData",
+                                status = "completed",
+                                requestPayload = json.parseToJsonElement(
+                                    """{"windowId":"$windowId","values":{"reportDefinition":{"id":"delivery","documentPatch":{"blocks":[{"id":"spend","datasetRef":"summary"}]}}}}"""
+                                )
+                            )
+                        )
+                    )))
+                ))
+            )
+        )
+        val local = NativeUIBridgeSnapshot(
+            conversationId = "conv-1",
+            windows = listOf(NativeUIBridgeWindow(
+                windowId = windowId,
+                windowKey = "reportBuilder",
+                windowTitle = "Report",
+                conversationId = "conv-1",
+                presentation = "hosted",
+                region = "chat.top",
+                parentKey = "chat/new",
+                windowForm = JsonObject(mapOf(
+                    "reportBuilderRef" to JsonPrimitive("metricsCubeBuilder"),
+                    "reportBuilder:metricsCubeBuilder" to JsonObject(mapOf(
+                        "reportDocumentTitle" to JsonPrimitive("Performance Delivery"),
+                        "reportDocumentBlocks" to JsonArray(emptyList())
+                    ))
+                ))
+            ))
+        )
+
+        val restored = deriveAgentlyHostedWorkspaceRestoreState(state, null, local)
+        val reportDefinition = restored?.windows?.singleOrNull()?.windowForm?.get("reportDefinition") as? JsonObject
+
+        assertEquals("delivery", (reportDefinition?.get("id") as? JsonPrimitive)?.content)
+        assertEquals("metricsCubeBuilder", (restored?.windows?.singleOrNull()?.windowForm?.get("reportBuilderRef") as? JsonPrimitive)?.content)
+        assertNull(restored?.windows?.singleOrNull()?.windowForm?.get("reportBuilder:metricsCubeBuilder"))
     }
 
     @Test

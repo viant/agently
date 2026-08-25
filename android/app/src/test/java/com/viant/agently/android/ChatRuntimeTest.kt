@@ -8,6 +8,8 @@ import com.viant.agentlysdk.AssistantState
 import com.viant.agentlysdk.ConversationState
 import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.ModelUsageState
+import com.viant.agentlysdk.UsageModelSummary
+import com.viant.agentlysdk.UsageSummary
 import com.viant.agentlysdk.TurnState
 import com.viant.agentlysdk.UserMessageState
 import com.viant.agentlysdk.stream.BufferedMessage
@@ -24,6 +26,27 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ChatRuntimeTest {
+
+    @Test
+    fun turnProgress_conversationUsageIncludesSidecarModels() {
+        val state = ConversationStateResponse(
+            conversation = ConversationState(conversationId = "conv-usage"),
+            usage = UsageSummary(
+                totalInputTokens = 1_000,
+                totalOutputTokens = 100,
+                totalTokens = 1_100,
+                models = listOf(
+                    UsageModelSummary(provider = "openai", model = "gpt-5-mini", executionRole = "react", inputTokens = 800, outputTokens = 80, totalTokens = 880),
+                    UsageModelSummary(provider = "openai", model = "gpt-5-mini", executionRole = "intake", inputTokens = 200, outputTokens = 20, totalTokens = 220)
+                )
+            )
+        )
+
+        val presentation = turnProgressPresentation(true, state, null)
+
+        assertEquals("1,100 total tokens", presentation?.tokenUsage)
+        assertEquals(listOf("openai/gpt-5-mini · react", "openai/gpt-5-mini · intake"), presentation?.tokenDetails?.models?.map { it.label })
+    }
 
     @Test
     fun streamAcceptance_doesNotRequireTransientActiveTurn() {

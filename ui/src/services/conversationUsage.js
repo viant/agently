@@ -30,10 +30,14 @@ function normalizeModelUsage(entry = {}, index = 0) {
   const reasoningTokens = numberValue(field(entry, 'CompletionReasoningTokens', 'completionReasoningTokens', 'reasoningTokens', 'ReasoningTokens'));
   const totalTokens = numberValue(field(entry, 'TotalTokens', 'totalTokens')) || inputTokens + outputTokens;
   const rawCost = field(entry, 'Cost', 'cost');
+  const executionRole = String(field(entry, 'ExecutionRole', 'executionRole', 'Role', 'role') || 'react').trim().toLowerCase() || 'react';
+  const provider = String(field(entry, 'Provider', 'provider') || '').trim();
+  const model = String(field(entry, 'Model', 'model') || 'Unknown model').trim();
   return {
-    id: `${String(field(entry, 'Provider', 'provider') || '')}:${String(field(entry, 'Model', 'model') || index)}`,
-    provider: String(field(entry, 'Provider', 'provider') || '').trim(),
-    model: String(field(entry, 'Model', 'model') || 'Unknown model').trim(),
+    id: `${provider}:${model || index}:${executionRole}`,
+    provider,
+    model,
+    executionRole,
     inputTokens,
     outputTokens,
     cachedInputTokens,

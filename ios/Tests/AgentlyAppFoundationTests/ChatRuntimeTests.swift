@@ -4,6 +4,35 @@ import ForgeIOSRuntime
 @testable import AgentlyAppFoundation
 
 final class ChatRuntimeTests: XCTestCase {
+    func testConversationUsageIncludesSidecarModels() {
+        let state = ConversationStateResponse(
+            conversation: ConversationState(conversationID: "conv-usage", turns: []),
+            usage: UsageSummary(
+                totalInputTokens: 1_000,
+                totalOutputTokens: 100,
+                totalCachedInputTokens: 0,
+                totalReasoningTokens: 0,
+                totalEmbeddingTokens: 0,
+                totalTokens: 1_100,
+                cost: nil,
+                models: [
+                    UsageModelSummary(provider: "openai", model: "gpt-5-mini", executionRole: "react", inputTokens: 800, outputTokens: 80, cachedInputTokens: 0, reasoningTokens: 0, totalTokens: 880, cost: nil),
+                    UsageModelSummary(provider: "openai", model: "gpt-5-mini", executionRole: "intake", inputTokens: 200, outputTokens: 20, cachedInputTokens: 0, reasoningTokens: 0, totalTokens: 220, cost: nil)
+                ]
+            )
+        )
+
+        let presentation = turnProgressPresentation(
+            isSending: true,
+            activeTurnID: nil,
+            isStoppingTurn: false,
+            conversationState: state,
+            streamSnapshot: nil
+        )
+
+        XCTAssertEqual(presentation?.tokenUsage, "1,100 total tokens")
+        XCTAssertEqual(presentation?.tokenDetails?.models.map(\.label), ["openai/gpt-5-mini · react", "openai/gpt-5-mini · intake"])
+    }
     func testTranscriptWindowStartsWithLatestFortyAndExpands() {
         XCTAssertEqual(transcriptWindowStart(totalItemCount: 100, visibleItemCount: 40), 60)
         XCTAssertEqual(transcriptWindowStart(totalItemCount: 32, visibleItemCount: 40), 0)
