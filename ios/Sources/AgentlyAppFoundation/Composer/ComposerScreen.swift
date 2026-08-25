@@ -125,14 +125,10 @@ public struct ComposerScreen: View {
                 selectedPhotoItems = []
             }
         }
-        .onAppear {
-            presentFirstRequiredLookupIfNeeded()
-        }
         .onChange(of: unresolvedRequiredLookupSignature) { _, _ in
             if !unresolvedRequiredLookupSignature.isEmpty {
                 isCompactComposerExpanded = true
             }
-            presentFirstRequiredLookupIfNeeded()
         }
         .onChange(of: runtime.query) { oldValue, newValue in
             if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -657,17 +653,6 @@ public struct ComposerScreen: View {
         }
     }
 
-    private func presentFirstRequiredLookupIfNeeded() {
-        guard density == .compact else { return }
-        let signature = unresolvedRequiredLookupSignature
-        guard !signature.isEmpty,
-              runtime.claimRequiredLookupAutoPresentation(key: "\(signature)|\(runtime.query)"),
-              activeLookupOccurrence == nil,
-              let occurrence = firstUnresolvedRequiredLookup else {
-            return
-        }
-        activeLookupOccurrence = occurrence
-    }
 }
 
 internal func composerEditorHeight(

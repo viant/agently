@@ -58,7 +58,6 @@ public final class ComposerRuntime: ObservableObject {
 
     private var lookupRegistryLoader: LookupRegistryLoader?
     private var lookupRowsLoader: LookupRowsLoader?
-    private var lastAutoPresentedLookupKey = ""
 
     public init() {}
 
@@ -83,13 +82,6 @@ public final class ComposerRuntime: ObservableObject {
 
     public func requestFocus() {
         focusRequestID += 1
-    }
-
-    public func claimRequiredLookupAutoPresentation(key: String) -> Bool {
-        let normalized = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty, normalized != lastAutoPresentedLookupKey else { return false }
-        lastAutoPresentedLookupKey = normalized
-        return true
     }
 
     public func refreshLookupRegistry() async {
@@ -190,7 +182,6 @@ public final class ComposerRuntime: ObservableObject {
         attachments = []
         lookupSelections = [:]
         attachmentError = nil
-        lastAutoPresentedLookupKey = ""
     }
 
     public func importAttachment(from url: URL) {
