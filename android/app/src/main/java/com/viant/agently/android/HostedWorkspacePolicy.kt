@@ -53,18 +53,29 @@ private fun mergeHostedWorkspaceWindowForm(
     durable: JsonObject?,
     live: JsonObject?
 ): JsonObject? {
-    if (durable == null || durable.isEmpty()) return live
-    if (live == null || live.isEmpty()) return durable
+    val durableForm = sanitizeOrphanedReportMaterialization(durable)
+    val liveForm = sanitizeOrphanedReportMaterialization(live)
+    if (durableForm == null || durableForm.isEmpty()) return liveForm
+    if (liveForm == null || liveForm.isEmpty()) return durableForm
     // reportBuilder:* is renderer-derived state. When a durable authored
     // reportDefinition exists, a just-opened local window may already contain
     // the default builder state; retaining it prevents the authored definition
     // from being projected. The conversation transcript is authoritative.
-    val sanitizedLive = if (durable["reportDefinition"] is JsonObject) {
-        JsonObject(live.filterKeys { !it.startsWith("reportBuilder:") })
+    val sanitizedLive = if (durableForm["reportDefinition"] is JsonObject) {
+        JsonObject(liveForm.filterKeys { !it.startsWith("reportBuilder:") })
     } else {
-        live
+        liveForm
     }
-    return mergeHostedWorkspaceJson(sanitizedLive, durable)
+    return mergeHostedWorkspaceJson(sanitizedLive, durableForm)
+}
+
+private fun sanitizeOrphanedReportMaterialization(form: JsonObject?): JsonObject? {
+    form ?: return null
+    val materialization = form["reportMaterialization"] as? JsonObject ?: return form
+    val status = (materialization["status"] as? kotlinx.serialization.json.JsonPrimitive)
+        ?.content?.trim()?.lowercase().orEmpty()
+    if (status != "running" || form["reportRunRequest"] is JsonObject) return form
+    return JsonObject(form.filterKeys { it != "reportMaterialization" })
 }
 
 private fun mergeHostedWorkspaceJson(base: JsonObject?, overlay: JsonObject?): JsonObject? {

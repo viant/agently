@@ -1,6 +1,10 @@
 import Foundation
 import SwiftUI
 
+extension Notification.Name {
+    static let agentlyComposerCommitRequested = Notification.Name("agently.composer.commit-requested")
+}
+
 internal struct ComposerEditorProjection: Equatable {
     let source: String
     let display: String
@@ -119,6 +123,7 @@ internal struct ComposerQueryEditor: UIViewRepresentable {
         textView.smartDashesType = .no
         textView.keyboardDismissMode = .interactive
         textView.accessibilityIdentifier = "agently-composer-editor"
+        context.coordinator.attach(textView)
         return textView
     }
 
@@ -127,19 +132,28 @@ internal struct ComposerQueryEditor: UIViewRepresentable {
         let projection = ComposerEditorProjection(source: text, occurrences: occurrences)
         context.coordinator.projection = projection
         context.coordinator.isApplyingUpdate = true
-        if textView.text != projection.display {
+        let preservesUIKitTyping = textView.isFirstResponder && occurrences.isEmpty && !isDisabled
+        if !preservesUIKitTyping && textView.text != projection.display {
             textView.text = projection.display
         }
         textView.isEditable = !isDisabled
         let displaySelection = projection.displayOffset(forSourceOffset: selectionUTF16Offset)
-        if textView.selectedRange.location != displaySelection || textView.selectedRange.length != 0 {
+        // While UIKit owns ordinary typing, do not force its selection from a
+        // SwiftUI binding update that can trail the latest key event by one
+        // render pass. Resetting the caret here causes rapid/native typing to
+        // lose focus or retain only its first character. External projection
+        // changes still reconcile selection when the editor is not active or
+        // when lookup tokens are present.
+        let preservesUIKitTypingSelection = preservesUIKitTyping
+        if !preservesUIKitTypingSelection &&
+            (textView.selectedRange.location != displaySelection || textView.selectedRange.length != 0) {
             textView.selectedRange = NSRange(location: displaySelection, length: 0)
         }
         context.coordinator.isApplyingUpdate = false
 
         if isFocused.wrappedValue, !textView.isFirstResponder {
             DispatchQueue.main.async { textView.becomeFirstResponder() }
-        } else if !isFocused.wrappedValue, textView.isFirstResponder {
+        } else if isDisabled, textView.isFirstResponder {
             DispatchQueue.main.async { textView.resignFirstResponder() }
         }
     }
@@ -148,10 +162,42 @@ internal struct ComposerQueryEditor: UIViewRepresentable {
         var parent: ComposerQueryEditor
         var projection: ComposerEditorProjection
         var isApplyingUpdate = false
+        weak var textView: UITextView?
+        private var commitObserver: NSObjectProtocol?
+        private var dismissalObserver: NSObjectProtocol?
 
         init(parent: ComposerQueryEditor) {
             self.parent = parent
             self.projection = ComposerEditorProjection(source: parent.text, occurrences: parent.occurrences)
+        }
+
+        func attach(_ textView: UITextView) {
+            self.textView = textView
+            commitObserver = NotificationCenter.default.addObserver(
+                forName: .agentlyComposerCommitRequested,
+                object: nil,
+                queue: .main
+            ) { [weak self, weak textView] _ in
+                guard let self, let textView else { return }
+                self.parent.text = textView.text ?? ""
+                self.parent.selectionUTF16Offset = textView.selectedRange.location
+            }
+            dismissalObserver = NotificationCenter.default.addObserver(
+                forName: .agentlyKeyboardDismissalRequested,
+                object: nil,
+                queue: .main
+            ) { [weak textView] _ in
+                textView?.resignFirstResponder()
+            }
+        }
+
+        deinit {
+            if let commitObserver {
+                NotificationCenter.default.removeObserver(commitObserver)
+            }
+            if let dismissalObserver {
+                NotificationCenter.default.removeObserver(dismissalObserver)
+            }
         }
 
         func textView(
@@ -164,6 +210,9 @@ internal struct ComposerQueryEditor: UIViewRepresentable {
             // the text storage on every character, which made the keyboard-safe
             // composer alternate vertically between layout passes.
             if parent.occurrences.isEmpty {
+                let current = textView.text ?? ""
+                parent.text = (current as NSString).replacingCharacters(in: range, with: replacement)
+                parent.selectionUTF16Offset = range.location + (replacement as NSString).length
                 return true
             }
             let sourceStart = projection.sourceOffset(forDisplayOffset: range.location)

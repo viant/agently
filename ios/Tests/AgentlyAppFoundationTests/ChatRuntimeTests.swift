@@ -1122,7 +1122,7 @@ final class ChatRuntimeTests: XCTestCase {
         XCTAssertEqual(restore?.windows.first?.windowKey, "reportWindow")
     }
 
-    func testDeriveHostedWorkspaceRestoreStateUsesLastTurnOnly() throws {
+    func testDeriveHostedWorkspaceRestoreStatePreservesWorkspaceFromEarlierTurn() throws {
         let json = """
         {
           "conversation": {
@@ -1191,7 +1191,9 @@ final class ChatRuntimeTests: XCTestCase {
             from: XCTUnwrap(json.data(using: .utf8))
         )
 
-        XCTAssertNil(deriveHostedWorkspaceRestoreState(from: response))
+        let restore = deriveHostedWorkspaceRestoreState(from: response)
+        XCTAssertEqual(restore?.selectedWindowId, "order_legacy")
+        XCTAssertEqual(restore?.windows.first?.windowKey, "order")
     }
 
     func testLatestTurnHostedWorkspaceRestoreStateIgnoresStoredStateWhenLatestTurnHasNoHostedWindow() throws {
@@ -1339,6 +1341,9 @@ final class ChatRuntimeTests: XCTestCase {
                               "prefill": {
                                 "country": ["US"],
                                 "recordIds": [123]
+                              },
+                              "reportDefinition": {
+                                "id": "delivery"
                               }
                             }
                           },
@@ -1372,6 +1377,13 @@ final class ChatRuntimeTests: XCTestCase {
                     windowForm: [
                         "reportBuilder": .object([
                             "viewMode": .string("table")
+                        ]),
+                        "reportBuilder:metricsCubeBuilder": .object([
+                            "reportDocumentTitle": .string("Performance Delivery")
+                        ]),
+                        "reportMaterialization": .object([
+                            "status": .string("running"),
+                            "requestId": .string("orphaned-run")
                         ])
                     ]
                 )
@@ -1386,6 +1398,9 @@ final class ChatRuntimeTests: XCTestCase {
 
         let windowForm = try XCTUnwrap(restore?.windows.first?.windowForm)
         XCTAssertEqual(windowForm["reportBuilder"]?.objectValue?["viewMode"], .string("table"))
+        XCTAssertNil(windowForm["reportBuilder:metricsCubeBuilder"])
+        XCTAssertNil(windowForm["reportMaterialization"])
+        XCTAssertEqual(windowForm["reportDefinition"]?.objectValue?["id"], .string("delivery"))
         guard case .object(let prefill)? = windowForm["prefill"] else {
             XCTFail("Expected transcript prefill to survive stored window form merge")
             return

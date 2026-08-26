@@ -61,6 +61,16 @@
             value = "1"
             isEnabled = "YES">
          </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "AGENTLY_IOS_UI_TEST_BASE_URL"
+            value = "http://127.0.0.1:9191"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "AGENTLY_IOS_UI_TEST_OOB_SECRET"
+            value = "/Users/awitas/.secret/awitas_dsp_ui.enc|blowfish://default"
+            isEnabled = "YES">
+         </EnvironmentVariable>
       </EnvironmentVariables>
       <Testables>
          <TestableReference
