@@ -81,6 +81,7 @@ internal fun TranscriptMessageContent(
     markdown: String,
     renderedParts: List<RenderedContentPart>? = null,
     renderedReports: List<ForgeTranscriptCanonicalReport>? = null,
+    diagnosticMessages: List<String> = emptyList(),
     conversationId: String? = null,
     client: AgentlyClient,
     forgeRuntime: ForgeRuntime,
@@ -139,6 +140,20 @@ internal fun TranscriptMessageContent(
                 forgeRuntime = forgeRuntime,
                 onOpenInlineReportPdf = onOpenInlineReportPdf
             )
+        }
+        if (diagnosticMessages.isNotEmpty()) {
+            Surface(
+                color = Color(0xFFFFF4E5),
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Report assembled with diagnostics", fontWeight = FontWeight.SemiBold, color = Color(0xFFB54708))
+                    diagnosticMessages.forEach { message ->
+                        Text(message, style = MaterialTheme.typography.bodySmall, color = Color(0xFFB54708))
+                    }
+                }
+            }
         }
     }
 }

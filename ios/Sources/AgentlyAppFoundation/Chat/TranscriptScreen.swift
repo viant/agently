@@ -306,6 +306,7 @@ private struct TranscriptBubble: View {
                 markdown: item.markdown,
                 renderedParts: item.renderedParts,
                 renderedReports: item.renderedReports,
+                diagnosticMessages: item.diagnosticMessages,
 				client: client,
                 conversationID: conversationID
             )

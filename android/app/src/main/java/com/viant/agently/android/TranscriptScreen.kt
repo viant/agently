@@ -170,6 +170,7 @@ internal fun RenderTranscript(
                         markdown = item.markdown,
                         renderedParts = item.renderedParts,
                         renderedReports = item.renderedReports,
+                        diagnosticMessages = item.diagnosticMessages,
                         conversationId = conversationId,
                         client = client,
                         forgeRuntime = forgeRuntime,

@@ -41,6 +41,7 @@ internal data class ChatEntry(
     val turnId: String? = null,
     val renderedParts: List<RenderedContentPart>? = null,
     val renderedReports: List<TranscriptCanonicalReport>? = null,
+    val diagnosticMessages: List<String> = emptyList(),
     val streaming: Boolean = false,
     val deliveryState: String? = null,
     val timestampLabel: String? = null
@@ -473,7 +474,7 @@ private fun assistantEntryForTurn(
         }
         val candidateMarkdown = visibleAssistantContent(message).orEmpty()
         val candidateRendered = snapshot.liveExecutionGroupsById[message.id]?.renderedContent
-        if (candidateMarkdown.isNotBlank() || candidateRendered?.reports?.isNotEmpty() == true) {
+        if (candidateMarkdown.isNotBlank() || candidateRendered?.reports?.isNotEmpty() == true || candidateRendered?.diagnostics?.isNotEmpty() == true) {
             AssistantTurnFragment(message, candidateMarkdown, candidateRendered)
         } else {
             null
@@ -513,6 +514,9 @@ private fun assistantEntryForTurn(
             reportsByIdentity["${report.scope}\u0000${report.id}"] = report
         }
     }
+    val diagnosticMessages = fragments.flatMap { fragment ->
+        fragment.rendered?.diagnostics.orEmpty().mapNotNull { it.message.trim().takeIf(String::isNotEmpty) }
+    }
     val visibleLatest = fragments.last().message
     return ChatEntry(
         id = visibleLatest.id,
@@ -521,6 +525,7 @@ private fun assistantEntryForTurn(
         turnId = turnId,
         renderedParts = renderedParts,
         renderedReports = reportsByIdentity.values.toList().takeIf { it.isNotEmpty() },
+        diagnosticMessages = diagnosticMessages,
         streaming = streaming,
         timestampLabel = formatTimestampLabel(visibleLatest.createdAt)
     )
@@ -607,7 +612,10 @@ internal fun transcriptFromState(state: ConversationStateResponse): List<ChatEnt
         val narrationFallback = sanitizeAssistantTranscriptText(turn.assistant?.narration?.content).orEmpty()
         val assistantContent = (finalContent.ifBlank { narrationFallback }).trim()
         val renderedReports = canonicalAssistantReports(assistantMessages)
-        if (!assistantId.isNullOrBlank() && (assistantContent.isNotBlank() || !renderedReports.isNullOrEmpty())) {
+        val diagnosticMessages = assistantMessages.flatMap { message ->
+            message.renderedContent?.diagnostics.orEmpty().mapNotNull { it.message.trim().takeIf(String::isNotEmpty) }
+        }
+        if (!assistantId.isNullOrBlank() && (assistantContent.isNotBlank() || !renderedReports.isNullOrEmpty() || diagnosticMessages.isNotEmpty())) {
             entries.add(
                 ChatEntry(
                     id = assistantId,
@@ -616,6 +624,7 @@ internal fun transcriptFromState(state: ConversationStateResponse): List<ChatEnt
                     turnId = turn.turnId,
                     renderedParts = canonicalAssistantParts(assistantMessages),
                     renderedReports = renderedReports,
+                    diagnosticMessages = diagnosticMessages,
                     streaming = false,
                     timestampLabel = formatTimestampLabel(turn.createdAt)
                 )

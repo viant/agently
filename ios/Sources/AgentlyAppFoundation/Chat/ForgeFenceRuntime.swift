@@ -14,6 +14,7 @@ struct TranscriptMessageContent: View {
     let markdown: String
     let renderedParts: [TranscriptCanonicalPart]?
     let renderedReports: [TranscriptCanonicalReport]?
+    let diagnosticMessages: [String]
 	let client: AgentlyClient?
     let conversationID: String?
     @State private var artifactLinkError: String?
@@ -51,6 +52,19 @@ struct TranscriptMessageContent: View {
                 Text(artifactLinkError)
                     .font(.caption)
                     .foregroundStyle(.red)
+            }
+            if !diagnosticMessages.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Report assembled with diagnostics", systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote.weight(.semibold))
+                    ForEach(Array(diagnosticMessages.enumerated()), id: \.offset) { _, message in
+                        Text(message).font(.caption)
+                    }
+                }
+                .foregroundStyle(.orange)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
             }
         }
         .environment(\.openURL, OpenURLAction { url in
