@@ -26,6 +26,7 @@ class HostedWorkspacePresentationTest {
         val presentation = resolveHostedWorkspacePresentation(window)
 
         assertEquals("Reports", presentation?.badgeLabel)
+        assertEquals("chart", presentation?.navigationIcon)
     }
 
     @Test

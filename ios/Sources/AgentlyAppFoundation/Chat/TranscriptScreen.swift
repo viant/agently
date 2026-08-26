@@ -7,6 +7,55 @@ import UIKit
 import AppKit
 #endif
 
+struct AssistantDestinationLink: View {
+    let title: String
+    let supportingText: String
+    let systemImage: String
+    let accessibilityIdentifier: String
+    let onOpen: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 34, height: 34)
+                    .background(Color.accentColor.opacity(0.11), in: RoundedRectangle(cornerRadius: 10))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(supportingText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "arrow.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.accentColor.opacity(0.055), in: RoundedRectangle(cornerRadius: 13))
+            .overlay(RoundedRectangle(cornerRadius: 13).stroke(Color.accentColor.opacity(0.16), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open \(title)")
+        .accessibilityIdentifier(accessibilityIdentifier)
+    }
+}
+
+func assistantDestinationSystemImage(_ value: String?) -> String {
+    switch value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "chart": return "chart.xyaxis.line"
+    case "document": return "doc.text"
+    case "application": return "app"
+    default: return "rectangle.topthird.inset.filled"
+    }
+}
+
 public struct TranscriptScreen: View {
     private static let initialRenderCount = 40
     private static let renderBatchSize = 40
@@ -217,35 +266,13 @@ private struct TranscriptBubble: View {
         _ attachment: HostedWorkspaceAttachment,
         onOpen: @escaping () -> Void
     ) -> some View {
-        Button(action: onOpen) {
-            HStack(spacing: 10) {
-                Image(systemName: attachment.presentation.badgeSymbolName)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 34, height: 34)
-                    .background(Color.accentColor.opacity(0.11), in: RoundedRectangle(cornerRadius: 10))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(attachment.presentation.badgeLabel)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text(attachment.presentation.supportingText)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 4)
-                Image(systemName: "arrow.right")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(Color.accentColor)
-            }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.accentColor.opacity(0.055), in: RoundedRectangle(cornerRadius: 13))
-            .overlay(RoundedRectangle(cornerRadius: 13).stroke(Color.accentColor.opacity(0.16), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Open \(attachment.presentation.badgeLabel)")
-        .accessibilityIdentifier("transcript-workspace-attachment")
+        AssistantDestinationLink(
+            title: attachment.presentation.badgeLabel,
+            supportingText: attachment.presentation.supportingText,
+            systemImage: attachment.presentation.badgeSymbolName,
+            accessibilityIdentifier: "transcript-workspace-attachment",
+            onOpen: onOpen
+        )
     }
 
     @ViewBuilder

@@ -18,7 +18,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
+import androidx.compose.material.icons.automirrored.outlined.ShowChart
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Apps
+import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -27,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.AgentlyClient
@@ -229,10 +233,28 @@ private fun WorkspaceAttachmentCard(
     attachment: HostedWorkspaceAttachment,
     onOpen: () -> Unit,
 ) {
+    AssistantDestinationLink(
+        title = attachment.presentation.badgeLabel,
+        supportingText = attachment.presentation.supportingText,
+        icon = assistantDestinationIcon(attachment.presentation.navigationIcon),
+        contentDescription = "Open ${attachment.presentation.badgeLabel}",
+        onOpen = onOpen,
+    )
+}
+
+@Composable
+internal fun AssistantDestinationLink(
+    title: String,
+    supportingText: String,
+    icon: ImageVector,
+    contentDescription: String,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Surface(
         color = Color(0xFFF5F9FF),
         shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
+        modifier = modifier.fillMaxWidth().clickable(onClick = onOpen),
     ) {
         Row(
             modifier = Modifier.padding(10.dp),
@@ -241,16 +263,16 @@ private fun WorkspaceAttachmentCard(
         ) {
             Surface(color = Color(0xFFE3EEFF), shape = MaterialTheme.shapes.small) {
                 Icon(
-                    imageVector = Icons.Outlined.Description,
+                    imageVector = icon,
                     contentDescription = null,
                     tint = Color(0xFF2768C7),
                     modifier = Modifier.padding(8.dp).size(18.dp),
                 )
             }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(attachment.presentation.badgeLabel, style = MaterialTheme.typography.labelLarge)
+                Text(title, style = MaterialTheme.typography.labelLarge)
                 Text(
-                    attachment.presentation.supportingText,
+                    supportingText,
                     style = MaterialTheme.typography.labelSmall,
                     color = Color(0xFF667085),
                     maxLines = 1,
@@ -258,11 +280,18 @@ private fun WorkspaceAttachmentCard(
             }
             Icon(
                 imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
-                contentDescription = "Open ${attachment.presentation.badgeLabel}",
+                contentDescription = contentDescription,
                 tint = Color(0xFF2768C7),
             )
         }
     }
+}
+
+internal fun assistantDestinationIcon(value: String?): ImageVector = when (value?.trim()?.lowercase()) {
+    "chart" -> Icons.AutoMirrored.Outlined.ShowChart
+    "application" -> Icons.Outlined.Apps
+    "document" -> Icons.Outlined.Description
+    else -> Icons.Outlined.Dashboard
 }
 
 internal fun transcriptWindowStart(totalItemCount: Int, visibleItemCount: Int): Int =

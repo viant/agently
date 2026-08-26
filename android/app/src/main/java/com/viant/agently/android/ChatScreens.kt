@@ -181,16 +181,6 @@ internal fun TabletChatScreen(
     onRunQuery: () -> Unit,
     onCancelTurn: () -> Unit = {}
 ) {
-    val runtimeWindows by forgeRuntime.windows.collectAsState(initial = emptyList())
-    val localWorkspaceSnapshot = remember(activeConversationId, runtimeWindows) {
-        buildAndroidUIBridgeSnapshot(activeConversationId, forgeRuntime)
-    }
-    val activeConversationHasWorkspace =
-        deriveAgentlyHostedWorkspaceRestoreState(
-            conversationState,
-            streamSnapshot,
-            localWorkspaceSnapshot
-        ) != null
     Row(
         modifier = Modifier.fillMaxSize(),
         horizontalArrangement = Arrangement.spacedBy(0.dp)
@@ -202,7 +192,6 @@ internal fun TabletChatScreen(
             loading = loading,
             recentConversations = recentConversations,
             activeConversationId = activeConversationId,
-            activeConversationHasWorkspace = activeConversationHasWorkspace,
             onNewConversation = onNewConversation,
             onRefresh = onRefresh,
             onSelectConversation = onSelectConversation

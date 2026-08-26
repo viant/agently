@@ -206,6 +206,22 @@ private struct TranscriptInlineReportView: View {
         return subtitle.isEmpty ? nil : subtitle
     }
 
+    private var destinationNavigation: [String: ForgeIOSRuntime.JSONValue] {
+        report.source.objectValue?["navigation"]?.objectValue ?? [:]
+    }
+
+    private var destinationTitle: String {
+        let label = destinationNavigation["label"]?.stringValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return label.isEmpty ? previewTitle : label
+    }
+
+    private var destinationSupportingText: String {
+        let detail = destinationNavigation["supportingText"]?.stringValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return detail.isEmpty ? "Open \(destinationTitle)." : detail
+    }
+
     private var inlineReportPreviewCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(previewTitle)
@@ -223,18 +239,14 @@ private struct TranscriptInlineReportView: View {
                         .foregroundStyle(.secondary)
                 }
             } else if metadata != nil, windowContext != nil {
-                HStack(spacing: 10) {
-                    Button {
-                        isReportPresented = true
-                    } label: {
-                        AppleToolbarActionIcon(
-                            systemImage: "arrow.up.left.and.arrow.down.right",
-                            color: Color(red: 0.22, green: 0.23, blue: 0.86)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Open Report")
-                    .accessibilityIdentifier("agently-open-report")
+                VStack(alignment: .leading, spacing: 8) {
+                    AssistantDestinationLink(
+                        title: destinationTitle,
+                        supportingText: destinationSupportingText,
+                        systemImage: assistantDestinationSystemImage(destinationNavigation["icon"]?.stringValue),
+                        accessibilityIdentifier: "agently-open-report",
+                        onOpen: { isReportPresented = true }
+                    )
                     inlineReportExportButton
                 }
                 exportErrorText

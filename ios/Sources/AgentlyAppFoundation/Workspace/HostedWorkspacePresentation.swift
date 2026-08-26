@@ -67,20 +67,11 @@ func resolveHostedWorkspacePresentation(
     }
     return HostedWorkspacePresentation(
         badgeLabel: badgeLabel,
-        badgeSymbolName: hostedWorkspaceSymbol(window.navigation?.icon),
+        badgeSymbolName: assistantDestinationSystemImage(window.navigation?.icon),
         title: title,
         subtitle: nil,
         supportingText: "Open the \(badgeLabel.lowercased()) workspace."
     )
-}
-
-private func hostedWorkspaceSymbol(_ value: String?) -> String {
-    switch value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-    case "chart": return "chart.xyaxis.line"
-    case "document": return "doc.text"
-    case "application": return "app"
-    default: return "rectangle.topthird.inset.filled"
-    }
 }
 
 private func humanizeHostedWorkspaceKey(_ key: String) -> String? {
