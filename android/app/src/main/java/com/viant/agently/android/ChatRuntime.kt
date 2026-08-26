@@ -366,6 +366,9 @@ private fun isPendingTurnStatus(status: String?): Boolean =
 internal fun userFacingToolActivity(rawName: String?): String? {
     val raw = rawName?.trim().orEmpty()
     if (raw.isEmpty()) return null
+    val encoded = raw.any { it == '/' || it == ':' || it == '_' || it == '-' } ||
+        Regex("[a-z0-9][A-Z]").containsMatchIn(raw)
+    if (!encoded) return raw
     return raw.replace('/', ' ').replace(':', ' ').replace('_', ' ').replace('-', ' ')
         .replace(Regex("([a-z0-9])([A-Z])"), "$1 $2")
         .trim()

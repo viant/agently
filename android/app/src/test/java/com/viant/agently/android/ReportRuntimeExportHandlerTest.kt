@@ -103,7 +103,7 @@ class ReportRuntimeExportHandlerTest {
         }.exceptionOrNull()
 
         assertTrue(error is IllegalStateException)
-        assertEquals("Report PDF export requires artifactRef.", error.message)
+        assertEquals("Report PDF export requires artifactRef.", error?.message)
         assertEquals(0, server.requestCount)
     }
 

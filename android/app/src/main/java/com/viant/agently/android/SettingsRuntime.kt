@@ -98,7 +98,8 @@ internal fun isValidWorkspaceBaseUrl(value: String): Boolean {
 internal fun resolveInitialApiBaseUrl(
     configuredBaseUrl: String,
     storedSettings: AppSettings,
-    preferExplicitBuildEndpoint: Boolean
+    preferExplicitBuildEndpoint: Boolean,
+    availableOptions: List<WorkspaceEndpointOption> = workspaceEndpointOptions
 ): String {
     val configured = normalizeApiBaseUrl(configuredBaseUrl)
     if (preferExplicitBuildEndpoint && isValidWorkspaceBaseUrl(configured)) return configured
@@ -106,13 +107,13 @@ internal fun resolveInitialApiBaseUrl(
     val candidate = normalizeApiBaseUrl(
         storedSettings.baseUrlOverride.trim().ifBlank {
             if (storedSettings.hasWorkspaceEndpointSelection) configured
-            else workspaceEndpointOptions.firstOrNull()?.value.orEmpty()
+            else availableOptions.firstOrNull()?.value.orEmpty()
         }
     )
     return when {
         isValidWorkspaceBaseUrl(candidate) -> candidate
         isValidWorkspaceBaseUrl(configured) -> configured
-        else -> workspaceEndpointOptions.firstOrNull()?.value.orEmpty()
+        else -> availableOptions.firstOrNull()?.value.orEmpty()
     }
 }
 
