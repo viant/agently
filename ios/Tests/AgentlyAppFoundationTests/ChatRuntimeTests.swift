@@ -1384,6 +1384,9 @@ final class ChatRuntimeTests: XCTestCase {
                         "reportMaterialization": .object([
                             "status": .string("running"),
                             "requestId": .string("orphaned-run")
+                        ]),
+                        "reportRunRequest": .object([
+                            "id": .string("orphaned-run")
                         ])
                     ]
                 )
@@ -1400,6 +1403,7 @@ final class ChatRuntimeTests: XCTestCase {
         XCTAssertEqual(windowForm["reportBuilder"]?.objectValue?["viewMode"], .string("table"))
         XCTAssertNil(windowForm["reportBuilder:metricsCubeBuilder"])
         XCTAssertNil(windowForm["reportMaterialization"])
+        XCTAssertNil(windowForm["reportRunRequest"])
         XCTAssertEqual(windowForm["reportDefinition"]?.objectValue?["id"], .string("delivery"))
         guard case .object(let prefill)? = windowForm["prefill"] else {
             XCTFail("Expected transcript prefill to survive stored window form merge")

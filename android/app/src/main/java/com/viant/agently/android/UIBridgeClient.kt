@@ -456,11 +456,14 @@ internal suspend fun handleAndroidUIBridgeCommand(
                 replace = false,
                 bumpPrefillRevision = false
             )
-            waitForAndroidReportMaterialization(
-                windowId = windowId,
-                requestId = requestId,
-                forgeRuntime = forgeRuntime
-            )
+            buildJsonObject {
+                put("ok", JsonPrimitive(true))
+                put("windowId", JsonPrimitive(windowId))
+                put("accepted", JsonPrimitive(true))
+                put("materialized", JsonPrimitive(false))
+                put("materializationId", JsonPrimitive(requestId))
+                put("status", JsonPrimitive("running"))
+            }
         }
 
         "ui.data.fetch" -> {

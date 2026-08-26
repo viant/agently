@@ -414,6 +414,7 @@ public struct ComposerScreen: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("agently-composer-lookup-\(occurrence.key)")
     }
 
     private func compactLookupButton(_ occurrence: ComposerLookupOccurrence) -> some View {

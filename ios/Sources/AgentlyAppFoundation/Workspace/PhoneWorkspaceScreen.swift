@@ -343,63 +343,71 @@ public struct PhoneWorkspaceScreen: View {
 
     @ViewBuilder
     private var hostedWorkspaceDestination: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                if onReturnToConversationList != nil {
-                    phoneHostedConversationListButton
-                }
-                WorkspaceStatusSection(
-                    isSending: isSending,
-                    conversationState: conversationState,
-                    streamSnapshot: streamSnapshot,
-                    isLoadingArtifacts: isLoadingArtifacts,
-                    activeTurnID: activeTurnID,
-                    isStoppingTurn: isStoppingTurn,
-                    decidingApprovalID: decidingApprovalID,
-                    isResolvingElicitation: isResolvingElicitation,
-                    queryError: queryError,
-                    streamError: streamError,
-                    approvalError: approvalError,
-                    elicitationError: elicitationError,
-                    artifactError: artifactError,
-                    onCancelTurn: onCancelTurn,
-                    onRetryStreaming: onRetryStreaming
-                )
-                HostedWorkspaceSection(
-                    restoreState: hostedWorkspaceRestoreState,
-                    forgeRuntime: forgeRuntime,
-                    showTitle: false,
-                    displayMode: .constant(.standard)
-                )
-                if !approvals.isEmpty {
-                    WorkspaceAccessorySection(
-                        title: "Approvals",
-                        count: approvals.count,
-                        isExpanded: $isApprovalSectionExpanded
-                    ) {
-                        ApprovalListView(
-                            approvals: approvals,
-                            decidingApprovalID: decidingApprovalID,
-                            forgeRuntime: forgeRuntime,
-                            onDecision: onDecision
-                        )
+        VStack(alignment: .leading, spacing: 12) {
+            if onReturnToConversationList != nil {
+                phoneHostedConversationListButton
+            }
+            WorkspaceStatusSection(
+                isSending: isSending,
+                conversationState: conversationState,
+                streamSnapshot: streamSnapshot,
+                isLoadingArtifacts: isLoadingArtifacts,
+                activeTurnID: activeTurnID,
+                isStoppingTurn: isStoppingTurn,
+                decidingApprovalID: decidingApprovalID,
+                isResolvingElicitation: isResolvingElicitation,
+                queryError: queryError,
+                streamError: streamError,
+                approvalError: approvalError,
+                elicitationError: elicitationError,
+                artifactError: artifactError,
+                onCancelTurn: onCancelTurn,
+                onRetryStreaming: onRetryStreaming
+            )
+            HostedWorkspaceSection(
+                restoreState: hostedWorkspaceRestoreState,
+                forgeRuntime: forgeRuntime,
+                showTitle: false,
+                flatPresentation: true,
+                displayMode: .constant(.standard)
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .layoutPriority(1)
+            if !approvals.isEmpty || !artifacts.isEmpty || isLoadingArtifacts {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if !approvals.isEmpty {
+                            WorkspaceAccessorySection(
+                                title: "Approvals",
+                                count: approvals.count,
+                                isExpanded: $isApprovalSectionExpanded
+                            ) {
+                                ApprovalListView(
+                                    approvals: approvals,
+                                    decidingApprovalID: decidingApprovalID,
+                                    forgeRuntime: forgeRuntime,
+                                    onDecision: onDecision
+                                )
+                            }
+                        }
+                        if !artifacts.isEmpty {
+                            WorkspaceAccessorySection(
+                                title: "Artifacts",
+                                count: artifacts.count,
+                                isExpanded: $isArtifactSectionExpanded
+                            ) {
+                                ArtifactListView(previews: artifacts, onSelect: onSelectArtifact)
+                            }
+                        } else if isLoadingArtifacts {
+                            ArtifactLoadingView()
+                        }
                     }
-                }
-                if !artifacts.isEmpty {
-                    WorkspaceAccessorySection(
-                        title: "Artifacts",
-                        count: artifacts.count,
-                        isExpanded: $isArtifactSectionExpanded
-                    ) {
-                        ArtifactListView(previews: artifacts, onSelect: onSelectArtifact)
-                    }
-                } else if isLoadingArtifacts {
-                    ArtifactLoadingView()
                 }
             }
-            .padding(.horizontal)
-            .padding(.vertical, 12)
         }
+        .padding(.horizontal)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle(hostedWorkspaceTitle ?? "Workspace")
         .modifier(InlineNavigationTitleDisplayMode())
     }

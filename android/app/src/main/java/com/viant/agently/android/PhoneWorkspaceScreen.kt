@@ -147,7 +147,13 @@ internal fun PhoneWorkspacePane(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
+            .then(
+                if (workspaceFocused) {
+                    Modifier.padding(bottom = bottomComposerInset)
+                } else {
+                    Modifier.verticalScroll(rememberScrollState())
+                }
+            ),
         verticalArrangement = Arrangement.spacedBy(if (workspaceFocused) 10.dp else 16.dp)
     ) {
         Column(
@@ -309,7 +315,9 @@ internal fun PhoneWorkspacePane(
                 HostedWorkspaceSection(
                     restoreState = hostedWorkspaceState,
                     forgeRuntime = forgeRuntime,
+                    modifier = Modifier.weight(1f),
                     maxBodyHeight = hostedWorkspaceMinHeight.dp,
+                    fillAvailableHeight = true,
                     // The report/dashboard owns its title and section navigation.
                     // A second hosted-workspace card wastes scarce phone width and
                     // makes a selected report tab look like a nested preview.
@@ -374,7 +382,9 @@ internal fun PhoneWorkspacePane(
                 )
             }
         }
-        Spacer(modifier = Modifier.height(bottomComposerInset))
+        if (!workspaceFocused) {
+            Spacer(modifier = Modifier.height(bottomComposerInset))
+        }
     }
 }
 

@@ -336,6 +336,13 @@ public final class AppRuntime: ObservableObject {
 
     public func startNewConversation() {
         streamTask?.cancel()
+        let runtime = state.forgeRuntime
+        Task {
+            let windows = await runtime.windows
+            for window in windows {
+                await runtime.closeWindow(id: window.id)
+            }
+        }
         state.activeConversationID = nil
         state.activeConversationState = nil
         state.activeGoal = nil
@@ -779,14 +786,13 @@ public final class AppRuntime: ObservableObject {
     nonisolated private static func sanitizeOrphanedReportMaterialization(
         _ form: [String: AgentlySDK.JSONValue]?
     ) -> [String: AgentlySDK.JSONValue]? {
-        guard var form,
-              let materialization = form["reportMaterialization"]?.objectValue,
-              case .string(let status)? = materialization["status"],
-              status.lowercased() == "running",
-              form["reportRunRequest"]?.objectValue == nil else {
-            return form
+        guard var form else { return nil }
+        form.removeValue(forKey: "reportRunRequest")
+        if let materialization = form["reportMaterialization"]?.objectValue,
+           case .string(let status)? = materialization["status"],
+           status.lowercased() == "running" {
+            form.removeValue(forKey: "reportMaterialization")
         }
-        form.removeValue(forKey: "reportMaterialization")
         return form
     }
 

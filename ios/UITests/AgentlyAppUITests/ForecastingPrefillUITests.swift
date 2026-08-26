@@ -77,12 +77,6 @@ final class ForecastingPrefillUITests: XCTestCase {
         let newChat = app.buttons["agently-new-chat"]
         XCTAssertTrue(newChat.waitForExistence(timeout: 30))
         newChat.tap()
-        let returnToConversation = app.buttons["BackButton"].matching(
-            NSPredicate(format: "label == %@", "Conversation")
-        ).firstMatch
-        if returnToConversation.waitForExistence(timeout: 20) {
-            returnToConversation.tap()
-        }
         let expand = app.buttons["agently-composer-expand"]
         XCTAssertTrue(expand.waitForExistence(timeout: 20))
         expand.tap()
@@ -114,11 +108,15 @@ final class ForecastingPrefillUITests: XCTestCase {
         starter.tap()
 
         let search = app.searchFields.firstMatch
-        let send = app.buttons["agently-composer-send"]
-        if !search.waitForExistence(timeout: 8) {
-            XCTAssertTrue(send.waitForExistence(timeout: 20), "Starter composer send action did not appear")
-            send.tap()
-        }
+        XCTAssertFalse(
+            search.waitForExistence(timeout: 3),
+            "Selecting a starter task must not open its lookup until the user taps the embedded composer chip"
+        )
+        let lookupChip = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "agently-composer-lookup-")
+        ).firstMatch
+        XCTAssertTrue(lookupChip.waitForExistence(timeout: 20), "Embedded order lookup chip did not appear in the composer")
+        lookupChip.tap()
         XCTAssertTrue(search.waitForExistence(timeout: 30), "Order lookup search did not appear")
         search.tap()
         search.typeText(orderID)
@@ -129,6 +127,7 @@ final class ForecastingPrefillUITests: XCTestCase {
         XCTAssertTrue(orderRow.waitForExistence(timeout: 60), "Requested order did not appear")
         orderRow.tap()
 
+        let send = app.buttons["agently-composer-send"]
         XCTAssertTrue(send.waitForExistence(timeout: 15), "Send action did not return after order selection")
         XCTAssertTrue(send.isEnabled, "Send action was disabled after order selection")
         send.tap()
@@ -559,9 +558,18 @@ final class ForecastingPrefillUITests: XCTestCase {
         expectation(for: valuesLoaded, evaluatedWith: missingKPI)
         waitForExpectations(timeout: 120)
 
+        let returnToConversation = app.buttons.matching(
+            NSPredicate(format: "identifier == %@ AND label == %@", "BackButton", "Conversation")
+        ).firstMatch
+        if returnToConversation.waitForExistence(timeout: 20) {
+            returnToConversation.tap()
+        }
         let expand = app.buttons["agently-composer-expand"]
         if expand.waitForExistence(timeout: 10) { expand.tap() }
         XCTAssertTrue(editor.waitForExistence(timeout: 20), "Composer did not reopen for report modification")
+        let turnCompleted = NSPredicate { _, _ in editor.isEnabled }
+        expectation(for: turnCompleted, evaluatedWith: editor)
+        waitForExpectations(timeout: 300)
         editor.tap()
         editor.typeText("Remove the daily_detail block from this report, keep everything else, run it, and verify the result.")
         app.buttons["agently-composer-send"].tap()
@@ -572,10 +580,82 @@ final class ForecastingPrefillUITests: XCTestCase {
         }
         expectation(for: submitted, evaluatedWith: editor)
         waitForExpectations(timeout: 20)
+        let openReport = app.buttons["agently-open-report"].firstMatch
+        XCTAssertTrue(
+            openReport.waitForExistence(timeout: 300),
+            "The modified assistant response did not expose its report workspace anchor"
+        )
+        openReport.tap()
         XCTAssertTrue(
             app.staticTexts["Order 2684969 Performance"].firstMatch.waitForExistence(timeout: 300),
             "The modified report did not remain available"
         )
+    }
+
+    func testLiveExistingPerformanceReportCanBeModifiedOnPhone() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["AGENTLY_IOS_LIVE_UI_TESTS"] == "1")
+        let baseURL = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_BASE_URL"] ?? ""
+        let oobSecret = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_OOB_SECRET"] ?? ""
+        let conversationID = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_ACTIVE_CONVERSATION_ID"] ?? ""
+        try XCTSkipUnless(!baseURL.isEmpty && !oobSecret.isEmpty && !conversationID.isEmpty)
+
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--enableDevAuth=1",
+            "--apiBaseURL=\(baseURL)",
+            "--oobSecretReference=\(oobSecret)",
+            "--autoOOBSignIn=1",
+            "--activeConversationID=\(conversationID)",
+            "--uiBridgeClientID=ios-ui-modify-report-\(UUID().uuidString)"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["Order 2684969 Performance"].firstMatch.waitForExistence(timeout: 180))
+        XCTAssertFalse(app.staticTexts["No KPI value available."].firstMatch.waitForExistence(timeout: 20))
+        let returnToConversation = app.buttons.matching(
+            NSPredicate(format: "identifier == %@ AND label == %@", "BackButton", "Conversation")
+        ).firstMatch
+        XCTAssertTrue(returnToConversation.waitForExistence(timeout: 20))
+        returnToConversation.tap()
+
+        let expand = app.buttons["agently-composer-expand"]
+        if expand.waitForExistence(timeout: 10) { expand.tap() }
+        let editor = app.textViews["agently-composer-editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 20))
+        let prompt = "Remove the daily_detail block from this report, keep everything else, run it, and verify the result."
+        editor.tap()
+        editor.typeText(prompt)
+        XCTAssertEqual(editor.value as? String, prompt)
+        app.buttons["agently-composer-send"].tap()
+
+        let openReport = app.buttons["agently-open-report"].firstMatch
+        XCTAssertTrue(openReport.waitForExistence(timeout: 300))
+        openReport.tap()
+        XCTAssertTrue(app.staticTexts["Order 2684969 Performance"].firstMatch.waitForExistence(timeout: 120))
+        XCTAssertFalse(app.descendants(matching: .any)["forge-report-runtime-table-daily_detail"].firstMatch.exists)
+    }
+
+    func testLiveModifiedPerformanceReportRestoresWithoutDailyDetail() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["AGENTLY_IOS_LIVE_UI_TESTS"] == "1")
+        let baseURL = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_BASE_URL"] ?? ""
+        let oobSecret = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_OOB_SECRET"] ?? ""
+        let conversationID = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_ACTIVE_CONVERSATION_ID"] ?? ""
+        try XCTSkipUnless(!baseURL.isEmpty && !oobSecret.isEmpty && !conversationID.isEmpty)
+
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--enableDevAuth=1",
+            "--apiBaseURL=\(baseURL)",
+            "--oobSecretReference=\(oobSecret)",
+            "--autoOOBSignIn=1",
+            "--activeConversationID=\(conversationID)",
+            "--uiBridgeClientID=ios-ui-verify-modified-report-\(UUID().uuidString)"
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["Order 2684969 Performance"].firstMatch.waitForExistence(timeout: 180))
+        XCTAssertFalse(app.staticTexts["No KPI value available."].firstMatch.waitForExistence(timeout: 20))
+        XCTAssertFalse(app.descendants(matching: .any)["forge-report-runtime-table-daily_detail"].firstMatch.exists)
     }
 
     func testLivePerformanceReportCanSwitchBetweenChartAndTable() throws {

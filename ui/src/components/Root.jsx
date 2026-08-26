@@ -26,6 +26,8 @@ import { conversationIDFromPath, publishActiveConversation } from '../services/c
 import { beginLogin, getAuthMeSilently, getAuthProvidersSilently, recoverSessionSilently } from '../services/agentlyClient';
 import { onGoalDraftOpen } from '../services/goalDraftBus';
 import { useDeveloperMode } from '../services/uiPreferences';
+import { useChatProjection } from '../services/chatStore.js';
+import { resolveWorkspaceAttachmentOwnerIndex } from '../services/workspaceAttachment.js';
 
 const SIDEBAR_WIDTH_KEY = 'agently.sidebarWidth';
 const SIDEBAR_DEFAULT_WIDTH = 320;
@@ -502,6 +504,7 @@ export default function Root() {
     resolveConversationSelection(MAIN_CHAT_WINDOW_ID)
     || ''
   ).trim();
+  const projectedConversationRows = useChatProjection(mainConversationId);
   const resolvedConversationWorkspaceWindow = useMemo(
     () => resolveWorkspaceWindowForConversation(mainConversationId),
     [mainConversationId, activeWindows.value]
@@ -563,6 +566,10 @@ export default function Root() {
     scopedConversationId: getScopedConversationSelection(String(chatChromeWindow?.windowId || '').trim()),
   });
   const showWorkspacePane = !!(workspaceWindows.length > 0 && activeWorkspaceWindow);
+  const hasAssistantWorkspaceLink = resolveWorkspaceAttachmentOwnerIndex(
+    projectedConversationRows,
+    showWorkspacePane ? activeWorkspaceWindow : null
+  ) >= 0;
   const isWorkspaceFull = workspacePresentationMode === 'full';
   const forceWorkspaceFull = shouldForceWorkspaceFull({ isCompactShell, showWorkspacePane });
   const effectiveWorkspaceFull = isWorkspaceFull || forceWorkspaceFull;
@@ -1389,6 +1396,7 @@ export default function Root() {
                   chatWindow={hostedBottomWindow}
                   workspaceWindow={showWorkspacePane ? activeWorkspaceWindow : null}
                   workspaceTabs={workspaceTabs}
+                  suppressConversationWorkspaceLink={hasAssistantWorkspaceLink}
                   onOpenWorkspace={openWorkspaceSurface}
                   onBackToConversation={returnToConversationSurface}
                   onSelectWorkspaceTab={focusWorkspaceWindow}

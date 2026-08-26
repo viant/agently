@@ -1196,6 +1196,8 @@ github.com/viant/agently-core v0.1.26-0.20260825212808-225c32c9ef12 h1:/+lPyuw7k
 github.com/viant/agently-core v0.1.26-0.20260825212808-225c32c9ef12/go.mod h1:7BMsmV8ghKroXBpe2lUdn57QKj5vWtwHXcrhd5GT6yc=
 github.com/viant/agently-core v0.1.26-0.20260826000815-7fd0f490a6c9 h1:oiqA4lR8uZYQOatpTC7hbXFJStoNEyjqm6e5NwROv8Y=
 github.com/viant/agently-core v0.1.26-0.20260826000815-7fd0f490a6c9/go.mod h1:7BMsmV8ghKroXBpe2lUdn57QKj5vWtwHXcrhd5GT6yc=
+github.com/viant/agently-core v0.1.26-0.20260826124533-b017e5f27c30 h1:9OnJoUSQjcor2+unglyKia+d7+dCOTrk9BDcEcwz8B4=
+github.com/viant/agently-core v0.1.26-0.20260826124533-b017e5f27c30/go.mod h1:7BMsmV8ghKroXBpe2lUdn57QKj5vWtwHXcrhd5GT6yc=
 github.com/viant/assertly v0.4.8/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.0/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.1-0.20220620174148-bab013f93a60 h1:VFJvCOHKXv4IqX8rJwn1otpHWQGgMDv2bXtAPgEzndM=
@@ -1262,6 +1264,8 @@ github.com/viant/sqlparser v0.12.1-0.20260409013525-147f8fc299b7 h1:2FdVturjHBSQ
 github.com/viant/sqlparser v0.12.1-0.20260409013525-147f8fc299b7/go.mod h1:2QRGiGZYk2/pjhORGG1zLVQ9JO+bXFhqIVi31mkCRPg=
 github.com/viant/sqlx v0.24.0 h1:njOkI3fNEojvKglIrMUuMWLDVC/RbpTcZPoIP/zhKtg=
 github.com/viant/sqlx v0.24.0/go.mod h1:yZOQRVCMZAkexsTaoqCPGJvsNO2qajQRU1VuYu23fX8=
+github.com/viant/sqlx v0.25.0 h1:ioHHVC9P2E/TwCW0w9ALYdPMZilaVM0zvDYra8c0cgw=
+github.com/viant/sqlx v0.25.0/go.mod h1:yZOQRVCMZAkexsTaoqCPGJvsNO2qajQRU1VuYu23fX8=
 github.com/viant/structology v0.9.0 h1:ibR/XmdQ3+/4XW3JK+pXRqugSnxJOm2bmIvbQ0hqztY=
 github.com/viant/structology v0.9.0/go.mod h1:AAFeViwniqua61sTKdOz/zlbLpN5vE4OVhDoiZJaMgA=
 github.com/viant/structql v0.5.4 h1:bMdcOpzU8UMoe5OBcyJVRxLAndvU1oj3ysvPUgBckCI=

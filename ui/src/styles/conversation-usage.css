@@ -56,8 +56,14 @@
 .conversation-usage-model { padding: 20px 24px; border-bottom: 1px solid #edf1f6; }
 .conversation-usage-model:last-child { border-bottom: 0; }
 .conversation-usage-model-heading { display: flex; justify-content: space-between; gap: 18px; }
+.conversation-usage-model-title { display: flex; align-items: center; gap: 8px; }
 .conversation-usage-model-heading strong { display: block; font-size: 15px; }
 .conversation-usage-model-heading span { display: block; margin-top: 3px; color: var(--usage-muted); font-size: 12px; }
+.conversation-usage-model-heading .conversation-usage-role { display: inline-flex; align-items: center; margin: 0; padding: 2px 7px; border-radius: 999px; background: #eef2ff; color: #4338ca; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.conversation-usage-model-heading .conversation-usage-role.is-intake { background: #fff7ed; color: #c2410c; }
+.conversation-usage-model-heading .conversation-usage-role.is-sidecar { background: #ecfdf5; color: #047857; }
+.conversation-usage-model-heading .conversation-usage-role.is-narrator,
+.conversation-usage-model-heading .conversation-usage-role.is-summary { background: #f5f3ff; color: #6d28d9; }
 .conversation-usage-model-total { text-align: right; }
 .conversation-usage-model-total strong { font-variant-numeric: tabular-nums; }
 .conversation-usage-model-bar { display: flex; height: 8px; margin: 14px 0 10px; overflow: hidden; border-radius: 999px; background: #edf1f6; }

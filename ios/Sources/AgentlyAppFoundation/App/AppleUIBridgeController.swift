@@ -91,12 +91,53 @@ final class AppleUIBridgeController {
     func start() {
         guard !isStarted else { return }
         isStarted = true
-        let controller = self
-        pollTask = Task {
-            await controller.runPollLoop()
+        let rpcClient = self.rpcClient
+        let clientID = clientIDValue
+        let handler = commandHandler
+        let finalizeCommand: @MainActor @Sendable (
+            String,
+            [String: BridgeJSONValue],
+            [String: BridgeJSONValue]
+        ) async -> Void = { [weak self] method, params, result in
+            guard let self else { return }
+            self.updateSelectedWindowID(method: method, params: params, result: result)
+            await self.publishSnapshotNow()
+        }
+        pollTask = Task.detached(priority: .userInitiated) {
+            while !Task.isCancelled {
+                do {
+                    _ = try await rpcClient.hello(clientID: clientID)
+                    guard let result = try await rpcClient.poll(clientID: clientID, timeoutMs: 20_000),
+                          case .object(let params) = result["params"] ?? .null else {
+                        continue
+                    }
+                    let commandID = params["id"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let method = params["method"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    guard !commandID.isEmpty, !method.isEmpty else { continue }
+                    let commandParams = params["params"]?.objectValue ?? [:]
+                    do {
+                        let commandResult = try await handler(method, commandParams)
+                        _ = try await rpcClient.respond(
+                            commandID: commandID,
+                            ok: true,
+                            result: .object(commandResult)
+                        )
+                        await finalizeCommand(method, commandParams, commandResult)
+                    } catch {
+                        _ = try? await rpcClient.respond(
+                            commandID: commandID,
+                            ok: false,
+                            error: error.localizedDescription
+                        )
+                    }
+                } catch {
+                    await rpcClient.resetSession()
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                }
+            }
         }
         snapshotTask = Task {
-            await controller.runSnapshotLoop()
+            await self.runSnapshotLoop()
         }
     }
 
@@ -123,18 +164,6 @@ final class AppleUIBridgeController {
         }
     }
 
-    private func runPollLoop() async {
-        while isStarted && !Task.isCancelled {
-            do {
-                _ = try await ensureConnectedRPC()
-                try await pollOnce()
-            } catch {
-                await rpcClient.resetSession()
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-            }
-        }
-    }
-
     private func runSnapshotLoop() async {
         while isStarted && !Task.isCancelled {
             do {
@@ -152,37 +181,6 @@ final class AppleUIBridgeController {
 
     private func ensureConnectedRPC() async throws -> [String: BridgeJSONValue]? {
         try await rpcClient.hello(clientID: clientIDValue)
-    }
-
-    private func pollOnce() async throws {
-        guard let result = try await rpcClient.poll(clientID: clientIDValue, timeoutMs: 20_000) else {
-            return
-        }
-        guard case .object(let params) = result["params"] ?? .null else {
-            return
-        }
-        let commandID = params["id"]?.stringValue?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
-        let method = params["method"]?.stringValue?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
-        guard !commandID.isEmpty, !method.isEmpty else {
-            return
-        }
-        let commandParams = params["params"]?.objectValue ?? [:]
-        do {
-            let result = try await commandHandler(method, commandParams)
-            updateSelectedWindowID(method: method, params: commandParams, result: result)
-            _ = try await rpcClient.respond(
-                commandID: commandID,
-                ok: true,
-                result: BridgeJSONValue.object(result)
-            )
-            do {
-                try await publishSnapshot(force: true)
-            } catch {
-                await rpcClient.resetSession()
-            }
-        } catch {
-            _ = try? await rpcClient.respond(commandID: commandID, ok: false, error: error.localizedDescription)
-        }
     }
 
     private func updateSelectedWindowID(method: String, params: [String: BridgeJSONValue], result: [String: BridgeJSONValue]) {
@@ -328,7 +326,7 @@ func buildAppleUIBridgeSnapshot(
         )
     }
     let runtimeWindows = await forgeRuntime.windows
-    for window in runtimeWindows {
+    for window in runtimeWindows where !conversationID.isEmpty {
         let windowConversationID = window.conversationID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !conversationID.isEmpty, !windowConversationID.isEmpty, windowConversationID != conversationID {
             continue
@@ -537,11 +535,14 @@ func handleAppleUIBridgeCommand(
             ],
             replace: false
         )
-        return try await waitForAppleReportMaterialization(
-            windowID: windowID,
-            requestID: requestID,
-            forgeRuntime: forgeRuntime
-        )
+        return [
+            "ok": .bool(true),
+            "windowId": .string(windowID),
+            "accepted": .bool(true),
+            "materialized": .bool(false),
+            "materializationId": .string(requestID),
+            "status": .string("running")
+        ]
 
     case "ui.data.fetch":
         let windowID = params["windowId"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

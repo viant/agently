@@ -51,6 +51,18 @@ describe('ConversationWorkspaceSurface', () => {
     expect(html).toContain('is-composer-only');
   });
 
+  it('suppresses duplicate top navigation when the transcript owns the workspace link', () => {
+    const html = renderToStaticMarkup(<ConversationWorkspaceSurface
+      activeSurface="conversation"
+      chatWindow={{ windowId: 'chat' }}
+      workspaceWindow={{ windowId: 'report', windowKey: 'reportBuilder', navigation: { label: 'Reports', icon: 'chart' } }}
+      suppressConversationWorkspaceLink
+    />);
+    expect(html).not.toContain('app-summary-surface-navigation');
+    expect(html).not.toContain('Return to Reports');
+    expect(html).toContain('data-window-id="report"');
+  });
+
   it('does not create Workspace navigation without an eligible hosted window', () => {
     const html = renderToStaticMarkup(<ConversationWorkspaceSurface
       activeSurface="conversation"

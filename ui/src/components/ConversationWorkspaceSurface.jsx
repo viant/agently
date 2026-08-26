@@ -41,6 +41,7 @@ export default function ConversationWorkspaceSurface({
   chatWindow = null,
   workspaceWindow = null,
   workspaceTabs = [],
+  suppressConversationWorkspaceLink = false,
   onOpenWorkspace,
   onBackToConversation,
   onSelectWorkspaceTab,
@@ -51,7 +52,7 @@ export default function ConversationWorkspaceSurface({
 
   return (
     <div className={`app-summary-surface-shell${workspaceActive ? ' is-workspace' : ' is-conversation'}`} data-active-surface={workspaceActive ? 'workspace' : 'conversation'}>
-      {!workspaceActive && hasWorkspace ? (
+      {!workspaceActive && hasWorkspace && !suppressConversationWorkspaceLink ? (
         <div className="app-summary-surface-navigation">
           <Button
             minimal
