@@ -11,6 +11,7 @@ internal fun makeForgeAgentlyDataSourceLoader(
     client: AgentlyClient
 ): suspend (ForgeRuntime.DataSourceFetchRequest) -> ForgeRuntime.DataSourceFetchResult? {
     return loader@{ request ->
+        val startedAt = System.currentTimeMillis()
         val service = request.dataSource.service
         val endpoint = service?.endpoint?.trim().orEmpty()
         val uri = service?.uri?.trim().orEmpty()
@@ -59,6 +60,12 @@ internal fun makeForgeAgentlyDataSourceLoader(
         }
 
         val response = try {
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "ForgeDataSource",
+                    "fetch start id=$datasourceId conversationId=${request.conversationId.orEmpty()} inputs=${JsonUtil.anyToElement(inputs)}"
+                )
+            }
             client.fetchDatasource(
                 FetchDatasourceInput(
                     id = datasourceId,
@@ -73,6 +80,12 @@ internal fun makeForgeAgentlyDataSourceLoader(
                 err
             )
             throw err
+        }
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "ForgeDataSource",
+                "fetch completed id=$datasourceId rows=${response.rows.size} elapsedMs=${System.currentTimeMillis() - startedAt}"
+            )
         }
         ForgeRuntime.DataSourceFetchResult(
             rows = response.rows.map { row -> row.mapValues { JsonUtil.elementToAny(it.value) } },
