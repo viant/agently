@@ -9,6 +9,7 @@ internal data class HostedWorkspacePresentation(
     val title: String,
     val subtitle: String? = null,
     val supportingText: String = "",
+    val navigationIcon: String? = null,
 )
 
 internal data class HostedWorkspaceAttachment(
@@ -64,6 +65,7 @@ internal fun resolveHostedWorkspacePresentation(
         title = title,
         subtitle = null,
         supportingText = "Open the ${badgeLabel.lowercase()} workspace.",
+        navigationIcon = window.navigation?.icon,
     )
 }
 

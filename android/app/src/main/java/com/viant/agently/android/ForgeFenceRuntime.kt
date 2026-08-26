@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.OpenInFull
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -179,6 +178,14 @@ private fun TranscriptInlineReportBlock(
     var reportOpen by remember(report.scope, report.id, report.resetVersion) { mutableStateOf(false) }
     var pdfExporting by remember(report.scope, report.id, report.resetVersion) { mutableStateOf(false) }
     val reportPending = isPendingInlineReport(report)
+    val navigation = (report.source as? JsonObject)?.get("navigation") as? JsonObject
+    val destinationTitle = (navigation?.get("label") as? JsonPrimitive)?.contentOrNull
+        ?.trim()?.takeIf(String::isNotEmpty) ?: previewTitle
+    val destinationDetail = (navigation?.get("supportingText") as? JsonPrimitive)?.contentOrNull
+        ?.trim()?.takeIf(String::isNotEmpty) ?: "Open $destinationTitle."
+    val destinationIcon = assistantDestinationIcon(
+        (navigation?.get("icon") as? JsonPrimitive)?.contentOrNull
+    )
 
     Surface(
         color = Color(0xFFF8FAFD),
@@ -204,32 +211,35 @@ private fun TranscriptInlineReportBlock(
                         color = Color(0xFF667085)
                     )
                 }
-            } else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PhoneToolbarAction(
-                    icon = Icons.Outlined.OpenInFull,
-                    contentDescription = "Open report",
-                    accent = Color(0xFF383BD8),
-                    onClick = { reportOpen = true }
+            } else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                AssistantDestinationLink(
+                    title = destinationTitle,
+                    supportingText = destinationDetail,
+                    icon = destinationIcon,
+                    contentDescription = "Open $destinationTitle",
+                    onOpen = { reportOpen = true },
                 )
-                PhoneToolbarAction(
-                    icon = Icons.Outlined.PictureAsPdf,
-                    contentDescription = "Open PDF",
-                    accent = Color(0xFFD34B5F),
-                    enabled = !pdfExporting,
-                    loading = pdfExporting,
-                    onClick = {
-                        pdfExporting = true
-                        onOpenInlineReportPdf(
-                            mapOf(
-                                "title" to previewTitle,
-                                "artifactRef" to "report://inline/${report.scope}/${report.id}",
-                                "reportId" to report.id,
-                                "fences" to inlineReportExportFences(report)
-                            ),
-                            { pdfExporting = false }
-                        )
-                    }
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PhoneToolbarAction(
+                        icon = Icons.Outlined.PictureAsPdf,
+                        contentDescription = "Open PDF",
+                        accent = Color(0xFFD34B5F),
+                        enabled = !pdfExporting,
+                        loading = pdfExporting,
+                        onClick = {
+                            pdfExporting = true
+                            onOpenInlineReportPdf(
+                                mapOf(
+                                    "title" to previewTitle,
+                                    "artifactRef" to "report://inline/${report.scope}/${report.id}",
+                                    "reportId" to report.id,
+                                    "fences" to inlineReportExportFences(report)
+                                ),
+                                { pdfExporting = false }
+                            )
+                        }
+                    )
+                }
             }
         }
     }

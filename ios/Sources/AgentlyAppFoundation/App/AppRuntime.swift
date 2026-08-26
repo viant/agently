@@ -189,7 +189,7 @@ public final class AppRuntime: ObservableObject {
             } else if !restoredConversationID.isEmpty {
                 selectedConversationID = restoredConversationID
             } else {
-                selectedConversationID = state.conversations.first?.id
+                selectedConversationID = nil
             }
             if let selectedConversationID {
                 await selectConversation(selectedConversationID)
@@ -1394,6 +1394,7 @@ internal func resolvedBootstrapActiveConversationID(
     launchArguments: [String],
     developerAuthEnabled: Bool = false
 ) -> String {
+    _ = storedValue
     let override = environmentValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     if developerAuthEnabled, !override.isEmpty {
         return override
@@ -1405,7 +1406,10 @@ internal func resolvedBootstrapActiveConversationID(
     if developerAuthEnabled, !launchOverride.isEmpty {
         return launchOverride
     }
-    return storedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    // A persisted selection is useful during the current app session, but a
+    // normal cold launch starts at Home. Explicit developer/deep-link routing
+    // remains the only bootstrap path that opens a conversation automatically.
+    return ""
 }
 
 internal func resolvedBootstrapStartsNewConversation(

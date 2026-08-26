@@ -122,7 +122,7 @@ final class AppStateTargetingTests: XCTestCase {
                 environmentValue: "   ",
                 launchArguments: []
             ),
-            "stored-conversation"
+            ""
         )
         XCTAssertEqual(
             resolvedBootstrapActiveConversationID(
@@ -143,7 +143,7 @@ final class AppStateTargetingTests: XCTestCase {
                 launchArguments: ["Agently", "--activeConversationID=launch-conversation"],
                 developerAuthEnabled: false
             ),
-            "stored-conversation"
+            ""
         )
     }
 
