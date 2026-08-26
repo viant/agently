@@ -82,13 +82,11 @@ class QueryRuntimeTest {
             assertEquals(true, (current["ok"] as? JsonPrimitive)?.booleanOrNull)
             assertEquals(true, (current["canRun"] as? JsonPrimitive)?.booleanOrNull)
 
-            val running = async {
-                handleAndroidUIBridgeCommand(
-                    "ui.report.run",
-                    buildJsonObject { put("windowId", JsonPrimitive("report-window-1")) },
-                    runtime
-                )
-            }
+            val accepted = handleAndroidUIBridgeCommand(
+                "ui.report.run",
+                buildJsonObject { put("windowId", JsonPrimitive("report-window-1")) },
+                runtime
+            )
             var requestId = ""
             repeat(100) {
                 requestId = ((runtime.windowContext("report-window-1").peekWindowForm()["reportRunRequest"] as? Map<*, *>)
@@ -112,9 +110,15 @@ class QueryRuntimeTest {
                 replace = false,
                 bumpPrefillRevision = false
             )
-            val completed = running.await()
-            assertEquals(true, (completed["materialized"] as? JsonPrimitive)?.booleanOrNull)
-            assertEquals(requestId, (completed["materializationId"] as? JsonPrimitive)?.contentOrNull)
+            assertEquals(true, (accepted["accepted"] as? JsonPrimitive)?.booleanOrNull)
+            assertEquals(false, (accepted["materialized"] as? JsonPrimitive)?.booleanOrNull)
+            assertEquals(requestId, (accepted["materializationId"] as? JsonPrimitive)?.contentOrNull)
+            val completed = handleAndroidUIBridgeCommand(
+                "ui.report.getCurrent",
+                buildJsonObject { put("windowId", JsonPrimitive("report-window-1")) },
+                runtime
+            )
+            assertEquals(true, (completed["hasCompletedRun"] as? JsonPrimitive)?.booleanOrNull)
         } finally {
             scope.cancel()
         }

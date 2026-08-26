@@ -14,17 +14,20 @@ struct HostedWorkspaceSection: View {
     let restoreState: HostedWorkspaceRestoreState?
     let forgeRuntime: ForgeRuntime?
     let showTitle: Bool
+    let flatPresentation: Bool
     @Binding var displayMode: HostedWorkspaceDisplayMode
 
     init(
         restoreState: HostedWorkspaceRestoreState? = nil,
         forgeRuntime: ForgeRuntime?,
         showTitle: Bool = true,
+        flatPresentation: Bool = false,
         displayMode: Binding<HostedWorkspaceDisplayMode> = .constant(.standard)
     ) {
         self.restoreState = restoreState
         self.forgeRuntime = forgeRuntime
         self.showTitle = showTitle
+        self.flatPresentation = flatPresentation
         self._displayMode = displayMode
     }
 
@@ -36,9 +39,10 @@ struct HostedWorkspaceSection: View {
                 restoreState: effectiveRestoreState,
                 forgeRuntime: forgeRuntime,
                 showTitle: showTitle,
+                flatPresentation: flatPresentation,
                 displayMode: $displayMode
             )
-            .padding(.horizontal, 4)
+            .padding(.horizontal, flatPresentation ? 0 : 4)
         }
     }
 }
@@ -47,6 +51,7 @@ private struct HostedWorkspaceWindowView: View {
     let restoreState: HostedWorkspaceRestoreState
     let forgeRuntime: ForgeRuntime
     let showTitle: Bool
+    let flatPresentation: Bool
     @Binding var displayMode: HostedWorkspaceDisplayMode
 
     @State private var selectedWindowID: String
@@ -59,11 +64,13 @@ private struct HostedWorkspaceWindowView: View {
         restoreState: HostedWorkspaceRestoreState,
         forgeRuntime: ForgeRuntime,
         showTitle: Bool,
+        flatPresentation: Bool,
         displayMode: Binding<HostedWorkspaceDisplayMode>
     ) {
         self.restoreState = restoreState
         self.forgeRuntime = forgeRuntime
         self.showTitle = showTitle
+        self.flatPresentation = flatPresentation
         self._displayMode = displayMode
         let initialWindow = restoreState.windows.first(where: { $0.windowId == restoreState.selectedWindowId })
             ?? restoreState.windows.last
@@ -83,7 +90,7 @@ private struct HostedWorkspaceWindowView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if showTitle || presentation != nil {
+            if showTitle {
                 headerRow
             }
 
@@ -134,7 +141,7 @@ private struct HostedWorkspaceWindowView: View {
                     .preference(key: HostedWorkspaceContentHeightPreferenceKey.self, value: proxy.size.height)
             }
         )
-        .modifier(HostedWorkspaceChromeModifier(applyChrome: true))
+        .modifier(HostedWorkspaceChromeModifier(applyChrome: !flatPresentation))
         .onChange(of: restoreSelectionKey) { _, _ in
             let restoredWindow = restoreState.windows.first(where: { $0.windowId == restoreState.selectedWindowId })
                 ?? restoreState.windows.last

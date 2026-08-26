@@ -13,9 +13,15 @@ internal fun deriveAgentlyHostedWorkspaceRestoreState(
     streamSnapshot: ConversationStreamSnapshot? = null,
     localSnapshot: NativeUIBridgeSnapshot? = null
 ): HostedWorkspaceRestoreState? {
-    val transcript = filterAgentlyHostedWorkspaceRestoreState(
-        deriveHostedWorkspaceRestoreState(state, streamSnapshot)
+    val durable = filterAgentlyHostedWorkspaceRestoreState(
+        state?.let(::deriveHostedWorkspaceRestoreState)
     )
+    val live = filterAgentlyHostedWorkspaceRestoreState(
+        streamSnapshot
+            ?.takeIf { !it.activeTurnId.isNullOrBlank() }
+            ?.let(::deriveHostedWorkspaceRestoreState)
+    )
+    val transcript = mergeHostedWorkspaceRestoreStates(durable, live)
     val local = deriveAgentlyHostedWorkspaceRestoreState(localSnapshot)
     return mergeHostedWorkspaceRestoreStates(transcript, local)
 }
@@ -71,11 +77,12 @@ private fun mergeHostedWorkspaceWindowForm(
 
 private fun sanitizeOrphanedReportMaterialization(form: JsonObject?): JsonObject? {
     form ?: return null
-    val materialization = form["reportMaterialization"] as? JsonObject ?: return form
+    val sanitized = form.toMutableMap().apply { remove("reportRunRequest") }
+    val materialization = sanitized["reportMaterialization"] as? JsonObject ?: return JsonObject(sanitized)
     val status = (materialization["status"] as? kotlinx.serialization.json.JsonPrimitive)
         ?.content?.trim()?.lowercase().orEmpty()
-    if (status != "running" || form["reportRunRequest"] is JsonObject) return form
-    return JsonObject(form.filterKeys { it != "reportMaterialization" })
+    if (status == "running") sanitized.remove("reportMaterialization")
+    return JsonObject(sanitized)
 }
 
 private fun mergeHostedWorkspaceJson(base: JsonObject?, overlay: JsonObject?): JsonObject? {

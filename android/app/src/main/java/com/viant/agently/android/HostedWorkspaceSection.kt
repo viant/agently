@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -57,6 +58,7 @@ internal fun HostedWorkspaceSection(
     forgeRuntime: ForgeRuntime,
     modifier: Modifier = Modifier,
     maxBodyHeight: androidx.compose.ui.unit.Dp = 420.dp,
+    fillAvailableHeight: Boolean = false,
     showTitle: Boolean = true,
     flatPresentation: Boolean = false,
     headerActions: (@Composable () -> Unit)? = null
@@ -91,7 +93,12 @@ internal fun HostedWorkspaceSection(
 
     val content: @Composable () -> Unit = {
         Column(
-            modifier = if (flatPresentation) Modifier.fillMaxWidth() else Modifier.padding(14.dp),
+            modifier = when {
+                fillAvailableHeight && flatPresentation -> Modifier.fillMaxSize()
+                fillAvailableHeight -> Modifier.fillMaxSize().padding(14.dp)
+                flatPresentation -> Modifier.fillMaxWidth()
+                else -> Modifier.padding(14.dp)
+            },
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (showTitle || headerActions != null) {
@@ -138,15 +145,21 @@ internal fun HostedWorkspaceSection(
                         ?: windowState.windows.firstOrNull { it.windowId == windowState.selectedWindowId }?.windowKey
                         ?: windowState.selectedWindowId,
                     showWindowHeader = false,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = minBodyHeight, max = maxBodyHeight)
+                    modifier = if (fillAvailableHeight) {
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                    } else {
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = minBodyHeight, max = maxBodyHeight)
+                    }
                 )
             }
         }
     }
     if (flatPresentation) {
-        Box(modifier = modifier.fillMaxWidth()) {
+        Box(modifier = if (fillAvailableHeight) modifier.fillMaxSize() else modifier.fillMaxWidth()) {
             content()
         }
     } else {

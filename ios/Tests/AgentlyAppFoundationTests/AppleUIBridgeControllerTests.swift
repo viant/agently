@@ -4,6 +4,19 @@ import ForgeIOSRuntime
 @testable import AgentlyAppFoundation
 
 final class AppleUIBridgeControllerTests: XCTestCase {
+    func testSnapshotDoesNotPublishHostedWindowsWithoutActiveConversation() async {
+        let runtime = ForgeRuntime()
+        _ = await runtime.openWindow(key: "reportBuilder", title: "Stale report")
+
+        let snapshot = await buildAppleUIBridgeSnapshot(
+            activeConversationID: nil,
+            selectedWindowID: nil,
+            forgeRuntime: runtime
+        )
+
+        XCTAssertTrue(snapshot.windows.isEmpty)
+    }
+
     func testHandleSetFormDataMergesGenericWindowFormValues() async throws {
         let runtime = ForgeRuntime()
         let window = await runtime.openWindow(
@@ -149,7 +162,7 @@ final class AppleUIBridgeControllerTests: XCTestCase {
         XCTAssertEqual(current["canRun"], .bool(true))
         XCTAssertEqual(current["hasCompletedRun"], .bool(false))
 
-        async let runResult = handleAppleUIBridgeCommand(
+        let accepted = try await handleAppleUIBridgeCommand(
             method: "ui.report.run",
             params: ["windowId": .string(window.id)],
             forgeRuntime: runtime,
@@ -178,10 +191,17 @@ final class AppleUIBridgeControllerTests: XCTestCase {
             ],
             replace: false
         )
-        let completed = try await runResult
-        XCTAssertEqual(completed["ok"], .bool(true))
-        XCTAssertEqual(completed["materialized"], .bool(true))
-        XCTAssertEqual(completed["materializationId"], .string(requestID))
+        XCTAssertEqual(accepted["ok"], .bool(true))
+        XCTAssertEqual(accepted["accepted"], .bool(true))
+        XCTAssertEqual(accepted["materialized"], .bool(false))
+        XCTAssertEqual(accepted["materializationId"], .string(requestID))
+        let completed = try await handleAppleUIBridgeCommand(
+            method: "ui.report.getCurrent",
+            params: ["windowId": .string(window.id)],
+            forgeRuntime: runtime,
+            baseURL: "http://localhost"
+        )
+        XCTAssertEqual(completed["hasCompletedRun"], .bool(true))
     }
 }
 

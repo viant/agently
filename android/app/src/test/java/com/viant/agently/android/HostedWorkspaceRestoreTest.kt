@@ -176,7 +176,7 @@ class HostedWorkspaceRestoreTest {
     }
 
     @Test
-    fun `deriveHostedWorkspaceRestoreState does not fall back to stale state during live turn`() {
+    fun `deriveHostedWorkspaceRestoreState preserves durable workspace during live stream gap`() {
         val staleState = ConversationStateResponse(
             conversation = ConversationState(
                 conversationId = "conv-1",
@@ -215,7 +215,7 @@ class HostedWorkspaceRestoreTest {
 
         val restore = deriveAgentlyHostedWorkspaceRestoreState(staleState, liveSnapshot)
 
-        assertNull(restore)
+        assertEquals("record_legacy", restore?.selectedWindowId)
     }
 
     @Test
@@ -498,7 +498,8 @@ class HostedWorkspaceRestoreTest {
                     "reportMaterialization" to JsonObject(mapOf(
                         "status" to JsonPrimitive("running"),
                         "requestId" to JsonPrimitive("orphaned-run")
-                    ))
+                    )),
+                    "reportRunRequest" to JsonObject(mapOf("id" to JsonPrimitive("orphaned-run")))
                 ))
             ))
         )
@@ -510,6 +511,7 @@ class HostedWorkspaceRestoreTest {
         assertEquals("metricsCubeBuilder", (restored?.windows?.singleOrNull()?.windowForm?.get("reportBuilderRef") as? JsonPrimitive)?.content)
         assertNull(restored?.windows?.singleOrNull()?.windowForm?.get("reportBuilder:metricsCubeBuilder"))
         assertNull(restored?.windows?.singleOrNull()?.windowForm?.get("reportMaterialization"))
+        assertNull(restored?.windows?.singleOrNull()?.windowForm?.get("reportRunRequest"))
     }
 
     @Test
