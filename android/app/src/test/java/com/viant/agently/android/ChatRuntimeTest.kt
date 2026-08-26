@@ -592,6 +592,51 @@ class ChatRuntimeTest {
     }
 
     @Test
+    fun transcriptWithActiveAssistant_usesCanonicalPartsInsteadOfRawTransport() {
+        val rendered = RenderedContent(
+            schemaVersion = "1",
+            parts = listOf(RenderedContentPart(kind = "markdown", text = "Key findings.")),
+            reports = listOf(
+                RenderedReportAssembly(
+                    scope = "order-1",
+                    id = "delivery",
+                    grammar = "report-document-v1",
+                    status = "building",
+                    source = Json.parseToJsonElement("""{"title":"Delivery","blocks":[]}""")
+                )
+            )
+        )
+        val snapshot = ConversationStreamSnapshot(
+            conversationId = "conv-1",
+            activeTurnId = "turn-1",
+            feeds = emptyList(),
+            pendingElicitation = null,
+            bufferedMessages = listOf(
+                BufferedMessage(
+                    id = "assistant-1",
+                    turnId = "turn-1",
+                    role = "assistant",
+                    content = "Key findings.\n\n```forge-data\n{\"version\":2}\n```"
+                )
+            ),
+            liveExecutionGroupsById = mapOf(
+                "assistant-1" to LiveExecutionGroup(
+                    pageId = "page-1",
+                    assistantMessageId = "assistant-1",
+                    turnId = "turn-1",
+                    renderedContent = rendered
+                )
+            )
+        )
+
+        val entry = transcriptWithActiveAssistant(emptyList(), snapshot).single()
+
+        assertEquals("Key findings.", entry.markdown)
+        assertEquals(listOf("Key findings."), entry.renderedParts.orEmpty().mapNotNull { it.text })
+        assertEquals("delivery", entry.renderedReports?.single()?.id)
+    }
+
+    @Test
     fun transcriptWithActiveAssistant_composesProseReportAndLaterProseWithoutDroppingContent() {
         val report = RenderedContent(
             schemaVersion = "1",
