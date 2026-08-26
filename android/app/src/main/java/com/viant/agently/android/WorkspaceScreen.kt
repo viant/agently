@@ -382,6 +382,7 @@ internal fun TabletWorkspacePane(
                                 } else {
                                     RenderTranscript(
                                         items = displayTranscript,
+                                        conversationId = activeConversationId,
                                         pendingApprovals = pendingApprovals,
                                         generatedFiles = generatedFiles,
                                         client = client,

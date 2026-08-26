@@ -42,6 +42,7 @@ import kotlinx.serialization.json.JsonElement
 @Composable
 internal fun RenderTranscript(
     items: List<ChatEntry>,
+    conversationId: String?,
     pendingApprovals: List<PendingToolApproval>,
     generatedFiles: List<GeneratedFileEntry>,
     client: AgentlyClient,
@@ -169,6 +170,7 @@ internal fun RenderTranscript(
                         markdown = item.markdown,
                         renderedParts = item.renderedParts,
                         renderedReports = item.renderedReports,
+                        conversationId = conversationId,
                         client = client,
                         forgeRuntime = forgeRuntime,
                         messageKey = item.id,

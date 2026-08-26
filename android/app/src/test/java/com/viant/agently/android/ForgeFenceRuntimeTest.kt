@@ -85,6 +85,22 @@ class ForgeFenceRuntimeTest {
     }
 
     @Test
+    fun `inline report presentation errors never expose implementation class names`() {
+        val missingCompiler = NoClassDefFoundError(
+            "com.viant.forgeandroid.runtime.InlineReportRuntimeCompiler"
+        )
+
+        assertEquals(
+            "Unable to open this report. Try again.",
+            inlineReportPresentationErrorMessage(missingCompiler)
+        )
+        assertEquals(
+            "The report took too long to open. Try again.",
+            inlineReportPresentationErrorMessage(IllegalStateException("request timed out"))
+        )
+    }
+
+    @Test
     fun `inline report export fences preserve report and hydrated data without ids leaking into labels`() {
         val report = TranscriptCanonicalReport(
             scope = "message",

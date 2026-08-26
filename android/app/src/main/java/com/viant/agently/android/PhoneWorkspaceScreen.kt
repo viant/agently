@@ -364,6 +364,7 @@ internal fun PhoneWorkspacePane(
                 )
                 RenderTranscript(
                     items = displayTranscript,
+                    conversationId = activeConversationId,
                     pendingApprovals = pendingApprovals,
                     generatedFiles = generatedFiles,
                     client = client,

@@ -1,5 +1,6 @@
 package com.viant.agently.android
 
+import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -78,6 +79,7 @@ internal fun TranscriptMessageContent(
     markdown: String,
     renderedParts: List<RenderedContentPart>? = null,
     renderedReports: List<ForgeTranscriptCanonicalReport>? = null,
+    conversationId: String? = null,
     client: AgentlyClient,
     forgeRuntime: ForgeRuntime,
     messageKey: String,
@@ -130,6 +132,7 @@ internal fun TranscriptMessageContent(
         renderedReports.orEmpty().forEach { report ->
             TranscriptInlineReportBlock(
                 report = report,
+                conversationId = conversationId,
                 client = client,
                 forgeRuntime = forgeRuntime,
                 onOpenInlineReportPdf = onOpenInlineReportPdf
@@ -164,6 +167,7 @@ internal fun suppressCanonicalReportTransportParts(
 @Composable
 private fun TranscriptInlineReportBlock(
     report: ForgeTranscriptCanonicalReport,
+    conversationId: String?,
     client: AgentlyClient,
     forgeRuntime: ForgeRuntime,
     onOpenInlineReportPdf: (Map<String, Any?>, () -> Unit) -> Unit
@@ -176,7 +180,6 @@ private fun TranscriptInlineReportBlock(
         ?.get("subtitle")?.jsonPrimitive?.contentOrNull
         ?.takeIf { it.isNotBlank() }
     var reportOpen by remember(report.scope, report.id, report.resetVersion) { mutableStateOf(false) }
-    var pdfExporting by remember(report.scope, report.id, report.resetVersion) { mutableStateOf(false) }
     val reportPending = isPendingInlineReport(report)
     val navigation = (report.source as? JsonObject)?.get("navigation") as? JsonObject
     val destinationTitle = (navigation?.get("label") as? JsonPrimitive)?.contentOrNull
@@ -211,7 +214,7 @@ private fun TranscriptInlineReportBlock(
                         color = Color(0xFF667085)
                     )
                 }
-            } else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            } else {
                 AssistantDestinationLink(
                     title = destinationTitle,
                     supportingText = destinationDetail,
@@ -219,33 +222,13 @@ private fun TranscriptInlineReportBlock(
                     contentDescription = "Open $destinationTitle",
                     onOpen = { reportOpen = true },
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PhoneToolbarAction(
-                        icon = Icons.Outlined.PictureAsPdf,
-                        contentDescription = "Open PDF",
-                        accent = Color(0xFFD34B5F),
-                        enabled = !pdfExporting,
-                        loading = pdfExporting,
-                        onClick = {
-                            pdfExporting = true
-                            onOpenInlineReportPdf(
-                                mapOf(
-                                    "title" to previewTitle,
-                                    "artifactRef" to "report://inline/${report.scope}/${report.id}",
-                                    "reportId" to report.id,
-                                    "fences" to inlineReportExportFences(report)
-                                ),
-                                { pdfExporting = false }
-                            )
-                        }
-                    )
-                }
             }
         }
     }
     if (reportOpen && !reportPending) {
         TranscriptInlineReportDialog(
             report = report,
+            conversationId = conversationId,
             client = client,
             forgeRuntime = forgeRuntime,
             onOpenInlineReportPdf = onOpenInlineReportPdf,
@@ -282,6 +265,7 @@ internal fun inlineReportBuildStatus(report: ForgeTranscriptCanonicalReport): St
 @Composable
 private fun TranscriptInlineReportDialog(
     report: ForgeTranscriptCanonicalReport,
+    conversationId: String?,
     client: AgentlyClient,
     forgeRuntime: ForgeRuntime,
     onOpenInlineReportPdf: (Map<String, Any?>, () -> Unit) -> Unit,
@@ -293,36 +277,32 @@ private fun TranscriptInlineReportDialog(
     }
     var pdfExporting by remember(stableIdentity) { mutableStateOf(false) }
     LaunchedEffect(stableIdentity, report, client) {
-        presentationResult = runCatching {
-            val hydratedReport = hydrateInlineReport(report, client)
+        val result = runCatching {
+            val hydratedReport = hydrateInlineReport(report, client, conversationId)
             InlineReportPresentation(
                 report = hydratedReport,
                 artifact = InlineReportRuntimeCompiler.compile(hydratedReport)
             )
         }
+        result.exceptionOrNull()?.let { error ->
+            runCatching { Log.e("InlineReport", "open failed", error) }
+        }
+        presentationResult = result
     }
     val resolvedPresentation = presentationResult
-    if (resolvedPresentation == null) {
-        TranscriptForgeFallback(title = report.id, body = "Loading report…")
-        return
-    }
-    val presentation = resolvedPresentation.getOrNull()
-    if (presentation == null) {
-        TranscriptForgeFallback(
-            title = report.id,
-            body = resolvedPresentation.exceptionOrNull()?.message ?: "Unable to compile inline report."
-        )
-        return
-    }
-    val artifact = presentation.artifact
-    val title = artifact.reportSpec["title"]?.jsonPrimitive?.contentOrNull ?: report.id
+    val presentation = resolvedPresentation?.getOrNull()
+    val artifact = presentation?.artifact
+    val title = artifact?.reportSpec?.get("title")?.jsonPrimitive?.contentOrNull
+        ?: (report.source as? JsonObject)?.get("title")?.jsonPrimitive?.contentOrNull
+        ?: report.id
     var windowId by remember(stableIdentity) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(stableIdentity, artifact.metadata) {
+    LaunchedEffect(stableIdentity, artifact?.metadata) {
+        val reportArtifact = artifact ?: return@LaunchedEffect
         val state = forgeRuntime.openWindowInline(
             windowKey = "inline-report-${report.scope}-${report.id}",
             title = title,
-            metadata = artifact.metadata
+            metadata = reportArtifact.metadata
         )
         windowId = state.windowId
     }
@@ -338,11 +318,6 @@ private fun TranscriptInlineReportDialog(
     }
     val windowContext = remember(activeWindowId) {
         activeWindowId?.let { forgeRuntime.windowContext(it) }
-    }
-
-    if (resolvedMetadata == null || windowContext == null) {
-        TranscriptForgeFallback(title = title, body = "Loading report…")
-        return
     }
 
     Dialog(
@@ -370,7 +345,7 @@ private fun TranscriptInlineReportDialog(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
-                    if (report.status.trim().lowercase().let { it.isEmpty() || it == "committed" || it == "ready" }) {
+                    if (presentation != null && report.status.trim().lowercase().let { it.isEmpty() || it == "committed" || it == "ready" }) {
                         PhoneToolbarAction(
                             icon = Icons.Outlined.PictureAsPdf,
                             contentDescription = "Open PDF",
@@ -393,19 +368,47 @@ private fun TranscriptInlineReportDialog(
                     }
                 }
                 HorizontalDivider()
-                WindowContentView(
-                    runtime = forgeRuntime,
-                    windowId = windowContext.windowId,
-                    windowKey = title,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .padding(horizontal = 12.dp),
-                    scrollEnabled = true,
-                    showWindowHeader = false
-                )
+                when {
+                    resolvedPresentation == null -> TranscriptForgeFallback(
+                        title = title,
+                        body = "Loading report…"
+                    )
+                    presentation == null -> TranscriptForgeFallback(
+                        title = title,
+                        body = inlineReportPresentationErrorMessage(
+                            resolvedPresentation.exceptionOrNull()
+                        )
+                    )
+                    resolvedMetadata == null || windowContext == null -> TranscriptForgeFallback(
+                        title = title,
+                        body = "Loading report…"
+                    )
+                    else -> WindowContentView(
+                        runtime = forgeRuntime,
+                        windowId = windowContext.windowId,
+                        windowKey = title,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .padding(horizontal = 12.dp),
+                        scrollEnabled = true,
+                        showWindowHeader = false
+                    )
+                }
             }
         }
+    }
+}
+
+internal fun inlineReportPresentationErrorMessage(error: Throwable?): String {
+    val details = generateSequence(error) { it.cause }
+        .mapNotNull { it.message?.trim()?.takeIf(String::isNotEmpty) }
+        .joinToString(" ")
+        .lowercase()
+    return when {
+        "timeout" in details || "timed out" in details ->
+            "The report took too long to open. Try again."
+        else -> "Unable to open this report. Try again."
     }
 }
 
@@ -661,14 +664,16 @@ private fun exportFence(kind: String, index: Int, payload: JsonObject): Map<Stri
 
 private suspend fun hydrateInlineReport(
     report: ForgeTranscriptCanonicalReport,
-    client: AgentlyClient
+    client: AgentlyClient,
+    conversationId: String?
 ): ForgeTranscriptCanonicalReport {
     val dataSources = report.dataSources.toMutableMap()
     InlineReportRuntimeCompiler.workspaceDatasetRequests(report).forEach { request ->
         val response = client.fetchDatasource(
             FetchDatasourceInput(
                 id = request.dataSourceRef,
-                inputs = request.inputs.toMap()
+                inputs = request.inputs.toMap(),
+                conversationId = conversationId?.trim()?.takeIf { it.isNotEmpty() }
             )
         )
         dataSources[request.id] = ForgeTranscriptCanonicalData(
