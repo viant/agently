@@ -9,6 +9,7 @@ public struct ChatTranscriptEntry: Identifiable, Sendable, Equatable {
     public let turnID: String?
     public let renderedParts: [TranscriptCanonicalPart]?
     public let renderedReports: [TranscriptCanonicalReport]?
+    public let diagnosticMessages: [String]
     public let timestampLabel: String?
     public let statusLabel: String?
 
@@ -19,6 +20,7 @@ public struct ChatTranscriptEntry: Identifiable, Sendable, Equatable {
         turnID: String? = nil,
         renderedParts: [TranscriptCanonicalPart]? = nil,
         renderedReports: [TranscriptCanonicalReport]? = nil,
+        diagnosticMessages: [String] = [],
         timestampLabel: String? = nil,
         statusLabel: String? = nil
     ) {
@@ -28,6 +30,7 @@ public struct ChatTranscriptEntry: Identifiable, Sendable, Equatable {
         self.turnID = turnID
         self.renderedParts = renderedParts
         self.renderedReports = renderedReports
+        self.diagnosticMessages = diagnosticMessages
         self.timestampLabel = timestampLabel
         self.statusLabel = statusLabel
     }
@@ -223,8 +226,11 @@ public final class ChatRuntime: ObservableObject {
             let narrationFallback = sanitizeAssistantTranscriptText(turn.assistant?.narration?.content) ?? ""
             let assistantMarkdown = finalMarkdown.isEmpty ? narrationFallback : finalMarkdown
             let renderedReports = Self.canonicalAssistantReports(assistantMessages)
+            let diagnosticMessages = assistantMessages.flatMap { message in
+                message.renderedContent?.diagnostics.map { $0.message.trimmingCharacters(in: .whitespacesAndNewlines) } ?? []
+            }.filter { !$0.isEmpty }
 
-            if !assistantMarkdown.isEmpty || renderedReports?.isEmpty == false {
+            if !assistantMarkdown.isEmpty || renderedReports?.isEmpty == false || !diagnosticMessages.isEmpty {
                 next.append(
                     ChatTranscriptEntry(
                         id: turn.assistant?.final?.messageID ?? turn.assistant?.narration?.messageID ?? "\(turn.id)-assistant",
@@ -233,6 +239,7 @@ public final class ChatRuntime: ObservableObject {
                         turnID: turn.turnID,
                         renderedParts: Self.canonicalAssistantParts(assistantMessages),
                         renderedReports: renderedReports,
+                        diagnosticMessages: diagnosticMessages,
                         timestampLabel: Self.timestampLabel(for: turn.createdAt)
                     )
                 )
@@ -326,13 +333,13 @@ public final class ChatRuntime: ObservableObject {
                 ?? sanitizeAssistantTranscriptText(message.narration)
                 ?? ""
             let rendered = snapshot.liveExecutionGroupsByID[message.id]?.renderedContent
-            guard !markdown.isEmpty || rendered?.reports.isEmpty == false else { return nil }
+            guard !markdown.isEmpty || rendered?.reports.isEmpty == false || rendered?.diagnostics.isEmpty == false else { return nil }
             return AssistantTurnFragment(message: message, markdown: markdown, rendered: rendered)
         }
         guard let latest = fragments.last else { return nil }
 
         let hasCanonicalContent = fragments.contains { fragment in
-            fragment.rendered?.parts.isEmpty == false || fragment.rendered?.reports.isEmpty == false
+            fragment.rendered?.parts.isEmpty == false || fragment.rendered?.reports.isEmpty == false || fragment.rendered?.diagnostics.isEmpty == false
         }
         var renderedParts: [TranscriptCanonicalPart]? = nil
         if hasCanonicalContent {
@@ -375,6 +382,9 @@ public final class ChatRuntime: ObservableObject {
                 reports.append(report)
             }
         }
+        let diagnosticMessages = fragments.flatMap { fragment in
+            fragment.rendered?.diagnostics.map { $0.message.trimmingCharacters(in: .whitespacesAndNewlines) } ?? []
+        }.filter { !$0.isEmpty }
         return ChatTranscriptEntry(
             id: latest.message.id,
             role: "assistant",
@@ -382,6 +392,7 @@ public final class ChatRuntime: ObservableObject {
             turnID: turnID,
             renderedParts: renderedParts,
             renderedReports: reports.isEmpty ? nil : reports,
+            diagnosticMessages: diagnosticMessages,
             timestampLabel: Self.timestampLabel(for: latest.message.createdAt),
             statusLabel: streaming ? (Self.statusLabel(for: latest.message.status) ?? "Streaming") : nil
         )
