@@ -9,7 +9,7 @@ vi.mock('../../services/reportExportService.js', async () => ({
   getReportExportArtifact: getReportExportArtifactMock,
 }));
 
-import RichContent, { buildInlineReportEventDetail, buildInlineReportSaveKey, createInlineReportArtifactDownload, handleScratchpadArtifactLinkClick, inlineReportRuntimeKey, normalizeDashboardPayload, normalizeLegacyForgeDescriptors, normalizeLegacyForgeFenceBlocks, parseFences, resolveForgeScope, resolveInlineReportExportTargetURL, resolveScratchpadArtifactId, scopeForgeDashboardPayload, waitForInlineReportExport } from './RichContent';
+import RichContent, { buildInlineReportEventDetail, createInlineReportArtifactDownload, handleScratchpadArtifactLinkClick, inlineReportRuntimeKey, normalizeDashboardPayload, normalizeLegacyForgeDescriptors, normalizeLegacyForgeFenceBlocks, parseFences, resolveForgeScope, resolveInlineReportExportTargetURL, resolveScratchpadArtifactId, scopeForgeDashboardPayload, waitForInlineReportExport } from './RichContent';
 import { renderMarkdownBlock } from 'agently-core-ui-sdk';
 
 function createScratchpadClickEvent(artifactId) {
@@ -49,17 +49,6 @@ describe('RichContent fence parsing', () => {
       revision: 7,
       scope: { id: 'order_42', values: { orderIds: [42] } },
     });
-  });
-  it('builds a stable save identity that distinguishes report revisions and conversations', () => {
-    const base = {
-      conversationId: 'conversation-1',
-      scope: 'order_42',
-      reportId: 'delivery',
-      sequence: 7,
-    };
-    expect(buildInlineReportSaveKey(base)).toBe('conversation-1:order_42:delivery:7');
-    expect(buildInlineReportSaveKey({ ...base, sequence: 8 })).not.toBe(buildInlineReportSaveKey(base));
-    expect(buildInlineReportSaveKey({ ...base, conversationId: 'conversation-2' })).not.toBe(buildInlineReportSaveKey(base));
   });
   it('polls an inline export until the canonical artifact is available', async () => {
     const statuses = [
@@ -272,8 +261,7 @@ describe('RichContent fence parsing', () => {
 
     expect(html.match(/data-forge-report-id="brief"/g)).toHaveLength(1);
     expect(html).toContain('Canonical Delivery');
-    expect(html).toContain('Save to My reports');
-    expect(html).toContain('bp6-icon-bookmark');
+    expect(html).not.toContain('Save to My reports');
     expect(html).toContain('Export PDF');
     expect(html).toContain('app-rich-inline-report__export-button');
     expect(html).not.toContain('Materialized inline datasets must be mapped');

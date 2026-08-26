@@ -11,50 +11,6 @@
   padding: 6px 0 2px;
 }
 
-.app-rich-inline-report__save-button.bp6-button,
-.app-rich-inline-report__save-button.bp5-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  box-sizing: border-box;
-  min-height: 30px;
-  padding: 0 12px;
-  border: 1px solid #a9bfd8;
-  border-radius: 10px;
-  background: linear-gradient(180deg, #ffffff 0%, #f3f7fc 100%);
-  box-shadow: 0 3px 9px rgba(54, 83, 116, 0.12);
-  color: #315777;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.01em;
-  line-height: 1;
-  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, color 120ms ease, transform 120ms ease;
-}
-
-.app-rich-inline-report__save-button.bp6-button:not(:disabled):hover,
-.app-rich-inline-report__save-button.bp5-button:not(:disabled):hover {
-  border-color: #6f94bc;
-  background: #ffffff;
-  box-shadow: 0 6px 14px rgba(54, 83, 116, 0.17);
-  color: #214d72;
-  transform: translateY(-1px);
-}
-
-.app-rich-inline-report__save-button.is-saved.bp6-button,
-.app-rich-inline-report__save-button.is-saved.bp5-button {
-  border-color: #a8d8c3;
-  background: #effaf5;
-  box-shadow: none;
-  color: #0d6848;
-  opacity: 1;
-}
-
-.app-rich-inline-report__save-button .bp6-icon,
-.app-rich-inline-report__save-button .bp5-icon {
-  color: currentColor;
-}
-
 .app-rich-inline-report__export-button.bp6-button,
 .app-rich-inline-report__export-button.bp5-button,
 .app-rich-inline-report__export-button.app-rich-inline-report__download-link {

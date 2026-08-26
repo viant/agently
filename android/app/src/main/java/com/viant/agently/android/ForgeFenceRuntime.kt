@@ -279,9 +279,10 @@ private fun TranscriptInlineReportDialog(
     LaunchedEffect(stableIdentity, report, client) {
         val result = runCatching {
             val hydratedReport = hydrateInlineReport(report, client, conversationId)
+            val artifact = InlineReportRuntimeCompiler.compile(hydratedReport)
             InlineReportPresentation(
                 report = hydratedReport,
-                artifact = InlineReportRuntimeCompiler.compile(hydratedReport)
+                artifact = artifact
             )
         }
         result.exceptionOrNull()?.let { error ->

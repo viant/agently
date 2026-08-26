@@ -40,7 +40,6 @@ import {
 import { DashboardBlock, ReportRuntime } from 'forge/components';
 import { buildDraftReportExportRequest, compileInlineReport, materializeInlineReport } from 'forge/reporting';
 import {
-  addWindow,
   buildStandaloneDashboardDocument,
   captureDashboardChartSvgs,
   downloadDashboardHtml,
@@ -63,7 +62,6 @@ import { isStreamDebugEnabled } from '../../services/debugFlags';
 import { dispatchForgeUIAction } from '../../services/forgeUIActions.js';
 import { getReportExportArtifact, getReportExportStatus, submitReportExportRequest } from '../../services/reportExportService.js';
 import { emitReportUIEvent } from '../../services/reportEventService.js';
-import { saveReport } from '../../services/reportStoreService.js';
 import { fetchDatasource } from '../lookups/client.js';
 
 const DASHBOARD_BLOCK_KINDS = [
@@ -1515,36 +1513,10 @@ export function createInlineReportArtifactDownload(artifact = {}, {
   };
 }
 
-const savedInlineReportKeys = new Set();
-
-export function buildInlineReportSaveKey({
-  conversationId = '',
-  scope = '',
-  reportId = '',
-  sequence = 0,
-} = {}) {
-  return [
-    String(conversationId || '').trim(),
-    String(scope || 'message').trim(),
-    String(reportId || 'inlineReport').trim(),
-    String(Number(sequence || 0)),
-  ].join(':');
-}
-
 function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = '', messageId = '' }) {
 
   const [lifecycleState, setLifecycleState] = React.useState({ action: '', message: '', error: '' });
   const [artifactDownload, setArtifactDownload] = React.useState(null);
-  const reportSaveKey = buildInlineReportSaveKey({
-    conversationId,
-    scope: assembly?.scope,
-    reportId: assembly?.id,
-    sequence: assembly?.sequence,
-  });
-  const [reportSaved, setReportSaved] = React.useState(() => savedInlineReportKeys.has(reportSaveKey));
-  React.useEffect(() => {
-    setReportSaved(savedInlineReportKeys.has(reportSaveKey));
-  }, [reportSaveKey]);
   React.useEffect(() => () => artifactDownload?.revoke?.(), [artifactDownload]);
   const compiledSource = React.useMemo(() => {
     const materializedDataSources = Object.fromEntries(Object.entries(assembly?.dataSources || {}).map(([id, source]) => {
@@ -1614,57 +1586,8 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
     metadata: { source: 'inline', scope: assembly?.scope || 'message', reportId: assembly?.id || '' },
   }), [assembly?.id, assembly?.scope, compiled?.reportDocument, compiled?.reportFill, compiled?.reportPrint, compiled?.reportSpec]);
   const exportReady = lifecycleReady && !!exportRequest;
-  const promotionEligible = compiled?.promotion?.eligible === true;
-  const saveMode = compiled?.promotion?.mode === 'snapshot' ? 'inline_snapshot' : 'inline';
-  const canSaveReport = lifecycleReady && promotionEligible;
   const reportID = `${assembly?.scope || 'message'}_${assembly?.id || 'inlineReport'}`
     .replace(/[^A-Za-z0-9._-]+/g, '_');
-  const handleSave = async () => {
-    if (!canSaveReport || lifecycleState.action) return;
-    setLifecycleState({ action: 'save', message: '', error: '' });
-    try {
-      await saveReport({
-        reportId: reportID,
-        title: compiled.reportDocument?.title || assembly?.source?.title || 'Inline report',
-        version: 1,
-        documentVersion: 1,
-        reportDocument: compiled.reportDocument,
-        reportSpec: compiled.reportSpec,
-        reportFill: compiled.reportFill,
-        reportPrint: compiled.reportPrint,
-        compileState: {
-          status: 'clean',
-          source: saveMode,
-          sequence: Number(assembly?.sequence || 0),
-          reusableDataSourceRefs: compiled.promotion.reusableDataSourceRefs,
-          materializedDatasetIds: compiled.promotion.materializedDatasetIds,
-        },
-        metadata: {
-          source: saveMode,
-          scope: assembly?.scope || 'message',
-          reportId: assembly?.id || '',
-          reusableDataSources: saveMode === 'inline',
-          resolvedDataSourceRefs: compiled.promotion.reusableDataSourceRefs,
-          materializedDatasetIds: compiled.promotion.materializedDatasetIds,
-        },
-      });
-      savedInlineReportKeys.add(reportSaveKey);
-      setReportSaved(true);
-      setLifecycleState({ action: '', message: 'Saved to My reports.', error: '' });
-    } catch (error) {
-      setLifecycleState({ action: '', message: '', error: error?.message || 'Report save failed.' });
-    }
-  };
-  const openMyReports = React.useCallback(() => {
-    addWindow('My reports', null, 'reports', '', true, {}, {
-      presentation: 'hosted',
-      region: 'chat.top',
-      conversationId: String(conversationId || '').trim(),
-      replaceHostedRegion: true,
-      workspaceSharePct: 82,
-      workspaceMinHeight: 640,
-    });
-  }, [conversationId]);
   const handleExport = async () => {
     if (!exportReady || lifecycleState.action) return;
     setArtifactDownload(null);
@@ -1739,28 +1662,6 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
 				{materialization.error ? <div role="alert" style={{ color: '#b42318', fontSize: 12 }}>{materialization.error}</div> : null}
         {lifecycleReady ? (
           <div className="app-rich-inline-report__actions">
-            {canSaveReport ? (
-              <Button
-                className={`app-rich-inline-report__save-button${reportSaved ? ' is-saved' : ''}`}
-                icon={reportSaved ? 'tick-circle' : 'bookmark'}
-                loading={lifecycleState.action === 'save'}
-                disabled={!!lifecycleState.action || reportSaved}
-                title={reportSaved ? 'This report is saved in My reports.' : 'Save this live report to My reports.'}
-                onClick={handleSave}
-              >
-                {reportSaved ? 'Saved to My reports' : 'Save to My reports'}
-              </Button>
-            ) : null}
-            {reportSaved ? (
-              <Button
-                className="app-rich-inline-report__view-reports-button"
-                icon="folder-open"
-                title="Open My reports."
-                onClick={openMyReports}
-              >
-                View in Reports
-              </Button>
-            ) : null}
             {artifactDownload?.url ? (
               <a
                 className="app-rich-inline-report__export-button app-rich-inline-report__download-link"
