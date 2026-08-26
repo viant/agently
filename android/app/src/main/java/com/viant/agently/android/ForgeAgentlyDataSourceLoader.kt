@@ -61,10 +61,12 @@ internal fun makeForgeAgentlyDataSourceLoader(
 
         val response = try {
             if (BuildConfig.DEBUG) {
-                Log.d(
-                    "ForgeDataSource",
-                    "fetch start id=$datasourceId conversationId=${request.conversationId.orEmpty()} inputs=${JsonUtil.anyToElement(inputs)}"
-                )
+                runCatching {
+                    Log.d(
+                        "ForgeDataSource",
+                        "fetch start id=$datasourceId conversationId=${request.conversationId.orEmpty()} inputs=${JsonUtil.anyToElement(inputs)}"
+                    )
+                }
             }
             client.fetchDatasource(
                 FetchDatasourceInput(
@@ -74,18 +76,24 @@ internal fun makeForgeAgentlyDataSourceLoader(
                 )
             )
         } catch (err: Throwable) {
-            Log.e(
-                "ForgeDataSource",
-                "fetch failed id=$datasourceId conversationId=${request.conversationId.orEmpty()}",
-                err
-            )
+            // android.util.Log is a throwing stub in local JVM tests. Logging
+            // must never replace the real datasource exception being tested.
+            runCatching {
+                Log.e(
+                    "ForgeDataSource",
+                    "fetch failed id=$datasourceId conversationId=${request.conversationId.orEmpty()}",
+                    err
+                )
+            }
             throw err
         }
         if (BuildConfig.DEBUG) {
-            Log.d(
-                "ForgeDataSource",
-                "fetch completed id=$datasourceId rows=${response.rows.size} elapsedMs=${System.currentTimeMillis() - startedAt}"
-            )
+            runCatching {
+                Log.d(
+                    "ForgeDataSource",
+                    "fetch completed id=$datasourceId rows=${response.rows.size} elapsedMs=${System.currentTimeMillis() - startedAt}"
+                )
+            }
         }
         ForgeRuntime.DataSourceFetchResult(
             rows = response.rows.map { row -> row.mapValues { JsonUtil.elementToAny(it.value) } },
