@@ -373,11 +373,6 @@ internal fun createSpeechRecognizerIntent(): Intent {
             RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
         )
         putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your message")
-        // Steward's composer and starter tasks are authored in English. Using the
-        // device locale made an English order request run through pl-PL on the
-        // attached Samsung, producing unreliable or empty results.
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.US.toLanguageTag())
-        putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, Locale.US.toLanguageTag())
         putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
         putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
     }

@@ -94,9 +94,9 @@ class AppSettingsRuntimeTest {
     }
 
     @Test
-    fun resolveWorkspaceBrandTitle_stripsViantPrefixWhenLogoAlreadyShowsIt() {
+    fun resolveWorkspaceBrandTitle_preservesWorkspaceIdentityWithoutBrandHeuristics() {
         assertEquals(
-            "Workspace",
+            "Viant Workspace",
             resolveWorkspaceBrandTitle(
                 workspaceRoot = "/tmp/Viant Workspace",
                 defaultAgent = "workspace"
@@ -139,42 +139,36 @@ class AppSettingsRuntimeTest {
     }
 
     @Test
-    fun configuredWorkspaceEndpointOptions_resolveStewardPreset() {
+    fun configuredWorkspaceEndpointOptions_preserveAuthoredPresentation() {
         val options = mergeWorkspaceEndpointOptions(
             parseWorkspaceEndpointOptions(
                 """
                 [
                   {
-                    "title": "Steward",
-                    "subtitle": "Viant Steward workspace",
-                    "value": "https://steward.agently.viantinc.com"
+                    "title": "Example",
+                    "subtitle": "Example workspace",
+                    "value": "https://workspace.example.com"
                   }
                 ]
                 """.trimIndent()
             )
         )
-        val steward = options.first()
+        val option = options.first()
 
         assertEquals(
             WorkspaceEndpointOption(
-                title = "Steward",
-                subtitle = "Viant Steward workspace",
-                value = "https://steward.agently.viantinc.com"
+                title = "Example",
+                subtitle = "Example workspace",
+                value = "https://workspace.example.com"
             ),
-            steward
+            option
         )
         assertEquals(1, options.size)
     }
 
     @Test
-    fun workspaceEndpointOptions_defaultToPublicStewardOnly() {
-        assertEquals(1, workspaceEndpointOptions.size)
-        assertEquals("Steward", workspaceEndpointOptions.first().title)
-        assertEquals("https://steward.agently.viantinc.com", workspaceEndpointOptions.first().value)
-        assertEquals(
-            workspaceEndpointOptions.first(),
-            selectedWorkspaceEndpointOption("https://steward.agently.viantinc.com/v1/api/")
-        )
+    fun workspaceEndpointOptions_haveNoSourceLevelWorkspacePreset() {
+        assertEquals(emptyList<WorkspaceEndpointOption>(), workspaceEndpointOptions)
     }
 
     @Test
@@ -187,8 +181,8 @@ class AppSettingsRuntimeTest {
         val options = mergeWorkspaceEndpointOptions(
             configured = listOf(
                 WorkspaceEndpointOption(
-                    title = "Android Host 9292",
-                    subtitle = "Local Agently server on the emulator host",
+                    title = "Development",
+                    subtitle = "Development workspace",
                     value = "http://10.0.2.2:9292"
                 )
             )
@@ -196,14 +190,9 @@ class AppSettingsRuntimeTest {
         assertEquals(
             listOf(
                 WorkspaceEndpointOption(
-                    title = "Android Host 9292",
-                    subtitle = "Local Agently server on the emulator host",
+                    title = "Development",
+                    subtitle = "Development workspace",
                     value = "http://10.0.2.2:9292"
-                ),
-                WorkspaceEndpointOption(
-                    title = "Steward",
-                    subtitle = "Viant Steward workspace",
-                    value = "https://steward.agently.viantinc.com"
                 )
             ),
             options
@@ -213,13 +202,26 @@ class AppSettingsRuntimeTest {
     @Test
     fun normalizeApiBaseUrl_removesApiSuffixesAndTrailingSlash() {
         assertEquals(
-            "https://steward.agently.viantinc.com",
-            normalizeApiBaseUrl(" https://steward.agently.viantinc.com/v1/api/ ")
+            "https://workspace.example.com",
+            normalizeApiBaseUrl(" https://workspace.example.com/v1/api/ ")
         )
         assertEquals(
-            "https://steward.agently.viantinc.com",
-            normalizeApiBaseUrl("https://steward.agently.viantinc.com/v1")
+            "https://workspace.example.com",
+            normalizeApiBaseUrl("https://workspace.example.com/v1")
         )
+    }
+
+    @Test
+    fun workspaceEndpointOption_derivesGenericPresentationFromHost() {
+        assertEquals(
+            WorkspaceEndpointOption(
+                title = "workspace.example.com",
+                subtitle = "Configured workspace",
+                value = "https://workspace.example.com"
+            ),
+            workspaceEndpointOption("https://workspace.example.com/v1/api/")
+        )
+        assertNull(workspaceEndpointOption("not-a-url"))
     }
 
     @Test
@@ -241,12 +243,14 @@ class AppSettingsRuntimeTest {
     fun hasInitialWorkspaceEndpointSelection_explicitDebugEndpointSkipsProductionChooser() {
         assertTrue(
             hasInitialWorkspaceEndpointSelection(
+                configuredBaseUrl = "https://workspace.example.com",
                 storedSettings = AppSettings(),
                 preferExplicitBuildEndpoint = true
             )
         )
         assertFalse(
             hasInitialWorkspaceEndpointSelection(
+                configuredBaseUrl = "",
                 storedSettings = AppSettings(),
                 preferExplicitBuildEndpoint = false
             )
@@ -258,7 +262,7 @@ class AppSettingsRuntimeTest {
         assertEquals(
             "http://127.0.0.1:18080",
             resolveInitialApiBaseUrl(
-                configuredBaseUrl = "https://steward.agently.viantinc.com",
+                configuredBaseUrl = "https://workspace.example.com",
                 storedSettings = AppSettings(
                     baseUrlOverride = "http://127.0.0.1:18080",
                     hasWorkspaceEndpointSelection = true
@@ -271,11 +275,11 @@ class AppSettingsRuntimeTest {
     @Test
     fun resolveInitialApiBaseUrl_ignoresInvalidStoredScheme() {
         assertEquals(
-            "https://steward.agently.viantinc.com",
+            "https://workspace.example.com",
             resolveInitialApiBaseUrl(
-                configuredBaseUrl = "https://steward.agently.viantinc.com",
+                configuredBaseUrl = "https://workspace.example.com",
                 storedSettings = AppSettings(
-                    baseUrlOverride = "hqttps://steward.agently.viantinc.com",
+                    baseUrlOverride = "hqttps://workspace.example.com",
                     hasWorkspaceEndpointSelection = true
                 ),
                 preferExplicitBuildEndpoint = false
@@ -285,9 +289,21 @@ class AppSettingsRuntimeTest {
 
     @Test
     fun workspaceEndpointValidation_acceptsOnlyHttpUrlsWithHosts() {
-        assertTrue(isValidWorkspaceBaseUrl("https://steward.agently.viantinc.com"))
+        assertTrue(isValidWorkspaceBaseUrl("https://workspace.example.com"))
         assertTrue(isValidWorkspaceBaseUrl("http://127.0.0.1:9191"))
-        assertFalse(isValidWorkspaceBaseUrl("hqttps://steward.agently.viantinc.com"))
+        assertFalse(isValidWorkspaceBaseUrl("hqttps://workspace.example.com"))
         assertFalse(isValidWorkspaceBaseUrl("https://"))
+    }
+
+    @Test
+    fun resolveInitialApiBaseUrl_returnsEmptyWhenNothingWasConfigured() {
+        assertEquals(
+            "",
+            resolveInitialApiBaseUrl(
+                configuredBaseUrl = "",
+                storedSettings = AppSettings(),
+                preferExplicitBuildEndpoint = false
+            )
+        )
     }
 }

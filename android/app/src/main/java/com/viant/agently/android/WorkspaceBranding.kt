@@ -48,10 +48,7 @@ internal fun resolveWorkspaceBrandTitle(
     if (normalized.isEmpty()) {
         return fallbackTitle
     }
-    return normalized
-        .replace(Regex("^viant\\s+", RegexOption.IGNORE_CASE), "")
-        .trim()
-        .ifBlank { fallbackTitle }
+    return normalized.ifBlank { fallbackTitle }
 }
 
 internal fun String?.workspaceDisplayTitle(): String? {

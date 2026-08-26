@@ -1,15 +1,12 @@
 package com.viant.agently.android
 
-import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppEndpointConfigTest {
 
     @Test
-    fun `public Steward remains the default workspace`() {
-        assertEquals(
-            "https://steward.agently.viantinc.com",
-            workspaceEndpointOptions.first().value
-        )
+    fun `workspace presets come only from build configuration`() {
+        assertTrue(workspaceEndpointOptions.isEmpty())
     }
 }

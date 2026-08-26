@@ -13,17 +13,13 @@ internal data class WorkspaceEndpointOption(
     val value: String
 )
 
-private val defaultWorkspaceEndpointOptions = listOf(
-    WorkspaceEndpointOption(
-        title = "Steward",
-        subtitle = "Viant Steward workspace",
-        value = "https://steward.agently.viantinc.com"
-    )
+private val buildWorkspaceEndpointOptions = listOfNotNull(
+    workspaceEndpointOption(BuildConfig.APP_API_BASE_URL)
 )
 
 internal val workspaceEndpointOptions = mergeWorkspaceEndpointOptions(
     parseWorkspaceEndpointOptions(BuildConfig.WORKSPACE_ENDPOINTS_JSON),
-    defaultWorkspaceEndpointOptions
+    buildWorkspaceEndpointOptions
 )
 
 internal fun parseWorkspaceEndpointOptions(raw: String): List<WorkspaceEndpointOption> {
@@ -49,11 +45,22 @@ internal fun parseWorkspaceEndpointOptions(raw: String): List<WorkspaceEndpointO
 
 internal fun mergeWorkspaceEndpointOptions(
     configured: List<WorkspaceEndpointOption>,
-    defaults: List<WorkspaceEndpointOption> = defaultWorkspaceEndpointOptions
+    buildOptions: List<WorkspaceEndpointOption> = emptyList()
 ): List<WorkspaceEndpointOption> {
-    return (configured + defaults)
+    return (configured + buildOptions)
         .filter { it.value.isNotBlank() }
         .distinctBy { normalizeApiBaseUrl(it.value) }
+}
+
+internal fun workspaceEndpointOption(value: String): WorkspaceEndpointOption? {
+    val normalized = normalizeApiBaseUrl(value)
+    if (!isValidWorkspaceBaseUrl(normalized)) return null
+    val host = URI(normalized).host?.trim().orEmpty()
+    return WorkspaceEndpointOption(
+        title = host,
+        subtitle = "Configured workspace",
+        value = normalized
+    )
 }
 
 private fun JsonObject.stringValue(key: String): String? {
@@ -99,23 +106,27 @@ internal fun resolveInitialApiBaseUrl(
     val candidate = normalizeApiBaseUrl(
         storedSettings.baseUrlOverride.trim().ifBlank {
             if (storedSettings.hasWorkspaceEndpointSelection) configured
-            else workspaceEndpointOptions.first().value
+            else workspaceEndpointOptions.firstOrNull()?.value.orEmpty()
         }
     )
     return when {
         isValidWorkspaceBaseUrl(candidate) -> candidate
         isValidWorkspaceBaseUrl(configured) -> configured
-        else -> workspaceEndpointOptions.first().value
+        else -> workspaceEndpointOptions.firstOrNull()?.value.orEmpty()
     }
 }
 
 internal fun hasInitialWorkspaceEndpointSelection(
+    configuredBaseUrl: String,
     storedSettings: AppSettings,
     preferExplicitBuildEndpoint: Boolean
-): Boolean =
-    preferExplicitBuildEndpoint ||
-        storedSettings.hasWorkspaceEndpointSelection ||
-        storedSettings.baseUrlOverride.trim().isNotBlank()
+): Boolean {
+    val configured = normalizeApiBaseUrl(configuredBaseUrl)
+    val storedOverride = normalizeApiBaseUrl(storedSettings.baseUrlOverride)
+    return (preferExplicitBuildEndpoint && isValidWorkspaceBaseUrl(configured)) ||
+        isValidWorkspaceBaseUrl(storedOverride) ||
+        (storedSettings.hasWorkspaceEndpointSelection && isValidWorkspaceBaseUrl(configured))
+}
 
 internal fun selectedWorkspaceEndpointOption(baseUrl: String): WorkspaceEndpointOption? {
     val normalized = normalizeApiBaseUrl(baseUrl)

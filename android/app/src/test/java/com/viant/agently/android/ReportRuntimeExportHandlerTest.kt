@@ -87,6 +87,27 @@ class ReportRuntimeExportHandlerTest {
     }
 
     @Test
+    fun `canonical export rejects missing identity and models before transport`() = runBlocking {
+        val client = AgentlyClient(
+            endpoints = mapOf(
+                "appAPI" to EndpointConfig(baseUrl = server.url("/").toString().trimEnd('/'))
+            )
+        )
+
+        val error = runCatching {
+            exportReportRuntimePdf(
+                client = client,
+                conversationId = "conversation-1",
+                exportRequest = mapOf("title" to "Incomplete")
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalStateException)
+        assertEquals("Report PDF export requires artifactRef.", error.message)
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
     fun `exportReportRuntimePdf compiles and exports inline fences in one backend call`() = runBlocking {
         val pdfBytes = "%PDF-1.7\ninline".toByteArray()
         server.enqueue(MockResponse().setBody(
@@ -135,7 +156,7 @@ class ReportRuntimeExportHandlerTest {
         )
 
         assertEquals(
-            "Unable to create the report PDF: invalid reportSpec: missing version",
+            "Unable to create the report PDF: reporting export: invalid reportSpec: missing version",
             message
         )
     }
@@ -150,13 +171,13 @@ class ReportRuntimeExportHandlerTest {
         )
 
         assertEquals(
-            "Unable to create the report PDF: decode tableBlock: json: unknown field \"legacyField\"",
+            "Unable to create the report PDF: reporting export: decode tableBlock: json: unknown field \"legacyField\"",
             message
         )
     }
 
     @Test
-    fun `report export errors explain temporary scratchpad storage failure`() {
+    fun `report export errors preserve structured server detail without message heuristics`() {
         val message = reportRuntimeExportErrorMessage(
             IllegalStateException(
                 "request failed: 500: {\"error\":\"reporting scratchpad publish: " +
@@ -165,7 +186,7 @@ class ReportRuntimeExportHandlerTest {
         )
 
         assertEquals(
-            "The PDF was created, but report storage is temporarily unavailable. Please try again.",
+            "Unable to create the report PDF: reporting scratchpad publish: upload artifact bytes failed: unable to generate access token",
             message
         )
     }
