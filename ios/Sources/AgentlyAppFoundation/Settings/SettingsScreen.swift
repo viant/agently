@@ -1,7 +1,10 @@
 import SwiftUI
 
 public struct SettingsScreen: View {
+    private enum FocusedField: Hashable { case apiBaseURL, oobSecretReference }
+
     @Environment(\.dismiss) private var dismiss
+    @FocusState private var focusedField: FocusedField?
     @ObservedObject private var runtime: SettingsRuntime
     let workspaceRoot: String?
     let workspaceDefaultAgentID: String?
@@ -67,6 +70,13 @@ public struct SettingsScreen: View {
                 Section("Developer Connection") {
                     TextField("API Base URL", text: $runtime.apiBaseURL)
                         .autocorrectionDisabled()
+                        .focused($focusedField, equals: .apiBaseURL)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .oobSecretReference }
+                        .onKeyPress(.tab) {
+                            focusedField = .oobSecretReference
+                            return .handled
+                        }
                     Text("Use this for local verification. If you paste `/v1` or `/v1/api`, the app removes that automatically.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -90,6 +100,13 @@ public struct SettingsScreen: View {
                 Section("Sign-In Helpers") {
                     TextField("OOB Secret Reference", text: $runtime.oobSecretReference)
                         .autocorrectionDisabled()
+                        .focused($focusedField, equals: .oobSecretReference)
+                        .submitLabel(.done)
+                        .onSubmit { focusedField = nil }
+                        .onKeyPress(.tab) {
+                            focusedField = nil
+                            return .handled
+                        }
                     Text("Example: `<encrypted-oob-reference>|blowfish://default`.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)

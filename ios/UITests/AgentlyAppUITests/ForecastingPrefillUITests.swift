@@ -77,6 +77,12 @@ final class ForecastingPrefillUITests: XCTestCase {
         let newChat = app.buttons["agently-new-chat"]
         XCTAssertTrue(newChat.waitForExistence(timeout: 30))
         newChat.tap()
+        let returnToConversation = app.buttons["BackButton"].matching(
+            NSPredicate(format: "label == %@", "Conversation")
+        ).firstMatch
+        if returnToConversation.waitForExistence(timeout: 20) {
+            returnToConversation.tap()
+        }
         let expand = app.buttons["agently-composer-expand"]
         XCTAssertTrue(expand.waitForExistence(timeout: 20))
         expand.tap()
