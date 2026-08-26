@@ -633,6 +633,7 @@ public struct ComposerScreen: View {
             activeLookupOccurrence = occurrence
             return
         }
+        NotificationCenter.default.post(name: .agentlyComposerCommitRequested, object: nil)
         isEditorFocused = false
         requestAgentlyPlatformKeyboardDismissal()
         onSend()

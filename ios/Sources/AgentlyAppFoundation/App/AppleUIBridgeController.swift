@@ -17,6 +17,7 @@ struct AppleUIBridgeWindow: Codable, Sendable {
     let workspaceMinHeight: Int?
     let parameters: [String: BridgeJSONValue]
     let windowForm: [String: BridgeJSONValue]
+    let metadata: [String: BridgeJSONValue]
     let inTab: Bool
     let isModal: Bool
 
@@ -32,6 +33,7 @@ struct AppleUIBridgeWindow: Codable, Sendable {
         case workspaceMinHeight
         case parameters
         case windowForm
+        case metadata
         case inTab
         case isModal
     }
@@ -319,6 +321,7 @@ func buildAppleUIBridgeSnapshot(
                 workspaceMinHeight: nil,
                 parameters: [:],
                 windowForm: [:],
+                metadata: [:],
                 inTab: true,
                 isModal: false
             )
@@ -343,6 +346,7 @@ func buildAppleUIBridgeSnapshot(
                 workspaceMinHeight: window.workspaceMinHeight,
                 parameters: window.parameters.mapValues(\.appValue),
                 windowForm: await forgeRuntime.windowFormJSONValue(windowID: window.id).mapValues(\.appValue),
+                metadata: appleUIBridgeMetadata(await forgeRuntime.windowMetadata(id: window.id)),
                 inTab: window.inTab,
                 isModal: window.isModal
             )
@@ -352,6 +356,17 @@ func buildAppleUIBridgeSnapshot(
         conversationID: conversationID.isEmpty ? nil : conversationID,
         windows: windows
     )
+}
+
+private func appleUIBridgeMetadata(
+    _ metadata: WindowMetadata?
+) -> [String: BridgeJSONValue] {
+    guard let metadata,
+          let data = try? JSONEncoder().encode(metadata),
+          let value = try? JSONDecoder.agently().decode(BridgeJSONValue.self, from: data) else {
+        return [:]
+    }
+    return value.objectValue ?? [:]
 }
 
 func hostedWorkspaceRestoreState(
@@ -612,6 +627,17 @@ private func waitForAppleReportMaterialization(
         }
         let status = materialization["status"]?.stringValue?.lowercased() ?? ""
         if status == "completed" {
+            let referenced = appleReportReferencedDatasetRefs(form)
+            let materialized = Set(
+                (materialization["datasetRefs"]?.arrayValue ?? [])
+                    .compactMap(\.stringValue)
+            )
+            let missing = referenced.subtracting(materialized).sorted()
+            if !missing.isEmpty {
+                throw AppleUIBridgeReportError.runFailed(
+                    "Report run did not materialize referenced datasets: \(missing.joined(separator: ", "))"
+                )
+            }
             return [
                 "ok": .bool(true),
                 "windowId": .string(windowID),
@@ -631,6 +657,19 @@ private func waitForAppleReportMaterialization(
         try await Task.sleep(nanoseconds: 100_000_000)
     }
     throw AppleUIBridgeReportError.timedOut
+}
+
+private func appleReportReferencedDatasetRefs(
+    _ form: [String: ForgeIOSRuntime.JSONValue]
+) -> Set<String> {
+    let definition = form["reportDefinition"]?.objectValue
+    let document = definition?["documentPatch"]?.objectValue
+        ?? definition?["reportDocument"]?.objectValue
+    return Set(
+        (document?["blocks"]?.arrayValue ?? []).compactMap { block in
+            block.objectValue?["datasetRef"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.filter { !$0.isEmpty }
+    )
 }
 
 private extension WindowMetadata? {

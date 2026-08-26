@@ -499,6 +499,79 @@ final class ForecastingPrefillUITests: XCTestCase {
         add(screenshot)
     }
 
+    func testLiveCreateAndModifyPerformanceReportOnPhone() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["AGENTLY_IOS_LIVE_UI_TESTS"] == "1",
+            "Set AGENTLY_IOS_LIVE_UI_TESTS=1 to run live Steward UI verification."
+        )
+        let baseURL = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_BASE_URL"] ?? ""
+        let oobSecret = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_OOB_SECRET"] ?? ""
+        try XCTSkipUnless(!baseURL.isEmpty && !oobSecret.isEmpty)
+
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--enableDevAuth=1",
+            "--apiBaseURL=\(baseURL)",
+            "--oobSecretReference=\(oobSecret)",
+            "--autoOOBSignIn=1",
+            "--startNewConversation=1",
+            "--uiBridgeClientID=ios-ui-create-report-\(UUID().uuidString)"
+        ]
+        app.launch()
+
+        var newChat = app.buttons["agently-new-chat"]
+        for _ in 0..<3 where !newChat.waitForExistence(timeout: 10) {
+            let back = preferredConversationBackButton(in: app)
+            if back.waitForExistence(timeout: 10) {
+                back.tap()
+                newChat = app.buttons["agently-new-chat"]
+            } else {
+                break
+            }
+        }
+        XCTAssertTrue(newChat.waitForExistence(timeout: 90), "New Chat did not appear")
+        newChat.tap()
+        let editor = app.textViews["agently-composer-editor"]
+        if !editor.waitForExistence(timeout: 5) {
+            let expand = app.buttons["agently-composer-expand"]
+            XCTAssertTrue(expand.waitForExistence(timeout: 20), "Composer activation did not appear")
+            expand.tap()
+        }
+        XCTAssertTrue(editor.waitForExistence(timeout: 30), "Composer editor did not appear")
+        let createPrompt = "Build and run an editable report for order 2684969 from 2026-08-18 through 2026-08-25 with spend, bids, impressions, CTR, eCPM, and a daily trend."
+        editor.tap()
+        editor.typeText(createPrompt)
+        XCTAssertEqual(editor.value as? String, createPrompt, "Composer dropped characters while typing")
+        app.buttons["agently-composer-send"].tap()
+
+        XCTAssertTrue(
+            app.staticTexts["Order 2684969 Performance"].firstMatch.waitForExistence(timeout: 300),
+            "The authored report did not render"
+        )
+        let missingKPI = app.staticTexts["No KPI value available."].firstMatch
+        let valuesLoaded = NSPredicate { _, _ in !missingKPI.exists }
+        expectation(for: valuesLoaded, evaluatedWith: missingKPI)
+        waitForExpectations(timeout: 120)
+
+        let expand = app.buttons["agently-composer-expand"]
+        if expand.waitForExistence(timeout: 10) { expand.tap() }
+        XCTAssertTrue(editor.waitForExistence(timeout: 20), "Composer did not reopen for report modification")
+        editor.tap()
+        editor.typeText("Remove the daily_detail block from this report, keep everything else, run it, and verify the result.")
+        app.buttons["agently-composer-send"].tap()
+
+        let submitted = NSPredicate { _, _ in
+            let value = editor.value as? String ?? ""
+            return !value.localizedCaseInsensitiveContains("daily_detail")
+        }
+        expectation(for: submitted, evaluatedWith: editor)
+        waitForExpectations(timeout: 20)
+        XCTAssertTrue(
+            app.staticTexts["Order 2684969 Performance"].firstMatch.waitForExistence(timeout: 300),
+            "The modified report did not remain available"
+        )
+    }
+
     func testLivePerformanceReportCanSwitchBetweenChartAndTable() throws {
         try XCTSkipUnless(
             ProcessInfo.processInfo.environment["AGENTLY_IOS_LIVE_UI_TESTS"] == "1",

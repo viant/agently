@@ -493,7 +493,11 @@ class HostedWorkspaceRestoreTest {
                     "reportBuilderRef" to JsonPrimitive("metricsCubeBuilder"),
                     "reportBuilder:metricsCubeBuilder" to JsonObject(mapOf(
                         "reportDocumentTitle" to JsonPrimitive("Performance Delivery"),
-                        "reportDocumentBlocks" to JsonArray(emptyList())
+                                    "reportDocumentBlocks" to JsonArray(emptyList())
+                    )),
+                    "reportMaterialization" to JsonObject(mapOf(
+                        "status" to JsonPrimitive("running"),
+                        "requestId" to JsonPrimitive("orphaned-run")
                     ))
                 ))
             ))
@@ -505,6 +509,7 @@ class HostedWorkspaceRestoreTest {
         assertEquals("delivery", (reportDefinition?.get("id") as? JsonPrimitive)?.content)
         assertEquals("metricsCubeBuilder", (restored?.windows?.singleOrNull()?.windowForm?.get("reportBuilderRef") as? JsonPrimitive)?.content)
         assertNull(restored?.windows?.singleOrNull()?.windowForm?.get("reportBuilder:metricsCubeBuilder"))
+        assertNull(restored?.windows?.singleOrNull()?.windowForm?.get("reportMaterialization"))
     }
 
     @Test

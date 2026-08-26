@@ -45,6 +45,7 @@ internal data class NativeUIBridgeWindow(
     val workspaceMinHeight: Int? = null,
     val parameters: JsonObject = JsonObject(emptyMap()),
     val windowForm: JsonObject = JsonObject(emptyMap()),
+    val metadata: JsonObject = JsonObject(emptyMap()),
     val inTab: Boolean = true,
     val isModal: Boolean = false
 )
@@ -262,9 +263,15 @@ internal fun buildAndroidUIBridgeSnapshot(
             val windowForm = runCatching {
                 forgeRuntime.windowContext(window.windowId).peekWindowForm()
             }.getOrDefault(emptyMap())
+            val metadata = forgeRuntime.metadataSignal(window.windowId).peek()?.let { value ->
+                runCatching {
+                    Json.encodeToJsonElement(WindowMetadata.serializer(), value) as? JsonObject
+                }.getOrNull()
+            } ?: JsonObject(emptyMap())
             windows += window.toUIBridgeWindow(
                 conversationId = conversationId.ifEmpty { window.conversationId?.trim() },
-                windowForm = windowForm
+                windowForm = windowForm,
+                metadata = metadata
             )
         }
     return NativeUIBridgeSnapshot(
@@ -275,7 +282,8 @@ internal fun buildAndroidUIBridgeSnapshot(
 
 private fun WindowState.toUIBridgeWindow(
     conversationId: String?,
-    windowForm: Map<String, Any?> = emptyMap()
+    windowForm: Map<String, Any?> = emptyMap(),
+    metadata: JsonObject = JsonObject(emptyMap())
 ): NativeUIBridgeWindow {
     return NativeUIBridgeWindow(
         windowId = windowId,
@@ -289,6 +297,7 @@ private fun WindowState.toUIBridgeWindow(
         workspaceMinHeight = workspaceMinHeight,
         parameters = parameters.toJsonObject(),
         windowForm = windowForm.toJsonObject(),
+        metadata = metadata,
         inTab = inTab,
         isModal = isModal
     )
@@ -307,6 +316,7 @@ private fun NativeUIBridgeWindow.toJsonObject(): JsonObject {
         workspaceMinHeight?.let { put("workspaceMinHeight", JsonPrimitive(it)) }
         put("parameters", parameters)
         put("windowForm", windowForm)
+        if (metadata.isNotEmpty()) put("metadata", metadata)
         put("inTab", JsonPrimitive(inTab))
         put("isModal", JsonPrimitive(isModal))
     }
@@ -511,14 +521,25 @@ private suspend fun waitForAndroidReportMaterialization(
         val materialization = stringKeyMap(form["reportMaterialization"])
         if (materialization["requestId"]?.toString() == requestId) {
             when (materialization["status"]?.toString()?.lowercase()) {
-                "completed" -> return buildJsonObject {
-                    put("ok", JsonPrimitive(true))
-                    put("windowId", JsonPrimitive(windowId))
-                    put("materialized", JsonPrimitive(true))
-                    put("materializationId", JsonPrimitive(requestId))
-                    put("status", JsonPrimitive("completed"))
-                    put("datasetRefs", (materialization["datasetRefs"] ?: emptyList<String>()).toJsonElement())
-                    put("rowCounts", (materialization["rowCounts"] ?: emptyMap<String, Int>()).toJsonElement())
+                "completed" -> {
+                    val referenced = androidReportReferencedDatasetRefs(form)
+                    val materialized = (materialization["datasetRefs"] as? List<*>)
+                        .orEmpty().mapNotNull { it?.toString()?.takeIf(String::isNotBlank) }.toSet()
+                    val missing = referenced.filterNot(materialized::contains)
+                    if (missing.isNotEmpty()) {
+                        throw IllegalStateException(
+                            "Report run did not materialize referenced datasets: ${missing.joinToString(", ")}"
+                        )
+                    }
+                    return buildJsonObject {
+                        put("ok", JsonPrimitive(true))
+                        put("windowId", JsonPrimitive(windowId))
+                        put("materialized", JsonPrimitive(true))
+                        put("materializationId", JsonPrimitive(requestId))
+                        put("status", JsonPrimitive("completed"))
+                        put("datasetRefs", (materialization["datasetRefs"] ?: emptyList<String>()).toJsonElement())
+                        put("rowCounts", (materialization["rowCounts"] ?: emptyMap<String, Int>()).toJsonElement())
+                    }
                 }
                 "failed" -> {
                     val errors = (materialization["errors"] as? List<*>)
@@ -530,6 +551,16 @@ private suspend fun waitForAndroidReportMaterialization(
         delay(100)
     }
     throw IllegalStateException("The native report run did not finish in time.")
+}
+
+private fun androidReportReferencedDatasetRefs(form: Map<String, Any?>): Set<String> {
+    val definition = stringKeyMap(form["reportDefinition"])
+    val document = stringKeyMap(definition["documentPatch"])
+        .ifEmpty { stringKeyMap(definition["reportDocument"]) }
+    return (document["blocks"] as? List<*>)
+        .orEmpty()
+        .mapNotNull { block -> stringKeyMap(block)["datasetRef"]?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+        .toSet()
 }
 
 private fun stringKeyMap(value: Any?): Map<String, Any?> =

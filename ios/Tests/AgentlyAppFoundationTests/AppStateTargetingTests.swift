@@ -147,6 +147,21 @@ final class AppStateTargetingTests: XCTestCase {
         )
     }
 
+    func testStartNewConversationLaunchOverrideIsDevOnly() {
+        XCTAssertTrue(
+            resolvedBootstrapStartsNewConversation(
+                launchArguments: ["Agently", "--startNewConversation=1"],
+                developerAuthEnabled: true
+            )
+        )
+        XCTAssertFalse(
+            resolvedBootstrapStartsNewConversation(
+                launchArguments: ["Agently", "--startNewConversation=1"],
+                developerAuthEnabled: false
+            )
+        )
+    }
+
     func testDeveloperInitialWorkspaceRequestIsGenericAndDevOnly() {
         let arguments = [
             "Agently",

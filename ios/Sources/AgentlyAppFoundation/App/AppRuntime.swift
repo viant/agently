@@ -141,7 +141,11 @@ public final class AppRuntime: ObservableObject {
     }
 
     public func bootstrap() async {
-        await bootstrap(allowAutoOOB: true, selectInitialConversation: true)
+        let startNewConversation = resolvedBootstrapStartsNewConversation(
+            launchArguments: CommandLine.arguments,
+            developerAuthEnabled: developerAuthFeaturesEnabled()
+        )
+        await bootstrap(allowAutoOOB: true, selectInitialConversation: !startNewConversation)
     }
 
     private func bootstrap(allowAutoOOB: Bool, selectInitialConversation: Bool) async {
@@ -759,13 +763,31 @@ public final class AppRuntime: ObservableObject {
         base: [String: AgentlySDK.JSONValue]?,
         overlay: [String: AgentlySDK.JSONValue]?
     ) -> [String: AgentlySDK.JSONValue]? {
-        guard let overlay, !overlay.isEmpty else {
-            return base
+        let durable = sanitizeOrphanedReportMaterialization(base)
+        guard var local = sanitizeOrphanedReportMaterialization(overlay), !local.isEmpty else {
+            return durable
         }
-        guard let base, !base.isEmpty else {
-            return overlay
+        guard let durable, !durable.isEmpty else {
+            return local
         }
-        return mergeJSONObjects(base: base, overlay: overlay)
+        if durable["reportDefinition"]?.objectValue != nil {
+            local = local.filter { !$0.key.hasPrefix("reportBuilder:") }
+        }
+        return mergeJSONObjects(base: local, overlay: durable)
+    }
+
+    nonisolated private static func sanitizeOrphanedReportMaterialization(
+        _ form: [String: AgentlySDK.JSONValue]?
+    ) -> [String: AgentlySDK.JSONValue]? {
+        guard var form,
+              let materialization = form["reportMaterialization"]?.objectValue,
+              case .string(let status)? = materialization["status"],
+              status.lowercased() == "running",
+              form["reportRunRequest"]?.objectValue == nil else {
+            return form
+        }
+        form.removeValue(forKey: "reportMaterialization")
+        return form
     }
 
     nonisolated private static func mergeJSONObjects(
@@ -1378,6 +1400,15 @@ internal func resolvedBootstrapActiveConversationID(
         return launchOverride
     }
     return storedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+internal func resolvedBootstrapStartsNewConversation(
+    launchArguments: [String],
+    developerAuthEnabled: Bool
+) -> Bool {
+    guard developerAuthEnabled else { return false }
+    return launchArguments.contains("--startNewConversation=1")
+        || launchArguments.contains("--startNewConversation=true")
 }
 
 internal struct DeveloperInitialWorkspaceRequest {
