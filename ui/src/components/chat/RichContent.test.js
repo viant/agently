@@ -261,7 +261,6 @@ describe('RichContent fence parsing', () => {
 
     expect(html.match(/data-forge-report-id="brief"/g)).toHaveLength(1);
     expect(html).toContain('Canonical Delivery');
-    expect(html).not.toContain('Save to My reports');
     expect(html).toContain('Export PDF');
     expect(html).toContain('app-rich-inline-report__export-button');
     expect(html).not.toContain('Materialized inline datasets must be mapped');

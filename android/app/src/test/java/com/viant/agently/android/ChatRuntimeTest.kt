@@ -28,6 +28,14 @@ import org.junit.Test
 class ChatRuntimeTest {
 
     @Test
+    fun toolActivityLabelsHumanizeProtocolNamesWithoutSemanticInference() {
+        assertEquals("Reporting Submit Export", userFacingToolActivity("reporting:submit_export"))
+        assertEquals("Steward Diagnostic", userFacingToolActivity("steward-Diagnostic"))
+        assertEquals("Forecast Run", userFacingToolActivity("forecast/run"))
+        assertNull(userFacingToolActivity("  "))
+    }
+
+    @Test
     fun turnProgress_conversationUsageIncludesSidecarModels() {
         val state = ConversationStateResponse(
             conversation = ConversationState(conversationId = "conv-usage"),
@@ -189,7 +197,7 @@ class ChatRuntimeTest {
 
         assertEquals("Working on your request", presentation?.title)
         assertEquals("Using a workspace tool.", presentation?.detail)
-        assertEquals("Reporting", presentation?.activity)
+        assertEquals("Reporting Run Report", presentation?.activity)
         assertEquals("0/1 done · 1 active", presentation?.toolProgress)
         assertEquals(listOf("reporting:run_report"), presentation?.toolDetails?.map { it.name })
         assertEquals(listOf("running"), presentation?.toolDetails?.map { it.status })

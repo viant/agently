@@ -5,59 +5,12 @@ import com.viant.forgeandroid.ui.TranscriptCanonicalReport
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import java.net.SocketTimeoutException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ForgeFenceRuntimeTest {
-
-    @Test
-    fun `canonical report suppresses matching legacy forge ui transport`() {
-        val parts = parseTranscriptContentParts(
-            """
-            Before
-            ```forge-ui
-            {"version":1,"title":"order_2684577_troubleshoot","blocks":[]}
-            ```
-            After
-            """.trimIndent()
-        )
-        val report = TranscriptCanonicalReport(
-            scope = "turn-1",
-            id = "order_2684577_troubleshoot",
-            grammar = "dashboard-v1",
-            status = "ready",
-            source = JsonObject(mapOf("title" to JsonPrimitive("Delivery troubleshoot — Order 2684577")))
-        )
-
-        val filtered = suppressCanonicalReportTransportParts(parts, listOf(report))
-
-        assertTrue(filtered.none { it is TranscriptContentPart.ForgeUi })
-        assertTrue(filtered.filterIsInstance<TranscriptContentPart.Markdown>().joinToString("\n") { it.text }.contains("Before"))
-        assertTrue(filtered.filterIsInstance<TranscriptContentPart.Markdown>().joinToString("\n") { it.text }.contains("After"))
-    }
-
-    @Test
-    fun `canonical report keeps unrelated forge ui content`() {
-        val parts = parseTranscriptContentParts(
-            """
-            ```forge-ui
-            {"version":1,"title":"Approval details","blocks":[]}
-            ```
-            """.trimIndent()
-        )
-        val report = TranscriptCanonicalReport(
-            scope = "turn-1",
-            id = "delivery_report",
-            grammar = "dashboard-v1",
-            status = "ready",
-            source = JsonObject(mapOf("title" to JsonPrimitive("Delivery report")))
-        )
-
-        val filtered = suppressCanonicalReportTransportParts(parts, listOf(report))
-
-        assertEquals(1, filtered.filterIsInstance<TranscriptContentPart.ForgeUi>().size)
-    }
 
     @Test
     fun `pending inline report is inactive and exposes build counts`() {
@@ -96,7 +49,7 @@ class ForgeFenceRuntimeTest {
         )
         assertEquals(
             "The report took too long to open. Try again.",
-            inlineReportPresentationErrorMessage(IllegalStateException("request timed out"))
+            inlineReportPresentationErrorMessage(SocketTimeoutException("request timed out"))
         )
     }
 
@@ -117,7 +70,7 @@ class ForgeFenceRuntimeTest {
             dataSources = mapOf(
                 "rows" to TranscriptCanonicalData(
                     version = 2,
-                    id = "rows",
+                    id = "transport_rows",
                     format = "json",
                     payload = JsonArray(listOf(JsonObject(mapOf("spend" to JsonPrimitive(12)))))
                 )
@@ -133,10 +86,11 @@ class ForgeFenceRuntimeTest {
         assertEquals(JsonPrimitive("authored-scope"), (fences[0]["payload"] as JsonObject)["scope"])
         assertEquals(JsonPrimitive("authored-scope"), (fences[1]["payload"] as JsonObject)["scope"])
         assertEquals(JsonPrimitive("authored-scope"), (fences[2]["payload"] as JsonObject)["scope"])
+        assertEquals(JsonPrimitive("rows"), (fences[1]["payload"] as JsonObject)["id"])
     }
 
     @Test
-    fun `inline report PDF source normalizes legacy KPI and timeline fields for Go compiler`() {
+    fun `inline report export preserves authored canonical source without host rewrites`() {
         val source = JsonObject(mapOf(
             "blocks" to JsonArray(listOf(
                 JsonObject(mapOf(
@@ -209,49 +163,23 @@ class ForgeFenceRuntimeTest {
             ))
         ))
 
-        val normalized = inlineReportPdfSource(source)
-        val blocks = normalized["blocks"] as JsonArray
-        val kpi = blocks[0] as JsonObject
-        val timeline = blocks[1] as JsonObject
-        val badges = blocks[2] as JsonObject
-        val infoPanel = blocks[3] as JsonObject
-        val table = blocks[4] as JsonObject
-        val chart = blocks[5] as JsonObject
-        val geo = blocks[6] as JsonObject
-        val collection = blocks[7] as JsonObject
+        val report = TranscriptCanonicalReport(
+            scope = "message",
+            id = "parity",
+            grammar = "report-document-v1",
+            status = "committed",
+            source = source
+        )
+        val start = inlineReportExportFences(report).first()["payload"] as JsonObject
+        val exportedBlocks = start["blocks"] as JsonArray
 
-        assertEquals(JsonPrimitive("Last seven days"), kpi["description"])
-        assertEquals(null, kpi["subtitle"])
-        assertEquals(null, kpi["suffix"])
-        assertEquals(JsonPrimitive("tableBlock"), timeline["kind"])
-        assertEquals(listOf("timestamp", "event", "detail"), (timeline["columns"] as JsonArray).map {
-            ((it as JsonObject)["key"] as JsonPrimitive).content
-        })
-        assertEquals(JsonPrimitive("badge_1"), (((badges["items"] as JsonArray)[0] as JsonObject)["id"]))
-        assertEquals(JsonPrimitive("markdownBlock"), infoPanel["kind"])
-        assertEquals(JsonPrimitive("Capacity detail"), infoPanel["markdown"])
-        assertEquals(null, table["description"])
-        assertEquals(null, table["link"])
-        val tableColumn = (table["columns"] as JsonArray)[0] as JsonObject
-        assertEquals(JsonPrimitive("link"), tableColumn["kind"])
-        assertEquals(null, tableColumn["type"])
-        assertEquals(null, tableColumn["link"])
-        assertEquals(
-            JsonPrimitive("dataBar"),
-            (tableColumn["cellVisual"] as JsonObject)["kind"]
-        )
-        assertEquals(null, chart["description"])
-        assertEquals(JsonPrimitive("line"), (chart["chartSpec"] as JsonObject)["type"])
-        assertEquals(null, geo["description"])
-        assertEquals(JsonPrimitive("tableBlock"), geo["kind"])
-        assertEquals(listOf("stateCode"), (geo["columns"] as JsonArray).map {
-            ((it as JsonObject)["key"] as JsonPrimitive).content
-        })
-        assertEquals(JsonPrimitive("tableBlock"), collection["kind"])
-        assertEquals(
-            listOf("finding", "importance", "feasibility", "driver", "next_check"),
-            (collection["columns"] as JsonArray).map { ((it as JsonObject)["key"] as JsonPrimitive).content }
-        )
+        assertEquals(source["blocks"], exportedBlocks)
+        assertEquals(JsonPrimitive("x"), (exportedBlocks[0] as JsonObject)["suffix"])
+        assertEquals(JsonPrimitive("warning"), (exportedBlocks[0] as JsonObject)["tone"])
+        assertEquals(JsonPrimitive("timelineBlock"), (exportedBlocks[1] as JsonObject)["kind"])
+        assertEquals(JsonPrimitive("infoPanelBlock"), (exportedBlocks[3] as JsonObject)["kind"])
+        assertEquals(JsonPrimitive("geoMapBlock"), (exportedBlocks[6] as JsonObject)["kind"])
+        assertEquals(JsonPrimitive("collectionBlock"), (exportedBlocks[7] as JsonObject)["kind"])
     }
 
     @Test

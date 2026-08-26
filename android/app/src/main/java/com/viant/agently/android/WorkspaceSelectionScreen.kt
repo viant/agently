@@ -19,6 +19,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -40,7 +41,10 @@ internal fun WorkspaceSelectionScreen(
     options: List<WorkspaceEndpointOption> = workspaceEndpointOptions,
     onContinue: (WorkspaceEndpointOption) -> Unit
 ) {
-    var selected by remember(options) { mutableStateOf(options.first()) }
+    var selected by remember(options) { mutableStateOf(options.firstOrNull()) }
+    var endpoint by remember(options) { mutableStateOf(options.firstOrNull()?.value.orEmpty()) }
+    val normalizedEndpoint = normalizeApiBaseUrl(endpoint)
+    val endpointValid = isValidWorkspaceBaseUrl(normalizedEndpoint)
 
     Box(
         modifier = Modifier
@@ -65,8 +69,8 @@ internal fun WorkspaceSelectionScreen(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "VIANT.",
-                    color = Color(0xFFC82032),
+                    "Agently",
+                    color = Color(0xFF172B4D),
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Black
                 )
@@ -76,34 +80,60 @@ internal fun WorkspaceSelectionScreen(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    "Connect Agently to the workspace used for planning, forecasting, and agent workflows.",
+                    "Connect to the workspace that provides your agents and workflows.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFF526070)
                 )
             }
 
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.92f)),
-                border = BorderStroke(1.dp, Color(0xFFDDE6F2))
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+            if (options.isNotEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.92f)),
+                    border = BorderStroke(1.dp, Color(0xFFDDE6F2))
                 ) {
-                    options.forEach { option ->
-                        WorkspaceEndpointRow(
-                            option = option,
-                            selected = option == selected,
-                            onSelect = { selected = option }
-                        )
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        options.forEach { option ->
+                            WorkspaceEndpointRow(
+                                option = option,
+                                selected = option == selected,
+                                onSelect = {
+                                    selected = option
+                                    endpoint = option.value
+                                }
+                            )
+                        }
                     }
                 }
             }
 
-            Button(
-                onClick = { onContinue(selected) },
+            OutlinedTextField(
+                value = endpoint,
+                onValueChange = {
+                    endpoint = it
+                    if (selected?.value != normalizeApiBaseUrl(it)) selected = null
+                },
+                label = { Text("Workspace URL") },
+                placeholder = { Text("https://workspace.example.com") },
+                singleLine = true,
+                isError = endpoint.isNotBlank() && !endpointValid,
+                supportingText = if (endpoint.isNotBlank() && !endpointValid) {
+                    { Text("Use a complete http:// or https:// URL.") }
+                } else null,
                 modifier = Modifier.fillMaxWidth()
+            )
+
+            Button(
+                onClick = {
+                    val option = selected?.takeIf { it.value == normalizedEndpoint }
+                        ?: workspaceEndpointOption(normalizedEndpoint)
+                    option?.let(onContinue)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = endpointValid
             ) {
                 Text("Continue")
             }

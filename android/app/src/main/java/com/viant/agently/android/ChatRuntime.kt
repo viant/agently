@@ -366,21 +366,13 @@ private fun isPendingTurnStatus(status: String?): Boolean =
 internal fun userFacingToolActivity(rawName: String?): String? {
     val raw = rawName?.trim().orEmpty()
     if (raw.isEmpty()) return null
-    val lower = raw.lowercase(Locale.US)
-    if ("reporting" in lower && "export" in lower) return "Preparing report export"
-    if ("reporting" in lower) return "Reporting"
-    if ("diagnostic" in lower) return "Delivery diagnostics"
-    if ("forecast" in lower) return "Forecasting"
-    if ("hierarchy" in lower) return "Loading hierarchy"
-    if ("resource" in lower) return "Reading workspace"
-    val leaf = raw.substringAfterLast('/').substringAfterLast(':')
-    return leaf.replace('_', ' ').replace('-', ' ')
+    return raw.replace('/', ' ').replace(':', ' ').replace('_', ' ').replace('-', ' ')
         .replace(Regex("([a-z0-9])([A-Z])"), "$1 $2")
         .trim()
         .split(Regex("\\s+"))
         .filter { it.isNotBlank() }
         .joinToString(" ") { token -> token.replaceFirstChar { it.uppercase(Locale.US) } }
-        .ifBlank { "Workspace tool" }
+        .takeIf { it.isNotBlank() }
 }
 
 internal fun latestActiveNarration(snapshot: ConversationStreamSnapshot?): String? {

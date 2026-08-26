@@ -128,7 +128,7 @@ internal fun SettingsScreen(
                             DropdownMenuItem(
                                 text = { Text("Reset overrides") },
                                 leadingIcon = { androidx.compose.material3.Icon(Icons.Outlined.RestartAlt, contentDescription = null) },
-                                enabled = !loading,
+                                enabled = !loading && isValidWorkspaceBaseUrl(configuredAppApiBaseUrl),
                                 onClick = {
                                     actionsMenuExpanded = false
                                     onResetAppOverrides()

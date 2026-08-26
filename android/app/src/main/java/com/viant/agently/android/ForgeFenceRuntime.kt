@@ -55,12 +55,14 @@ import com.viant.agentlysdk.RenderedContentPart
 import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.FetchDatasourceInput
 import com.viant.agentlysdk.fetchDatasource
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import java.net.SocketTimeoutException
 
 internal typealias ForgeDataFenceBlock = ForgeTranscriptDataBlock
 internal typealias ForgeUiFencePayload = ForgeTranscriptUiPayload
@@ -93,7 +95,7 @@ internal fun TranscriptMessageContent(
         if (renderedReports.isNullOrEmpty()) {
             sourceParts
         } else {
-            suppressCanonicalReportTransportParts(sourceParts, renderedReports).map { part ->
+            sourceParts.map { part ->
                 when (part) {
                     is TranscriptContentPart.Markdown -> TranscriptContentPart.Markdown(
                         ForgeTranscriptEnvelope.suppressProgressiveTransport(part.text)
@@ -138,29 +140,6 @@ internal fun TranscriptMessageContent(
                 onOpenInlineReportPdf = onOpenInlineReportPdf
             )
         }
-    }
-}
-
-internal fun suppressCanonicalReportTransportParts(
-    parts: List<TranscriptContentPart>,
-    reports: List<ForgeTranscriptCanonicalReport>
-): List<TranscriptContentPart> {
-    if (parts.isEmpty() || reports.isEmpty()) return parts
-    val canonicalTitles = reports.flatMap { report ->
-        listOfNotNull(
-            report.id,
-            (report.source as? JsonObject)
-                ?.get("title")
-                ?.jsonPrimitive
-                ?.contentOrNull
-        )
-    }.map { it.trim().lowercase() }
-        .filter { it.isNotEmpty() }
-        .toSet()
-    if (canonicalTitles.isEmpty()) return parts
-    return parts.filterNot { part ->
-        part is TranscriptContentPart.ForgeUi &&
-            part.payload.title.orEmpty().trim().lowercase() in canonicalTitles
     }
 }
 
@@ -402,12 +381,10 @@ private fun TranscriptInlineReportDialog(
 }
 
 internal fun inlineReportPresentationErrorMessage(error: Throwable?): String {
-    val details = generateSequence(error) { it.cause }
-        .mapNotNull { it.message?.trim()?.takeIf(String::isNotEmpty) }
-        .joinToString(" ")
-        .lowercase()
+    val timedOut = generateSequence(error) { it.cause }
+        .any { it is SocketTimeoutException || it is TimeoutCancellationException }
     return when {
-        "timeout" in details || "timed out" in details ->
+        timedOut ->
             "The report took too long to open. Try again."
         else -> "Unable to open this report. Try again."
     }
@@ -429,7 +406,7 @@ internal fun inlineReportExportFences(
         ?: report.scope
     var sequence = 1
     val fences = mutableListOf<Map<String, Any?>>()
-    val reportStart = JsonObject(inlineReportPdfSource(source).toMutableMap().apply {
+    val reportStart = JsonObject(source.toMutableMap().apply {
         put("version", JsonPrimitive(1))
         put("scope", JsonPrimitive(exportScope))
         put("id", JsonPrimitive(report.id))
@@ -445,7 +422,7 @@ internal fun inlineReportExportFences(
             "scope" to JsonPrimitive(exportScope),
             "reportRef" to JsonPrimitive(dataSource.reportRef ?: report.id),
             "sequence" to JsonPrimitive(sequence++),
-            "id" to JsonPrimitive(dataSource.id.ifBlank { key }),
+            "id" to JsonPrimitive(key.ifBlank { dataSource.id }),
             "format" to JsonPrimitive(dataSource.format?.ifBlank { "json" } ?: "json"),
             "mode" to JsonPrimitive("replace"),
             "data" to payload
@@ -463,201 +440,6 @@ internal fun inlineReportExportFences(
     )
     fences += exportFence("forge-report", fences.size, commit)
     return fences
-}
-
-internal fun inlineReportPdfSource(source: JsonObject): JsonObject {
-    val blocks = source["blocks"] as? JsonArray ?: return source
-    val normalizedBlocks = blocks.map { element ->
-        val block = element as? JsonObject ?: return@map element
-        val values = block.toMutableMap()
-        when ((values["kind"] as? JsonPrimitive)?.content) {
-            "tableBlock" -> {
-                // Interactive report cards may carry explanatory copy here, but the
-                // Go reporting schema keeps table descriptions outside the block.
-                values.remove("description")
-                // Link/drill metadata is interactive-only. The Go PDF schema is
-                // deliberately strict and renders the table snapshot without it.
-                values.remove("link")
-                values["columns"] = normalizeInlineReportPdfColumns(values["columns"])
-            }
-            "kpiBlock" -> {
-                if (values["description"] == null) {
-                    values["subtitle"]?.let { values["description"] = it }
-                }
-                values.remove("subtitle")
-                values.remove("suffix")
-                values.remove("tone")
-            }
-            "chartBlock" -> {
-                // Descriptive/interaction fields are rendered by the native UI,
-                // but the Go chart export contract accepts only the chart model.
-                val allowed = setOf("id", "kind", "title", "datasetRef", "chartSpec", "chartModel", "runtime")
-                values.keys.toList().filterNot(allowed::contains).forEach(values::remove)
-            }
-            "geoMapBlock" -> {
-                // The deployed Go fenced compiler validates geo fills but older
-                // versions do not materialize them. Preserve the evidence as a
-                // printable table until that backend is upgraded.
-                val geo = values.remove("geo") as? JsonObject
-                val key = (geo?.get("key") as? JsonPrimitive)?.content.orEmpty()
-                val labelKey = (geo?.get("labelKey") as? JsonPrimitive)?.content.orEmpty()
-                val metric = geo?.get("metric") as? JsonObject
-                val metricKey = (metric?.get("key") as? JsonPrimitive)?.content.orEmpty()
-                val metricLabel = (metric?.get("label") as? JsonPrimitive)?.content.orEmpty()
-                val metricFormat = metric?.get("format")
-                val columns = mutableListOf<JsonElement>()
-                fun addColumn(field: String, label: String, format: JsonElement? = null) {
-                    if (field.isBlank() || columns.any { (it as? JsonObject)?.get("key") == JsonPrimitive(field) }) return
-                    columns += JsonObject(buildMap {
-                        put("key", JsonPrimitive(field))
-                        put("label", JsonPrimitive(label.ifBlank { field.replaceFirstChar(Char::uppercase) }))
-                        format?.let { put("format", it) }
-                    })
-                }
-                addColumn(key, "Region")
-                addColumn(labelKey, "Region name")
-                addColumn(metricKey, metricLabel, metricFormat)
-                values["kind"] = JsonPrimitive("tableBlock")
-                values["columns"] = JsonArray(columns)
-                values.remove("description")
-            }
-            "collectionBlock" -> {
-                // Older Go fenced compilers validate collections but do not
-                // materialize collection fill content. Export their authored
-                // fields as a full-width evidence table instead.
-                val fields = linkedSetOf<String>()
-                (values["itemTitleField"] as? JsonPrimitive)?.content?.takeIf(String::isNotBlank)?.let(fields::add)
-                (values["toneField"] as? JsonPrimitive)?.content?.takeIf(String::isNotBlank)?.let(fields::add)
-                (values["valueField"] as? JsonPrimitive)?.content?.takeIf(String::isNotBlank)?.let(fields::add)
-                (values["secondaryField"] as? JsonPrimitive)?.content?.takeIf(String::isNotBlank)?.let(fields::add)
-                (values["bodyTemplate"] as? JsonPrimitive)?.content
-                    ?.let(::inlineReportTemplateFields)
-                    ?.let(fields::addAll)
-                values["kind"] = JsonPrimitive("tableBlock")
-                values["columns"] = JsonArray(fields.map { field ->
-                    JsonObject(mapOf(
-                        "key" to JsonPrimitive(field),
-                        "label" to JsonPrimitive(field.replace('_', ' ').replaceFirstChar(Char::uppercase))
-                    ))
-                })
-            }
-            "timelineBlock" -> {
-                val timeField = (values.remove("timeField") as? JsonPrimitive)?.content.orEmpty()
-                val titleField = (values.remove("titleField") as? JsonPrimitive)?.content.orEmpty()
-                val descriptionField = (values.remove("descriptionField") as? JsonPrimitive)?.content.orEmpty()
-                val columns = mutableListOf<JsonElement>()
-                fun addColumn(key: String, label: String) {
-                    if (key.isNotBlank()) {
-                        columns += JsonObject(mapOf("key" to JsonPrimitive(key), "label" to JsonPrimitive(label)))
-                    }
-                }
-                addColumn(timeField, "Time")
-                addColumn(titleField, "Event")
-                addColumn(descriptionField, "Detail")
-                (values["columns"] as? JsonArray)?.let(columns::addAll)
-                values["kind"] = JsonPrimitive("tableBlock")
-                values["columns"] = JsonArray(columns.distinctBy { column ->
-                    ((column as? JsonObject)?.get("key") as? JsonPrimitive)?.content.orEmpty()
-                })
-            }
-            "badgesBlock" -> {
-                val items = values["items"] as? JsonArray
-                if (items != null) {
-                    values["items"] = JsonArray(items.mapIndexed { index, item ->
-                        val badge = item as? JsonObject ?: return@mapIndexed item
-                        if (badge["id"] != null) return@mapIndexed badge
-                        JsonObject(badge.toMutableMap().apply {
-                            put("id", JsonPrimitive("badge_${index + 1}"))
-                        })
-                    })
-                }
-            }
-            "infoPanelBlock", "calloutBlock" -> {
-                val markdown = values["body"] ?: values["description"] ?: JsonPrimitive("")
-                val id = values["id"]
-                val title = values["title"]
-                values.clear()
-                id?.let { values["id"] = it }
-                values["kind"] = JsonPrimitive("markdownBlock")
-                title?.let { values["title"] = it }
-                values["markdown"] = markdown
-            }
-        }
-        JsonObject(retainInlineReportPdfBlockFields(values))
-    }
-    return JsonObject(source.toMutableMap().apply { put("blocks", JsonArray(normalizedBlocks)) })
-}
-
-private fun inlineReportTemplateFields(template: String): List<String> {
-    val prefix = "${'$'}{row."
-    val result = mutableListOf<String>()
-    var cursor = 0
-    while (cursor < template.length) {
-        val start = template.indexOf(prefix, cursor)
-        if (start < 0) break
-        val end = template.indexOf('}', start + prefix.length)
-        if (end < 0) break
-        template.substring(start + prefix.length, end)
-            .trim().takeIf { it.isNotEmpty() }?.let(result::add)
-        cursor = end + 1
-    }
-    return result.distinct()
-}
-
-private fun retainInlineReportPdfBlockFields(values: MutableMap<String, JsonElement>): Map<String, JsonElement> {
-    val common = setOf("id", "kind", "runtime")
-    val allowed = when ((values["kind"] as? JsonPrimitive)?.content) {
-        "tableBlock" -> common + setOf("title", "datasetRef", "columns")
-        "chartBlock" -> common + setOf("title", "datasetRef", "chartSpec", "chartModel")
-        "kpiBlock" -> common + setOf(
-            "title", "datasetRef", "valueField", "valueLabel", "valueFormat",
-            "secondaryField", "secondaryLabel", "secondaryFormat", "secondaryDisplayKey",
-            "secondaryDisplayValueMap", "description", "emptyLabel", "rowSelector",
-            "presentationMode", "bodyFormat", "bodyTemplate"
-        )
-        "badgesBlock" -> common + setOf("title", "datasetRef", "items")
-        "collectionBlock" -> common + setOf(
-            "title", "description", "datasetRef", "itemTitleField", "itemTitleLabel",
-            "toneField", "toneRules", "valueField", "valueLabel", "valueFormat",
-            "secondaryField", "secondaryLabel", "secondaryFormat", "layout", "columns",
-            "rowLimit", "bodyFormat", "bodyTemplate", "emptyLabel"
-        )
-        "sectionBlock" -> common + setOf("title", "subtitle", "description", "navigationLabel")
-        "compositeBlock" -> common + setOf("title", "description", "childBlockIds")
-        "tabGroupBlock" -> common + setOf("title", "sectionIds", "defaultSectionId")
-        "stepperBlock" -> common + setOf("title", "description", "steps")
-        "infoPanelBlock" -> common + setOf("title", "eyebrow", "description", "tone", "bodyFormat", "body")
-        "calloutBlock" -> common + setOf("title", "icon", "description", "tone", "badges", "bodyFormat", "body")
-        "kanbanBlock" -> common + setOf("title", "description", "columns")
-        "timelineBlock" -> common + setOf("title", "description", "events")
-        "filterBarBlock" -> common + setOf(
-            "title", "datasetRef", "paramIds", "mode", "placement", "groupOrder",
-            "visibleGroups", "collapsedGroups"
-        )
-        "refinementBarBlock" -> common + setOf("title", "actionKinds", "emptyLabel")
-        "markdownBlock" -> common + setOf("title", "markdown")
-        "geoMapBlock" -> common + setOf("title", "datasetRef", "geo")
-        else -> values.keys
-    }
-    return values.filterKeys(allowed::contains)
-}
-
-private fun normalizeInlineReportPdfColumns(value: JsonElement?): JsonArray {
-    val allowed = setOf(
-        "key", "sourceKey", "displayKey", "label", "kind", "format", "align",
-        "cellVisual", "runtimeFilterable"
-    )
-    return JsonArray((value as? JsonArray).orEmpty().map { element ->
-        val column = element as? JsonObject ?: return@map element
-        JsonObject(buildMap {
-            column.forEach { (key, item) ->
-                when {
-                    key in allowed -> put(key, item)
-                    key == "type" && column["kind"] == null -> put("kind", item)
-                }
-            }
-        })
-    })
 }
 
 private fun exportFence(kind: String, index: Int, payload: JsonObject): Map<String, Any?> =

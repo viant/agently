@@ -131,16 +131,22 @@ internal suspend fun exportReportRuntimePdf(
 }
 
 private fun normalizeReportRuntimeExportRequest(exportRequest: Map<String, Any?>): Map<String, JsonElement> {
-    val artifactRef = stringValue(exportRequest["artifactRef"]).ifBlank {
-        "report://runtime/${stringValue(exportRequest["title"]).ifBlank { "report" }}"
-    }
+    val artifactRef = stringValue(exportRequest["artifactRef"])
+        .takeIf { it.isNotBlank() }
+        ?: error("Report PDF export requires artifactRef.")
+    val reportSpec = JsonUtil.anyToElement(exportRequest["reportSpec"]) as? JsonObject
+        ?: error("Report PDF export requires reportSpec.")
+    val reportFill = JsonUtil.anyToElement(exportRequest["reportFill"]) as? JsonObject
+        ?: error("Report PDF export requires reportFill.")
+    val reportPrint = JsonUtil.anyToElement(exportRequest["reportPrint"]) as? JsonObject
+        ?: error("Report PDF export requires reportPrint.")
     return linkedMapOf(
         "artifactRef" to JsonPrimitive(artifactRef),
         "format" to JsonPrimitive("pdf"),
         "scope" to JsonPrimitive("draft"),
-        "reportSpec" to JsonUtil.anyToElement(exportRequest["reportSpec"]),
-        "reportFill" to JsonUtil.anyToElement(exportRequest["reportFill"]),
-        "reportPrint" to JsonUtil.anyToElement(exportRequest["reportPrint"])
+        "reportSpec" to reportSpec,
+        "reportFill" to reportFill,
+        "reportPrint" to reportPrint
     )
 }
 
@@ -246,14 +252,8 @@ internal fun reportRuntimeExportErrorMessage(error: Throwable): String {
         ?.replace("\n", " ")
         ?.trim()
 	val detail = serverDetail
-		?.removePrefix("reporting export:")
 		?.trim()
 		?.takeIf { it.isNotBlank() }
-	val diagnostic = (detail ?: raw).lowercase()
-	if (diagnostic.contains("scratchpad") || diagnostic.contains("storage.googleapis.com") ||
-		diagnostic.contains("unable to generate access token")) {
-		return "The PDF was created, but report storage is temporarily unavailable. Please try again."
-	}
     return if (detail == null) {
         "Unable to create the report PDF. Please try again."
     } else {
