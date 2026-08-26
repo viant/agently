@@ -41,7 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.CameraAlt
-import androidx.compose.material.icons.outlined.Cancel
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.KeyboardHide
@@ -286,7 +286,7 @@ internal fun PhoneComposerDock(
                         if (query.isNotBlank() || composerAttachments.isNotEmpty() || lookupSelections.isNotEmpty()) {
                             CompactComposerIconButton(
                                 contentDescription = "Clear composer",
-                                icon = { Icon(Icons.Outlined.Cancel, contentDescription = null) },
+                                icon = { Icon(Icons.Outlined.Close, contentDescription = null) },
                                 onClick = {
                                     hideKeyboard()
                                     onClearComposer()
@@ -340,7 +340,7 @@ internal fun PhoneComposerDock(
                     if (query.isNotBlank() || composerAttachments.isNotEmpty() || lookupSelections.isNotEmpty()) {
                         CompactComposerIconButton(
                             contentDescription = "Clear composer",
-                            icon = { Icon(Icons.Outlined.Cancel, contentDescription = null) },
+                            icon = { Icon(Icons.Outlined.Close, contentDescription = null) },
                             onClick = onClearComposer
                         )
                     }

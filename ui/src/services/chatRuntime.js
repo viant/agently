@@ -1332,10 +1332,11 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
   }
   const activeChatState = typeof window !== 'undefined' ? window.__agentlyActiveChatState : null;
   const latestTurnLiveOwned = transcriptShouldBeIdle(activeChatState, conversationID);
-  if (hasPendingConversationBootstrap(conversationID) || hasActiveConversationTurnStream(conversationID) || latestTurnLiveOwned) {
+  const pendingBootstrap = hasPendingConversationBootstrap(conversationID);
+  if (!pendingBootstrap && (hasActiveConversationTurnStream(conversationID) || latestTurnLiveOwned)) {
     logExecutorDebug('transcript-fetch-deferred-to-sse-owner', {
       conversationId: String(conversationID || '').trim(),
-      pendingBootstrap: hasPendingConversationBootstrap(conversationID),
+      pendingBootstrap,
       activeStreamOwner: hasActiveConversationTurnStream(conversationID),
       localLiveOwner: latestTurnLiveOwned
     });
@@ -1368,7 +1369,9 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
   const transcriptOptions = options?.selectors
     ? { selectors: options.selectors }
     : undefined;
-  const payload = await client.getTranscript(transcriptInput, transcriptOptions);
+  const payload = pendingBootstrap && !since && typeof client.getLiveState === 'function'
+    ? await client.getLiveState(transcriptInput, transcriptOptions)
+    : await client.getTranscript(transcriptInput, transcriptOptions);
   const data = payload || {};
   const canonicalConversation = data?.conversation && typeof data.conversation === 'object'
     ? data.conversation
