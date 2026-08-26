@@ -168,7 +168,10 @@ class AppSettingsRuntimeTest {
 
     @Test
     fun workspaceEndpointOptions_haveNoSourceLevelWorkspacePreset() {
-        assertEquals(emptyList<WorkspaceEndpointOption>(), workspaceEndpointOptions)
+        assertEquals(
+            emptyList<WorkspaceEndpointOption>(),
+            mergeWorkspaceEndpointOptions(configured = emptyList(), buildOptions = emptyList())
+        )
     }
 
     @Test
@@ -302,7 +305,8 @@ class AppSettingsRuntimeTest {
             resolveInitialApiBaseUrl(
                 configuredBaseUrl = "",
                 storedSettings = AppSettings(),
-                preferExplicitBuildEndpoint = false
+                preferExplicitBuildEndpoint = false,
+                availableOptions = emptyList()
             )
         )
     }
