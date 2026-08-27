@@ -154,8 +154,11 @@ function conversationStatusTone(row = {}) {
 }
 
 export function conversationDeletionBlocked(row = {}) {
-  if (row?.Running === true || row?.running === true) return true;
   const status = String(row?.Status || row?.status || '').trim().toLowerCase();
+  if (['succeeded', 'completed', 'complete', 'success', 'done', 'ok', 'failed', 'error', 'canceled', 'cancelled'].includes(status)) {
+    return false;
+  }
+  if (row?.Running === true || row?.running === true) return true;
   const stage = String(row?.Stage || row?.stage || '').trim().toLowerCase();
   return ['running', 'in_progress', 'processing', 'queued', 'thinking', 'streaming'].includes(status)
     || ['running', 'executing', 'processing', 'queued', 'thinking', 'streaming'].includes(stage);
@@ -207,9 +210,27 @@ export function fillDeletedSidebarPageFromOlder({
 
 export function conversationDeleteErrorMessage(err) {
   const status = Number(err?.status || err?.statusCode || 0);
-  const message = String(err?.body || err?.message || err || '').trim();
-  if (status === 409 || /still in progress|in progress|active/i.test(message)) {
+  const rawMessage = err?.body ?? err?.payload ?? err?.message ?? err ?? '';
+  const message = typeof rawMessage === 'object'
+    ? String(rawMessage?.error || rawMessage?.message || JSON.stringify(rawMessage)).trim()
+    : String(rawMessage).trim();
+  if (/conversation_graph_non_terminal/i.test(message)) {
+    return 'Conversation or one of its child conversations has not finished yet.';
+  }
+  if (/conversation_graph_referenced/i.test(message)) {
+    return 'This conversation is still linked from another conversation and cannot be deleted.';
+  }
+  if (/conversation_schedule_referenced/i.test(message)) {
+    return 'A user schedule still references this conversation. Remove the schedule first.';
+  }
+  if (/conversation_graph_too_large/i.test(message)) {
+    return 'This conversation tree is too large to delete in one operation.';
+  }
+  if (/still in progress|in progress|active/i.test(message)) {
     return 'Conversation is still in progress and cannot be deleted yet.';
+  }
+  if (status === 409) {
+    return message || 'Conversation cannot be deleted because it is still in use.';
   }
   if (status === 403 || /permission denied|forbidden/i.test(message)) {
     return 'Only the conversation owner can delete this conversation.';
