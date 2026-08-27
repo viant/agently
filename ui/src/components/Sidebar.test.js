@@ -207,6 +207,7 @@ describe('conversation delete helpers', () => {
     expect(conversationDeletionBlocked({ status: 'running' })).toBe(true);
     expect(conversationDeletionBlocked({ running: true })).toBe(true);
     expect(conversationDeletionBlocked({ status: 'succeeded', stage: 'done' })).toBe(false);
+    expect(conversationDeletionBlocked({ status: 'succeeded', stage: 'executing', running: true })).toBe(false);
     expect(conversationDeletionBlocked({ title: 'Legacy row without lifecycle' })).toBe(false);
   });
 
@@ -226,6 +227,16 @@ describe('conversation delete helpers', () => {
   it('maps delete failures to actionable messages', () => {
     expect(conversationDeleteErrorMessage({ status: 409, body: 'conversation is still in progress' }))
       .toBe('Conversation is still in progress and cannot be deleted yet.');
+    expect(conversationDeleteErrorMessage({ status: 409, body: 'conversation_graph_non_terminal: blocked' }))
+      .toBe('Conversation or one of its child conversations has not finished yet.');
+    expect(conversationDeleteErrorMessage({ status: 409, body: 'conversation_graph_referenced: blocked' }))
+      .toBe('This conversation is still linked from another conversation and cannot be deleted.');
+    expect(conversationDeleteErrorMessage({ status: 409, body: 'conversation_schedule_referenced: blocked' }))
+      .toBe('A user schedule still references this conversation. Remove the schedule first.');
+    expect(conversationDeleteErrorMessage({ status: 409, body: 'conversation_graph_too_large: blocked' }))
+      .toBe('This conversation tree is too large to delete in one operation.');
+    expect(conversationDeleteErrorMessage({ status: 409, payload: { error: 'conversation_graph_non_terminal: blocked' } }))
+      .toBe('Conversation or one of its child conversations has not finished yet.');
     expect(conversationDeleteErrorMessage({ status: 403, body: 'permission denied' }))
       .toBe('Only the conversation owner can delete this conversation.');
     expect(conversationDeleteErrorMessage({ status: 404, body: 'conversation not found' }))
