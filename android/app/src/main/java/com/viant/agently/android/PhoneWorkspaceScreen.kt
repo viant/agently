@@ -25,6 +25,7 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.KeyboardHide
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.AlertDialog
@@ -95,6 +96,7 @@ internal fun PhoneWorkspacePane(
     onNewConversation: () -> Unit,
     onSelectAgent: (String?) -> Unit,
     onOpenHistory: () -> Unit,
+    onOpenAutomation: () -> Unit,
     onOpenSettings: () -> Unit,
     onSelectConversation: (String) -> Unit,
     onEditChange: (String, String, JsonElement) -> Unit,
@@ -151,10 +153,10 @@ internal fun PhoneWorkspacePane(
                 if (workspaceFocused) {
                     Modifier.padding(bottom = bottomComposerInset)
                 } else {
-                    Modifier.verticalScroll(rememberScrollState())
+                    Modifier
                 }
             ),
-        verticalArrangement = Arrangement.spacedBy(if (workspaceFocused) 10.dp else 16.dp)
+        verticalArrangement = Arrangement.spacedBy(if (workspaceFocused) 2.dp else 6.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -238,6 +240,12 @@ internal fun PhoneWorkspacePane(
                         )
                     }
                     PhoneToolbarAction(
+                        icon = Icons.Outlined.Schedule,
+                        contentDescription = "Automation",
+                        onClick = onOpenAutomation,
+                        accent = Color(0xFF16877D)
+                    )
+                    PhoneToolbarAction(
                         icon = Icons.Outlined.Settings,
                         contentDescription = "Settings",
                         onClick = onOpenSettings,
@@ -247,6 +255,16 @@ internal fun PhoneWorkspacePane(
                 }
             }
         }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .then(
+                    if (workspaceFocused) Modifier
+                    else Modifier.verticalScroll(rememberScrollState())
+                ),
+            verticalArrangement = Arrangement.spacedBy(if (workspaceFocused) 10.dp else 16.dp)
+        ) {
         error?.let {
             Surface(
                 color = Color(0xFFFFF1F0),
@@ -385,6 +403,7 @@ internal fun PhoneWorkspacePane(
         }
         if (!workspaceFocused) {
             Spacer(modifier = Modifier.height(bottomComposerInset))
+        }
         }
     }
 }

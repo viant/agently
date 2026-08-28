@@ -1,5 +1,6 @@
 - id: general
   title: General
+  dataSourceRef: schedules
   layout:
     orientation: horizontal
     columns: 2
@@ -104,6 +105,7 @@
 
 - id: schedule
   title: Schedule
+  dataSourceRef: schedules
   layout:
     orientation: horizontal
     columns: 3
@@ -428,50 +430,9 @@
         - event: onVisible
           handler: schedule.hideField
 
-- id: security
-  title: Security
-  layout:
-    orientation: horizontal
-    columns: 2
-    labelPosition: top
-  style:
-    maxWidth: 1040px
-    margin: 0
-    paddingRight: 8px
-  items:
-    - id: _securityBanner
-      type: markdown
-      columnSpan: 2
-      properties:
-        value: "Automations run under the current workspace sandbox policy and use the configured user secrets (`userCredUrl`) for authenticated calls. Use least-privilege secrets and only grant required scopes."
-        style:
-          padding: '10px 12px'
-          border: '1px solid #b7d1ff'
-          borderRadius: '10px'
-          background: '#f7fbff'
-          color: '#1f2937'
-          fontSize: '12px'
-          marginBottom: '4px'
-
-    - id: userCredUrl
-      label: User Secrets URL
-      type: text
-      columnSpan: 2
-      on:
-        - event: onInput
-          handler: schedule.syncScheduleFields
-        - event: onKeyUp
-          handler: schedule.syncScheduleFields
-        - event: onBlur
-          handler: schedule.syncScheduleFields
-        - event: onChange
-          handler: schedule.syncScheduleFields
-      properties:
-        placeholder: "scy://secret/path|key"
-        helperText: "Credential reference for authenticated API calls during execution"
-
 - id: execution
   title: Execution
+  dataSourceRef: schedules
   layout:
     orientation: horizontal
     columns: 2

@@ -2,31 +2,46 @@ namespace: Automation
 
 view:
   content:
-    tabs:
-      vertical: false
-
     containers:
-      - id: schedulesCatalogue
-        title: Automations
+      - id: automationGuidance
         dataSourceRef: schedules
+        visibleWhen:
+          all:
+            - source: collection
+              empty: true
+            - source: windowForm
+              field: automationView
+              notEquals: editor
         table: $import('table/schedules.yaml')
 
-      - id: scheduleEditor
-        title: Definition
+      - id: automationEditor
         dataSourceRef: schedules
+        visibleWhen:
+          source: windowForm
+          field: automationView
+          equals: editor
+        toolbar: $import('toolbar/setup.yaml')
         tabs:
           vertical: false
+          presentation: views
+          showBack: true
+          listTitle: Setup sections
         containers: $import('form.yaml')
 
-      - id: scheduleRuns
-        title: Run History
-        dataSourceRef: runs
-        fetchData: false
-        table: $import('history/table/runs.yaml')
+      - id: automationCatalogue
+        dataSourceRef: schedules
+        visibleWhen:
+          all:
+            - source: collection
+              notEmpty: true
+            - source: windowForm
+              field: automationView
+              notEquals: editor
+        table: $import('table/schedules.yaml')
+
 
 dataSource:
   schedules: $import('datasource/schedules.yaml')
-  runs: $import('datasource/runs.yaml')
   agentsLov: $import('datasource/agents_lov.yaml')
   modelsLov: $import('datasource/models_lov.yaml')
 

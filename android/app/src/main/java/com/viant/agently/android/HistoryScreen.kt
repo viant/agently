@@ -270,6 +270,7 @@ internal fun ConversationHistoryScreen(
     workspaceTitle: String,
     client: AgentlyClient,
     conversations: List<Conversation>,
+    scheduleFilter: ScheduleHistoryFilter? = null,
     activeConversationId: String?,
     openingConversationId: String?,
     loading: Boolean,
@@ -283,7 +284,35 @@ internal fun ConversationHistoryScreen(
     var remoteConversations by remember { mutableStateOf<List<Conversation>>(emptyList()) }
     var remoteSearching by remember { mutableStateOf(false) }
     var pendingDeletion by remember { mutableStateOf<Conversation?>(null) }
-    LaunchedEffect(query, client) {
+    var scheduleConversations by remember(scheduleFilter?.scheduleId) {
+        mutableStateOf<List<Conversation>>(emptyList())
+    }
+    var scheduleLoading by remember(scheduleFilter?.scheduleId) { mutableStateOf(false) }
+    var scheduleError by remember(scheduleFilter?.scheduleId) { mutableStateOf<String?>(null) }
+    var scheduleRefreshKey by remember(scheduleFilter?.scheduleId) { mutableStateOf(0) }
+    LaunchedEffect(scheduleFilter?.scheduleId) {
+        query = ""
+        remoteQuery = ""
+        remoteConversations = emptyList()
+    }
+    LaunchedEffect(scheduleFilter?.scheduleId, scheduleRefreshKey, client) {
+        val scheduleId = scheduleFilter?.scheduleId ?: return@LaunchedEffect
+        scheduleLoading = true
+        scheduleError = null
+        try {
+            scheduleConversations = client.listConversations(
+                ListConversationsInput(
+                    scheduleId = scheduleId,
+                    page = PageInput(limit = 100)
+                )
+            ).rows
+        } catch (error: Throwable) {
+            scheduleError = error.message ?: "Unable to load schedule run history."
+        } finally {
+            scheduleLoading = false
+        }
+    }
+    LaunchedEffect(query, client, scheduleFilter?.scheduleId) {
         val normalized = query.trim()
         if (normalized.length < 2) {
             remoteQuery = ""
@@ -294,17 +323,25 @@ internal fun ConversationHistoryScreen(
         remoteSearching = true
         delay(300)
         runCatching {
-            val exactId = conversationIdFromHistorySearch(normalized)
+            val exactId = conversationIdFromHistorySearch(normalized).takeIf { scheduleFilter == null }
             if (exactId != null) {
                 listOf(client.getConversation(exactId))
             } else {
                 val direct = client.listConversations(
-                    ListConversationsInput(query = normalized, page = PageInput(limit = 100))
+                    ListConversationsInput(
+                        scheduleId = scheduleFilter?.scheduleId,
+                        query = normalized,
+                        page = PageInput(limit = 100)
+                    )
                 ).rows
                 if (direct.isNotEmpty() || normalized.none(Char::isDigit)) {
                     direct
                 } else {
-                    searchOlderConversationsByLoadedFields(client, normalized)
+                    searchOlderConversationsByLoadedFields(
+                        client = client,
+                        query = normalized,
+                        scheduleId = scheduleFilter?.scheduleId
+                    )
                 }
             }
         }.onSuccess { rows ->
@@ -313,12 +350,13 @@ internal fun ConversationHistoryScreen(
         }
         remoteSearching = false
     }
-    val filteredConversations = remember(conversations, query, remoteQuery, remoteConversations) {
+    val sourceConversations = if (scheduleFilter == null) conversations else scheduleConversations
+    val filteredConversations = remember(sourceConversations, query, remoteQuery, remoteConversations) {
         val normalized = query.trim()
         if (normalized.length >= 2 && remoteQuery == normalized) {
             remoteConversations
         } else {
-            filterPhoneConversationHistory(conversations, query)
+            filterPhoneConversationHistory(sourceConversations, query)
         }
     }
     Column(
@@ -343,9 +381,13 @@ internal fun ConversationHistoryScreen(
                             style = MaterialTheme.typography.labelMedium,
                             color = Color(0xFF667085)
                         )
-                        Text("History", style = MaterialTheme.typography.headlineSmall)
                         Text(
-                            "Search and open a workspace conversation.",
+                            if (scheduleFilter == null) "History" else "Run History",
+                            style = MaterialTheme.typography.headlineSmall
+                        )
+                        Text(
+                            scheduleFilter?.let { "Schedule: ${it.scheduleName}" }
+                                ?: "Search and open a workspace conversation.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color(0xFF667085),
                             maxLines = 1,
@@ -358,24 +400,32 @@ internal fun ConversationHistoryScreen(
                     ) {
                         PhoneToolbarAction(
                             icon = Icons.Outlined.Home,
-                            contentDescription = "Home",
+                            contentDescription = if (scheduleFilter == null) "Home" else "Back to automations",
                             onClick = onBack,
                             accent = Color(0xFF5965D8)
                         )
                         PhoneToolbarAction(
                             icon = Icons.Outlined.Refresh,
-                            contentDescription = "Refresh conversations",
-                            onClick = onRefresh,
+                            contentDescription = if (scheduleFilter == null) {
+                                "Refresh conversations"
+                            } else {
+                                "Refresh schedule run history"
+                            },
+                            onClick = {
+                                if (scheduleFilter == null) onRefresh() else scheduleRefreshKey += 1
+                            },
                             accent = Color(0xFF0A9B98),
-                            enabled = !loading,
-                            loading = loading
+                            enabled = !loading && !scheduleLoading,
+                            loading = loading || scheduleLoading
                         )
                     }
                 }
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    placeholder = { Text("Search conversations") },
+                    placeholder = {
+                        Text(if (scheduleFilter == null) "Search conversations" else "Search schedule runs")
+                    },
                     leadingIcon = {
                         Icon(Icons.Outlined.Search, contentDescription = null)
                     },
@@ -400,12 +450,26 @@ internal fun ConversationHistoryScreen(
                         Text("Searching all conversations…", style = MaterialTheme.typography.bodySmall)
                     }
                 }
+                scheduleError?.let { message ->
+                    Text(message, style = MaterialTheme.typography.bodySmall, color = Color(0xFFB42318))
+                }
             }
         }
-        if (conversations.isEmpty()) {
+        if (scheduleLoading && sourceConversations.isEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(modifier = Modifier.width(18.dp))
+                Text("Loading schedule runs…", style = MaterialTheme.typography.bodySmall)
+            }
+            return
+        }
+        if (sourceConversations.isEmpty()) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    "No conversations yet.",
+                    scheduleFilter?.let { "No runs yet for ${it.scheduleName}." } ?: "No conversations yet.",
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(16.dp)
                 )
@@ -415,7 +479,11 @@ internal fun ConversationHistoryScreen(
         if (filteredConversations.isEmpty()) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    "No conversations match your search.",
+                    if (scheduleFilter == null) {
+                        "No conversations match your search."
+                    } else {
+                        "No schedule runs match your search."
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(16.dp)
                 )
@@ -537,12 +605,16 @@ internal fun conversationIdFromHistorySearch(value: String): String? {
 private suspend fun searchOlderConversationsByLoadedFields(
     client: AgentlyClient,
     query: String,
+    scheduleId: String? = null,
     maxPages: Int = 10
 ): List<Conversation> {
     var cursor: String? = null
     repeat(maxPages) {
         val page = client.listConversations(
-            ListConversationsInput(page = PageInput(limit = 100, cursor = cursor))
+            ListConversationsInput(
+                scheduleId = scheduleId,
+                page = PageInput(limit = 100, cursor = cursor)
+            )
         )
         val matches = filterPhoneConversationHistory(page.rows, query)
         if (matches.isNotEmpty()) return matches

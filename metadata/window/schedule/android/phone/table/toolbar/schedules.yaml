@@ -1,18 +1,55 @@
+density: compact
+layout: balanced
+style:
+  gap: 8px
+  itemSize: 44px
+
 items:
   # Refresh schedule list
   - id: refresh
     icon: refresh
+    ariaLabel: Refresh automations
     align: left
+    appearance: minimal
     tooltip: Refresh schedules
+    style:
+      width: 40px
+      minWidth: 40px
+      height: 40px
+      minHeight: 40px
+      borderRadius: 999px
+      borderWidth: 1px
+      borderStyle: solid
+      borderColor: '#bdd4fb'
+      backgroundColor: '#edf4ff'
+      color: '#2764c7'
+    on:
+      - event: onClick
+        handler: dataSource.fetchCollection
 
   # Create a new schedule
   - id: addNew
-    icon: new-object
+    icon: plus
+    ariaLabel: New automation
     align: left
-    tooltip: New schedule
+    appearance: minimal
+    tooltip: Create a new automation
+    style:
+      width: 40px
+      minWidth: 40px
+      height: 40px
+      minHeight: 40px
+      borderRadius: 999px
+      borderWidth: 1px
+      borderStyle: solid
+      borderColor: '#b9e1dc'
+      backgroundColor: '#eef8f7'
+      color: '#16877d'
     on:
       - event: onClick
         handler: schedule.addNewSchedule
+        state:
+          automationView: editor
 
   - id: pagination
     type: pagination
@@ -20,27 +57,107 @@ items:
     placement: bottom
 
   - id: quickFilter
-    placeholder: Filter schedules...
+    placeholder: Find automations...
+    align: center
+
+  - id: history
+    icon: history
+    ariaLabel: Open run history
     align: right
+    appearance: minimal
+    tooltip: Open run history for the selected automation
+    style:
+      width: 40px
+      minWidth: 40px
+      height: 40px
+      minHeight: 40px
+      borderRadius: 999px
+      borderWidth: 1px
+      borderStyle: solid
+      borderColor: '#f3d5a8'
+      backgroundColor: '#fff7e8'
+      color: '#a96812'
+    on:
+      - event: onVisible
+        handler: schedule.hasListSelection
+      - event: onClick
+        handler: schedule.openHistory
+
+  - id: edit
+    icon: edit
+    ariaLabel: Edit selected automation
+    align: right
+    appearance: minimal
+    tooltip: Edit selected automation
+    style:
+      width: 40px
+      minWidth: 40px
+      height: 40px
+      minHeight: 40px
+      borderRadius: 999px
+      borderWidth: 1px
+      borderStyle: solid
+      borderColor: '#d7c8fa'
+      backgroundColor: '#f4efff'
+      color: '#7551c8'
+    on:
+      - event: onVisible
+        handler: schedule.hasListSelection
+      - event: onReadonly
+        handler: schedule.noListSelection
+      - event: onClick
+        handler: schedule.editSelected
+        state:
+          automationView: editor
 
   # Trigger selected schedule immediately
   - id: run
     icon: play
+    ariaLabel: Run selected automation now
     align: right
-    tooltip: Run now
+    appearance: minimal
+    tooltip: Run selected automation now
+    style:
+      width: 40px
+      minWidth: 40px
+      height: 40px
+      minHeight: 40px
+      borderRadius: 999px
+      borderWidth: 1px
+      borderStyle: solid
+      borderColor: '#bde3cc'
+      backgroundColor: '#edf9f2'
+      color: '#16834f'
     on:
+      - event: onVisible
+        handler: schedule.hasListSelection
       - event: onReadonly
-        handler: dataSource.noSelection
+        handler: schedule.noListSelection
       - event: onClick
         handler: schedule.runSelected
 
   # Delete (soft-disable) the selected schedule
   - id: delete
     icon: trash
+    ariaLabel: Delete selected automation
     align: right
-    tooltip: Disable and remove schedule
+    appearance: minimal
+    tooltip: Delete selected automation
+    style:
+      width: 40px
+      minWidth: 40px
+      height: 40px
+      minHeight: 40px
+      borderRadius: 999px
+      borderWidth: 1px
+      borderStyle: solid
+      borderColor: '#fac5ce'
+      backgroundColor: '#fff1f3'
+      color: '#c33d52'
     on:
+      - event: onVisible
+        handler: schedule.hasListSelection
       - event: onReadonly
-        handler: dataSource.noSelection
+        handler: schedule.noListSelection
       - event: onClick
         handler: schedule.deleteSchedule

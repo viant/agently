@@ -9,7 +9,7 @@ vi.mock('./conversationWindow', () => ({
 
 import { client } from './agentlyClient'
 import { openConversationInMainWindow } from './conversationWindow'
-import { panelHasRenderableRows, scheduleService } from './scheduleService'
+import { scheduleService } from './scheduleService'
 
 function lookupContext(query = '') {
   return {
@@ -28,7 +28,8 @@ function saveContext(formValues = {}) {
     formValues,
     loading: false,
     fetches: 0,
-    errors: []
+    errors: [],
+    editedWrites: 0
   }
   const ds = {
     peekFormData() {
@@ -45,6 +46,10 @@ function saveContext(formValues = {}) {
     },
     setFormData({ values }) {
       state.formValues = values
+    },
+    setEditedFormData({ values }) {
+      state.formValues = values
+      state.editedWrites += 1
     },
     fetchCollection() {
       state.fetches += 1
@@ -132,71 +137,10 @@ afterEach(() => {
   scheduleService._automationStateByWindow = undefined
   scheduleService._suppressNextScheduleSelection = false
   scheduleService._runSelectedInFlight = false
+  scheduleService._creatingSchedule = false
 })
 
 describe('scheduleService SDK lookups', () => {
-  it('treats non-empty table rows as renderable even before cell text is populated', () => {
-    const wrapper = {
-      querySelector(selector) {
-        if (selector !== 'tbody') return null
-        return {
-          querySelectorAll(innerSelector) {
-            if (innerSelector !== 'tr') return []
-            return [
-              {
-                querySelectorAll(cellSelector) {
-                  if (cellSelector !== 'td') return []
-                  return [
-                    {
-                      classList: {
-                        contains() {
-                          return false
-                        }
-                      }
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-        }
-      }
-    }
-
-    expect(panelHasRenderableRows(wrapper)).toBe(true)
-  })
-
-  it('treats backfill empty-row cells as non-renderable', () => {
-    const wrapper = {
-      querySelector(selector) {
-        if (selector !== 'tbody') return null
-        return {
-          querySelectorAll(innerSelector) {
-            if (innerSelector !== 'tr') return []
-            return [
-              {
-                querySelectorAll(cellSelector) {
-                  if (cellSelector !== 'td') return []
-                  return [
-                    {
-                      classList: {
-                        contains(className) {
-                          return className === 'empty-row'
-                        }
-                      }
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-        }
-      }
-    }
-
-    expect(panelHasRenderableRows(wrapper)).toBe(false)
-  })
-
   it('normalizes and filters agent LOV rows from workspace metadata', () => {
     const rows = scheduleService.onFetchAgentsLov({
       context: lookupContext('cod'),
@@ -256,49 +200,6 @@ describe('scheduleService SDK lookups', () => {
     ])
   })
 
-  it('pushes schedule form dependencies when focused schedule runs fetch arrives without a bound schedule id', () => {
-    const pushFormDependencies = vi.fn()
-    const context = {
-      handlers: {
-        dataSource: {
-          peekInput() {
-            return { parameters: {} }
-          }
-        }
-      },
-      Context(name) {
-        if (name !== 'schedules') return null
-        return {
-          handlers: {
-            dataSource: {
-              peekFormData() {
-                return { values: { id: 'sched-1' } }
-              },
-              getFormData() {
-                return { id: 'sched-1' }
-              },
-              peekSelection() {
-                return { selected: {} }
-              },
-              getSelection() {
-                return { selected: {} }
-              },
-              pushFormDependencies
-            }
-          }
-        }
-      }
-    }
-
-    const rows = scheduleService.onFetchRuns({
-      context,
-      collection: []
-    })
-
-    expect(rows).toEqual([])
-    expect(pushFormDependencies).toHaveBeenCalledTimes(1)
-  })
-
   it('opens run conversations through the main conversation navigation helper', () => {
     const ok = scheduleService.openRunConversation({
       row: {
@@ -311,47 +212,77 @@ describe('scheduleService SDK lookups', () => {
     expect(openConversationInMainWindow).toHaveBeenCalledWith('conv-1')
   })
 
-  it('clears stale focused run rows and refetches when selected schedule changes', () => {
-    const runsState = {
-      input: { parameters: { scheduleId: 'old-schedule' } },
-      collection: [{ id: 'old-run', conversationId: 'old-conv' }],
-      selection: { selected: { id: 'old-run' }, rowIndex: 0 },
-      fetches: 0
+  it('prepares the selected record for Setup and clears validation on back', () => {
+    const state = {
+      formValues: {},
+      selection: { selected: { id: 'sched-1', name: 'Hello World', agentRef: 'chatter' }, rowIndex: 0 }
     }
-    const runsDS = {
-      peekInput() {
-        return runsState.input
+    const schedulesDS = {
+      peekSelection() {
+        return state.selection
       },
-      setInputParameters(parameters) {
-        runsState.input = { ...runsState.input, parameters }
+      getSelection() {
+        return state.selection
       },
-      setCollection(records) {
-        runsState.collection = records
+      peekFormData() {
+        return { values: state.formValues }
       },
-      setSelected(selection) {
-        runsState.selection = selection
+      getFormData() {
+        return state.formValues
       },
-      fetchCollection() {
-        runsState.fetches += 1
+      setFormData({ values }) {
+        state.formValues = values
       }
     }
     const context = {
-      identity: { windowId: 'schedule-window-test' },
+      identity: { windowId: 'schedule-window-test', dataSourceRef: 'schedules' },
+      handlers: { dataSource: schedulesDS },
       Context(name) {
-        if (name === 'runs') return { handlers: { dataSource: runsDS }, identity: { windowId: 'schedule-window-test' } }
+        if (name === 'schedules') return { handlers: { dataSource: schedulesDS } }
         return null
       }
     }
 
-    scheduleService.onSelectSchedule({
-      context,
-      selected: { id: 'test31', name: 'test31', agentRef: 'chatter', taskPrompt: 'hi' }
-    })
+    expect(scheduleService.hasListSelection({ context })).toBe(true)
+    expect(scheduleService.editSelected({ context })).toBe(true)
+    expect(state.formValues).toEqual(expect.objectContaining({
+      id: 'sched-1',
+      name: 'Hello World'
+    }))
 
-    expect(runsState.input.parameters.scheduleId).toBe('test31')
-    expect(runsState.collection).toEqual([])
-    expect(runsState.selection).toEqual({ selected: null, rowIndex: -1 })
-    expect(runsState.fetches).toBe(1)
+    state.formValues.validationErrors = { name: 'Required' }
+    expect(scheduleService.backToList({ context })).toBe(true)
+    expect(state.formValues.validationErrors).toEqual({})
+  })
+
+  it('opens conversation history filtered to the selected schedule', () => {
+    const openWindow = vi.fn()
+    const schedulesDS = {
+      peekSelection() {
+        return { selected: { id: 'sched-1', name: 'Nightly' }, rowIndex: 0 }
+      }
+    }
+    const context = {
+      identity: { windowId: 'schedule-window-test', dataSourceRef: 'schedules' },
+      handlers: { dataSource: schedulesDS, window: { openWindow } },
+      Context(name) {
+        if (name === 'schedules') return { handlers: { dataSource: schedulesDS } }
+        return null
+      }
+    }
+
+    expect(scheduleService.openHistory({ context })).toBe(true)
+    expect(openWindow).toHaveBeenCalledWith({
+      execution: {
+        args: [
+          'schedule/history',
+          'Run History',
+          { presentation: 'conversationHistory' }
+        ]
+      },
+      parameters: { scheduleId: 'sched-1', scheduleName: 'Nightly' },
+      context
+    })
   })
 
   it('keeps the top-level Runs window global when refreshing run history', () => {
@@ -373,14 +304,7 @@ describe('scheduleService SDK lookups', () => {
     expect(fetchCollection).toHaveBeenCalledTimes(1)
   })
 
-  it('confirms Run Now before running, refreshes run history, and opens Run History after success', async () => {
-    vi.useFakeTimers()
-    const runsState = {
-      input: { parameters: {} },
-      collection: [{ id: 'old-run' }],
-      selection: { selected: { id: 'old-run' }, rowIndex: 0 },
-      fetches: 0
-    }
+  it('confirms Run Now before starting the selected automation', async () => {
     const schedulesDS = {
       peekSelection() {
         return { selected: { id: 'sched-1', name: 'Nightly', agentRef: 'chat' }, rowIndex: 0 }
@@ -389,34 +313,10 @@ describe('scheduleService SDK lookups', () => {
         return { selected: { id: 'sched-1', name: 'Nightly', agentRef: 'chat' }, rowIndex: 0 }
       }
     }
-    const runsDS = {
-      peekInput() {
-        return runsState.input
-      },
-      setInputParameters(parameters) {
-        runsState.input = { ...runsState.input, parameters }
-      },
-      setCollection(records) {
-        runsState.collection = records
-      },
-      setSelected(selection) {
-        runsState.selection = selection
-      },
-      fetchCollection() {
-        runsState.fetches += 1
-      }
-    }
-    const bus = {
-      value: [],
-      peek() {
-        return this.value
-      }
-    }
     const context = {
       identity: { windowId: 'schedule-window-test' },
       Context(name) {
         if (name === 'schedules') return { handlers: { dataSource: schedulesDS, setLoading() {}, setError() {} } }
-        if (name === 'runs') return { handlers: { dataSource: runsDS }, identity: { windowId: 'schedule-window-test' } }
         return null
       }
     }
@@ -425,7 +325,6 @@ describe('scheduleService SDK lookups', () => {
       status: 204
     })
     vi.stubGlobal('fetch', fetchSpy)
-    vi.spyOn(forgeCore, 'getBusSignal').mockReturnValue(bus)
     let confirmOptions
     const openSpy = vi.spyOn(dialogBus, 'openConfirmDialog').mockImplementation((options) => {
       confirmOptions = options
@@ -444,30 +343,13 @@ describe('scheduleService SDK lookups', () => {
     }))
     expect(fetchSpy).not.toHaveBeenCalled()
 
-    const confirmPromise = confirmOptions.onConfirm()
-    await Promise.resolve()
+    const confirmResult = await confirmOptions.onConfirm()
 
     expect(fetchSpy).toHaveBeenCalledWith(
       '/v1/api/agently/scheduler/run-now/sched-1',
       expect.objectContaining({ method: 'POST', credentials: 'include' })
     )
-    expect(runsState.fetches).toBe(0)
-    expect(bus.value).toEqual([])
-
-    await vi.advanceTimersByTimeAsync(999)
-
-    expect(runsState.fetches).toBe(0)
-    expect(bus.value).toEqual([])
-
-    await vi.advanceTimersByTimeAsync(1)
-    const confirmResult = await confirmPromise
-
     expect(confirmResult).toBe(true)
-    expect(runsState.input.parameters.scheduleId).toBe('sched-1')
-    expect(runsState.collection).toEqual([])
-    expect(runsState.selection).toEqual({ selected: null, rowIndex: -1 })
-    expect(runsState.fetches).toBe(1)
-    expect(bus.value).toEqual([{ type: 'selectTab', tabId: 'scheduleRuns' }])
   })
 
   it('does not call Run Now when the confirmation is not accepted', async () => {
@@ -505,8 +387,8 @@ describe('scheduleService SDK lookups', () => {
     expect(bus.value).toEqual([])
   })
 
-  it('runs the schedule from form state when selection metadata is missing', async () => {
-    vi.useFakeTimers()
+  it('keeps list actions disabled when form state exists without a selected row', async () => {
+    const errors = []
     const schedulesDS = {
       peekSelection() {
         return { selected: {}, rowIndex: -1 }
@@ -523,35 +405,22 @@ describe('scheduleService SDK lookups', () => {
     }
     const context = {
       Context(name) {
-        if (name === 'schedules') return { handlers: { dataSource: schedulesDS, setLoading() {}, setError() {} } }
+        if (name === 'schedules') return { handlers: { dataSource: schedulesDS, setLoading() {}, setError(error) { errors.push(error) } } }
         return null
       }
     }
-    const fetchSpy = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 204
-    })
+    const fetchSpy = vi.fn()
     vi.stubGlobal('fetch', fetchSpy)
-    let confirmOptions
-    vi.spyOn(dialogBus, 'openConfirmDialog').mockImplementation((options) => {
-      confirmOptions = options
-    })
+    const confirmSpy = vi.spyOn(dialogBus, 'openConfirmDialog').mockImplementation(() => {})
 
+    expect(scheduleService.noListSelection({ context })).toBe(true)
+    expect(scheduleService.hasListSelection({ context })).toBe(false)
     const ok = await scheduleService.runSelected({ context })
-    const confirmPromise = confirmOptions.onConfirm()
-    await Promise.resolve()
-    await vi.advanceTimersByTimeAsync(1000)
-    const confirmResult = await confirmPromise
 
-    expect(ok).toBe(true)
-    expect(confirmResult).toBe(true)
-    expect(confirmOptions).toEqual(expect.objectContaining({
-      message: 'Start an immediate manual run for schedule "From form"?'
-    }))
-    expect(fetchSpy).toHaveBeenCalledWith(
-      '/v1/api/agently/scheduler/run-now/sched-form',
-      expect.objectContaining({ method: 'POST', credentials: 'include' })
-    )
+    expect(ok).toBe(false)
+    expect(errors).toEqual(['Select a schedule first'])
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   it('shows the backend Run Now error message when rate limited', async () => {
@@ -1124,14 +993,14 @@ describe('scheduleService saveSchedule', () => {
 
     expect(ok).toBe(true)
     expect(client.getSchedule).toHaveBeenCalledWith('sched-1')
-    expect(state.fetches).toBe(0)
+    expect(state.fetches).toBe(1)
     expect(state.formValues.description).toBe('persisted')
     expect(state.formValues.taskPrompt).toBe('persisted prompt')
     expect(state.collection[0].description).toBe('persisted')
     expect(state.selected.selected.description).toBe('persisted')
   })
 
-  it('keeps a newly created private schedule selected without a follow-up fetch', async () => {
+  it('keeps a newly created private schedule selected while refreshing the authoritative count', async () => {
     const state = {
       formValues: {
         name: 'nightly',
@@ -1210,7 +1079,7 @@ describe('scheduleService saveSchedule', () => {
     const ok = await scheduleService.saveSchedule({ context })
 
     expect(ok).toBe(true)
-    expect(state.fetches).toBe(0)
+    expect(state.fetches).toBe(1)
     expect(state.formValues.visibility).toBe('private')
     expect(state.collection).toHaveLength(1)
     expect(state.collection[0].visibility).toBe('private')
@@ -1341,7 +1210,6 @@ describe('scheduleService saveSchedule', () => {
     expect(String(toastSpy.mock.calls[0][0] || '')).toContain('Schedule Name')
     expect(String(toastSpy.mock.calls[0][0] || '')).toContain('Agent')
     expect(bus.value).toEqual([])
-    expect(scheduleService._validationHookInstalled).toBe(true)
     expect(state.formValues.validationErrors?.name).toBe('Schedule Name is required')
     expect(state.formValues.validationErrors?.agentRef).toBe('Agent is required')
   })
@@ -1497,6 +1365,7 @@ describe('scheduleService editor sync', () => {
     expect(state.formValues.scheduleEditorKind).toBe('elapsed')
     expect(state.formValues.scheduleType).toBe('interval')
     expect(state.formValues.intervalSeconds).toBe(86400)
+    expect(state.editedWrites).toBe(1)
   })
 
   it('switches an existing interval schedule to calendar from a raw radio event payload', () => {
@@ -1528,6 +1397,9 @@ describe('scheduleService editor sync', () => {
         return state.selected
       },
       setFormData({ values }) {
+        state.formValues = values
+      },
+      setEditedFormData({ values }) {
         state.formValues = values
       }
     }

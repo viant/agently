@@ -26,7 +26,8 @@ import {
   resolveWindowRefreshDataSources,
   shouldForceWorkspaceFull,
   shouldShowChatChrome,
-  shouldShowMainWindowHeader
+  shouldShowMainWindowHeader,
+  shouldUseConversationWorkspaceFallback
 } from './Root.jsx';
 
 describe('Root window selection helpers', () => {
@@ -71,6 +72,13 @@ describe('Root window selection helpers', () => {
     const selected = resolveSelectedMainWindow(windows, 'schedule', 'chat/new', windows[0]);
 
     expect(selected).toEqual({ windowId: 'schedule', windowKey: 'schedule' });
+  });
+
+  it('does not let a conversation workspace replace a selected standalone window', () => {
+    expect(shouldUseConversationWorkspaceFallback({ windowId: 'schedule', windowKey: 'schedule' })).toBe(false);
+    expect(shouldUseConversationWorkspaceFallback({ windowId: 'schedule/history', windowKey: 'schedule/history' })).toBe(false);
+    expect(shouldUseConversationWorkspaceFallback({ windowId: 'chat/new', windowKey: 'chat/new' })).toBe(true);
+    expect(shouldUseConversationWorkspaceFallback(null)).toBe(true);
   });
 
   it('falls back to the provided fallback window when no ids match', () => {

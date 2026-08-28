@@ -9,6 +9,7 @@ internal data class AppUiCallbacks(
     val onNewConversation: () -> Unit,
     val onSelectAgent: (String?) -> Unit,
     val onOpenHistory: () -> Unit,
+    val onOpenAutomation: () -> Unit,
     val onOpenSettings: () -> Unit,
     val onSelectConversation: (String) -> Unit,
     val onDeleteConversation: (String) -> Unit,
@@ -24,6 +25,7 @@ internal data class AppUiCallbacks(
     val onRunQuery: () -> Unit,
     val onCancelTurn: () -> Unit,
     val onBackFromHistory: () -> Unit,
+    val onBackFromAutomation: () -> Unit,
     val onBackFromSettings: () -> Unit,
     val onRefreshAuth: () -> Unit,
     val onSaveSettings: (String, String, SavedLoginConfig) -> Unit,
@@ -43,6 +45,8 @@ internal fun buildAppUiCallbacks(
     onRefreshWorkspace: () -> Unit,
     onNewConversation: () -> Unit,
     onSelectAgent: (String?) -> Unit,
+    onOpenHistory: () -> Unit,
+    onBackFromHistory: () -> Unit,
     onSelectConversation: (String, Boolean) -> Unit,
     onDeleteConversation: (String) -> Unit,
     onApprovalEditChange: (String, String, JsonElement) -> Unit,
@@ -70,7 +74,8 @@ internal fun buildAppUiCallbacks(
     onRefreshWorkspace = onRefreshWorkspace,
     onNewConversation = onNewConversation,
     onSelectAgent = onSelectAgent,
-    onOpenHistory = { setCurrentScreen(AppScreen.History) },
+    onOpenHistory = onOpenHistory,
+    onOpenAutomation = { setCurrentScreen(AppScreen.Automation) },
     onOpenSettings = { setCurrentScreen(AppScreen.Settings) },
     onSelectConversation = {
         onSelectConversation(it, currentScreenProvider() == AppScreen.History)
@@ -87,10 +92,8 @@ internal fun buildAppUiCallbacks(
     onStarterTaskSelected = onStarterTaskSelected,
     onRunQuery = onRunQuery,
     onCancelTurn = onCancelTurn,
-    onBackFromHistory = {
-        onNewConversation()
-        setCurrentScreen(AppScreen.Chat)
-    },
+    onBackFromHistory = onBackFromHistory,
+    onBackFromAutomation = { setCurrentScreen(AppScreen.Chat) },
     onBackFromSettings = { setCurrentScreen(AppScreen.Chat) },
     onRefreshAuth = onRefreshAuth,
     onSaveSettings = onSaveSettings,

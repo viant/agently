@@ -23,7 +23,8 @@ filterSet:
     default: true
     template:
       - id: name
-        label: Filter schedules...
+        label: Search automations...
+        width: 220
         operator: contains
 
 quickFilterSet: default
@@ -32,3 +33,4 @@ uniqueKey:
   - field: id
 
 selectionMode: single
+autoSelect: false
