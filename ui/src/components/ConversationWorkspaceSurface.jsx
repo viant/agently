@@ -44,6 +44,7 @@ export default function ConversationWorkspaceSurface({
   suppressConversationWorkspaceLink = false,
   onOpenWorkspace,
   onBackToConversation,
+  onCloseWorkspace,
   onSelectWorkspaceTab,
 }) {
   const hasWorkspace = !!workspaceWindow;
@@ -68,7 +69,16 @@ export default function ConversationWorkspaceSurface({
       {hasWorkspace ? (
         <section className={`app-summary-workspace${workspaceActive ? '' : ' is-surface-hidden'}`} aria-label={`${navigation.label} workspace`} data-workspace-window-id={workspaceWindow?.windowId || ''} aria-hidden={!workspaceActive}>
           <header className="app-summary-workspace-header">
-            <Button minimal small icon="arrow-left" text="Conversation" aria-label="Back to Conversation" onClick={onBackToConversation} />
+            <div className="app-summary-workspace-header-actions">
+              <button
+                type="button"
+                className="app-window-dot app-window-dot-close"
+                aria-label={`Close ${navigation.label}`}
+                title={`Close ${navigation.label}`}
+                onClick={onCloseWorkspace}
+              />
+              <Button minimal small icon="arrow-left" text="Conversation" aria-label="Back to Conversation" onClick={onBackToConversation} />
+            </div>
             <div className="app-summary-workspace-title">{navigation.label}</div>
           </header>
           {workspaceTabs.length > 1 ? (

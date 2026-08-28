@@ -228,6 +228,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     var recentConversations by remember { mutableStateOf<List<Conversation>>(emptyList()) }
     var openingConversationId by remember { mutableStateOf<String?>(null) }
     var currentScreen by remember { mutableStateOf(AppScreen.Chat) }
+    var scheduleHistoryFilter by remember { mutableStateOf<ScheduleHistoryFilter?>(null) }
     var pendingApprovals by remember { mutableStateOf<List<PendingToolApproval>>(emptyList()) }
     var generatedFiles by remember { mutableStateOf<List<GeneratedFileEntry>>(emptyList()) }
     var payloadPreviews by remember { mutableStateOf<Map<String, ArtifactPreview>>(emptyMap()) }
@@ -252,6 +253,10 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
                 makeForgeAgentlyWindowMetadataLoader(client, forgeTargetContext)
             )
             runtime.registerDataSourceLoader(makeForgeAgentlyDataSourceLoader(client))
+            registerScheduleHandlers(runtime, client) { filter ->
+                scheduleHistoryFilter = filter
+                currentScreen = AppScreen.History
+            }
         }
     }
     val uiBridge = remember(appApiBaseUrl, forgeRuntime) {
@@ -1572,7 +1577,24 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         onRefreshWorkspace = ::loadWorkspace,
         onNewConversation = ::resetConversation,
         onSelectAgent = ::selectPreferredAgent,
-        onSelectConversation = ::selectConversation,
+        onOpenHistory = {
+            scheduleHistoryFilter = null
+            currentScreen = AppScreen.History
+        },
+        onBackFromHistory = {
+            val returnToAutomation = scheduleHistoryFilter != null
+            scheduleHistoryFilter = null
+            if (returnToAutomation) {
+                currentScreen = AppScreen.Automation
+            } else {
+                resetConversation()
+                currentScreen = AppScreen.Chat
+            }
+        },
+        onSelectConversation = { conversationId, navigateToChat ->
+            if (navigateToChat) scheduleHistoryFilter = null
+            selectConversation(conversationId, navigateToChat)
+        },
         onDeleteConversation = ::deleteConversation,
         onApprovalEditChange = ::handleApprovalEditChange,
         onApprovalDecision = ::handleApprovalDecision,
@@ -1614,6 +1636,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         authSessionId = authSessionId,
         authWebUrl = authWebUrl,
         recentConversations = recentConversations,
+        scheduleHistoryFilter = scheduleHistoryFilter,
         activeConversationId = activeConversationId,
         openingConversationId = openingConversationId,
         conversationState = conversationState,
@@ -1698,6 +1721,7 @@ internal fun shouldShowDeveloperSessionEntry(
 internal enum class AppScreen {
     Chat,
     History,
+    Automation,
     Settings
 }
 

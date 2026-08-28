@@ -18,6 +18,7 @@ import TurnProgressStatus from './TurnProgressStatus';
 import ConversationWorkspaceSurface from './ConversationWorkspaceSurface';
 import StatusBar from './StatusBar';
 import Sidebar from './Sidebar';
+import ScheduleConversationHistory from './ScheduleConversationHistory';
 import ElicitationOverlay from './ElicitationOverlay';
 import { useApprovalQueue } from '../hooks/useApprovalQueue';
 import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, ensureWorkspaceWindowForConversation, getScopedActiveSurface, getScopedConversationSelection, getScopedWorkspacePresentationMode, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
@@ -389,6 +390,11 @@ export function shouldShowMainWindowHeader(windowEntry = null) {
     && resolveMainWindowHeaderTitle(windowEntry) !== '';
 }
 
+export function shouldUseConversationWorkspaceFallback(selectedWindow = null) {
+  if (!selectedWindow) return true;
+  return shouldShowChatChrome(selectedWindow) || isChatBottomRegionWindow(selectedWindow);
+}
+
 export function resolveWindowRefreshDataSources(windowKey = '') {
   switch (String(windowKey || '').trim()) {
     case 'schedule':
@@ -523,6 +529,7 @@ export default function Root() {
   }).join('|');
   const linkedChildWindow = isLinkedChildWindow(selectedWindow) ? selectedWindow : null;
   const activeWindowTitle = resolveMainWindowHeaderTitle(selectedWindowForTitle);
+  const useConversationWorkspaceFallback = shouldUseConversationWorkspaceFallback(selectedWindow);
   const activeWorkspaceWindow = !linkedChildWindow
     ? (
         selectedWindow
@@ -533,7 +540,11 @@ export default function Root() {
           || isConversationHostedWorkspaceChild(selectedWindow, mainConversationId)
         )
           ? attachResolvedMetrics(selectedWindow)
-          : (isWorkspaceRegionWindow(resolvedConversationWorkspaceWindow) ? attachResolvedMetrics(resolvedConversationWorkspaceWindow) : null)
+          : (
+              useConversationWorkspaceFallback && isWorkspaceRegionWindow(resolvedConversationWorkspaceWindow)
+                ? attachResolvedMetrics(resolvedConversationWorkspaceWindow)
+                : null
+            )
       )
     : null;
   const workspaceTabs = useMemo(
@@ -1072,13 +1083,15 @@ export default function Root() {
     const conversationId = String(mainConversationId || '').trim();
     if (!conversationId) return;
     if (linkedChildWindow?.windowId) return;
+    if (!useConversationWorkspaceFallback) return;
     ensureWorkspaceWindowForConversation(conversationId);
-  }, [linkedChildWindow?.windowId, mainConversationId, conversationSelectionEpoch]);
+  }, [linkedChildWindow?.windowId, mainConversationId, conversationSelectionEpoch, useConversationWorkspaceFallback]);
 
   useEffect(() => {
     const conversationId = String(mainConversationId || '').trim();
     if (!conversationId) return () => {};
     if (linkedChildWindow?.windowId) return () => {};
+    if (!useConversationWorkspaceFallback) return () => {};
     if (activeWorkspaceWindow?.windowId) return () => {};
     let cancelled = false;
     const restoreIfNeeded = () => {
@@ -1093,7 +1106,7 @@ export default function Root() {
       window.clearTimeout(timer);
       window.clearInterval(interval);
     };
-  }, [activeWorkspaceWindow?.windowId, linkedChildWindow?.windowId, mainConversationId]);
+  }, [activeWorkspaceWindow?.windowId, linkedChildWindow?.windowId, mainConversationId, useConversationWorkspaceFallback]);
 
   useEffect(() => {
     const conversationId = mainConversationId;
@@ -1152,14 +1165,6 @@ export default function Root() {
     if (activeSurface !== 'workspace') return;
     setActiveSurface('conversation');
   }, [activeSurface, setActiveSurface, showWorkspacePane]);
-
-  useEffect(() => {
-    const selectedId = String(selectedWindow?.windowId || '').trim();
-    const workspaceId = String(activeWorkspaceWindow?.windowId || '').trim();
-    if (!selectedId || !workspaceId || selectedId !== workspaceId) return;
-    if (activeSurface === 'workspace') return;
-    setActiveSurface('workspace');
-  }, [activeSurface, activeWorkspaceWindow?.windowId, selectedWindow?.windowId, setActiveSurface]);
 
   useEffect(() => {
     const conversationId = String(mainConversationId || '').trim();
@@ -1399,10 +1404,18 @@ export default function Root() {
                   suppressConversationWorkspaceLink={hasAssistantWorkspaceLink}
                   onOpenWorkspace={openWorkspaceSurface}
                   onBackToConversation={returnToConversationSurface}
+                  onCloseWorkspace={closeActiveWorkspaceWindow}
                   onSelectWorkspaceTab={focusWorkspaceWindow}
                 />
               )) : (
-                <WindowManager />
+                <WindowManager
+                  isTabVisible={(windowEntry) => String(windowEntry?.windowId || '').trim() !== MAIN_CHAT_WINDOW_ID}
+                  renderWindowContent={({ window: windowEntry, defaultContent }) => (
+                    String(windowEntry?.presentation || '').trim().toLowerCase() === 'conversationhistory'
+                      ? <ScheduleConversationHistory window={windowEntry} />
+                      : defaultContent
+                  )}
+                />
               )}
             </div>
             {showChatChrome ? <ToolFeedWorkspace conversationId={activeConversationId} developerMode={developerMode} /> : null}

@@ -51,6 +51,7 @@ internal fun AppBody(
     authSessionId: String?,
     authWebUrl: String?,
     recentConversations: List<Conversation>,
+    scheduleHistoryFilter: ScheduleHistoryFilter?,
     activeConversationId: String?,
     openingConversationId: String?,
     conversationState: ConversationStateResponse?,
@@ -249,6 +250,7 @@ internal fun AppBody(
                         onNewConversation = callbacks.onNewConversation,
                         onSelectAgent = callbacks.onSelectAgent,
                         onOpenHistory = callbacks.onOpenHistory,
+                        onOpenAutomation = callbacks.onOpenAutomation,
                         onOpenSettings = callbacks.onOpenSettings,
                         onSelectConversation = callbacks.onSelectConversation,
                         onEditChange = callbacks.onApprovalEditChange,
@@ -276,6 +278,7 @@ internal fun AppBody(
                     ),
                     client = client,
                     conversations = recentConversations,
+                    scheduleFilter = scheduleHistoryFilter,
                     activeConversationId = activeConversationId,
                     openingConversationId = openingConversationId,
                     loading = loading,
@@ -283,6 +286,12 @@ internal fun AppBody(
                     onRefresh = callbacks.onRefreshWorkspace,
                     onSelectConversation = callbacks.onSelectConversation,
                     onDeleteConversation = callbacks.onDeleteConversation
+                )
+            }
+            AppScreen.Automation -> {
+                AutomationScreen(
+                    forgeRuntime = forgeRuntime,
+                    onBack = callbacks.onBackFromAutomation
                 )
             }
             AppScreen.Settings -> {

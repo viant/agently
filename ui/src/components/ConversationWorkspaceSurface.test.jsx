@@ -49,6 +49,8 @@ describe('ConversationWorkspaceSurface', () => {
     expect(html).toContain('data-window-id="report"');
     expect(html).toContain('data-window-id="chat"');
     expect(html).toContain('is-composer-only');
+    expect(html).toContain('aria-label="Close Reports"');
+    expect(html).toContain('app-window-dot-close');
   });
 
   it('suppresses duplicate top navigation when the transcript owns the workspace link', () => {

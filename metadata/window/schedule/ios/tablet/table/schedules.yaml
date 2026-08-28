@@ -66,4 +66,35 @@ columns:
 
 toolbar: $import('toolbar/schedules.yaml')
 
+emptyState:
+  icon: time
+  kicker: Automation workspace
+  title: Create your first automation
+  body: Turn a repeatable task into a reliable agent workflow. Keep it as a draft, activate it when ready, and inspect every run.
+  hideToolbarItems: [quickFilter, history, edit, run, delete]
+  steps:
+    - id: agent
+      number: 1
+      title: Choose an agent
+      body: Select who will perform the task.
+    - id: timing
+      number: 2
+      title: Set the timing
+      body: Pick a calendar, interval, or cron schedule.
+    - id: review
+      number: 3
+      title: Review every run
+      body: Track outcomes and open the conversation.
+  action:
+    id: addNew
+    icon: plus
+    label: New automation
+    intent: primary
+    on:
+      - event: onClick
+        handler: schedule.addNewSchedule
+        state:
+          automationView: editor
+
+
 pagination: {}

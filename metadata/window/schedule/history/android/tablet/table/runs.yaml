@@ -69,15 +69,19 @@ columns:
             location: conversationId
 
 toolbar:
+  density: compact
+  layout: balanced
   items:
     - id: refresh
       icon: refresh
+      ariaLabel: Refresh run history
       enabled: true
       align: left
+      appearance: minimal
       tooltip: Refresh run history
       on:
         - event: onClick
-          handler: schedule.refreshRunHistory
+          handler: dataSource.fetchCollection
     - id: pagination
       type: pagination
       align: center

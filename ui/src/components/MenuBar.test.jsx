@@ -141,6 +141,25 @@ describe('MenuBar window reuse', () => {
     expect(selectedTabId.value).toBe('schedule/history');
     expect(selectedWindowId.value).toBe('schedule/history');
   });
+
+  it('keeps the conversation workspace tree when opening a standalone window normally', async () => {
+    activeWindows.value = [
+      { windowId: 'chat/new', windowKey: 'chat/new', inTab: true },
+      { windowId: 'order_1', windowKey: 'order', inTab: true, parentKey: 'chat/new', presentation: 'hosted', region: 'chat.top' }
+    ];
+    addWindow.mockImplementation(() => {
+      const win = { windowId: 'schedule', windowKey: 'schedule', inTab: true };
+      activeWindows.value = [...activeWindows.value, win];
+      return win;
+    });
+
+    const { openWindow } = await import('./MenuBar.jsx');
+    openWindow('schedule', 'Automation', ['schedules']);
+
+    expect(activeWindows.value.map((entry) => entry.windowId)).toEqual(['chat/new', 'order_1', 'schedule']);
+    expect(selectedTabId.value).toBe('schedule');
+    expect(selectedWindowId.value).toBe('schedule');
+  });
 });
 
 describe('MenuBar auth startup selection', () => {

@@ -592,23 +592,7 @@ export default function MenuBar({
               aria-label="Automation"
               className="app-topbar-icon-btn is-automation"
               data-testid="automation-nav"
-              onClick={() => openWindow('schedule', 'Automation', ['schedules'], {
-                replaceTabbedWindows: true,
-                replaceMainChatTree: true,
-              })}
-            />
-          </Tooltip>
-          <Tooltip content="Runs" placement="bottom">
-            <Button
-              minimal
-              icon="history"
-              aria-label="Runs"
-              className="app-topbar-icon-btn is-runs"
-              data-testid="runs-nav"
-              onClick={() => openWindow('schedule/history', 'Runs', ['runs'], {
-                replaceTabbedWindows: true,
-                replaceMainChatTree: true,
-              })}
+              onClick={() => openWindow('schedule', 'Automation', ['schedules'])}
             />
           </Tooltip>
           <Tooltip content={pendingCount > 0 ? `${pendingCount} pending approvals` : 'Approvals'} placement="bottom">

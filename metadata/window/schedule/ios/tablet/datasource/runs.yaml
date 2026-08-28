@@ -40,7 +40,27 @@ filterSet:
         label: Filter by error message...
         operator: contains
 
-quickFilterSet: default
+  - name: quick
+    mode: fieldSelector
+    defaultField: status
+    template:
+      - id: status
+        optionLabel: Status
+        placeholder: Filter by status...
+        width: 200
+        operator: contains
+      - id: conversationId
+        optionLabel: Conversation
+        placeholder: Conversation ID...
+        width: 220
+        operator: contains
+      - id: errorMessage
+        optionLabel: Error
+        placeholder: Error message...
+        width: 240
+        operator: contains
+
+quickFilterSet: quick
 
 uniqueKey:
   - field: id

@@ -113,4 +113,71 @@ class ForgeAgentlyDataSourceLoaderTest {
 
         assertTrue(result?.metrics?.isEmpty() == true)
     }
+
+    @Test
+    fun `loader adapts scheduler API to forge rows and paging`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {"data":{"schedules":[
+                      {"id":"one","name":"Hello World","agentRef":"steward","enabled":false,"scheduleType":"cron"},
+                      {"id":"two","name":"Other","agentRef":"steward","enabled":true,"scheduleType":"interval"}
+                    ]}}
+                    """.trimIndent()
+                )
+        )
+        val client = AgentlyClient(
+            endpoints = mapOf("appAPI" to EndpointConfig(baseUrl = server.url("/").toString().trimEnd('/')))
+        )
+
+        val result = makeForgeAgentlyDataSourceLoader(client)(
+            ForgeRuntime.DataSourceFetchRequest(
+                windowId = "automation",
+                dataSourceRef = "schedules",
+                dataSource = DataSourceDef(
+                    service = ServiceDef(endpoint = "agentlyAPI", uri = "/v1/api/agently/scheduler/", method = "GET"),
+                    paging = com.viant.forgeandroid.runtime.PagingDef(size = 10, enabled = true)
+                ),
+                input = InputState(filter = mapOf("name" to "hello"), fetch = true)
+            )
+        )
+
+        assertEquals("/v1/api/agently/scheduler/", server.takeRequest().path)
+        assertEquals(listOf("one"), result?.rows?.map { it["id"] })
+        assertEquals(1, result?.metrics?.get("totalCount"))
+    }
+
+    @Test
+    fun `workspace agent lookup uses canonical public agents endpoint`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {"agentInfos":[
+                      {"id":"steward","name":"Steward","internal":false}
+                    ]}
+                    """.trimIndent()
+                )
+        )
+        val client = AgentlyClient(
+            endpoints = mapOf("appAPI" to EndpointConfig(baseUrl = server.url("/").toString().trimEnd('/')))
+        )
+
+        val result = makeForgeAgentlyDataSourceLoader(client)(
+            ForgeRuntime.DataSourceFetchRequest(
+                windowId = "automation",
+                dataSourceRef = "agentsLov",
+                dataSource = DataSourceDef(
+                    service = ServiceDef(endpoint = "agentlyAPI", uri = "/v1/workspace/metadata/publicagents", method = "GET"),
+                    selectors = com.viant.forgeandroid.runtime.SelectorDef(data = "agentInfos")
+                ),
+                input = InputState(fetch = true)
+            )
+        )
+
+        assertEquals(listOf("steward"), result?.rows?.map { it["id"] })
+    }
 }

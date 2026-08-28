@@ -32,7 +32,7 @@ function conversationSortKey(row = {}) {
   );
 }
 
-function conversationTimestamp(row = {}) {
+export function conversationTimestamp(row = {}) {
   return Math.max(
     asEpoch(row?.LastActivity),
     asEpoch(row?.lastActivity),
@@ -43,7 +43,7 @@ function conversationTimestamp(row = {}) {
   );
 }
 
-function formatRelativeTime(epochMillis = 0) {
+export function formatRelativeTime(epochMillis = 0) {
   const t = Number(epochMillis || 0);
   if (!t) return '';
   const diff = Math.max(0, Date.now() - t);
@@ -142,7 +142,7 @@ export function terminalConversationMetaPatch(type = '') {
   return null;
 }
 
-function conversationStatusTone(row = {}) {
+export function conversationStatusTone(row = {}) {
   const status = String(row?.Status || row?.status || '').trim().toLowerCase();
   const stage = String(row?.Stage || row?.stage || '').trim().toLowerCase();
   if (status === 'completed' || status === 'succeeded' || status === 'success') return 'success';
