@@ -1098,7 +1098,7 @@ public final class AppRuntime: ObservableObject {
     private func loadRecentConversations(client: AgentlyClient) async throws -> [Conversation] {
         let page = PageInput(limit: 100)
         return try await client.listConversations(
-            ListConversationsInput(page: page)
+            ListConversationsInput(excludeScheduled: true, page: page)
         ).rows
     }
 

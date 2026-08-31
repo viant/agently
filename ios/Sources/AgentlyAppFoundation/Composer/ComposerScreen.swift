@@ -590,7 +590,7 @@ public struct ComposerScreen: View {
     private var sendButton: some View {
         Button(action: handleSendTap) {
             AppleToolbarActionIcon(
-                systemImage: firstUnresolvedRequiredLookup == nil ? "arrow.up" : "magnifyingglass",
+                systemImage: "arrow.up",
                 color: Color(red: 0.22, green: 0.23, blue: 0.86),
                 isLoading: isSending
             )
@@ -598,15 +598,16 @@ public struct ComposerScreen: View {
             .buttonStyle(.plain)
             .accessibilityLabel(sendButtonTitle)
             .accessibilityIdentifier("agently-composer-send")
-            .disabled(isSending || runtime.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(
+                isSending ||
+                runtime.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                firstUnresolvedRequiredLookup != nil
+            )
     }
 
     private var sendButtonTitle: String {
         if isSending {
             return "Sending"
-        }
-        if let occurrence = firstUnresolvedRequiredLookup {
-            return "Select \(occurrence.title)"
         }
         return "Send"
     }
@@ -627,10 +628,6 @@ public struct ComposerScreen: View {
     }
 
     private func handleSendTap() {
-        if let occurrence = firstUnresolvedRequiredLookup {
-            activeLookupOccurrence = occurrence
-            return
-        }
         NotificationCenter.default.post(name: .agentlyComposerCommitRequested, object: nil)
         isEditorFocused = false
         requestAgentlyPlatformKeyboardDismissal()

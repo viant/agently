@@ -262,6 +262,7 @@ internal suspend fun loadRecentConversations(
 ): List<Conversation> {
     val conversations = client.listConversations(
         ListConversationsInput(
+            excludeScheduled = true,
             page = com.viant.agentlysdk.PageInput(limit = 100)
         )
     ).rows

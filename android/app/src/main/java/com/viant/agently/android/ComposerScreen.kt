@@ -46,7 +46,6 @@ import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.KeyboardHide
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -279,17 +278,19 @@ internal fun PhoneComposerDock(
                         }
                     }
                     PhoneToolbarAction(
-                        icon = if (unresolvedRequiredLookup == null) Icons.Outlined.ArrowUpward else Icons.Outlined.Search,
+                        icon = Icons.Outlined.ArrowUpward,
                         contentDescription = sendLabel,
                         onClick = {
-                            if (unresolvedRequiredLookup == null) {
-                                hideKeyboard()
-                                composerExpanded = false
-                            }
+                            hideKeyboard()
+                            composerExpanded = false
                             onRunQuery()
                         },
                         accent = Color(0xFF383BD8),
-                        enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty()),
+                        enabled = composerSendEnabled(
+                            loading = loading,
+                            hasContent = query.isNotBlank() || composerAttachments.isNotEmpty(),
+                            unresolvedRequiredLookup = unresolvedRequiredLookup,
+                        ),
                         loading = loading
                     )
                 }
@@ -913,6 +914,12 @@ internal fun composerSendButtonLabel(
     @Suppress("UNUSED_PARAMETER") unresolvedRequiredLookup: ComposerLookupOccurrence?
 ): String =
     "Send"
+
+internal fun composerSendEnabled(
+    loading: Boolean,
+    hasContent: Boolean,
+    unresolvedRequiredLookup: ComposerLookupOccurrence?,
+): Boolean = !loading && hasContent && unresolvedRequiredLookup == null
 
 internal fun composerLookupControlLabel(title: String, selection: ComposerLookupSelection?): String =
     selection?.let(::composerLookupSelectionLabel) ?: "Select $title"

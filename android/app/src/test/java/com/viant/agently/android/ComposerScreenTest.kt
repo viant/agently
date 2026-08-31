@@ -139,6 +139,7 @@ class ComposerScreenTest {
             firstUnresolvedRequiredComposerLookup(listOf(occurrence), emptyMap())
         )
         assertEquals("Send", composerSendButtonLabel(occurrence))
+        assertEquals(false, composerSendEnabled(false, true, occurrence))
         assertEquals("Select Order", composerLookupControlLabel(occurrence.title, null))
     }
 
@@ -157,6 +158,7 @@ class ComposerScreenTest {
             )
         )
         assertEquals("Send", composerSendButtonLabel(null))
+        assertEquals(true, composerSendEnabled(false, true, null))
         assertEquals("Fixture Order", composerLookupControlLabel(occurrence.title, selection))
     }
 

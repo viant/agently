@@ -330,6 +330,7 @@ internal fun ConversationHistoryScreen(
                 val direct = client.listConversations(
                     ListConversationsInput(
                         scheduleId = scheduleFilter?.scheduleId,
+                        excludeScheduled = if (scheduleFilter == null) true else null,
                         query = normalized,
                         page = PageInput(limit = 100)
                     )
@@ -613,6 +614,7 @@ private suspend fun searchOlderConversationsByLoadedFields(
         val page = client.listConversations(
             ListConversationsInput(
                 scheduleId = scheduleId,
+                excludeScheduled = if (scheduleId == null) true else null,
                 page = PageInput(limit = 100, cursor = cursor)
             )
         )

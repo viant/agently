@@ -12,9 +12,6 @@ import com.viant.forgeandroid.runtime.WindowMetadata
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -157,24 +154,12 @@ class ReportRuntimeExportHandlerTest {
 
         val request = buildFeedReportExportRequest(runtime, window.windowId, "plan", "Media Plan")
 
-        assertEquals("feed://plan", request["artifactRef"])
-        val fences = request["fences"] as JsonArray
-        val start = (fences.first() as JsonObject)["payload"] as JsonObject
-        assertEquals("report-document-v1", start["grammar"]?.jsonPrimitive?.content)
-        assertEquals("feed_plan", start["scope"]?.jsonPrimitive?.content)
-        val spec = request["reportSpec"] as Map<*, *>
-        assertEquals(1L, (spec["version"] as Number).toLong())
-        assertEquals("reportSpec", spec["kind"])
-        assertTrue(spec.toString().contains("Schedule"))
-        assertTrue(spec.toString().contains("dashboard.table"))
-        val fill = request["reportFill"] as Map<*, *>
-        assertEquals(1L, (fill["version"] as Number).toLong())
-        assertEquals(1L, (fill["specVersion"] as Number).toLong())
-        assertTrue(fill.toString().contains("value=7"))
-        val print = request["reportPrint"] as Map<*, *>
-        assertEquals("reportPrint", print["kind"])
-        assertEquals(1L, (print["version"] as Number).toLong())
-        assertEquals(1L, (print["specVersion"] as Number).toLong())
+        assertEquals("feed://plan", request["viewRef"])
+        assertEquals(listOf("rows"), request["dataSourceRefs"])
+        val overrides = request["dataSourceOverrides"] as Map<*, *>
+        assertTrue(overrides["rows"].toString().contains("value=7"))
+        val target = request["target"] as Map<*, *>
+        assertEquals("android", target["platform"])
     }
 
     @Test
