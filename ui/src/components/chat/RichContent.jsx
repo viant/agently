@@ -37,6 +37,7 @@ import {
   renderMarkdownCellHTML,
   describeFence,
 } from 'agently-core-ui-sdk';
+import { getFeedEntityAliasVersion, rewriteFeedEntityAliases, subscribeFeedEntityAliases } from '../../services/feedEntityAliases';
 import { DashboardBlock, ReportRuntime } from 'forge/components';
 import { buildDraftReportExportRequest, compileInlineReport, materializeInlineReport } from 'forge/reporting';
 import {
@@ -2302,9 +2303,10 @@ export function normalizeLegacyForgeDescriptors(descriptors = []) {
 // ── Main component ──
 
 function RichContent({ content = '', renderedContent = null, generatedFiles = [], messageId = '', conversationId = '' }) {
+  const entityAliasVersion = React.useSyncExternalStore(subscribeFeedEntityAliases, getFeedEntityAliasVersion, getFeedEntityAliasVersion);
   const textNorm = React.useMemo(() => normalizeBrokenMarkdownLayout(
-    normalizeLegacyForgeFenceBlocks(String(content || ''))
-  ), [content]);
+    normalizeLegacyForgeFenceBlocks(rewriteFeedEntityAliases(String(content || ''), conversationId))
+  ), [content, conversationId, entityAliasVersion]);
   const descriptors = React.useMemo(
     () => normalizeLegacyForgeDescriptors(describeContent(textNorm)),
     [textNorm]

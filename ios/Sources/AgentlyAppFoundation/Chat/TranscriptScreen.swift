@@ -1,4 +1,5 @@
 import SwiftUI
+import ForgeIOSRuntime
 import ForgeIOSUI
 import AgentlySDK
 #if canImport(UIKit)
@@ -66,6 +67,8 @@ public struct TranscriptScreen: View {
     let onReuseAndSendPrompt: ((String) -> Void)?
     let workspaceAttachment: HostedWorkspaceAttachment?
     let onOpenWorkspace: (() -> Void)?
+    let feeds: [ActiveFeedState]
+    let forgeRuntime: ForgeRuntime?
     @State private var visibleItemCount: Int
 
     public init(
@@ -75,7 +78,9 @@ public struct TranscriptScreen: View {
         onReusePrompt: ((String) -> Void)? = nil,
         onReuseAndSendPrompt: ((String) -> Void)? = nil,
         workspaceAttachment: HostedWorkspaceAttachment? = nil,
-        onOpenWorkspace: (() -> Void)? = nil
+        onOpenWorkspace: (() -> Void)? = nil,
+        feeds: [ActiveFeedState] = [],
+        forgeRuntime: ForgeRuntime? = nil
     ) {
         self.items = items
         self.client = client
@@ -84,6 +89,8 @@ public struct TranscriptScreen: View {
         self.onReuseAndSendPrompt = onReuseAndSendPrompt
         self.workspaceAttachment = workspaceAttachment
         self.onOpenWorkspace = onOpenWorkspace
+        self.feeds = feeds
+        self.forgeRuntime = forgeRuntime
         _visibleItemCount = State(initialValue: min(items.count, Self.initialRenderCount))
     }
 
@@ -133,6 +140,8 @@ public struct TranscriptScreen: View {
         let attachmentItemID = workspaceAttachment.flatMap { attachment in
             items.last(where: { $0.role != "user" && $0.turnID == attachment.turnID })?.id
         }
+        let suppressedReportIDs = suppressedToolFeedReportIDs(feeds)
+        let inlineAttachmentItemIDs = inlineToolFeedAttachmentItemIDs(items: items, feeds: feeds)
         return LazyVStack(alignment: .leading, spacing: 12) {
             if start > 0 {
                 Button {
@@ -148,19 +157,53 @@ public struct TranscriptScreen: View {
                 .accessibilityIdentifier("transcript-show-earlier")
             }
             ForEach(visibleItems) { item in
-                TranscriptBubble(
-                    item: item,
-					client: client,
-                    conversationID: conversationID,
-                    onReusePrompt: onReusePrompt,
-                    onReuseAndSendPrompt: onReuseAndSendPrompt,
-                    workspaceAttachment: item.id == attachmentItemID ? workspaceAttachment : nil,
-                    onOpenWorkspace: onOpenWorkspace
-                )
+                VStack(alignment: .leading, spacing: 8) {
+                    TranscriptBubble(
+                        item: item,
+						client: client,
+                        conversationID: conversationID,
+                        onReusePrompt: onReusePrompt,
+                        onReuseAndSendPrompt: onReuseAndSendPrompt,
+                        workspaceAttachment: item.id == attachmentItemID ? workspaceAttachment : nil,
+                        onOpenWorkspace: onOpenWorkspace,
+                        suppressedReportIDs: suppressedReportIDs
+                    )
+                    if item.role != "user",
+                       let client, let forgeRuntime,
+                       let conversationID,
+                       !conversationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        ForEach(inlineToolFeeds(feeds, turnID: item.turnID).filter {
+                            inlineAttachmentItemIDs[$0.feedID ?? ""] == item.id
+                        }) { feed in
+                            InlineToolFeedSurface(
+                                feed: feed,
+                                conversationID: conversationID.trimmingCharacters(in: .whitespacesAndNewlines),
+                                client: client,
+                                forgeRuntime: forgeRuntime
+                            )
+                        }
+                    }
+                }
                 .id(item.id)
             }
         }
     }
+}
+
+func inlineToolFeedAttachmentItemIDs(
+    items: [ChatTranscriptEntry],
+    feeds: [ActiveFeedState]
+) -> [String: String] {
+    Dictionary(uniqueKeysWithValues: toolFeeds(feeds, for: .inline).compactMap { feed in
+        let feedID = feed.feedID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let owner = feed.turnID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !feedID.isEmpty, !owner.isEmpty,
+              let itemID = items.last(where: {
+                  $0.role != "user"
+                      && $0.turnID?.trimmingCharacters(in: .whitespacesAndNewlines) == owner
+              })?.id else { return nil }
+        return (feedID, itemID)
+    })
 }
 
 internal func transcriptWindowStart(totalItemCount: Int, visibleItemCount: Int) -> Int {
@@ -183,6 +226,7 @@ private struct TranscriptBubble: View {
     let onReuseAndSendPrompt: ((String) -> Void)?
     let workspaceAttachment: HostedWorkspaceAttachment?
     let onOpenWorkspace: (() -> Void)?
+    let suppressedReportIDs: Set<String>
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isExpanded = false
 
@@ -305,7 +349,7 @@ private struct TranscriptBubble: View {
             TranscriptMessageContent(
                 markdown: item.markdown,
                 renderedParts: item.renderedParts,
-                renderedReports: item.renderedReports,
+                renderedReports: item.renderedReports?.filter { !suppressedReportIDs.contains($0.id) },
                 diagnosticMessages: item.diagnosticMessages,
 				client: client,
                 conversationID: conversationID

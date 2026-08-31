@@ -337,6 +337,14 @@ internal fun TabletWorkspacePane(
                                     client = client,
                                     forgeRuntime = forgeRuntime
                                 )
+                                ActiveFeedsSection(
+                                    feeds = mergedVisibleFeeds(streamSnapshot, conversationState, activeConversationId),
+                                    conversationId = activeConversationId,
+                                    client = client,
+                                    forgeRuntime = forgeRuntime,
+                                    placement = AndroidFeedPlacement.Detached,
+                                    sectionTitle = "Feed apps"
+                                )
                                 if (hasExecutionDetails) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -394,7 +402,8 @@ internal fun TabletWorkspacePane(
                                         artifactPreview = artifactPreview,
                                         onClosePreview = onClosePreview,
                                         onOpenFile = onOpenFile,
-                                        onOpenInlineReportPdf = onOpenInlineReportPdf
+                                        onOpenInlineReportPdf = onOpenInlineReportPdf,
+                                        activeFeeds = mergedVisibleFeeds(streamSnapshot, conversationState, activeConversationId)
                                     )
                                 }
                                 Spacer(modifier = Modifier.padding(bottom = 24.dp))

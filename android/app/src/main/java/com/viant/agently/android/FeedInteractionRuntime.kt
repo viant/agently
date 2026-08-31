@@ -21,6 +21,35 @@ internal fun visibleFeeds(feeds: List<ActiveFeed>): List<ActiveFeed> {
     return feeds.filterNot { it.developerOnly }.distinctBy { it.feedId }.sortedBy { it.title.lowercase() }
 }
 
+internal enum class AndroidFeedPlacement { Inline, Workspace, Detached }
+
+internal fun androidFeedPlacement(feed: ActiveFeed): AndroidFeedPlacement = when (
+    feed.presentation?.target?.trim()?.lowercase()
+) {
+    "inline" -> AndroidFeedPlacement.Inline
+    "detached" -> AndroidFeedPlacement.Detached
+    // `auto`, unknown, and absent targets preserve the legacy Android Tool
+    // Feed workspace placement.
+    else -> AndroidFeedPlacement.Workspace
+}
+
+internal fun feedsForPlacement(
+    feeds: List<ActiveFeed>,
+    placement: AndroidFeedPlacement
+): List<ActiveFeed> = visibleFeeds(feeds).filter { androidFeedPlacement(it) == placement }
+
+internal fun inlineFeedsForTurn(feeds: List<ActiveFeed>, turnId: String?): List<ActiveFeed> {
+    val owner = turnId?.trim().orEmpty()
+    if (owner.isEmpty()) return emptyList()
+    return feedsForPlacement(feeds, AndroidFeedPlacement.Inline).filter { it.turnId?.trim() == owner }
+}
+
+internal fun suppressedFeedReportIds(feeds: List<ActiveFeed>): Set<String> = visibleFeeds(feeds)
+    .flatMap { it.presentation?.suppressReportIds.orEmpty() }
+    .map(String::trim)
+    .filter(String::isNotEmpty)
+    .toSet()
+
 internal fun mergedVisibleFeeds(
     snapshot: ConversationStreamSnapshot?,
     state: ConversationStateResponse?,
@@ -33,6 +62,7 @@ internal fun mergedVisibleFeeds(
             title = feed.title,
             itemCount = feed.itemCount,
             conversationId = conversationId,
+            turnId = feed.turnId,
             data = feed.data,
             developerOnly = feed.developerOnly,
             presentation = feed.presentation

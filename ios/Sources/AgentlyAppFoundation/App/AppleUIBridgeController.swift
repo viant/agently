@@ -473,6 +473,7 @@ func handleAppleUIBridgeCommand(
             throw AgentlySDKError.invalidResponse
         }
         await forgeRuntime.closeWindow(id: windowID)
+        await AppleFeedCanonicalRegistry.shared.clear(forgeRuntime: forgeRuntime, windowID: windowID)
         return ["ok": .bool(true)]
 
     case "ui.window.setFormData":
@@ -560,9 +561,101 @@ func handleAppleUIBridgeCommand(
         }
         return ["ok": .bool(true)]
 
+    case "ui.feed.get":
+        let feedID = params["feedId"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let conversationID = params["conversationId"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !feedID.isEmpty, !conversationID.isEmpty,
+              let refs = params["dataSourceRefs"]?.arrayValue?.compactMap({ $0.stringValue?.nonEmpty }),
+              !refs.isEmpty else {
+            throw AgentlySDKError.invalidResponse
+        }
+        let window = try await findAppleFeedWindow(
+            forgeRuntime: forgeRuntime,
+            feedID: feedID,
+            conversationID: conversationID
+        )
+        let snapshots = try await forgeRuntime.snapshotFeedDataSources(
+            windowID: window.id,
+            dataSourceRefs: refs
+        )
+        let dataSources = snapshots.mapValues { snapshot in
+            BridgeJSONValue.object([
+                "form": .object(snapshot.form.mapValues(\.appValue)),
+                "collection": .array(snapshot.collection.map { .object($0.mapValues(\.appValue)) }),
+                "selection": .object(snapshot.selection.mapValues(\.appValue))
+            ])
+        }
+        return [
+            "conversationId": .string(conversationID),
+            "feedId": .string(feedID),
+            "dataSources": .object(dataSources)
+        ]
+
+    case "ui.feed.update":
+        let feedID = params["feedId"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let conversationID = params["conversationId"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !feedID.isEmpty, !conversationID.isEmpty,
+              let rawOperations = params["operations"]?.arrayValue,
+              !rawOperations.isEmpty else {
+            throw AgentlySDKError.invalidResponse
+        }
+        let operations = try rawOperations.enumerated().map { index, value -> ForgeIOSRuntime.FeedPatchOperation in
+            guard let object = value.objectValue,
+                  let dataSourceRef = object["dataSourceRef"]?.stringValue?.nonEmpty,
+                  let op = object["op"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().nonEmpty,
+                  let path = object["path"]?.stringValue else {
+                throw AgentlySDKError.invalidResponse
+            }
+            _ = index
+            return ForgeIOSRuntime.FeedPatchOperation(
+                dataSourceRef: dataSourceRef,
+                op: op,
+                path: path,
+                value: object["value"]?.forgeValue
+            )
+        }
+        let window = try await findAppleFeedWindow(
+            forgeRuntime: forgeRuntime,
+            feedID: feedID,
+            conversationID: conversationID
+        )
+        let changed: Set<String>
+        if await AppleFeedCanonicalRegistry.shared.contains(forgeRuntime: forgeRuntime, windowID: window.id) {
+            changed = try await AppleFeedCanonicalRegistry.shared.apply(
+                forgeRuntime: forgeRuntime,
+                windowID: window.id,
+                operations: operations,
+                turnID: params["turnId"]?.stringValue
+            )
+        } else {
+            changed = try await forgeRuntime.applyFeedPatchOperations(
+                windowID: window.id,
+                operations: operations
+            )
+        }
+        return [
+            "ok": .bool(true),
+            "feedId": .string(feedID),
+            "changedDataSourceRefs": .array(changed.sorted().map(BridgeJSONValue.string))
+        ]
+
     default:
         throw AgentlySDKError.invalidResponse
     }
+}
+
+private func findAppleFeedWindow(
+    forgeRuntime: ForgeRuntime,
+    feedID: String,
+    conversationID: String
+) async throws -> ForgeRuntime.WindowState {
+    let expectedKey = "feed-\(feedID)-\(conversationID)"
+    guard let window = await forgeRuntime.windows.first(where: {
+        $0.key == expectedKey && $0.conversationID == conversationID
+    }) else {
+        throw AgentlySDKError.invalidResponse
+    }
+    return window
 }
 
 private enum AppleUIBridgeReportError: LocalizedError {

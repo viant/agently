@@ -1,6 +1,7 @@
 package com.viant.agently.android
 
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.heightIn
@@ -8,7 +9,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -21,6 +24,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +44,8 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Terminal
 import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.FeedDataResponse
+import com.viant.forgeandroid.ui.ForgePresentationDensity
+import com.viant.forgeandroid.ui.LocalForgePresentationDensity
 import com.viant.agentlysdk.FeedPresentation
 import com.viant.agentlysdk.stream.ActiveFeed
 import com.viant.forgeandroid.runtime.ForgeRuntime
@@ -72,17 +78,20 @@ internal fun ActiveFeedsSection(
     feeds: List<ActiveFeed>,
     conversationId: String?,
     client: AgentlyClient,
-    forgeRuntime: ForgeRuntime
+    forgeRuntime: ForgeRuntime,
+    placement: AndroidFeedPlacement = AndroidFeedPlacement.Workspace,
+    sectionTitle: String = "Tool feeds"
 ) {
+    val placedFeeds = remember(feeds, placement) { feedsForPlacement(feeds, placement) }
     val scopedConversationId = conversationId?.takeIf { it.isNotBlank() }
-        ?: feeds.firstOrNull()?.conversationId?.takeIf { it.isNotBlank() }
+        ?: placedFeeds.firstOrNull()?.conversationId?.takeIf { it.isNotBlank() }
         ?: return
-    if (feeds.isEmpty()) {
+    if (placedFeeds.isEmpty()) {
         return
     }
     var sheetOpen by remember(scopedConversationId) { mutableStateOf(false) }
     val state = rememberFeedSectionUiState(
-        feeds = feeds,
+        feeds = placedFeeds,
         conversationId = scopedConversationId,
         client = client,
         forgeRuntime = forgeRuntime,
@@ -96,7 +105,7 @@ internal fun ActiveFeedsSection(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Tool feeds", style = MaterialTheme.typography.titleMedium)
+                Text(sectionTitle, style = MaterialTheme.typography.titleMedium)
                 TextButton(onClick = { sheetOpen = true }) { Text("Open") }
             }
             Row(
@@ -141,7 +150,7 @@ internal fun ActiveFeedsSection(
                     .padding(horizontal = 18.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("Tool feeds", style = MaterialTheme.typography.titleLarge)
+                Text(sectionTitle, style = MaterialTheme.typography.titleLarge)
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -167,7 +176,8 @@ internal fun ActiveFeedsSection(
                     state.payload != null -> FeedPanel(
                         payload = state.payload,
                         conversationId = scopedConversationId,
-                        forgeRuntime = forgeRuntime
+                        forgeRuntime = forgeRuntime,
+                        activeFeed = state.visibleFeeds.firstOrNull { it.feedId == state.selectedFeedId }
                     )
                 }
                 state.preview?.let { activePreview ->
@@ -179,15 +189,58 @@ internal fun ActiveFeedsSection(
 }
 
 @Composable
+internal fun InlineFeedSurface(
+    feed: ActiveFeed,
+    conversationId: String,
+    client: AgentlyClient,
+    forgeRuntime: ForgeRuntime
+) {
+    val state = rememberFeedSectionUiState(
+        feeds = listOf(feed),
+        conversationId = conversationId,
+        client = client,
+        forgeRuntime = forgeRuntime,
+        loadEnabled = true
+    )
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = Color(0xFFF7F9FC),
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, Color(0xFFDDE4F1))
+    ) {
+        Column(
+            modifier = Modifier.padding(4.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            when {
+                state.loading -> CircularProgressIndicator()
+                state.error != null -> Text(state.error, style = MaterialTheme.typography.bodySmall, color = Color(0xFFB42318))
+                state.payload != null -> FeedPanel(
+                    payload = state.payload,
+                    conversationId = conversationId,
+                    forgeRuntime = forgeRuntime,
+                    activeFeed = feed,
+                    maxHeight = null
+                )
+            }
+            state.preview?.let { FeedTextPreviewSection(preview = it, onClose = state.onClosePreview) }
+        }
+    }
+}
+
+@Composable
 private fun FeedPanel(
     payload: FeedDataResponse,
     conversationId: String,
-    forgeRuntime: ForgeRuntime
+    forgeRuntime: ForgeRuntime,
+    activeFeed: ActiveFeed? = null,
+    maxHeight: androidx.compose.ui.unit.Dp? = 340.dp
 ) {
     val windowState = rememberFeedWindowUiState(
         payload = payload,
         conversationId = conversationId,
-        forgeRuntime = forgeRuntime
+        forgeRuntime = forgeRuntime,
+        activeFeed = activeFeed
     )
     if (windowState.metadata == null || windowState.windowContext == null) {
         Text(
@@ -200,11 +253,16 @@ private fun FeedPanel(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 340.dp),
+            .let { base ->
+                if (maxHeight == null) base
+                else base.heightIn(max = maxHeight).verticalScroll(rememberScrollState())
+            },
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        windowState.metadata.view?.content?.containers?.forEach { container ->
-            ContainerRenderer(forgeRuntime, windowState.windowContext, container)
+        CompositionLocalProvider(LocalForgePresentationDensity provides ForgePresentationDensity.Compact) {
+            windowState.metadata.view?.content?.containers?.forEach { container ->
+                ContainerRenderer(forgeRuntime, windowState.windowContext, container)
+            }
         }
     }
 }

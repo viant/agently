@@ -245,7 +245,17 @@ public struct WorkspaceScreen: View {
             ToolFeedsSection(
                 feeds: mergedToolFeeds(live: streamSnapshot?.feeds ?? [], persisted: conversationState?.feeds ?? []),
                 conversationID: conversationState?.conversation?.conversationID,
-                client: client
+                client: client,
+                forgeRuntime: forgeRuntime
+            )
+
+            ToolFeedsSection(
+                feeds: mergedToolFeeds(live: streamSnapshot?.feeds ?? [], persisted: conversationState?.feeds ?? []),
+                conversationID: conversationState?.conversation?.conversationID,
+                client: client,
+                placement: .detached,
+                sectionTitle: "Feed apps",
+                forgeRuntime: forgeRuntime
             )
 
             GeometryReader { proxy in
@@ -358,7 +368,9 @@ public struct WorkspaceScreen: View {
                     onReuseAndSendPrompt: isSending ? nil : { prompt in
                         composerRuntime.query = prompt
                         onSend()
-                    }
+                    },
+                    feeds: mergedToolFeeds(live: streamSnapshot?.feeds ?? [], persisted: conversationState?.feeds ?? []),
+                    forgeRuntime: forgeRuntime
                 )
             }
         }
@@ -417,7 +429,9 @@ public struct WorkspaceScreen: View {
                 onReuseAndSendPrompt: isSending ? nil : { prompt in
                     composerRuntime.query = prompt
                     onSend()
-                }
+                },
+                feeds: mergedToolFeeds(live: streamSnapshot?.feeds ?? [], persisted: conversationState?.feeds ?? []),
+                forgeRuntime: forgeRuntime
             )
         }
     }

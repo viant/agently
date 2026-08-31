@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.PendingToolApproval
+import com.viant.agentlysdk.stream.ActiveFeed
 import com.viant.forgeandroid.runtime.ForgeRuntime
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -58,6 +59,7 @@ internal fun RenderTranscript(
     onOpenInlineReportPdf: (Map<String, Any?>, () -> Unit) -> Unit,
     workspaceAttachment: HostedWorkspaceAttachment? = null,
     onOpenWorkspace: (() -> Unit)? = null,
+    activeFeeds: List<ActiveFeed> = emptyList(),
 ) {
     if (items.isEmpty()) {
         return
@@ -69,6 +71,10 @@ internal fun RenderTranscript(
     val visibleItems = items.subList(windowStart, items.size)
     val attachmentItemId = workspaceAttachment?.let { attachment ->
         items.lastOrNull { it.role != "user" && it.turnId == attachment.turnId }?.id
+    }
+    val suppressedReportIds = remember(activeFeeds) { suppressedFeedReportIds(activeFeeds) }
+    val inlineAttachmentItemIds = remember(items, activeFeeds) {
+        inlineFeedAttachmentItemIds(items, activeFeeds)
     }
     Text("Transcript", style = MaterialTheme.typography.titleMedium)
     if (windowStart > 0) {
@@ -169,7 +175,7 @@ internal fun RenderTranscript(
                     TranscriptMessageContent(
                         markdown = item.markdown,
                         renderedParts = item.renderedParts,
-                        renderedReports = item.renderedReports,
+                        renderedReports = item.renderedReports?.filterNot { it.id in suppressedReportIds },
                         diagnosticMessages = item.diagnosticMessages,
                         conversationId = conversationId,
                         client = client,
@@ -227,9 +233,34 @@ internal fun RenderTranscript(
                 }
             }
         }
+        if (item.role == "assistant" && !conversationId.isNullOrBlank()) {
+            inlineFeedsForTurn(activeFeeds, item.turnId)
+                .filter { inlineAttachmentItemIds[it.feedId] == item.id }
+                .forEach { feed ->
+                    InlineFeedSurface(
+                        feed = feed,
+                        conversationId = conversationId,
+                        client = client,
+                        forgeRuntime = forgeRuntime
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+        }
         Spacer(modifier = Modifier.height(if (startsGroup) 10.dp else 4.dp))
     }
 }
+
+internal fun inlineFeedAttachmentItemIds(
+    items: List<ChatEntry>,
+    feeds: List<ActiveFeed>,
+): Map<String, String> = feedsForPlacement(feeds, AndroidFeedPlacement.Inline).mapNotNull { feed ->
+    val owner = feed.turnId?.trim().orEmpty()
+    if (owner.isEmpty()) return@mapNotNull null
+    val itemId = items.lastOrNull { item ->
+        item.role == "assistant" && item.turnId?.trim() == owner
+    }?.id ?: return@mapNotNull null
+    feed.feedId to itemId
+}.toMap()
 
 @Composable
 private fun WorkspaceAttachmentCard(

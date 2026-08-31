@@ -72,6 +72,173 @@ func registerReportRuntimeExportHandler(
             return .bool(false)
         }
     }
+    await forgeRuntime.registerHandler("feed.print") { args in
+        guard let windowID = args.context?.windowID else {
+            await onError("No active feed is available for PDF export.")
+            return .bool(false)
+        }
+        do {
+            let exportRequest = try await buildFeedReportExportRequest(
+                forgeRuntime: forgeRuntime,
+                windowID: windowID
+            )
+            let artifact = try await exportReportRuntimePDF(
+                client: client,
+                exportRequest: exportRequest,
+                conversationID: await conversationIDProvider()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            )
+            await onComplete(artifact)
+            await onError(nil)
+            return .bool(true)
+        } catch {
+            await onError(reportRuntimeExportErrorMessage(error))
+            return .bool(false)
+        }
+    }
+}
+
+func buildFeedReportExportRequest(
+    forgeRuntime: ForgeRuntime,
+    windowID: String
+) async throws -> [String: ForgeJSONValue] {
+    guard let state = await forgeRuntime.windowState(id: windowID),
+          let metadata = await forgeRuntime.windowMetadata(id: windowID),
+          let content = metadata.view?.content else {
+        throw ReportRuntimeExportError.missingExportRequest
+    }
+    let rawFeedID = state.key
+        .replacingOccurrences(of: "^feed-", with: "", options: .regularExpression)
+        .replacingOccurrences(of: "-\(state.conversationID ?? "")$", with: "", options: .regularExpression)
+    let feedID = safeFeedReportID(rawFeedID)
+    let sourceRefs = metadata.dataSources.keys.sorted()
+    let sourceRefMap = Dictionary(uniqueKeysWithValues: sourceRefs.map { ($0, safeFeedReportID($0)) })
+    let blocks = try content.containers.flatMap { try feedPrintableBlocks($0, sourceRefMap: sourceRefMap) }
+    let snapshots = try await forgeRuntime.snapshotFeedDataSources(windowID: windowID, dataSourceRefs: sourceRefs)
+    let dataSources = Dictionary(uniqueKeysWithValues: snapshots.map { ref, snapshot in
+        let rows = !snapshot.collection.isEmpty
+            ? snapshot.collection
+            : (snapshot.form.isEmpty ? [] : [snapshot.form])
+        return (
+            sourceRefMap[ref] ?? safeFeedReportID(ref),
+            TranscriptCanonicalData(
+                id: sourceRefMap[ref] ?? safeFeedReportID(ref),
+                format: "json",
+                payload: .array(rows.map(ForgeJSONValue.object))
+            )
+        )
+    })
+    let reportID = "feed_\(feedID)"
+    let canonicalReport = TranscriptCanonicalReport(
+        scope: "feed:\(feedID)",
+        id: reportID,
+        grammar: "dashboard-v1",
+        status: "committed",
+        source: .object([
+            "id": .string(feedID),
+            "title": .string(state.title),
+            "blocks": .array(blocks)
+        ]),
+        dataSources: dataSources
+    )
+    let compiled = try InlineReportRuntimeCompiler.compile(canonicalReport)
+    return [
+        "format": .string("pdf"),
+        "reportId": .string(reportID),
+        "fences": .array(try InlineReportRuntimeCompiler.exportFences(canonicalReport)),
+        "artifactRef": .string("feed://\(feedID)"),
+        "title": .string(state.title),
+        "reportSpec": compiled.reportSpec,
+        "reportFill": compiled.reportFill,
+        "reportPrint": .object([
+            "version": .number(1),
+            "kind": .string("reportPrint"),
+            "specVersion": .number(1),
+            "reportId": .string(reportID),
+            "title": .string(state.title)
+        ])
+    ]
+}
+
+private let printableFeedKinds: Set<String> = [
+    "dashboard.summary", "dashboard.kpiTable", "dashboard.compare", "dashboard.timeline",
+    "dashboard.composition", "dashboard.dimensions", "dashboard.geoMap", "dashboard.status",
+    "dashboard.filters", "dashboard.feed", "dashboard.table", "dashboard.report",
+    "dashboard.detail", "dashboard.messages", "dashboard.badges"
+]
+
+private func feedPrintableBlocks(
+    _ node: ContainerDef,
+    sourceRefMap: [String: String]
+) throws -> [ForgeJSONValue] {
+    var serialized = try encodedForgeValue(node).objectValue ?? [:]
+    if let ref = serialized["dataSourceRef"]?.stringValue,
+       let mapped = sourceRefMap[ref] {
+        serialized["dataSourceRef"] = .string(mapped)
+    }
+    if ["dashboard.editableTable", "dashboard.lookupChips"].contains(node.kind ?? "") {
+        serialized["kind"] = .string("dashboard.table")
+        return [.object(serialized)]
+    }
+    if node.tabs != nil, !node.containers.isEmpty {
+        return try node.containers.compactMap { tab in
+            let children = try tab.containers.flatMap { try feedPrintableBlocks($0, sourceRefMap: sourceRefMap) }
+            guard !children.isEmpty else { return nil }
+            return .object([
+                "id": .string(safeFeedReportID(tab.id ?? tab.title ?? "section")),
+                "kind": .string("dashboard.detail"),
+                "title": .string(tab.title ?? tab.id ?? "Section"),
+                "containers": .array(children)
+            ])
+        }
+    }
+    if printableFeedKinds.contains(node.kind ?? "") {
+        if node.kind == "dashboard.detail" {
+            serialized["containers"] = .array(
+                try node.containers.flatMap { try feedPrintableBlocks($0, sourceRefMap: sourceRefMap) }
+            )
+        }
+        return [.object(serialized)]
+    }
+    let nested = try node.containers.flatMap { try feedPrintableBlocks($0, sourceRefMap: sourceRefMap) }
+    if !nested.isEmpty {
+        return [.object([
+            "id": .string(safeFeedReportID(node.id ?? node.title ?? "section")),
+            "kind": .string("dashboard.detail"),
+            "title": .string(node.title ?? ""),
+            "containers": .array(nested)
+        ])]
+    }
+    if !node.items.isEmpty, let ref = node.dataSourceRef, !ref.isEmpty {
+        let rows = node.items.map { item -> ForgeJSONValue in
+            let identity = item.id ?? item.field ?? item.label ?? "value"
+            return .object([
+                "id": .string(safeFeedReportID(identity)),
+                "label": .string(item.label ?? item.id ?? item.field ?? "Value"),
+                "value": .string(item.field ?? item.dataField ?? item.id ?? "value")
+            ])
+        }
+        return [.object([
+            "id": .string(safeFeedReportID(node.id ?? node.title ?? "summary")),
+            "kind": .string("dashboard.kpiTable"),
+            "title": .string(node.title ?? ""),
+            "rows": .array(rows),
+            "dataSourceRef": .string(sourceRefMap[ref] ?? safeFeedReportID(ref))
+        ])]
+    }
+    return []
+}
+
+private func encodedForgeValue<T: Encodable>(_ value: T) throws -> ForgeJSONValue {
+    let data = try JSONEncoder().encode(value)
+    return try JSONDecoder().decode(ForgeJSONValue.self, from: data)
+}
+
+private func safeFeedReportID(_ value: String) -> String {
+    value.trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+        .replacingOccurrences(of: "[^a-z0-9]+", with: "_", options: .regularExpression)
+        .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+        .nonEmpty ?? "feed"
 }
 
 func reportRuntimeExportErrorMessage(_ error: Error) -> String {

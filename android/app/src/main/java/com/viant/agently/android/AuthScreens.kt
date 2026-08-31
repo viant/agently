@@ -432,7 +432,7 @@ internal fun normalizeAuthError(raw: String?): String? {
             lowered.contains("failed to connect") ||
             lowered.contains("connection refused") ||
             lowered.contains("network is unreachable") ->
-            "Agently could not reach the configured endpoint. Check the server and emulator connection, then try again."
+            "Agently could not reach the configured endpoint. Check the server and device connection, then try again."
         lowered.contains("oauth initiate did not return an auth url") ->
             "OAuth sign-in is available, but the server did not return a login URL."
         else -> message

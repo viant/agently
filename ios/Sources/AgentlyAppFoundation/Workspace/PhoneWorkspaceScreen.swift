@@ -227,7 +227,18 @@ public struct PhoneWorkspaceScreen: View {
                     isStoppingTurn: isStoppingTurn,
                     conversationState: conversationState,
                     streamSnapshot: streamSnapshot
-                ) != nil
+                ) != nil,
+                forgeRuntime: forgeRuntime
+            )
+            ToolFeedsSection(
+                feeds: mergedToolFeeds(live: streamSnapshot?.feeds ?? [], persisted: conversationState?.feeds ?? []),
+                conversationID: conversationState?.conversation?.conversationID,
+                client: client,
+                collapsible: true,
+                isTurnActive: false,
+                placement: .detached,
+                sectionTitle: "Feed apps",
+                forgeRuntime: forgeRuntime
             )
             Group {
                 switch visiblePane {
@@ -461,7 +472,9 @@ public struct PhoneWorkspaceScreen: View {
                     conversationState: conversationState,
                     restoreState: hostedWorkspaceRestoreState
                 ),
-                onOpenWorkspace: { isHostedWorkspacePresented = true }
+                onOpenWorkspace: { isHostedWorkspacePresented = true },
+                feeds: mergedToolFeeds(live: streamSnapshot?.feeds ?? [], persisted: conversationState?.feeds ?? []),
+                forgeRuntime: forgeRuntime
             )
         }
     }

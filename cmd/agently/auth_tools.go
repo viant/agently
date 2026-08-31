@@ -89,6 +89,28 @@ func authenticateWithOOB(ctx context.Context, client *sdk.HTTPClient, secretRef,
 	})
 }
 
+func ensureMCPOOBAuth(ctx context.Context, client *sdk.HTTPClient, server, secretRef, configURL, rawScopes, resource string) error {
+	server = strings.TrimSpace(server)
+	if server == "" {
+		return fmt.Errorf("--mcp-oob requires an MCP service/server name")
+	}
+	secretRef = strings.TrimSpace(secretRef)
+	if secretRef == "" {
+		return fmt.Errorf("--mcp-oob requires a secrets URL value")
+	}
+	configURL = strings.TrimSpace(configURL)
+	if configURL == "" {
+		return fmt.Errorf("--mcp-oob requires --mcp-oauth-config")
+	}
+	return client.AuthMCPOOBLink(ctx, &sdk.MCPOOBLinkOptions{
+		Server:     server,
+		SecretsURL: secretRef,
+		ConfigURL:  configURL,
+		Scopes:     parseScopes(rawScopes),
+		Resource:   strings.TrimSpace(resource),
+	})
+}
+
 func applySessionCookie(client *sdk.HTTPClient, sessionID string) error {
 	if client == nil {
 		return fmt.Errorf("client is required")

@@ -49,6 +49,10 @@ func TestMCPListCmd_ParsesOOBFlags(t *testing.T) {
 		"--oob", "~/.secret/demo.enc|blowfish://default",
 		"--oauth-config", "scy://oauth/config",
 		"--oauth-scopes", "openid,email",
+		"--mcp-oob", "~/.secret/mcp-user.enc|blowfish://default",
+		"--mcp-oauth-config", "scy://oauth/mcp-client",
+		"--mcp-oauth-scopes", "plan:read,plan:edit",
+		"--mcp-oauth-resource", "https://mcp.example.test/mcp",
 	})
 	if err != nil {
 		t.Fatalf("parse args: %v", err)
@@ -61,5 +65,8 @@ func TestMCPListCmd_ParsesOOBFlags(t *testing.T) {
 	}
 	if cmd.OAuthScp != "openid,email" {
 		t.Fatalf("expected oauth-scopes flag to parse, got %q", cmd.OAuthScp)
+	}
+	if cmd.MCPOOB != "~/.secret/mcp-user.enc|blowfish://default" || cmd.MCPOAuthCfg != "scy://oauth/mcp-client" || cmd.MCPOAuthScp != "plan:read,plan:edit" || cmd.MCPOAuthRes != "https://mcp.example.test/mcp" {
+		t.Fatalf("expected MCP OOB flags to parse, got secrets=%q config=%q scopes=%q resource=%q", cmd.MCPOOB, cmd.MCPOAuthCfg, cmd.MCPOAuthScp, cmd.MCPOAuthRes)
 	}
 }

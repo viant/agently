@@ -21,6 +21,7 @@ import IterationBlock, {
   extractProgressiveReportLeadIn,
   resolveIterationAgentLabel,
   resolveIterationStatusDetail,
+  resolveTerminalFailureMessage,
   resolveVisibleBubbleContent,
   resolveVisibleBubbleRenderedContent,
   resolveIterationBubbleContent,
@@ -37,10 +38,50 @@ import IterationBlock, {
   hasActiveLinkedPreviewUpdate,
   shouldPollLinkedConversationSummaries,
   phaseBadgeLabel,
-  toolStepSummaryText
+  toolStepSummaryText,
+  stripSuppressedForgeReports,
+  filterSuppressedRenderedReports
 } from './IterationBlock';
 import { summarizeLinkedConversationTranscript } from 'agently-core-ui-sdk';
 import { ConversationViewContext } from '../../context/ConversationViewContext';
+
+describe('resolveTerminalFailureMessage', () => {
+  it('surfaces a safe generic connectivity message for unresolved required bundles', () => {
+    expect(resolveTerminalFailureMessage('requested tool bundles resolved zero tool definitions: required-tools'))
+      .toBe('Required tools are unavailable (required-tools). Check the configured connection or authorization, then retry.');
+  });
+
+  it('does not expose arbitrary backend errors', () => {
+    expect(resolveTerminalFailureMessage('private backend diagnostic'))
+      .toBe('The assistant could not finish this request.');
+  });
+});
+
+describe('inline feed report suppression', () => {
+  it('removes only workspace-declared legacy report transactions', () => {
+    const content = [
+      'Business acknowledgement.',
+      '```forge-report',
+      JSON.stringify({ id: 'legacy-plan', mode: 'commit' }),
+      '```',
+      '```forge-report',
+      JSON.stringify({ id: 'keep-report', mode: 'commit' }),
+      '```',
+    ].join('\n');
+    const result = stripSuppressedForgeReports(content, ['legacy-plan']);
+    expect(result).toContain('Business acknowledgement.');
+    expect(result).not.toContain('legacy-plan');
+    expect(result).toContain('keep-report');
+  });
+
+  it('filters canonical report snapshots without mutating other content', () => {
+    const rendered = { parts: [{ kind: 'text' }], reports: [{ id: 'legacy-plan' }, { id: 'keep-report' }] };
+    expect(filterSuppressedRenderedReports(rendered, ['legacy-plan'])).toEqual({
+      parts: [{ kind: 'text' }],
+      reports: [{ id: 'keep-report' }],
+    });
+  });
+});
 
 function renderDeveloperIteration(props) {
   return renderToStaticMarkup(

@@ -227,6 +227,43 @@ describe('conversationWindow', () => {
     expect(selected?.windowId).toBe('forecast_target');
   });
 
+  it('switches from a workspace-backed conversation to a plain conversation', () => {
+    activeWindows.value = [
+      {
+        windowId: MAIN_CHAT_WINDOW_ID,
+        windowKey: CHAT_WINDOW_KEY,
+        parameters: { conversations: { form: { id: 'conv-media' } } }
+      },
+      {
+        windowId: 'media_workspace',
+        windowKey: 'mediaWorkspace',
+        conversationId: 'conv-media',
+        presentation: 'hosted',
+        region: 'chat.top',
+        parentKey: MAIN_CHAT_WINDOW_ID,
+        inTab: true
+      }
+    ];
+    selectedTabId.value = 'media_workspace';
+    selectedWindowId.value = 'media_workspace';
+    window.location.pathname = '/conversation/conv-media';
+    const replaceState = vi.fn();
+    window.history.replaceState = replaceState;
+
+    const selected = openConversationInMainWindow('conv-troubleshooting');
+
+    expect(activeWindows.value.some((entry) => entry.windowId === 'media_workspace')).toBe(false);
+    expect(selected?.windowId).toBe(MAIN_CHAT_WINDOW_ID);
+    expect(selectedWindowId.value).toBe(MAIN_CHAT_WINDOW_ID);
+    expect(selectedTabId.value).toBe(MAIN_CHAT_WINDOW_ID);
+    expect(activeWindows.value[0]?.parameters?.conversations?.form?.id).toBe('conv-troubleshooting');
+    expect(replaceState).toHaveBeenLastCalledWith(
+      null,
+      '',
+      '/conversation/conv-troubleshooting'
+    );
+  });
+
   it('resolves a live hosted workspace window for the current conversation before consulting saved browser state', () => {
     activeWindows.value = [
       {

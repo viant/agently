@@ -27,6 +27,7 @@ import (
 	uicontrol "github.com/viant/agently-core/protocol/tool/service/ui/control"
 	uidatasource "github.com/viant/agently-core/protocol/tool/service/ui/datasource"
 	uievents "github.com/viant/agently-core/protocol/tool/service/ui/events"
+	uifeed "github.com/viant/agently-core/protocol/tool/service/ui/feed"
 	uireport "github.com/viant/agently-core/protocol/tool/service/ui/report"
 	uiview "github.com/viant/agently-core/protocol/tool/service/ui/view"
 	uiwindow "github.com/viant/agently-core/protocol/tool/service/ui/window"
@@ -189,6 +190,9 @@ func Serve(options ServeOptions) error {
 		}
 		if err := tool.AddInternalService(rt.Registry, uicontrol.New(uiBridge)); err != nil {
 			log.Printf("agently-app: failed to register internal UI control service: %v", err)
+		}
+		if err := tool.AddInternalService(rt.Registry, uifeed.New(uiBridge)); err != nil {
+			log.Printf("agently-app: failed to register internal UI feed service: %v", err)
 		}
 		if err := tool.AddInternalService(rt.Registry, uidatasource.New(uiBridge)); err != nil {
 			log.Printf("agently-app: failed to register internal UI datasource service: %v", err)

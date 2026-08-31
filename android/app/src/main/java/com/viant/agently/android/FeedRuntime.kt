@@ -8,14 +8,18 @@ import com.viant.forgeandroid.runtime.DataSourceContext
 import com.viant.forgeandroid.runtime.ForgeRuntime
 import com.viant.forgeandroid.runtime.JsonUtil
 import com.viant.forgeandroid.runtime.SelectionState
+import com.viant.forgeandroid.runtime.ServiceDef
 import com.viant.forgeandroid.runtime.ViewDef
 import com.viant.forgeandroid.runtime.WindowContext
 import com.viant.forgeandroid.runtime.WindowMetadata
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 internal val feedRuntimeJson = Json { ignoreUnknownKeys = true }
 
@@ -25,9 +29,18 @@ internal data class FeedCollections(
 )
 
 internal fun buildFeedWindowMetadata(payload: FeedDataResponse): WindowMetadata {
-    val dataSources = decodeFeedDataSources(payload.dataSources)
     val ui = payload.ui ?: error("Feed ${payload.feedId ?: payload.title ?: "unknown"} is missing ui metadata")
     val content = decodeFeedContent(ui)
+    val dataSources = decodeFeedDataSources(payload.dataSources).toMutableMap()
+    referencedFeedLookupDataSources(content).forEach { ref ->
+        dataSources.putIfAbsent(
+            ref,
+            DataSourceDef(
+                service = ServiceDef(endpoint = "agentlyAPI", uri = "/v1/api/datasources/$ref/fetch"),
+                autoFetch = false
+            )
+        )
+    }
     return WindowMetadata(
         namespace = "agently.android.feed",
         dataSources = dataSources,
@@ -35,6 +48,19 @@ internal fun buildFeedWindowMetadata(payload: FeedDataResponse): WindowMetadata 
             content = content
         )
     )
+}
+
+private fun referencedFeedLookupDataSources(content: ContentDef): Set<String> {
+    val refs = linkedSetOf<String>()
+    fun visit(container: ContainerDef) {
+        val lookup = container.lookup
+        (lookup?.get("dataSourceRef") as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf(String::isNotEmpty)?.let(refs::add)
+        val drill = lookup?.get("drill") as? JsonObject
+        (drill?.get("dataSourceRef") as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf(String::isNotEmpty)?.let(refs::add)
+        container.containers.forEach(::visit)
+    }
+    content.containers.forEach(::visit)
+    return refs
 }
 
 private fun decodeFeedDataSources(rawDataSources: JsonObject?): Map<String, DataSourceDef> {
@@ -71,14 +97,28 @@ private fun wrapFeedContainer(container: ContainerDef): ContentDef {
     return ContentDef(containers = listOf(container))
 }
 
-internal fun wireFeedWindow(runtime: ForgeRuntime, windowId: String, payload: FeedDataResponse) {
+internal fun wireFeedWindow(
+    runtime: ForgeRuntime,
+    windowId: String,
+    payload: FeedDataResponse,
+    turnId: String? = null
+) {
     val windowContext = runtime.windowContext(windowId)
-    val collections = computeFeedCollections(payload.dataSources, payload.data)
+    runtime.registerFeedPatchHandler { targetWindowId, operation ->
+        if (!AndroidFeedCanonicalRegistry.has(runtime, targetWindowId)) {
+            false
+        } else {
+            AndroidFeedCanonicalRegistry.apply(runtime, targetWindowId, listOf(operation))
+            true
+        }
+    }
+    val effectiveData = AndroidFeedCanonicalRegistry.register(runtime, windowId, payload, turnId)
+    val collections = computeFeedCollections(payload.dataSources, effectiveData)
     hydrateFeedDataSources(windowContext, collections.collections)
     selectInitialFeedRoot(windowContext, collections)
 }
 
-private fun hydrateFeedDataSources(
+internal fun hydrateFeedDataSources(
     windowContext: WindowContext,
     collections: Map<String, List<Map<String, Any?>>>
 ) {
@@ -150,7 +190,7 @@ private fun topLevelFeedRows(
     if (!isTopLevelSource(def)) {
         return null
     }
-    return asFeedRows(selectPath(jsonString(def["source"]), rootAny))
+    return projectFeedRows(selectPath(jsonString(def["source"]), rootAny), def)
 }
 
 private fun seedRootFeedCollection(
@@ -202,7 +242,7 @@ private fun resolveFeedCollection(
     val parentRows = collections[parent] ?: return null
     val selector = resolveFeedSelector(def)
     val parentRoot = feedParentRoot(parentRows)
-    return asFeedRows(selectPath(selector, parentRoot))
+    return projectFeedRows(selectPath(selector, parentRoot), def)
 }
 
 private fun resolveFeedSelector(def: JsonObject): String {
@@ -276,6 +316,7 @@ private fun parentDataSourceRef(def: JsonObject): String? {
 }
 
 internal fun selectPath(selector: String?, root: Any?): Any? {
+    if (selector?.trim() == "$") return root
     val tokens = parseSelectorTokens(selector)
     if (tokens.isEmpty()) {
         return root
@@ -285,7 +326,7 @@ internal fun selectPath(selector: String?, root: Any?): Any? {
     return walkSelectorPath(root, effectiveTokens)
 }
 
-private fun parseSelectorTokens(selector: String?): List<String> {
+internal fun parseSelectorTokens(selector: String?): List<String> {
     val input = selector?.trim().orEmpty()
     if (input.isEmpty()) {
         return emptyList()
@@ -394,6 +435,147 @@ private fun asFeedRows(value: Any?): List<Map<String, Any?>> {
         is List<*> -> value.mapNotNull(::toFeedRow)
         else -> listOfNotNull(toFeedRow(value))
     }
+}
+
+internal fun projectFeedRows(value: Any?, definition: JsonObject): List<Map<String, Any?>> {
+    val flattened = (definition["flatten"] as? JsonObject)?.let { flattenFeedRows(value, it) }
+    var rows = flattened ?: projectFeedFieldRows(value, definition["fields"] as? JsonObject)
+    rows = filterFeedRows(rows, definition["exclude"])
+    rows = deduplicateFeedRows(rows, definition["uniqueKey"] as? JsonArray)
+    rows = deriveFeedRows(rows, definition["derive"] as? JsonObject)
+    val countAs = jsonString((definition["aggregate"] as? JsonObject)?.get("countAs"))
+    return if (countAs.isNotBlank()) listOf(mapOf(countAs to rows.size)) else rows
+}
+
+private fun projectFeedFieldRows(value: Any?, fields: JsonObject?): List<Map<String, Any?>> {
+    if (fields == null) return asFeedRows(value)
+    return when (value) {
+        is List<*> -> value.map { item -> projectFeedFields(item, fields) }
+        else -> listOf(projectFeedFields(value, fields))
+    }
+}
+
+internal fun projectFeedFields(root: Any?, fields: JsonObject): Map<String, Any?> {
+    val result = linkedMapOf<String, Any?>()
+    fields.forEach { (name, raw) ->
+        val config = raw as? JsonObject
+        val path = when (raw) {
+            is JsonPrimitive -> raw.content
+            else -> jsonString(config?.get("path")).ifBlank { jsonString(config?.get("selector")).ifBlank { name } }
+        }
+        val transform = jsonString(config?.get("transform")).lowercase()
+        var selected: Any? = selectPath(path, root)
+        selected = when (transform) {
+            "daterange", "daterangelabel" -> {
+                val start = projectFeedDate(selectPath(jsonString(config?.get("startPath")).ifBlank { "start" }, root))
+                val end = projectFeedDate(selectPath(jsonString(config?.get("endPath")).ifBlank { "end" }, root))
+                if (transform == "daterangelabel") listOf(start, end).filter(String::isNotBlank).joinToString(" – ")
+                else mapOf("start" to start, "end" to end)
+            }
+            "dateparts" -> projectFeedDate(selected)
+            "boolean" -> when (selected) {
+                true, 1, 1L, "1" -> true
+                is String -> selected.equals("true", ignoreCase = true)
+                else -> false
+            }
+            else -> selected
+        }
+        result[name] = selected
+    }
+    return result
+}
+
+private fun projectFeedDate(value: Any?): String {
+    val map = value as? Map<*, *> ?: return value?.toString().orEmpty()
+    val year = (map["year"] as? Number)?.toInt() ?: return ""
+    val month = (map["month"] as? Number)?.toInt()
+        ?: (map["monthIndex"] as? Number)?.toInt()?.plus(1)
+        ?: return ""
+    val day = (map["day"] as? Number)?.toInt() ?: return ""
+    return "%04d-%02d-%02d".format(year, month, day)
+}
+
+private fun flattenFeedRows(value: Any?, config: JsonObject): List<Map<String, Any?>> {
+    val sources = config["sources"] as? JsonArray ?: return emptyList()
+    val output = mutableListOf<Map<String, Any?>>()
+    asAnyList(value).forEach { parent ->
+        sources.forEach sourceLoop@{ sourceValue ->
+            val source = sourceValue as? JsonObject ?: return@sourceLoop
+            val children = asAnyList(selectPath(jsonString(source["path"]), parent))
+            children.forEach childLoop@{ child ->
+                if (child == null || feedRowExcluded(child, source["exclude"])) return@childLoop
+                val row: MutableMap<String, Any?> = when {
+                    source["fields"] is JsonObject ->
+                        projectFeedFields(child, source["fields"] as JsonObject).toMutableMap()
+                    child is Map<*, *> -> child.entries.associate { it.key.toString() to it.value }.toMutableMap()
+                    else -> mutableMapOf("value" to child)
+                }
+                (source["parentFields"] as? JsonObject)?.forEach { (field, path) ->
+                    row[field] = selectPath(jsonString(path), parent)
+                }
+                (source["values"] as? JsonObject)?.forEach { (field, constant) ->
+                    row[field] = JsonUtil.elementToAny(constant)
+                }
+                output += row
+            }
+        }
+    }
+    return output
+}
+
+private fun filterFeedRows(rows: List<Map<String, Any?>>, exclude: JsonElement?): List<Map<String, Any?>> {
+    val rules = when (exclude) {
+        is JsonArray -> exclude.toList()
+        is JsonObject -> listOf(exclude)
+        else -> emptyList()
+    }
+    if (rules.isEmpty()) return rows
+    return rows.filterNot { row -> rules.any { feedRowExcluded(row, it) } }
+}
+
+internal fun feedRowExcluded(row: Any?, rawRule: JsonElement?): Boolean {
+    val rule = rawRule as? JsonObject ?: return false
+    val path = jsonString(rule["field"]).ifBlank { jsonString(rule["path"]) }
+    val actual = selectPath(path, row)
+    rule["equalsIgnoreCase"]?.let { expected ->
+        return actual?.toString()?.trim()?.lowercase() == jsonString(expected).lowercase()
+    }
+    if ("equals" in rule) return actual == JsonUtil.elementToAny(rule["equals"] ?: JsonNull)
+    return false
+}
+
+private fun deduplicateFeedRows(rows: List<Map<String, Any?>>, rawKeys: JsonArray?): List<Map<String, Any?>> {
+    val keys = rawKeys.orEmpty().mapNotNull { key ->
+        when (key) {
+            is JsonObject -> jsonString(key["field"])
+            is JsonPrimitive -> key.content.trim()
+            else -> ""
+        }.takeIf(String::isNotBlank)
+    }
+    if (keys.isEmpty()) return rows
+    val seen = mutableSetOf<List<Any?>>()
+    return rows.filter { row -> seen.add(keys.map(row::get)) }
+}
+
+private fun deriveFeedRows(rows: List<Map<String, Any?>>, derive: JsonObject?): List<Map<String, Any?>> {
+    if (derive == null) return rows
+    val expression = Regex("\\$\\{([^}]+)}")
+    return rows.map { source ->
+        val row = source.toMutableMap()
+        derive.forEach { (field, templateValue) ->
+            val template = jsonString(templateValue)
+            row[field] = expression.replace(template) { match ->
+                selectPath(match.groupValues[1].trim(), row)?.toString().orEmpty()
+            }
+        }
+        row
+    }
+}
+
+internal fun asAnyList(value: Any?): List<Any?> = when (value) {
+    null -> emptyList()
+    is List<*> -> value
+    else -> listOf(value)
 }
 
 private fun toFeedRow(value: Any?): Map<String, Any?>? {

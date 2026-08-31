@@ -2,7 +2,19 @@ package com.viant.agently.android
 
 import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.EndpointConfig
+import com.viant.forgeandroid.runtime.ColumnDef
+import com.viant.forgeandroid.runtime.ContainerDef
+import com.viant.forgeandroid.runtime.ContentDef
+import com.viant.forgeandroid.runtime.DataSourceDef
+import com.viant.forgeandroid.runtime.ForgeRuntime
+import com.viant.forgeandroid.runtime.ViewDef
+import com.viant.forgeandroid.runtime.WindowMetadata
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -105,6 +117,64 @@ class ReportRuntimeExportHandlerTest {
         assertTrue(error is IllegalStateException)
         assertEquals("Report PDF export requires artifactRef.", error?.message)
         assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun `feed print compiles editable tabs through reporting primitives`() = runBlocking {
+        val runtime = ForgeRuntime(emptyMap(), CoroutineScope(Dispatchers.Unconfined))
+        val metadata = WindowMetadata(
+            dataSources = mapOf("rows" to DataSourceDef()),
+            view = ViewDef(content = ContentDef(containers = listOf(
+                ContainerDef(
+                    id = "sections",
+                    tabs = com.viant.forgeandroid.runtime.TabsDef(),
+                    containers = listOf(
+                        ContainerDef(
+                            id = "schedule",
+                            title = "Schedule",
+                            containers = listOf(
+                                ContainerDef(
+                                    id = "frequency",
+                                    kind = "dashboard.editableTable",
+                                    dataSourceRef = "rows",
+                                    columns = listOf(ColumnDef(key = "value", label = "Value"))
+                                )
+                            )
+                        )
+                    )
+                )
+            )))
+        )
+        val window = runtime.openWindowInline(
+            windowKey = "feed-plan-conv-1",
+            title = "Media Plan",
+            metadata = metadata,
+            conversationId = "conv-1"
+        )
+        runtime.windowContext(window.windowId).contextOrNull("rows")!!.collection.set(
+            listOf(mapOf("value" to 7))
+        )
+
+        val request = buildFeedReportExportRequest(runtime, window.windowId, "plan", "Media Plan")
+
+        assertEquals("feed://plan", request["artifactRef"])
+        val fences = request["fences"] as JsonArray
+        val start = (fences.first() as JsonObject)["payload"] as JsonObject
+        assertEquals("report-document-v1", start["grammar"]?.jsonPrimitive?.content)
+        assertEquals("feed_plan", start["scope"]?.jsonPrimitive?.content)
+        val spec = request["reportSpec"] as Map<*, *>
+        assertEquals(1L, (spec["version"] as Number).toLong())
+        assertEquals("reportSpec", spec["kind"])
+        assertTrue(spec.toString().contains("Schedule"))
+        assertTrue(spec.toString().contains("dashboard.table"))
+        val fill = request["reportFill"] as Map<*, *>
+        assertEquals(1L, (fill["version"] as Number).toLong())
+        assertEquals(1L, (fill["specVersion"] as Number).toLong())
+        assertTrue(fill.toString().contains("value=7"))
+        val print = request["reportPrint"] as Map<*, *>
+        assertEquals("reportPrint", print["kind"])
+        assertEquals(1L, (print["version"] as Number).toLong())
+        assertEquals(1L, (print["specVersion"] as Number).toLong())
     }
 
     @Test

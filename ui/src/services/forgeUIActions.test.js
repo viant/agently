@@ -64,6 +64,26 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
     vi.restoreAllMocks();
   });
 
+  it('consumes local feed events without callback dispatch or chat submission', async () => {
+    await withFakeWindow(async () => {
+      const submitMessage = vi.fn(async () => {});
+      const dispatchCallback = vi.fn(async () => ({ ok: true }));
+      const disconnect = connectForgeUIActionsToCallbacksOrChat(submitMessage, () => ({ conversationId: 'conv-1' }), dispatchCallback);
+
+      dispatchForgeUIAction({
+        eventName: 'media_plan_channel_selection_changed',
+        action: 'unselected',
+        row: { channel: 'Audio' },
+        callback: { type: 'local', eventName: 'media_plan_channel_selection_changed' },
+      });
+      await Promise.resolve();
+
+      expect(dispatchCallback).not.toHaveBeenCalled();
+      expect(submitMessage).not.toHaveBeenCalled();
+      disconnect();
+    });
+  });
+
   it('routes to the workspace callback dispatcher on success and posts a confirmation', async () => {
     await withFakeWindow(async () => {
       const submitMessage = vi.fn(async () => {});
@@ -195,6 +215,9 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
         toolBundles: ['analyst-sitelist-tools'],
         context: {
           plannerSubmitEvent: {
+            callbackContext: {
+              displayQuery: 'Submit selected site recommendations.',
+            },
             eventName: 'site_list_planner_submit',
             tableId: 'site-review',
             selectionField: 'selected',
@@ -213,6 +236,9 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
               },
             },
             selectedRows: [{ publisher_id: 37, site_id: 3945613211, audience_id: 7301206, relationship: 'target', recommendation: 'ADD' }],
+            unselectedRows: [],
+            changedRows: [],
+            finalDataSourceSnapshot: [],
           },
         },
       });

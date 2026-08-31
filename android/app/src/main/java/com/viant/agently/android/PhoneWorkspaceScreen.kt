@@ -380,6 +380,14 @@ internal fun PhoneWorkspacePane(
                     client = client,
                     forgeRuntime = forgeRuntime
                 )
+                ActiveFeedsSection(
+                    feeds = mergedVisibleFeeds(streamSnapshot, conversationState, activeConversationId),
+                    conversationId = activeConversationId,
+                    client = client,
+                    forgeRuntime = forgeRuntime,
+                    placement = AndroidFeedPlacement.Detached,
+                    sectionTitle = "Feed apps"
+                )
                 RenderTranscript(
                     items = displayTranscript,
                     conversationId = activeConversationId,
@@ -398,6 +406,7 @@ internal fun PhoneWorkspacePane(
                     onOpenInlineReportPdf = onOpenInlineReportPdf,
                     workspaceAttachment = hostedWorkspaceAttachment(conversationState, hostedWorkspaceState),
                     onOpenWorkspace = { selectedMode = PhoneWorkspaceContentMode.Workspace },
+                    activeFeeds = mergedVisibleFeeds(streamSnapshot, conversationState, activeConversationId),
                 )
             }
         }

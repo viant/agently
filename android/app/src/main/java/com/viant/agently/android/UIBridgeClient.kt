@@ -4,8 +4,11 @@ import android.content.Context
 import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.UIBridgeRpcClient
 import com.viant.forgeandroid.runtime.ForgeRuntime
+import com.viant.forgeandroid.runtime.FeedPatchOperation
 import com.viant.forgeandroid.runtime.WindowMetadata
 import com.viant.forgeandroid.runtime.WindowState
+import com.viant.forgeandroid.runtime.applyFeedPatchOperations
+import com.viant.forgeandroid.runtime.snapshotFeedDataSources
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -17,6 +20,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -390,6 +394,7 @@ internal suspend fun handleAndroidUIBridgeCommand(
                 throw IllegalArgumentException("windowId is required")
             }
             forgeRuntime.closeWindow(windowId)
+            AndroidFeedCanonicalRegistry.clear(forgeRuntime, windowId)
             buildJsonObject { put("ok", JsonPrimitive(true)) }
         }
 
@@ -484,8 +489,84 @@ internal suspend fun handleAndroidUIBridgeCommand(
             buildJsonObject { put("ok", JsonPrimitive(true)) }
         }
 
+        "ui.feed.get" -> {
+            val feedId = jsonString(params["feedId"]).ifBlank {
+                throw IllegalArgumentException("feedId is required")
+            }
+            val conversationId = jsonString(params["conversationId"]).ifBlank {
+                throw IllegalArgumentException("conversationId is required")
+            }
+            val refs = (params["dataSourceRefs"] as? JsonArray)
+                .orEmpty()
+                .mapNotNull { (it as? JsonPrimitive)?.content?.trim()?.takeIf(String::isNotEmpty) }
+            require(refs.isNotEmpty()) { "dataSourceRefs are required" }
+            val window = findAndroidFeedWindow(forgeRuntime, feedId, conversationId)
+            val snapshots = snapshotFeedDataSources(forgeRuntime.windowContext(window.windowId), refs)
+            buildJsonObject {
+                put("conversationId", JsonPrimitive(conversationId))
+                put("feedId", JsonPrimitive(feedId))
+                put("dataSources", snapshots.mapValues { (_, snapshot) ->
+                    mapOf(
+                        "form" to snapshot.form,
+                        "collection" to snapshot.collection,
+                        "selection" to snapshot.selection
+                    )
+                }.toJsonObject())
+            }
+        }
+
+        "ui.feed.update" -> {
+            val feedId = jsonString(params["feedId"]).ifBlank {
+                throw IllegalArgumentException("feedId is required")
+            }
+            val conversationId = jsonString(params["conversationId"]).ifBlank {
+                throw IllegalArgumentException("conversationId is required")
+            }
+            val rawOperations = (params["operations"] as? JsonArray).orEmpty()
+            require(rawOperations.isNotEmpty()) { "operations are required" }
+            val operations = rawOperations.mapIndexed { index, element ->
+                val value = element as? JsonObject
+                    ?: throw IllegalArgumentException("operations[$index] must be an object")
+                FeedPatchOperation(
+                    dataSourceRef = jsonString(value["dataSourceRef"]).ifBlank {
+                        throw IllegalArgumentException("operations[$index].dataSourceRef is required")
+                    },
+                    op = jsonString(value["op"]).lowercase(),
+                    path = jsonString(value["path"]),
+                    value = value["value"]?.toKotlinValue()
+                )
+            }
+            val window = findAndroidFeedWindow(forgeRuntime, feedId, conversationId)
+            val changedRefs = if (AndroidFeedCanonicalRegistry.has(forgeRuntime, window.windowId)) {
+                AndroidFeedCanonicalRegistry.apply(
+                    forgeRuntime,
+                    window.windowId,
+                    operations,
+                    turnId = jsonString(params["turnId"])
+                )
+            } else {
+                applyFeedPatchOperations(forgeRuntime.windowContext(window.windowId), operations)
+            }
+            buildJsonObject {
+                put("ok", JsonPrimitive(true))
+                put("feedId", JsonPrimitive(feedId))
+                put("changedDataSourceRefs", changedRefs.toList().toJsonElement())
+            }
+        }
+
         else -> throw IllegalArgumentException("unsupported UI bridge command: $method")
     }
+}
+
+private fun findAndroidFeedWindow(
+    forgeRuntime: ForgeRuntime,
+    feedId: String,
+    conversationId: String
+): WindowState {
+    val expectedKey = "feed-$feedId-$conversationId"
+    return forgeRuntime.windows.value.firstOrNull { window ->
+        window.windowKey == expectedKey && window.conversationId == conversationId
+    } ?: throw IllegalArgumentException("feed is not rendered for this conversation: $feedId")
 }
 
 private fun androidReportCurrentResult(

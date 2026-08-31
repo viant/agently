@@ -281,10 +281,12 @@ export function syncTranscriptSnapshot({
       applyFeedEvent({
         type: 'tool_feed_active',
         feedId,
+        turnId: String(feed?.turnId || '').trim(),
         feedTitle: feed.title || feedId,
         feedDeveloperOnly: feed.developerOnly === true,
         feedIcon: feed.presentation?.icon,
         feedAccent: feed.presentation?.accent,
+        feedTarget: feed.presentation?.target,
         feedItemCount: feed.itemCount || 0,
         feedData: feed.data || null,
         conversationId: conversationID,
