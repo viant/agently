@@ -1,0 +1,56 @@
+density: compact
+layout: balanced
+targetOverrides:
+  android:
+    placement: windowHeader
+  ios:
+    placement: windowHeader
+
+items:
+  - id: back
+    icon: arrow-left
+    ariaLabel: Back to automations
+    align: left
+    appearance: minimal
+    tooltip: Back to automations
+    target:
+      excludePlatforms: [android, ios]
+    style:
+      width: 40px
+      minWidth: 40px
+      height: 40px
+      minHeight: 40px
+      borderRadius: 999px
+      borderWidth: 1px
+      borderStyle: solid
+      borderColor: '#c8d5e8'
+      backgroundColor: '#f2f6fc'
+      color: '#526987'
+    on:
+      - event: onClick
+        handler: schedule.backToList
+        state:
+          automationView: list
+
+  - id: save
+    icon: floppy-disk
+    ariaLabel: Save automation
+    align: right
+    appearance: minimal
+    tooltip: Save automation settings
+    style:
+      width: 40px
+      minWidth: 40px
+      height: 40px
+      minHeight: 40px
+      borderRadius: 999px
+      borderWidth: 1px
+      borderStyle: solid
+      borderColor: '#bdd4fb'
+      backgroundColor: '#edf4ff'
+      color: '#2764c7'
+    on:
+      - event: onVisible
+        handler: dataSource.isFormDirty
+      - event: onClick
+        handler: schedule.saveSchedule
