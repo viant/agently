@@ -36,18 +36,13 @@ final class ReportRuntimeExportHandlerTests: XCTestCase {
         )
 
         XCTAssertEqual(request["format"], .string("pdf"))
-        XCTAssertEqual(request["artifactRef"], .string("feed://catalog"))
-        let startFence = try XCTUnwrap(request["fences"]?.arrayValue?.first?.objectValue?["payload"]?.objectValue)
-        XCTAssertEqual(startFence["grammar"], .string("report-document-v1"))
-        XCTAssertEqual(startFence["scope"], .string("feed_catalog"))
-        XCTAssertEqual(request["reportSpec"]?.objectValue?["version"], .number(1))
-        XCTAssertEqual(request["reportFill"]?.objectValue?["version"], .number(1))
-        XCTAssertEqual(request["reportFill"]?.objectValue?["specVersion"], .number(1))
-        XCTAssertEqual(request["reportPrint"]?.objectValue?["kind"], .string("reportPrint"))
-        XCTAssertEqual(request["reportPrint"]?.objectValue?["version"], .number(1))
-        XCTAssertEqual(request["reportPrint"]?.objectValue?["specVersion"], .number(1))
-        let datasets = try XCTUnwrap(request["reportFill"]?.objectValue?["datasets"]?.arrayValue)
-        XCTAssertEqual(datasets.first?.objectValue?["rows"]?.arrayValue?.first?.objectValue?["budget"], .number(250_000))
+        XCTAssertEqual(request["viewRef"], .string("feed://catalog"))
+        XCTAssertEqual(request["dataSourceRefs"], .array([.string("catalog")]))
+        XCTAssertEqual(
+            request["dataSourceOverrides"]?.objectValue?["catalog"]?.objectValue?["form"]?.objectValue?["budget"],
+            .number(250_000)
+        )
+        XCTAssertEqual(request["target"]?.objectValue?["platform"], .string("ios"))
     }
 
     func testReportArtifactIDRecognizesAuthenticatedArtifactLinks() throws {
