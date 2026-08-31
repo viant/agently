@@ -92,6 +92,27 @@ public struct ComposerScreen: View {
             }
         }
         .padding(density == .compact ? 10 : 16)
+        .background {
+            if density == .compact {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color.white)
+            }
+        }
+        .overlay {
+            if density == .compact {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color(red: 0.87, green: 0.89, blue: 0.93), lineWidth: 1)
+            }
+        }
+        .shadow(
+            color: density == .compact ? Color.black.opacity(0.12) : .clear,
+            radius: density == .compact ? 10 : 0,
+            y: density == .compact ? -2 : 0
+        )
+        // SwiftUI leaves a small visual strip between a safe-area child and
+        // the software keyboard. Move the compact dock down as a single card
+        // so its rounded bottom edge meets the keyboard boundary.
+        .offset(y: density == .compact ? 6 : 0)
         .fileImporter(
             isPresented: $isShowingFileImporter,
             allowedContentTypes: [.item],
@@ -250,11 +271,17 @@ public struct ComposerScreen: View {
                 isCompactComposerExpanded = true
                 isEditorFocused = true
             } label: {
-                Text("Message")
+                Text("Type your message…")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(Color.white, in: Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(Color(red: 0.72, green: 0.88, blue: 0.76), lineWidth: 1)
+                    )
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Compose message")
@@ -265,7 +292,7 @@ public struct ComposerScreen: View {
                 beginVoiceInput()
             } label: {
                 AppleToolbarActionIcon(
-                    systemImage: "waveform",
+                    systemImage: "mic",
                     color: Color(red: 0.87, green: 0.36, blue: 0.48),
                     isLoading: voiceRuntime.isPreparing
                 )
@@ -298,7 +325,7 @@ public struct ComposerScreen: View {
                     .autocorrectionDisabled(true)
                 #endif
                 if visibleEditorText.isEmpty {
-                    Text(runtime.lookupOccurrences.isEmpty ? "Message" : "Add details")
+                    Text(runtime.lookupOccurrences.isEmpty ? "Type your message…" : "Add details")
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .padding(.top, 1)
@@ -364,10 +391,7 @@ public struct ComposerScreen: View {
     }
 
     private var composerInputBackground: Color {
-        if isEditorFocused {
-            return Color(red: 0.94, green: 0.98, blue: 0.94)
-        }
-        return Color.agentlySecondarySystemBackground.opacity(0.5)
+        Color.white
     }
 
     private var composerInputStroke: Color {
@@ -514,29 +538,13 @@ public struct ComposerScreen: View {
                 .accessibilityLabel("Collapse composer")
                 .accessibilityIdentifier("agently-composer-collapse")
             }
-            #if os(iOS)
-            if isEditorFocused {
-                Button {
-                    isEditorFocused = false
-                    requestAgentlyPlatformKeyboardDismissal()
-                } label: {
-                    AppleToolbarActionIcon(
-                        systemImage: "keyboard.chevron.compact.down",
-                        color: Color(red: 0.36, green: 0.40, blue: 0.48)
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Hide keyboard")
-                .accessibilityIdentifier("agently-composer-hide-keyboard")
-            }
-            #endif
             PhotosPicker(
                 selection: $selectedPhotoItems,
                 maxSelectionCount: 5,
                 matching: .images
             ) {
                 AppleToolbarActionIcon(
-                    systemImage: "photo.on.rectangle.fill",
+                    systemImage: "photo",
                     color: Color(red: 0.10, green: 0.45, blue: 0.95)
                 )
             }
@@ -549,7 +557,7 @@ public struct ComposerScreen: View {
                     isShowingCameraCapture = true
                 } label: {
                     AppleToolbarActionIcon(
-                        systemImage: "camera.fill",
+                        systemImage: "camera",
                         color: Color(red: 0.88, green: 0.54, blue: 0.12)
                     )
                 }
@@ -559,21 +567,10 @@ public struct ComposerScreen: View {
             }
             #endif
             Button {
-                isShowingFileImporter = true
-            } label: {
-                AppleToolbarActionIcon(
-                    systemImage: "paperclip",
-                    color: Color(red: 0.49, green: 0.32, blue: 0.88)
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Attach file")
-            .disabled(isSending)
-            Button {
                 beginVoiceInput()
             } label: {
                 AppleToolbarActionIcon(
-                    systemImage: voiceRuntime.isActive ? "stop.fill" : "waveform",
+                    systemImage: voiceRuntime.isActive ? "stop.fill" : "mic",
                     color: Color(red: 0.87, green: 0.36, blue: 0.48),
                     isLoading: voiceRuntime.isPreparing
                 )

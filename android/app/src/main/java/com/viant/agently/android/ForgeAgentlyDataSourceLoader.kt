@@ -105,7 +105,7 @@ internal fun makeForgeAgentlyDataSourceLoader(
             runCatching {
                 Log.d(
                     "ForgeDataSource",
-                    "fetch completed id=$datasourceId rows=${response.rows.size} elapsedMs=${System.currentTimeMillis() - startedAt}"
+                        "fetch completed id=$datasourceId rows=${response.rows.size} elapsedMs=${System.currentTimeMillis() - startedAt}"
                 )
             }
         }

@@ -12,15 +12,19 @@ import (
 )
 
 type MCPRunCmd struct {
-	Name     string `short:"n" long:"name" description:"Exact tool name to execute"`
-	Args     string `short:"a" long:"args" description:"Inline JSON object or @file with tool arguments"`
-	API      string `long:"api" description:"Server URL (skip local auto-detect)"`
-	Token    string `long:"token" description:"Bearer token for API requests (overrides AGENTLY_TOKEN)"`
-	Session  string `long:"session" description:"Session cookie value for API requests (agently_session)"`
-	OOB      string `long:"oob" description:"Use local scy OAuth2 out-of-band login with the supplied secrets URL"`
-	OAuthCfg string `long:"oauth-config" description:"Optional scy OAuth config URL override for client-side OOB login"`
-	OAuthScp string `long:"oauth-scopes" description:"comma-separated OAuth scopes for OOB login"`
-	JSON     bool   `long:"json" description:"Print result as JSON envelope instead of plain text"`
+	Name        string `short:"n" long:"name" description:"Exact tool name to execute"`
+	Args        string `short:"a" long:"args" description:"Inline JSON object or @file with tool arguments"`
+	API         string `long:"api" description:"Server URL (skip local auto-detect)"`
+	Token       string `long:"token" description:"Bearer token for API requests (overrides AGENTLY_TOKEN)"`
+	Session     string `long:"session" description:"Session cookie value for API requests (agently_session)"`
+	OOB         string `long:"oob" description:"Use local scy OAuth2 out-of-band login with the supplied secrets URL"`
+	OAuthCfg    string `long:"oauth-config" description:"Optional scy OAuth config URL override for client-side OOB login"`
+	OAuthScp    string `long:"oauth-scopes" description:"comma-separated OAuth scopes for OOB login"`
+	MCPOOB      string `long:"mcp-oob" description:"Link the tool's MCP provider using this local scy OOB secrets URL"`
+	MCPOAuthCfg string `long:"mcp-oauth-config" description:"scy OAuth client config URL for MCP OOB login"`
+	MCPOAuthScp string `long:"mcp-oauth-scopes" description:"comma-separated provider scopes for MCP OOB login"`
+	MCPOAuthRes string `long:"mcp-oauth-resource" description:"RFC 8707 resource for MCP OOB login"`
+	JSON        bool   `long:"json" description:"Print result as JSON envelope instead of plain text"`
 }
 
 func (c *MCPRunCmd) Execute(_ []string) error {
@@ -55,6 +59,11 @@ func (c *MCPRunCmd) Execute(_ []string) error {
 	}
 	if err := ensureToolAuth(ctx, client, providers, c.Token, c.Session, c.OOB, c.OAuthCfg, c.OAuthScp); err != nil {
 		return err
+	}
+	if strings.TrimSpace(c.MCPOOB) != "" {
+		if err := ensureMCPOOBAuth(ctx, client, toolServiceNamespace(name), c.MCPOOB, c.MCPOAuthCfg, c.MCPOAuthScp, c.MCPOAuthRes); err != nil {
+			return err
+		}
 	}
 
 	execName, err := resolveExecutableToolName(ctx, client, name)

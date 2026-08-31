@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.viant.agentlysdk.FeedDataResponse
+import com.viant.agentlysdk.stream.ActiveFeed
 import com.viant.forgeandroid.runtime.ForgeRuntime
 import com.viant.forgeandroid.runtime.WindowContext
 import com.viant.forgeandroid.runtime.WindowMetadata
@@ -22,7 +23,8 @@ internal data class FeedWindowUiState(
 internal fun rememberFeedWindowUiState(
     payload: FeedDataResponse,
     conversationId: String,
-    forgeRuntime: ForgeRuntime
+    forgeRuntime: ForgeRuntime,
+    activeFeed: ActiveFeed? = null
 ): FeedWindowUiState {
     val metadataResult = remember(payload) { kotlin.runCatching { buildFeedWindowMetadata(payload) } }
     val inlineMetadata = metadataResult.getOrNull()
@@ -36,14 +38,16 @@ internal fun rememberFeedWindowUiState(
 
     var windowId by remember(payload.feedId, conversationId) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(payload, conversationId, inlineMetadata) {
+    LaunchedEffect(payload, conversationId, inlineMetadata, activeFeed?.turnId) {
         val state = forgeRuntime.openWindowInline(
             windowKey = "feed-${payload.feedId ?: "unknown"}-$conversationId",
             title = payload.title ?: payload.feedId ?: "Feed",
-            metadata = inlineMetadata
+            metadata = inlineMetadata,
+            conversationId = conversationId,
+            presentation = payload.presentation?.target ?: "auto"
         )
         windowId = state.windowId
-        wireFeedWindow(forgeRuntime, state.windowId, payload)
+        wireFeedWindow(forgeRuntime, state.windowId, payload, activeFeed?.turnId)
     }
 
     val activeWindowId = windowId

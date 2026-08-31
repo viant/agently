@@ -19,6 +19,16 @@ vi.mock('./IterationRowBlock.jsx', () => ({
   default: (props) => iterationRowBlockSpy(props),
 }));
 
+const toolFeedDetailSpy = vi.fn(({ turnId = '' }) => React.createElement(
+  'div',
+  { 'data-testid': 'inline-tool-feed', 'data-turn-id': turnId },
+  'Inline tool feed',
+));
+
+vi.mock('../ToolFeedDetail.jsx', () => ({
+  default: (props) => toolFeedDetailSpy(props),
+}));
+
 const mcpuiBubbleSpy = vi.fn(({ row }) => React.createElement(
   'div',
   {
@@ -307,6 +317,38 @@ describe('ChatFeedFromChatStore', () => {
 
     expect(iterationRowBlockSpy).toHaveBeenCalledTimes(1);
     expect(iterationRowBlockSpy.mock.calls[0][0].suppressBubble).toBe(true);
+  });
+
+  it('renders inline Tool Feed once after the final row representing its owning turn', () => {
+    iterationRowBlockSpy.mockClear();
+    toolFeedDetailSpy.mockClear();
+    const rows = [
+      {
+        kind: 'iteration', renderKey: 'rk_iter', turnId: 'tn_feed', lifecycle: 'completed',
+        rounds: [], elicitation: null, linkedConversations: [],
+      },
+      {
+        kind: 'assistant', renderKey: 'rk_answer', turnId: 'tn_feed',
+        messageId: 'msg_answer', content: 'Feed update complete.',
+      },
+      {
+        kind: 'user', renderKey: 'rk_later_user', turnId: 'tn_later', content: 'Unrelated follow-up.',
+      },
+    ];
+
+    const html = renderToStaticMarkup(
+      h(ChatFeedFromChatStore, { conversationId: 'c', rowsOverride: rows }),
+    );
+
+    expect(toolFeedDetailSpy).toHaveBeenCalledTimes(1);
+    expect(toolFeedDetailSpy).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'c',
+      turnId: 'tn_feed',
+      placement: 'inline',
+    }));
+    expect(iterationRowBlockSpy.mock.calls[0][0].showToolFeedDetail).toBe(false);
+    expect(html.indexOf('data-render-key="rk_answer"')).toBeLessThan(html.indexOf('Inline tool feed'));
+    expect(html.indexOf('Inline tool feed')).toBeLessThan(html.indexOf('data-render-key="rk_later_user"'));
   });
 
   it('renders MCP UI rows as separate chat bubbles outside execution details', () => {

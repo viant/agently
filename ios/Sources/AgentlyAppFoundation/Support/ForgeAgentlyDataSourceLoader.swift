@@ -15,6 +15,19 @@ func makeForgeAgentlyDataSourceLoader(
         let uri = service?.uri?.trimmingCharacters(in: .whitespacesAndNewlines)
             ?? request.dataSource.uri?.trimmingCharacters(in: .whitespacesAndNewlines)
             ?? ""
+        let normalizedURI = uri.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if normalizedURI == "v1/api/agently/scheduler" {
+            return try await loadSchedules(client: client, request: request)
+        }
+        if normalizedURI == "v1/api/agently/scheduler/run" {
+            return try await loadScheduleRuns(client: client, request: request)
+        }
+        if normalizedURI == "v1/workspace/metadata" {
+            return try await loadWorkspaceOptions(client: client, request: request)
+        }
+        if normalizedURI == "v1/workspace/metadata/publicagents" {
+            return try await loadPublicAgents(client: client)
+        }
         guard let datasourceID = extractDatasourceID(from: uri) else {
             return nil
         }
@@ -73,6 +86,110 @@ func makeForgeAgentlyDataSourceLoader(
             metrics: response.metrics?.mapValues(\.forgeValue) ?? [:]
         )
     }
+}
+
+private func loadSchedules(
+    client: AgentlyClient,
+    request: ForgeRuntime.DataSourceFetchRequest
+) async throws -> ForgeRuntime.DataSourceFetchResult {
+    let query = request.input.filter["name"]?.stringValue?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let schedules = try await client.listSchedules().filter {
+        query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)
+    }
+    let pageSize = max(1, request.dataSource.paging?.size ?? max(1, schedules.count))
+    let page = max(1, request.input.page ?? 1)
+    let start = min(schedules.count, (page - 1) * pageSize)
+    let rows = try schedules.dropFirst(start).prefix(pageSize).map(scheduleForgeRow)
+    let pageCount = schedules.isEmpty ? 0 : (schedules.count + pageSize - 1) / pageSize
+    return ForgeRuntime.DataSourceFetchResult(
+        rows: rows,
+        metrics: [
+            "pageCount": .number(Double(pageCount)),
+            "totalCount": .number(Double(schedules.count))
+        ]
+    )
+}
+
+private func scheduleForgeRow(_ schedule: Schedule) throws -> [String: ForgeIOSRuntime.JSONValue] {
+    let data = try JSONEncoder.agently().encode(schedule)
+    let value = try JSONDecoder.agently().decode(AgentlySDK.JSONValue.self, from: data)
+    return value.forgeValue.objectValue ?? [:]
+}
+
+private func loadWorkspaceOptions(
+    client: AgentlyClient,
+    request: ForgeRuntime.DataSourceFetchRequest
+) async throws -> ForgeRuntime.DataSourceFetchResult {
+    let metadata = try await client.getWorkspaceMetadata()
+    let rows: [[String: ForgeIOSRuntime.JSONValue]]
+    switch request.dataSource.selectors?.data?.trimmingCharacters(in: .whitespacesAndNewlines) {
+    case "agentInfos":
+        rows = metadata.agentInfos.map {
+            [
+                "id": .string($0.agentID ?? $0.id),
+                "name": .string($0.name ?? $0.agentID ?? "Agent"),
+                "modelRef": .string($0.modelRef ?? "")
+            ]
+        }
+    case "modelInfos":
+        let models = metadata.modelInfos.map {
+            [
+                "id": ForgeIOSRuntime.JSONValue.string($0.modelID ?? $0.id),
+                "name": .string($0.name ?? $0.modelID ?? "Model")
+            ]
+        }
+        rows = models.isEmpty
+            ? metadata.models.map { ["id": .string($0), "name": .string($0)] }
+            : models
+    default:
+        rows = []
+    }
+    return ForgeRuntime.DataSourceFetchResult(rows: rows)
+}
+
+private func loadPublicAgents(client: AgentlyClient) async throws -> ForgeRuntime.DataSourceFetchResult {
+    let agents = try await client.getPublicAgents()
+    return ForgeRuntime.DataSourceFetchResult(rows: agents.map {
+        [
+            "id": .string($0.agentID ?? $0.id),
+            "name": .string($0.name ?? $0.agentID ?? "Agent"),
+            "modelRef": .string($0.modelRef ?? "")
+        ]
+    })
+}
+
+private func loadScheduleRuns(
+    client: AgentlyClient,
+    request: ForgeRuntime.DataSourceFetchRequest
+) async throws -> ForgeRuntime.DataSourceFetchResult {
+    let filters = request.input.filter.reduce(into: [String: String]()) { result, entry in
+        if let value = entry.value.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+            result[entry.key] = value
+        }
+    }
+    let scheduleID = request.resolvedInputs["scheduleId"]?.stringValue
+        ?? request.input.parameters["scheduleId"]?.stringValue
+    let page = max(1, request.input.page ?? 1)
+    let size = max(1, request.dataSource.paging?.size ?? 10)
+    let response = try await client.listScheduleRuns(
+        scheduleID: scheduleID,
+        filters: filters,
+        page: page,
+        size: size
+    )
+    let rows = try response.rows.map { run -> [String: ForgeIOSRuntime.JSONValue] in
+        let data = try JSONEncoder.agently().encode(run)
+        let value = try JSONDecoder.agently().decode(AgentlySDK.JSONValue.self, from: data)
+        return value.forgeValue.objectValue ?? [:]
+    }
+    return ForgeRuntime.DataSourceFetchResult(
+        rows: rows,
+        metrics: [
+            "pageCount": .number(Double(response.pageCount)),
+            "totalCount": .number(Double(response.totalCount))
+        ]
+    )
 }
 
 internal func extractDatasourceID(from uri: String) -> String? {

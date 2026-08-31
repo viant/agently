@@ -5,6 +5,51 @@ import ForgeIOSRuntime
 @testable import AgentlyAppFoundation
 
 final class ReportRuntimeExportHandlerTests: XCTestCase {
+    func testBuildFeedReportExportRequestCompilesCurrentForgeSnapshot() async throws {
+        let runtime = ForgeRuntime()
+        let metadata = WindowMetadata(
+            view: ViewDef(content: ContentDef(containers: [
+                ContainerDef(
+                    id: "summary",
+                    title: "Summary",
+                    kind: "dashboard.summary",
+                    dataSourceRef: "catalog"
+                )
+            ])),
+            dataSources: ["catalog": DataSourceDef(autoFetch: false)]
+        )
+        let window = await runtime.openWindowInline(
+            key: "feed-catalog-conversation-1",
+            title: "Catalog",
+            metadata: metadata,
+            conversationID: "conversation-1"
+        )
+        await runtime.setDataSourceForm(
+            windowID: window.id,
+            dataSourceRef: "catalog",
+            values: ["budget": .number(250_000)]
+        )
+
+        let request = try await buildFeedReportExportRequest(
+            forgeRuntime: runtime,
+            windowID: window.id
+        )
+
+        XCTAssertEqual(request["format"], .string("pdf"))
+        XCTAssertEqual(request["artifactRef"], .string("feed://catalog"))
+        let startFence = try XCTUnwrap(request["fences"]?.arrayValue?.first?.objectValue?["payload"]?.objectValue)
+        XCTAssertEqual(startFence["grammar"], .string("report-document-v1"))
+        XCTAssertEqual(startFence["scope"], .string("feed_catalog"))
+        XCTAssertEqual(request["reportSpec"]?.objectValue?["version"], .number(1))
+        XCTAssertEqual(request["reportFill"]?.objectValue?["version"], .number(1))
+        XCTAssertEqual(request["reportFill"]?.objectValue?["specVersion"], .number(1))
+        XCTAssertEqual(request["reportPrint"]?.objectValue?["kind"], .string("reportPrint"))
+        XCTAssertEqual(request["reportPrint"]?.objectValue?["version"], .number(1))
+        XCTAssertEqual(request["reportPrint"]?.objectValue?["specVersion"], .number(1))
+        let datasets = try XCTUnwrap(request["reportFill"]?.objectValue?["datasets"]?.arrayValue)
+        XCTAssertEqual(datasets.first?.objectValue?["rows"]?.arrayValue?.first?.objectValue?["budget"], .number(250_000))
+    }
+
     func testReportArtifactIDRecognizesAuthenticatedArtifactLinks() throws {
         XCTAssertEqual(
             reportArtifactID(from: try XCTUnwrap(URL(string: "scratchpad://artifact/3cf51e86-ba08-41be-9bf8-83b27ab9a275"))),

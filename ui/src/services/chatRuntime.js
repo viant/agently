@@ -1237,10 +1237,11 @@ function updateTranscriptFeedCache(chatState = {}, payload = {}, fallbackConvers
   if (String(payload?.type || '').toLowerCase() !== 'tool_feed_active') return;
   const nextFeed = {
     feedId,
+    turnId: String(payload?.turnId || '').trim(),
     title: payload?.feedTitle || feedId,
     developerOnly: payload?.feedDeveloperOnly === true,
-    presentation: payload?.feedIcon || payload?.feedAccent
-      ? { icon: payload?.feedIcon || undefined, accent: payload?.feedAccent || undefined }
+    presentation: payload?.feedIcon || payload?.feedAccent || payload?.feedTarget
+      ? { icon: payload?.feedIcon || undefined, accent: payload?.feedAccent || undefined, target: payload?.feedTarget || undefined }
       : undefined,
     itemCount: payload?.feedItemCount || 0,
     data: payload?.feedData || null

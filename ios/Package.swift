@@ -1,6 +1,13 @@
 // swift-tools-version: 5.9
 
 import PackageDescription
+import Foundation
+
+let agentlySDKPackagePath: String = {
+    let override = ProcessInfo.processInfo.environment["AGENTLY_IOS_SDK_PACKAGE_PATH"]?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return override.isEmpty ? "Packages/AgentlySDKPackage" : override
+}()
 
 let package = Package(
     name: "AgentlyIOSFoundation",
@@ -15,7 +22,7 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(path: "Packages/AgentlySDKPackage"),
+        .package(name: "AgentlySDKPackage", path: agentlySDKPackagePath),
         .package(path: "Packages/ForgeIOSPackage")
     ],
     targets: [

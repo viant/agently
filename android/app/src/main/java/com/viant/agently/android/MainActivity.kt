@@ -77,6 +77,7 @@ import com.viant.agentlysdk.PendingToolApproval
 import com.viant.agentlysdk.QueryAttachment
 import com.viant.agentlysdk.QueryInput
 import com.viant.agentlysdk.QueryOutput
+import com.viant.agentlysdk.RecordUIEventInput
 import com.viant.agentlysdk.OAuthCallbackInput
 import com.viant.agentlysdk.OAuthInitiateInput
 import com.viant.agentlysdk.UploadFileInput
@@ -91,6 +92,7 @@ import com.viant.forgeandroid.runtime.ForgeTargetContext
 import com.viant.forgeandroid.runtime.SchemaBasedFormDef
 import com.viant.forgeandroid.runtime.ForgeRuntime
 import com.viant.forgeandroid.runtime.ItemDef
+import com.viant.forgeandroid.runtime.JsonUtil
 import com.viant.forgeandroid.runtime.OptionDef
 import com.viant.forgeandroid.runtime.ViewDef
 import com.viant.forgeandroid.runtime.WindowMetadata
@@ -257,6 +259,45 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
                 scheduleHistoryFilter = filter
                 currentScreen = AppScreen.History
             }
+        }
+    }
+    val interactionJobs = remember(forgeRuntime) { mutableMapOf<String, Job>() }
+    DisposableEffect(forgeRuntime, client, activeConversationId) {
+        forgeRuntime.registerInteractionObserver { interaction ->
+            val conversationId = activeConversationId?.trim().orEmpty()
+            if (conversationId.isEmpty() || interaction.windowKey?.startsWith("feed-") != true) {
+                return@registerInteractionObserver
+            }
+            val identity = interaction.detail["field"] ?: interaction.detail["tabId"] ?: "event"
+            val debounceKey = "${interaction.windowId}:${interaction.kind}:$identity"
+            interactionJobs.remove(debounceKey)?.cancel()
+            interactionJobs[debounceKey] = scope.launch {
+                if (interaction.kind == "feed.form_changed") delay(450)
+                val detail = interaction.detail.toMutableMap().apply {
+                    interaction.dataSourceRef?.let { put("dataSourceRef", it) }
+                }
+                val detailJson = JsonUtil.anyToElement(detail) as? JsonObject ?: JsonObject(emptyMap())
+                val recorded = runCatching {
+                    client.recordUIEvent(
+                        RecordUIEventInput(
+                            conversationId = conversationId,
+                            windowId = interaction.windowId,
+                            windowKey = interaction.windowKey,
+                            kind = interaction.kind,
+                            detail = detailJson
+                        )
+                    )
+                }.getOrNull()?.recorded == true
+                if (BuildConfig.DEBUG) {
+                    Log.d("AgentlyUIEvent", "kind=${interaction.kind} recorded=$recorded")
+                }
+                interactionJobs.remove(debounceKey)
+            }
+        }
+        onDispose {
+            forgeRuntime.registerInteractionObserver(null)
+            interactionJobs.values.forEach(Job::cancel)
+            interactionJobs.clear()
         }
     }
     val uiBridge = remember(appApiBaseUrl, forgeRuntime) {

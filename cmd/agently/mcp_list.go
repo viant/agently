@@ -24,6 +24,10 @@ type MCPListCmd struct {
 	OOB          string `long:"oob" description:"Use local scy OAuth2 out-of-band login with the supplied secrets URL"`
 	OAuthCfg     string `long:"oauth-config" description:"Optional scy OAuth config URL override for client-side OOB login"`
 	OAuthScp     string `long:"oauth-scopes" description:"comma-separated OAuth scopes for OOB login"`
+	MCPOOB       string `long:"mcp-oob" description:"Link the selected MCP provider using this local scy OOB secrets URL"`
+	MCPOAuthCfg  string `long:"mcp-oauth-config" description:"scy OAuth client config URL for MCP OOB login"`
+	MCPOAuthScp  string `long:"mcp-oauth-scopes" description:"comma-separated provider scopes for MCP OOB login"`
+	MCPOAuthRes  string `long:"mcp-oauth-resource" description:"RFC 8707 resource for MCP OOB login"`
 	JSON         bool   `long:"json" description:"Print result as JSON instead of plain text"`
 	Example      bool   `long:"example" description:"Include an example request derived from the tool input schema"`
 	Schema       bool   `long:"schema" description:"Include input schema in plain-text output"`
@@ -61,6 +65,11 @@ func (c *MCPListCmd) Execute(_ []string) error {
 	}
 	if err := ensureToolAuth(ctx, client, providers, c.Token, c.Session, c.OOB, c.OAuthCfg, c.OAuthScp); err != nil {
 		return err
+	}
+	if strings.TrimSpace(c.MCPOOB) != "" {
+		if err := ensureMCPOOBAuth(ctx, client, c.Service, c.MCPOOB, c.MCPOAuthCfg, c.MCPOAuthScp, c.MCPOAuthRes); err != nil {
+			return err
+		}
 	}
 
 	defs, err := client.ListToolDefinitions(ctx)

@@ -64,6 +64,7 @@ function summarizeForgeUIAction(detail = {}) {
 export function connectForgeUIActionsToChat(submitMessage, contextProvider) {
   if (typeof submitMessage !== 'function') return () => {};
   return subscribeForgeUIAction(async (detail) => {
+    if (String(detail?.callback?.type || '').trim().toLowerCase() === 'local') return;
     const context = typeof contextProvider === 'function' ? contextProvider() : contextProvider;
     if (!context) return;
     const message = summarizeForgeUIAction(detail);
@@ -163,7 +164,13 @@ function buildPlannerLLMSubmit(detail = {}) {
         selectionField: String(detail?.selectionField || '').trim() || undefined,
         columns: Array.isArray(detail?.columns) ? detail.columns : undefined,
         plannerSubmit: plannerSubmit || undefined,
+        ...(detail?.callbackContext && typeof detail.callbackContext === 'object' ? { callbackContext: detail.callbackContext } : {}),
         selectedRows: Array.isArray(detail?.selectedRows) ? detail.selectedRows : [],
+        unselectedRows: Array.isArray(detail?.unselectedRows) ? detail.unselectedRows : [],
+        changedRows: Array.isArray(detail?.changedRows) ? detail.changedRows : [],
+        finalDataSourceSnapshot: Array.isArray(detail?.finalDataSourceSnapshot) ? detail.finalDataSourceSnapshot : [],
+        ...(detail?.selections && typeof detail.selections === 'object' ? { selections: detail.selections } : {}),
+        ...(detail?.formData && typeof detail.formData === 'object' ? { formData: detail.formData } : {}),
       },
     },
   };
@@ -201,6 +208,8 @@ export function connectForgeUIActionsToCallbacksOrChat(submitMessage, contextPro
     const eventName = String(detail?.eventName || detail?.callback?.eventName || '').trim();
     const callbackType = String(detail?.callback?.type || '').trim().toLowerCase();
 
+    if (callbackType === 'local') return;
+
     if (callbackType === 'llm_event') {
       const message = buildPlannerLLMSubmit(detail);
       try {
@@ -219,10 +228,9 @@ export function connectForgeUIActionsToCallbacksOrChat(submitMessage, contextPro
         turnId: String(detail?.turnId || '').trim() || undefined,
         payload: {
           selectedRows: detail?.selectedRows,
-          ...(detail?.plannerSubmit ? {} : {
-            unselectedRows: detail?.unselectedRows,
-            changedRows: detail?.changedRows,
-          }),
+          unselectedRows: detail?.unselectedRows,
+          changedRows: detail?.changedRows,
+          finalDataSourceSnapshot: detail?.finalDataSourceSnapshot,
           tableId: detail?.tableId,
           plannerSubmit: detail?.plannerSubmit || undefined,
         },

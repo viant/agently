@@ -10,6 +10,7 @@ import {
 } from '../services/toolFeedSelection';
 import { dedupeFeeds, feedAccent, feedIconName } from './ToolFeedBar';
 import ToolFeedDetail from './ToolFeedDetail.jsx';
+import { toolFeedTargetsPlacement } from '../services/toolFeedTarget';
 
 export function sortWorkspaceFeeds(feeds = []) {
   return [...(Array.isArray(feeds) ? feeds : [])];
@@ -20,8 +21,8 @@ export function filterWorkspaceFeeds(feeds = [], conversationId = '', developerM
   const visible = (Array.isArray(feeds) ? feeds : []).filter((feed) => {
     if (feed?.developerOnly === true && !developerMode) return false;
     const feedConversationId = String(feed?.conversationId || '').trim();
-    if (!feedConversationId) return true;
-    return !scopedConversationId || feedConversationId === scopedConversationId;
+    const conversationMatches = !feedConversationId || !scopedConversationId || feedConversationId === scopedConversationId;
+    return conversationMatches && toolFeedTargetsPlacement(feed, 'workspace', true);
   });
   return sortWorkspaceFeeds(dedupeFeeds(visible));
 }
@@ -184,7 +185,7 @@ export default function ToolFeedWorkspace({ conversationId = '', developerMode =
             </header>
             <div className="app-tool-workspace-drawer-tabs">{tabs(false)}</div>
             <div className="app-tool-workspace-drawer-body">
-              <ToolFeedDetail variant="rail" conversationId={conversationId} />
+              <ToolFeedDetail variant="rail" placement="workspace" conversationId={conversationId} />
             </div>
           </section>
         </Drawer>
@@ -235,7 +236,7 @@ export default function ToolFeedWorkspace({ conversationId = '', developerMode =
         {!collapsed ? tabs(false) : null}
         {!collapsed ? (
           <div className="app-tool-workspace-body">
-            <ToolFeedDetail variant="rail" conversationId={conversationId} />
+            <ToolFeedDetail variant="rail" placement="workspace" conversationId={conversationId} />
           </div>
         ) : null}
       </div>

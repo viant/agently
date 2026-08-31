@@ -5,6 +5,7 @@ public struct AppShellView: View {
     @ObservedObject private var runtime: AppRuntime
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isShowingSettings = false
+    @State private var isShowingAutomation = false
     @State private var conversationSearchText = ""
     @State private var compactNavigationPath: [String] = []
     @State private var compactUserReturnedToListConversationID: String?
@@ -125,6 +126,18 @@ public struct AppShellView: View {
                 }
 
                 Button {
+                    isShowingAutomation = true
+                } label: {
+                    AppleToolbarActionIcon(
+                        systemImage: "clock",
+                        color: Color(red: 0.04, green: 0.53, blue: 0.49)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Automation")
+                .accessibilityIdentifier("agently-automation")
+
+                Button {
                     isShowingSettings = true
                 } label: {
                     AppleToolbarActionIcon(
@@ -142,6 +155,18 @@ public struct AppShellView: View {
             restoreConversationID: settingsRestoreConversationID,
             selectInitialConversation: settingsShouldRestoreConversation
         )
+        .automationPresentation(isPresented: $isShowingAutomation) {
+            AutomationWorkspaceScreen(
+                forgeRuntime: runtime.state.forgeRuntime,
+                client: runtime.state.client,
+                onOpenConversation: { conversationID in
+                    isShowingAutomation = false
+                    compactShowsStarterSurface = false
+                    compactHistoryRequested = false
+                    Task { await runtime.selectConversation(conversationID) }
+                }
+            )
+        }
         .alert(
             "Delete Conversation?",
             isPresented: Binding(
@@ -407,6 +432,20 @@ public struct AppShellView: View {
         settingsShouldRestoreConversation
             ? normalizedCompactConversationID(runtime.state.activeConversationID)
             : nil
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func automationPresentation<Content: View>(
+        isPresented: Binding<Bool>,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        #if os(iOS)
+        self.fullScreenCover(isPresented: isPresented, content: content)
+        #else
+        self.sheet(isPresented: isPresented, content: content)
+        #endif
     }
 }
 

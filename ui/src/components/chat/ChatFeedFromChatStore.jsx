@@ -19,6 +19,7 @@ import React, { useContext } from 'react';
 import { useChatProjection } from '../../services/chatStore.js';
 import { isStreamDebugEnabled } from '../../services/debugFlags';
 import IterationRowBlock from './IterationRowBlock.jsx';
+import ToolFeedDetail from '../ToolFeedDetail.jsx';
 import BubbleMessage from './BubbleMessage.jsx';
 import MCPUIBubble from './MCPUIBubble.jsx';
 import StarterTasks from './StarterTasks.jsx';
@@ -171,20 +172,47 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
   return (
     <div className="app-chat-feed" data-source="chatStore">
       {rows.map((row, index) => {
-        if (row?.kind !== 'iteration') {
-          return renderRow(row, context, conversationId, index === workspaceAttachmentOwnerIndex ? workspaceAttachment : null);
-        }
         const turnId = String(row?.turnId || '').trim();
+        const isFinalTurnRepresentation = !!turnId
+          && (row?.kind === 'iteration' || row?.kind === 'assistant')
+          && (lastIndexByTurn.get(turnId) ?? index) === index;
+        const inlineFeed = isFinalTurnRepresentation ? (
+          <ToolFeedDetail
+            context={context}
+            conversationId={conversationId}
+            turnId={turnId}
+            placement="inline"
+            includeAuto={viewContext?.toolFeedDock !== 'right'}
+          />
+        ) : null;
+        if (row?.kind !== 'iteration') {
+          const rendered = renderRow(
+            row,
+            context,
+            conversationId,
+            index === workspaceAttachmentOwnerIndex ? workspaceAttachment : null
+          );
+          if (!inlineFeed) return rendered;
+          return (
+            <React.Fragment key={row.renderKey}>
+              {rendered}
+              {inlineFeed}
+            </React.Fragment>
+          );
+        }
         const suppressBubble = !!turnId && (lastIndexByTurn.get(turnId) ?? index) > index;
         return (
-          <IterationRowBlock
-            key={row.renderKey}
-            iterationRow={row}
-            context={context}
-            suppressBubble={suppressBubble}
-            retryPrompt={retryPromptByTurn.get(turnId) || ''}
-            attachment={index === workspaceAttachmentOwnerIndex ? workspaceAttachment : null}
-          />
+          <React.Fragment key={row.renderKey}>
+            <IterationRowBlock
+              iterationRow={row}
+              context={context}
+              showToolFeedDetail={false}
+              suppressBubble={suppressBubble}
+              retryPrompt={retryPromptByTurn.get(turnId) || ''}
+              attachment={index === workspaceAttachmentOwnerIndex ? workspaceAttachment : null}
+            />
+            {inlineFeed}
+          </React.Fragment>
         );
       })}
     </div>

@@ -55,11 +55,16 @@ dialogs:
     content:
       fetchData: true
       table:
+        presentation: tabular
         columns:
           - id: name
             name: Agent Name
+            width: 140
+            enforceColumnSize: true
           - id: id
             name: Agent ID
+            width: 220
+            enforceColumnSize: true
 
   - id: modelLov
     title: Select Model
@@ -67,8 +72,13 @@ dialogs:
     content:
       fetchData: true
       table:
+        presentation: tabular
         columns:
           - id: name
             name: Model
+            width: 140
+            enforceColumnSize: true
           - id: id
             name: Model ID
+            width: 220
+            enforceColumnSize: true

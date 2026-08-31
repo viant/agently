@@ -13,6 +13,7 @@ import FileViewDialog from './FileViewDialog';
 import GoalDraftDialog from './GoalDraftDialog';
 import MenuBar, { refreshWindowDataSources } from './MenuBar';
 import ToolFeedWorkspace from './ToolFeedWorkspace';
+import ToolFeedDetached from './ToolFeedDetached';
 import UsageBar from './UsageBar';
 import TurnProgressStatus from './TurnProgressStatus';
 import ConversationWorkspaceSurface from './ConversationWorkspaceSurface';
@@ -1419,6 +1420,7 @@ export default function Root() {
               )}
             </div>
             {showChatChrome ? <ToolFeedWorkspace conversationId={activeConversationId} developerMode={developerMode} /> : null}
+            <ToolFeedDetached conversationId={activeConversationId} developerMode={developerMode} />
             </div>
             {showChatChrome && developerMode ? <UsageBar /> : null}
           </main>

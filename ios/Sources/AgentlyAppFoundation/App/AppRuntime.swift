@@ -23,6 +23,7 @@ public final class AppRuntime: ObservableObject {
     private var postTurnRefreshTask: Task<Void, Never>?
     private var bootstrapTimeoutTask: Task<Void, Never>?
     private var observationCancellables: Set<AnyCancellable> = []
+    private var feedInteractionRecorder: FeedInteractionEventRecorder?
 
     public init(
         client: AgentlyClient,
@@ -109,6 +110,7 @@ public final class AppRuntime: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             await self.configureReportRuntimeExportHandler(client: client)
+            await self.configureFeedInteractionRecorder(client: client)
             await self.composerRuntime.configureLookupSupport(
                 contextID: self.selectedAgentID ?? "",
                 registryLoader: makeComposerLookupRegistryLoader(client: client),
@@ -1022,6 +1024,7 @@ public final class AppRuntime: ObservableObject {
                 )
             )
             await configureReportRuntimeExportHandler(client: client)
+            await configureFeedInteractionRecorder(client: client)
         }
         authRuntime = AuthRuntime(client: client)
         queryRuntime = QueryRuntime(client: client)
@@ -1043,6 +1046,18 @@ public final class AppRuntime: ObservableObject {
                 self?.state.artifactErrorMessage = message
             }
         )
+    }
+
+    private func configureFeedInteractionRecorder(client: AgentlyClient) async {
+        let recorder = FeedInteractionEventRecorder(client: client)
+        feedInteractionRecorder = recorder
+        let conversationIDProvider: @Sendable () async -> String = { @MainActor [weak self] in
+            self?.state.activeConversationID ?? ""
+        }
+        await state.forgeRuntime.registerInteractionObserver { @Sendable [recorder, conversationIDProvider] interaction in
+            let conversationID = await conversationIDProvider()
+            await recorder.record(interaction, conversationID: conversationID)
+        }
     }
 
     private func selectExportedReportArtifact(_ artifact: ReportRuntimeExportArtifact) {

@@ -10,9 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
@@ -24,6 +22,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +46,7 @@ import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.KeyboardHide
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,12 +72,14 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-internal val ComposerInputFill = Color(0xFFF0FAF1)
+internal val ComposerInputFill = Color.White
 internal val ComposerInputBorder = Color(0xFFB9DBBD)
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -106,7 +108,6 @@ internal fun PhoneComposerDock(
     onRunQuery: () -> Unit,
     onMeasuredHeight: (androidx.compose.ui.unit.Dp) -> Unit = {}
 ) {
-    val hasActiveConversation = !activeConversationId.isNullOrBlank()
     val compactConversationDock = true
     var composerExpanded by remember(activeConversationId) {
         mutableStateOf(query.isNotBlank() || composerAttachments.isNotEmpty())
@@ -119,12 +120,19 @@ internal fun PhoneComposerDock(
         }
     }
     val density = LocalDensity.current
-    val keyboardVisible = WindowInsets.isImeVisible
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val composerFocusRequester = remember { FocusRequester() }
     fun hideKeyboard() {
         focusManager.clearFocus(force = true)
         keyboardController?.hide()
+    }
+    LaunchedEffect(composerExpanded) {
+        if (composerExpanded) {
+            kotlinx.coroutines.yield()
+            composerFocusRequester.requestFocus()
+            keyboardController?.show()
+        }
     }
     val unresolvedRequiredLookup = firstUnresolvedRequiredComposerLookup(
         lookupOccurrences,
@@ -143,7 +151,7 @@ internal fun PhoneComposerDock(
             },
         color = Color(0xFFFDFDFE),
         border = BorderStroke(1.dp, Color(0xFFDDE4F1)),
-        shape = RoundedCornerShape(topStart = if (compactConversationDock) 24.dp else 28.dp, topEnd = if (compactConversationDock) 24.dp else 28.dp),
+        shape = RoundedCornerShape(if (compactConversationDock) 24.dp else 28.dp),
         tonalElevation = 2.dp,
         shadowElevation = if (compactConversationDock) 6.dp else 10.dp
     ) {
@@ -187,14 +195,17 @@ internal fun PhoneComposerDock(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
-                        onClick = { composerExpanded = true },
+                        onClick = {
+                            focusManager.clearFocus(force = true)
+                            composerExpanded = true
+                        },
                         color = ComposerInputFill,
                         border = BorderStroke(1.dp, ComposerInputBorder),
                         shape = RoundedCornerShape(20.dp),
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(
-                            if (hasActiveConversation) "Reply in the workspace" else "Start a conversation",
+                            "Type your message…",
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color(0xFF667085)
@@ -245,11 +256,11 @@ internal fun PhoneComposerDock(
                                 onValueChange = onQueryChange,
                                 selectionPosition = composerCursorPosition,
                                 onSelectionChange = onComposerCursorPositionChange,
-                                placeholder = if (hasActiveConversation) "Reply in the workspace" else "Ask anything",
+                                placeholder = "Type your message…",
                                 occurrences = lookupOccurrences,
                                 selections = lookupSelections,
                                 onLookupClick = onLookupClick,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().focusRequester(composerFocusRequester),
                                 minLines = 1,
                                 // Starter prompts are often intentionally verbose. Keep the
                                 // lookup action and media controls reachable above the IME;
@@ -261,31 +272,38 @@ internal fun PhoneComposerDock(
                                 },
                                 keyboardOptions = KeyboardOptions(
                                     capitalization = KeyboardCapitalization.None,
-                                    imeAction = ImeAction.Done
+                                    imeAction = ImeAction.Default
                                 ),
                                 keyboardActions = KeyboardActions(onDone = { hideKeyboard() }),
                             )
                         }
                     }
                     PhoneToolbarAction(
-                        icon = Icons.Outlined.ArrowUpward,
+                        icon = if (unresolvedRequiredLookup == null) Icons.Outlined.ArrowUpward else Icons.Outlined.Search,
                         contentDescription = sendLabel,
-                        onClick = onRunQuery,
+                        onClick = {
+                            if (unresolvedRequiredLookup == null) {
+                                hideKeyboard()
+                                composerExpanded = false
+                            }
+                            onRunQuery()
+                        },
                         accent = Color(0xFF383BD8),
                         enabled = !loading && (query.isNotBlank() || composerAttachments.isNotEmpty()),
                         loading = loading
                     )
                 }
-                // Hide secondary media actions while typing. The dock overlay owns
-                // the IME inset, so no compensating spacer is needed here.
-                if (!keyboardVisible) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                    ) {
+                // Keep the full action row available above the IME. Hiding it
+                // while typing made photo, camera, voice, clear, and collapse
+                // disappear exactly when the user was composing a message.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                ) {
                         if (query.isNotBlank() || composerAttachments.isNotEmpty() || lookupSelections.isNotEmpty()) {
                             CompactComposerIconButton(
                                 contentDescription = "Clear composer",
+                                accent = Color(0xFFBD4A59),
                                 icon = { Icon(Icons.Outlined.Close, contentDescription = null) },
                                 onClick = {
                                     hideKeyboard()
@@ -295,6 +313,7 @@ internal fun PhoneComposerDock(
                         }
                         CompactComposerIconButton(
                             contentDescription = "Collapse composer",
+                            accent = Color(0xFF5C667A),
                             icon = { Icon(Icons.Outlined.ExpandMore, contentDescription = null) },
                             onClick = {
                                 hideKeyboard()
@@ -303,12 +322,14 @@ internal fun PhoneComposerDock(
                         )
                         CompactComposerIconButton(
                             contentDescription = "Add photo",
+                            accent = Color(0xFF1A73F0),
                             icon = { Icon(Icons.Outlined.Image, contentDescription = "Add photo") },
                             onClick = onAddPhoto
                         )
                         if (canCapturePhoto) {
                             CompactComposerIconButton(
                                 contentDescription = "Take photo",
+                                accent = Color(0xFFE08A1E),
                                 icon = { Icon(Icons.Outlined.CameraAlt, contentDescription = "Take photo") },
                                 onClick = onTakePhoto
                             )
@@ -323,14 +344,15 @@ internal fun PhoneComposerDock(
                                 } else {
                                     "Voice input"
                                 },
+                                accent = Color(0xFFDF5B78),
                                 icon = { Icon(Icons.Outlined.Mic, contentDescription = "Voice input") },
-                                onClick = {
-                                    hideKeyboard()
-                                    onVoiceInput()
-                                }
+                                // This must use the same start path as the working
+                                // collapsed red mic. The action row is only visible
+                                // once the IME is down, so clearing focus again can
+                                // race the recognition callback and lose insertion.
+                                onClick = onVoiceInput
                             )
                         }
-                    }
                 }
             } else {
                 Row(
@@ -340,18 +362,21 @@ internal fun PhoneComposerDock(
                     if (query.isNotBlank() || composerAttachments.isNotEmpty() || lookupSelections.isNotEmpty()) {
                         CompactComposerIconButton(
                             contentDescription = "Clear composer",
+                            accent = Color(0xFFBD4A59),
                             icon = { Icon(Icons.Outlined.Close, contentDescription = null) },
                             onClick = onClearComposer
                         )
                     }
                     CompactComposerIconButton(
                         contentDescription = "Add photo",
+                        accent = Color(0xFF1A73F0),
                         icon = { Icon(Icons.Outlined.Image, contentDescription = "Add photo") },
                         onClick = onAddPhoto
                     )
                     if (canCapturePhoto) {
                         CompactComposerIconButton(
                             contentDescription = "Take photo",
+                            accent = Color(0xFFE08A1E),
                             icon = { Icon(Icons.Outlined.CameraAlt, contentDescription = "Take photo") },
                             onClick = onTakePhoto
                         )
@@ -359,6 +384,7 @@ internal fun PhoneComposerDock(
                     if (canUseVoiceInput) {
                         CompactComposerIconButton(
                             contentDescription = "Voice input",
+                            accent = Color(0xFFDF5B78),
                             icon = { Icon(Icons.Outlined.Mic, contentDescription = "Voice input") },
                             onClick = onVoiceInput
                         )
@@ -393,7 +419,7 @@ internal fun PhoneComposerDock(
                     maxLines = composerInputMaxLines(compactConversationDock, query),
                     keyboardOptions = KeyboardOptions(
                         capitalization = KeyboardCapitalization.None,
-                        imeAction = ImeAction.Done
+                        imeAction = ImeAction.Default
                     ),
                     keyboardActions = KeyboardActions(onDone = { hideKeyboard() }),
                     visualTransformation = composerLookupVisualTransformation(lookupOccurrences),
@@ -937,12 +963,17 @@ internal fun ComposerLookupChipsRow(
 @Composable
 private fun CompactComposerIconButton(
     contentDescription: String,
+    accent: Color = Color(0xFF5C667A),
     icon: @Composable () -> Unit,
     onClick: () -> Unit
 ) {
     FilledTonalIconButton(
         onClick = onClick,
-        modifier = Modifier.semantics { this.contentDescription = contentDescription }
+        modifier = Modifier.semantics { this.contentDescription = contentDescription },
+        colors = IconButtonDefaults.filledTonalIconButtonColors(
+            containerColor = accent.copy(alpha = 0.12f),
+            contentColor = accent
+        )
     ) {
         icon()
     }

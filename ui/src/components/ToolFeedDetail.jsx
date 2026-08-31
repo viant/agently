@@ -18,6 +18,9 @@ import {
 } from '../services/feedForgeWiring';
 import { createFeedContext } from '../services/feedForgeContext';
 import { normalizeFeedPayload } from '../services/toolFeedBus';
+import { normalizeToolFeedTarget, toolFeedTargetsPlacement } from '../services/toolFeedTarget';
+import { exportFeedReportPDF } from '../services/feedReportExport';
+import { markFeedDataSourcesDirty, restorePendingFeedDraft, savePendingFeedDraft } from '../services/feedDraftState';
 
 function dedupeFeeds(feeds = []) {
   const seen = new Map();
@@ -56,7 +59,7 @@ function resolveFeedDetailConversationId(explicitConversationId = '', context = 
  * Uses Forge Container to render feed UI specs from YAML.
  * Falls back to generic InlineRenderer when no UI spec is present.
  */
-export default function ToolFeedDetail({ context, variant = 'inline', conversationId = '' }) {
+export default function ToolFeedDetail({ context, variant = 'inline', conversationId = '', turnId = '', placement = 'inline', includeAuto = true }) {
   const [feeds, setFeeds] = useState(getActiveFeeds);
   const [dataVersion, setDataVersion] = useState(0);
   const [expandedFeeds, setExpandedFeeds] = useState(() => getExpandedFeedIds());
@@ -85,12 +88,23 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
     if (scopedConversationId && feedConversationId && feedConversationId !== scopedConversationId) {
       return false;
     }
+    if (!toolFeedTargetsPlacement(feed, placement, includeAuto)) return false;
+    const feedTurnId = String(feed?.turnId || '').trim();
+    const scopedTurnId = String(turnId || '').trim();
+    if (normalizeToolFeedTarget(feed?.presentation?.target) === 'inline' && feedTurnId && scopedTurnId && feedTurnId !== scopedTurnId) return false;
     return !!getFeedData(feed.feedId, feed.conversationId);
   }));
   const hasAnyExpandedFeed = candidateFeeds.some((feed) => expandedFeeds.has(feed.feedId));
-  const visibleFeeds = hasAnyExpandedFeed
+  const expandedVisibleFeeds = hasAnyExpandedFeed
     ? candidateFeeds.filter((feed) => expandedFeeds.has(feed.feedId))
     : [];
+  // An explicit inline target is a workspace declaration that the feed owns
+  // space in the assistant bubble; it must not depend on rail expansion state.
+  const explicitInlineFeeds = normalizeToolFeedTarget(placement) === 'inline'
+    ? candidateFeeds.filter((feed) => normalizeToolFeedTarget(feed?.presentation?.target) === 'inline')
+    : [];
+  const forceExpandedInline = normalizeToolFeedTarget(placement) === 'inline' && candidateFeeds.length > 0;
+  const visibleFeeds = dedupeFeeds([...explicitInlineFeeds, ...expandedVisibleFeeds]);
   const renderableFeeds = visibleFeeds.filter((feed) => {
     const data = getFeedData(feed.feedId, feed.conversationId);
     if (!data) return false;
@@ -140,6 +154,7 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
   }, [collapsedHeight, dataVersion, selectedFeedId, visibleFeeds.map((feed) => feed.feedId).join('|')]);
 
   if (renderableFeeds.length === 0) {
+    if (normalizeToolFeedTarget(selectedActiveFeed?.presentation?.target) === 'inline') return null;
     if (!selectedActiveFeed) return null;
     return (
       <div className={`app-tool-feed-detail app-tool-feed-detail--${variant} is-placeholder`} role="status">
@@ -149,7 +164,7 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
   }
 
   return (
-    <div className={`app-tool-feed-detail app-tool-feed-detail--${variant}${isOverflowing ? ' has-overflow' : ''}${isExpanded ? ' is-expanded' : ' is-collapsed'}`}>
+    <div className={`app-tool-feed-detail app-tool-feed-detail--${variant}${forceExpandedInline ? ' is-explicit-inline' : ''}${isOverflowing ? ' has-overflow' : ''}${isExpanded || forceExpandedInline ? ' is-expanded' : ' is-collapsed'}`}>
       <div ref={bodyRef} className="app-tool-feed-detail-body">
         {renderableFeeds.map((feed) => (
           <section
@@ -168,11 +183,12 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
               rawFeedId={feed.rawFeedId || splitFeedKey(feed.feedId).feedId}
               context={context}
               variant={variant}
+              fullHeight={normalizeToolFeedTarget(placement) === 'inline'}
             />
           </section>
         ))}
       </div>
-      {isOverflowing && variant !== 'rail' ? (
+      {isOverflowing && variant !== 'rail' && !forceExpandedInline ? (
         <div className="app-tool-feed-detail-footer">
           <button
             type="button"
@@ -187,7 +203,7 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
   );
 }
 
-function FeedPanel({ feedId, context, variant = 'inline' }) {
+function FeedPanel({ feedId, context, variant = 'inline', fullHeight = false }) {
   const scopedConversationId = String(splitFeedKey(feedId).conversationId || '').trim();
   const rawFeedId = String(splitFeedKey(feedId).feedId || '').trim();
   const data = normalizeFeedPayload(getFeedData(feedId, scopedConversationId));
@@ -203,6 +219,7 @@ function FeedPanel({ feedId, context, variant = 'inline' }) {
         feedId={rawFeedId || feedId}
         conversationId={scopedConversationId}
         variant={variant}
+        fullHeight={fullHeight}
       />
     );
   }
@@ -281,16 +298,12 @@ function buildForgeFeedContainer(feedId = '', payload = {}, dataMap = {}) {
   return resolved;
 }
 
-function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = 'inline' }) {
+function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = 'inline', fullHeight = false }) {
   const payloadSignature = JSON.stringify(data || {});
   const normalized = useMemo(() => normalizeFeedPayload(data), [payloadSignature]);
   const dataSources = useMemo(
     () => normalizeDataSources(normalized?.ui?.dataSources || normalized?.dataSources || {}),
     [normalized]
-  );
-  const context = useMemo(
-    () => createFeedContext(feedId, dataSources, conversationId),
-    [conversationId, dataSources, feedId]
   );
   const execution = useMemo(() => ({
     dataSources,
@@ -305,6 +318,22 @@ function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = '
   const container = useMemo(
     () => buildForgeFeedContainer(feedId, normalized, dataMap),
     [dataMap, feedId, normalized]
+  );
+  const context = useMemo(
+    () => createFeedContext(feedId, dataSources, conversationId, {
+      onDraftSubmit: (snapshot) => savePendingFeedDraft(feedId, conversationId, {
+        ...snapshot,
+        sourceSignature: payloadSignature,
+      }),
+      exportPDF: () => exportFeedReportPDF({
+        feedId,
+        conversationId,
+        title: normalized?.ui?.title || normalized?.title || feedId,
+        container,
+        dataMap,
+      }),
+    }),
+    [container, conversationId, dataMap, dataSources, feedId, normalized]
   );
   const requiresSignalWiring = useMemo(() => {
     const hasProvidedFileRows = (node) => {
@@ -325,14 +354,16 @@ function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = '
     setSignalsReady(false);
     const timer = window.setTimeout(() => {
       wireFeedSignals(execution, context.identity.windowId);
+      restorePendingFeedDraft(feedId, conversationId, payloadSignature, context);
+      markFeedDataSourcesDirty(context, normalized?._dirtyDataSourceRefs || []);
       setSignalsReady(true);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [context, execution, isServerRender, requiresSignalWiring]);
+  }, [context, conversationId, execution, feedId, isServerRender, payloadSignature, requiresSignalWiring]);
 
   if (!container) return null;
   if (!signalsReady) return <div className="app-tool-feed-detail-loading" role="status">Loading feed content…</div>;
-  const railStyle = variant === 'rail'
+  const railStyle = variant === 'rail' || fullHeight
     ? { height: '100%', minHeight: 0, overflowY: 'auto' }
     : { maxHeight: 'min(18vh, 220px)', overflowY: 'auto' };
   return (

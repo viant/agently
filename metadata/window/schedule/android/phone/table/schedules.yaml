@@ -49,7 +49,7 @@ emptyState:
   kicker: Automation workspace
   title: Create your first automation
   body: Turn a repeatable task into a reliable agent workflow. Keep it as a draft, activate it when ready, and inspect every run.
-  hideToolbarItems: [quickFilter, history, edit, run, delete]
+  hideToolbarItems: [refresh, addNew, pagination, quickFilter, history, edit, run, delete]
   steps:
     - id: agent
       number: 1

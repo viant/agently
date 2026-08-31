@@ -4,7 +4,12 @@ import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.DownloadFileOutput
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.forgeandroid.runtime.ForgeRuntime
+import com.viant.forgeandroid.runtime.ContainerDef
+import com.viant.forgeandroid.runtime.InlineReportRuntimeCompiler
 import com.viant.forgeandroid.runtime.JsonUtil
+import com.viant.forgeandroid.runtime.snapshotFeedDataSources
+import com.viant.forgeandroid.ui.TranscriptCanonicalData
+import com.viant.forgeandroid.ui.TranscriptCanonicalReport
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -12,6 +17,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.Base64
 
@@ -50,7 +56,186 @@ internal fun registerReportRuntimeExportHandler(
         onError(null)
         true
     }
+    forgeRuntime.registerHandler("feed.print") { args ->
+        val context = args.context
+        if (context == null) {
+            onError("No active feed is available for PDF export.")
+            return@registerHandler false
+        }
+        val state = forgeRuntime.windowState(context.window.windowId)
+        val feedId = state?.windowKey?.removePrefix("feed-")
+            ?.removeSuffix("-${state.conversationId.orEmpty()}")
+            ?.takeIf(String::isNotBlank)
+            ?: "feed"
+        val exportRequest = buildFeedReportExportRequest(
+            forgeRuntime = forgeRuntime,
+            windowId = context.window.windowId,
+            feedId = feedId,
+            title = state?.windowTitle ?: "Tool feed"
+        )
+        val conversationId = conversationIdProvider()?.trim().orEmpty()
+        val artifact = try {
+            exportReportRuntimePdf(client, exportRequest, conversationId)
+        } catch (err: Throwable) {
+            onError(reportRuntimeExportErrorMessage(err))
+            throw err
+        }
+        val opened = openPdf(artifact.file, artifact.downloaded)
+        if (!opened) {
+            onError("PDF export completed, but no PDF viewer was available.")
+            return@registerHandler false
+        }
+        onError(null)
+        true
+    }
 }
+
+internal fun buildFeedReportExportRequest(
+    forgeRuntime: ForgeRuntime,
+    windowId: String,
+    feedId: String,
+    title: String
+): Map<String, Any?> {
+    val metadata = forgeRuntime.metadataSignal(windowId).peek()
+        ?: error("Feed PDF export requires window metadata.")
+    val content = metadata.view?.content ?: error("Feed PDF export requires feed content.")
+    val safeFeedId = safeFeedReportId(feedId)
+    val sourceRefMap = metadata.dataSources.keys.associateWith(::safeFeedReportId)
+    val blocks = content.containers.flatMap { feedPrintableBlocks(it, sourceRefMap) }
+    val snapshots = snapshotFeedDataSources(
+        forgeRuntime.windowContext(windowId),
+        metadata.dataSources.keys
+    )
+    val dataSources = snapshots.mapValues { (ref, snapshot) ->
+        val rows = snapshot.collection.takeIf { it.isNotEmpty() }
+            ?: snapshot.form.takeIf { it.isNotEmpty() }?.let(::listOf)
+            ?: emptyList()
+        TranscriptCanonicalData(
+            id = sourceRefMap[ref] ?: safeFeedReportId(ref),
+            format = "json",
+            payload = JsonArray(rows.map { JsonUtil.anyToElement(it) })
+        )
+    }.mapKeys { (ref, _) -> sourceRefMap[ref] ?: safeFeedReportId(ref) }
+    val reportId = "feed_$safeFeedId"
+    val canonicalReport = TranscriptCanonicalReport(
+        scope = "feed:$safeFeedId",
+        id = reportId,
+        grammar = "dashboard-v1",
+        status = "committed",
+        source = JsonObject(
+            mapOf(
+                "id" to JsonPrimitive(safeFeedId),
+                "title" to JsonPrimitive(title),
+                "blocks" to JsonArray(blocks)
+            )
+        ),
+        dataSources = dataSources
+    )
+    val compiled = InlineReportRuntimeCompiler.compile(canonicalReport)
+    val reportPrint = JsonObject(
+        mapOf(
+            "version" to JsonPrimitive(1),
+            "kind" to JsonPrimitive("reportPrint"),
+            "specVersion" to JsonPrimitive(1),
+            "reportId" to JsonPrimitive(reportId),
+            "title" to JsonPrimitive(title)
+        )
+    )
+    return mapOf(
+        "format" to "pdf",
+        "reportId" to reportId,
+        "fences" to JsonArray(InlineReportRuntimeCompiler.exportFences(canonicalReport)),
+        "artifactRef" to "feed://$safeFeedId",
+        "title" to title,
+        "reportSpec" to JsonUtil.elementToAny(compiled.reportSpec),
+        "reportFill" to JsonUtil.elementToAny(compiled.reportFill),
+        "reportPrint" to JsonUtil.elementToAny(reportPrint)
+    )
+}
+
+private val printableFeedKinds = setOf(
+    "dashboard.summary", "dashboard.kpiTable", "dashboard.compare", "dashboard.timeline",
+    "dashboard.composition", "dashboard.dimensions", "dashboard.geoMap", "dashboard.status",
+    "dashboard.filters", "dashboard.feed", "dashboard.table", "dashboard.report",
+    "dashboard.detail", "dashboard.messages", "dashboard.badges"
+)
+
+private fun feedPrintableBlocks(
+    node: ContainerDef,
+    sourceRefMap: Map<String, String>
+): List<JsonElement> {
+    fun serialized(value: ContainerDef): JsonObject =
+        Json.encodeToJsonElement(ContainerDef.serializer(), value) as JsonObject
+    fun mapped(value: JsonObject): JsonObject = JsonObject(value.toMutableMap().apply {
+        (this["dataSourceRef"] as? JsonPrimitive)?.contentOrNull?.let { ref ->
+            sourceRefMap[ref]?.let { put("dataSourceRef", JsonPrimitive(it)) }
+        }
+    })
+    if (node.kind in setOf("dashboard.editableTable", "dashboard.lookupChips")) {
+        return listOf(mapped(serialized(node)).let { value ->
+            JsonObject(value.toMutableMap().apply { put("kind", JsonPrimitive("dashboard.table")) })
+        })
+    }
+    if (node.tabs != null && node.containers.isNotEmpty()) {
+        return node.containers.mapNotNull { tab ->
+            val children = tab.containers.flatMap { feedPrintableBlocks(it, sourceRefMap) }
+            if (children.isEmpty()) null else JsonObject(
+                mapOf(
+                    "id" to JsonPrimitive(safeFeedReportId(tab.id ?: tab.title ?: "section")),
+                    "kind" to JsonPrimitive("dashboard.detail"),
+                    "title" to JsonPrimitive(tab.title ?: tab.id ?: "Section"),
+                    "containers" to JsonArray(children)
+                )
+            )
+        }
+    }
+    if (node.kind in printableFeedKinds) {
+        val block = mapped(serialized(node))
+        return if (node.kind == "dashboard.detail") {
+            listOf(JsonObject(block.toMutableMap().apply {
+                put("containers", JsonArray(node.containers.flatMap { feedPrintableBlocks(it, sourceRefMap) }))
+            }))
+        } else listOf(block)
+    }
+    val nested = node.containers.flatMap { feedPrintableBlocks(it, sourceRefMap) }
+    if (nested.isNotEmpty()) {
+        return listOf(JsonObject(
+            mapOf(
+                "id" to JsonPrimitive(safeFeedReportId(node.id ?: node.title ?: "section")),
+                "kind" to JsonPrimitive("dashboard.detail"),
+                "title" to JsonPrimitive(node.title.orEmpty()),
+                "containers" to JsonArray(nested)
+            )
+        ))
+    }
+    val nodeDataSourceRef = node.dataSourceRef
+    if (node.items.isNotEmpty() && !nodeDataSourceRef.isNullOrBlank()) {
+        val rows = node.items.map { item ->
+            JsonObject(
+                mapOf(
+                    "id" to JsonPrimitive(safeFeedReportId(item.id ?: item.field ?: item.label ?: "value")),
+                    "label" to JsonPrimitive(item.label ?: item.id ?: item.field ?: "Value"),
+                    "value" to JsonPrimitive(item.field ?: item.dataField ?: item.id ?: "value")
+                )
+            )
+        }
+        return listOf(JsonObject(
+            mapOf(
+                "id" to JsonPrimitive(safeFeedReportId(node.id ?: node.title ?: "summary")),
+                "kind" to JsonPrimitive("dashboard.kpiTable"),
+                "title" to JsonPrimitive(node.title.orEmpty()),
+                "rows" to JsonArray(rows),
+                "dataSourceRef" to JsonPrimitive(sourceRefMap[nodeDataSourceRef] ?: safeFeedReportId(nodeDataSourceRef))
+            )
+        ))
+    }
+    return emptyList()
+}
+
+private fun safeFeedReportId(value: String): String = value.trim().lowercase()
+    .replace(Regex("[^a-z0-9]+"), "_")
+    .trim('_')
+    .ifBlank { "feed" }
 
 internal data class ReportRuntimeExportArtifact(
     val file: GeneratedFileEntry,

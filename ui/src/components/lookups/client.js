@@ -56,17 +56,28 @@ export async function fetchDatasource(id, inputs, options) {
     if (options.bypassCache) body.cache.bypassCache = true;
     if (options.writeThrough) body.cache.writeThrough = true;
   }
-  const res = await fetch(
-    `${baseURL()}/v1/api/datasources/${encodeURIComponent(id)}/fetch`,
-    {
+  const timeoutMs = Math.max(0, Number(options?.timeoutMs || 0));
+  const controller = timeoutMs > 0 && typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  let res;
+  try {
+    res = await fetch(`${baseURL()}/v1/api/datasources/${encodeURIComponent(id)}/fetch`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    }
-  );
+      signal: controller?.signal,
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('Lookup timed out. Narrow the search and try again.');
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
   if (!res.ok) {
-    throw new Error(`datasource fetch: ${res.status} ${res.statusText}`);
+    const payload = await res.json().catch(() => null);
+    const detail = String(payload?.error || payload?.message || '').trim();
+    throw new Error(detail || `Lookup could not be loaded (${res.status} ${res.statusText}).`);
   }
   return res.json();
 }

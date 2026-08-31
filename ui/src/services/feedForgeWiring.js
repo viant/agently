@@ -2,10 +2,11 @@
  * Feed Forge wiring utilities — ported from original agently ToolFeed.jsx.
  * Pure functions for resolving feed data sources and wiring Forge signals.
  */
-import { getCollectionSignal, getControlSignal, getSelectionSignal, getFormSignal } from 'forge/core';
+import { getCollectionSignal, getControlSignal, getSelectionSignal, getFormSignal, getFormStatusSignal } from 'forge/core';
 
 export function selectPath(selector, root) {
   if (!selector) return root;
+  if (selector === '$') return root;
   if (selector === 'output') return (root && typeof root === 'object' && 'output' in root) ? root.output : root;
   if (selector === 'input') return (root && typeof root === 'object' && 'input' in root) ? root.input : root;
   let cur = root;
@@ -43,6 +44,79 @@ export function asArray(val) {
   return [val];
 }
 
+function projectDateParts(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value ?? '';
+  const year = Number(value.year);
+  const month = Number(value.month ?? (Number(value.monthIndex) + 1));
+  const day = Number(value.day);
+  if (![year, month, day].every(Number.isFinite)) return '';
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+export function projectFeedFields(root, fields = {}) {
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return root;
+  const projected = {};
+  for (const [name, raw] of Object.entries(fields)) {
+    const config = typeof raw === 'string' ? { path: raw } : (raw || {});
+    const transform = String(config.transform || '').trim().toLowerCase();
+    let value = selectPath(config.path || config.selector || name, root);
+    if (transform === 'daterange' || transform === 'daterangelabel') {
+      const start = projectDateParts(selectPath(config.startPath || 'start', root));
+      const end = projectDateParts(selectPath(config.endPath || 'end', root));
+      value = {
+        start,
+        end,
+      };
+      if (transform === 'daterangelabel') value = [start, end].filter(Boolean).join(' – ');
+    } else if (transform === 'dateparts') {
+      value = projectDateParts(value);
+    } else if (transform === 'boolean') {
+      value = value === true || value === 1 || value === '1' || String(value || '').toLowerCase() === 'true';
+    }
+    projected[name] = value;
+  }
+  return projected;
+}
+
+export function flattenFeedRows(parentRows = [], config = {}) {
+  const sources = Array.isArray(config?.sources) ? config.sources : [];
+  const output = [];
+  for (const parent of asArray(parentRows)) {
+    for (const source of sources) {
+      const children = asArray(selectPath(source?.path || '', parent));
+      for (const child of children) {
+        if (child == null) continue;
+        const exclude = source?.exclude && typeof source.exclude === 'object' ? source.exclude : null;
+        if (exclude && selectPath(exclude.field || '', child) === exclude.equals) continue;
+        let row = source?.fields ? projectFeedFields(child, source.fields) : (
+          child && typeof child === 'object' && !Array.isArray(child) ? { ...child } : { value: child }
+        );
+        for (const [field, path] of Object.entries(source?.parentFields || {})) {
+          row[field] = selectPath(path, parent);
+        }
+        for (const [field, value] of Object.entries(source?.values || {})) {
+          row[field] = value;
+        }
+        output.push(row);
+      }
+    }
+  }
+  return output;
+}
+
+export function filterFeedRows(rows = [], config = {}) {
+  const excludes = Array.isArray(config?.exclude) ? config.exclude : (config?.exclude ? [config.exclude] : []);
+  if (excludes.length === 0) return asArray(rows);
+  return asArray(rows).filter((row) => !excludes.some((rule) => {
+    if (!rule || typeof rule !== 'object') return false;
+    const actual = selectPath(rule.field || rule.path || '', row);
+    if (rule.equalsIgnoreCase != null) {
+      return String(actual ?? '').trim().toLowerCase() === String(rule.equalsIgnoreCase).trim().toLowerCase();
+    }
+    return actual === rule.equals;
+  }));
+}
+
 export function computeDataMap(exe) {
   if (!exe) return {};
   const dsMap = exe.dataSources || {};
@@ -78,7 +152,14 @@ export function computeDataMap(exe) {
       const parentRoot = Array.isArray(parentData) && parentData.length === 1
         ? parentData[0]
         : (Array.isArray(parentData) ? parentData : (parentData || {}));
-      computed[name] = asArray(selectPath(sel, parentRoot));
+      const selected = selectPath(sel, parentRoot);
+      const projectedRows = ds?.flatten
+        ? flattenFeedRows(selected, ds.flatten)
+        : asArray(ds?.fields ? projectFeedFields(selected, ds.fields) : selected);
+      const rows = filterFeedRows(projectedRows, ds);
+      computed[name] = ds?.aggregate?.countAs
+        ? [{ [String(ds.aggregate.countAs)]: rows.length }]
+        : rows;
     } else {
       if (!computed.hasOwnProperty(name)) computed[name] = [];
     }
@@ -158,8 +239,37 @@ export function wireFeedSignals(exe, windowId) {
   let wired = 0;
   for (const [name, data] of Object.entries(computed)) {
     const dsId = toDsId(name);
+    const definition = exe?.dataSources?.[name] || {};
+    const selectionMode = String(definition?.selectionMode || '').trim().toLowerCase();
+    const uniqueFields = (Array.isArray(definition?.uniqueKey) ? definition.uniqueKey : [])
+      .map((entry) => String(entry?.field || entry || '').trim())
+      .filter(Boolean);
+    const rowKey = (row = null) => {
+      if (!row || uniqueFields.length === 0) return '';
+      return uniqueFields.map((field) => JSON.stringify(row?.[field] ?? null)).join('|');
+    };
+    if (selectionMode === 'multi') {
+      const selectionSignal = getSelectionSignal(dsId, { selection: [] });
+      const previous = selectionSignal.peek?.() || selectionSignal.value || { selection: [] };
+      const previousRows = Array.isArray(previous?.selection) ? previous.selection : [];
+      let nextSelection = [];
+      if (previous?._initialized) {
+        const selectedKeys = new Set(previousRows.map(rowKey).filter(Boolean));
+        nextSelection = uniqueFields.length > 0
+          ? data.filter((row) => selectedKeys.has(rowKey(row)))
+          : previousRows.filter((row) => data.includes(row));
+      } else {
+        const selectionConfig = definition?.selection && typeof definition.selection === 'object' ? definition.selection : {};
+        const field = String(selectionConfig?.field || 'selected').trim() || 'selected';
+        nextSelection = String(selectionConfig?.initial || '').trim().toLowerCase() === 'all'
+          ? [...data]
+          : data.filter((row) => !!row?.[field]);
+      }
+      selectionSignal.value = { selection: nextSelection, _initialized: true };
+    }
     const sig = getCollectionSignal(dsId);
     sig.value = Array.isArray(data) ? data : asArray(data);
+    try { getFormStatusSignal(dsId).value = { dirty: false }; } catch (_) {}
     try {
       const ctrl = getControlSignal(dsId);
       if (ctrl?.set) ctrl.set({ ...(ctrl.peek?.() || {}), loading: false });
@@ -174,9 +284,14 @@ export function wireFeedSignals(exe, windowId) {
     } catch (_) {}
     wired++;
   }
-  // Seed root selection
+  // Seed root selection for single-selection feeds only.
   const rootName = String(exe?.dataFeed?.name || '').trim();
-  if (rootName && Array.isArray(computed[rootName]) && computed[rootName].length > 0) {
+  if (
+    rootName
+    && String(exe?.dataSources?.[rootName]?.selectionMode || '').trim().toLowerCase() !== 'multi'
+    && Array.isArray(computed[rootName])
+    && computed[rootName].length > 0
+  ) {
     const dsId = toDsId(rootName);
     const selSig = getSelectionSignal(dsId, { selected: null, rowIndex: -1 });
     selSig.value = { selected: computed[rootName][0], rowIndex: 0 };

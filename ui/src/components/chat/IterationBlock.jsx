@@ -14,6 +14,7 @@ import { displayStepIcon, displayStepTitle, executionRoleLabel, isAgentRunTool, 
 import BubbleMessage from './BubbleMessage';
 import RichContent from './LazyRichContent';
 import ToolFeedDetail from '../ToolFeedDetail';
+import { getActiveFeeds, onFeedChange } from '../../services/toolFeedBus';
 
 function statusLabel(value) {
   const text = String(value || '').trim();
@@ -1370,6 +1371,16 @@ export function resolveIterationStatusDetail(data = {}) {
   return '';
 }
 
+export function resolveTerminalFailureMessage(errorMessage = '') {
+  const text = String(errorMessage || '').trim();
+  const match = text.match(/requested tool bundles resolved zero tool definitions:\s*([^\n]+)/i);
+  if (match) {
+    const bundles = String(match[1] || '').trim();
+    return `Required tools are unavailable${bundles ? ` (${bundles})` : ''}. Check the configured connection or authorization, then retry.`;
+  }
+  return 'The assistant could not finish this request.';
+}
+
 function lastPresentableGroupIndex(groups = []) {
   const list = Array.isArray(groups) ? groups : [];
   for (let index = list.length - 1; index >= 0; index -= 1) {
@@ -1382,6 +1393,34 @@ function currentConversationId() {
   if (typeof window === 'undefined') return '';
   const match = String(window.location?.pathname || '').match(/\/conversation\/([^/?#]+)/);
   return match ? decodeURIComponent(match[1]) : '';
+}
+
+export function stripSuppressedForgeReports(content = '', reportIds = []) {
+  const suppressed = new Set((Array.isArray(reportIds) ? reportIds : [])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean));
+  if (suppressed.size === 0) return String(content || '');
+  return String(content || '').replace(/```(forge-report|forge-data)\s*([\s\S]*?)```/gi, (full, kind, body) => {
+    try {
+      const payload = JSON.parse(String(body || '').trim());
+      const id = String(kind.toLowerCase() === 'forge-data' ? payload?.reportRef : payload?.id || '').trim();
+      return id && suppressed.has(id) ? '' : full;
+    } catch (_) {
+      return full;
+    }
+  }).trim();
+}
+
+export function filterSuppressedRenderedReports(renderedContent = null, reportIds = []) {
+  if (!renderedContent || typeof renderedContent !== 'object') return renderedContent;
+  const suppressed = new Set((Array.isArray(reportIds) ? reportIds : [])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean));
+  if (suppressed.size === 0 || !Array.isArray(renderedContent.reports)) return renderedContent;
+  return {
+    ...renderedContent,
+    reports: renderedContent.reports.filter((report) => !suppressed.has(String(report?.id || '').trim())),
+  };
 }
 
 function iterationDebugEnabled() {
@@ -1702,6 +1741,21 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
   const showExecutionDetails = developerMode;
   const data = buildIterationDataFromCanonicalRow(canonicalRow, message);
   const iterationConversationId = String(canonicalRow?.conversationId || data?.conversationId || message?.conversationId || '').trim() || currentConversationId();
+  const [activeFeeds, setActiveFeeds] = useState(getActiveFeeds);
+  useEffect(() => onFeedChange((next) => setActiveFeeds(Array.isArray(next) ? next : [])), []);
+  const suppressedReportIds = useMemo(() => {
+    const turnId = String(data?.turnId || canonicalRow?.turnId || '').trim();
+    return (Array.isArray(activeFeeds) ? activeFeeds : [])
+      .filter((feed) => {
+        const feedConversationId = String(feed?.conversationId || '').trim();
+        const feedTurnId = String(feed?.turnId || '').trim();
+        return (!iterationConversationId || !feedConversationId || feedConversationId === iterationConversationId)
+          && (!turnId || !feedTurnId || feedTurnId === turnId);
+      })
+      .flatMap((feed) => Array.isArray(feed?.presentation?.suppressReportIds) ? feed.presentation.suppressReportIds : [])
+      .map((value) => String(value || '').trim())
+      .filter((value, index, values) => value && values.indexOf(value) === index);
+  }, [activeFeeds, canonicalRow?.turnId, data?.turnId, iterationConversationId]);
   const toolCalls = Array.isArray(data.toolCalls) ? data.toolCalls : [];
   const displayToolCalls = useMemo(
     () => (Array.isArray(toolCalls) ? [...toolCalls] : []),
@@ -2017,12 +2071,20 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
     }
     return rendered;
   }, [effectiveReportLeadIn, visibleRenderedText]);
+  const displayContinuousRenderedText = useMemo(
+    () => stripSuppressedForgeReports(continuousRenderedText, suppressedReportIds),
+    [continuousRenderedText, suppressedReportIds],
+  );
   const visibleRenderedContent = useMemo(
     () => resolveVisibleBubbleRenderedContent(
       visibleGroups,
       data?.response?.renderedContent || message?.renderedContent || null,
     ),
     [data?.response?.renderedContent, message?.renderedContent, visibleGroups],
+  );
+  const displayRenderedContent = useMemo(
+    () => filterSuppressedRenderedReports(visibleRenderedContent, suppressedReportIds),
+    [visibleRenderedContent, suppressedReportIds],
   );
   useEffect(() => {
     logIterationDebug('presentation-state', {
@@ -2086,6 +2148,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
   const terminalCategory = normalizedTerminalStatus.startsWith('cancel')
     ? 'Canceled'
     : (normalizedTerminalStatus.includes('timeout') ? 'Timed out' : 'Tool failed');
+  const terminalFailureMessage = resolveTerminalFailureMessage(data?.errorMessage || message?.errorMessage);
 
   const prefillRetry = () => {
     const prompt = String(retryPrompt || '').trim();
@@ -2501,7 +2564,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
         <section className={`app-turn-terminal-notice${normalizedTerminalStatus.startsWith('cancel') ? ' is-canceled' : ''}`} data-testid="turn-terminal-notice">
           <div>
             <div className="app-turn-terminal-title">{normalizedTerminalStatus.startsWith('cancel') ? 'Request canceled' : 'Request couldn’t be completed'}</div>
-            <div className="app-turn-terminal-message">{normalizedTerminalStatus.startsWith('cancel') ? 'The current request was stopped.' : 'The assistant could not finish this request.'}</div>
+            <div className="app-turn-terminal-message">{normalizedTerminalStatus.startsWith('cancel') ? 'The current request was stopped.' : terminalFailureMessage}</div>
           </div>
           <div className="app-turn-terminal-actions">
             <span className="app-turn-terminal-category">{terminalCategory}</span>
@@ -2630,16 +2693,18 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
           ) : null}
         </section>
       ) : null}
-      {showExecutionDetails && showToolFeedDetail && toolFeedDock !== 'right' ? <ToolFeedDetail context={context} /> : null}
-      {!showTerminalNotice && !suppressBubble && !hasPendingVisibleElicitation && !hasPendingExecutionElicitation && shouldShowNarrationBubble(visibleGroups, continuousRenderedText, data?.response?.content) ? (
+      {showToolFeedDetail ? (
+        <ToolFeedDetail context={context} conversationId={iterationConversationId} turnId={String(data?.turnId || canonicalRow?.turnId || '').trim()} placement="inline" includeAuto={toolFeedDock !== 'right'} />
+      ) : null}
+      {!showTerminalNotice && !suppressBubble && !hasPendingVisibleElicitation && !hasPendingExecutionElicitation && shouldShowNarrationBubble(visibleGroups, displayContinuousRenderedText, stripSuppressedForgeReports(data?.response?.content, suppressedReportIds)) ? (
         <BubbleMessage
           conversationId={iterationConversationId}
           attachment={attachment}
           message={{
             id: `${message?.id || 'iteration'}:narration`,
             role: 'assistant',
-            content: continuousRenderedText,
-            renderedContent: visibleRenderedContent,
+            content: displayContinuousRenderedText,
+            renderedContent: displayRenderedContent,
             generatedFiles
           }}
         />

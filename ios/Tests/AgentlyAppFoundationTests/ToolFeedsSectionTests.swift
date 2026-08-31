@@ -4,6 +4,19 @@ import ForgeIOSRuntime
 @testable import AgentlyAppFoundation
 
 final class ToolFeedsSectionTests: XCTestCase {
+    func testToolFeedSynthesizesRemoteLookupDependenciesFromSharedUI() throws {
+        let content = try JSONDecoder().decode(ContentDef.self, from: Data("""
+        {"containers":[{"kind":"dashboard.lookupChips","lookup":{"dataSourceRef":"targeting_tree_lookup","drill":{"dataSourceRef":"deal_children"}}}]}
+        """.utf8))
+
+        let sources = toolFeedDataSources(declared: nil, content: content)
+
+        XCTAssertEqual(Set(sources.keys), Set(["targeting_tree_lookup", "deal_children"]))
+        XCTAssertEqual(sources["targeting_tree_lookup"]?.service?.endpoint, "agentlyAPI")
+        XCTAssertEqual(sources["targeting_tree_lookup"]?.service?.uri, "/v1/api/datasources/targeting_tree_lookup/fetch")
+        XCTAssertEqual(sources["targeting_tree_lookup"]?.autoFetch, false)
+    }
+
     func testVisibleToolFeedsFiltersDeveloperOnlyAndSortsLabels() {
         let feeds = [
             ActiveFeedState(feedID: "terminal", title: "Terminal", developerOnly: true, itemCount: 2),
@@ -12,6 +25,110 @@ final class ToolFeedsSectionTests: XCTestCase {
         ]
 
         XCTAssertEqual(visibleToolFeeds(feeds).compactMap(\.feedID), ["changes", "plan"])
+    }
+
+    func testToolFeedTargetSelectsPlacementAndInlineOwner() {
+        let feeds = [
+            ActiveFeedState(feedID: "auto", title: "Auto", itemCount: 1),
+            ActiveFeedState(feedID: "inline", title: "Inline", presentation: FeedPresentation(target: "inline"), itemCount: 1, turnID: "turn-1"),
+            ActiveFeedState(feedID: "workspace", title: "Workspace", presentation: FeedPresentation(target: "workspace"), itemCount: 1),
+            ActiveFeedState(feedID: "detached", title: "Detached", presentation: FeedPresentation(target: "detached"), itemCount: 1),
+            ActiveFeedState(feedID: "future", title: "Future", presentation: FeedPresentation(target: "future"), itemCount: 1)
+        ]
+
+        XCTAssertEqual(toolFeeds(feeds, for: .workspace).compactMap(\.feedID), ["auto", "future", "workspace"])
+        XCTAssertEqual(toolFeeds(feeds, for: .detached).compactMap(\.feedID), ["detached"])
+        XCTAssertEqual(inlineToolFeeds(feeds, turnID: "turn-1").compactMap(\.feedID), ["inline"])
+        XCTAssertTrue(inlineToolFeeds(feeds, turnID: "turn-2").isEmpty)
+        XCTAssertEqual(
+            suppressedToolFeedReportIDs([
+                ActiveFeedState(
+                    feedID: "plan",
+                    presentation: FeedPresentation(suppressReportIds: [" legacy-plan "])
+                )
+            ]),
+            Set(["legacy-plan"])
+        )
+    }
+
+    func testInlineFeedAttachesOnlyToFinalAssistantRowForOwningTurn() {
+        let items = [
+            ChatTranscriptEntry(id: "assistant-early", role: "assistant", markdown: "Working", turnID: "turn-feed"),
+            ChatTranscriptEntry(id: "assistant-final", role: "assistant", markdown: "Done", turnID: "turn-feed"),
+            ChatTranscriptEntry(id: "user-later", role: "user", markdown: "Unrelated", turnID: "turn-later")
+        ]
+        let feeds = [
+            ActiveFeedState(
+                feedID: "plan",
+                title: "Plan",
+                presentation: FeedPresentation(target: "inline"),
+                itemCount: 1,
+                turnID: "turn-feed"
+            )
+        ]
+
+        XCTAssertEqual(inlineToolFeedAttachmentItemIDs(items: items, feeds: feeds), ["plan": "assistant-final"])
+    }
+
+    func testNativeFeedProjectionCoversFieldsFlattenExcludeAggregateDeriveAndNumericSelectors() {
+        let definitions: AgentlySDK.JSONValue = .object([
+            "root": .object(["source": .string("output")]),
+            "plan": .object(["dataSourceRef": .string("root"), "selectors": .object(["data": .string("plan")])]),
+            "overview": .object([
+                "dataSourceRef": .string("plan"),
+                "fields": .object([
+                    "name": .string("name"),
+                    "active": .object(["path": .string("active_flag"), "transform": .string("boolean")]),
+                    "flight": .object(["transform": .string("dateRangeLabel"), "startPath": .string("dates.start"), "endPath": .string("dates.end")])
+                ])
+            ]),
+            "publishers": .object([
+                "dataSourceRef": .string("plan"), "selectors": .object(["data": .string("channels")]),
+                "flatten": .object(["sources": .array([.object([
+                    "path": .string("publishers"),
+                    "exclude": .object(["field": .string("name"), "equals": .string("TOTAL")]),
+                    "parentFields": .object(["channel": .string("name")]),
+                    "values": .object(["kind": .string("Publisher")]),
+                    "fields": .object(["publisher": .string("name"), "cost": .string("cost")])
+                ])])]),
+                "uniqueKey": .array([.object(["field": .string("channel")]), .object(["field": .string("publisher")])])
+            ]),
+            "coverage": .object(["dataSourceRef": .string("publishers"), "aggregate": .object(["countAs": .string("count")])]),
+            "segments": .object([
+                "dataSourceRef": .string("plan"), "selectors": .object(["data": .string("segments")]),
+                "exclude": .object(["field": .string("name"), "equalsIgnoreCase": .string("TOTAL")]),
+                "derive": .object(["label": .string("${id}:${name}")])
+            ]),
+            "secondCode": .object([
+                "dataSourceRef": .string("plan"), "selectors": .object(["data": .string("codes[1]")]),
+                "flatten": .object(["sources": .array([.object(["path": .string("$"), "fields": .object(["code": .string("$")])])])])
+            ])
+        ])
+        let data: AgentlySDK.JSONValue = .object(["output": .object(["plan": .object([
+            "name": .string("Plan A"), "active_flag": .string("true"),
+            "dates": .object([
+                "start": .object(["year": .number(2026), "month": .number(8), "day": .number(1)]),
+                "end": .object(["year": .number(2026), "month": .number(8), "day": .number(31)])
+            ]),
+            "channels": .array([.object([
+                "name": .string("CTV"),
+                "publishers": .array([.object(["name": .string("One"), "cost": .number(3)]), .object(["name": .string("TOTAL"), "cost": .number(3)])])
+            ])]),
+            "segments": .array([.object(["id": .string("s1"), "name": .string("Sports")]), .object(["id": .string("total"), "name": .string("total")])]),
+            "codes": .array([.string("CA"), .string("NY")])
+        ])])])
+
+        let overview = toolFeedRows(data: data, dataSources: definitions, dataSourceRef: "overview")
+        XCTAssertEqual(overview.first?["name"], .string("Plan A"))
+        XCTAssertEqual(overview.first?["active"], .bool(true))
+        XCTAssertEqual(overview.first?["flight"], .string("2026-08-01 – 2026-08-31"))
+        let publishers = toolFeedRows(data: data, dataSources: definitions, dataSourceRef: "publishers")
+        XCTAssertEqual(publishers.count, 1)
+        XCTAssertEqual(publishers.first?["publisher"], .string("One"))
+        XCTAssertEqual(publishers.first?["channel"], .string("CTV"))
+        XCTAssertEqual(toolFeedRows(data: data, dataSources: definitions, dataSourceRef: "coverage").first?["count"], .number(1))
+        XCTAssertEqual(toolFeedRows(data: data, dataSources: definitions, dataSourceRef: "segments").first?["label"], .string("s1:Sports"))
+        XCTAssertEqual(toolFeedRows(data: data, dataSources: definitions, dataSourceRef: "secondCode").first?["code"], .string("NY"))
     }
 
     func testToolFeedSummaryLinesExtractsUserFacingPlanAndCommandText() {

@@ -80,6 +80,16 @@ describe('filterWorkspaceFeeds', () => {
     expect(filterWorkspaceFeeds(feeds, 'conv-1', false).map((feed) => feed.title)).toEqual(['Plan']);
     expect(filterWorkspaceFeeds(feeds, 'conv-1', true).map((feed) => feed.title)).toEqual(['Plan', 'Terminal']);
   });
+
+  it('keeps auto/workspace feeds and excludes explicit inline/detached feeds', () => {
+    const feeds = [
+      { feedId: 'conv-1::legacy', title: 'Legacy', conversationId: 'conv-1' },
+      { feedId: 'conv-1::workspace', title: 'Workspace', conversationId: 'conv-1', presentation: { target: 'workspace' } },
+      { feedId: 'conv-1::inline', title: 'Inline', conversationId: 'conv-1', presentation: { target: 'inline' } },
+      { feedId: 'conv-1::detached', title: 'Detached', conversationId: 'conv-1', presentation: { target: 'detached' } },
+    ];
+    expect(filterWorkspaceFeeds(feeds, 'conv-1', false).map((feed) => feed.title)).toEqual(['Legacy', 'Workspace']);
+  });
 });
 
 describe('ToolFeedWorkspace', () => {

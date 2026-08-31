@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Column
@@ -74,9 +75,12 @@ internal fun AppBody(
     callbacks: AppUiCallbacks
 ) {
     var phoneComposerInset by remember { mutableStateOf(232.dp) }
-    var phoneComposerVisible by remember { mutableStateOf(activeConversationId.isNullOrBlank()) }
+    // Every conversation must open with a usable composer. The toolbar can still
+    // hide it explicitly, but changing conversations must not silently inherit a
+    // hidden dock (or hide it merely because the conversation has an id).
+    var phoneComposerVisible by remember { mutableStateOf(true) }
     LaunchedEffect(activeConversationId) {
-        phoneComposerVisible = activeConversationId.isNullOrBlank()
+        phoneComposerVisible = true
     }
     Box(
         modifier = Modifier
@@ -318,13 +322,14 @@ internal fun AppBody(
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    // MainActivity uses adjustNothing, making Compose the single
+                    // owner of IME avoidance. Move the complete measured dock—
+                    // input plus action row—to the keyboard boundary as one unit.
                     .fillMaxSize()
-                    // On edge-to-edge Android windows, adjustResize keeps the
-                    // activity frame full-height and exposes the keyboard as an
-                    // inset. Apply it at the dock overlay boundary so the focused
-                    // editor and its lookup actions remain above the IME without
-                    // moving or recomposing the conversation surface beneath it.
-                    .imePadding(),
+                    .imePadding()
+                    // AppContent applies 16dp padding to the workspace. The dock
+                    // should meet the keyboard edge rather than inherit that gap.
+                    .offset(y = 16.dp),
                 contentAlignment = Alignment.BottomCenter
             ) {
                 PhoneComposerDock(

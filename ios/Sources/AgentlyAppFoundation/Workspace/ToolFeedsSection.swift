@@ -45,6 +45,44 @@ func visibleToolFeeds(_ feeds: [ActiveFeedState]) -> [ActiveFeedState] {
         }
 }
 
+enum AppleFeedPlacement: String {
+    case inline
+    case workspace
+    case detached
+}
+
+func appleFeedPlacement(_ feed: ActiveFeedState) -> AppleFeedPlacement {
+    switch feed.presentation?.target?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "inline": return .inline
+    case "detached": return .detached
+    default: return .workspace
+    }
+}
+
+func toolFeeds(
+    _ feeds: [ActiveFeedState],
+    for placement: AppleFeedPlacement
+) -> [ActiveFeedState] {
+    visibleToolFeeds(feeds).filter { appleFeedPlacement($0) == placement }
+}
+
+func inlineToolFeeds(_ feeds: [ActiveFeedState], turnID: String?) -> [ActiveFeedState] {
+    let owner = turnID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !owner.isEmpty else { return [] }
+    return toolFeeds(feeds, for: .inline).filter {
+        $0.turnID?.trimmingCharacters(in: .whitespacesAndNewlines) == owner
+    }
+}
+
+func suppressedToolFeedReportIDs(_ feeds: [ActiveFeedState]) -> Set<String> {
+    Set(visibleToolFeeds(feeds).flatMap { feed in
+        feed.presentation?.suppressReportIds.compactMap {
+            let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        } ?? []
+    })
+}
+
 func mergedToolFeeds(live: [ActiveFeedState], persisted: [ActiveFeedState]) -> [ActiveFeedState] {
     var rows: [String: ActiveFeedState] = [:]
     for feed in persisted + live {
@@ -115,6 +153,81 @@ func decodedToolFeedContainer(_ value: AgentlySDK.JSONValue?) -> ContainerDef? {
     return try? JSONDecoder().decode(ContainerDef.self, from: data)
 }
 
+func decodedToolFeedContent(_ value: AgentlySDK.JSONValue?) -> ContentDef? {
+    guard let value, let data = try? JSONEncoder().encode(value) else { return nil }
+    if let content = try? JSONDecoder().decode(ContentDef.self, from: data), !content.containers.isEmpty {
+        return content
+    }
+    return (try? JSONDecoder().decode(ContainerDef.self, from: data)).map {
+        ContentDef(containers: [$0])
+    }
+}
+
+func decodedToolFeedDataSources(_ value: AgentlySDK.JSONValue?) -> [String: DataSourceDef] {
+    guard let definitions = value?.objectValue else { return [:] }
+    return definitions.reduce(into: [:]) { result, entry in
+        let decoded = (try? JSONEncoder().encode(entry.value))
+            .flatMap { try? JSONDecoder().decode(DataSourceDef.self, from: $0) }
+        // Projection-only declarations (fields/flatten/derive) still need a
+        // runtime context even when they contain no Forge transport metadata.
+        guard let decoded else {
+            result[entry.key] = DataSourceDef(autoFetch: false)
+            return
+        }
+        if decoded.service == nil {
+            result[entry.key] = DataSourceDef(
+                selectionMode: decoded.selectionMode,
+                autoSelect: decoded.autoSelect,
+                autoFetch: false,
+                uniqueKey: decoded.uniqueKey,
+                selectors: decoded.selectors,
+                params: decoded.params,
+                parameters: decoded.parameters,
+                uri: decoded.uri,
+                method: decoded.method,
+                on: decoded.on,
+                target: decoded.target,
+                targetOverrides: decoded.targetOverrides
+            )
+        } else {
+            result[entry.key] = decoded
+        }
+    }
+}
+
+func toolFeedDataSources(
+    declared value: AgentlySDK.JSONValue?,
+    content: ContentDef
+) -> [String: DataSourceDef] {
+    var result = decodedToolFeedDataSources(value)
+    for reference in referencedToolFeedLookupDataSources(content) where result[reference] == nil {
+        result[reference] = DataSourceDef(
+            service: DataSourceServiceDef(
+                endpoint: "agentlyAPI",
+                uri: "/v1/api/datasources/\(reference)/fetch"
+            ),
+            autoFetch: false
+        )
+    }
+    return result
+}
+
+func referencedToolFeedLookupDataSources(_ content: ContentDef) -> Set<String> {
+    var result = Set<String>()
+    func appendReference(_ value: ForgeIOSRuntime.JSONValue?) {
+        let reference = value?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !reference.isEmpty { result.insert(reference) }
+    }
+    func visit(_ container: ContainerDef) {
+        let lookup = container.lookup?.objectValue
+        appendReference(lookup?["dataSourceRef"])
+        appendReference(lookup?["drill"]?.objectValue?["dataSourceRef"])
+        container.containers.forEach(visit)
+    }
+    content.containers.forEach(visit)
+    return result
+}
+
 struct ToolFeedFilePreview {
     let container: ContainerDef
     let browser: FileBrowserDef
@@ -157,29 +270,33 @@ func toolFeedRows(
 ) -> [[String: ForgeIOSRuntime.JSONValue]] {
     guard let data else { return [] }
     let ref = dataSourceRef?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    func select(_ path: String, from root: AgentlySDK.JSONValue) -> AgentlySDK.JSONValue? {
-        var selected = root
-        for segment in path.split(separator: ".").map(String.init) {
-            guard case .object(let object) = selected, let next = object[segment] else { return nil }
-            selected = next
-        }
-        return selected
-    }
+    func select(_ path: String, from root: AgentlySDK.JSONValue) -> AgentlySDK.JSONValue? { selectToolFeedValue(path, from: root) }
     var visiting = Set<String>()
+    var resolved: [String: AgentlySDK.JSONValue] = [:]
     func resolve(_ name: String, sources: [String: AgentlySDK.JSONValue]) -> AgentlySDK.JSONValue? {
+        if let cached = resolved[name] { return cached }
         guard !visiting.contains(name), case .object(let definition) = sources[name] else { return nil }
         visiting.insert(name)
         defer { visiting.remove(name) }
-        if case .string(let sourcePath) = definition["source"] { return select(sourcePath, from: data) }
-        guard case .string(let parentName) = definition["dataSourceRef"],
-              let parent = resolve(parentName, sources: sources) else { return nil }
-        let parentRoot: AgentlySDK.JSONValue
-        if case .array(let values) = parent, values.count == 1 { parentRoot = values[0] }
-        else { parentRoot = parent }
-        let selector: String
-        if case .object(let selectors) = definition["selectors"], case .string(let value) = selectors["data"] { selector = value }
-        else { selector = "output" }
-        return select(selector, from: parentRoot)
+        let selected: AgentlySDK.JSONValue?
+        if case .string(let sourcePath) = definition["source"] {
+            selected = select(sourcePath, from: data)
+        } else if case .string(let parentName) = definition["dataSourceRef"],
+                  let parent = resolve(parentName, sources: sources) {
+            let parentRoot: AgentlySDK.JSONValue
+            if case .array(let values) = parent, values.count == 1 { parentRoot = values[0] }
+            else { parentRoot = parent }
+            let selector: String
+            if case .object(let selectors) = definition["selectors"], case .string(let value) = selectors["data"] { selector = value }
+            else { selector = "output" }
+            selected = select(selector, from: parentRoot)
+        } else {
+            selected = nil
+        }
+        let rows = projectAppleFeedRows(selected, definition: definition)
+        let value = AgentlySDK.JSONValue.array(rows.map { .object($0) })
+        resolved[name] = value
+        return value
     }
     var selected = data
     if !ref.isEmpty, let dataSources, case .object(let sources) = dataSources {
@@ -194,12 +311,212 @@ func toolFeedRows(
     }
 }
 
+func projectAppleFeedRows(
+    _ value: AgentlySDK.JSONValue?,
+    definition: [String: AgentlySDK.JSONValue]
+) -> [[String: AgentlySDK.JSONValue]] {
+    var rows: [[String: AgentlySDK.JSONValue]]
+    if let flatten = definition["flatten"]?.objectValue {
+        rows = flattenAppleFeedRows(value, config: flatten)
+    } else if let fields = definition["fields"]?.objectValue {
+        rows = appleFeedValues(value).map { projectAppleFeedFields($0, fields: fields) }
+    } else {
+        rows = appleFeedValues(value).compactMap { $0.objectValue ?? ["value": $0] }
+    }
+    rows = filterAppleFeedRows(rows, exclude: definition["exclude"])
+    rows = deduplicateAppleFeedRows(rows, uniqueKey: definition["uniqueKey"])
+    rows = deriveAppleFeedRows(rows, derive: definition["derive"]?.objectValue)
+    if case .object(let aggregate) = definition["aggregate"],
+       case .string(let countAs) = aggregate["countAs"],
+       !countAs.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        return [[countAs: .number(Double(rows.count))]]
+    }
+    return rows
+}
+
+func projectAppleFeedFields(
+    _ root: AgentlySDK.JSONValue,
+    fields: [String: AgentlySDK.JSONValue]
+) -> [String: AgentlySDK.JSONValue] {
+    var result: [String: AgentlySDK.JSONValue] = [:]
+    for (name, raw) in fields {
+        let config = raw.objectValue
+        let path: String
+        if case .string(let direct) = raw { path = direct }
+        else if case .string(let configured) = config?["path"] { path = configured }
+        else if case .string(let selector) = config?["selector"] { path = selector }
+        else { path = name }
+        let transform = appleFeedString(config?["transform"]).lowercased()
+        var selected = selectToolFeedValue(path, from: root) ?? .null
+        switch transform {
+        case "daterange", "daterangelabel":
+            let startPath = appleFeedString(config?["startPath"]).isEmpty ? "start" : appleFeedString(config?["startPath"])
+            let endPath = appleFeedString(config?["endPath"]).isEmpty ? "end" : appleFeedString(config?["endPath"])
+            let start = projectAppleFeedDate(selectToolFeedValue(startPath, from: root))
+            let end = projectAppleFeedDate(selectToolFeedValue(endPath, from: root))
+            selected = transform == "daterangelabel"
+                ? .string([start, end].filter { !$0.isEmpty }.joined(separator: " – "))
+                : .object(["start": .string(start), "end": .string(end)])
+        case "dateparts":
+            selected = .string(projectAppleFeedDate(selected))
+        case "boolean":
+            switch selected {
+            case .bool(let value): selected = .bool(value)
+            case .number(let value): selected = .bool(value == 1)
+            case .string(let value): selected = .bool(value == "1" || value.lowercased() == "true")
+            default: selected = .bool(false)
+            }
+        default:
+            break
+        }
+        result[name] = selected
+    }
+    return result
+}
+
+private func projectAppleFeedDate(_ value: AgentlySDK.JSONValue?) -> String {
+    guard case .object(let object) = value,
+          case .number(let year) = object["year"],
+          case .number(let day) = object["day"] else {
+        if case .string(let text) = value { return text }
+        return ""
+    }
+    let month: Double
+    if case .number(let direct) = object["month"] { month = direct }
+    else if case .number(let index) = object["monthIndex"] { month = index + 1 }
+    else { return "" }
+    return String(format: "%04d-%02d-%02d", Int(year), Int(month), Int(day))
+}
+
+private func flattenAppleFeedRows(
+    _ value: AgentlySDK.JSONValue?,
+    config: [String: AgentlySDK.JSONValue]
+) -> [[String: AgentlySDK.JSONValue]] {
+    guard case .array(let sources) = config["sources"] else { return [] }
+    var output: [[String: AgentlySDK.JSONValue]] = []
+    for parent in appleFeedValues(value) {
+        for sourceValue in sources {
+            guard case .object(let source) = sourceValue else { continue }
+            for child in appleFeedValues(selectToolFeedValue(appleFeedString(source["path"]), from: parent)) {
+                if appleFeedRowExcluded(child, rule: source["exclude"]) { continue }
+                var row = source["fields"]?.objectValue.map { projectAppleFeedFields(child, fields: $0) }
+                    ?? child.objectValue
+                    ?? ["value": child]
+                if case .object(let parentFields) = source["parentFields"] {
+                    for (field, path) in parentFields {
+                        row[field] = selectToolFeedValue(appleFeedString(path), from: parent) ?? .null
+                    }
+                }
+                if case .object(let values) = source["values"] {
+                    for (field, constant) in values { row[field] = constant }
+                }
+                output.append(row)
+            }
+        }
+    }
+    return output
+}
+
+private func filterAppleFeedRows(
+    _ rows: [[String: AgentlySDK.JSONValue]],
+    exclude: AgentlySDK.JSONValue?
+) -> [[String: AgentlySDK.JSONValue]] {
+    let rules: [AgentlySDK.JSONValue]
+    if case .array(let values) = exclude { rules = values }
+    else if let exclude { rules = [exclude] }
+    else { rules = [] }
+    return rows.filter { row in !rules.contains { appleFeedRowExcluded(.object(row), rule: $0) } }
+}
+
+func appleFeedRowExcluded(
+    _ row: AgentlySDK.JSONValue,
+    rule: AgentlySDK.JSONValue?
+) -> Bool {
+    guard case .object(let object) = rule else { return false }
+    let path = appleFeedString(object["field"]).isEmpty ? appleFeedString(object["path"]) : appleFeedString(object["field"])
+    let actual = selectToolFeedValue(path, from: row)
+    if let expected = object["equalsIgnoreCase"] {
+        return appleFeedScalarText(actual).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            == appleFeedScalarText(expected).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+    if let expected = object["equals"] { return actual == expected }
+    return false
+}
+
+private func deduplicateAppleFeedRows(
+    _ rows: [[String: AgentlySDK.JSONValue]],
+    uniqueKey: AgentlySDK.JSONValue?
+) -> [[String: AgentlySDK.JSONValue]] {
+    guard case .array(let entries) = uniqueKey else { return rows }
+    let fields = entries.compactMap { entry -> String? in
+        if case .object(let object) = entry { return appleFeedString(object["field"]) }
+        return appleFeedString(entry)
+    }.filter { !$0.isEmpty }
+    guard !fields.isEmpty else { return rows }
+    var seen = Set<String>()
+    return rows.filter { row in
+        let identity = fields.map { field in
+            guard let value = row[field],
+                  let data = try? JSONEncoder().encode(value) else { return "null" }
+            return data.base64EncodedString()
+        }.joined(separator: "|")
+        return seen.insert(identity).inserted
+    }
+}
+
+private func deriveAppleFeedRows(
+    _ rows: [[String: AgentlySDK.JSONValue]],
+    derive: [String: AgentlySDK.JSONValue]?
+) -> [[String: AgentlySDK.JSONValue]] {
+    guard let derive, !derive.isEmpty else { return rows }
+    let regex = try? NSRegularExpression(pattern: #"\$\{([^}]+)\}"#)
+    return rows.map { source in
+        var row = source
+        for (field, templateValue) in derive {
+            let template = appleFeedString(templateValue)
+            let range = NSRange(template.startIndex..<template.endIndex, in: template)
+            var rendered = template
+            for match in (regex?.matches(in: template, range: range) ?? []).reversed() {
+                guard let expressionRange = Range(match.range(at: 1), in: template),
+                      let replacementRange = Range(match.range(at: 0), in: rendered) else { continue }
+                let replacement = appleFeedScalarText(selectToolFeedValue(String(template[expressionRange]), from: .object(row)))
+                rendered.replaceSubrange(replacementRange, with: replacement)
+            }
+            row[field] = .string(rendered)
+        }
+        return row
+    }
+}
+
+func appleFeedValues(_ value: AgentlySDK.JSONValue?) -> [AgentlySDK.JSONValue] {
+    guard let value else { return [] }
+    if case .array(let values) = value { return values }
+    return [value]
+}
+
+func appleFeedString(_ value: AgentlySDK.JSONValue?) -> String {
+    guard case .string(let string) = value else { return "" }
+    return string
+}
+
+private func appleFeedScalarText(_ value: AgentlySDK.JSONValue?) -> String {
+    switch value {
+    case .string(let value): return value
+    case .number(let value): return value.rounded() == value ? String(Int(value)) : String(value)
+    case .bool(let value): return value ? "true" : "false"
+    default: return ""
+    }
+}
+
 struct ToolFeedsSection: View {
     let feeds: [ActiveFeedState]
     let conversationID: String?
     let client: AgentlyClient
     let collapsible: Bool
     let isTurnActive: Bool
+    let placement: AppleFeedPlacement
+    let sectionTitle: String
+    let forgeRuntime: ForgeRuntime?
 
     @State private var selectedFeedID = ""
     @State private var payload: FeedDataResponse?
@@ -213,16 +530,22 @@ struct ToolFeedsSection: View {
         conversationID: String?,
         client: AgentlyClient,
         collapsible: Bool = false,
-        isTurnActive: Bool = false
+        isTurnActive: Bool = false,
+        placement: AppleFeedPlacement = .workspace,
+        sectionTitle: String = "Tool feeds",
+        forgeRuntime: ForgeRuntime? = nil
     ) {
         self.feeds = feeds
         self.conversationID = conversationID
         self.client = client
         self.collapsible = collapsible
         self.isTurnActive = isTurnActive
+        self.placement = placement
+        self.sectionTitle = sectionTitle
+        self.forgeRuntime = forgeRuntime
     }
 
-    private var visibleFeeds: [ActiveFeedState] { visibleToolFeeds(feeds) }
+    private var visibleFeeds: [ActiveFeedState] { toolFeeds(feeds, for: placement) }
     private var selectedFeed: ActiveFeedState? { visibleFeeds.first { $0.feedID == selectedFeedID } ?? visibleFeeds.first }
     private var effectiveConversationID: String {
         conversationID?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -241,7 +564,7 @@ struct ToolFeedsSection: View {
         if !visibleFeeds.isEmpty, !effectiveConversationID.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
-                    Text("Tool feeds").font(.headline)
+                    Text(sectionTitle).font(.headline)
                     if collapsible && !isLauncherExpanded {
                         Text("\(visibleFeeds.count)")
                             .font(.caption2.weight(.bold))
@@ -337,7 +660,7 @@ struct ToolFeedsSection: View {
                         }
                         .padding()
                     }
-                    .navigationTitle("Tool feeds")
+                    .navigationTitle(sectionTitle)
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("Done") { isFeedSheetPresented = false }
@@ -404,6 +727,15 @@ struct ToolFeedsSection: View {
                     dataSourceRef: terminal.dataSourceRef ?? container.dataSourceRef
                 )
             )
+        } else if let payload, let forgeRuntime,
+                  let content = decodedToolFeedContent(payload.ui) {
+            NativeToolFeedView(
+                payload: payload,
+                feed: selectedFeed,
+                conversationID: effectiveConversationID,
+                content: content,
+                forgeRuntime: forgeRuntime
+            )
         } else {
             let lines = toolFeedSummaryLines(payload?.data ?? selectedFeed?.data)
             if lines.isEmpty {
@@ -432,6 +764,150 @@ struct ToolFeedsSection: View {
         }
     }
 
+}
+
+struct InlineToolFeedSurface: View {
+    let feed: ActiveFeedState
+    let conversationID: String
+    let client: AgentlyClient
+    let forgeRuntime: ForgeRuntime
+
+    @State private var payload: FeedDataResponse?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: toolFeedSymbol(feed.presentation))
+                Text(feed.title ?? feed.feedID ?? "Feed").font(.headline)
+                Spacer()
+                if (feed.itemCount ?? 0) > 0 {
+                    Text("\(feed.itemCount ?? 0)").font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                }
+            }
+            if let payload, let content = decodedToolFeedContent(payload.ui) {
+                NativeToolFeedView(
+                    payload: payload,
+                    feed: feed,
+                    conversationID: conversationID,
+                    content: content,
+                    forgeRuntime: forgeRuntime
+                )
+            } else if let errorMessage {
+                Text(errorMessage).font(.footnote).foregroundStyle(Color.red)
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.045), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(toolFeedAccent(feed.presentation).opacity(0.22), lineWidth: 1))
+        .task(id: "\(conversationID)#\(feed.feedID ?? "")") {
+            guard let feedID = feed.feedID?.trimmingCharacters(in: .whitespacesAndNewlines), !feedID.isEmpty else { return }
+            do {
+                payload = try await Task.detached(priority: .userInitiated) {
+                    try await client.getFeedData(feedID: feedID, conversationID: conversationID)
+                }.value
+                errorMessage = nil
+            } catch {
+                payload = nil
+                errorMessage = "Unable to load this feed."
+            }
+        }
+    }
+}
+
+private struct NativeToolFeedView: View {
+    let payload: FeedDataResponse
+    let feed: ActiveFeedState?
+    let conversationID: String
+    let content: ContentDef
+    let forgeRuntime: ForgeRuntime
+
+    @State private var window: ForgeRuntime.WindowState?
+    @State private var windowContext: WindowContext?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Group {
+            if window != nil, let windowContext {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(content.containers) { container in
+                        ContainerRenderer(runtime: forgeRuntime, window: windowContext, container: container)
+                    }
+                }
+                .environment(\.forgePresentationDensity, .compact)
+            } else if let errorMessage {
+                Text(errorMessage).font(.footnote).foregroundStyle(Color.red)
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .task(id: "\(conversationID)#\(payload.feedID ?? feed?.feedID ?? "")") {
+            await openAndHydrate()
+        }
+    }
+
+    private func openAndHydrate() async {
+        let feedID = (payload.feedID ?? feed?.feedID ?? "unknown").trimmingCharacters(in: .whitespacesAndNewlines)
+        let hydratedPayload = FeedDataResponse(
+            feedID: payload.feedID ?? feed?.feedID,
+            title: payload.title ?? feed?.title,
+            developerOnly: payload.developerOnly ?? feed?.developerOnly,
+            presentation: payload.presentation ?? feed?.presentation,
+            data: payload.data ?? feed?.data,
+            dataSources: payload.dataSources,
+            ui: payload.ui
+        )
+        let key = "feed-\(feedID)-\(conversationID)"
+        let metadata = WindowMetadata(
+            view: ViewDef(content: content),
+            dataSources: toolFeedDataSources(declared: payload.dataSources, content: content)
+        )
+        let existing = await forgeRuntime.windows.first(where: { $0.key == key && $0.conversationID == conversationID })
+        let state: ForgeRuntime.WindowState
+        if let existing,
+           let updated = await forgeRuntime.updateWindowInline(id: existing.id, title: payload.title ?? feed?.title ?? feedID, metadata: metadata) {
+            state = updated
+        } else {
+            state = await forgeRuntime.openWindowInline(
+                key: key,
+                title: payload.title ?? feed?.title ?? feedID,
+                metadata: metadata,
+                conversationID: conversationID,
+                presentation: payload.presentation?.target ?? feed?.presentation?.target ?? "auto"
+            )
+        }
+        let effectiveData = await AppleFeedCanonicalRegistry.shared.register(
+            forgeRuntime: forgeRuntime,
+            windowID: state.id,
+            payload: hydratedPayload,
+            turnID: feed?.turnID
+        )
+        await forgeRuntime.registerFeedPatchHandler { windowID, operation in
+            guard await AppleFeedCanonicalRegistry.shared.contains(
+                forgeRuntime: forgeRuntime,
+                windowID: windowID
+            ) else { return false }
+            _ = try await AppleFeedCanonicalRegistry.shared.apply(
+                forgeRuntime: forgeRuntime,
+                windowID: windowID,
+                operations: [operation]
+            )
+            return true
+        }
+        for ref in metadata.dataSources.keys {
+            let rows = toolFeedRows(data: effectiveData, dataSources: payload.dataSources, dataSourceRef: ref)
+            await forgeRuntime.setDataSourceCollection(windowID: state.id, dataSourceRef: ref, rows: rows)
+            if rows.count == 1 {
+                await forgeRuntime.setDataSourceForm(windowID: state.id, dataSourceRef: ref, values: rows[0])
+            }
+        }
+        window = state
+        windowContext = await forgeRuntime.windowContext(id: state.id)
+        errorMessage = nil
+    }
 }
 
 private struct ToolFeedActionBar: View {
