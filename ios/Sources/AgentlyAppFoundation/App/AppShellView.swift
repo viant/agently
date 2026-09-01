@@ -708,6 +708,7 @@ private struct ConversationListView: View {
                 .id("plain-list-\(activeConversationID ?? "none")")
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .navigationTitle(showsCompactStarterTasks ? "Home" : "History")
         .modifier(ConversationListNavigationTitleMode(useInlineTitle: usesNavigationDestination))
         .refreshable {
