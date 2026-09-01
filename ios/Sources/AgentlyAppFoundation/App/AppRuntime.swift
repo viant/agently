@@ -819,7 +819,11 @@ public final class AppRuntime: ObservableObject {
 
     private func startStreaming(conversationID: String) {
         streamTask?.cancel()
-        postTurnRefreshTask?.cancel()
+        // A query submission may replace its bootstrap stream with the
+        // authoritative conversation stream after the turn has already
+        // scheduled its terminal reconciliation. Keep that refresh alive so
+        // persisted final feeds are loaded on the originating device. The
+        // task itself guards the active conversation ID before applying data.
         state.activeTurnID = nil
         state.activeStreamSnapshot = nil
         state.streamErrorMessage = nil
