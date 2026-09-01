@@ -82,6 +82,13 @@ internal class AppSessionCookieJar(context: Context? = null) : CookieJar {
         return true
     }
 
+    /** Returns matching cookie strings for seeding a same-origin OAuth WebView. */
+    fun webViewCookies(baseUrl: String): List<String> {
+        val url = runCatching { baseUrl.trim().trimEnd('/').plus("/").toHttpUrl() }.getOrNull()
+            ?: return emptyList()
+        return loadForRequest(url).map { it.toString() }
+    }
+
     private fun putCookie(incoming: Cookie) {
         val key = incoming.domain
         val existing = store.computeIfAbsent(key) { mutableListOf() }

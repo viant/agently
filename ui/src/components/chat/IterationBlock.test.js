@@ -22,6 +22,7 @@ import IterationBlock, {
   resolveIterationAgentLabel,
   resolveIterationStatusDetail,
   resolveTerminalFailureMessage,
+  resolveMCPLinkRequired,
   intakeClassificationSummary,
   resolveVisibleBubbleContent,
   resolveVisibleBubbleRenderedContent,
@@ -55,6 +56,13 @@ describe('resolveTerminalFailureMessage', () => {
   it('does not expose arbitrary backend errors', () => {
     expect(resolveTerminalFailureMessage('private backend diagnostic'))
       .toBe('The assistant could not finish this request.');
+  });
+
+  it('recognizes delegated MCP authorization without workspace-specific mappings', () => {
+    const error = 'mcp_oauth_link_required server="mediaplanner" provider="dev6"';
+    expect(resolveMCPLinkRequired(error)).toEqual({ server: 'mediaplanner' });
+    expect(resolveTerminalFailureMessage(error))
+      .toBe('A required connection needs authorization before this request can continue.');
   });
 });
 

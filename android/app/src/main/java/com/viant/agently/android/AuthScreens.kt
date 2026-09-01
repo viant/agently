@@ -5,6 +5,7 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.CookieManager
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -366,6 +367,69 @@ internal fun OAuthWebDialog(
             }
         }
     }
+}
+
+@Composable
+internal fun HostedMCPAuthWebDialog(
+    authUrl: String,
+    appBaseUrl: String,
+    cookies: List<String>,
+    onDismiss: () -> Unit,
+    onReturn: () -> Unit
+) {
+    var loadedAuthUrl by remember { mutableStateOf<String?>(null) }
+    Column(
+        modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        }
+        AndroidView(
+            modifier = Modifier.weight(1f),
+            factory = { viewContext ->
+                WebView(viewContext).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    CookieManager.getInstance().apply {
+                        setAcceptCookie(true)
+                        cookies.forEach { cookie -> setCookie(appBaseUrl, cookie) }
+                        flush()
+                    }
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            super.onPageFinished(view, url)
+                            val current = url.orEmpty()
+                            val path = Uri.parse(current).path.orEmpty()
+                            if (loadedAuthUrl != null && sameOAuthReturnOrigin(current, appBaseUrl) &&
+                                path != "/v1/api/auth/mcp/callback"
+                            ) {
+                                onReturn()
+                            }
+                        }
+                    }
+                    loadedAuthUrl = authUrl
+                    loadUrl(authUrl)
+                }
+            },
+            update = { webView ->
+                if (loadedAuthUrl != authUrl) {
+                    loadedAuthUrl = authUrl
+                    webView.loadUrl(authUrl)
+                }
+            }
+        )
+    }
+}
+
+internal fun sameOAuthReturnOrigin(candidate: String, appBaseUrl: String): Boolean {
+    val actual = runCatching { URI(candidate) }.getOrNull() ?: return false
+    val expected = runCatching { URI(appBaseUrl) }.getOrNull() ?: return false
+    return actual.scheme.equals(expected.scheme, ignoreCase = true) &&
+        actual.rawAuthority.equals(expected.rawAuthority, ignoreCase = true)
 }
 
 private fun resetOAuthDocumentScroll(webView: WebView?) {

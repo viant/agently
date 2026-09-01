@@ -336,6 +336,8 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     var authBusy by remember { mutableStateOf(false) }
     var authError by remember { mutableStateOf<String?>(null) }
     var authInteractiveFailure by remember { mutableStateOf(false) }
+    var mcpAuthServer by remember { mutableStateOf<String?>(null) }
+    var mcpAuthWebUrl by remember { mutableStateOf<String?>(null) }
     val pendingOAuthCallback by oauthCallbackUriFlow.collectAsState()
     var workspaceBootstrapRequested by remember { mutableStateOf(false) }
     var bootstrapOobSignInAttempted by remember { mutableStateOf(false) }
@@ -1195,7 +1197,65 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
             "failed"
         )
         restoreComposerDraftIfNeeded(draftToRestore)
+        mcpAuthServer = resolveMCPAuthServer(err)
+        mcpAuthWebUrl = null
         applyVisibleAppError(err)
+    }
+
+    fun dismissMCPAuth() {
+        mcpAuthWebUrl = null
+        mcpAuthServer = null
+    }
+
+    fun startMCPAuth() {
+        val server = mcpAuthServer?.trim().orEmpty()
+        if (server.isBlank()) return
+        scope.launch {
+            loading = true
+            try {
+                val authClient = resolveAuthClient()
+                val status = authClient.getMCPAuthStatus(server)
+                if (status.connected) {
+                    mcpAuthServer = null
+                    setVisibleError("Connection is ready. Retry the request to continue.")
+                    return@launch
+                }
+                val csrf = status.csrfToken?.trim().orEmpty()
+                require(csrf.isNotBlank()) { "The workspace did not return an MCP authorization token." }
+                val returnURL = activeConversationId?.trim()?.takeIf { it.isNotEmpty() }
+                    ?.let { "/conversation/$it" }
+                    ?: "/"
+                val initiated = authClient.initiateMCPAuth(server, csrf, returnURL)
+                val authorizationURL = initiated.authorizationURL?.trim().orEmpty()
+                require(authorizationURL.isNotBlank()) { "The provider did not return an authorization URL." }
+                mcpAuthWebUrl = authorizationURL
+            } catch (err: Throwable) {
+                setVisibleError(visibleAppError(err))
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    fun handleMCPAuthReturned() {
+        val server = mcpAuthServer?.trim().orEmpty()
+        if (server.isBlank()) return
+        scope.launch {
+            try {
+                val status = resolveAuthClient().getMCPAuthStatus(server)
+                if (status.connected) {
+                    mcpAuthWebUrl = null
+                    mcpAuthServer = null
+                    setVisibleError("Connection is ready. Retry the request to continue.")
+                } else {
+                    mcpAuthWebUrl = null
+                    setVisibleError("The provider connection could not be completed. Try connecting again.")
+                }
+            } catch (err: Throwable) {
+                mcpAuthWebUrl = null
+                setVisibleError(visibleAppError(err))
+            }
+        }
     }
 
     suspend fun handleGoalCommand(command: GoalCommandAction) {
@@ -1346,7 +1406,16 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
                     conversationState = recoveredState
                     updateChatEntryDeliveryState(transcript, userEntryId, null)
                     clearComposerInputs()
-                    setVisibleError(null)
+                    val recoveredMCPAuthServer = resolveMCPAuthServer(recoveredState)
+                    mcpAuthServer = recoveredMCPAuthServer
+                    mcpAuthWebUrl = null
+                    setVisibleError(
+                        if (recoveredMCPAuthServer != null) {
+                            "A required connection needs authorization before this request can continue."
+                        } else {
+                            null
+                        }
+                    )
                     if (streamJob?.isActive != true && conversationId.isNotBlank()) {
                         submittedClient?.let { startConversationStream(it, conversationId) }
                     }
@@ -1657,7 +1726,10 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         onDeveloperSessionSignIn = ::startDeveloperSessionSignIn,
         onAuthRetry = ::retryAuthConnection,
         onDismissAuthWeb = ::dismissAuthWeb,
-        onOAuthCallback = ::handleOAuthCallback
+        onOAuthCallback = ::handleOAuthCallback,
+        onMCPAuthConnect = ::startMCPAuth,
+        onMCPAuthDismiss = ::dismissMCPAuth,
+        onMCPAuthReturned = ::handleMCPAuthReturned
     )
 
     AppBody(
@@ -1676,6 +1748,9 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         error = error,
         authSessionId = authSessionId,
         authWebUrl = authWebUrl,
+        mcpAuthServer = mcpAuthServer,
+        mcpAuthWebUrl = mcpAuthWebUrl,
+        mcpAuthCookies = sessionCookieJar.webViewCookies(appApiBaseUrl),
         recentConversations = recentConversations,
         scheduleHistoryFilter = scheduleHistoryFilter,
         activeConversationId = activeConversationId,

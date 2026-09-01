@@ -55,5 +55,6 @@ class AppSessionCookieJarTest {
         assertEquals("f78ae791-2a4d-4961-8d00-session", cookies.single().value)
         assertTrue(cookies.single().secure)
         assertTrue(cookies.single().httpOnly)
+        assertTrue(jar.webViewCookies("https://steward.agently.viantinc.com").single().startsWith("agently_session="))
     }
 }

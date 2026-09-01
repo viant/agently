@@ -1200,6 +1200,8 @@ github.com/viant/agently-core v0.1.30 h1:8qzQw0pOdWOoIhund+S7qssySULJlyuUOGnB4/9
 github.com/viant/agently-core v0.1.30/go.mod h1:MkoCdVemSwmjBePyfpPSUwVYB1kAQjnGT0jB9JOVyYo=
 github.com/viant/agently-core v0.1.31 h1:VCNJrv+zOyoC+jtn6IfRc35aCqBHq2B2T5moTLrAFsE=
 github.com/viant/agently-core v0.1.31/go.mod h1:MkoCdVemSwmjBePyfpPSUwVYB1kAQjnGT0jB9JOVyYo=
+github.com/viant/agently-core v0.1.32 h1:kT2vNFs8n1nfBqiDOwKUFwpY93i1NiW46a7YwIpB/cI=
+github.com/viant/agently-core v0.1.32/go.mod h1:YmBPeBZPDmfmj5RQifb9lowb66gN6wMWpIhmg83zozI=
 github.com/viant/assertly v0.4.8/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.0/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.1-0.20220620174148-bab013f93a60 h1:VFJvCOHKXv4IqX8rJwn1otpHWQGgMDv2bXtAPgEzndM=
@@ -1232,6 +1234,8 @@ github.com/viant/forge v0.3.26 h1:yJK8H/peciImkFjthBcRMHGEMVu/Nl8kBFnfdOwKZ18=
 github.com/viant/forge v0.3.26/go.mod h1:Q2cbakSthK9Qyke1HiFFm2UG9cFbIvwxLiTL6yFbs7U=
 github.com/viant/forge v0.3.27 h1:U2fLaoL2MRNmowAhg/hKB3oCU7rOZCklJ+Vcuz9xK1E=
 github.com/viant/forge v0.3.27/go.mod h1:Q2cbakSthK9Qyke1HiFFm2UG9cFbIvwxLiTL6yFbs7U=
+github.com/viant/forge v0.3.28-0.20260901035441-d6770187eea3 h1:RpYmiiUabByEymET7cuvy2yn7/I+fZ9ODx6B4XWkHtU=
+github.com/viant/forge v0.3.28-0.20260901035441-d6770187eea3/go.mod h1:Q2cbakSthK9Qyke1HiFFm2UG9cFbIvwxLiTL6yFbs7U=
 github.com/viant/gds v0.6.0 h1:HdjogZeJrs5X0aR8yNCep7TxlhkhrH/lrSFW02RZzOI=
 github.com/viant/gds v0.6.0/go.mod h1:oLW99/zRR67jOhDj4qnVoquDMtQd1z2mWxVc9KRvOs4=
 github.com/viant/gmetric v0.3.2 h1:zTdW9QrPk2P0i/do9fokxtHesFQCvYqIc5Yktzmyxtg=
@@ -1252,6 +1256,8 @@ github.com/viant/mcp v0.19.1-0.20260810230811-de146552d03f h1:1LBJBgvffIDUZj31SP
 github.com/viant/mcp v0.19.1-0.20260810230811-de146552d03f/go.mod h1:MvMaNfESUFlWGIo5ypUYQHdNdXndxQcpJobuz+/9VmU=
 github.com/viant/mcp v0.21.0 h1:k88dIm4UeSeZY99tOUPAUaUc+g+ubl9CdtQGcfNFkcw=
 github.com/viant/mcp v0.21.0/go.mod h1:W+2wmDsvFTtmzoJR+aIIdUsVxloFOy0A1C+qRdCrVPs=
+github.com/viant/mcp v0.22.0 h1:hDaDWrgZpWbh4Yif3/kPpiBMaRkcg2+xUtamJDpnG+g=
+github.com/viant/mcp v0.22.0/go.mod h1:W+2wmDsvFTtmzoJR+aIIdUsVxloFOy0A1C+qRdCrVPs=
 github.com/viant/mcp-protocol v0.16.0 h1:eBprDKopszw50nAj8oX/WB/BZSIFMvOW7DAy2cyys8w=
 github.com/viant/mcp-protocol v0.16.0/go.mod h1:7GKbxslIL3V2CexnugD3I5eCCkzHIvg1OjX2IgIloVU=
 github.com/viant/mcp-protocol v0.17.0 h1:71lE5OtvuRVPZFByb3mFk2eK3cV3AD9/YxXeoKuU/Og=

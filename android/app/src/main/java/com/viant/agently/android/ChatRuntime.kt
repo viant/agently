@@ -715,6 +715,9 @@ internal fun visibleAppError(err: Throwable?): String? {
         return "The connection ended before the report finished loading. Refresh to try again."
     }
     val detail = err?.message?.trim().orEmpty()
+    resolveMCPAuthServer(err)?.let {
+        return "A required connection needs authorization before this request can continue."
+    }
     if (detail.contains("api key is required", ignoreCase = true)) {
         return "The workspace model is not configured. Ask an administrator to add the model API key, then try again."
     }
@@ -724,6 +727,26 @@ internal fun visibleAppError(err: Throwable?): String? {
         return "The assistant could not start this request. Try again, or contact the workspace administrator if it continues."
     }
     return detail.ifBlank { err?.toString().orEmpty() }
+}
+
+internal fun resolveMCPAuthServer(err: Throwable?): String? {
+    val expression = Regex("\\bmcp_oauth_link_required\\b[^\\n]*?\\bserver=(?:\\\"([^\\\"]+)\\\"|'([^']+)'|([^\\s,;]+))", RegexOption.IGNORE_CASE)
+    return generateSequence(err) { it.cause }
+        .mapNotNull { current ->
+            val match = expression.find(current.message.orEmpty()) ?: return@mapNotNull null
+            listOf(match.groupValues[1], match.groupValues[2], match.groupValues[3])
+                .firstOrNull { it.isNotBlank() }
+                ?.trim()
+        }
+        .firstOrNull()
+}
+
+internal fun resolveMCPAuthServer(state: ConversationStateResponse?): String? {
+    return state?.conversation?.turns
+        ?.asReversed()
+        ?.asSequence()
+        ?.mapNotNull { turn -> resolveMCPAuthServer(IllegalStateException(turn.errorMessage.orEmpty())) }
+        ?.firstOrNull()
 }
 
 internal fun isPreviewableText(contentType: String?, name: String?): Boolean {

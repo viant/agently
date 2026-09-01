@@ -9,6 +9,7 @@ import { ConversationViewContext } from '../../context/ConversationViewContext';
 import { openLinkedConversationWindow } from '../../services/conversationWindow';
 import { openElicitationDialog } from '../../services/elicitationBus';
 import { client } from '../../services/agentlyClient';
+import { beginBrowserMCPAuth, clearPendingMCPAuth, pendingMCPAuth } from '../../services/mcpAuth';
 import { isStreamDebugEnabled } from '../../services/debugFlags';
 import { displayStepIcon, displayStepTitle, executionRoleLabel, isAgentRunTool, humanizeAgentId } from '../../services/toolPresentation';
 import BubbleMessage from './BubbleMessage';
@@ -1414,12 +1415,23 @@ export function resolveIterationStatusDetail(data = {}) {
 
 export function resolveTerminalFailureMessage(errorMessage = '') {
   const text = String(errorMessage || '').trim();
+  if (resolveMCPLinkRequired(text)) {
+    return 'A required connection needs authorization before this request can continue.';
+  }
   const match = text.match(/requested tool bundles resolved zero tool definitions:\s*([^\n]+)/i);
   if (match) {
     const bundles = String(match[1] || '').trim();
     return `Required tools are unavailable${bundles ? ` (${bundles})` : ''}. Check the configured connection or authorization, then retry.`;
   }
   return 'The assistant could not finish this request.';
+}
+
+export function resolveMCPLinkRequired(errorMessage = '') {
+  const text = String(errorMessage || '').trim();
+  if (!/\bmcp_oauth_link_required\b/i.test(text)) return null;
+  const serverMatch = text.match(/\bserver=(?:"([^"]+)"|'([^']+)'|([^\s,;]+))/i);
+  const server = String(serverMatch?.[1] || serverMatch?.[2] || serverMatch?.[3] || '').trim();
+  return server ? { server } : null;
 }
 
 function lastPresentableGroupIndex(groups = []) {
@@ -1808,6 +1820,9 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
   const [linkedConversationStates, setLinkedConversationStates] = useState([]);
   const [expandedLinkedIds, setExpandedLinkedIds] = useState({});
   const [linkedSectionExpanded, setLinkedSectionExpanded] = useState(false);
+  const [mcpConnectError, setMCPConnectError] = useState('');
+  const [mcpConnectPending, setMCPConnectPending] = useState(false);
+  const [mcpConnectionReady, setMCPConnectionReady] = useState(false);
   const linkedConversationStatesRef = useRef([]);
   const groupsRef = useRef(null);
   linkedConversationStatesRef.current = linkedConversationStates;
@@ -2190,6 +2205,38 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
     ? 'Canceled'
     : (normalizedTerminalStatus.includes('timeout') ? 'Timed out' : 'Tool failed');
   const terminalFailureMessage = resolveTerminalFailureMessage(data?.errorMessage || message?.errorMessage);
+  const mcpLinkRequired = resolveMCPLinkRequired(data?.errorMessage || message?.errorMessage);
+
+  useEffect(() => {
+    const server = mcpLinkRequired?.server;
+    if (!server || !pendingMCPAuth(server)) return undefined;
+    let active = true;
+    client.getMCPAuthStatus(server)
+      .then((status) => {
+        if (!active || status?.connected !== true) return;
+        clearPendingMCPAuth(server);
+        setMCPConnectionReady(true);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [mcpLinkRequired?.server]);
+
+  const connectRequiredMCP = async () => {
+    if (!mcpLinkRequired?.server || mcpConnectPending) return;
+    setMCPConnectError('');
+    setMCPConnectPending(true);
+    try {
+      const result = await beginBrowserMCPAuth(mcpLinkRequired.server);
+      if (result?.connected === true) {
+        clearPendingMCPAuth(mcpLinkRequired.server);
+        setMCPConnectionReady(true);
+        setMCPConnectPending(false);
+      }
+    } catch (_) {
+      setMCPConnectPending(false);
+      setMCPConnectError('Connection could not be started. Please try again.');
+    }
+  };
 
   const prefillRetry = () => {
     const prompt = String(retryPrompt || '').trim();
@@ -2602,13 +2649,27 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
   return (
     <>
       {showTerminalNotice ? (
-        <section className={`app-turn-terminal-notice${normalizedTerminalStatus.startsWith('cancel') ? ' is-canceled' : ''}`} data-testid="turn-terminal-notice">
+        <section className={`app-turn-terminal-notice${normalizedTerminalStatus.startsWith('cancel') ? ' is-canceled' : ''}${mcpConnectionReady ? ' is-connected' : ''}`} data-testid="turn-terminal-notice">
           <div>
-            <div className="app-turn-terminal-title">{normalizedTerminalStatus.startsWith('cancel') ? 'Request canceled' : 'Request couldn’t be completed'}</div>
-            <div className="app-turn-terminal-message">{normalizedTerminalStatus.startsWith('cancel') ? 'The current request was stopped.' : terminalFailureMessage}</div>
+            <div className="app-turn-terminal-title">{mcpConnectionReady
+              ? 'Connection ready'
+              : (normalizedTerminalStatus.startsWith('cancel') ? 'Request canceled' : 'Request couldn’t be completed')}</div>
+            <div className="app-turn-terminal-message">{normalizedTerminalStatus.startsWith('cancel')
+              ? 'The current request was stopped.'
+              : (mcpConnectionReady ? 'Connection is ready. Retry this request to continue.' : terminalFailureMessage)}</div>
           </div>
           <div className="app-turn-terminal-actions">
-            <span className="app-turn-terminal-category">{terminalCategory}</span>
+            <span className="app-turn-terminal-category">{mcpConnectionReady ? 'Connected' : terminalCategory}</span>
+            {mcpLinkRequired && !mcpConnectionReady ? (
+              <Button
+                intent="primary"
+                small
+                icon="link"
+                loading={mcpConnectPending}
+                text={`Connect ${mcpLinkRequired.server}`}
+                onClick={connectRequiredMCP}
+              />
+            ) : null}
             {terminalDetailStep ? (
               <Button
                 minimal
@@ -2620,6 +2681,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
             ) : null}
             {String(retryPrompt || '').trim() ? <Button minimal small icon="redo" text="Try again" onClick={prefillRetry} /> : null}
           </div>
+          {mcpConnectError ? <div className="app-turn-terminal-message">{mcpConnectError}</div> : null}
         </section>
       ) : null}
       {showExecutionDetails ? (
