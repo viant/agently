@@ -63,6 +63,22 @@ class AuthRuntimeTest {
     }
 
     @Test
+    fun `hosted OAuth return requires exact Agently origin`() {
+        assertTrue(
+            sameOAuthReturnOrigin(
+                "http://localhost:8787/conversation/one",
+                "http://localhost:8787"
+            )
+        )
+        assertFalse(
+            sameOAuthReturnOrigin(
+                "http://localhost:8787.evil.test/conversation/one",
+                "http://localhost:8787"
+            )
+        )
+    }
+
+    @Test
     fun `normalizeDeveloperSessionCredential accepts common paste formats`() {
         assertEquals(
             "sess-1",

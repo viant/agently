@@ -430,6 +430,18 @@ class ChatRuntimeTest {
     }
 
     @Test
+    fun delegatedMCPAuthFailureExposesConnectionActionWithoutRawDetails() {
+        val error = IllegalStateException(
+            "POST /v1/agent/query failed: mcp_oauth_link_required server=\"mediaplanner\" provider=\"dev6\""
+        )
+        assertEquals("mediaplanner", resolveMCPAuthServer(error))
+        assertEquals(
+            "A required connection needs authorization before this request can continue.",
+            visibleAppError(error)
+        )
+    }
+
+    @Test
     fun transcriptWithActiveAssistant_appendsActiveEntryWithoutMutatingHistory() {
         val transcript = listOf(
             ChatEntry(

@@ -36,7 +36,10 @@ internal data class AppUiCallbacks(
     val onDeveloperSessionSignIn: (String) -> Unit,
     val onAuthRetry: () -> Unit,
     val onDismissAuthWeb: () -> Unit,
-    val onOAuthCallback: (String, String) -> Unit
+    val onOAuthCallback: (String, String) -> Unit,
+    val onMCPAuthConnect: () -> Unit,
+    val onMCPAuthDismiss: () -> Unit,
+    val onMCPAuthReturned: () -> Unit
 )
 
 internal fun buildAppUiCallbacks(
@@ -69,7 +72,10 @@ internal fun buildAppUiCallbacks(
     onDeveloperSessionSignIn: (String) -> Unit,
     onAuthRetry: () -> Unit,
     onDismissAuthWeb: () -> Unit,
-    onOAuthCallback: (String, String) -> Unit
+    onOAuthCallback: (String, String) -> Unit,
+    onMCPAuthConnect: () -> Unit,
+    onMCPAuthDismiss: () -> Unit,
+    onMCPAuthReturned: () -> Unit
 ): AppUiCallbacks = AppUiCallbacks(
     onRefreshWorkspace = onRefreshWorkspace,
     onNewConversation = onNewConversation,
@@ -104,5 +110,8 @@ internal fun buildAppUiCallbacks(
     onDeveloperSessionSignIn = onDeveloperSessionSignIn,
     onAuthRetry = onAuthRetry,
     onDismissAuthWeb = onDismissAuthWeb,
-    onOAuthCallback = onOAuthCallback
+    onOAuthCallback = onOAuthCallback,
+    onMCPAuthConnect = onMCPAuthConnect,
+    onMCPAuthDismiss = onMCPAuthDismiss,
+    onMCPAuthReturned = onMCPAuthReturned
 )

@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +53,9 @@ internal fun AppBody(
     error: String?,
     authSessionId: String?,
     authWebUrl: String?,
+    mcpAuthServer: String?,
+    mcpAuthWebUrl: String?,
+    mcpAuthCookies: List<String>,
     recentConversations: List<Conversation>,
     scheduleHistoryFilter: ScheduleHistoryFilter?,
     activeConversationId: String?,
@@ -358,6 +363,27 @@ internal fun AppBody(
                     onMeasuredHeight = { phoneComposerInset = it }
                 )
             }
+        }
+        if (mcpAuthWebUrl != null) {
+            HostedMCPAuthWebDialog(
+                authUrl = mcpAuthWebUrl,
+                appBaseUrl = appApiBaseUrl,
+                cookies = mcpAuthCookies,
+                onDismiss = callbacks.onMCPAuthDismiss,
+                onReturn = callbacks.onMCPAuthReturned
+            )
+        } else if (mcpAuthServer != null) {
+            AlertDialog(
+                onDismissRequest = callbacks.onMCPAuthDismiss,
+                title = { Text("Connect $mcpAuthServer") },
+                text = { Text("This request needs an authorized provider connection. Sign in, then retry the request.") },
+                confirmButton = {
+                    TextButton(onClick = callbacks.onMCPAuthConnect) { Text("Connect") }
+                },
+                dismissButton = {
+                    TextButton(onClick = callbacks.onMCPAuthDismiss) { Text("Not now") }
+                }
+            )
         }
     }
 }
