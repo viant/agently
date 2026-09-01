@@ -11,6 +11,7 @@ import {
   resolveHostedWorkspaceTabLabel,
   resolveHostedWorkspaceTabs,
   resolveHostedBottomWindow,
+  hasRenderedChatContent,
   resolveRouteBootstrapAction,
   shouldReturnSelectionToMainChat,
   shouldReturnCollapsedWorkspaceSelectionToMainChat,
@@ -31,6 +32,10 @@ import {
 } from './Root.jsx';
 
 describe('Root window selection helpers', () => {
+  it('does not treat an empty mounted chat feed as restored conversation content', () => {
+    expect(hasRenderedChatContent({ querySelector: () => ({ childElementCount: 0 }) })).toBe(false);
+    expect(hasRenderedChatContent({ querySelector: () => ({ childElementCount: 1 }) })).toBe(true);
+  });
   it('detects phone-sized shell viewports for overlay navigation', () => {
     expect(isCompactShellViewport(390)).toBe(true);
     expect(isCompactShellViewport(820)).toBe(true);

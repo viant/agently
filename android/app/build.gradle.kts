@@ -97,6 +97,13 @@ val agentlyAndroidWorkspaceEndpoints = agentlyAndroidWorkspaceEndpointsProvider
     .get()
     .replace("\\", "\\\\")
     .replace("\"", "\\\"")
+val agentlyAndroidHttpProxy = providers
+    .gradleProperty("agently.android.httpProxy")
+    .orElse(providers.environmentVariable("AGENTLY_ANDROID_HTTP_PROXY"))
+    .orElse("")
+    .get()
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
 
 android {
     namespace = "com.viant.agently.android"
@@ -118,6 +125,7 @@ android {
         buildConfigField("String", "BOOTSTRAP_IDP_USERNAME", "\"$agentlyAndroidIdpUser\"")
         buildConfigField("String", "BOOTSTRAP_IDP_PASSWORD", "\"$agentlyAndroidIdpPassword\"")
         buildConfigField("String", "WORKSPACE_ENDPOINTS_JSON", "\"$agentlyAndroidWorkspaceEndpoints\"")
+        buildConfigField("String", "DEV_HTTP_PROXY", "\"$agentlyAndroidHttpProxy\"")
     }
 
     buildFeatures {
@@ -158,6 +166,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
     implementation("androidx.activity:activity-compose:1.9.2")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    implementation("androidx.webkit:webkit:1.12.1")
 
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")

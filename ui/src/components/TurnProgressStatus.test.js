@@ -83,6 +83,14 @@ describe('TurnProgressStatus helpers', () => {
     expect(renderToStaticMarkup(React.createElement(TurnProgressStatus, { conversationId: 'conversation-1' }))).toBe('');
   });
 
+  it('bridges the OAuth callback hydration gap with persisted blocking state', () => {
+    const html = renderToStaticMarkup(React.createElement(TurnProgressStatus, {
+      conversationId: 'conversation-1',
+      connectionResumePending: { conversationId: 'conversation-1', elicitationId: 'elic-1' },
+    }));
+    expect(html).toContain('Completing connection');
+  });
+
   it('presents progress only when the conversation has an active turn', () => {
     projectedRows = [{
       kind: 'iteration',

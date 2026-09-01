@@ -34,17 +34,23 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import androidx.webkit.ProxyConfig
+import androidx.webkit.ProxyController
+import androidx.webkit.WebViewFeature
 import java.net.URI
 
 internal enum class AuthState {
@@ -377,7 +383,16 @@ internal fun HostedMCPAuthWebDialog(
     onDismiss: () -> Unit,
     onReturn: () -> Unit
 ) {
+    val context = LocalContext.current
+    val proxyURL = if (BuildConfig.DEBUG) BuildConfig.DEV_HTTP_PROXY.trim() else ""
     var loadedAuthUrl by remember { mutableStateOf<String?>(null) }
+    DisposableEffect(proxyURL) {
+        onDispose {
+            if (proxyURL.isNotEmpty() && WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+                ProxyController.getInstance().clearProxyOverride(ContextCompat.getMainExecutor(context)) {}
+            }
+        }
+    }
     Column(
         modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
     ) {
@@ -412,7 +427,15 @@ internal fun HostedMCPAuthWebDialog(
                         }
                     }
                     loadedAuthUrl = authUrl
-                    loadUrl(authUrl)
+                    if (proxyURL.isNotEmpty() && WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+                        val proxy = ProxyConfig.Builder().addProxyRule(proxyURL).build()
+                        ProxyController.getInstance().setProxyOverride(
+                            proxy,
+                            ContextCompat.getMainExecutor(viewContext)
+                        ) { post { loadUrl(authUrl) } }
+                    } else {
+                        loadUrl(authUrl)
+                    }
                 }
             },
             update = { webView ->

@@ -2,9 +2,16 @@ import SwiftUI
 import AgentlySDK
 import ForgeIOSRuntime
 import ForgeIOSUI
+#if canImport(WebKit)
+import WebKit
+#endif
+#if canImport(Network)
+import Network
+#endif
 
 public struct ElicitationOverlay: View {
     let pending: PendingElicitation?
+    let client: AgentlyClient
     let errorMessage: String?
     let isResolving: Bool
     /// When provided, schema-form elicitations render via Forge's
@@ -16,9 +23,12 @@ public struct ElicitationOverlay: View {
     @State private var booleanValues: [String: Bool] = [:]
     @State private var forgeFormPayload: [String: AppJSONValue] = [:]
     @State private var fallbackResponse = ""
+    @State private var mcpAuthorizationURL: URL?
+    @State private var isConnectingMCP = false
 
     public init(
         pending: PendingElicitation?,
+        client: AgentlyClient,
         errorMessage: String? = nil,
         isResolving: Bool = false,
         forgeRuntime: ForgeRuntime? = nil,
@@ -26,6 +36,7 @@ public struct ElicitationOverlay: View {
         onDismiss: @escaping () -> Void
     ) {
         self.pending = pending
+        self.client = client
         self.errorMessage = errorMessage
         self.isResolving = isResolving
         self.forgeRuntime = forgeRuntime
@@ -38,7 +49,7 @@ public struct ElicitationOverlay: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text(pending?.message ?? "Input Required")
                     .font(.headline)
-                if let url = pending?.url, !url.isEmpty {
+                if let url = pending?.url, !url.isEmpty, !isMCPAuth {
                     Text(url)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -47,7 +58,11 @@ public struct ElicitationOverlay: View {
                             .font(.footnote)
                     }
                 }
-                if approvalMode {
+                if isMCPAuth {
+                    Text("Sign in to the required provider. This request will continue automatically when authorization completes.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else if approvalMode {
                     Text("Review the requested action and choose how to continue.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -103,7 +118,16 @@ public struct ElicitationOverlay: View {
                 }
                 Spacer()
                 VStack(spacing: 12) {
-                    if approvalMode {
+                    if isMCPAuth {
+                        Button(isConnectingMCP ? "Connecting…" : "Connect") {
+                            connectMCPAuth()
+                        }
+                        .disabled(isConnectingMCP || isResolving || mcpAuthServer == nil)
+                        .buttonStyle(.borderedProminent)
+                        Button("Cancel") { onResolve("cancel", [:]) }
+                            .disabled(isConnectingMCP || isResolving)
+                            .buttonStyle(.bordered)
+                    } else if approvalMode {
                         HStack {
                             Button(approvalRejectLabel) { onResolve("decline", [:]) }
                                 .disabled(isResolving)
@@ -150,6 +174,82 @@ public struct ElicitationOverlay: View {
         }
         .onAppear {
             seedDefaults()
+        }
+        .sheet(isPresented: Binding(
+            get: { mcpAuthorizationURL != nil },
+            set: { if !$0 { mcpAuthorizationURL = nil } }
+        )) {
+            if let authURL = mcpAuthorizationURL,
+               let baseURL = client.endpointBaseURL() {
+                MCPAuthWebView(
+                    authorizationURL: authURL,
+                    appBaseURL: baseURL,
+                    cookieHeader: client.sessionCookieHeader(for: baseURL),
+                    onReturn: { completeMCPAuth() }
+                )
+                .ignoresSafeArea()
+            }
+        }
+    }
+
+    private var isMCPAuth: Bool {
+        pending?.mode?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "mcp_oauth"
+    }
+
+    private var mcpAuthServer: String? {
+        guard isMCPAuth,
+              let raw = pending?.url,
+              let url = URL(string: raw, relativeTo: client.endpointBaseURL()) else { return nil }
+        let components = url.path.split(separator: "/").map(String.init)
+        guard components.count == 6,
+              components[0] == "v1", components[1] == "api", components[2] == "auth",
+              components[3] == "mcp", components[5] == "initiate" else { return nil }
+        return components[4].removingPercentEncoding ?? components[4]
+    }
+
+    private func connectMCPAuth() {
+        guard let server = mcpAuthServer else { return }
+        isConnectingMCP = true
+        Task { @MainActor in
+            do {
+                let status = try await client.getMCPAuthStatus(server: server)
+                if status.connected {
+                    onResolve("accept", ["connected": .bool(true)])
+                    isConnectingMCP = false
+                    return
+                }
+                guard let csrf = status.csrfToken?.trimmingCharacters(in: .whitespacesAndNewlines), !csrf.isEmpty else {
+                    throw MCPAuthViewError.missingCSRF
+                }
+                let returnURL = pending?.conversationID.map { "/conversation/\($0)" } ?? "/"
+                let initiated = try await client.initiateMCPAuth(
+                    server: server,
+                    csrfToken: csrf,
+                    returnURL: returnURL,
+                    restart: status.pending == true
+                )
+                guard let rawURL = initiated.authorizationURL, let url = URL(string: rawURL) else {
+                    throw MCPAuthViewError.missingAuthorizationURL
+                }
+                mcpAuthorizationURL = url
+            } catch {
+                isConnectingMCP = false
+            }
+        }
+    }
+
+    private func completeMCPAuth() {
+        guard let server = mcpAuthServer else { return }
+        Task { @MainActor in
+            do {
+                let status = try await client.getMCPAuthStatus(server: server)
+                guard status.connected else { return }
+                mcpAuthorizationURL = nil
+                isConnectingMCP = false
+                onResolve("accept", ["connected": .bool(true)])
+            } catch {
+                isConnectingMCP = false
+            }
         }
     }
 
@@ -1034,6 +1134,143 @@ public struct ElicitationOverlay: View {
         }
     }
 }
+
+private enum MCPAuthViewError: LocalizedError {
+    case missingCSRF
+    case missingAuthorizationURL
+
+    var errorDescription: String? {
+        switch self {
+        case .missingCSRF: return "The workspace did not provide an authorization token."
+        case .missingAuthorizationURL: return "The provider did not provide an authorization URL."
+        }
+    }
+}
+
+#if canImport(UIKit) && canImport(WebKit)
+private struct MCPAuthWebView: UIViewRepresentable {
+    let authorizationURL: URL
+    let appBaseURL: URL
+    let cookieHeader: String?
+    let onReturn: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        #if canImport(Network)
+        if #available(iOS 17.0, macOS 14.0, *),
+           let proxy = mcpDevelopmentProxy(),
+           let port = NWEndpoint.Port(rawValue: UInt16(proxy.port)) {
+            let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(proxy.host), port: port)
+            configuration.websiteDataStore.proxyConfigurations = [
+                ProxyConfiguration(httpCONNECTProxy: endpoint)
+            ]
+        }
+        #endif
+        let view = WKWebView(frame: .zero, configuration: configuration)
+        view.navigationDelegate = context.coordinator
+        context.coordinator.load(authorizationURL, in: view)
+        return view
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {}
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        private let parent: MCPAuthWebView
+        private var loaded = false
+        private var returned = false
+
+        init(_ parent: MCPAuthWebView) { self.parent = parent }
+
+        func load(_ url: URL, in webView: WKWebView) {
+            guard !loaded else { return }
+            loaded = true
+            let cookies = (parent.cookieHeader ?? "")
+                .split(separator: ";")
+                .compactMap { pair -> HTTPCookie? in
+                    let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
+                    guard parts.count == 2, let host = parent.appBaseURL.host else { return nil }
+                    return HTTPCookie(properties: [
+                        .name: parts[0].trimmingCharacters(in: .whitespaces),
+                        .value: parts[1],
+                        .domain: host,
+                        .path: "/",
+                        .secure: parent.appBaseURL.scheme == "https" ? "TRUE" : "FALSE"
+                    ])
+                }
+            let group = DispatchGroup()
+            for cookie in cookies {
+                group.enter()
+                webView.configuration.websiteDataStore.httpCookieStore.setCookie(cookie) { group.leave() }
+            }
+            group.notify(queue: .main) {
+                var request = URLRequest(url: url)
+                if let header = self.parent.cookieHeader, !header.isEmpty {
+                    request.setValue(header, forHTTPHeaderField: "Cookie")
+                }
+                webView.load(request)
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            guard !returned, let url = webView.url else { return }
+            let sameOrigin = url.scheme?.lowercased() == parent.appBaseURL.scheme?.lowercased()
+                && url.host?.lowercased() == parent.appBaseURL.host?.lowercased()
+                && effectivePort(url) == effectivePort(parent.appBaseURL)
+            guard sameOrigin, url.path != "/v1/api/auth/mcp/callback" else { return }
+            returned = true
+            parent.onReturn()
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            guard let url = navigationAction.request.url,
+                  url.path == "/v1/api/auth/mcp/callback",
+                  let appHost = parent.appBaseURL.host,
+                  url.host?.caseInsensitiveCompare(appHost) != .orderedSame else {
+                decisionHandler(.allow)
+                return
+            }
+            var rewritten = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            rewritten?.scheme = parent.appBaseURL.scheme
+            rewritten?.host = appHost
+            rewritten?.port = parent.appBaseURL.port
+            guard let target = rewritten?.url else {
+                decisionHandler(.allow)
+                return
+            }
+            decisionHandler(.cancel)
+            webView.load(URLRequest(url: target))
+        }
+
+        private func effectivePort(_ url: URL) -> Int? {
+            url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
+        }
+    }
+}
+
+private func mcpDevelopmentProxy() -> (host: String, port: Int)? {
+    let argument = CommandLine.arguments.first { $0.hasPrefix("--httpProxy=") }
+    let raw = argument
+        .flatMap { $0.split(separator: "=", maxSplits: 1).last.map(String.init) }
+        ?? ProcessInfo.processInfo.environment["AGENTLY_IOS_HTTP_PROXY"]
+        ?? ""
+    guard let url = URL(string: raw), let host = url.host, let port = url.port else { return nil }
+    return (host, port)
+}
+#else
+private struct MCPAuthWebView: View {
+    let authorizationURL: URL
+    let appBaseURL: URL
+    let cookieHeader: String?
+    let onReturn: () -> Void
+    var body: some View { Text("Provider authorization is unavailable on this platform.") }
+}
+#endif
 
 func fallbackElicitationCanSubmit(_ response: String) -> Bool {
     !response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

@@ -154,6 +154,7 @@ public struct PhoneWorkspaceScreen: View {
         )) {
             ElicitationOverlay(
                 pending: pendingElicitation,
+                client: client,
                 errorMessage: elicitationError,
                 isResolving: isResolvingElicitation,
                 forgeRuntime: forgeRuntime,
@@ -171,6 +172,7 @@ public struct PhoneWorkspaceScreen: View {
                 availableAgents: availableAgents,
                 onSelectAgent: onSelectAgent,
                 showStarterTasks: transcript.isEmpty && !isLoadingConversation,
+                starterTaskLayout: .verticalList,
                 onSelectStarterTask: { task in
                     let prompt = (task.prompt ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                     if !prompt.isEmpty {

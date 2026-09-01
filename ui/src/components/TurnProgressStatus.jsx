@@ -135,7 +135,7 @@ function tokenHoverText(usage) {
   ].filter(Boolean).join(' · ') || 'Show token usage breakdown';
 }
 
-export default function TurnProgressStatus({ conversationId = '', developerMode = false }) {
+export default function TurnProgressStatus({ conversationId = '', developerMode = false, connectionResumePending = null }) {
   const rows = useChatProjection(conversationId);
   const stage = useStage();
   const [usage, setUsage] = React.useState(getUsage);
@@ -153,7 +153,22 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
   // Summary progress represents an actual conversation turn, so never infer a
   // turn from the stage alone. This prevents failed/default workspace startup
   // from looking like an assistant is actively working.
-  if (!String(conversationId || '').trim() || !row || !String(row?.turnId || '').trim()) return null;
+  if (!String(conversationId || '').trim()) return null;
+  if (!row || !String(row?.turnId || '').trim()) {
+    const pendingConversationId = String(connectionResumePending?.conversationId || '').trim();
+    if (developerMode || !pendingConversationId || pendingConversationId !== String(conversationId || '').trim()) return null;
+    return (
+      <section className="app-turn-progress" data-testid="turn-progress-status" aria-live="polite">
+        <div className="app-turn-progress-spinner" aria-hidden="true"><Spinner size={18} /></div>
+        <div className="app-turn-progress-content">
+          <div className="app-turn-progress-title">Working on your request</div>
+          <div className="app-turn-progress-chips">
+            <span className="app-turn-progress-chip is-activity">Completing connection</span>
+          </div>
+        </div>
+      </section>
+    );
+  }
   const latestRound = groups[groups.length - 1] || {};
   const status = stopping
     ? 'stopping'

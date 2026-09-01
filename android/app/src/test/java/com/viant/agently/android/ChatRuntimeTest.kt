@@ -442,6 +442,23 @@ class ChatRuntimeTest {
     }
 
     @Test
+    fun mcpOAuthElicitationUsesStructuredModeAndHostedRoute() {
+        val target = resolveMCPAuthElicitationTarget(
+            com.viant.agentlysdk.stream.PendingElicitation(
+                elicitationId = "elic-1",
+                conversationId = "conv-1",
+                mode = "mcp_oauth",
+                url = "/v1/api/auth/mcp/mediaplanner/initiate"
+            )
+        )
+
+        assertEquals(
+            MCPAuthElicitationTarget("mediaplanner", "conv-1", "elic-1"),
+            target
+        )
+    }
+
+    @Test
     fun transcriptWithActiveAssistant_appendsActiveEntryWithoutMutatingHistory() {
         val transcript = listOf(
             ChatEntry(

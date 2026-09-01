@@ -49,6 +49,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
@@ -78,6 +80,7 @@ import com.viant.agentlysdk.QueryAttachment
 import com.viant.agentlysdk.QueryInput
 import com.viant.agentlysdk.QueryOutput
 import com.viant.agentlysdk.RecordUIEventInput
+import com.viant.agentlysdk.ResolveElicitationInput
 import com.viant.agentlysdk.OAuthCallbackInput
 import com.viant.agentlysdk.OAuthInitiateInput
 import com.viant.agentlysdk.UploadFileInput
@@ -216,7 +219,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     val client = remember(appApiBaseUrl) { buildClient(appApiBaseUrl) }
     var loading by remember { mutableStateOf(false) }
     var metadata by remember { mutableStateOf<WorkspaceMetadata?>(null) }
-    var query by remember { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
     var composerAttachments by remember { mutableStateOf<List<ComposerAttachmentDraft>>(emptyList()) }
     var composerLookupRegistry by remember { mutableStateOf<List<LookupRegistryEntry>>(emptyList()) }
     var composerLookupSelections by remember { mutableStateOf<Map<String, ComposerLookupSelection>>(emptyMap()) }
@@ -224,12 +227,17 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     var result by remember { mutableStateOf<QueryOutput?>(null) }
     var streamSnapshot by remember { mutableStateOf<ConversationStreamSnapshot?>(null) }
     var streamedMarkdown by remember { mutableStateOf<String?>(null) }
-    var activeConversationId by remember { mutableStateOf<String?>(null) }
+    var activeConversationId by rememberSaveable { mutableStateOf<String?>(null) }
     var conversationState by remember { mutableStateOf<ConversationStateResponse?>(null) }
     var activeGoal by remember { mutableStateOf<Goal?>(null) }
     var recentConversations by remember { mutableStateOf<List<Conversation>>(emptyList()) }
     var openingConversationId by remember { mutableStateOf<String?>(null) }
-    var currentScreen by remember { mutableStateOf(AppScreen.Chat) }
+    var currentScreen by rememberSaveable(
+        stateSaver = Saver(
+            save = { it.name },
+            restore = { saved -> runCatching { AppScreen.valueOf(saved) }.getOrDefault(AppScreen.Chat) }
+        )
+    ) { mutableStateOf(AppScreen.Chat) }
     var scheduleHistoryFilter by remember { mutableStateOf<ScheduleHistoryFilter?>(null) }
     var pendingApprovals by remember { mutableStateOf<List<PendingToolApproval>>(emptyList()) }
     var generatedFiles by remember { mutableStateOf<List<GeneratedFileEntry>>(emptyList()) }
@@ -338,6 +346,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     var authInteractiveFailure by remember { mutableStateOf(false) }
     var mcpAuthServer by remember { mutableStateOf<String?>(null) }
     var mcpAuthWebUrl by remember { mutableStateOf<String?>(null) }
+    var mcpAuthElicitationTarget by remember { mutableStateOf<MCPAuthElicitationTarget?>(null) }
     val pendingOAuthCallback by oauthCallbackUriFlow.collectAsState()
     var workspaceBootstrapRequested by remember { mutableStateOf(false) }
     var bootstrapOobSignInAttempted by remember { mutableStateOf(false) }
@@ -998,6 +1007,14 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
             }
         }
         streamSnapshot = snapshot
+        resolveMCPAuthElicitationTarget(snapshot.pendingElicitation)?.let { target ->
+            if (mcpAuthElicitationTarget != target) {
+                mcpAuthElicitationTarget = target
+                mcpAuthServer = target.server
+                mcpAuthWebUrl = null
+                setVisibleError(null)
+            }
+        }
         if (snapshot.conversationId.isNotBlank()) {
             activeConversationId = snapshot.conversationId
         }
@@ -1084,6 +1101,21 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         applyPreparedConversationBinding(preparedBinding)
         if (!keepCurrentStream) {
             startConversationStream(resolvedClient, conversationId)
+        }
+    }
+
+    LaunchedEffect(authState, metadata, activeConversationId, conversationState) {
+        val conversationId = activeConversationId?.trim().orEmpty()
+        if (authState != AuthState.Ready || metadata == null || conversationId.isEmpty() ||
+            conversationState != null || openingConversationId != null
+        ) {
+            return@LaunchedEffect
+        }
+        openingConversationId = conversationId
+        try {
+            bindConversation(conversationId, replaceTranscript = true)
+        } finally {
+            openingConversationId = null
         }
     }
 
@@ -1202,9 +1234,27 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         applyVisibleAppError(err)
     }
 
+    suspend fun resolveMCPAuthBlocker(action: String) {
+        val target = mcpAuthElicitationTarget ?: return
+        resolveAuthClient().resolveElicitation(
+            ResolveElicitationInput(
+                conversationId = target.conversationId,
+                elicitationId = target.elicitationId,
+                action = action,
+                payload = if (action == "accept") mapOf("connected" to JsonPrimitive(true)) else emptyMap()
+            )
+        )
+        mcpAuthElicitationTarget = null
+    }
+
     fun dismissMCPAuth() {
         mcpAuthWebUrl = null
         mcpAuthServer = null
+        if (mcpAuthElicitationTarget != null) {
+            scope.launch {
+                runCatching { resolveMCPAuthBlocker("cancel") }
+            }
+        }
     }
 
     fun startMCPAuth() {
@@ -1216,8 +1266,9 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
                 val authClient = resolveAuthClient()
                 val status = authClient.getMCPAuthStatus(server)
                 if (status.connected) {
+                    resolveMCPAuthBlocker("accept")
                     mcpAuthServer = null
-                    setVisibleError("Connection is ready. Retry the request to continue.")
+                    setVisibleError(null)
                     return@launch
                 }
                 val csrf = status.csrfToken?.trim().orEmpty()
@@ -1225,7 +1276,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
                 val returnURL = activeConversationId?.trim()?.takeIf { it.isNotEmpty() }
                     ?.let { "/conversation/$it" }
                     ?: "/"
-                val initiated = authClient.initiateMCPAuth(server, csrf, returnURL)
+                val initiated = authClient.initiateMCPAuth(server, csrf, returnURL, restart = status.pending)
                 val authorizationURL = initiated.authorizationURL?.trim().orEmpty()
                 require(authorizationURL.isNotBlank()) { "The provider did not return an authorization URL." }
                 mcpAuthWebUrl = authorizationURL
@@ -1244,9 +1295,10 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
             try {
                 val status = resolveAuthClient().getMCPAuthStatus(server)
                 if (status.connected) {
+                    resolveMCPAuthBlocker("accept")
                     mcpAuthWebUrl = null
                     mcpAuthServer = null
-                    setVisibleError("Connection is ready. Retry the request to continue.")
+                    setVisibleError(null)
                 } else {
                     mcpAuthWebUrl = null
                     setVisibleError("The provider connection could not be completed. Try connecting again.")

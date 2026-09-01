@@ -139,6 +139,7 @@ internal fun PhoneWorkspacePane(
         )
     }
     val workspaceFocused = hostedWorkspaceState != null && selectedMode == PhoneWorkspaceContentMode.Workspace
+    val activeTurnProgress = turnProgressPresentation(loading, conversationState, streamSnapshot)
 
     LaunchedEffect(activeConversationId, hostedWorkspaceState?.selectedWindowId) {
         if (hostedWorkspaceState != null) {
@@ -255,6 +256,9 @@ internal fun PhoneWorkspacePane(
                 }
             }
         }
+        activeTurnProgress?.let { progress ->
+            TurnProgressStatus(progress, onCancelTurn)
+        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -313,9 +317,6 @@ internal fun PhoneWorkspacePane(
                 onSelectStarterTask = onStarterTaskSelected,
                 starterTaskLayout = StarterTaskLayout.VerticalList,
             )
-        }
-        turnProgressPresentation(loading, conversationState, streamSnapshot)?.let { progress ->
-            TurnProgressStatus(progress, onCancelTurn)
         }
         streamSnapshot?.pendingElicitation?.let { elicitation ->
             elicitation.conversationId.takeIf { it.isNotBlank() }?.let { conversationId ->
