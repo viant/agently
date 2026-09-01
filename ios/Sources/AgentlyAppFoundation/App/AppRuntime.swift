@@ -832,6 +832,7 @@ public final class AppRuntime: ObservableObject {
             guard let self else { return }
             logger.info("Starting live stream for conversation \(conversationID, privacy: .public)")
             var sawActiveTurn = false
+            var reconciledInactiveSnapshot = false
             do {
                 for try await snapshot in state.client.trackConversation(conversationID: conversationID) {
                     if Task.isCancelled { return }
@@ -862,10 +863,18 @@ public final class AppRuntime: ObservableObject {
                     if let currentTurnID,
                        !currentTurnID.isEmpty {
                         sawActiveTurn = true
+                        reconciledInactiveSnapshot = false
                     } else {
                         state.isStoppingTurn = false
-                        if previousActiveTurnID?.isEmpty == false || sawActiveTurn {
+                        let terminalHydrationHasContent =
+                            !snapshot.bufferedMessages.isEmpty ||
+                            !snapshot.liveExecutionGroupsByID.isEmpty ||
+                            !snapshot.feeds.isEmpty
+                        if previousActiveTurnID?.isEmpty == false ||
+                           sawActiveTurn ||
+                           (terminalHydrationHasContent && !reconciledInactiveSnapshot) {
                             sawActiveTurn = false
+                            reconciledInactiveSnapshot = true
                             schedulePostTurnRefresh(conversationID: conversationID)
                         }
                     }
