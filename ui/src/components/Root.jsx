@@ -30,6 +30,7 @@ import { onGoalDraftOpen } from '../services/goalDraftBus';
 import { useDeveloperMode } from '../services/uiPreferences';
 import { useChatProjection } from '../services/chatStore.js';
 import { resolveWorkspaceAttachmentOwnerIndex } from '../services/workspaceAttachment.js';
+import { currentPendingMCPAuth, resumePendingMCPAuth } from '../services/mcpAuth';
 
 const SIDEBAR_WIDTH_KEY = 'agently.sidebarWidth';
 const SIDEBAR_DEFAULT_WIDTH = 320;
@@ -439,6 +440,12 @@ export function shouldReplayRouteConversationBootstrap({
   return !hasChatFeed && !hasWorkspace;
 }
 
+export function hasRenderedChatContent(doc = null) {
+  const target = doc || (typeof document !== 'undefined' ? document : null);
+  const feed = target?.querySelector?.('.app-chat-feed');
+  return !!feed && Number(feed.childElementCount || 0) > 0;
+}
+
 export default function Root() {
   useSignals();
   void selectedTabId.value;
@@ -465,6 +472,7 @@ export default function Root() {
     }
   });
   const [authState, setAuthState] = useState('checking');
+  const [mcpResumePending, setMCPResumePending] = useState(() => currentPendingMCPAuth());
   const [oauthProviderLabel, setOAuthProviderLabel] = useState('');
   const developerMode = useDeveloperMode();
   const [goalDraftState, setGoalDraftState] = useState({ isOpen: false, conversationId: '', initialDraft: '' });
@@ -757,6 +765,25 @@ export default function Root() {
   }, []);
 
   useEffect(() => {
+    if (authState !== 'ready') return () => {};
+    let active = true;
+    resumePendingMCPAuth()
+      .then((pending) => {
+        if (!active || !pending?.conversationId) return;
+        setMCPResumePending(pending);
+        openConversationInMainWindow(pending.conversationId);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [authState]);
+
+  useEffect(() => {
+    if (!mcpResumePending) return () => {};
+    const timer = window.setTimeout(() => setMCPResumePending(null), 15000);
+    return () => window.clearTimeout(timer);
+  }, [mcpResumePending]);
+
+  useEffect(() => {
     let mounted = true;
     Promise.allSettled([getAuthProvidersSilently(), getAuthMeSilently()])
       .then(async (results) => {
@@ -1033,7 +1060,7 @@ export default function Root() {
       pathname: window.location.pathname,
       authState,
       mainConversationId,
-      hasChatFeed: !!document.querySelector('.app-chat-feed'),
+      hasChatFeed: hasRenderedChatContent(document),
       hasWorkspace: !!document.querySelector('[data-workspace-window-id]'),
     })) {
       return () => {};
@@ -1045,7 +1072,7 @@ export default function Root() {
         pathname: window.location.pathname,
         authState,
         mainConversationId,
-        hasChatFeed: !!document.querySelector('.app-chat-feed'),
+        hasChatFeed: hasRenderedChatContent(document),
         hasWorkspace: !!document.querySelector('[data-workspace-window-id]'),
       })) {
         return;
@@ -1291,7 +1318,7 @@ export default function Root() {
                   <div className="app-main-window-header-title">{linkedChildWindow ? 'Linked conversation' : activeWindowTitle}</div>
                 </div>
               ) : null}
-              {showChatChrome ? <TurnProgressStatus conversationId={activeConversationId} developerMode={developerMode} /> : null}
+              {showChatChrome ? <TurnProgressStatus conversationId={activeConversationId} developerMode={developerMode} connectionResumePending={mcpResumePending} /> : null}
               {shouldRenderSplitShell ? (developerMode ? (
                 <div className={`app-window-split-stack${effectiveWorkspaceFull ? ' is-full' : ''}${effectiveWorkspaceCollapsed ? ' is-collapsed' : ''}${!showWorkspacePane ? ' is-chat-only' : ''}`}>
                   <div

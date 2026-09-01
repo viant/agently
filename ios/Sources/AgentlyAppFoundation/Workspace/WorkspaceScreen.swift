@@ -186,6 +186,7 @@ public struct WorkspaceScreen: View {
         )) {
             ElicitationOverlay(
                 pending: pendingElicitation,
+                client: client,
                 errorMessage: elicitationError,
                 isResolving: isResolvingElicitation,
                 forgeRuntime: forgeRuntime,

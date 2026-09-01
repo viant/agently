@@ -192,7 +192,12 @@ struct ChatWorkspaceView: View {
     @ViewBuilder
     private var categorizedStarterTaskList: some View {
         if activeStarterCategory == nil {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+            LazyVGrid(
+                columns: starterTaskLayout == .verticalList
+                    ? [GridItem(.flexible())]
+                    : [GridItem(.flexible()), GridItem(.flexible())],
+                spacing: 10
+            ) {
                 ForEach(Array(starterTaskCategories.enumerated()), id: \.element.id) { index, category in
                     let id = (category.rawID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                     let accent = starterCategoryColor(index)

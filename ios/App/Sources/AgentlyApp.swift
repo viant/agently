@@ -53,6 +53,16 @@ enum AppBootstrap {
         configuration.timeoutIntervalForRequest = 300
         configuration.timeoutIntervalForResource = 300
         configuration.waitsForConnectivity = false
+        if developerOverridesEnabled(), let proxy = resolvedHTTPProxy() {
+            configuration.connectionProxyDictionary = [
+                "HTTPEnable": 1,
+                "HTTPProxy": proxy.host,
+                "HTTPPort": proxy.port,
+                "HTTPSEnable": 1,
+                "HTTPSProxy": proxy.host,
+                "HTTPSPort": proxy.port,
+            ]
+        }
         return AgentlyClient(
             endpoints: [
                 "appAPI": EndpointConfig(baseURL: baseURL)
@@ -126,5 +136,15 @@ enum AppBootstrap {
         }
         return CommandLine.arguments.contains("--enableDevAuth=1")
             || CommandLine.arguments.contains("--enableDevAuth=true")
+    }
+
+    private static func resolvedHTTPProxy() -> (host: String, port: Int)? {
+        let argument = CommandLine.arguments.first { $0.hasPrefix("--httpProxy=") }
+        let raw = argument
+            .flatMap { $0.split(separator: "=", maxSplits: 1).last.map(String.init) }
+            ?? ProcessInfo.processInfo.environment["AGENTLY_IOS_HTTP_PROXY"]
+            ?? ""
+        guard let url = URL(string: raw), let host = url.host, let port = url.port else { return nil }
+        return (host, port)
     }
 }

@@ -61,6 +61,7 @@ internal fun ElicitationOverlay(
     client: AgentlyClient,
     forgeRuntime: ForgeRuntime
 ) {
+    if (elicitation.mode.equals("mcp_oauth", ignoreCase = true)) return
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val requestedSchema = elicitation.requestedSchema

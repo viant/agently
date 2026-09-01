@@ -3,6 +3,7 @@ import { Button, Dialog, Classes, Spinner } from '@blueprintjs/core';
 import SchemaBasedForm from 'forge/widgets/SchemaBasedForm.jsx';
 import { client } from '../services/agentlyClient';
 import { dsTick } from '../services/chatRuntime';
+import { beginBrowserMCPAuth, clearPendingMCPAuth, pendingMCPAuth } from '../services/mcpAuth';
 import {
   collectElicitationFormValues,
   elicitationDataBindingKey,
@@ -69,6 +70,7 @@ function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
   const prompt = pending?.message || '';
   const url = pending?.url || '';
   const mode = pending?.mode || '';
+  const isMCPOAuth = String(mode).trim().toLowerCase() === 'mcp_oauth';
   const conversationId = pending?.conversationId || '';
   const elicitationId = pending?.elicitationId || '';
   const resolveTarget = useMemo(() => resolveElicitationTarget(pending, conversationId), [pending, conversationId]);
@@ -179,6 +181,30 @@ function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
       setSubmitting(false);
     }
   }, [conversationId, elicitationId, resolveConversationId, resolveElicitationId, context, collectFormValues, plannerMeta, plannerRows]);
+
+  const mcpAuthServer = useMemo(() => {
+    if (!isMCPOAuth || !url) return '';
+    try {
+      const pathname = new URL(url, window.location.origin).pathname;
+      const match = pathname.match(/^\/v1\/api\/auth\/mcp\/([^/]+)\/initiate$/);
+      return match ? decodeURIComponent(match[1]) : '';
+    } catch (_) {
+      return '';
+    }
+  }, [isMCPOAuth, url]);
+
+  useEffect(() => {
+    if (!isMCPOAuth || !mcpAuthServer || !pendingMCPAuth(mcpAuthServer)) return undefined;
+    let active = true;
+    client.getMCPAuthStatus(mcpAuthServer)
+      .then((status) => {
+        if (!active || status?.connected !== true) return;
+        clearPendingMCPAuth(mcpAuthServer);
+        return resolve('accept', { connected: true });
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [isMCPOAuth, mcpAuthServer, resolve]);
 
   if (!pending || (!schema && !isOOB)) return null;
 
@@ -321,12 +347,28 @@ function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
                 <Button
                   intent="primary"
                   disabled={submitting}
-                  onClick={() => {
+                  onClick={async () => {
+                    if (isMCPOAuth && mcpAuthServer) {
+                      setError('');
+                      try {
+                        const result = await beginBrowserMCPAuth(mcpAuthServer, {
+                          conversationId: resolveConversationId,
+                          elicitationId: resolveElicitationId,
+                        });
+                        if (result?.connected === true) {
+                          clearPendingMCPAuth(mcpAuthServer);
+                          await resolve('accept', { connected: true });
+                        }
+                      } catch (err) {
+                        setError(String(err?.message || err || 'Connection could not be started.'));
+                      }
+                      return;
+                    }
                     if (url) window.open(url, '_blank', 'noopener,noreferrer');
                     resolve('accept', {});
                   }}
                 >
-                  Open
+                  {isMCPOAuth ? 'Connect' : 'Open'}
                 </Button>
               ) : (
                 <Button intent="primary" disabled={submitting} onClick={() => {

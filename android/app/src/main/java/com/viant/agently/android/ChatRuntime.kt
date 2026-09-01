@@ -749,6 +749,27 @@ internal fun resolveMCPAuthServer(state: ConversationStateResponse?): String? {
         ?.firstOrNull()
 }
 
+internal data class MCPAuthElicitationTarget(
+    val server: String,
+    val conversationId: String,
+    val elicitationId: String
+)
+
+internal fun resolveMCPAuthElicitationTarget(
+    pending: com.viant.agentlysdk.stream.PendingElicitation?
+): MCPAuthElicitationTarget? {
+    if (!pending?.mode.equals("mcp_oauth", ignoreCase = true)) return null
+    val path = runCatching { java.net.URI(pending?.url.orEmpty()).path }
+        .getOrDefault(pending?.url.orEmpty())
+        .trim()
+    val match = Regex("^/v1/api/auth/mcp/([^/]+)/initiate$").matchEntire(path) ?: return null
+    val server = java.net.URLDecoder.decode(match.groupValues[1], Charsets.UTF_8.name()).trim()
+    val conversationId = pending?.conversationId?.trim().orEmpty()
+    val elicitationId = pending?.elicitationId?.trim().orEmpty()
+    if (server.isEmpty() || conversationId.isEmpty() || elicitationId.isEmpty()) return null
+    return MCPAuthElicitationTarget(server, conversationId, elicitationId)
+}
+
 internal fun isPreviewableText(contentType: String?, name: String?): Boolean {
     val normalizedType = contentType?.lowercase().orEmpty()
     val normalizedName = name?.lowercase().orEmpty()

@@ -376,7 +376,7 @@ internal fun AppBody(
             AlertDialog(
                 onDismissRequest = callbacks.onMCPAuthDismiss,
                 title = { Text("Connect $mcpAuthServer") },
-                text = { Text("This request needs an authorized provider connection. Sign in, then retry the request.") },
+                text = { Text("Sign in to continue this request. It will resume automatically.") },
                 confirmButton = {
                     TextButton(onClick = callbacks.onMCPAuthConnect) { Text("Connect") }
                 },
