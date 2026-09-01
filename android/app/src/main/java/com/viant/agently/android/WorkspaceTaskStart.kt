@@ -1,6 +1,7 @@
 package com.viant.agently.android
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -11,19 +12,31 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.Icon
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.QueryStats
+import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.viant.agentlysdk.StarterTask
+import com.viant.agentlysdk.StarterTaskCategory
 import com.viant.agentlysdk.WorkspaceMetadata
 import java.util.Locale
 
@@ -82,6 +95,22 @@ internal fun workspaceStarterTasks(
     }
 }
 
+internal fun workspaceStarterTaskCategories(
+    preferredAgentId: String?,
+    metadata: WorkspaceMetadata?,
+    tasks: List<StarterTask> = workspaceStarterTasks(preferredAgentId, metadata),
+): List<StarterTaskCategory> {
+    val selectedId = resolvePreferredAgentId(preferredAgentId, metadata)?.trim().orEmpty()
+    if (selectedId.isBlank()) return emptyList()
+    val match = metadata?.agentInfos?.firstOrNull { info ->
+        info.id?.trim().orEmpty().equals(selectedId, ignoreCase = true)
+    } ?: return emptyList()
+    return match.starterTaskCategories.filter { category ->
+        val id = category.id?.trim().orEmpty()
+        id.isNotBlank() && category.title?.isNotBlank() == true && tasks.any { it.categoryId?.trim() == id }
+    }
+}
+
 @Composable
 internal fun WorkspaceTaskStartSection(
     metadata: WorkspaceMetadata?,
@@ -98,6 +127,19 @@ internal fun WorkspaceTaskStartSection(
     val starterTasks = remember(preferredAgentId, metadata) {
         workspaceStarterTasks(preferredAgentId, metadata)
     }
+    val starterTaskCategories = remember(preferredAgentId, metadata, starterTasks) {
+        workspaceStarterTaskCategories(preferredAgentId, metadata, starterTasks)
+    }
+    var selectedCategoryId by remember(preferredAgentId, starterTaskCategories) {
+        mutableStateOf("")
+    }
+    val activeCategory = starterTaskCategories.firstOrNull { it.id?.trim() == selectedCategoryId }
+    val activeCategoryAccent = activeCategory?.let { category ->
+        starterTaskCategories.indexOf(category).takeIf { it >= 0 }?.let(::starterCategoryColor)
+    }
+    val visibleStarterTasks = activeCategory?.id?.trim()?.takeIf { it.isNotBlank() }?.let { categoryId ->
+        starterTasks.filter { it.categoryId?.trim() == categoryId }
+    }?.takeIf { it.isNotEmpty() } ?: starterTasks
     val showAgentSelector = agentChoices.size > 1
     val showAgentScopedCopy = remember(metadata) {
         countStarterTaskAgents(metadata) > 1
@@ -126,7 +168,8 @@ internal fun WorkspaceTaskStartSection(
                     style = MaterialTheme.typography.titleMedium,
                     color = Color(0xFF101828)
                 )
-                Text(
+                if (starterTaskCategories.isEmpty()) {
+                    Text(
                     text = if (showAgentScopedCopy) {
                         "Starter tasks follow the selected public agent, matching the web start flow."
                     } else {
@@ -135,6 +178,7 @@ internal fun WorkspaceTaskStartSection(
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF667085)
                 )
+                }
             }
 
             if (showAgentSelector) {
@@ -164,19 +208,83 @@ internal fun WorkspaceTaskStartSection(
                     color = Color(0xFF667085)
                 )
             } else {
-                if (starterTaskLayout == StarterTaskLayout.VerticalList) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        starterTasks.forEach { task ->
-                            StarterTaskCard(task, selectedAgentLabel.orEmpty(), starterTaskLayout, onSelectStarterTask)
+                if (starterTaskCategories.isNotEmpty()) {
+                    if (activeCategory == null) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            starterTaskCategories.forEachIndexed { index, category ->
+                                val categoryId = category.id?.trim().orEmpty()
+                                val accent = starterCategoryColor(index)
+                                Surface(
+                                    color = Color.Transparent,
+                                    border = BorderStroke(1.dp, accent.copy(alpha = 0.20f)),
+                                    shape = MaterialTheme.shapes.large,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { selectedCategoryId = categoryId }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .background(
+                                                Brush.verticalGradient(
+                                                    listOf(Color.White, accent.copy(alpha = 0.10f))
+                                                )
+                                            )
+                                            .padding(horizontal = 14.dp, vertical = 13.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = starterCategoryIcon(category.icon),
+                                            contentDescription = null,
+                                            tint = accent
+                                        )
+                                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Text(
+                                                text = category.title?.trim().orEmpty(),
+                                                style = MaterialTheme.typography.titleSmall,
+                                                color = Color(0xFF101828)
+                                            )
+                                            category.description?.trim()?.takeIf { it.isNotBlank() }?.let { description ->
+                                                Text(
+                                                    text = description,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = Color(0xFF667085),
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        TextButton(onClick = { selectedCategoryId = "" }) {
+                            Text("‹  Back to categories")
+                        }
+                        activeCategory.description?.trim()?.takeIf { it.isNotBlank() }?.let { description ->
+                            Text(
+                                text = description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF667085)
+                            )
                         }
                     }
-                } else {
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        starterTasks.forEach { task ->
-                            StarterTaskCard(task, selectedAgentLabel.orEmpty(), starterTaskLayout, onSelectStarterTask)
+                }
+                if (starterTaskCategories.isEmpty() || activeCategory != null) {
+                    if (starterTaskLayout == StarterTaskLayout.VerticalList) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        visibleStarterTasks.forEach { task ->
+                            StarterTaskCard(task, selectedAgentLabel.orEmpty(), starterTaskLayout, onSelectStarterTask, activeCategoryAccent)
+                        }
+                    }
+                    } else {
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            visibleStarterTasks.forEach { task ->
+                                StarterTaskCard(task, selectedAgentLabel.orEmpty(), starterTaskLayout, onSelectStarterTask, activeCategoryAccent)
+                            }
                         }
                     }
                 }
@@ -185,22 +293,49 @@ internal fun WorkspaceTaskStartSection(
     }
 }
 
+private fun starterCategoryIcon(icon: String?): ImageVector = when (icon?.trim()?.lowercase(Locale.US)) {
+    "route" -> Icons.Filled.Route
+    "chart-line" -> Icons.Filled.QueryStats
+    "wrench" -> Icons.Filled.Build
+    "trend-up" -> Icons.AutoMirrored.Filled.TrendingUp
+    "shield-warning" -> Icons.Filled.Security
+    else -> Icons.Filled.Route
+}
+
+private fun starterCategoryColor(index: Int): Color = listOf(
+    Color(0xFF4772D8),
+    Color(0xFF7655C7),
+    Color(0xFF27886A),
+    Color(0xFFBA6B2D),
+    Color(0xFFB94D69),
+)[index.mod(5)]
+
 @Composable
 private fun StarterTaskCard(
     task: StarterTask,
     fallbackDescription: String,
     layout: StarterTaskLayout,
     onSelect: (String) -> Unit,
+    accent: Color? = null,
 ) {
     val prompt = task.prompt?.trim().orEmpty()
     val vertical = layout == StarterTaskLayout.VerticalList
-    ElevatedCard(
+    Surface(
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, Color(0xFFDDE4F1)),
+        shape = MaterialTheme.shapes.large,
         modifier = Modifier
             .then(if (vertical) Modifier.fillMaxWidth().heightIn(min = 96.dp) else Modifier.widthIn(min = 220.dp, max = 280.dp))
             .clickable(enabled = prompt.isNotBlank()) { onSelect(prompt) }
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+            modifier = Modifier
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.White, accent?.copy(alpha = 0.08f) ?: Color.White)
+                    )
+                )
+                .padding(horizontal = 14.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(

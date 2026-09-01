@@ -678,6 +678,10 @@ export function normalizeMetaResponse(payload) {
     agentInfos: normalizedAgentInfos,
     selectedAgent
   });
+  const starterTaskCategories = resolveStarterTaskCategories({
+    agentInfos: normalizedAgentInfos,
+    selectedAgent
+  });
   const normalizedAgentInfo = normalizedAgentInfos.reduce((acc, entry) => {
     if (entry?.id) acc[entry.id] = entry;
     return acc;
@@ -692,6 +696,7 @@ export function normalizeMetaResponse(payload) {
     agentInfos: normalizedAgentInfos,
     modelInfos: normalizedModelInfos,
     starterTasks,
+    starterTaskCategories,
     agentInfo: normalizedAgentInfo,
     modelInfo: normalizedModelInfos.reduce((acc, entry) => {
       if (entry?.id) acc[entry.id] = entry;
@@ -715,8 +720,26 @@ function normalizeStarterTaskEntries(entries = [], agent = null) {
     if (!prompt || !title) return null;
     return {
       id: String(entry.id || `starter-${index + 1}`).trim(),
+      categoryId: String(entry.categoryId || '').trim(),
       title,
       prompt,
+      description: String(entry.description || '').trim(),
+      icon: String(entry.icon || '').trim(),
+      agentId: String(agent?.id || '').trim(),
+      agentName: String(agent?.name || '').trim()
+    };
+  }).filter(Boolean);
+}
+
+function normalizeStarterTaskCategoryEntries(entries = [], agent = null) {
+  return (Array.isArray(entries) ? entries : []).map((entry) => {
+    if (!entry || typeof entry !== 'object') return null;
+    const id = String(entry.id || '').trim();
+    const title = String(entry.title || '').trim();
+    if (!id || !title) return null;
+    return {
+      id,
+      title,
       description: String(entry.description || '').trim(),
       icon: String(entry.icon || '').trim(),
       agentId: String(agent?.id || '').trim(),
@@ -737,6 +760,22 @@ export function resolveStarterTasks({ agentInfos = [], selectedAgent = '' } = {}
   return rawTasks.filter((entry) => {
     const key = `${String(entry?.id || '').trim()}|${String(entry?.title || '').trim()}|${String(entry?.prompt || '').trim()}`;
     if (!key.trim() || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function resolveStarterTaskCategories({ agentInfos = [], selectedAgent = '' } = {}) {
+  const normalizedSelectedAgent = sanitizeAutoSelection(selectedAgent || '');
+  const normalizedAgents = Array.isArray(agentInfos) ? agentInfos : [];
+  const selectedEntries = normalizedSelectedAgent === 'auto'
+    ? normalizedAgents
+    : normalizedAgents.filter((entry) => String(entry?.id || '').trim() === normalizedSelectedAgent);
+  const categories = selectedEntries.flatMap((entry) => normalizeStarterTaskCategoryEntries(entry?.starterTaskCategories, entry));
+  const seen = new Set();
+  return categories.filter((entry) => {
+    const key = `${entry.agentId}|${entry.id}`;
+    if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
@@ -1262,6 +1301,7 @@ function getContextWindowId(context) {
 
 export function publishActiveConversation(conversationID = '', context = null) {
   const id = String(conversationID || '').trim();
+  const chatState = ensureContextResources(context);
   const contextWindowId = getContextWindowId(context);
   const contextWindow = getWindowById(contextWindowId);
   const targetWindowId = String(contextWindow?.windowKey || '').trim() === 'chat/new'
@@ -1296,6 +1336,22 @@ export function publishActiveConversation(conversationID = '', context = null) {
     logExecutorDebug('publish-active-conversation-ignored-stale-route', {
       conversationId: id,
       routeConversationId: currentRouteConversationId,
+      windowId: targetWindowId
+    });
+    return;
+  }
+  // An explicit New Conversation reset owns the empty route until the next
+  // submit creates a new id. Ignore late async completion from the previously
+  // selected conversation; otherwise it can repopulate both the route and the
+  // old transcript/tool-feed surface after the reset.
+  if (
+    isMainChatWindowId(targetWindowId)
+    && !currentRouteConversationId
+    && id
+    && chatState.explicitNewConversationRequested === true
+  ) {
+    logExecutorDebug('publish-active-conversation-ignored-explicit-new', {
+      conversationId: id,
       windowId: targetWindowId
     });
     return;
@@ -2948,11 +3004,16 @@ export async function createNewConversation(context) {
       agentInfos: Array.isArray(metaForm?.agentInfos) ? metaForm.agentInfos : [],
       selectedAgent: preferredAgent
     });
+    const starterTaskCategories = resolveStarterTaskCategories({
+      agentInfos: Array.isArray(metaForm?.agentInfos) ? metaForm.agentInfos : [],
+      selectedAgent: preferredAgent
+    });
     metaDS.setFormData?.({
       values: {
         ...metaForm,
         agent: preferredAgent || metaForm?.agent || '',
-        starterTasks
+        starterTasks,
+        starterTaskCategories
       }
     });
   }

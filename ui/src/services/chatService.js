@@ -1082,6 +1082,7 @@ export function resolveComposerProps({ context, container, metaCtx: providedMeta
   return {
     commandCenter: true,
     starterTasks: Array.isArray(metaForm?.starterTasks) ? metaForm.starterTasks : [],
+    starterTaskCategories: Array.isArray(metaForm?.starterTaskCategories) ? metaForm.starterTaskCategories : [],
     inputComponent: NamedLookupInput,
     inputProps: {
       context,
