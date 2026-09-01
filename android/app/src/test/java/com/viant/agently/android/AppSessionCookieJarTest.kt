@@ -2,8 +2,11 @@ package com.viant.agently.android
 
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.net.InetSocketAddress
+import java.net.Proxy
 
 class AppSessionCookieJarTest {
     @Test
@@ -56,5 +59,32 @@ class AppSessionCookieJarTest {
         assertTrue(cookies.single().secure)
         assertTrue(cookies.single().httpOnly)
         assertTrue(jar.webViewCookies("https://steward.agently.viantinc.com").single().startsWith("agently_session="))
+    }
+
+    @Test
+    fun configuredHttpProxyIsAppliedToEveryWorkspaceClient() {
+        val proxyUrl = "http://192.168.118.48:8888"
+        val expected = resolveAppHttpProxy(proxyUrl)
+
+        assertEquals(Proxy.Type.HTTP, expected?.type())
+        val address = expected?.address() as InetSocketAddress
+        assertEquals("192.168.118.48", address.hostString)
+        assertEquals(8888, address.port)
+        assertTrue(address.isUnresolved)
+
+        listOf(
+            appSessionHttpClient(proxyUrl = proxyUrl),
+            appLongRunningHttpClient(proxyUrl = proxyUrl),
+            appStreamHttpClient(proxyUrl = proxyUrl)
+        ).forEach { client ->
+            assertEquals(expected, client.proxy)
+        }
+    }
+
+    @Test
+    fun invalidHttpProxyIsIgnored() {
+        assertNull(resolveAppHttpProxy(""))
+        assertNull(resolveAppHttpProxy("socks://127.0.0.1:8888"))
+        assertNull(resolveAppHttpProxy("http://missing-port"))
     }
 }

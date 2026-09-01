@@ -19,6 +19,9 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
+import java.net.InetSocketAddress
+import java.net.Proxy
+import java.net.URI
 
 internal class AppSessionCookieJar(context: Context? = null) : CookieJar {
     private val store = ConcurrentHashMap<String, MutableList<Cookie>>()
@@ -201,29 +204,52 @@ private class PersistentSessionCookieStore(context: Context) {
     }
 }
 
-internal fun appSessionHttpClient(cookieJar: CookieJar = AppSessionCookieJar()): OkHttpClient {
-    return appSessionHttpClientBuilder(cookieJar)
+internal fun appSessionHttpClient(
+    cookieJar: CookieJar = AppSessionCookieJar(),
+    proxyUrl: String = ""
+): OkHttpClient {
+    return appSessionHttpClientBuilder(cookieJar, proxyUrl)
         .readTimeout(30, TimeUnit.SECONDS)
         .callTimeout(45, TimeUnit.SECONDS)
         .build()
 }
 
-internal fun appLongRunningHttpClient(cookieJar: CookieJar = AppSessionCookieJar()): OkHttpClient {
-    return appSessionHttpClientBuilder(cookieJar)
+internal fun appLongRunningHttpClient(
+    cookieJar: CookieJar = AppSessionCookieJar(),
+    proxyUrl: String = ""
+): OkHttpClient {
+    return appSessionHttpClientBuilder(cookieJar, proxyUrl)
         .readTimeout(0, TimeUnit.SECONDS)
         .callTimeout(0, TimeUnit.SECONDS)
         .build()
 }
 
-internal fun appStreamHttpClient(cookieJar: CookieJar = AppSessionCookieJar()): OkHttpClient {
-    return appSessionHttpClientBuilder(cookieJar)
+internal fun appStreamHttpClient(
+    cookieJar: CookieJar = AppSessionCookieJar(),
+    proxyUrl: String = ""
+): OkHttpClient {
+    return appSessionHttpClientBuilder(cookieJar, proxyUrl)
         .readTimeout(0, TimeUnit.SECONDS)
         .callTimeout(0, TimeUnit.SECONDS)
         .build()
 }
 
-private fun appSessionHttpClientBuilder(cookieJar: CookieJar): OkHttpClient.Builder {
-    return OkHttpClient.Builder()
+private fun appSessionHttpClientBuilder(cookieJar: CookieJar, proxyUrl: String): OkHttpClient.Builder {
+    val builder = OkHttpClient.Builder()
         .cookieJar(cookieJar)
         .connectTimeout(10, TimeUnit.SECONDS)
+    resolveAppHttpProxy(proxyUrl)?.let(builder::proxy)
+    return builder
+}
+
+internal fun resolveAppHttpProxy(raw: String): Proxy? {
+    val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return null
+    if (!uri.scheme.equals("http", ignoreCase = true) || uri.host.isNullOrBlank()) {
+        return null
+    }
+    val port = uri.port
+    if (port !in 1..65535) {
+        return null
+    }
+    return Proxy(Proxy.Type.HTTP, InetSocketAddress.createUnresolved(uri.host, port))
 }

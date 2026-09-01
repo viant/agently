@@ -202,9 +202,16 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     var savedLoginConfig by remember { mutableStateOf(storedSavedLoginConfig) }
     var authSessionId by remember { mutableStateOf<String?>(null) }
     val sessionCookieJar = remember(context) { AppSessionCookieJar(context.applicationContext) }
-    val appHttpClient = remember(sessionCookieJar) { appSessionHttpClient(sessionCookieJar) }
-    val appLongRunningHttpClient = remember(sessionCookieJar) { appLongRunningHttpClient(sessionCookieJar) }
-    val appStreamHttpClient = remember(sessionCookieJar) { appStreamHttpClient(sessionCookieJar) }
+    val debugHttpProxy = if (BuildConfig.DEBUG) BuildConfig.DEV_HTTP_PROXY.trim() else ""
+    val appHttpClient = remember(sessionCookieJar, debugHttpProxy) {
+        appSessionHttpClient(sessionCookieJar, debugHttpProxy)
+    }
+    val appLongRunningHttpClient = remember(sessionCookieJar, debugHttpProxy) {
+        appLongRunningHttpClient(sessionCookieJar, debugHttpProxy)
+    }
+    val appStreamHttpClient = remember(sessionCookieJar, debugHttpProxy) {
+        appStreamHttpClient(sessionCookieJar, debugHttpProxy)
+    }
     val forgeTargetContext = remember(formFactor) { buildForgeTargetContext(formFactor) }
     fun buildClient(baseUrl: String): AgentlyClient = AgentlyClient(
         endpoints = mapOf(

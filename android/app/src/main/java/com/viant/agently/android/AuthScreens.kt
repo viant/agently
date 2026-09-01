@@ -233,9 +233,14 @@ internal fun OAuthWebDialog(
     onDismiss: () -> Unit,
     onCallback: (String, String) -> Unit
 ) {
+    val context = LocalContext.current
+    val proxyURL = if (BuildConfig.DEBUG) BuildConfig.DEV_HTTP_PROXY.trim() else ""
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var loadedAuthUrl by remember { mutableStateOf<String?>(null) }
     var webError by remember { mutableStateOf<String?>(null) }
+    DisposableEffect(proxyURL) {
+        onDispose { clearDebugWebViewProxy(context, proxyURL) }
+    }
 
     Column(
         modifier = Modifier
@@ -334,8 +339,8 @@ internal fun OAuthWebDialog(
                                 }
                             }
                         }
-                        loadUrl(authUrl)
                         loadedAuthUrl = authUrl
+                        loadWebViewWithDebugProxy(this, authUrl, context, proxyURL)
                     }
                 },
                 update = { webView ->
@@ -387,11 +392,7 @@ internal fun HostedMCPAuthWebDialog(
     val proxyURL = if (BuildConfig.DEBUG) BuildConfig.DEV_HTTP_PROXY.trim() else ""
     var loadedAuthUrl by remember { mutableStateOf<String?>(null) }
     DisposableEffect(proxyURL) {
-        onDispose {
-            if (proxyURL.isNotEmpty() && WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
-                ProxyController.getInstance().clearProxyOverride(ContextCompat.getMainExecutor(context)) {}
-            }
-        }
+        onDispose { clearDebugWebViewProxy(context, proxyURL) }
     }
     Column(
         modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
@@ -427,15 +428,7 @@ internal fun HostedMCPAuthWebDialog(
                         }
                     }
                     loadedAuthUrl = authUrl
-                    if (proxyURL.isNotEmpty() && WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
-                        val proxy = ProxyConfig.Builder().addProxyRule(proxyURL).build()
-                        ProxyController.getInstance().setProxyOverride(
-                            proxy,
-                            ContextCompat.getMainExecutor(viewContext)
-                        ) { post { loadUrl(authUrl) } }
-                    } else {
-                        loadUrl(authUrl)
-                    }
+                    loadWebViewWithDebugProxy(this, authUrl, viewContext, proxyURL)
                 }
             },
             update = { webView ->
@@ -445,6 +438,29 @@ internal fun HostedMCPAuthWebDialog(
                 }
             }
         )
+    }
+}
+
+private fun loadWebViewWithDebugProxy(
+    webView: WebView,
+    url: String,
+    context: android.content.Context,
+    proxyURL: String
+) {
+    if (proxyURL.isEmpty() || !WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+        webView.loadUrl(url)
+        return
+    }
+    val proxy = ProxyConfig.Builder().addProxyRule(proxyURL).build()
+    ProxyController.getInstance().setProxyOverride(
+        proxy,
+        ContextCompat.getMainExecutor(context)
+    ) { webView.post { webView.loadUrl(url) } }
+}
+
+private fun clearDebugWebViewProxy(context: android.content.Context, proxyURL: String) {
+    if (proxyURL.isNotEmpty() && WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+        ProxyController.getInstance().clearProxyOverride(ContextCompat.getMainExecutor(context)) {}
     }
 }
 
