@@ -7,6 +7,7 @@ enum StarterTaskLayout {
 }
 
 struct ChatWorkspaceView: View {
+    @State private var selectedStarterCategoryID = ""
     let metadata: WorkspaceMetadata?
     let selectedAgentID: String?
     let availableAgents: [WorkspaceAgentOption]
@@ -99,6 +100,41 @@ struct ChatWorkspaceView: View {
         }
     }
 
+    private var starterTaskCategories: [StarterTaskCategory] {
+        guard let resolvedAgentID else { return [] }
+        let match = metadata?.agentInfos.first(where: { info in
+            let agentID = (info.agentID ?? info.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return agentID.caseInsensitiveCompare(resolvedAgentID) == .orderedSame
+        })
+        let tasks = starterTasks
+        return (match?.starterTaskCategories ?? []).filter { category in
+            let id = (category.rawID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = (category.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return !id.isEmpty && !title.isEmpty && tasks.contains { task in
+                (task.categoryID ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == id
+            }
+        }
+    }
+
+    private var activeStarterCategory: StarterTaskCategory? {
+        starterTaskCategories.first(where: {
+            ($0.rawID ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == selectedStarterCategoryID
+        })
+    }
+
+    private var activeStarterTasks: [StarterTask] {
+        guard let id = activeStarterCategory?.rawID?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else {
+            return starterTasks
+        }
+        return starterTasks.filter { ($0.categoryID ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == id }
+    }
+
+    private var activeStarterCategoryColor: Color? {
+        guard let category = activeStarterCategory,
+              let index = starterTaskCategories.firstIndex(where: { $0.id == category.id }) else { return nil }
+        return starterCategoryColor(index)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if showWorkspaceHeader {
@@ -114,7 +150,11 @@ struct ChatWorkspaceView: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     } else {
-                        starterTaskList
+                        if starterTaskCategories.isEmpty {
+                            starterTaskList(starterTasks)
+                        } else {
+                            categorizedStarterTaskList
+                        }
                     }
                 }
             }
@@ -150,20 +190,81 @@ struct ChatWorkspaceView: View {
     }
 
     @ViewBuilder
-    private var starterTaskList: some View {
+    private var categorizedStarterTaskList: some View {
+        if activeStarterCategory == nil {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                ForEach(Array(starterTaskCategories.enumerated()), id: \.element.id) { index, category in
+                    let id = (category.rawID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    let accent = starterCategoryColor(index)
+                    Button {
+                        selectedStarterCategoryID = id
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: starterCategorySymbol(category.icon))
+                                .font(.system(size: 19, weight: .semibold))
+                                .frame(width: 32, height: 32)
+                                .foregroundStyle(Color.white)
+                                .background(accent, in: RoundedRectangle(cornerRadius: 10))
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text((category.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+                                    .font(.subheadline.weight(.semibold))
+                                    .lineLimit(2)
+                                if let description = category.description?.trimmingCharacters(in: .whitespacesAndNewlines), !description.isEmpty {
+                                    Text(description).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                                }
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+                        .padding(12)
+                        .background(
+                            LinearGradient(
+                                colors: [Color.white, accent.opacity(0.10)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            in: RoundedRectangle(cornerRadius: 14)
+                        )
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(accent.opacity(0.22)))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        } else if let category = activeStarterCategory {
+            Button {
+                selectedStarterCategoryID = ""
+            } label: {
+                Label("Back to categories", systemImage: "chevron.left")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.accentColor)
+            VStack(alignment: .leading, spacing: 3) {
+                Text((category.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+                    .font(.subheadline.weight(.semibold))
+                if let description = category.description?.trimmingCharacters(in: .whitespacesAndNewlines), !description.isEmpty {
+                    Text(description).font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            starterTaskList(activeStarterTasks, accent: activeStarterCategoryColor)
+        }
+    }
+
+    @ViewBuilder
+    private func starterTaskList(_ tasks: [StarterTask], accent: Color? = nil) -> some View {
         switch starterTaskLayout {
         case .horizontalCards:
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 12) {
-                    ForEach(Array(starterTasks.enumerated()), id: \.offset) { _, task in
-                        starterTaskButton(task, width: 220, minHeight: 118)
+                    ForEach(Array(tasks.enumerated()), id: \.offset) { _, task in
+                        starterTaskButton(task, width: 220, minHeight: 118, accent: accent)
                     }
                 }
             }
         case .verticalList:
             VStack(spacing: 10) {
-                ForEach(Array(starterTasks.enumerated()), id: \.offset) { _, task in
-                    starterTaskButton(task, width: nil, minHeight: 96)
+                ForEach(Array(tasks.enumerated()), id: \.offset) { _, task in
+                    starterTaskButton(task, width: nil, minHeight: 96, accent: accent)
                 }
             }
         }
@@ -172,7 +273,8 @@ struct ChatWorkspaceView: View {
     private func starterTaskButton(
         _ task: StarterTask,
         width: CGFloat?,
-        minHeight: CGFloat
+        minHeight: CGFloat,
+        accent: Color? = nil
     ) -> some View {
         Button {
             onSelectStarterTask(task)
@@ -192,15 +294,44 @@ struct ChatWorkspaceView: View {
             .frame(width: width, alignment: .leading)
             .frame(maxWidth: width == nil ? .infinity : nil, minHeight: minHeight, alignment: .topLeading)
             .padding(14)
-            .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+            .background(
+                LinearGradient(
+                    colors: [Color.white, accent?.opacity(0.09) ?? Color.secondary.opacity(0.07)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ),
+                in: RoundedRectangle(cornerRadius: 8)
+            )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.secondary.opacity(0.08), lineWidth: 1)
+                    .stroke(accent?.opacity(0.20) ?? Color.secondary.opacity(0.08), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(starterTaskAccessibilityIdentifier(task))
     }
+}
+
+private func starterCategorySymbol(_ icon: String?) -> String {
+    switch (icon ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "route": return "point.topleft.down.to.point.bottomright.curvepath"
+    case "chart-line": return "chart.xyaxis.line"
+    case "wrench": return "wrench.and.screwdriver"
+    case "trend-up": return "chart.line.uptrend.xyaxis"
+    case "shield-warning": return "checkmark.shield"
+    default: return "sparkles"
+    }
+}
+
+private func starterCategoryColor(_ index: Int) -> Color {
+    let colors: [Color] = [
+        Color(red: 0.28, green: 0.45, blue: 0.85),
+        Color(red: 0.46, green: 0.33, blue: 0.78),
+        Color(red: 0.15, green: 0.53, blue: 0.41),
+        Color(red: 0.73, green: 0.42, blue: 0.18),
+        Color(red: 0.72, green: 0.30, blue: 0.41),
+    ]
+    return colors[index % colors.count]
 }
 
 private func starterTaskAccessibilityIdentifier(_ task: StarterTask) -> String {

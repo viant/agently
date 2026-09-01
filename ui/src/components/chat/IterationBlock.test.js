@@ -22,6 +22,7 @@ import IterationBlock, {
   resolveIterationAgentLabel,
   resolveIterationStatusDetail,
   resolveTerminalFailureMessage,
+  intakeClassificationSummary,
   resolveVisibleBubbleContent,
   resolveVisibleBubbleRenderedContent,
   resolveIterationBubbleContent,
@@ -943,7 +944,15 @@ describe('mapCanonicalExecutionGroups', () => {
     });
   });
 
-  it('keeps router-only model groups visible in execution details', () => {
+  it('summarizes router-only model groups and preserves raw payload details', () => {
+    const intakePayload = JSON.stringify({
+      classification: {
+        title: 'Stage catalog changes',
+        intent: 'catalog_edit',
+        confidence: 0.99,
+      },
+      prompting: { suggestedProfileId: 'catalog_management' },
+    });
     const groups = mapCanonicalExecutionGroups([
       {
         parentMessageId: 'router-1',
@@ -951,13 +960,14 @@ describe('mapCanonicalExecutionGroups', () => {
         sequence: 1,
         finalResponse: true,
         status: 'completed',
-        content: '{"agentId":"coder"}',
+        content: intakePayload,
         modelCall: {
           phase: 'intake',
           provider: 'openai',
           model: 'gpt-5.4',
           status: 'completed',
-          responsePayload: '{"agentId":"coder"}'
+          responsePayloadId: 'router-response-payload',
+          responsePayload: intakePayload,
         },
         toolCalls: []
       }
@@ -966,8 +976,18 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].groupKind).toBe('intake');
     expect(groups[0].modelStep?.executionRole).toBe('intake');
-    expect(groups[0].finalContent).toBe('{"agentId":"coder"}');
+    expect(groups[0].title).toBe('Intake classified as catalog_edit');
+    expect(groups[0].finalContent).toBe('');
+    expect(groups[0].narrationContent).toBe('');
+    expect(groups[0].modelStep?.responsePayloadId).toBe('router-response-payload');
+    expect(groups[0].modelStep?.responsePayload).toBe(intakePayload);
     expect(resolveVisibleBubbleContent(groups)).toBe('');
+    expect(intakeClassificationSummary(intakePayload)).toBe('Intake classified as catalog_edit');
+    expect(resolveIterationBubbleContent({
+      visibleGroups: groups,
+      responseContent: intakePayload,
+      errorMessage: 'required tools unavailable',
+    })).toBe('We experienced an error while processing this request.');
   });
 
   it('preserves narrator executionRole on canonical model groups', () => {

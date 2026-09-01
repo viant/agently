@@ -18,7 +18,7 @@ vi.mock('./elicitationBus', () => ({
   replacePendingElicitationsForConversation: replacePendingElicitationsForConversationMock,
 }));
 
-import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, clearPendingConversationBootstrap, connectStream, createNewConversation, dsTick, enqueueConversationSwitch, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, getSettledConversationBootstrapSnapshot, handleStreamEvent, hydrateMeta, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
+import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, clearPendingConversationBootstrap, connectStream, createNewConversation, dsTick, enqueueConversationSwitch, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, getSettledConversationBootstrapSnapshot, handleStreamEvent, hydrateMeta, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTaskCategories, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
 import { client } from './agentlyClient';
 import { applyFeedEvent, clearFeedState, getFeedData } from './toolFeedBus';
 
@@ -145,6 +145,35 @@ describe('publishActiveConversation', () => {
     expect(replaceState).toHaveBeenCalled();
     expect(window.location.pathname).toBe('/conversation/conv-bootstrap');
   });
+
+  it('keeps an explicit new-conversation route empty when the previous conversation completes late', () => {
+    const originalWindow = global.window;
+    const replaceState = vi.fn((state, _title, url) => {
+      window.location.pathname = String(url || '');
+    });
+    const dispatchEvent = vi.fn();
+    global.window = {
+      location: { pathname: '/', port: '5176', hostname: '127.0.0.1' },
+      history: { state: null, replaceState },
+      localStorage: createStorage(),
+      sessionStorage: createStorage(),
+      dispatchEvent
+    };
+    const context = {
+      identity: { windowId: 'chat/new' },
+      resources: { chat: { explicitNewConversationRequested: true } }
+    };
+
+    try {
+      publishActiveConversation('conv-previous', context);
+
+      expect(replaceState).not.toHaveBeenCalled();
+      expect(dispatchEvent).not.toHaveBeenCalled();
+      expect(window.location.pathname).toBe('/');
+    } finally {
+      global.window = originalWindow;
+    }
+  });
 });
 
 describe('syncMessagesSnapshot pending elicitation overlay sync', () => {
@@ -229,7 +258,8 @@ describe('normalizeMetaResponse', () => {
       agentInfos: [{
         id: 'coder',
         name: 'Coder',
-        starterTasks: [{ id: 'analyze', title: 'Analyze', prompt: 'Analyze this repo.' }]
+        starterTaskCategories: [{ id: 'understand', title: 'Understand', icon: 'tree-structure' }],
+        starterTasks: [{ id: 'analyze', categoryId: 'understand', title: 'Analyze', prompt: 'Analyze this repo.' }]
       }],
       modelInfos: [
         { id: 'openai_gpt-5.2', name: 'GPT-5.2' },
@@ -246,6 +276,8 @@ describe('normalizeMetaResponse', () => {
     expect(got.modelOptions[1]).toMatchObject({ value: 'openai_o3', label: 'o3 (OpenAI)' });
     expect(got.modelOptions.some((entry) => entry?.value === 'auto')).toBe(false);
     expect(got.agentInfos[0].starterTasks[0]).toMatchObject({ id: 'analyze', title: 'Analyze' });
+    expect(got.starterTasks[0]).toMatchObject({ id: 'analyze', categoryId: 'understand' });
+    expect(got.starterTaskCategories[0]).toMatchObject({ id: 'understand', title: 'Understand', icon: 'tree-structure' });
   });
 });
 
@@ -262,6 +294,24 @@ describe('resolveStarterTasks', () => {
     expect(got).toHaveLength(2);
     expect(got[0]).toMatchObject({ id: 'analyze', agentId: 'coder', agentName: 'Coder' });
     expect(got[1]).toMatchObject({ id: 'summarize', agentId: 'chatter', agentName: 'Chatter' });
+  });
+});
+
+describe('resolveStarterTaskCategories', () => {
+  it('preserves workspace order and scopes categories to the selected agent', () => {
+    const got = resolveStarterTaskCategories({
+      selectedAgent: 'steward',
+      agentInfos: [
+        { id: 'other', starterTaskCategories: [{ id: 'build', title: 'Build' }] },
+        { id: 'steward', starterTaskCategories: [
+          { id: 'plan', title: 'Plan', icon: 'route' },
+          { id: 'measure', title: 'Measure', icon: 'chart-line' }
+        ] }
+      ]
+    });
+
+    expect(got.map((entry) => entry.id)).toEqual(['plan', 'measure']);
+    expect(got[0]).toMatchObject({ agentId: 'steward', icon: 'route' });
   });
 });
 

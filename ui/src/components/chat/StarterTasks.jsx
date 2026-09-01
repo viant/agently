@@ -3,6 +3,7 @@ import {
   BugBeetle,
   Buildings,
   CalendarDots,
+  ChartPieSlice,
   ChartLineUp,
   ChatCircleText,
   CirclesThree,
@@ -10,14 +11,19 @@ import {
   Flask,
   GlobeHemisphereWest,
   Handshake,
+  ImageSquare,
   Info,
+  EnvelopeSimple,
   Palette,
   Path,
   PencilSimple,
   RocketLaunch,
+  ClipboardText,
   ShieldWarning,
   Tag,
   Target,
+  Pulse,
+  Stack,
   TrendUp,
   TreeStructure,
   Wrench,
@@ -29,19 +35,25 @@ const ICONS = {
   buildings: Buildings,
   chat: ChatCircleText,
   'calendar-report': CalendarDots,
+  'chart-arcs': ChartPieSlice,
   'chart-line': ChartLineUp,
   document: FileText,
+  email: EnvelopeSimple,
   flask: Flask,
   'globe-search': GlobeHemisphereWest,
   help: Info,
   handshake: Handshake,
+  image: ImageSquare,
   palette: Palette,
+  clipboard: ClipboardText,
   pencil: PencilSimple,
   radar: Target,
+  pulse: Pulse,
   rocket: RocketLaunch,
   route: Path,
   'shield-warning': ShieldWarning,
   tags: Tag,
+  layers: Stack,
   'trend-up': TrendUp,
   'tree-structure': TreeStructure,
   venn: CirclesThree,
@@ -54,10 +66,46 @@ function starterIcon(task = {}) {
   return <Icon size={18} weight="duotone" />;
 }
 
+function categoryKey(category = {}) {
+  return `${String(category?.agentId || '').trim()}|${String(category?.id || '').trim()}`;
+}
+
+function taskBelongsToCategory(task = {}, category = {}) {
+  const taskCategory = String(task?.categoryId || '').trim();
+  const categoryID = String(category?.id || '').trim();
+  if (!taskCategory || taskCategory !== categoryID) return false;
+  const taskAgent = String(task?.agentId || '').trim();
+  const categoryAgent = String(category?.agentId || '').trim();
+  return !taskAgent || !categoryAgent || taskAgent === categoryAgent;
+}
+
 export default function StarterTasks({ message, context }) {
   const tasks = Array.isArray(message?.starterTasks) ? message.starterTasks : [];
+  const declaredCategories = Array.isArray(message?.starterTaskCategories) ? message.starterTaskCategories : [];
   const title = String(message?.title || 'Start with an agent prompt').trim();
   const subtitle = String(message?.subtitle || '').trim();
+
+  const categories = declaredCategories.filter((category) => (
+    String(category?.id || '').trim()
+    && String(category?.title || '').trim()
+    && tasks.some((task) => taskBelongsToCategory(task, category))
+  ));
+  const categorizedTaskIndexes = new Set();
+  categories.forEach((category) => {
+    tasks.forEach((task, index) => {
+      if (taskBelongsToCategory(task, category)) categorizedTaskIndexes.add(index);
+    });
+  });
+  const uncategorizedTasks = tasks.filter((_, index) => !categorizedTaskIndexes.has(index));
+  const presentationCategories = categories.length > 0
+    ? [...categories, ...(uncategorizedTasks.length > 0 ? [{ id: '__more__', title: 'More', icon: 'chat', tasks: uncategorizedTasks }] : [])]
+    : [];
+  const [selectedCategoryKey, setSelectedCategoryKey] = React.useState('');
+  React.useEffect(() => {
+    if (selectedCategoryKey && !presentationCategories.some((category) => categoryKey(category) === selectedCategoryKey)) {
+      setSelectedCategoryKey('');
+    }
+  }, [presentationCategories, selectedCategoryKey]);
 
   if (tasks.length === 0) return null;
 
@@ -130,6 +178,74 @@ export default function StarterTasks({ message, context }) {
     }
   };
 
+  const renderTaskCard = (task, index) => (
+    <button
+      key={String(task?.id || `${task?.title || 'starter'}-${index}`)}
+      type="button"
+      className="chat-starter-task-card"
+      onClick={(event) => onSelectTask(task, event)}
+    >
+      <span className="chat-starter-task-icon" aria-hidden="true">{starterIcon(task)}</span>
+      <div className="chat-starter-task-title">{String(task?.title || '').trim()}</div>
+      <div className="chat-starter-task-description">
+        {String(task?.description || task?.agentName || '').trim()}
+      </div>
+    </button>
+  );
+
+  if (presentationCategories.length > 0) {
+    const selectedCategory = presentationCategories.find((category) => categoryKey(category) === selectedCategoryKey) || null;
+    const selectedCategoryTone = selectedCategory ? (presentationCategories.indexOf(selectedCategory) % 5) + 1 : undefined;
+    const selectedTasks = Array.isArray(selectedCategory?.tasks)
+      ? selectedCategory.tasks
+      : selectedCategory ? tasks.filter((task) => taskBelongsToCategory(task, selectedCategory)) : [];
+    return (
+      <div className="chat-starter-stage chat-starter-stage--categorized">
+        <div className="chat-starter-tasks chat-starter-tasks--categorized" data-category-tone={selectedCategoryTone}>
+          <div className="chat-starter-tasks-head">
+            {selectedCategory ? (
+              <button type="button" className="chat-starter-category-back" onClick={() => setSelectedCategoryKey('')}>
+                <span aria-hidden="true">←</span> Back to categories
+              </button>
+            ) : (
+              <h3 className="chat-starter-tasks-title">Starter tasks</h3>
+            )}
+          </div>
+          {!selectedCategory ? (
+            <div className="chat-starter-category-list" role="list" aria-label="Starter task categories">
+              {presentationCategories.map((category) => {
+                const key = categoryKey(category);
+                return (
+                  <button key={key} type="button" className="chat-starter-category" onClick={() => setSelectedCategoryKey(key)}>
+                    <span className="chat-starter-category-icon" aria-hidden="true">{starterIcon(category)}</span>
+                    <span className="chat-starter-category-copy">
+                      <span className="chat-starter-category-title">{category.title}</span>
+                      {String(category.description || '').trim() ? <span className="chat-starter-category-description">{category.description}</span> : null}
+                    </span>
+                    <span className="chat-starter-category-arrow" aria-hidden="true">›</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <>
+              <div className="chat-starter-category-heading">
+                <div>
+                  <h4>{selectedCategory.title}</h4>
+                  {String(selectedCategory.description || '').trim() ? <p>{selectedCategory.description}</p> : null}
+                </div>
+                <span>{selectedTasks.length} {selectedTasks.length === 1 ? 'task' : 'tasks'}</span>
+              </div>
+              <div className="chat-starter-tasks-grid chat-starter-tasks-grid--categorized">
+                {selectedTasks.map(renderTaskCard)}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="chat-starter-stage">
       <div className="chat-starter-tasks">
@@ -138,20 +254,7 @@ export default function StarterTasks({ message, context }) {
           {subtitle ? <div className="chat-starter-tasks-subtitle">{subtitle}</div> : null}
         </div>
         <div className="chat-starter-tasks-grid">
-          {tasks.map((task, index) => (
-            <button
-              key={String(task?.id || `${task?.title || 'starter'}-${index}`)}
-              type="button"
-              className="chat-starter-task-card"
-              onClick={(event) => onSelectTask(task, event)}
-            >
-              <span className="chat-starter-task-icon" aria-hidden="true">{starterIcon(task)}</span>
-              <div className="chat-starter-task-title">{String(task?.title || '').trim()}</div>
-              <div className="chat-starter-task-description">
-                {String(task?.description || task?.agentName || '').trim()}
-              </div>
-            </button>
-          ))}
+          {tasks.map(renderTaskCard)}
         </div>
       </div>
     </div>

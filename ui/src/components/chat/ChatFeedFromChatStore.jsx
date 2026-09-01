@@ -114,6 +114,7 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
   const conversationForm = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
   const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
   const starterTasks = Array.isArray(metaForm?.starterTasks) ? metaForm.starterTasks : [];
+  const starterTaskCategories = Array.isArray(metaForm?.starterTaskCategories) ? metaForm.starterTaskCategories : [];
   const showStarterTasks = !String(conversationForm?.id || conversationId || '').trim() && starterTasks.length > 0;
 
   React.useEffect(() => {
@@ -145,6 +146,7 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
           message={{
             _type: 'starter',
             starterTasks,
+            starterTaskCategories,
             title: 'Start with an agent prompt',
           }}
         />

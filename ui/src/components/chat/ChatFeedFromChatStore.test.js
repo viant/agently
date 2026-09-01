@@ -191,6 +191,34 @@ describe('ChatFeedFromChatStore', () => {
     expect(html).toContain('Analyze campaign performance');
   });
 
+  it('renders category-first starter tasks when categories are supplied', () => {
+    const html = renderToStaticMarkup(
+      h(ChatFeedFromChatStore, {
+        conversationId: '',
+        rowsOverride: [],
+        context: makeContext({
+          conversation: { id: '' },
+          meta: {
+            starterTaskCategories: [
+              { id: 'plan', title: 'Plan', description: 'Build strategy first.', icon: 'route' },
+              { id: 'measure', title: 'Measure', icon: 'chart-line' },
+            ],
+            starterTasks: [
+              { id: 'forecast', categoryId: 'plan', title: 'Forecast reach', prompt: 'Forecast reach.' },
+              { id: 'report', categoryId: 'measure', title: 'Build report', prompt: 'Build report.' },
+            ],
+          },
+        }),
+      }),
+    );
+    expect(html).toContain('Starter tasks');
+    expect(html).not.toContain('Choose a business goal');
+    expect(html).toContain('Plan');
+    expect(html).toContain('Measure');
+    expect(html).not.toContain('Forecast reach');
+    expect(html).not.toContain('Build report');
+  });
+
   it('does not render starter tasks for an existing conversation with an empty projection', () => {
     const html = renderToStaticMarkup(
       h(ChatFeedFromChatStore, {

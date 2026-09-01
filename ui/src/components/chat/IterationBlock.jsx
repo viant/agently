@@ -712,6 +712,16 @@ export function mapCanonicalExecutionGroups(groups = []) {
       errorMessage
     } : null);
     const finalContent = String(group?.content || group?.Content || '').trim();
+    const intakeSummary = groupPhase === 'intake'
+      ? intakeClassificationSummary(
+        finalContent,
+        rawPreambleContent,
+        modelStep0?.responsePayload,
+        modelStep0?.ResponsePayload,
+        modelStep0?.modelCallResponsePayload,
+        modelStep0?.ModelCallResponsePayload,
+      )
+      : '';
     const renderedContent = group?.renderedContent || group?.RenderedContent || null;
     const title = groupTitleFromSteps({
       narration: narrationContent ? { content: narrationContent } : null,
@@ -721,7 +731,8 @@ export function mapCanonicalExecutionGroups(groups = []) {
     const lifecycleTitle = lifecycleOnly
       ? String(displayStepTitle(toolSteps[0] || {})).trim()
       : '';
-    const semanticTitle = lifecycleTitle
+    const semanticTitle = intakeSummary
+      || lifecycleTitle
       || (groupPhase === 'bootstrap'
         ? 'Bootstrap'
         : (groupPhase === 'sidecar'
@@ -743,15 +754,15 @@ export function mapCanonicalExecutionGroups(groups = []) {
             ? 'summary'
               : (effectiveModelStep ? 'model' : 'tool'))))),
       title: semanticTitle,
-      fullTitle: plainText(narrationContent || semanticTitle),
-      narrationContent,
+      fullTitle: plainText(intakeSummary || narrationContent || semanticTitle),
+      narrationContent: groupPhase === 'intake' ? '' : narrationContent,
       modelStep: effectiveModelStep,
       toolSteps,
       detailStep: effectiveModelStep || toolSteps[0] || null,
       status,
       errorMessage,
-      finalResponse: Boolean(group?.finalResponse || group?.FinalResponse),
-      finalContent,
+      finalResponse: groupPhase === 'intake' ? false : Boolean(group?.finalResponse || group?.FinalResponse),
+      finalContent: groupPhase === 'intake' ? '' : finalContent,
       renderedContent,
       elapsed: aggregateLatencyLabel([...(effectiveModelStep ? [effectiveModelStep] : []), ...toolSteps]),
       stepCount: (effectiveModelStep ? 1 : 0) + toolSteps.length
@@ -835,6 +846,35 @@ export function resolveVisibleBubbleContent(visibleGroups = []) {
     }
   }
   return '';
+}
+
+function structuredObject(value) {
+  if (!value) return null;
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    if (value.classification && typeof value.classification === 'object') return value;
+    for (const nested of [value.content, value.output, value.result]) {
+      const parsed = structuredObject(nested);
+      if (parsed) return parsed;
+    }
+    return null;
+  }
+  const raw = String(value || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  if (!raw.startsWith('{')) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+export function intakeClassificationSummary(...values) {
+  for (const value of values) {
+    const parsed = structuredObject(value);
+    const intent = String(parsed?.classification?.intent || '').trim();
+    if (intent) return `Intake classified as ${intent}`;
+  }
+  return 'Intake classified';
 }
 
 function isModelIdentityTitle(title = '', modelStep = {}) {
@@ -993,6 +1033,7 @@ export function resolveIterationBubbleContent({
   const finalVisibleBubble = String(resolveVisibleBubbleContent(visibleGroups) || '').trim();
   const visibleStreamBubble = isStructuredAssistantArtifact(streamContent) ? '' : String(streamContent || '').trim();
   const explicitNarrationBubble = isStructuredAssistantArtifact(narrationContent) ? '' : String(narrationContent || '').trim();
+  const visibleResponseBubble = isStructuredAssistantArtifact(responseContent) ? '' : String(responseContent || '').trim();
   const hasFinalVisibleGroup = groups.some((group) => {
     const finalText = String(group?.finalContent || '').trim();
     return !!group?.finalResponse && finalText !== '';
@@ -1003,7 +1044,7 @@ export function resolveIterationBubbleContent({
       || (!hasFinalVisibleGroup ? visibleStreamBubble : '')
       || (!hasFinalVisibleGroup ? finalVisibleBubble : '')
       || (!hasFinalVisibleGroup ? explicitNarrationBubble : '')
-      || responseContent
+      || visibleResponseBubble
       || finalVisibleBubble
       || resolveFailedBubbleContent(groups, errorMessage)
       || ''
@@ -1014,7 +1055,7 @@ export function resolveIterationBubbleContent({
     || streamContent
     || finalVisibleBubble
     || iterationContent
-    || responseContent
+    || visibleResponseBubble
     || narrationContent
     || resolveFailedBubbleContent(visibleGroups, errorMessage)
     || ''
@@ -1896,7 +1937,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
   }, [data, message?.elicitation, message?.elicitationId, message?.elicitations, message?.status, message?.createdAt, data?.elicitation, data?.elicitationId, data?.elicitations, data?.response?.elicitation, data?.response?.elicitationId, data?.response?.elicitations, data?.response?.status]);
   const includeExecutionGroup = (group) => {
     const groupKind = String(group?.groupKind || '').trim().toLowerCase();
-    if (groupKind === 'intake' && !showIntakeDetails) return false;
+    if (groupKind === 'intake' && !showIntakeDetails && !developerMode) return false;
     return isPresentableGroup(group);
   };
 
