@@ -30,7 +30,13 @@ vi.mock('../services/agentlyClient', () => ({
   }
 }));
 
-import { estimateTokenUsageCost, formatUsdEstimate, hydrateToolCallFromTranscript } from './DetailPanel';
+import {
+  estimatePayloadTokenUsage,
+  estimateTokenUsageCost,
+  estimateToolTokenUsage,
+  formatUsdEstimate,
+  hydrateToolCallFromTranscript
+} from './DetailPanel';
 import { client } from '../services/agentlyClient';
 import DetailPanel from './DetailPanel';
 
@@ -70,6 +76,58 @@ describe('DetailPanel pricing helpers', () => {
         usage: { input_tokens: 1000, output_tokens: 200 }
       }
     })).toBeNull();
+  });
+
+  it('estimates payload tokens from UTF-8 bytes rather than JavaScript character count', () => {
+    expect(estimatePayloadTokenUsage('éé')).toEqual({
+      available: true,
+      bytes: 4,
+      tokens: 1
+    });
+  });
+
+  it('breaks tool payload estimates into model output and input directions with pricing', () => {
+    const requestPayload = { query: 'abcdefgh' };
+    const responsePayload = { answer: 'abcdefghijklmnop' };
+    const estimate = estimateToolTokenUsage({
+      pricingProvider: 'openai',
+      pricingModel: 'gpt-5.4',
+      requestPayload,
+      responsePayload
+    });
+    const requestBytes = new TextEncoder().encode(JSON.stringify(requestPayload)).byteLength;
+    const responseBytes = new TextEncoder().encode(JSON.stringify(responsePayload)).byteLength;
+    const outputTokens = Math.ceil(requestBytes / 4);
+    const inputTokens = Math.ceil(responseBytes / 4);
+
+    expect(estimate.toolInput).toMatchObject({
+      bytes: requestBytes,
+      tokens: outputTokens,
+      tokenDirection: 'output'
+    });
+    expect(estimate.toolOutput).toMatchObject({
+      bytes: responseBytes,
+      tokens: inputTokens,
+      tokenDirection: 'input'
+    });
+    expect(estimate.outputTokens).toBe(outputTokens);
+    expect(estimate.inputTokens).toBe(inputTokens);
+    expect(estimate.toolInput.cost).toBeCloseTo((outputTokens / 1_000_000) * 15, 12);
+    expect(estimate.toolOutput.cost).toBeCloseTo((inputTokens / 1_000_000) * 2.5, 12);
+    expect(estimate.totalCost).toBeCloseTo(
+      (outputTokens / 1_000_000) * 15 + (inputTokens / 1_000_000) * 2.5,
+      12
+    );
+    expect(formatUsdEstimate(estimate.totalCost)).not.toBe('$0.0000');
+  });
+
+  it('keeps token estimates when model pricing is unavailable', () => {
+    const estimate = estimateToolTokenUsage({
+      requestPayload: { query: 'x' },
+      responsePayload: { answer: 'y' }
+    });
+    expect(estimate.totalTokens).toBeGreaterThan(0);
+    expect(estimate.totalCost).toBeNull();
   });
 
   it('hydrates transcript payload data even when a partial payload id is already present', async () => {
@@ -420,5 +478,28 @@ describe('DetailPanel pricing helpers', () => {
     }));
 
     expect(html).toContain('Open Review');
+  });
+
+  it('renders directional tool token and pricing attribution without calling it billed usage', () => {
+    const html = renderToStaticMarkup(React.createElement(DetailPanel, {
+      toolCall: {
+        kind: 'tool',
+        reason: 'tool_call',
+        toolName: 'resources/read',
+        status: 'completed',
+        pricingProvider: 'openai',
+        pricingModel: 'gpt-5.4',
+        requestPayload: { path: '/tmp/report.json' },
+        responsePayload: { content: 'example output' }
+      },
+      onClose: () => {}
+    }));
+
+    expect(html).toContain('Arguments ≈');
+    expect(html).toContain('output tokens');
+    expect(html).toContain('Result ≈');
+    expect(html).toContain('input tokens');
+    expect(html).toContain('openai/gpt-5.4 pricing');
+    expect(html).toContain('not an addition to provider-reported totals');
   });
 });

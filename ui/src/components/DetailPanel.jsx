@@ -10,10 +10,16 @@ import { openElicitationDialog } from '../services/elicitationBus';
 
 const payloadCache = new Map();
 const MODEL_PRICING_USD_PER_MILLION = {
+  'openai:gpt-5-mini': { input: 0.25, output: 2.0 },
+  'openai:gpt-5.3-codex': { input: 1.75, output: 14.0 },
   'openai:gpt-5.4': { input: 2.5, output: 15.0 },
   'openai:gpt-5.4-mini': { input: 0.75, output: 4.5 },
-  'openai:gpt-5.4-nano': { input: 0.2, output: 1.25 }
+  'openai:gpt-5.4-nano': { input: 0.2, output: 1.25 },
+  'openai:gpt-5.5': { input: 5.0, output: 30.0 },
+  'grok:grok-code-fast-1': { input: 0.2, output: 1.5 },
+  'gemini:gemini-3-pro-preview': { input: 2.0, output: 12.0 }
 };
+const TOOL_ESTIMATE_BYTES_PER_TOKEN = 4;
 
 function firstText(...values) {
   for (const value of values) {
@@ -67,6 +73,9 @@ function flattenTranscriptSteps(turns = []) {
         });
       }
       for (const step of Array.isArray(page?.toolSteps) ? page.toolSteps : []) {
+        const pricingModelStep = Array.isArray(page?.modelSteps)
+          ? page.modelSteps[page.modelSteps.length - 1]
+          : null;
         result.push({
           ...step,
           id: firstText(step?.id, step?.toolCallId, step?.toolMessageId, page?.assistantMessageId, page?.pageId),
@@ -78,6 +87,8 @@ function flattenTranscriptSteps(turns = []) {
           executionRole: firstText(step?.executionRole, page?.executionRole),
           phase: firstText(step?.phase, page?.phase),
           toolName: firstText(step?.toolName, 'tool'),
+          pricingProvider: firstText(step?.pricingProvider, step?.provider, pricingModelStep?.provider),
+          pricingModel: firstText(step?.pricingModel, step?.model, pricingModelStep?.model),
           status: firstText(step?.status),
           errorMessage: firstText(step?.errorMessage, page?.errorMessage),
           requestPayload: normalizeStepPayload(step?.requestPayload),
@@ -295,10 +306,119 @@ function normalizePricingKey(provider = '', model = '') {
   return `${normalizedProvider}:${normalizedModel}`;
 }
 
+function explicitPricingPerMillion(toolCall = {}) {
+  const pricing = toolCall?.pricing || toolCall?.tokenPricing || {};
+  const inputPerMillion = toNumber(
+    pricing?.inputPerMillion
+    ?? pricing?.inputUsdPerMillion
+    ?? toolCall?.inputTokenPricePerMillion
+  );
+  const outputPerMillion = toNumber(
+    pricing?.outputPerMillion
+    ?? pricing?.outputUsdPerMillion
+    ?? toolCall?.outputTokenPricePerMillion
+  );
+  if (inputPerMillion != null || outputPerMillion != null) {
+    return { input: inputPerMillion || 0, output: outputPerMillion || 0 };
+  }
+  // Runtime model options store prices in USD per 1K tokens.
+  const inputPerThousand = toNumber(pricing?.inputTokenPrice ?? toolCall?.inputTokenPrice);
+  const outputPerThousand = toNumber(pricing?.outputTokenPrice ?? toolCall?.outputTokenPrice);
+  if (inputPerThousand != null || outputPerThousand != null) {
+    return { input: (inputPerThousand || 0) * 1000, output: (outputPerThousand || 0) * 1000 };
+  }
+  return null;
+}
+
+function resolveModelPricing(toolCall = {}) {
+  const explicit = explicitPricingPerMillion(toolCall);
+  if (explicit) return explicit;
+  const provider = firstText(toolCall?.pricingProvider, toolCall?.provider);
+  const model = firstText(toolCall?.pricingModel, toolCall?.model);
+  return MODEL_PRICING_USD_PER_MILLION[normalizePricingKey(provider, model)] || null;
+}
+
+function payloadTextForEstimate(payload) {
+  if (payload == null) return null;
+  if (typeof payload === 'string') return payload;
+  if (payload instanceof Uint8Array) return payload;
+  if (typeof payload !== 'object') return String(payload);
+  const compression = String(payload?.compression ?? payload?.Compression ?? '').trim().toLowerCase();
+  const inlineBody = payload?.inlineBody ?? payload?.InlineBody;
+  if (typeof inlineBody === 'string') {
+    if (compression && compression !== 'none') return null;
+    return inlineBody;
+  }
+  if (compression && compression !== 'none') return null;
+  try {
+    return JSON.stringify(payload);
+  } catch (_) {
+    return String(payload);
+  }
+}
+
+function utf8ByteLength(value) {
+  if (value instanceof Uint8Array) return value.byteLength;
+  return new TextEncoder().encode(String(value || '')).byteLength;
+}
+
+export function estimatePayloadTokenUsage(payload, bytesPerToken = TOOL_ESTIMATE_BYTES_PER_TOKEN) {
+  const serialized = payloadTextForEstimate(payload);
+  if (serialized == null) return { available: false, bytes: null, tokens: null };
+  const bytes = utf8ByteLength(serialized);
+  const divisor = Number(bytesPerToken) > 0 ? Number(bytesPerToken) : TOOL_ESTIMATE_BYTES_PER_TOKEN;
+  return {
+    available: true,
+    bytes,
+    tokens: bytes === 0 ? 0 : Math.ceil(bytes / divisor)
+  };
+}
+
+export function estimateToolTokenUsage(toolCall = {}) {
+  const requestPayload = toolCall?.requestPayload
+    ?? toolCall?.toolInput
+    ?? toolCall?.arguments
+    ?? null;
+  const responsePayload = toolCall?.responsePayload
+    ?? toolCall?.toolOutput
+    ?? toolCall?.output
+    ?? null;
+  const toolInput = estimatePayloadTokenUsage(requestPayload);
+  const toolOutput = estimatePayloadTokenUsage(responsePayload);
+  const pricing = resolveModelPricing(toolCall);
+  const pricingProvider = firstText(toolCall?.pricingProvider, toolCall?.provider);
+  const pricingModel = firstText(toolCall?.pricingModel, toolCall?.model);
+  const inputTokens = toolOutput.available ? toolOutput.tokens : 0;
+  const outputTokens = toolInput.available ? toolInput.tokens : 0;
+  const toolInputCost = pricing && toolInput.available
+    ? (outputTokens / 1_000_000) * pricing.output
+    : null;
+  const toolOutputCost = pricing && toolOutput.available
+    ? (inputTokens / 1_000_000) * pricing.input
+    : null;
+  return {
+    // Tool arguments are generated by the LLM, so they consume output tokens.
+    toolInput: { ...toolInput, tokenDirection: 'output', cost: toolInputCost },
+    // Tool results are presented to the LLM, so they consume input tokens.
+    toolOutput: { ...toolOutput, tokenDirection: 'input', cost: toolOutputCost },
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    totalCost: toolInputCost == null && toolOutputCost == null
+      ? null
+      : (toolInputCost || 0) + (toolOutputCost || 0),
+    pricing,
+    pricingProvider,
+    pricingModel,
+    bytesPerToken: TOOL_ESTIMATE_BYTES_PER_TOKEN,
+    estimated: true
+  };
+}
+
 export function estimateTokenUsageCost(toolCall = {}) {
   const usage = readTokenUsage(toolCall);
   if (!usage) return null;
-  const pricing = MODEL_PRICING_USD_PER_MILLION[normalizePricingKey(toolCall?.provider, toolCall?.model)];
+  const pricing = resolveModelPricing(toolCall);
   if (!pricing) return null;
   const promptTokens = Number(usage?.prompt || 0) || 0;
   const completionTokens = Number(usage?.completion || 0) || 0;
@@ -317,6 +437,7 @@ export function formatUsdEstimate(value) {
   const amount = Number(value);
   if (!Number.isFinite(amount) || amount < 0) return '';
   if (amount === 0) return '$0.00';
+  if (amount < 0.0001) return `$${amount.toFixed(6)}`;
   if (amount < 0.01) return `$${amount.toFixed(4)}`;
   return `$${amount.toFixed(2)}`;
 }
@@ -474,6 +595,7 @@ export default function DetailPanel({ toolCall, onClose }) {
   const kind = useMemo(() => detailKind(effectiveToolCall), [effectiveToolCall]);
   const tokenUsage = useMemo(() => readTokenUsage(effectiveToolCall || {}), [effectiveToolCall]);
   const tokenCost = useMemo(() => estimateTokenUsageCost(effectiveToolCall || {}), [effectiveToolCall]);
+  const toolTokenUsage = useMemo(() => estimateToolTokenUsage(effectiveToolCall || {}), [effectiveToolCall]);
   const linkedConversationId = useMemo(() => findLinkedConversationId(effectiveToolCall || {}), [effectiveToolCall]);
   const errorText = String(
     effectiveToolCall?.errorMessage
@@ -576,6 +698,33 @@ export default function DetailPanel({ toolCall, onClose }) {
             {tokenCost ? (
               <span className="app-detail-token-chip app-detail-token-chip-total">{`Est. ${formatUsdEstimate(tokenCost.total)}`}</span>
             ) : null}
+          </div>
+        ) : null}
+        {kind === 'tool_call' && (toolTokenUsage.toolInput.available || toolTokenUsage.toolOutput.available) ? (
+          <div className="app-detail-tool-token-estimate">
+            <div className="app-detail-token-usage">
+              {toolTokenUsage.toolInput.available ? (
+                <span className="app-detail-token-chip" title="Tool arguments generated by the model are billed as model output">
+                  {`Arguments ≈${toolTokenUsage.toolInput.tokens} output tokens · ${toolTokenUsage.toolInput.bytes} B${toolTokenUsage.toolInput.cost != null ? ` · ${formatUsdEstimate(toolTokenUsage.toolInput.cost)}` : ''}`}
+                </span>
+              ) : null}
+              {toolTokenUsage.toolOutput.available ? (
+                <span className="app-detail-token-chip" title="Tool results presented to the model are billed as model input">
+                  {`Result ≈${toolTokenUsage.toolOutput.tokens} input tokens · ${toolTokenUsage.toolOutput.bytes} B${toolTokenUsage.toolOutput.cost != null ? ` · ${formatUsdEstimate(toolTokenUsage.toolOutput.cost)}` : ''}`}
+                </span>
+              ) : null}
+              <span className="app-detail-token-chip app-detail-token-chip-total">
+                {`Tool payload ≈${toolTokenUsage.totalTokens} tokens`}
+              </span>
+              {toolTokenUsage.totalCost != null ? (
+                <span className="app-detail-token-chip app-detail-token-chip-total">
+                  {`Est. ${formatUsdEstimate(toolTokenUsage.totalCost)}`}
+                </span>
+              ) : null}
+            </div>
+            <div className="app-detail-token-estimate-note">
+              {`Estimated at ${toolTokenUsage.bytesPerToken} UTF-8 bytes/token${toolTokenUsage.pricingModel ? ` using ${[toolTokenUsage.pricingProvider, toolTokenUsage.pricingModel].filter(Boolean).join('/')} pricing` : ''}; this is an attribution breakdown, not an addition to provider-reported totals.`}
+            </div>
           </div>
         ) : null}
         {linkedConversationId ? (
