@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   applyConversationMetaPatchToRows,
   conversationMetaPatchFromSnapshot,
+  conversationDeleteButtonDisabled,
   conversationDeletionBlocked,
   conversationDeleteErrorMessage,
   conversationDeleteNeedsTermination,
@@ -221,6 +222,13 @@ describe('sidebar conversation pagination', () => {
 });
 
 describe('conversation delete helpers', () => {
+  it('keeps delete available for active-looking rows until their own request starts', () => {
+    const row = { Id: 'conv-running', status: 'running', running: true };
+    expect(conversationDeleteButtonDisabled(row, '')).toBe(false);
+    expect(conversationDeleteButtonDisabled(row, 'conv-other')).toBe(false);
+    expect(conversationDeleteButtonDisabled(row, 'conv-running')).toBe(true);
+  });
+
   it('blocks deletion only for explicitly active conversations', () => {
     expect(conversationDeletionBlocked({ status: 'running' })).toBe(true);
     expect(conversationDeletionBlocked({ running: true })).toBe(true);
