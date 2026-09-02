@@ -15,16 +15,13 @@ import {
   applyToolsSelection,
   applyAutoSelectToolsSelection,
 } from '../../../../forge/src/components/chatCommandCenterActions.js';
-import { classifyMessage, normalizeMessages } from './messageNormalizer';
 import { setStage } from './stageBus';
 import { client } from './agentlyClient';
 import { showToast } from './httpClient';
 import { getFeedData, updateFeedData } from './toolFeedBus';
 import { requestGoalDraftOpen } from './goalDraftBus';
 import { buildWebQueryContext } from './clientContext';
-import { resetLiveStreamState } from './liveStreamStore';
 import {
-  applyIterationVisibility,
   bindConversationWindowEvents,
   cacheSettledConversationBootstrapSnapshot,
   bootstrapConversationSelection,
@@ -39,7 +36,6 @@ import {
   refreshGoalFeed,
   fetchPendingElicitations,
   getSettledConversationBootstrapSnapshot,
-  getVisibleIterations,
   hasPendingConversationBootstrap,
   hydrateMeta,
   hydrateConversationFromBootstrapSnapshot,
@@ -52,6 +48,7 @@ import {
   publishActiveConversation,
   publishConversationMetaUpdated,
   renderMergedRowsForContext,
+  resetRuntimeStreamState,
   rememberSeedTitle,
   resolveUserID,
   sanitizeAutoSelection,
@@ -61,11 +58,6 @@ import {
   syncMessagesSnapshot,
   unbindConversationWindowEvents
 } from './chatRuntime';
-import IterationBlock from '../components/chat/IterationBlock';
-import IterationPaginator from '../components/chat/IterationPaginator';
-import BubbleMessage from '../components/chat/BubbleMessage';
-import StarterTasks from '../components/chat/StarterTasks';
-import SteerQueue from '../components/chat/SteerQueue';
 import NamedLookupInput from '../components/lookups/NamedLookupInput.jsx';
 import { flattenStored } from '../components/lookups/tokens.js';
 import { listLookupRegistry } from '../components/lookups/client.js';
@@ -79,7 +71,6 @@ import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConv
 import { conversationIDFromPath } from './chatRuntime';
 import { getScopedConversationSelection, MAIN_CHAT_WINDOW_ID, openConversationInMainWindow, syncHydratedWorkspaceStateFromTranscriptTurns } from './conversationWindow';
 
-const DEFAULT_VISIBLE_ITERATIONS = Number.MAX_SAFE_INTEGER;
 const ITERATION_STEP = 1;
 const DEFAULT_REASONING_OPTIONS = [
   { value: 'low', label: 'Low' },
@@ -572,8 +563,12 @@ export async function onInit({ context }) {
   } catch (err) {
     setStage({ phase: 'error', text: String(err?.message || err || 'Initialization failed') });
     context?.Context?.('messages')?.handlers?.dataSource?.setError?.(String(err?.message || err));
+  } finally {
+    // Cached and pending-bootstrap branches return early above. Recovery
+    // polling must still be installed for those branches so a missed terminal
+    // SSE event or a later route change cannot leave the chat runtime inert.
+    startPolling(context);
   }
-  startPolling(context);
 }
 
 export function onDestroy({ context }) {
@@ -634,16 +629,6 @@ export async function onFetchMessages({ context, data, result, payload, collecti
   const conversationID = String(conversationsDS?.peekFormData?.()?.id || '').trim();
   const pendingElicitations = conversationID ? await fetchPendingElicitations(conversationID) : [];
   return syncMessagesSnapshot(context, turns, 'fetch', pendingElicitations);
-}
-
-export async function loadOlderExecutions({ context, all = false, reset = false } = {}) {
-  const chatState = ensureContextResources(context);
-  chatState.iterationVisibleCount = DEFAULT_VISIBLE_ITERATIONS;
-  if (applyIterationVisibility(context)) {
-    return true;
-  }
-  await dsTick(context);
-  return true;
 }
 
 export function onFetchQueuedTurns({ context, data, payload, collection, result }) {
@@ -878,10 +863,7 @@ export async function submitMessage({ context, message, model, agent }) {
       chatState.pendingTerminalRefreshSuppressionTurnID = terminalTurnIdFromQueryResult;
     }
     resetChatStoreConversation(conversationID);
-    resetLiveStreamState(chatState);
-    try {
-      chatState?.streamTracker?.reset?.();
-    } catch (_) {}
+    resetRuntimeStreamState(chatState);
     chatState.runningTurnId = '';
     chatState.lastHasRunning = false;
     disconnectStream(context);
@@ -1773,20 +1755,9 @@ export async function executeDeclaredTool(props = {}) {
 }
 
 export const chatService = {
-  classifyMessage,
-  normalizeMessages,
   composerPresentation,
   resolveComposerProps,
   renderFeed,
-  renderers: {
-    bubble: BubbleMessage,
-    form: BubbleMessage,
-    elicition: BubbleMessage,
-    iteration: IterationBlock,
-    paginator: IterationPaginator,
-    starter: StarterTasks,
-    queue: SteerQueue
-  },
   onInit,
   onDestroy,
   onFetchMeta,
@@ -1818,7 +1789,6 @@ export const chatService = {
   saveSettings,
   selectAgent,
   selectModel,
-  loadOlderExecutions,
   abortConversation,
   moveQueuedTurnUp,
   moveQueuedTurnDown,

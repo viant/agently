@@ -59,6 +59,17 @@ export async function listEagerMCPConnections() {
   return Array.isArray(result?.connections) ? result.connections : [];
 }
 
+export async function beginEagerMCPAuth(options = {}) {
+  const pending = currentPendingMCPAuth();
+  if (pending) return { status: 'pending', pending: true, server: pending.server };
+  const connections = await listEagerMCPConnections();
+  const target = connections.find((connection) => (
+    connection?.connected !== true && String(connection?.server || '').trim()
+  ));
+  if (!target) return null;
+  return beginBrowserMCPAuth(String(target.server).trim(), options);
+}
+
 export function currentMCPAuthReturnURL(locationValue = null) {
   const location = locationValue || (typeof window !== 'undefined' ? window.location : null);
   if (!location) return '/';
@@ -66,16 +77,20 @@ export function currentMCPAuthReturnURL(locationValue = null) {
   return path.startsWith('/') && !path.startsWith('//') ? path : '/';
 }
 
-export async function beginBrowserMCPAuth(server, { returnURL = '', navigate = null, conversationId = '', elicitationId = '' } = {}) {
+export async function beginBrowserMCPAuth(server, {
+  returnURL = '', navigate = null, conversationId = '', elicitationId = '', forceRestart = false,
+} = {}) {
   const normalizedServer = String(server || '').trim();
   if (!normalizedServer) throw new Error('MCP server is required');
   const status = await client.getMCPAuthStatus(normalizedServer);
   if (status?.connected === true) return { status: 'connected', connected: true };
   const resolvedReturnURL = returnURL || currentMCPAuthReturnURL();
+  const initiateOptions = { returnURL: resolvedReturnURL, restart: status?.pending === true };
+  if (forceRestart === true) initiateOptions.forceRestart = true;
   const result = await client.initiateMCPAuth(
     normalizedServer,
     String(status?.csrfToken || ''),
-    { returnURL: resolvedReturnURL, restart: status?.pending === true },
+    initiateOptions,
   );
   if (result?.status === 'connect' && result?.authorizationURL) {
     const assign = navigate || (typeof window !== 'undefined' ? window.location.assign.bind(window.location) : null);
@@ -86,11 +101,12 @@ export async function beginBrowserMCPAuth(server, { returnURL = '', navigate = n
   return result;
 }
 
-export async function resumePendingMCPAuth() {
+export async function resumePendingMCPAuth({ onConnected = null } = {}) {
   const pending = currentPendingMCPAuth();
   if (!pending) return null;
   const status = await client.getMCPAuthStatus(pending.server);
   if (status?.connected !== true) return null;
+  if (typeof onConnected === 'function') onConnected(pending);
   if (pending.conversationId && pending.elicitationId) {
     await client.resolveElicitation(pending.conversationId, pending.elicitationId, {
       action: 'accept',

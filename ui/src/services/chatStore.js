@@ -200,6 +200,28 @@ export function isQueued(conversationId) {
     return liveTurns.length >= 2;
 }
 
+export function getActiveTurn(conversationId) {
+    const turns = getState(conversationId).turns;
+    for (let index = turns.length - 1; index >= 0; index -= 1) {
+        const turn = turns[index];
+        if (turn?.lifecycle === 'pending' || turn?.lifecycle === 'running') return turn;
+    }
+    return null;
+}
+
+export function getActiveTurnId(conversationId) {
+    return String(getActiveTurn(conversationId)?.turnId || '').trim();
+}
+
+export function hasAssistantRowForTurn(conversationId, turnId) {
+    const target = String(turnId || '').trim();
+    if (!target) return false;
+    return getProjection(conversationId).some((row) => (
+        String(row?.turnId || '').trim() === target
+        && (row?.kind === 'assistant' || row?.kind === 'iteration')
+    ));
+}
+
 // ─── React hooks ──────────────────────────────────────────────────────────────
 
 /**
@@ -233,6 +255,8 @@ if (typeof window !== 'undefined') {
                 getProjection,
                 isRunning,
                 isQueued,
+                getActiveTurnId,
+                hasAssistantRowForTurn,
                 onTranscript,
                 reset,
             },

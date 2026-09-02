@@ -11,7 +11,14 @@ function rowsFor(value) {
   return [];
 }
 
-export function buildFeedReportRequest({ feedId = '', conversationId = '', title = '', dataMap = {}, target = {} } = {}) {
+export function buildFeedExportTitle({ title = '', entityLabel = '' } = {}) {
+  const base = String(title || 'Tool feed').trim() || 'Tool feed';
+  const label = String(entityLabel || '').trim();
+  if (!label || label.toLowerCase() === base.toLowerCase()) return base;
+  return `${label} ${base}`;
+}
+
+export function buildFeedReportRequest({ feedId = '', conversationId = '', title = '', ui = null, dataMap = {}, target = {} } = {}) {
   const refs = Object.keys(dataMap || {}).sort();
   return {
     viewRef: `feed://${String(feedId || '').trim()}`,
@@ -19,6 +26,7 @@ export function buildFeedReportRequest({ feedId = '', conversationId = '', title
     title: title || 'Tool feed',
     format: 'pdf',
     conversationId,
+    ...(ui && typeof ui === 'object' && !Array.isArray(ui) ? { ui } : {}),
     dataSourceRefs: refs,
     dataSourceOverrides: Object.fromEntries(refs.map((ref) => [ref, { collection: rowsFor(dataMap[ref]) }])),
     target: {
@@ -30,8 +38,8 @@ export function buildFeedReportRequest({ feedId = '', conversationId = '', title
   };
 }
 
-export async function exportFeedReportPDF({ feedId = '', conversationId = '', title = '', dataMap = {}, target = {} } = {}) {
-  const request = buildFeedReportRequest({ feedId, conversationId, title, dataMap, target });
+export async function exportFeedReportPDF({ feedId = '', conversationId = '', title = '', ui = null, dataMap = {}, target = {} } = {}) {
+  const request = buildFeedReportRequest({ feedId, conversationId, title, ui, dataMap, target });
   const result = await executeReportingTool(
     'reporting:compile_and_export_forge_ui',
     request,

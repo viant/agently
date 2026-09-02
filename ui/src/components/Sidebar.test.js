@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   applyConversationMetaPatchToRows,
   conversationMetaPatchFromSnapshot,
   conversationDeletionBlocked,
   conversationDeleteErrorMessage,
+  conversationDeleteNeedsTermination,
+  deleteConversationWithTermination,
   fillDeletedSidebarPageFromOlder,
   normalizeSidebarPageRequest,
   normalizeSidebarPage,
@@ -14,7 +16,7 @@ import {
 } from './Sidebar';
 
 describe('applyConversationMetaPatchToRows', () => {
-  it('patches title and summary in memory and re-sorts by updated time', () => {
+  it('patches title and summary without treating selection hydration as activity', () => {
     const rows = [
       { Id: 'conv-1', Title: 'Old title', Summary: '', UpdatedAt: '2026-04-15T00:00:00Z' },
       { Id: 'conv-2', Title: 'Another', Summary: '', UpdatedAt: '2026-04-15T00:10:00Z' }
@@ -26,11 +28,27 @@ describe('applyConversationMetaPatchToRows', () => {
     });
 
     expect(got).toHaveLength(2);
-    expect(got[0].Id).toBe('conv-1');
+    expect(got.map((row) => row.Id)).toEqual(['conv-1', 'conv-2']);
     expect(got[0].Title).toBe('Campaign 4821 Underpacing');
     expect(got[0].title).toBe('Campaign 4821 Underpacing');
     expect(got[0].Summary).toBe('Needs attention');
     expect(got[0].summary).toBe('Needs attention');
+    expect(got[0].UpdatedAt).toBe('2026-04-15T00:00:00Z');
+  });
+
+  it('re-sorts only when canonical last activity changes', () => {
+    const rows = [
+      { Id: 'conv-1', LastActivity: '2026-04-15T00:00:00Z' },
+      { Id: 'conv-2', LastActivity: '2026-04-15T00:10:00Z' }
+    ];
+
+    const got = applyConversationMetaPatchToRows(rows, 'conv-1', {
+      status: 'succeeded',
+      lastActivity: '2026-04-15T00:20:00Z'
+    });
+
+    expect(got.map((row) => row.Id)).toEqual(['conv-1', 'conv-2']);
+    expect(got[0].LastActivity).toBe('2026-04-15T00:20:00Z');
   });
 
   it('patches stage, status, and running flags for immediate sidebar tone updates', () => {
@@ -241,5 +259,26 @@ describe('conversation delete helpers', () => {
       .toBe('Only the conversation owner can delete this conversation.');
     expect(conversationDeleteErrorMessage({ status: 404, body: 'conversation not found' }))
       .toBe('Conversation was already deleted or is no longer available.');
+  });
+
+  it('terminates and retries a backend-blocked non-terminal conversation', async () => {
+    const calls = [];
+    const api = {
+      deleteConversation: vi.fn(async () => {
+        calls.push('delete');
+        if (calls.length === 1) {
+          const err = new Error('conversation_graph_non_terminal: blocked');
+          err.status = 409;
+          throw err;
+        }
+      }),
+      terminateConversation: vi.fn(async () => calls.push('terminate')),
+    };
+
+    expect(conversationDeleteNeedsTermination({ status: 409, body: 'conversation_graph_non_terminal: blocked' })).toBe(true);
+    await deleteConversationWithTermination(api, 'conv-running');
+
+    expect(calls).toEqual(['delete', 'terminate', 'delete']);
+    expect(api.terminateConversation).toHaveBeenCalledWith('conv-running');
   });
 });

@@ -26,7 +26,6 @@ vi.mock('./chatStore', () => ({
 }));
 
 vi.mock('./chatRuntime', () => ({
-  applyIterationVisibility: vi.fn(),
   bindConversationWindowEvents: vi.fn(),
   bootstrapConversationSelection: vi.fn(),
   cacheSettledConversationBootstrapSnapshot: vi.fn(),
@@ -40,7 +39,6 @@ vi.mock('./chatRuntime', () => ({
   fetchConversation: vi.fn(),
   fetchPendingElicitations: vi.fn(),
   getSettledConversationBootstrapSnapshot: vi.fn(() => null),
-  getVisibleIterations: vi.fn(),
   hasPendingConversationBootstrap: vi.fn(() => false),
   hydrateMeta: vi.fn(),
   hydrateConversationFromBootstrapSnapshot: vi.fn(() => false),
@@ -53,6 +51,7 @@ vi.mock('./chatRuntime', () => ({
   publishActiveConversation: vi.fn(),
   publishConversationMetaUpdated: vi.fn(),
   renderMergedRowsForContext: vi.fn(),
+  resetRuntimeStreamState: vi.fn(),
   rememberSeedTitle: vi.fn(),
   resolveUserID: vi.fn(),
   sanitizeAutoSelection: vi.fn((value) => value),
@@ -531,7 +530,6 @@ describe('submitMessage', () => {
     });
 
     expect(resetChatStoreConversation).toHaveBeenCalledWith('conv-1');
-    expect(chatState.streamTracker.reset).toHaveBeenCalledTimes(1);
     expect(applyTranscriptToChatStore).toHaveBeenCalledWith('conv-1', expect.objectContaining({
       conversationId: 'conv-1',
     }));

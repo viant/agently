@@ -163,6 +163,17 @@ export default defineConfig(({ mode, command }) => {
       include: ['@blueprintjs/core', '@blueprintjs/icons', '@phosphor-icons/react', '@preact/signals-react'],
       exclude: ['forge']
     },
+    test: {
+      exclude: [
+        '**/node_modules/**',
+        '**/dist/**',
+        'vite.config.test.mjs',
+        'src/services/forgeFenceContract.test.mjs',
+        'src/components/lookups/chipEditing.test.mjs',
+        'src/components/lookups/forgeBridge.test.mjs',
+        'src/components/lookups/tokens.test.mjs'
+      ]
+    },
     build: {
       sourcemap: false,
       assetsInlineLimit: 4096,

@@ -19,7 +19,7 @@ import {
 import { createFeedContext } from '../services/feedForgeContext';
 import { normalizeFeedPayload } from '../services/toolFeedBus';
 import { normalizeToolFeedTarget, toolFeedTargetsPlacement } from '../services/toolFeedTarget';
-import { exportFeedReportPDF } from '../services/feedReportExport';
+import { buildFeedExportTitle, exportFeedReportPDF } from '../services/feedReportExport';
 import { markFeedDataSourcesDirty, restorePendingFeedDraft, savePendingFeedDraft } from '../services/feedDraftState';
 
 function dedupeFeeds(feeds = []) {
@@ -154,7 +154,10 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
   }, [collapsedHeight, dataVersion, selectedFeedId, visibleFeeds.map((feed) => feed.feedId).join('|')]);
 
   if (renderableFeeds.length === 0) {
-    if (normalizeToolFeedTarget(selectedActiveFeed?.presentation?.target) === 'inline') return null;
+    // Inline feed details share the assistant response surface. An empty or
+    // workspace-targeted selection must not leave a misleading placeholder
+    // beneath an otherwise complete answer; the drawer/rail owns that state.
+    if (normalizeToolFeedTarget(placement) === 'inline') return null;
     if (!selectedActiveFeed) return null;
     return (
       <div className={`app-tool-feed-detail app-tool-feed-detail--${variant} is-placeholder`} role="status">
@@ -319,6 +322,10 @@ function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = '
     () => buildForgeFeedContainer(feedId, normalized, dataMap),
     [dataMap, feedId, normalized]
   );
+  const exportTitle = useMemo(() => buildFeedExportTitle({
+    title: normalized?.ui?.title || normalized?.title || feedId,
+    entityLabel: selectPath(normalized?.ui?.entity?.labelPath, normalized?.data),
+  }), [feedId, normalized]);
   const context = useMemo(
     () => createFeedContext(feedId, dataSources, conversationId, {
       onDraftSubmit: (snapshot) => savePendingFeedDraft(feedId, conversationId, {
@@ -328,12 +335,13 @@ function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = '
       exportPDF: () => exportFeedReportPDF({
         feedId,
         conversationId,
-        title: normalized?.ui?.title || normalized?.title || feedId,
+        title: exportTitle,
+        ui: normalized?.ui,
         container,
         dataMap,
       }),
     }),
-    [container, conversationId, dataMap, dataSources, feedId, normalized]
+    [container, conversationId, dataMap, dataSources, exportTitle, feedId, normalized]
   );
   const requiresSignalWiring = useMemo(() => {
     const hasProvidedFileRows = (node) => {

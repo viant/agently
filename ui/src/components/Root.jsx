@@ -30,7 +30,7 @@ import { onGoalDraftOpen } from '../services/goalDraftBus';
 import { useDeveloperMode } from '../services/uiPreferences';
 import { useChatProjection } from '../services/chatStore.js';
 import { resolveWorkspaceAttachmentOwnerIndex } from '../services/workspaceAttachment.js';
-import { currentPendingMCPAuth, resumePendingMCPAuth } from '../services/mcpAuth';
+import { beginEagerMCPAuth, currentPendingMCPAuth, resumePendingMCPAuth } from '../services/mcpAuth';
 
 const SIDEBAR_WIDTH_KEY = 'agently.sidebarWidth';
 const SIDEBAR_DEFAULT_WIDTH = 320;
@@ -41,6 +41,34 @@ const WORKSPACE_HEIGHT_KEY = 'agently.workspaceHeight';
 const WORKSPACE_DEFAULT_HEIGHT = 620;
 const WORKSPACE_MIN_HEIGHT = 240;
 const WORKSPACE_MAX_HEIGHT = 960;
+const TERMINAL_TURN_ACTIVITY_TYPES = new Set(['turn_completed', 'turn_failed', 'turn_canceled']);
+
+export function shouldScrollConversationAfterTurn({
+  eventConversationId = '',
+  activeConversationId = '',
+  activeSurface = 'conversation',
+  eventType = '',
+} = {}) {
+  const eventID = String(eventConversationId || '').trim();
+  const activeID = String(activeConversationId || '').trim();
+  return activeSurface === 'conversation'
+    && !!eventID
+    && eventID === activeID
+    && TERMINAL_TURN_ACTIVITY_TYPES.has(String(eventType || '').trim().toLowerCase());
+}
+
+export function scrollConversationFeedToEnd(root = null) {
+  const stage = root?.querySelector?.('[data-testid="chat-feed-stage"]') || null;
+  if (!stage) return false;
+  if (typeof stage.scrollTo === 'function') {
+    stage.scrollTo({ top: Number(stage.scrollHeight || 0), behavior: 'smooth' });
+    return true;
+  }
+  const lastResponse = stage.lastElementChild?.lastElementChild || stage.lastElementChild;
+  if (typeof lastResponse?.scrollIntoView !== 'function') return false;
+  lastResponse.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'smooth' });
+  return true;
+}
 
 function clampSidebarWidth(value) {
   const next = Number(value || 0);
@@ -238,6 +266,26 @@ export function shouldPersistWorkspaceHeight({
   hasStoredHeight = false,
 } = {}) {
   return String(activeWorkspaceWindowId || '').trim() !== '' || hasStoredHeight === true;
+}
+
+export function shouldPromoteFreshWorkspaceSurface({
+  activeSurface = 'conversation',
+  developerMode = false,
+  mainConversationId = '',
+  activeWorkspaceWindow = null,
+  selectedWindowId = '',
+} = {}) {
+  if (developerMode || String(activeSurface || '').trim().toLowerCase() === 'workspace') return false;
+  const conversationId = String(mainConversationId || '').trim();
+  const workspaceWindowId = String(activeWorkspaceWindow?.windowId || '').trim();
+  const workspaceConversationId = String(activeWorkspaceWindow?.conversationId || '').trim();
+  const selectedId = String(selectedWindowId || '').trim();
+  const openState = String(activeWorkspaceWindow?.hostOpenState || '').trim().toLowerCase();
+  return !!conversationId
+    && workspaceConversationId === conversationId
+    && !!workspaceWindowId
+    && selectedId === workspaceWindowId
+    && openState === 'fresh';
 }
 
 export function isHostedWorkspaceChildOfMainChat(windowEntry = null) {
@@ -767,13 +815,25 @@ export default function Root() {
   useEffect(() => {
     if (authState !== 'ready') return () => {};
     let active = true;
-    resumePendingMCPAuth()
-      .then((pending) => {
+    (async () => {
+      let restoredConversationId = '';
+      const restoreConversation = (pending) => {
         if (!active || !pending?.conversationId) return;
+        restoredConversationId = pending.conversationId;
         setMCPResumePending(pending);
         openConversationInMainWindow(pending.conversationId);
-      })
-      .catch(() => {});
+      };
+      const pending = await resumePendingMCPAuth({ onConnected: restoreConversation });
+      if (!active) return;
+      if (pending?.conversationId && pending.conversationId !== restoredConversationId) {
+        restoreConversation(pending);
+      }
+      await beginEagerMCPAuth({
+        navigate: (authorizationURL) => {
+          if (active) window.location.assign(authorizationURL);
+        },
+      });
+    })().catch(() => {});
     return () => { active = false; };
   }, [authState]);
 
@@ -1187,6 +1247,44 @@ export default function Root() {
     const conversationId = String(mainConversationId || '').trim();
     setActiveSurfaceState(conversationId ? getScopedActiveSurface(conversationId) : 'conversation');
   }, [mainConversationId]);
+
+  useEffect(() => {
+    if (!shouldPromoteFreshWorkspaceSurface({
+      activeSurface,
+      developerMode,
+      mainConversationId,
+      activeWorkspaceWindow,
+      selectedWindowId: selectedWindow?.windowId,
+    })) return;
+    setActiveSurface('workspace');
+  }, [activeSurface, activeWorkspaceWindow, developerMode, mainConversationId, selectedWindow?.windowId, setActiveSurface]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return () => {};
+    let cancelled = false;
+    const scheduleFrame = typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame.bind(window)
+      : (callback) => window.setTimeout(callback, 0);
+    const onConversationActivity = (event) => {
+      if (!shouldScrollConversationAfterTurn({
+        eventConversationId: event?.detail?.id,
+        activeConversationId: mainConversationId,
+        activeSurface,
+        eventType: event?.detail?.type,
+      })) return;
+      // Let the terminal projection render and the processing banner collapse
+      // before measuring the final feed height.
+      window.setTimeout(() => scheduleFrame(() => scheduleFrame(() => {
+        if (cancelled || activeSurface !== 'conversation') return;
+        scrollConversationFeedToEnd(document);
+      })), 0);
+    };
+    window.addEventListener('agently:conversation-activity', onConversationActivity);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('agently:conversation-activity', onConversationActivity);
+    };
+  }, [activeSurface, mainConversationId]);
 
   useEffect(() => {
     if (showWorkspacePane) return;

@@ -2,21 +2,36 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const { flattenCanonicalTranscriptSteps, transcriptConversationTurns } = vi.hoisted(() => ({
+  flattenCanonicalTranscriptSteps: vi.fn(() => []),
+  transcriptConversationTurns: vi.fn(() => []),
+}));
+
 vi.mock('../services/agentlyClient', () => ({
   client: {
-    getTranscript: vi.fn(async () => ({})),
+    getTranscript: vi.fn(async () => {
+      const steps = flattenCanonicalTranscriptSteps();
+      return {
+        conversation: {
+          turns: [{
+            turnId: 'turn-test',
+            execution: {
+              pages: [{
+                pageId: 'page-test',
+                modelSteps: steps.filter((step) => step?.kind === 'model'),
+                toolSteps: steps.filter((step) => step?.kind !== 'model'),
+              }],
+            },
+          }],
+        },
+      };
+    }),
     getPayload: vi.fn(async () => ({ data: new TextEncoder().encode('{}'), contentType: 'application/json' })),
   }
 }));
 
-vi.mock('../services/canonicalTranscript', () => ({
-  transcriptConversationTurns: vi.fn(() => []),
-  flattenCanonicalTranscriptSteps: vi.fn(() => [])
-}));
-
 import { estimateTokenUsageCost, formatUsdEstimate, hydrateToolCallFromTranscript } from './DetailPanel';
 import { client } from '../services/agentlyClient';
-import { flattenCanonicalTranscriptSteps, transcriptConversationTurns } from '../services/canonicalTranscript';
 import DetailPanel from './DetailPanel';
 
 describe('DetailPanel pricing helpers', () => {

@@ -1,7 +1,7 @@
 id: analytics_dashboard
 name: analytics_dashboard
-description: Generic analytics dashboard contract for tabular KPI and time-series data.
-format: forge_ui_data
+description: Canonical analytical report contract for Markdown findings plus scoped report data.
+format: forge_report_data
 platforms:
   - web
   - android
@@ -21,372 +21,169 @@ fences:
     required: true
     repeatable: true
     order: 1
-    description: Named dashboard data sources referenced by the UI block.
+    description: Version-2 materialized data owned by one report instance.
     schema:
       type: object
-      required:
-        - version
-        - id
-        - format
-        - mode
-        - data
+      required: [version, scope, reportRef, id, sequence, format, mode, data]
       properties:
         version:
-          const: 1
+          const: 2
+        scope:
+          type: string
+        reportRef:
+          type: string
         id:
           type: string
+        sequence:
+          type: integer
+          minimum: 1
         format:
           enum: [json, csv]
         mode:
-          const: replace
+          enum: [replace, append, patch]
         data:
-          description: JSON rows/object when format is json, or CSV string when format is csv.
-  - lang: forge-ui
+          description: Row-oriented JSON array or CSV with a header row.
+  - lang: forge-report
     required: true
-    repeatable: false
+    repeatable: true
     order: 2
-    description: Dashboard layout and blocks referencing previously declared forge-data sources.
+    description: Version-1 progressive dashboard report transactions.
     schema:
       type: object
-      required:
-        - version
-        - title
-        - blocks
+      required: [version, scope, id, sequence, mode]
       properties:
         version:
           const: 1
-        title:
+        scope:
           type: string
-        subtitle:
+        id:
+          type: string
+        sequence:
+          type: integer
+          minimum: 1
+        mode:
+          enum: [start, append, patch, replace, commit]
+        grammar:
+          enum: [dashboard-v1]
+        title:
           type: string
         blocks:
           type: array
-          minItems: 1
 instructions: |
-  Return exactly:
-  - one or more `forge-data` fenced blocks first, with one datasource per block
-  - then exactly one `forge-ui` fenced block last
+  Return a short Markdown findings section followed by one canonical report.
 
-  Fence syntax is strict:
-  - The opening line must be exactly ````forge-data```
-  - The opening line must be exactly ````forge-ui```
-  - Put a newline after the fence info string before the JSON body.
-  - Do not emit compact forms like ````forge-data{``` or ````forge-ui{```.
-  - Do not emit prose before, between, or after the fenced blocks.
+  Markdown rules:
+  - Use one concise heading and 2-4 flat evidence-based bullets.
+  - Put Markdown before the first fence; never put prose between report transactions.
+  - Omit Markdown only when the user explicitly requests fences only.
 
-  General rules:
-  - Use the supplied tabular data only; do not invent rows.
-  - Use `kind` for each dashboard block, not `type`.
-  - `kind` must use exact supported literals: `dashboard.summary`, `dashboard.kpiTable`, `dashboard.compare`, `dashboard.timeline`, `dashboard.dimensions`, `dashboard.status`, `dashboard.filters`, `dashboard.feed`, `dashboard.table`, `dashboard.messages`, `dashboard.badges`, `dashboard.report`, and `dashboard.detail`.
-  - Use only the blocks that genuinely help; omit unused block kinds and optional fields.
-  - Use neutral, data-derived titles and subtitles unless the user or source data requires more specific labeling.
-  - Do not add labels like `Web`, `Mobile`, `Android`, or `iOS` unless the source data or user request explicitly calls for them.
-  - Put entity names and taxonomy context in the dashboard `title`, `subtitle`, and section/table/chart titles when relevant.
-  - Do not spend summary KPI cards/pills on entity names. Entity identity belongs in headers, subtitles, table titles, compare titles, chart titles, or inline report/detail blocks.
-  - Summary items should focus on numeric metrics, rates, statuses, and short posture labels rather than repeating entity names as value cards.
-  - Keep metrics and recommendations separate: KPIs go in summary/tables/compare/timeline/report/detail blocks, actions go in messages blocks.
+  Transaction rules:
+  - Never emit a `forge-ui` fence for reporting.
+  - Use one stable `scope` and report `id`.
+  - Emit each datasource first as `forge-data` version 2 with matching `reportRef`.
+  - Use a shared, strictly increasing `sequence` across data and report transactions.
+  - Start the report with `forge-report` version 1, `mode: "start"`, and `grammar: "dashboard-v1"`.
+  - Finish with exactly one `forge-report` transaction using `mode: "commit"`.
+  - Fence opening lines are exactly ````forge-data``` and ````forge-report```.
+  - Put one bare JSON object inside each fence.
+  - Use only supplied or observed data; never invent rows unless the user explicitly asks for sample data.
 
-  `forge-data` rules:
-  - Each `forge-data` fenced body must be a single JSON object with this top-level shape:
-    - `version` (required — always emit as `1`)
-    - `id` (required — the datasource identifier referenced by `forge-ui` blocks via `dataSourceRef`)
-    - `format` (required — `"csv"` or `"json"`)
-    - `mode` (required — always `"replace"` unless you intend to append rows)
-    - `data` (required — CSV string for `format: "csv"` or JSON array/object for `format: "json"`)
-  - Always emit every required field explicitly. The UI falls back to sensible defaults (`version: 1`, `mode: "replace"`) but relying on fallbacks is brittle and will fail older renderers.
-  - Use `mode: "replace"` for every emit unless you are extending a previously declared datasource in the same conversation.
-  - Use `format: "csv"` for larger row sets and `format: "json"` for compact row/object sources.
-  - Each block defines exactly one named datasource.
-  - Use stable datasource ids and reference them from `forge-ui` via `dataSourceRef`.
-  - For any datasource referenced by `dashboard.kpiTable`, `dashboard.compare`, `dashboard.timeline`, `dashboard.dimensions`, `dashboard.table`, or `dashboard.feed`, the data must be row-oriented:
-    - CSV with a header row, or
-    - JSON array of row objects
-  - Do not use a single JSON object as the datasource for table/compare/timeline blocks.
-  - If you need one totals row for a table, emit it as:
-    - CSV with one data row, or
-    - JSON array containing exactly one object
+  Data rules:
+  - Use row-oriented JSON arrays or CSV with a header row for tables and charts.
+  - Use raw numbers. Apply display formatting in report block metadata.
+  - Every `dataSourceRef` must exactly match a `forge-data.id` in the same report transaction stream.
 
-  `forge-ui` rules:
-  - The `forge-ui` fenced body must be a single JSON object with this top-level shape:
-    - `version` (required — always emit as `1`)
-    - `title` (required — one concise sentence fragment that identifies the dashboard)
-    - `subtitle` (optional — use for time range and context)
-    - `blocks` (required — a non-empty array)
-  - Always emit `version: 1` explicitly — do not omit it even though the renderer falls back to `1`. Omitting it triggers a degraded render and downstream warnings.
-  - Always emit `title` explicitly — the renderer will still show the dashboard if it's missing, but titles anchor the narrative for the reader.
-  - `blocks` must be an array. If you have no blocks, do not emit a `forge-ui` fence at all; emit a short prose answer instead.
-  - Every data-bound dashboard block must use `dataSourceRef`, not `dataSource`.
-  - Make the subtitle explain time range and source shape.
-  - `blocks` may include:
-    - `dashboard.summary`
-    - `dashboard.kpiTable`
-    - `dashboard.compare`
-    - `dashboard.timeline`
-    - `dashboard.dimensions`
-    - `dashboard.status`
-    - `dashboard.filters`
-    - `dashboard.feed`
-    - `dashboard.table`
-    - `dashboard.report`
-    - `dashboard.detail`
-    - `dashboard.messages`
-    - `dashboard.badges`
-
-  Preferred dashboard grammar:
-  - `dashboard.summary`: `title`, `items[]` with `label`, raw `value`, optional `metricKey`
-  - `dashboard.kpiTable`: `title`, `dataSourceRef`, `columns[]`; columns may be strings or `{ "key": "...", "label": "..." }`; for date + order data prefer one aggregated row per order
-  - `dashboard.compare`: `title`, `dataSourceRef`, `metrics[]`, optional `dimension` / `groupBy`, optional `rows[]` like `["Order A","Order B"]`
-  - `dashboard.timeline`: `title`, `dataSourceRef`; simple timelines may use `dateField`, `groupBy`, `series[]`, and optional `chartType` such as `"line"`, `"bar"`, `"area"`, or `"pie"`; richer timelines may use `chart` with `type`, `xAxis`, optional `axes.left` / `axes.right`, and `series.values[]` where each series may declare `value`, `label`, optional `name`, optional `type`, optional `axis`, optional `format`, optional `strokeDasharray`, optional `opacity`, and optional `stackId`; for pie/donut charts use `chart.type: "pie"` (or `"donut"`) with `series.nameKey` (slice label field) and `series.valueKey` (slice value field) — no xAxis or yAxis needed
-  - `dashboard.table`: `title`, `dataSourceRef`, `columns[]` (strings or `{ key, label, format, align }`), optional `limit` (default 200), optional `filterBindings`; renders a sortable multi-column table from the collection
-  - `dashboard.dimensions`: `title`, `dataSourceRef`, `dimension: { key, label }`, `metric: { key, label, format }`, optional `viewModes: ["chart","table"]`, optional `limit` (default 10), optional `filterBindings`
-  - `dashboard.status`: `title`, `dataSourceRef`, `checks[]` with `{ id, label, selector, format, tone }` where `tone` has `{ warningAbove, dangerAbove }` thresholds
-  - `dashboard.filters`: `title`, `items[]` with `{ id, label, field, multiple, options: [{ label, value, default }] }`; items may also use `type: "dateRange"` for start/end date pickers instead of chip options
-  - `dashboard.feed`: `title`, `dataSourceRef`, `fields: { timestamp, title, body }`, optional `filterBindings`
-  - `dashboard.report`: `title`, optional `subtitle`, `sections[]` with concise prose insights placed inline after a relevant chart/table
-  - `dashboard.detail`: `title`, `containers[]`; use this to group a chart with a short report/detail block directly underneath it
-  - `dashboard.messages`: `items[]` with `{ severity, title, body }`
-  - `dashboard.badges`: `title`, `items[]` with `{ label, value, tone }` for compact flag or signal chips
-
-  Format values:
-  - Use `"currency"` for dollar amounts (renders $1,234).
-  - Use `"compactNumber"` for large counts (renders 5.4M).
-  - Use `"percent"` when the raw value is already percentage-scaled like `19.4` (renders 19.4%).
-  - Use `"percentFraction"` when the raw value is fractional like `0.194` (renders 19.4%).
-  - Use `"number"` or omit for general numbers.
-
-  Tone values (for badges, status checks, messages):
-  - `"info"` (default), `"warning"`, `"danger"`, `"success"`
-
-  Conditional visibility:
-  - Any block may include `visibleWhen` to show/hide based on dashboard state.
-  - Shape: `{ selector, source, field, gt, gte, lt, lte, equals, notEquals, notEmpty, empty, in }`
-  - `source` can be `"metrics"` (default), `"selection"`, `"filters"`, or `"context"`.
-
-  Client-side filter bindings:
-  - Collection-based blocks (`dashboard.timeline`, `dashboard.dimensions`, `dashboard.table`, `dashboard.feed`) can declare `filterBindings: { filterField: rowField }` to filter their rows client-side based on active `dashboard.filters` selections.
-
-  Authoring guidance:
-  - Timeline guidance: wide form `date,order,bids,imps,clicks,ctr,vtr`; long form `date,order,metric,value`.
-  - Do not mix count metrics and rate metrics in one timeline unless you explicitly model a dual-axis chart with `axes.left` and `axes.right`.
-  - Do not mix metrics with very different magnitudes on the same timeline when they share one y-axis. Use separate timeline blocks or a dual-axis timeline instead.
-  - Prefer one primary metric per timeline unless the compared series are on comparable scales and remain readable at a glance.
-  - Favor one clear totals row, one readable table, one readable chart, and one short insight block.
-  - When data supports it, prefer a complete dashboard structure in this order:
-    1. `dashboard.badges` for compact pills/signals
-    2. `dashboard.summary` for headline KPIs
-    3. one or more `dashboard.timeline` blocks for bar/line/pie views
-    4. `dashboard.table` for detailed rows
-    5. `dashboard.report` for concise narrative takeaways
-  - Multiple timelines or compare blocks are allowed when complementary rather than redundant, for example one timeline for volume and one for efficiency, or one compare block for rates and one for totals.
-  - Inline analytic prose under a chart is valid and encouraged when it helps interpretation. Prefer a short `dashboard.report` block directly after the relevant `dashboard.timeline` rather than pushing all interpretation to the end.
-  - For count timelines, prefer `chartType: "bar"` or `chartType: "area"` when that is easier to read than a line chart.
-  - For composition or distribution analysis, prefer `chart.type: "pie"` with `series.nameKey` and `series.valueKey`.
-  - For detailed multi-column data, prefer `dashboard.table` with sortable columns over `dashboard.kpiTable` when the dataset has more than 5 columns or many rows.
-  - Do not pre-format numbers with commas or percent signs; let the renderer format values.
-  - Use `format: "percent"` when the raw value is already percentage-scaled like `19.4`; use `format: "percentFraction"` when the raw value is fractional like `0.194`.
-  - Use `dashboard.badges` for short status flags or boolean signal chips instead of forcing them into summary metrics or recommendation messages.
-
-  Anti-patterns — never do any of these:
-  - Never emit a `forge-ui` fence without `version: 1` at the top level. A payload missing `version` used to crash the chat UI; it is now tolerated but still flagged as degraded.
-  - Never emit a `forge-ui` fence without `title`. The renderer tolerates it but the reader loses context.
-  - Never emit a `forge-ui` fence with an empty `blocks: []`. If you have nothing to show, write a prose answer instead.
-  - Never emit a `forge-data` fence without `id`. The datasource can never be referenced without it.
-  - Never wrap your JSON in extra prose, commentary, or markdown. The fenced block body must be a bare JSON object starting with `{`.
-  - Never use `"dataSource"` on a block — the correct key is `"dataSourceRef"`.
-  - Never use `"type"` on a block — the correct key is `"kind"`.
-  - Never emit two `forge-ui` fences in one response. Combine all blocks into a single `forge-ui` fence.
-  - Never emit pre-formatted numeric strings like `"$1,234"` or `"19.4%"`. Emit raw numbers and use `format` on the column or metric.
+  Dashboard blocks:
+  - Every block requires a stable unique `id` and an exact supported `kind`.
+  - Use `dashboard.summary` with `dataSourceRef` and `metrics` entries containing `field`, `label`, and optional `format`.
+  - Use `dashboard.timeline` with `dataSourceRef` and `chart` containing `type`, `xAxis.dataKey`, and `series.valueKey` or `series.values`.
+  - Use `dashboard.table` with `dataSourceRef` and `columns` containing `key`, `label`, and optional `format`.
+  - Other supported kinds include `dashboard.kpiTable`, `dashboard.compare`, `dashboard.dimensions`, `dashboard.status`, `dashboard.filters`, `dashboard.feed`, `dashboard.report`, `dashboard.detail`, `dashboard.messages`, and `dashboard.badges`.
+  - Use `kind`, never `type`; use `dataSourceRef`, never `dataSource`.
+  - Use `currency`, `compactNumber`, `percent`, or `percentFraction` formats as appropriate.
 
 examples:
-  - title: analytics dashboard fence set
+  - title: Markdown plus quarterly performance report
+    markdown: |
+      ### Key findings
+      - Spend and delivered volume increased through the quarter.
+      - March recorded the highest impressions and spend.
     fences:
       - lang: forge-data
         body:
-          version: 1
-          id: summary_metrics
-          format: csv
-          mode: replace
-          data: |
-            pipeline_spend,total_pipeline_gap,lead_to_sale_rate,lead_conversion_rate,cost_per_lead,sales_closed
-            18420.55,7420.10,0.23,0.08,61.20,94
-      - lang: forge-data
-        body:
-          version: 1
-          id: totals_table
-          format: csv
-          mode: replace
-          data: |
-            segment,pipeline_spend,qualified_leads,sales_closed,lead_to_sale_rate,cost_per_lead
-            Mid-market inbound,18420.55,295,94,0.23,61.20
-      - lang: forge-data
-        body:
-          version: 1
-          id: daily_pipeline
-          format: csv
-          mode: replace
-          data: |
-            date,spend,lead_gap,qualified_leads,sales_closed,lead_to_sale_rate
-            2026-04-08,2410.25,910.15,42,11,0.23
-            2026-04-09,2875.40,620.00,47,13,0.28
-      - lang: forge-data
-        body:
-          version: 1
-          id: by_segment
+          version: 2
+          scope: quarterly_demo
+          reportRef: quarterly_performance
+          id: monthly_performance
+          sequence: 1
           format: json
           mode: replace
           data:
-            - segment: Mid-market inbound
-              spend: 18420.55
-              leads: 295
-            - segment: Enterprise outbound
-              spend: 12300.00
-              leads: 87
-            - segment: SMB self-serve
-              spend: 5100.00
-              leads: 410
-      - lang: forge-ui
+            - month: January
+              impressions: 1250000
+              clicks: 18750
+              spend: 45210.75
+            - month: February
+              impressions: 1385000
+              clicks: 21430
+              spend: 49880.20
+            - month: March
+              impressions: 1492000
+              clicks: 23890
+              spend: 53440.60
+      - lang: forge-report
         body:
           version: 1
-          title: Revenue pipeline dashboard
-          subtitle: Mid-market inbound segment · 2026-04-08 to 2026-04-09
+          scope: quarterly_demo
+          id: quarterly_performance
+          sequence: 2
+          mode: start
+          grammar: dashboard-v1
+          title: Quarterly Media Performance
           blocks:
-            - kind: dashboard.badges
-              title: Pipeline flags
-              items:
-                - label: pacing_status
-                  value: behind_plan
-                  tone: warning
-                - label: deployment_flag
-                  value: false
-                  tone: success
-            - kind: dashboard.summary
-              title: Performance summary
-              items:
-                - label: Pipeline spend
-                  value: 18420.55
-                  metricKey: pipeline_spend
-            - kind: dashboard.kpiTable
-              title: Segment totals
-              dataSourceRef: totals_table
-              columns:
-                - segment
-                - pipeline_spend
-                - qualified_leads
-                - sales_closed
-                - lead_to_sale_rate
-                - cost_per_lead
-            - kind: dashboard.table
-              title: Daily pipeline detail
-              dataSourceRef: daily_pipeline
-              columns:
-                - date
-                - { key: spend, label: Spend, format: currency }
-                - { key: lead_gap, label: Lead Gap, format: currency }
-                - qualified_leads
-                - sales_closed
-                - { key: lead_to_sale_rate, label: Lead to Sale Rate, format: percentFraction }
-            - kind: dashboard.timeline
-              title: Daily spend
-              dataSourceRef: daily_pipeline
-              dateField: date
-              series:
-                - spend
-              chartType: bar
-            - kind: dashboard.timeline
-              title: Spend distribution by segment
-              dataSourceRef: by_segment
+            - id: quarterly_summary
+              kind: dashboard.summary
+              dataSourceRef: monthly_performance
+              metrics:
+                - field: impressions
+                  label: Impressions
+                  format: compactNumber
+                - field: clicks
+                  label: Clicks
+                  format: compactNumber
+                - field: spend
+                  label: Spend
+                  format: currency
+            - id: spend_timeline
+              kind: dashboard.timeline
+              title: Monthly Spend
+              dataSourceRef: monthly_performance
               chart:
-                type: pie
-                series:
-                  nameKey: segment
-                  valueKey: spend
-                  palette:
-                    - "#137cbd"
-                    - "#0f9960"
-                    - "#d9822b"
-            - kind: dashboard.timeline
-              title: Spend and conversion rate
-              dataSourceRef: daily_pipeline
-              chart:
-                type: composed
+                type: line
                 xAxis:
-                  dataKey: date
-                  label: Date
-                  tickFormat: MM/dd
-                axes:
-                  left:
-                    label: Spend
-                    format: currency
-                  right:
-                    label: Lead to sale rate
-                    format: percentFraction
+                  dataKey: month
                 series:
-                  values:
-                    - value: spend
-                      label: Spend
-                      type: bar
-                      axis: left
-                    - value: lead_to_sale_rate
-                      label: Lead to sale rate
-                      type: line
-                      axis: right
-                      format: percentFraction
-                      strokeDasharray: 4 4
-            - kind: dashboard.report
-              title: Spend highlight
-              sections:
-                - id: spend-note
-                  title: Interpretation
-                  body:
-                    - Spend increased on the second day while the lead gap narrowed.
-  - title: dimensions and status example
-    fences:
-      - lang: forge-data
+                  valueKey: spend
+            - id: monthly_table
+              kind: dashboard.table
+              title: Monthly Detail
+              dataSourceRef: monthly_performance
+              columns:
+                - key: month
+                  label: Month
+                - key: impressions
+                  label: Impressions
+                  format: compactNumber
+                - key: clicks
+                  label: Clicks
+                  format: compactNumber
+                - key: spend
+                  label: Spend
+                  format: currency
+      - lang: forge-report
         body:
           version: 1
-          id: by_campaign
-          format: json
-          mode: replace
-          data:
-            - campaign: Brand awareness
-              spend: 45000
-              impressions: 2100000
-              ctr: 2.1
-            - campaign: Retargeting
-              spend: 32000
-              impressions: 1800000
-              ctr: 3.4
-            - campaign: Prospecting
-              spend: 18000
-              impressions: 900000
-              ctr: 1.5
-      - lang: forge-ui
-        body:
-          version: 1
-          title: Campaign breakdown
-          subtitle: All campaigns · 2026-04-01 to 2026-04-15
-          blocks:
-            - kind: dashboard.dimensions
-              title: Spend by campaign
-              dataSourceRef: by_campaign
-              dimension:
-                key: campaign
-                label: Campaign
-              metric:
-                key: spend
-                label: Spend
-                format: currency
-              viewModes:
-                - chart
-                - table
-              limit: 10
-            - kind: dashboard.status
-              title: Health checks
-              checks:
-                - id: ctr_check
-                  label: Overall CTR
-                  selector: summary.ctr
-                  format: percent
-                  tone:
-                    warningBelow: 2.0
-                    dangerBelow: 1.0
+          scope: quarterly_demo
+          id: quarterly_performance
+          sequence: 3
+          mode: commit

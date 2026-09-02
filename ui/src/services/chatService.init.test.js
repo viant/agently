@@ -18,6 +18,7 @@ const {
   publishActiveConversationMock,
   publishConversationMetaUpdatedMock,
   fetchPendingElicitationsMock,
+  refreshGoalFeedMock,
   hasPendingConversationBootstrapMock,
   startPollingMock,
   connectForgeUIActionsToCallbacksOrChatMock,
@@ -39,6 +40,7 @@ const {
   publishActiveConversationMock: vi.fn(),
   publishConversationMetaUpdatedMock: vi.fn(),
   fetchPendingElicitationsMock: vi.fn(),
+  refreshGoalFeedMock: vi.fn(),
   hasPendingConversationBootstrapMock: vi.fn(() => false),
   startPollingMock: vi.fn(),
   connectForgeUIActionsToCallbacksOrChatMock: vi.fn(() => () => {}),
@@ -49,7 +51,6 @@ vi.mock('./stageBus', () => ({
 }));
 
 vi.mock('./chatRuntime', () => ({
-  applyIterationVisibility: vi.fn(),
   bindConversationWindowEvents: bindConversationWindowEventsMock,
   bootstrapConversationSelection: bootstrapConversationSelectionMock,
   cacheSettledConversationBootstrapSnapshot: cacheSettledConversationBootstrapSnapshotMock,
@@ -60,8 +61,8 @@ vi.mock('./chatRuntime', () => ({
   ensureConversation: vi.fn(),
   fetchConversation: fetchConversationMock,
   fetchPendingElicitations: fetchPendingElicitationsMock,
+  refreshGoalFeed: refreshGoalFeedMock,
   getSettledConversationBootstrapSnapshot: getSettledConversationBootstrapSnapshotMock,
-  getVisibleIterations: vi.fn(),
   hasPendingConversationBootstrap: hasPendingConversationBootstrapMock,
   hydrateMeta: hydrateMetaMock,
   hydrateConversationFromBootstrapSnapshot: hydrateConversationFromBootstrapSnapshotMock,
@@ -118,6 +119,7 @@ describe('onInit', () => {
     hasPendingConversationBootstrapMock.mockReturnValue(false);
     fetchConversationMock.mockImplementation(() => new Promise(() => {}));
     fetchPendingElicitationsMock.mockResolvedValue([]);
+    refreshGoalFeedMock.mockResolvedValue(undefined);
     dsTickMock.mockResolvedValue({ hasRunning: false });
   });
 
@@ -184,6 +186,28 @@ describe('onInit', () => {
     expect(fetchConversationMock).not.toHaveBeenCalled();
     expect(dsTickMock).not.toHaveBeenCalled();
     expect(publishActiveConversationMock).toHaveBeenCalledWith('conv-1', context);
+    expect(startPollingMock).toHaveBeenCalledWith(context);
+  });
+
+  it('starts recovery polling when a pending bootstrap owns initial hydration', async () => {
+    const conversationsDS = {
+      peekFormData: () => ({ id: 'conv-pending' }),
+      setFormData: vi.fn(),
+    };
+    const context = {
+      Context(name) {
+        if (name === 'conversations') return { handlers: { dataSource: conversationsDS } };
+        if (name === 'messages') return { handlers: { dataSource: { setCollection: vi.fn(), setError: vi.fn() } } };
+        if (name === 'meta') return { handlers: { dataSource: { peekFormData: () => ({ defaults: {} }) } } };
+        return null;
+      },
+    };
+    hasPendingConversationBootstrapMock.mockReturnValue(true);
+
+    await onInit({ context });
+
+    expect(syncConversationTransportMock).toHaveBeenCalledWith(context, 'conv-pending');
+    expect(startPollingMock).toHaveBeenCalledWith(context);
   });
 
   it('publishes terminal conversation meta when init fetches a settled conversation', async () => {

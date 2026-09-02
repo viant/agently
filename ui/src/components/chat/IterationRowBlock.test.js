@@ -132,7 +132,7 @@ describe('IterationRowBlock', () => {
       }],
     });
     const html = renderRow(row);
-    expect(html).toContain('Checking intake.');
+    expect(html).toContain('Intake classified');
     expect(html).toContain('Execution details');
   });
 

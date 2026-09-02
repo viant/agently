@@ -1,9 +1,9 @@
-import { normalizeMessages, normalizeOne } from './messageNormalizer';
-import { compareTemporalEntries, conversationLifecyclePatchForStreamPhase, isLiveConversationState } from 'agently-core-ui-sdk';
+import { conversationLifecyclePatchForStreamPhase, isLiveConversationState } from 'agently-core-ui-sdk';
+import * as canonicalChatStore from './chatStore';
 
-// App bootstrap installs the canonical chatStore mirror explicitly.
-// chatRuntime never resolves the store through module-system fallbacks.
-let _chatStoreModule = null;
+// Canonical chatStore is the authoritative projection owner. Tests may install
+// an observer-compatible replacement, but production never runs without it.
+let _chatStoreModule = canonicalChatStore;
 const streamSubscriptionOwners = new Map();
 let nextStreamSubscriptionID = 0;
 function hasActiveConversationTurnStream(conversationID = '') {
@@ -16,14 +16,12 @@ function _chatStoreRef() {
 }
 
 /**
- * Install the chatStore module as the forwarding target for SSE events and
- * transcript fetches. Call once at app bootstrap in environments where
- * `require` is not available (pure ESM).
+ * Install a chatStore-compatible target for tests. Passing null restores the
+ * production canonical store instead of disabling projection updates.
  */
 export function installChatStoreMirror(chatStoreModule) {
-  _chatStoreModule = chatStoreModule || null;
+  _chatStoreModule = chatStoreModule || canonicalChatStore;
 }
-import { ConversationStreamTracker, hasLiveAssistantRowForTurn, latestEffectiveLiveAssistantRow } from 'agently-core-ui-sdk/internal';
 import { rememberConversationSeedTitle } from './conversationTitle';
 import {
   removePendingElicitation,
@@ -33,27 +31,6 @@ import {
 import { applyFeedEvent, clearFeedState, clearFeedStateForConversation, isFeedInactive } from './toolFeedBus';
 import { publishUsage } from './usageBus';
 import { request } from './httpClient';
-import {
-  queueTranscriptRefresh as queueTranscriptRefreshStore,
-  resetTranscriptState,
-  syncTranscriptSnapshot as syncTranscriptSnapshotStore,
-  tickTranscript
-} from './transcriptStore';
-import {
-  applyAssistantMessageAddEvent,
-  applyElicitationRequestedEvent,
-  applyElicitationResolvedEvent,
-  applyExecutionStreamEvent,
-  applyMessagePatchEvent,
-  applyPreambleEvent,
-  applyStreamChunk,
-  applyTurnStartedEvent,
-  applyToolStreamEvent,
-  finalizeStreamTurn,
-  markLiveOwnedTurn,
-  resetLiveStreamState
-} from './liveStreamStore';
-import { buildCanonicalTranscriptRows, buildConversationRenderRows, isCanonicalTranscriptTurn } from './renderRows';
 import {
   clearWorkspaceWindowsForNewConversation,
   getWindowById,
@@ -75,7 +52,6 @@ import {
 import { isExecutorDebugEnabled, isStreamDebugEnabled } from './debugFlags';
 
 const RUNNING_STATUSES = new Set(['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress']);
-const DEFAULT_VISIBLE_ITERATIONS = Number.MAX_SAFE_INTEGER;
 const STREAM_DEBUG_PREFIX = '[agently-stream]';
 const EXECUTOR_DEBUG_PREFIX = '[agently-executor]';
 const SIDEBAR_ACTIVITY_EVENT_TYPES = new Set([
@@ -92,6 +68,36 @@ function scheduleTimeout(callback, delay = 0) {
     : (typeof globalThis.setTimeout === 'function' ? globalThis.setTimeout.bind(globalThis) : null);
   if (!scheduler) return 0;
   return scheduler(callback, delay);
+}
+
+export function resetRuntimeStreamState(chatState = {}, options = {}) {
+  chatState.lastStreamEventAt = 0;
+  chatState.activeStreamTurnId = '';
+  chatState.activeStreamStartedAt = 0;
+  chatState.liveOwnedConversationID = '';
+  chatState.liveOwnedTurnIds = [];
+  chatState.pendingTextDeltaQueue = [];
+  if (!options?.preservePrompt) chatState.activeStreamPrompt = '';
+}
+
+function markRuntimeLiveTurn(chatState = {}, conversationID = '', turnID = '') {
+  const nextConversationID = String(conversationID || '').trim();
+  const nextTurnID = String(turnID || '').trim();
+  if (nextConversationID) chatState.liveOwnedConversationID = nextConversationID;
+  chatState.liveOwnedTurnIds = nextTurnID ? [nextTurnID] : [];
+}
+
+function finalizeRuntimeLiveTurn(chatState = {}, payload = {}) {
+  const turnID = String(payload?.turnId || chatState.activeStreamTurnId || chatState.runningTurnId || '').trim();
+  chatState.activeStreamTurnId = '';
+  chatState.activeStreamStartedAt = 0;
+  chatState.activeStreamPrompt = '';
+  if (turnID) {
+    chatState.liveOwnedTurnIds = (Array.isArray(chatState.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [])
+      .map((value) => String(value || '').trim())
+      .filter((value) => value && value !== turnID);
+  }
+  if (chatState.liveOwnedTurnIds.length === 0) chatState.liveOwnedConversationID = '';
 }
 
 function normalizeGeneratedFiles(raw = null) {
@@ -132,21 +138,6 @@ function normalizeGeneratedFiles(raw = null) {
   }).filter((item) => !!item.id);
 }
 
-function mergeGeneratedFileLists(...lists) {
-  const out = [];
-  const seen = new Set();
-  for (const list of lists) {
-    if (!Array.isArray(list) || list.length === 0) continue;
-    for (const item of list) {
-      const id = String(item?.id || '').trim();
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      out.push(item);
-    }
-  }
-  return out;
-}
-
 async function fetchGeneratedFiles(conversationID = '') {
   const id = String(conversationID || '').trim();
   if (!id) return [];
@@ -173,32 +164,6 @@ async function refreshGeneratedFiles(context, conversationID = '') {
   return files;
 }
 
-function attachGeneratedFilesToRows(rows = [], files = []) {
-  const generatedFiles = Array.isArray(files) ? files : [];
-  if (generatedFiles.length === 0) {
-    return Array.isArray(rows) ? rows : [];
-  }
-  return (Array.isArray(rows) ? rows : []).map((row) => {
-    const rowId = String(row?.id || '').trim();
-    const turnId = String(row?.turnId || '').trim();
-    const role = String(row?.role || '').trim().toLowerCase();
-    const scopedFiles = generatedFiles.filter((file) => {
-      const fileMessageId = String(file?.messageId || '').trim();
-      const fileTurnId = String(file?.turnId || '').trim();
-      if (fileMessageId && rowId && fileMessageId === rowId) return true;
-      if (role !== 'assistant') return false;
-      return !!fileTurnId && !!turnId && fileTurnId === turnId;
-    });
-    if (scopedFiles.length === 0 && !Array.isArray(row?.generatedFiles)) {
-      return row;
-    }
-    return {
-      ...row,
-      generatedFiles: mergeGeneratedFileLists(row?.generatedFiles, scopedFiles)
-    };
-  });
-}
-
 export function logExecutorDebug(event, detail = {}) {
   if (!isExecutorDebugEnabled()) return;
   try {
@@ -217,7 +182,7 @@ function transcriptShouldBeIdle(chatState = {}, conversationID = '') {
   const ownedTurnIds = Array.isArray(chatState?.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [];
   if (ownedTurnIds.length === 0) return false;
   return !!(
-    trackerActiveTurnId(chatState)
+    canonicalActiveTurnId(chatState)
     || String(chatState?.runningTurnId || '').trim()
     || String(chatState?.activeStreamTurnId || '').trim()
     || chatState?.lastHasRunning
@@ -332,118 +297,6 @@ function shouldIgnoreExecutionStreamEvent(payload = {}) {
   return phase === 'intake';
 }
 
-function textDeltaQueueKey(payload = {}, fallbackConversationID = '') {
-  return [
-    String(payload?.conversationId || payload?.streamId || fallbackConversationID || '').trim(),
-    String(payload?.turnId || '').trim(),
-    String(payload?.messageId || payload?.assistantMessageId || payload?.id || '').trim(),
-    String(payload?.mode || payload?.patch?.mode || '').trim()
-  ].join('::');
-}
-
-function enqueueTextDelta(chatState = {}, payload = {}, fallbackConversationID = '') {
-  const queue = Array.isArray(chatState.pendingTextDeltaQueue) ? chatState.pendingTextDeltaQueue : [];
-  const key = textDeltaQueueKey(payload, fallbackConversationID);
-  const content = String(payload?.content || '');
-  if (!content) {
-    chatState.pendingTextDeltaQueue = queue;
-    return queue;
-  }
-  const last = queue[queue.length - 1];
-  if (last && last._queueKey === key) {
-    last.content = `${String(last.content || '')}${content}`;
-    last.createdAt = String(payload?.createdAt || last.createdAt || '').trim() || last.createdAt;
-    if (!String(last.id || '').trim() && String(payload?.id || '').trim()) {
-      last.id = String(payload.id).trim();
-    }
-    if (!String(last.messageId || '').trim() && String(payload?.messageId || '').trim()) {
-      last.messageId = String(payload.messageId).trim();
-    }
-    if (!String(last.assistantMessageId || '').trim() && String(payload?.assistantMessageId || '').trim()) {
-      last.assistantMessageId = String(payload.assistantMessageId).trim();
-    }
-  } else {
-    queue.push({
-      ...payload,
-      conversationId: String(payload?.conversationId || payload?.streamId || fallbackConversationID || '').trim(),
-      content,
-      _queueKey: key,
-    });
-  }
-  chatState.pendingTextDeltaQueue = queue;
-  return queue;
-}
-
-function flushQueuedTextDeltas(chatState = {}, context = null, conversationID = '') {
-  const queue = Array.isArray(chatState.pendingTextDeltaQueue) ? [...chatState.pendingTextDeltaQueue] : [];
-  if (queue.length === 0) return false;
-  chatState.pendingTextDeltaQueue = [];
-  for (const payload of queue) {
-    applyStreamChunk(chatState, payload, conversationID);
-  }
-  renderMergedRowsForContext(context);
-  return true;
-}
-
-function scheduleTextDeltaFlush(context, chatState = {}, conversationID = '') {
-  if (!chatState) {
-    renderMergedRowsForContext(context);
-    return;
-  }
-  if (chatState.pendingTextDeltaFlush) return;
-  const run = () => {
-    chatState.pendingTextDeltaFlush = null;
-    flushQueuedTextDeltas(chatState, context, conversationID);
-  };
-  const raf = typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
-    ? window.requestAnimationFrame.bind(window)
-    : null;
-  if (raf) {
-    chatState.pendingTextDeltaFlush = raf(run);
-    return;
-  }
-  chatState.pendingTextDeltaFlush = scheduleTimeout(run, 16);
-}
-
-function scheduleStreamRender(context, chatState = {}) {
-  if (!chatState) {
-    renderMergedRowsForContext(context);
-    return;
-  }
-  if (chatState.pendingStreamRender) return;
-  const run = () => {
-    chatState.pendingStreamRender = null;
-    renderMergedRowsForContext(context);
-  };
-  const raf = typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
-    ? window.requestAnimationFrame.bind(window)
-    : null;
-  if (raf) {
-    chatState.pendingStreamRender = raf(run);
-    return;
-  }
-  chatState.pendingStreamRender = scheduleTimeout(run, 16);
-}
-
-function clearPendingStreamScheduling(chatState = {}) {
-  if (!chatState) return;
-  if (chatState.pendingTextDeltaFlush != null) {
-    if (typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
-      try { window.cancelAnimationFrame(chatState.pendingTextDeltaFlush); } catch (_) {}
-    }
-    try { clearTimeout(chatState.pendingTextDeltaFlush); } catch (_) {}
-    chatState.pendingTextDeltaFlush = null;
-  }
-  if (chatState.pendingStreamRender != null) {
-    if (typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
-      try { window.cancelAnimationFrame(chatState.pendingStreamRender); } catch (_) {}
-    }
-    try { clearTimeout(chatState.pendingStreamRender); } catch (_) {}
-    chatState.pendingStreamRender = null;
-  }
-  chatState.pendingTextDeltaQueue = [];
-}
-
 function clearPendingStreamReconnect(chatState = {}) {
   if (!chatState) return;
   if (chatState.pendingStreamReconnect != null) {
@@ -510,25 +363,9 @@ function getPersistedSelectedAgent() {
   }
 }
 
-function trackerActiveTurnId(chatState = {}) {
-  return String(chatState?.streamTracker?.canonicalState?.activeTurnId || '').trim();
-}
-
-function syncTrackerDerivedTurnState(chatState = {}) {
-  const trackerTurnId = trackerActiveTurnId(chatState);
-  if (trackerTurnId) {
-    chatState.runningTurnId = trackerTurnId;
-    if (!String(chatState.activeStreamTurnId || '').trim()) {
-      chatState.activeStreamTurnId = trackerTurnId;
-    }
-    chatState.lastHasRunning = true;
-    return trackerTurnId;
-  }
-  if (!chatState.lastHasRunning) {
-    chatState.runningTurnId = '';
-    chatState.activeStreamTurnId = '';
-  }
-  return '';
+function canonicalActiveTurnId(chatState = {}, conversationID = '') {
+  const targetID = String(conversationID || chatState?.activeConversationID || chatState?.lastConversationID || '').trim();
+  return targetID ? String(_chatStoreRef()?.getActiveTurnId?.(targetID) || '').trim() : '';
 }
 
 function resolveStreamAgentName(context, agentId = '') {
@@ -782,16 +619,38 @@ export function resolveStarterTaskCategories({ agentInfos = [], selectedAgent = 
 }
 
 export function mapTranscriptToRows(turns = [], options = {}) {
-  if (!Array.isArray(turns) || turns.length === 0) {
-    return { rows: [], queuedTurns: [], runningTurnId: '' };
-  }
-  if (!isCanonicalTranscriptTurn(turns[0])) {
-    if (isStreamDebugEnabled()) {
-      console.warn('[transcript-render] non-canonical turns passed to mapTranscriptToRows');
-    }
-    return { rows: [], queuedTurns: [], runningTurnId: '' };
-  }
-  return buildCanonicalTranscriptRows(turns, options);
+  const list = Array.isArray(turns) ? turns : [];
+  const queuedTurns = list
+    .filter((turn) => ['queued', 'pending', 'open'].includes(String(turn?.status || '').trim().toLowerCase()))
+    .map((turn) => {
+      const content = String(turn?.user?.content || '').trim();
+      return {
+        id: String(turn?.turnId || '').trim(),
+        conversationId: String(turn?.conversationId || '').trim(),
+        status: String(turn?.status || '').trim().toLowerCase(),
+        queueSeq: turn?.queueSeq || null,
+        content,
+        preview: content.slice(0, 220),
+        createdAt: turn?.createdAt || '',
+        overrides: {
+          agent: String(turn?.agentIdUsed || '').trim(),
+          model: String(turn?.modelOverride || '').trim(),
+          tools: [],
+        },
+      };
+    })
+    .sort((left, right) => Number(left.queueSeq || 0) - Number(right.queueSeq || 0) || left.id.localeCompare(right.id));
+  return { rows: [], queuedTurns, runningTurnId: findLatestRunningTurnIdFromTurns(list) };
+}
+
+function isCanonicalTranscriptTurn(turn = {}) {
+  return !!turn && typeof turn === 'object' && (
+    Object.prototype.hasOwnProperty.call(turn, 'turnId')
+    || Object.prototype.hasOwnProperty.call(turn, 'execution')
+    || Object.prototype.hasOwnProperty.call(turn, 'assistant')
+    || Object.prototype.hasOwnProperty.call(turn, 'user')
+    || Object.prototype.hasOwnProperty.call(turn, 'elicitation')
+  );
 }
 
 function findLatestRunningTurnIdFromTurns(turns = []) {
@@ -839,17 +698,6 @@ export function resolveLastTranscriptCursor(turns = []) {
     }
     const turnId = String(turn?.id || turn?.Id || '').trim();
     if (turnId) return turnId;
-  }
-  return '';
-}
-
-function findLatestRunningTurnId(messages = []) {
-  const list = Array.isArray(messages) ? messages : [];
-  for (let index = list.length - 1; index >= 0; index--) {
-    const item = list[index];
-    if (isRunningStatus(item?.turnStatus || item?.status)) {
-      return item?.turnId || '';
-    }
   }
   return '';
 }
@@ -934,17 +782,9 @@ export function clearPendingConversationBootstrap(conversationID = '') {
 export function ensureContextResources(context) {
   context.resources = context.resources || {};
   context.resources.chat = context.resources.chat || {};
-  context.resources.chat.iterationVisibleCount = DEFAULT_VISIBLE_ITERATIONS;
-  context.resources.chat.transcriptRows = Array.isArray(context.resources.chat.transcriptRows) ? context.resources.chat.transcriptRows : [];
-  context.resources.chat.liveRows = Array.isArray(context.resources.chat.liveRows) ? context.resources.chat.liveRows : [];
-  context.resources.chat.renderRows = Array.isArray(context.resources.chat.renderRows) ? context.resources.chat.renderRows : [];
   context.resources.chat.liveOwnedConversationID = String(context.resources.chat.liveOwnedConversationID || '').trim();
   context.resources.chat.liveOwnedTurnIds = Array.isArray(context.resources.chat.liveOwnedTurnIds) ? context.resources.chat.liveOwnedTurnIds : [];
-  context.resources.chat.pendingTextDeltaQueue = Array.isArray(context.resources.chat.pendingTextDeltaQueue) ? context.resources.chat.pendingTextDeltaQueue : [];
   context.resources.chat.generatedFiles = Array.isArray(context.resources.chat.generatedFiles) ? context.resources.chat.generatedFiles : [];
-  if (!context.resources.chat.streamTracker) {
-    context.resources.chat.streamTracker = new ConversationStreamTracker(String(context.resources.chat.activeConversationID || '').trim());
-  }
   return context.resources.chat;
 }
 
@@ -988,164 +828,14 @@ function latestTurnStillOwnedByLive(chatState = {}, conversationID = '', turnID 
   return ownedTurnIds.includes(targetTurnID);
 }
 
-function applyTerminalTurnStatusToTranscriptRows(rows = [], turnId = '', status = '', errorMessage = '') {
-  const targetTurnId = String(turnId || '').trim();
-  const terminalStatus = String(status || '').trim();
-  if (!targetTurnId || !terminalStatus) return Array.isArray(rows) ? rows : [];
-  return (Array.isArray(rows) ? rows : []).map((row) => {
-    if (String(row?.turnId || '').trim() !== targetTurnId) return row;
-    const next = {
-      ...row,
-      turnStatus: terminalStatus
-    };
-    if (String(row?.role || '').trim().toLowerCase() === 'assistant') {
-      next.status = terminalStatus;
-      if (errorMessage && !String(next.errorMessage || '').trim()) {
-        next.errorMessage = errorMessage;
-      }
-    }
-    return next;
-  });
-}
-
-export function getVisibleIterations(context) {
-  ensureContextResources(context);
-  return DEFAULT_VISIBLE_ITERATIONS;
-}
-
-export function normalizeForContext(context, rows = []) {
-  return normalizeMessages(rows, { visibleCount: getVisibleIterations(context) });
-}
-
-function syncWindowConversationDebugState({
-  chatState,
-  conversationID = '',
-  mergedRows = [],
-  normalizedRows = [],
-} = {}) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.__agentlyConversationDebug = {
-      conversationId: String(conversationID || '').trim(),
-      transcriptRows: Array.isArray(chatState?.transcriptRows) ? chatState.transcriptRows : [],
-      renderRows: Array.isArray(mergedRows) ? mergedRows : [],
-      normalizedRows: Array.isArray(normalizedRows) ? normalizedRows : [],
-      liveRows: Array.isArray(chatState?.liveRows) ? chatState.liveRows : [],
-      liveOwnedConversationID: String(chatState?.liveOwnedConversationID || '').trim(),
-      liveOwnedTurnIds: Array.isArray(chatState?.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [],
-      runningTurnId: String(chatState?.runningTurnId || '').trim(),
-      activeStreamTurnId: String(chatState?.activeStreamTurnId || '').trim(),
-      trackerActiveTurnId: trackerActiveTurnId(chatState),
-      lastHasRunning: !!chatState?.lastHasRunning,
-    };
-  } catch (_) {}
-}
-
 export function renderMergedRowsForContext(context) {
-  const messagesDS = context?.Context?.('messages')?.handlers?.dataSource;
-  if (!messagesDS) return [];
   const chatState = ensureContextResources(context);
-  const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
-  const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
-  const conversationForm = conversationsDS?.peekFormData?.() || {};
-  const metaForm = metaDS?.peekFormData?.() || {};
-  const currentConversationID = getCurrentConversationID(context);
-  const effectiveRunningTurnId = String(
-    trackerActiveTurnId(chatState)
-    || chatState.runningTurnId
-    || ''
-  ).trim();
-  const { effectiveLiveRows, mergedRows } = buildConversationRenderRows({
-    transcriptRows: chatState.transcriptRows,
-    streamState: chatState?.streamTracker?.canonicalState,
-    liveRows: chatState.liveRows,
-    currentConversationID,
-    runningTurnId: effectiveRunningTurnId,
-    hasRunning: chatState.lastHasRunning,
-    findLatestRunningTurnId,
-    liveOwnedConversationID: chatState.liveOwnedConversationID,
-    liveOwnedTurnIds: chatState.liveOwnedTurnIds
-  });
-  chatState.renderRows = mergedRows;
-  const normalizedRows = normalizeForContext(context, mergedRows);
-  if (typeof window !== 'undefined' && window.__agentlyActiveChatState === chatState) {
-    window.__agentlyActiveChatState.renderRows = mergedRows;
-    window.__agentlyActiveChatState.normalizedRows = normalizedRows;
-  }
-  syncWindowConversationDebugState({
-    chatState,
-    conversationID: currentConversationID,
-    mergedRows,
-    normalizedRows,
-  });
-  if (isStreamDebugEnabled()) {
-    console.log('[render]', {
-      ts: new Date().toISOString(),
-      conversationId: getCurrentConversationID(context),
-      trackerActiveTurnId: trackerActiveTurnId(chatState),
-      runningTurnId: chatState.runningTurnId,
-      liveOwnedConversationID: chatState.liveOwnedConversationID,
-      liveOwnedTurnIds: Array.isArray(chatState.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [],
-      liveCount: effectiveLiveRows.length,
-      mergedCount: mergedRows.length,
-      normalizedCount: normalizedRows.length,
-      normalizedTypes: normalizedRows.map((row) => ({
-        id: row?.id,
-        type: row?._type || row?.role,
-        mode: row?.mode || '',
-        head: String(row?.content || '').slice(0, 60),
-        groups: (row?.executionGroups || []).map((g) => ({
-          kind: g?.groupKind || '',
-          title: g?.title || '',
-          toolSteps: (g?.toolSteps || []).map((step) => ({
-            toolName: step?.toolName || '',
-            status: step?.status || '',
-            contentHead: String(step?.content || '').slice(0, 80)
-          }))
-        }))
-      })),
-      liveRows: effectiveLiveRows.map((r) => ({
-        id: r?.id, role: r?.role, turnId: r?.turnId, interim: r?.interim,
-        contentHead: String(r?.content || '').slice(0, 50),
-        groups: (r?.executionGroups || []).length,
-        toolSteps: (r?.executionGroups || []).flatMap((g) => g?.toolSteps || []).length,
-        groupKinds: (r?.executionGroups || []).map((g) => g?.groupKind || ''),
-        requestPayloadIds: (r?.executionGroups || []).flatMap((g) => (g?.modelSteps || []).map((step) => step?.requestPayloadId || '')),
-        providerRequestPayloadIds: (r?.executionGroups || []).flatMap((g) => (g?.modelSteps || []).map((step) => step?.providerRequestPayloadId || ''))
-      })),
-      rawRows: mergedRows.map((row) => ({
-        id: row?.id,
-        role: row?.role,
-        turnId: row?.turnId,
-        mode: row?.mode || '',
-        head: String(row?.content || '').slice(0, 60),
-        groups: (row?.executionGroups || []).map((g) => ({
-          kind: g?.groupKind || '',
-          title: g?.title || '',
-          modelRequestPayloadId: g?.modelSteps?.[0]?.requestPayloadId || '',
-          modelProviderRequestPayloadId: g?.modelSteps?.[0]?.providerRequestPayloadId || '',
-          toolSteps: (g?.toolSteps || []).map((step) => ({
-            toolName: step?.toolName || '',
-            status: step?.status || '',
-            contentHead: String(step?.content || '').slice(0, 80)
-          }))
-        }))
-      }))
-    });
-  }
-  // liveStreamStore already normalizes streaming content into row.content.
-  // Do not overwrite it with raw _streamContent here, or markdown/chart fences
-  // leak into the bubble during streaming instead of rendering as rich content.
-  const resolvedRows = attachGeneratedFilesToRows(mergedRows, chatState.generatedFiles);
-  const normalizedResolvedRows = normalizeForContext(context, resolvedRows);
-  const queuedTurns = Array.isArray(chatState?.lastQueuedTurns) ? chatState.lastQueuedTurns : [];
-  const queuedTurnIds = new Set(queuedTurns.map((item) => String(item?.id || '').trim()).filter(Boolean));
-  const queuedTurnPreviews = new Set(
-    queuedTurns
-      .map((item) => String(item?.preview || item?.content || '').trim())
-      .filter(Boolean)
-  );
-  const normalizedConversationID = String(conversationForm?.id || '').trim();
+  const conversationID = String(getCurrentConversationID(context) || '').trim();
+  const projection = conversationID ? (_chatStoreRef()?.getProjection?.(conversationID) || []) : [];
+  const messagesDS = context?.Context?.('messages')?.handlers?.dataSource;
+  messagesDS?.setCollection?.(projection);
+  const queuedTurns = Array.isArray(chatState.lastQueuedTurns) ? chatState.lastQueuedTurns : [];
+  const normalizedConversationID = conversationID;
   if (normalizedConversationID) {
     if (queuedTurns.length > 0) {
       applyFeedEvent({
@@ -1169,74 +859,29 @@ export function renderMergedRowsForContext(context) {
       });
     }
   }
-  const selectedAgent = resolveVisibleSelectedAgent(
-    metaForm,
-    conversationForm?.agent,
-    getPersistedSelectedAgent(),
-    metaForm?.agent,
-    metaForm?.defaults?.agent
-  );
-  const hasConversationId = String(conversationForm?.id || '').trim() !== '';
-  const filteredResolvedRows = normalizedResolvedRows.filter((row) => {
-    if (String(row?.role || '').trim().toLowerCase() !== 'user') return true;
-    const turnId = String(row?.turnId || '').trim();
-    if (turnId && queuedTurnIds.has(turnId)) return false;
-    const content = String(row?.content || '').trim();
-    if (content && queuedTurnPreviews.has(content)) return false;
-    return true;
-  });
-  const hasVisibleConversationContent = filteredResolvedRows.some((row) => {
-    const type = String(row?._type || '').toLowerCase();
-    return type !== 'queue';
-  });
-  messagesDS.setCollection?.(filteredResolvedRows);
-  return mergedRows;
+  if (typeof window !== 'undefined') {
+    window.__agentlyConversationDebug = {
+      conversationId: conversationID,
+      projection,
+      runningTurnId: String(chatState.runningTurnId || '').trim(),
+      activeStreamTurnId: String(chatState.activeStreamTurnId || '').trim(),
+      lastHasRunning: !!chatState.lastHasRunning,
+    };
+  }
+  return projection;
 }
 
-function trackerHasAssistantRowForTurn(chatState = {}, conversationID = '', turnID = '') {
-  return hasLiveAssistantRowForTurn(chatState?.streamTracker?.canonicalState, conversationID, turnID);
+function canonicalHasAssistantRowForTurn(conversationID = '', turnID = '') {
+  return !!_chatStoreRef()?.hasAssistantRowForTurn?.(conversationID, turnID);
 }
 
 export function latestAssistantRowForTurn(chatState = {}, conversationID = '', turnID = '') {
   const targetTurnID = String(turnID || '').trim();
   if (!targetTurnID) return null;
   const targetConversationID = String(conversationID || chatState?.activeConversationID || '').trim();
-  return latestEffectiveLiveAssistantRow(
-    chatState?.streamTracker?.canonicalState,
-    Array.isArray(chatState?.liveRows) ? chatState.liveRows : [],
-    targetConversationID,
-    targetTurnID
-  );
-}
-
-function resolveTurnStarterPreview(turn = {}) {
-  const messages = Array.isArray(turn?.message || turn?.Message) ? (turn.message || turn.Message) : [];
-  const startedMessageID = String(turn?.startedByMessageId || turn?.StartedByMessageId || '').trim();
-  const starter = messages.find((entry) => String(entry?.id || entry?.Id || '').trim() === startedMessageID)
-    || messages.find((entry) => String(entry?.role || entry?.Role || '').toLowerCase() === 'user');
-  return String(
-    starter?.rawContent
-    || starter?.RawContent
-    || starter?.content
-    || starter?.Content
-    || ''
-  ).trim();
-}
-
-function resolveActiveStreamTurnId(turns = [], chatState = {}) {
-  const explicit = String(chatState?.activeStreamTurnId || '').trim();
-  if (explicit) return explicit;
-  const preview = String(chatState?.activeStreamPrompt || '').trim();
-  if (!preview) return '';
-  const list = Array.isArray(turns) ? turns : [];
-  for (const turn of list) {
-    const turnID = String(turn?.id || turn?.Id || '').trim();
-    if (!turnID) continue;
-    if (resolveTurnStarterPreview(turn) === preview) {
-      return turnID;
-    }
-  }
-  return '';
+  return [...(_chatStoreRef()?.getProjection?.(targetConversationID) || [])]
+    .reverse()
+    .find((row) => String(row?.turnId || '').trim() === targetTurnID && (row?.kind === 'assistant' || row?.kind === 'iteration')) || null;
 }
 
 function getCurrentConversationID(context) {
@@ -1276,15 +921,20 @@ function updateTranscriptFeedCache(chatState = {}, payload = {}, fallbackConvers
   if (String(payload?.type || '').toLowerCase() !== 'tool_feed_active') return;
   const nextFeed = {
     feedId,
-    turnId: String(payload?.turnId || '').trim(),
     title: payload?.feedTitle || feedId,
     developerOnly: payload?.feedDeveloperOnly === true,
-    presentation: payload?.feedIcon || payload?.feedAccent || payload?.feedTarget
-      ? { icon: payload?.feedIcon || undefined, accent: payload?.feedAccent || undefined, target: payload?.feedTarget || undefined }
-      : undefined,
     itemCount: payload?.feedItemCount || 0,
     data: payload?.feedData || null
   };
+  const turnId = String(payload?.turnId || '').trim();
+  if (turnId) nextFeed.turnId = turnId;
+  if (payload?.feedIcon || payload?.feedAccent || payload?.feedTarget) {
+    nextFeed.presentation = {
+      icon: payload?.feedIcon || undefined,
+      accent: payload?.feedAccent || undefined,
+      target: payload?.feedTarget || undefined
+    };
+  }
   const next = [
     ...existing.filter((feed) => String(feed?.feedId || '').trim() !== feedId),
     nextFeed
@@ -1409,7 +1059,7 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
         liveOwnedTurnIds: Array.isArray(chatState?.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [],
         runningTurnId: String(chatState?.runningTurnId || '').trim(),
         activeStreamTurnId: String(chatState?.activeStreamTurnId || '').trim(),
-        trackerActiveTurnId: trackerActiveTurnId(chatState),
+        canonicalActiveTurnId: canonicalActiveTurnId(chatState),
         lastHasRunning: !!chatState?.lastHasRunning
       });
     }
@@ -1445,32 +1095,15 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
   const pendingBootstrapOwned = canonicalConversation?.conversationId
     ? hasPendingConversationBootstrap(canonicalConversation.conversationId)
     : false;
-  // ── chatStore transcript forwarding shim (PR-0 side-consumer cutover) ───
-  // Forward transcript snapshots only when the conversation is not currently
-  // SSE-owned. Active-turn truth belongs entirely to SSE on the web UI; do not
-  // forward any transcript fragment for that turn into the canonical client
-  // store.
-  //
-  // Reset is destructive: it deletes the per-conversation entry, which forces
-  // applyTranscript to re-allocate a fresh renderKey for every entity. Any
-  // mounted MCP UI iframe bubble keyed by that renderKey unmounts and
-  // remounts, dropping its host bridge binding (windowId + bound source
-  // window) and visual state. Reset is therefore only safe when no live SSE
-  // ownership exists for this conversation. When SSE owns the conversation
-  // and canonical reports terminal, applyTranscript still settles lifecycle
-  // through field-level transcript refinement without disturbing entity
-  // identity.
-  try {
-    if (canonicalConversation && canonicalConversation.conversationId && !pendingBootstrapOwned && (!latestTurnLiveOwned || !canonicalHasRunning)) {
-      const store = _chatStoreRef();
-      if (store) {
-        if (!canonicalHasRunning && !latestTurnLiveOwned && typeof store.reset === 'function') {
-          store.reset(canonicalConversation.conversationId);
-        }
-        store.onTranscript(canonicalConversation.conversationId, canonicalConversation);
-      }
+  if (canonicalConversation?.conversationId && !pendingBootstrapOwned) {
+    const store = _chatStoreRef();
+    if (!store || typeof store.onTranscript !== 'function') {
+      throw new Error('canonical chatStore is not configured');
     }
-  } catch (_) { /* best-effort mirror */ }
+    // Field provenance in the canonical reducer protects live SSE values while
+    // allowing persisted transcript data to refine and settle the same entity.
+    store.onTranscript(canonicalConversation.conversationId, canonicalConversation);
+  }
   try {
     if (canonicalConversation?.conversationId && Array.isArray(canonicalTurns) && canonicalTurns.length > 0 && !canonicalHasRunning) {
       await syncHydratedWorkspaceStateFromTranscriptTurns(canonicalConversation.conversationId, canonicalTurns, {
@@ -1504,19 +1137,15 @@ export async function fetchPendingElicitations(conversationID = '') {
 export async function fetchConversation(conversationID = '') {
   const id = String(conversationID || '').trim();
   if (!id) return null;
-  try {
-    const data = await client.getConversation(id);
-    if (!data || typeof data !== 'object') return null;
-    const resolvedID = String(data?.id || data?.Id || '').trim();
-    if (resolvedID) {
-      // Update usage display from conversation data.
-      publishUsage(resolvedID, data);
-      return data;
-    }
-    return null;
-  } catch (_) {
-    return null;
+  const data = await client.getConversation(id);
+  if (!data || typeof data !== 'object') return null;
+  const resolvedID = String(data?.id || data?.Id || '').trim();
+  if (resolvedID) {
+    // Update usage display from conversation data.
+    publishUsage(resolvedID, data);
+    return data;
   }
+  return null;
 }
 
 export async function refreshGoalFeed(conversationID = '') {
@@ -1634,43 +1263,67 @@ export async function hydrateMeta(context) {
 export function syncMessagesSnapshot(context, turns, reason = 'poll', pendingElicitations = []) {
   const chatState = ensureContextResources(context);
   const currentConversationID = String(getCurrentConversationID(context) || '').trim();
-  const lateJoinHydration = reason === 'late-join';
-  if (transcriptShouldBeIdle(chatState, currentConversationID) && !lateJoinHydration) {
-    logExecutorDebug('transcript-snapshot-skipped-live-owned', {
-      conversationId: currentConversationID,
-      reason,
-      liveOwnedConversationID: String(chatState?.liveOwnedConversationID || '').trim(),
-      liveOwnedTurnIds: Array.isArray(chatState?.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [],
-      runningTurnId: String(chatState?.runningTurnId || '').trim(),
-      activeStreamTurnId: String(chatState?.activeStreamTurnId || '').trim(),
-      trackerActiveTurnId: trackerActiveTurnId(chatState),
-      lastHasRunning: !!chatState?.lastHasRunning
-    });
-    return renderMergedRowsForContext(context);
+  const normalizedTurns = Array.isArray(turns) ? turns : [];
+  const mapped = mapTranscriptToRows(normalizedTurns, { pendingElicitations });
+  const runningTurnId = String(
+    mapped?.runningTurnId
+    || findLatestRunningTurnIdFromTurns(normalizedTurns)
+    || canonicalActiveTurnId(chatState, currentConversationID)
+    || ''
+  ).trim();
+  const hasRunning = normalizedTurns.some((turn) => RUNNING_STATUSES.has(String(turn?.status || turn?.Status || '').trim().toLowerCase()));
+  const queuedTurns = Array.isArray(mapped?.queuedTurns) ? mapped.queuedTurns : [];
+  const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
+  const convForm = conversationsDS?.peekFormData?.() || {};
+  conversationsDS?.setFormData?.({ values: { ...convForm, running: hasRunning } });
+
+  chatState.activeConversationID = currentConversationID;
+  chatState.lastSyncReason = reason;
+  chatState.lastQueuedTurns = queuedTurns;
+  chatState.lastHasRunning = hasRunning;
+  chatState.lastConversationID = currentConversationID;
+  chatState.runningTurnId = hasRunning ? runningTurnId : '';
+  if (hasRunning && currentConversationID && runningTurnId) {
+    markRuntimeLiveTurn(chatState, currentConversationID, runningTurnId);
+  } else if (!hasRunning) {
+    finalizeRuntimeLiveTurn(chatState, { turnId: chatState.activeStreamTurnId || chatState.runningTurnId });
   }
-  if (chatState.streamTracker && typeof chatState.streamTracker.applyTranscript === 'function' && Array.isArray(turns)) {
-    chatState.streamTracker.applyTranscript(turns);
-    syncTrackerDerivedTurnState(chatState);
-  }
-  const snapshot = syncTranscriptSnapshotStore({
-    context,
-    turns,
-    pendingElicitations,
-    reason,
-    ensureContextResources,
-    resolveActiveStreamTurnId,
-    mapTranscriptToRows,
-    findLatestRunningTurnIdFromTurns,
-    findLatestRunningTurnId,
-    applyFeedEvent,
-    setStage,
-    liveRows: chatState.liveRows
-  });
-  if (Array.isArray(snapshot?.liveRows)) {
-    chatState.liveRows = snapshot.liveRows;
-  }
+
   if (currentConversationID) {
     replacePendingElicitationsForConversation(currentConversationID, pendingElicitations);
+  }
+  const transcriptFeeds = Array.isArray(chatState.lastTranscriptFeedsByConversation?.[currentConversationID])
+    ? chatState.lastTranscriptFeedsByConversation[currentConversationID]
+    : [];
+  for (const feed of transcriptFeeds) {
+    const feedId = String(feed?.feedId || '').trim();
+    if (!feedId || isFeedInactive(feedId, currentConversationID)) continue;
+    applyFeedEvent({
+      type: 'tool_feed_active',
+      feedId,
+      turnId: String(feed?.turnId || '').trim(),
+      feedTitle: feed.title || feedId,
+      feedDeveloperOnly: feed.developerOnly === true,
+      feedIcon: feed.presentation?.icon,
+      feedAccent: feed.presentation?.accent,
+      feedTarget: feed.presentation?.target,
+      feedItemCount: feed.itemCount || 0,
+      feedData: feed.data || null,
+      conversationId: currentConversationID,
+    });
+  }
+  if (currentConversationID && !hasRunning) {
+    Promise.resolve(syncHydratedWorkspaceStateFromTranscriptTurns(currentConversationID, normalizedTurns, {
+      reopen: true,
+      announce: true,
+    })).catch(() => {});
+  }
+  if (hasRunning) {
+    setStage({ phase: 'executing', text: 'Assistant executing…' });
+  } else if (queuedTurns.length > 0) {
+    setStage({ phase: 'waiting', text: `Queued turns: ${queuedTurns.length}` });
+  } else if (reason === 'poll' || reason === 'fetch') {
+    setStage({ phase: 'ready', text: 'Ready' });
   }
   return renderMergedRowsForContext(context);
 }
@@ -1685,7 +1338,7 @@ function shouldDeferTranscriptToLiveStream(context, conversationID = '') {
   return !!(
     hasPendingLiveTurnBootstrap
     || 
-    trackerActiveTurnId(chatState)
+    canonicalActiveTurnId(chatState, targetID)
     || String(chatState.runningTurnId || '').trim()
     || String(chatState.activeStreamTurnId || '').trim()
     || chatState.lastHasRunning
@@ -1711,16 +1364,15 @@ export async function dsTick(context, options = {}) {
       liveOwnedTurnIds: Array.isArray(chatState?.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [],
       runningTurnId: String(chatState?.runningTurnId || '').trim(),
       activeStreamTurnId: String(chatState?.activeStreamTurnId || '').trim(),
-      trackerActiveTurnId: trackerActiveTurnId(chatState),
+      canonicalActiveTurnId: canonicalActiveTurnId(chatState, requestedConversationID),
       lastHasRunning: !!chatState?.lastHasRunning
     });
     return {
-      transcriptRows: chatState.transcriptRows,
-      liveRows: chatState.liveRows,
+      projection: _chatStoreRef()?.getProjection?.(requestedConversationID) || [],
       queuedTurns: chatState.lastQueuedTurns || [],
       hasRunning: true,
       runningTurnId:
-        trackerActiveTurnId(chatState)
+        canonicalActiveTurnId(chatState, requestedConversationID)
         || chatState.runningTurnId
         || chatState.activeStreamTurnId
         || '',
@@ -1735,22 +1387,35 @@ export async function dsTick(context, options = {}) {
       liveOwnedTurnIds: Array.isArray(chatState?.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [],
       runningTurnId: String(chatState?.runningTurnId || '').trim(),
       activeStreamTurnId: String(chatState?.activeStreamTurnId || '').trim(),
-      trackerActiveTurnId: trackerActiveTurnId(chatState),
+      canonicalActiveTurnId: canonicalActiveTurnId(chatState, requestedConversationID),
       lastHasRunning: !!chatState?.lastHasRunning
     });
   }
-  const result = await tickTranscript({
-    context,
-    options,
-    ensureContextResources,
-    fetchTranscript,
-    fetchPendingElicitations,
-    resolveLastTranscriptCursor,
-    syncTranscriptSnapshot: ({ context: nextContext, turns, pendingElicitations, reason }) => (
-      syncMessagesSnapshot(nextContext, turns, reason, pendingElicitations)
-    )
-  });
-  const conversationID = String(result?.conversationID || getCurrentConversationID(context) || '').trim();
+  const conversationID = requestedConversationID;
+  const since = String(chatState.lastSinceCursor || '').trim();
+  const transcriptOptions = options?.transcript && typeof options.transcript === 'object'
+    ? options.transcript
+    : {};
+  let turns = Array.isArray(options?.prefetchedTranscriptTurns)
+    ? options.prefetchedTranscriptTurns
+    : await fetchTranscript(conversationID, since, transcriptOptions);
+  if (String(getCurrentConversationID(context) || '').trim() !== conversationID) return;
+  if (since && turns.length === 0 && (chatState.lastHasRunning || (_chatStoreRef()?.getProjection?.(conversationID) || []).length > 0)) {
+    turns = await fetchTranscript(conversationID, '', transcriptOptions);
+    if (String(getCurrentConversationID(context) || '').trim() !== conversationID) return;
+  }
+  if (turns.length > 0) chatState.lastSinceCursor = resolveLastTranscriptCursor(turns);
+  const pendingElicitations = Array.isArray(options?.prefetchedPendingElicitations)
+    ? options.prefetchedPendingElicitations
+    : await fetchPendingElicitations(conversationID);
+  syncMessagesSnapshot(context, turns, String(options?.reason || 'poll').trim() || 'poll', pendingElicitations);
+  const result = {
+    projection: _chatStoreRef()?.getProjection?.(conversationID) || [],
+    queuedTurns: chatState.lastQueuedTurns || [],
+    hasRunning: !!chatState.lastHasRunning,
+    runningTurnId: String(chatState.runningTurnId || '').trim(),
+    conversationID,
+  };
   if (conversationID) {
     await refreshGeneratedFiles(context, conversationID);
     renderMergedRowsForContext(context);
@@ -1775,18 +1440,13 @@ export async function dsTick(context, options = {}) {
 
 export function resetConversationSnapshotState(context) {
   const chatState = ensureContextResources(context);
-  clearPendingStreamScheduling(chatState);
   clearPendingStreamReconnect(chatState);
-  resetTranscriptState({
-    context,
-    ensureContextResources,
-    getCurrentConversationID
-  });
-  resetLiveStreamState(chatState);
-  if (chatState.streamTracker) {
-    chatState.streamTracker.reset();
-  }
-  chatState.renderRows = [];
+  chatState.lastSinceCursor = '';
+  chatState.lastTranscriptFeedsByConversation = {};
+  chatState.lastQueuedTurns = [];
+  chatState.lastHasRunning = false;
+  chatState.runningTurnId = '';
+  resetRuntimeStreamState(chatState);
   chatState.generatedFiles = [];
   chatState.prefetchedTerminalConversationID = '';
   chatState.prefetchedTerminalTurnID = '';
@@ -1799,14 +1459,23 @@ export function queueTranscriptRefresh(context, { delay = 120, resetSince = fals
   if (!force && shouldDeferTranscriptToLiveStream(context, currentConversationID)) {
     return null;
   }
-  return queueTranscriptRefreshStore({
-    context,
-    delay,
-    resetSince,
-    ensureContextResources,
-    resetTranscriptState: ({ context: nextContext }) => resetConversationSnapshotState(nextContext),
-    tickTranscript: ({ context: nextContext }) => dsTick(nextContext)
-  });
+  const chatState = ensureContextResources(context);
+  if (resetSince) chatState.lastSinceCursor = '';
+  if (chatState.refreshTimer) {
+    clearTimeout(chatState.refreshTimer);
+    chatState.refreshTimer = null;
+  }
+  chatState.refreshTimer = scheduleTimeout(async () => {
+    chatState.refreshTimer = null;
+    if (chatState.refreshInFlight) return;
+    chatState.refreshInFlight = true;
+    try {
+      await dsTick(context);
+    } finally {
+      chatState.refreshInFlight = false;
+    }
+  }, Math.max(0, Number(delay) || 0));
+  return chatState.refreshTimer;
 }
 
 export function connectStream(context, conversationID) {
@@ -1949,28 +1618,17 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         return;
       }
     }
-    const shouldReplayIntoLegacyTracker = type !== 'turn_completed' && type !== 'turn_failed' && type !== 'turn_canceled';
-    if (shouldReplayIntoLegacyTracker) {
-      try {
-        chatState?.streamTracker?.applyEvent?.(payload);
-        syncTrackerDerivedTurnState(chatState);
-      } catch (_) {}
-    }
-    // ── chatStore forwarding shim (PR-0 side-consumer cutover) ──────────────
-    // Every SSE event that chatRuntime dispatches is also forwarded to the
-    // canonical client chatStore. The legacy stores (liveRows/transcriptRows/
-    // renderRows) are still maintained below for backward compatibility with
-    // not-yet-migrated surfaces; chatStore runs as a live mirror so any
-    // consumer that has already switched (e.g. ChatFeedFromChatStore) sees
-    // identical data in real time. See ui-improvement.md §7.3.
-    try {
-      const cid = String(payload?.conversationId || conversationID || '').trim();
-      if (cid) {
-        // Lazy-import to avoid a circular dependency at module load time.
-        const store = _chatStoreRef();
-        if (store) store.onSSE(cid, payload);
+    // Canonical projection is updated before compatibility side effects. A
+    // reducer error is not swallowed: continuing with only legacy state would
+    // make the visible feed diverge from transport/lifecycle state.
+    const cid = String(payload?.conversationId || conversationID || '').trim();
+    if (cid) {
+      const store = _chatStoreRef();
+      if (!store || typeof store.onSSE !== 'function') {
+        throw new Error('canonical chatStore is not configured');
       }
-    } catch (_) { /* best-effort mirror */ }
+      store.onSSE(cid, payload);
+    }
     const eventConversationID = resolveStreamEventConversationID(payload, conversationID);
     if (type === 'conversation_meta_updated' && eventConversationID) {
       publishConversationMetaUpdated(eventConversationID, payload?.patch || {});
@@ -2089,32 +1747,23 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       payloadPageCount: Number(payload?.pageCount || 0) || 0
     });
 
-    if (type !== 'text_delta') {
-      flushQueuedTextDeltas(chatState, context, conversationID);
-    }
-
     if (type === 'text_delta') {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
       applyStreamConversationState(context, 'thinking', payload);
       setStage({ phase: 'streaming', text: 'Streaming response…', startedAt: stageStartedAtValue(payload, chatState), completedAt: 0 });
-      enqueueTextDelta(chatState, payload, conversationID);
-      const queue = Array.isArray(chatState.pendingTextDeltaQueue) ? chatState.pendingTextDeltaQueue : [];
-      const mergedPayload = queue[queue.length - 1] || payload;
-      const streamID = String(mergedPayload?.streamId || conversationID);
-      const streamMessageID = String(mergedPayload?.id || '').trim();
-      const activeStreamRow = [...(Array.isArray(chatState.liveRows) ? chatState.liveRows : [])].reverse().find((row) => row?.isStreaming && String(row?.role || '').toLowerCase() === 'assistant')
-        || latestAssistantRowForTurn(chatState, conversationID, String(mergedPayload?.turnId || payload?.turnId || '').trim());
+      const streamID = String(payload?.streamId || conversationID);
+      const streamMessageID = String(payload?.id || payload?.messageId || payload?.assistantMessageId || '').trim();
+      const projection = _chatStoreRef()?.getProjection?.(eventConversationID) || [];
+      const activeStreamRow = [...projection].reverse().find((row) => row?.kind === 'assistant' || row?.kind === 'iteration');
       logStreamDebug(chatState, 'stream-chunk-merged', {
         streamId: streamID,
         streamMessageId: streamMessageID,
         chunkChars: String(payload?.content || '').length,
-        queuedChars: String(mergedPayload?.content || '').length,
-        totalChars: String(activeStreamRow?._streamContent || '').length,
-        rowCount: Array.isArray(chatState.liveRows) ? chatState.liveRows.length : 0,
+        totalChars: String(activeStreamRow?.content || '').length,
+        rowCount: projection.length,
         turnId: String(activeStreamRow?.turnId || '').trim()
       });
-      scheduleTextDeltaFlush(context, chatState, conversationID);
       return;
     }
 
@@ -2144,11 +1793,8 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       if (String(payload?.turnId || '').trim()) {
         chatState.activeStreamTurnId = String(payload.turnId).trim();
         chatState.runningTurnId = String(payload.turnId).trim();
-        markLiveOwnedTurn(chatState, conversationID, String(payload.turnId).trim());
-        applyTurnStartedEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload), conversationID);
+        markRuntimeLiveTurn(chatState, conversationID, String(payload.turnId).trim());
       }
-      const enrichedPayload = enrichPayloadWithTurnAgent(chatState, context, payload);
-      applyExecutionStreamEvent(chatState, enrichedPayload, conversationID);
       setStage({ phase: 'executing', text: 'Assistant executing…', startedAt: stageStartedAtValue(payload, chatState), completedAt: 0 });
       renderMergedRowsForContext(context);
       return;
@@ -2158,12 +1804,10 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
       if (String(payload?.turnId || '').trim()) {
-        markLiveOwnedTurn(chatState, conversationID, String(payload.turnId).trim());
+        markRuntimeLiveTurn(chatState, conversationID, String(payload.turnId).trim());
       }
-      const enrichedPayload = enrichPayloadWithTurnAgent(chatState, context, payload);
-      applyExecutionStreamEvent(chatState, enrichedPayload, conversationID);
       if (payload?.finalResponse) {
-        finalizeStreamTurn(chatState, payload, conversationID);
+        finalizeRuntimeLiveTurn(chatState, payload);
         setStage({ phase: 'done', text: 'Done', completedAt: stageCompletedAtValue(payload) });
         scheduleTimeout(() => setStage({ phase: 'ready', text: 'Ready' }), 1100);
       } else {
@@ -2179,7 +1823,6 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       // tool_calls_planned is emitted by the reactor when the LLM plans tool
       // calls. It carries toolCallsPlanned and content/narration. Update the
       // execution row so planned tools appear immediately in the UI.
-      applyExecutionStreamEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload), conversationID);
       applyStreamConversationState(context, 'executing', payload);
       setStage({ phase: 'executing', text: 'Planning tool calls…', startedAt: stageStartedAtValue(payload, chatState), completedAt: 0 });
       renderMergedRowsForContext(context);
@@ -2203,8 +1846,6 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         toolName: String(payload?.toolName || '').trim(),
         status: String(payload?.status || '').trim()
       });
-      const toolPayload = enrichPayloadWithTurnAgent(chatState, context, payload);
-      applyToolStreamEvent(chatState, toolPayload, conversationID);
       applyStreamConversationState(context, 'executing', payload);
       const toolLabel = String(payload?.toolName || 'tool');
       const stageText = type === 'tool_call_completed'
@@ -2239,16 +1880,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         if (turnId) {
           chatState.activeStreamTurnId = turnId;
           chatState.runningTurnId = turnId;
-          markLiveOwnedTurn(chatState, conversationID, turnId);
-          applyTurnStartedEvent(chatState, {
-            ...(payload?.patch && typeof payload.patch === 'object' ? payload.patch : {}),
-            turnId,
-            conversationId: conversationID,
-            createdAt: String(payload?.createdAt || payload?.patch?.createdAt || '').trim(),
-            userMessageId: String(payload?.userMessageId || payload?.patch?.userMessageId || payload?.startedByMessageId || payload?.patch?.startedByMessageId || '').trim(),
-            startedByMessageId: String(payload?.startedByMessageId || payload?.patch?.startedByMessageId || payload?.userMessageId || payload?.patch?.userMessageId || '').trim(),
-            agentName: String(chatState?.activeTurnAgentName || '').trim()
-          }, conversationID);
+          markRuntimeLiveTurn(chatState, conversationID, turnId);
         }
         logStreamDebug(chatState, 'stream-control-turn-started', {
           turnId,
@@ -2264,7 +1896,6 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
           op: String(payload?.op || '').trim(),
           messageId: String(payload?.id || '').trim()
         });
-        applyMessagePatchEvent(chatState, payload);
         renderMergedRowsForContext(context);
       } else if (op === 'message_add') {
         chatState.lastHasRunning = true;
@@ -2272,7 +1903,6 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
           op: String(payload?.op || '').trim(),
           messageId: String(payload?.id || '').trim()
         });
-        applyAssistantMessageAddEvent(chatState, payload);
         renderMergedRowsForContext(context);
       } else {
         logStreamDebug(chatState, 'stream-control', {
@@ -2286,7 +1916,6 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       const completedTurnID = String(payload?.turnId || '').trim();
       const resolvedConversationID = String(payload?.conversationId || payload?.streamId || conversationID || '').trim();
       const terminalStatus = String(payload?.status || type).trim();
-      const terminalError = String(payload?.error || payload?.errorMessage || '').trim();
       const finalRow = latestAssistantRowForTurn(chatState, resolvedConversationID, completedTurnID);
       const finalContent = String(payload?.content || finalRow?.content || '').trim();
       logExecutorDebug('turn-terminal', {
@@ -2299,18 +1928,12 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         hasFinalContent: finalContent !== '',
         finalRowId: String(finalRow?.id || '').trim(),
         finalRowContentLen: String(finalRow?.content || '').trim().length,
-        liveRowCount: Array.isArray(chatState?.liveRows) ? chatState.liveRows.length : 0,
-        trackerHasAssistantRow: trackerHasAssistantRowForTurn(chatState, resolvedConversationID, completedTurnID),
+        canonicalRowCount: (_chatStoreRef()?.getProjection?.(resolvedConversationID) || []).length,
+        canonicalHasAssistantRow: canonicalHasAssistantRowForTurn(resolvedConversationID, completedTurnID),
         linkedConversationCount: Array.isArray(finalRow?.executionGroups)
           ? finalRow.executionGroups.flatMap((group) => group?.toolSteps || []).filter((step) => String(step?.linkedConversationId || '').trim()).length
           : 0
       });
-      chatState.transcriptRows = applyTerminalTurnStatusToTranscriptRows(
-        chatState.transcriptRows,
-        completedTurnID,
-        terminalStatus,
-        terminalError
-      );
       if (finalContent === '') {
         logExecutorDebug('phantom-terminal', {
           type,
@@ -2325,11 +1948,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       logStreamDebug(chatState, 'stream-done', {
         status: String(payload?.status || type).trim()
       });
-      try {
-        chatState?.streamTracker?.reset?.();
-        syncTrackerDerivedTurnState(chatState);
-      } catch (_) {}
-      finalizeStreamTurn(chatState, payload, conversationID);
+      finalizeRuntimeLiveTurn(chatState, payload);
       chatState.lastHasRunning = false;
       chatState.activeTurnAgentId = '';
       chatState.activeTurnAgentName = '';
@@ -2389,7 +2008,6 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         preambleLen: String(preamblePayload?.content || '').length,
         agentIdUsed: String(preamblePayload?.agentIdUsed || '').trim()
       });
-      applyPreambleEvent(chatState, preamblePayload, conversationID);
       applyStreamConversationState(context, 'thinking', payload);
       setStage({ phase: 'streaming', text: 'Assistant thinking…', startedAt: stageStartedAtValue(payload, chatState), completedAt: 0 });
       renderMergedRowsForContext(context);
@@ -2399,7 +2017,6 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
     if (type === 'assistant') {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
-      applyAssistantMessageAddEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload));
       applyStreamConversationState(context, 'thinking', payload);
       setStage({ phase: 'executing', text: 'Assistant responding…', startedAt: stageStartedAtValue(payload, chatState), completedAt: 0 });
       renderMergedRowsForContext(context);
@@ -2419,8 +2036,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         delete chatState.terminalTurns[turnId];
         chatState.activeStreamTurnId = turnId;
         chatState.runningTurnId = turnId;
-        markLiveOwnedTurn(chatState, conversationID, turnId);
-        applyTurnStartedEvent(chatState, enrichPayloadWithTurnAgent(chatState, context, payload), conversationID);
+        markRuntimeLiveTurn(chatState, conversationID, turnId);
       }
       logStreamDebug(chatState, 'stream-turn-started', {
         turnId,
@@ -2441,8 +2057,6 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         assistantMessageId: String(payload?.assistantMessageId || '').trim(),
         hasElicitationData: !!payload?.elicitationData
       });
-      applyElicitationRequestedEvent(chatState, payload);
-
       // Store in the elicitation bus for overlay rendering (independent of row pipeline).
       const elicitationData = payload?.elicitationData && typeof payload.elicitationData === 'object'
         ? payload.elicitationData : null;
@@ -2488,7 +2102,6 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
     if (type === 'elicitation_resolved') {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
-      applyElicitationResolvedEvent(chatState, payload);
       removePendingElicitation({
         conversationId: String(payload?.conversationId || payload?.streamId || conversationID || '').trim(),
         elicitationId: String(payload?.elicitationId || '').trim()
@@ -2506,7 +2119,6 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
         toolCallId: String(payload?.toolCallId || '').trim(),
         linkedConversationId: String(payload?.linkedConversationId || '').trim()
       });
-      applyToolStreamEvent(chatState, payload, conversationID);
       applyStreamConversationState(context, 'executing', payload);
       renderMergedRowsForContext(context);
       return;
@@ -2545,7 +2157,9 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
 export function disconnectStream(context) {
   const chatState = ensureContextResources(context);
   clearPendingStreamReconnect(chatState);
-  const targetConversationID = String(chatState.activeConversationID || '').trim();
+  const targetConversationID = String(
+    chatState.activeConversationID || getCurrentConversationID(context) || ''
+  ).trim();
   const owner = streamSubscriptionOwners.get(targetConversationID);
   if (owner?.chatState === chatState) {
     owner.active = false;
@@ -2560,6 +2174,13 @@ export function disconnectStream(context) {
     chatState.stream.close();
     chatState.stream = null;
   }
+  // A pending bootstrap is owned by the live subscription. Once that
+  // subscription is intentionally torn down, a later visit must recover from
+  // canonical conversation/transcript state instead of waiting forever for a
+  // terminal event on the closed stream.
+  if (targetConversationID) {
+    clearPendingConversationBootstrap(targetConversationID);
+  }
 }
 
 export function shouldUseLiveStream(context, conversationID = '') {
@@ -2571,7 +2192,7 @@ export function shouldUseLiveStream(context, conversationID = '') {
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const currentConversationForm = conversationsDS?.peekFormData?.() || {};
   const formRunning = !!currentConversationForm?.running || isConversationLiveish(currentConversationForm);
-  const trackerRunning = !!trackerActiveTurnId(chatState);
+  const trackerRunning = !!canonicalActiveTurnId(chatState, targetID);
   const localRunning = !!String(chatState.runningTurnId || chatState.activeStreamTurnId || '').trim();
   const conversationLiveish = formRunning || trackerRunning || localRunning;
   if (currentConversationID && currentConversationID === targetID) {
@@ -2702,7 +2323,8 @@ export async function switchConversation(context, conversationID = '') {
   const lastConversationID = String(chatState.lastConversationID || '').trim();
   const terminalHydrationPending = String(chatState.pendingTerminalHydrationConversationID || '').trim();
   const initialSubmitPending = String(chatState.pendingInitialSubmitConversationID || '').trim();
-  const hasSettledTranscript = Array.isArray(chatState.transcriptRows) && chatState.transcriptRows.length > 0 && !chatState.lastHasRunning;
+  const canonicalProjection = _chatStoreRef()?.getProjection?.(targetID) || [];
+  const hasSettledTranscript = canonicalProjection.length > 0 && !chatState.lastHasRunning;
   if (
     currentID === targetID
     && lastConversationID === targetID
@@ -2715,7 +2337,7 @@ export async function switchConversation(context, conversationID = '') {
     logExecutorDebug('switch-conversation-skip-settled-self', {
       conversationId: targetID,
       lastConversationId: lastConversationID,
-      transcriptRowCount: Array.isArray(chatState.transcriptRows) ? chatState.transcriptRows.length : 0
+      canonicalRowCount: canonicalProjection.length
     });
     publishActiveConversation(targetID, context);
     return;
@@ -2748,10 +2370,7 @@ export async function switchConversation(context, conversationID = '') {
   clearFeedStateForConversation(resolveFeedResetConversationId(chatState, currentID));
   if (currentID !== targetID) {
     chatState.switchingConversationID = targetID;
-    if (chatState.stream) {
-      chatState.stream.close();
-      chatState.stream = null;
-    }
+    disconnectStream(context);
     // A fresh submit already populated the shared store with the local user
     // entity. The route-mounted replacement context must adopt that live
     // state rather than blanking it before the first server transcript exists.
@@ -2761,7 +2380,18 @@ export async function switchConversation(context, conversationID = '') {
       resetConversationSnapshotState(context);
     }
   }
-  const existing = await fetchConversation(targetID);
+  let existing;
+  try {
+    existing = await fetchConversation(targetID);
+  } catch (err) {
+    if (
+      isCurrentRequest()
+      && String(chatState.switchingConversationID || '').trim() === targetID
+    ) {
+      chatState.switchingConversationID = '';
+    }
+    throw err;
+  }
   if (!isCurrentRequest()) return;
   if (!existing) {
     chatState.switchingConversationID = '';
@@ -2852,16 +2482,6 @@ export function enqueueConversationSwitch(context, conversationID = '') {
   return settled;
 }
 
-export function applyIterationVisibility(context) {
-  const chatState = ensureContextResources(context);
-  const messagesDS = context?.Context?.('messages')?.handlers?.dataSource;
-  if (!messagesDS) return false;
-  const rows = Array.isArray(chatState.renderRows) ? chatState.renderRows : [];
-  if (rows.length === 0) return false;
-  messagesDS.setCollection?.(normalizeForContext(context, rows));
-  return true;
-}
-
 export function bootstrapConversationSelection(context) {
   const windowId = getContextWindowId(context);
   const win = getWindowById(windowId);
@@ -2906,7 +2526,13 @@ export function bindConversationWindowEvents(context) {
     if (currentConversationID && currentConversationID === id && pendingInitialSubmitConversationID === id) {
       return;
     }
-    void enqueueConversationSwitch(context, id);
+    void enqueueConversationSwitch(context, id).catch((err) => {
+      logExecutorDebug('conversation-switch-failed', {
+        conversationId: id,
+        error: String(err?.message || err || 'conversation switch failed')
+      });
+      context?.Context?.('messages')?.handlers?.dataSource?.setError?.(String(err?.message || err));
+    });
   };
   chatState.onNewConversation = (event) => {
     const targetWindowId = String(event?.detail?.windowId || '').trim();
@@ -2946,6 +2572,7 @@ export async function createNewConversation(context) {
   // common boundary so a direct caller cannot leave the old report mounted.
   clearWorkspaceWindowsForNewConversation();
   clearFeedStateForConversation(resolveFeedResetConversationId(chatState, String(currentForm?.id || '').trim()));
+  clearPendingConversationBootstrap(String(currentForm?.id || chatState.activeConversationID || '').trim());
   if (chatState.pendingConversationPromise) {
     try {
       await chatState.pendingConversationPromise;
@@ -3053,7 +2680,12 @@ export function startPolling(context) {
     // in-flight switch always clears switchingConversationID before returning,
     // so the next tick re-evaluates against the settled state.
     if (desiredID && desiredID !== currentID && !switchingID) {
-      void enqueueConversationSwitch(context, desiredID);
+      void enqueueConversationSwitch(context, desiredID).catch((err) => {
+        logExecutorDebug('conversation-switch-poll-failed', {
+          conversationId: desiredID,
+          error: String(err?.message || err || 'conversation switch failed')
+        });
+      });
       return;
     }
     const streamIsHot = !!chatState.stream
@@ -3062,8 +2694,7 @@ export function startPolling(context) {
     if (shouldDeferTranscriptToLiveStream(context, getCurrentConversationID(context))) return;
     const pendingTerminalHydrationConversationID = String(chatState.pendingTerminalHydrationConversationID || '').trim();
     if (pendingTerminalHydrationConversationID && pendingTerminalHydrationConversationID === currentID) return;
-    const transcriptRows = Array.isArray(chatState.transcriptRows) ? chatState.transcriptRows : [];
-    const hasFinishedSnapshot = transcriptRows.length > 0 && !chatState.lastHasRunning;
+    const hasFinishedSnapshot = (_chatStoreRef()?.getProjection?.(currentID) || []).length > 0 && !chatState.lastHasRunning;
     if (hasFinishedSnapshot) return;
     void dsTick(context);
   }, 4000);

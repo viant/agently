@@ -19,7 +19,6 @@ vi.mock('./chatStore', () => ({
 }));
 
 vi.mock('./chatRuntime', () => ({
-  applyIterationVisibility: vi.fn(),
   bindConversationWindowEvents: vi.fn(),
   bootstrapConversationSelection: vi.fn(),
   cacheSettledConversationBootstrapSnapshot: vi.fn(),
@@ -33,7 +32,6 @@ vi.mock('./chatRuntime', () => ({
   fetchConversation: vi.fn(),
   fetchPendingElicitations: vi.fn(),
   getSettledConversationBootstrapSnapshot: vi.fn(() => null),
-  getVisibleIterations: vi.fn(),
   hasPendingConversationBootstrap: vi.fn(() => false),
   hydrateMeta: vi.fn(),
   hydrateConversationFromBootstrapSnapshot: vi.fn(() => false),
