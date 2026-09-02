@@ -286,6 +286,57 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
         URLProtocolStub.requestHandler = nil
     }
 
+    @MainActor
+    func testAuthorizedWindowMetadataIsAppliedBeforeNativeRendererReceivesIt() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(
+            endpoints: ["appAPI": endpoint],
+            session: session,
+            metadataSession: session
+        )
+        let loader = makeForgeAgentlyWindowMetadataLoader(
+            client: client,
+            targetContext: ForgeTargetContext(platform: "ios", formFactor: "phone")
+        )
+        var requestCount = 0
+        URLProtocolStub.requestHandler = { request in
+            requestCount += 1
+            let url = try XCTUnwrap(request.url)
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let isPermission = query.contains { $0.name == "applyPermission" && $0.value == "true" }
+            if isPermission {
+                XCTAssertTrue(query.contains { $0.name == "conversationId" && $0.value == "conv-1" })
+                XCTAssertTrue(query.first(where: { $0.name == "resource" })?.value?.contains("85141") == true)
+            }
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            let body = isPermission
+                ? #"{"data":{"authorization":{"scope":"resource"},"authorizationSnapshot":{"authorizationVersion":"v1"},"view":{"content":{"containers":[{"id":"permitted"}]}}}}"#
+                : #"{"data":{"authorization":{"scope":"resource"},"view":{"content":{"containers":[{"id":"complete"}]}}}}"#
+            return (response, body.data(using: .utf8)!)
+        }
+
+        let metadata = try await loader(
+            ForgeRuntime.WindowMetadataRequest(
+                windowID: "advertiser-85141",
+                windowKey: "advertiser",
+                parameters: ["AdvertiserId": .array([.number(85141)])],
+                conversationID: "conv-1"
+            )
+        )
+
+        XCTAssertEqual(requestCount, 2)
+        XCTAssertEqual(metadata?.view?.content?.containers.first?.id, "permitted")
+        URLProtocolStub.requestHandler = nil
+    }
+
     private static func requestBodyData(_ request: URLRequest) -> Data? {
         if let body = request.httpBody {
             return body

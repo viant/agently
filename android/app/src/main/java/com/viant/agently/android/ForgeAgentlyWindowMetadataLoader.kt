@@ -1,9 +1,13 @@
 package com.viant.agently.android
 
 import com.viant.agentlysdk.AgentlyClient
+import com.viant.agentlysdk.ApplyPermissionInput
 import com.viant.agentlysdk.MetadataTargetContext
+import com.viant.agentlysdk.applyPermission
 import com.viant.agentlysdk.fetchForgeWindowMetadata
+import com.viant.forgeandroid.runtime.ForgeRuntime
 import com.viant.forgeandroid.runtime.ForgeTargetContext
+import com.viant.forgeandroid.runtime.JsonUtil
 import com.viant.forgeandroid.runtime.MetadataResolver
 import com.viant.forgeandroid.runtime.WindowMetadata
 import com.viant.forgeandroid.runtime.normalizeWindowMetadataJson
@@ -18,18 +22,34 @@ import kotlinx.serialization.json.JsonObject
 internal fun makeForgeAgentlyWindowMetadataLoader(
     client: AgentlyClient,
     targetContext: ForgeTargetContext
-): suspend (String) -> WindowMetadata? {
+): suspend (ForgeRuntime.WindowMetadataRequest) -> WindowMetadata? {
     val json = Json { ignoreUnknownKeys = true }
-    return { windowKey ->
-        val raw = client.fetchForgeWindowMetadata(
-            windowKey,
-            MetadataTargetContext(
-                platform = targetContext.platform,
-                formFactor = targetContext.formFactor,
-                surface = "app",
-                capabilities = targetContext.capabilities.toList().sorted()
+    val sdkTarget = MetadataTargetContext(
+        platform = targetContext.platform,
+        formFactor = targetContext.formFactor,
+        surface = "app",
+        capabilities = targetContext.capabilities.toList().sorted()
+    )
+    return { request ->
+        val complete = client.fetchForgeWindowMetadata(request.windowKey, sdkTarget)
+        val raw = if ((complete as? JsonObject)?.containsKey("authorization") == true) {
+            val conversationId = request.conversationId?.trim().orEmpty()
+            check(conversationId.isNotEmpty()) {
+                "Authorized Forge window ${request.windowKey} requires a conversation ID"
+            }
+            val resource = request.parameters.mapValues { (_, value) -> JsonUtil.anyToElement(value) }
+            client.applyPermission(
+                request.windowKey,
+                ApplyPermissionInput(
+                    conversationId = conversationId,
+                    resource = resource,
+                    windowParams = resource,
+                    targetContext = sdkTarget
+                )
             )
-        )
+        } else {
+            complete
+        }
         val normalized = normalizeWindowMetadataJson(normalizeWindowMetadataCollections(raw))
         val metadata = json.decodeFromJsonElement<WindowMetadata>(normalized)
         val metadataJson = json.encodeToJsonElement(metadata)

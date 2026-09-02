@@ -1,4 +1,5 @@
 const DATASOURCE_FETCH_ROUTE = /\/v1\/api\/datasources\/[^/]+\/fetch$/;
+const WINDOW_METADATA_ROUTE = /\/v1\/api\/agently\/forge\/window\/[^/]+$/;
 
 export function prepareAgentlyDataConnectorRequest({
   url = '',
@@ -7,12 +8,15 @@ export function prepareAgentlyDataConnectorRequest({
   windowState = null,
 } = {}) {
   const convID = String(windowState?.conversationId || '').trim();
-  if (!convID) return;
-  if (!DATASOURCE_FETCH_ROUTE.test(String(url || ''))) return;
-  if (queryParams && typeof queryParams.append === 'function' && !queryParams.has('conversationId')) {
+  const requestURL = String(url || '');
+  if (WINDOW_METADATA_ROUTE.test(requestURL)) {
+    return;
+  }
+  if (!DATASOURCE_FETCH_ROUTE.test(requestURL)) return;
+  if (convID && queryParams && typeof queryParams.append === 'function' && !queryParams.has('conversationId')) {
     queryParams.append('conversationId', convID);
   }
-  if (body && typeof body === 'object' && !Array.isArray(body) && !body.conversationId) {
-    body.conversationId = convID;
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
+    if (convID && !body.conversationId) body.conversationId = convID;
   }
 }

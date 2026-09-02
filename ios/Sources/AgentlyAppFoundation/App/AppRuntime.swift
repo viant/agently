@@ -48,7 +48,7 @@ public final class AppRuntime: ObservableObject {
                     conversationIDProvider: { @MainActor in state.activeConversationID }
                 )
             )
-            await state.forgeRuntime.registerWindowMetadataLoader(
+            await state.forgeRuntime.registerWindowMetadataRequestLoader(
                 makeForgeAgentlyWindowMetadataLoader(
                     client: client,
                     targetContext: state.forgeRuntime.targetContext
@@ -1030,7 +1030,7 @@ public final class AppRuntime: ObservableObject {
                     }
                 )
             )
-            await state.forgeRuntime.registerWindowMetadataLoader(
+            await state.forgeRuntime.registerWindowMetadataRequestLoader(
                 makeForgeAgentlyWindowMetadataLoader(
                     client: client,
                     targetContext: state.forgeRuntime.targetContext
