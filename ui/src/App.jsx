@@ -16,12 +16,7 @@ import { forgeHostServices } from './services/forgeHostServices';
 import { redirectToLogin } from './services/httpClient';
 import { buildWebClientContext } from './services/clientContext';
 import * as chatStore from './services/chatStore';
-import { installChatStoreMirror } from './services/chatRuntime';
 
-// The live chat feed reads from chatStore on the real UI path. Make the
-// transcript/SSE mirror explicit at bootstrap instead of relying on the
-// lazy CommonJS fallback inside chatRuntime.
-installChatStoreMirror(chatStore);
 if (typeof window !== 'undefined') {
   try {
     window.__agentlyChatStoreDebug = chatStore;

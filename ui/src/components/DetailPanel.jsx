@@ -5,7 +5,6 @@ import { json } from '@codemirror/lang-json';
 import { getScopedConversationSelection, MAIN_CHAT_WINDOW_ID, openLinkedConversationWindow } from '../services/conversationWindow';
 import { displayStepIcon, displayStepTitle, isAgentRunTool } from '../services/toolPresentation';
 import { resolvePayload } from '../services/payloads';
-import { flattenCanonicalTranscriptSteps, transcriptConversationTurns } from '../services/canonicalTranscript';
 import { client } from '../services/agentlyClient';
 import { openElicitationDialog } from '../services/elicitationBus';
 
@@ -15,6 +14,83 @@ const MODEL_PRICING_USD_PER_MILLION = {
   'openai:gpt-5.4-mini': { input: 0.75, output: 4.5 },
   'openai:gpt-5.4-nano': { input: 0.2, output: 1.25 }
 };
+
+function firstText(...values) {
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function transcriptTurns(payload = {}) {
+  return Array.isArray(payload?.conversation?.turns) ? payload.conversation.turns : [];
+}
+
+function normalizeStepPayload(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return resolvePayload(value);
+  const encoded = Object.prototype.hasOwnProperty.call(value, 'InlineBody')
+    || Object.prototype.hasOwnProperty.call(value, 'inlineBody')
+    || Object.prototype.hasOwnProperty.call(value, 'Compression')
+    || Object.prototype.hasOwnProperty.call(value, 'compression');
+  return encoded ? resolvePayload(value) : value;
+}
+
+function flattenTranscriptSteps(turns = []) {
+  const result = [];
+  for (const turn of Array.isArray(turns) ? turns : []) {
+    const turnId = firstText(turn?.turnId);
+    for (const page of Array.isArray(turn?.execution?.pages) ? turn.execution.pages : []) {
+      for (const step of Array.isArray(page?.modelSteps) ? page.modelSteps : []) {
+        const provider = firstText(step?.provider);
+        const model = firstText(step?.model);
+        result.push({
+          ...step,
+          id: firstText(step?.id, step?.modelCallId, step?.assistantMessageId, page?.assistantMessageId, page?.pageId),
+          turnId,
+          modelCallId: firstText(step?.modelCallId),
+          assistantMessageId: firstText(step?.assistantMessageId, page?.assistantMessageId, page?.pageId),
+          kind: 'model',
+          reason: page?.finalResponse ? 'final_response' : 'thinking',
+          executionRole: firstText(step?.executionRole, page?.executionRole),
+          phase: firstText(step?.phase, page?.phase),
+          toolName: firstText(provider && model ? `${provider}/${model}` : '', model, provider, 'model'),
+          provider,
+          model,
+          status: firstText(step?.status, page?.status),
+          errorMessage: firstText(step?.errorMessage, page?.errorMessage),
+          requestPayload: normalizeStepPayload(step?.requestPayload),
+          responsePayload: normalizeStepPayload(step?.responsePayload),
+          providerRequestPayload: normalizeStepPayload(step?.providerRequestPayload),
+          providerResponsePayload: normalizeStepPayload(step?.providerResponsePayload),
+          streamPayload: normalizeStepPayload(step?.streamPayload),
+        });
+      }
+      for (const step of Array.isArray(page?.toolSteps) ? page.toolSteps : []) {
+        result.push({
+          ...step,
+          id: firstText(step?.id, step?.toolCallId, step?.toolMessageId, page?.assistantMessageId, page?.pageId),
+          turnId,
+          toolCallId: firstText(step?.toolCallId),
+          toolMessageId: firstText(step?.toolMessageId),
+          kind: 'tool',
+          reason: 'tool_call',
+          executionRole: firstText(step?.executionRole, page?.executionRole),
+          phase: firstText(step?.phase, page?.phase),
+          toolName: firstText(step?.toolName, 'tool'),
+          status: firstText(step?.status),
+          errorMessage: firstText(step?.errorMessage, page?.errorMessage),
+          requestPayload: normalizeStepPayload(step?.requestPayload),
+          responsePayload: normalizeStepPayload(step?.responsePayload),
+          providerRequestPayload: normalizeStepPayload(step?.providerRequestPayload),
+          providerResponsePayload: normalizeStepPayload(step?.providerResponsePayload),
+          streamPayload: normalizeStepPayload(step?.streamPayload),
+        });
+      }
+    }
+  }
+  return result;
+}
 
 function parseJSONIfPossible(value) {
   if (typeof value !== 'string') return value;
@@ -320,7 +396,7 @@ export async function hydrateToolCallFromTranscript(toolCall = {}) {
   let turns;
   try {
     const transcript = await client.getTranscript({ conversationId, includeModelCalls: true, includeToolCalls: true });
-    turns = transcriptConversationTurns(transcript);
+    turns = transcriptTurns(transcript);
   } catch (_) {
     return toolCall;
   }
@@ -342,7 +418,7 @@ export async function hydrateToolCallFromTranscript(toolCall = {}) {
     || (toolCall?.toolName ? 'tool' : '')
     || ''
   ).trim().toLowerCase();
-  const candidates = flattenCanonicalTranscriptSteps(turns);
+  const candidates = flattenTranscriptSteps(turns);
   if (targetKind === 'model') {
     if (targetIds.size === 0) return toolCall;
     const exact = candidates.find((candidate) => (

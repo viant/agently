@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const fetchFeedDataNowMock = vi.fn();
+const { fetchFeedDataNowMock } = vi.hoisted(() => ({
+  fetchFeedDataNowMock: vi.fn(),
+}));
 
 vi.mock('../services/toolFeedBus', () => ({
   getActiveFeeds: vi.fn(() => []),
@@ -19,38 +21,36 @@ vi.mock('../services/conversationWindow', () => ({
   getSelectedWindow: vi.fn(() => null),
 }));
 
+import * as toolFeedBar from './ToolFeedBar.jsx';
+import * as toolFeedSelection from '../services/toolFeedSelection';
+
 describe('ToolFeedBar state helpers', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     fetchFeedDataNowMock.mockReset();
-    const mod = await import('./ToolFeedBar.jsx');
-    mod.__resetToolFeedBarStateForTest();
-    const selection = await import('../services/toolFeedSelection');
-    selection.registerFeedDataLoader(fetchFeedDataNowMock);
+    toolFeedBar.__resetToolFeedBarStateForTest();
+    toolFeedSelection.registerFeedDataLoader(fetchFeedDataNowMock);
   });
 
-  it('expands and selects a feed without collapsing it on row selection', async () => {
-    const mod = await import('./ToolFeedBar.jsx');
-    mod.expandFeed('conv-1::explorer', 'conv-1');
+  it('expands and selects a feed without collapsing it on row selection', () => {
+    toolFeedBar.expandFeed('conv-1::explorer', 'conv-1');
 
-    expect(mod.isFeedExpanded('conv-1::explorer')).toBe(true);
-    expect(mod.getSelectedFeedId()).toBe('conv-1::explorer');
+    expect(toolFeedBar.isFeedExpanded('conv-1::explorer')).toBe(true);
+    expect(toolFeedBar.getSelectedFeedId()).toBe('conv-1::explorer');
     expect(fetchFeedDataNowMock).toHaveBeenCalledWith('conv-1::explorer', 'conv-1');
   });
 
-  it('collapses a feed only when explicitly toggled', async () => {
-    const mod = await import('./ToolFeedBar.jsx');
-    mod.expandFeed('conv-1::explorer', 'conv-1');
-    mod.toggleFeedExpanded('conv-1::explorer', 'conv-1');
+  it('collapses a feed only when explicitly toggled', () => {
+    toolFeedBar.expandFeed('conv-1::explorer', 'conv-1');
+    toolFeedBar.toggleFeedExpanded('conv-1::explorer', 'conv-1');
 
-    expect(mod.isFeedExpanded('conv-1::explorer')).toBe(false);
-    expect(mod.getSelectedFeedId()).toBe('');
+    expect(toolFeedBar.isFeedExpanded('conv-1::explorer')).toBe(false);
+    expect(toolFeedBar.getSelectedFeedId()).toBe('');
   });
 
-  it('resolves presentation metadata without classifying feed ids', async () => {
-    const mod = await import('./ToolFeedBar.jsx');
-    expect(mod.feedIconName({ icon: 'chart' })).toBe('chart');
-    expect(mod.feedAccent({ accent: 'teal' })).toBe('#0a9b98');
-    expect(mod.feedIconName()).toBe('wrench');
-    expect(mod.feedAccent({ accent: 'not-a-color' })).toBe('#5965d8');
+  it('resolves presentation metadata without classifying feed ids', () => {
+    expect(toolFeedBar.feedIconName({ icon: 'chart' })).toBe('chart');
+    expect(toolFeedBar.feedAccent({ accent: 'teal' })).toBe('#0a9b98');
+    expect(toolFeedBar.feedIconName()).toBe('wrench');
+    expect(toolFeedBar.feedAccent({ accent: 'not-a-color' })).toBe('#5965d8');
   });
 });

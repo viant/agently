@@ -6,6 +6,10 @@ vi.mock('forge/components', () => ({
   AvatarIcon: ({ name = '' }) => React.createElement('span', { 'data-avatar-icon': name }),
 }));
 
+vi.mock('./LazyRichContent', () => ({
+  default: ({ content = '' }) => React.createElement('span', null, content),
+}));
+
 const iterationRowBlockSpy = vi.fn(({ iterationRow }) => React.createElement(
   'div',
   {

@@ -354,6 +354,7 @@ function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
                         const result = await beginBrowserMCPAuth(mcpAuthServer, {
                           conversationId: resolveConversationId,
                           elicitationId: resolveElicitationId,
+                          forceRestart: true,
                         });
                         if (result?.connected === true) {
                           clearPendingMCPAuth(mcpAuthServer);

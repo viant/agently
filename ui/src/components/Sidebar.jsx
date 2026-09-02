@@ -111,11 +111,15 @@ export function applyConversationMetaPatchToRows(rows = [], conversationID = '',
       updated.Running = patch.running;
       updated.running = !!patch.running;
     }
-    updated.UpdatedAt = new Date().toISOString();
-    updated.updatedAt = updated.UpdatedAt;
+    if (Object.prototype.hasOwnProperty.call(patch, 'lastActivity')) {
+      updated.LastActivity = patch.lastActivity;
+      updated.lastActivity = patch.lastActivity;
+    }
     return updated;
   });
-  return changed ? sortConversations(next) : rows;
+  return changed && Object.prototype.hasOwnProperty.call(patch, 'lastActivity')
+    ? sortConversations(next)
+    : (changed ? next : rows);
 }
 
 export function conversationMetaPatchFromSnapshot(snapshot = {}) {
@@ -131,6 +135,8 @@ export function conversationMetaPatchFromSnapshot(snapshot = {}) {
   if (typeof snapshot?.Running === 'boolean') patch.running = snapshot.Running;
   else if (typeof snapshot?.running === 'boolean') patch.running = snapshot.running;
   else patch.running = conversationDeletionBlocked(snapshot);
+  const lastActivity = snapshot?.LastActivity || snapshot?.lastActivity;
+  if (lastActivity) patch.lastActivity = lastActivity;
   return patch;
 }
 
@@ -241,6 +247,24 @@ export function conversationDeleteErrorMessage(err) {
   return message || 'Failed to delete conversation.';
 }
 
+export function conversationDeleteNeedsTermination(err) {
+  const rawMessage = err?.body ?? err?.payload ?? err?.message ?? err ?? '';
+  const message = typeof rawMessage === 'object'
+    ? String(rawMessage?.error || rawMessage?.message || JSON.stringify(rawMessage)).trim()
+    : String(rawMessage).trim();
+  return /conversation_graph_non_terminal/i.test(message);
+}
+
+export async function deleteConversationWithTermination(api, conversationId) {
+  try {
+    await api.deleteConversation(conversationId);
+  } catch (err) {
+    if (!conversationDeleteNeedsTermination(err)) throw err;
+    await api.terminateConversation(conversationId);
+    await api.deleteConversation(conversationId);
+  }
+}
+
 export function normalizeSidebarPage(page = {}, direction = 'latest', requestedCursor = '') {
   const rows = sortConversations(Array.isArray(page?.data) ? page.data : []);
   const pageInfo = page?.page || {};
@@ -344,7 +368,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
       onConfirm: async () => {
         setDeletingID(id);
         try {
-          await client.deleteConversation(id);
+          await deleteConversationWithTermination(client, id);
           const beforeRows = rowsRef.current;
           const remainingRows = removeConversationRow(beforeRows, id);
           const hadNewer = !!prevCursorRef.current;
@@ -586,7 +610,6 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
       const terminalPatch = terminalConversationMetaPatch(event?.detail?.type);
       if (id && terminalPatch) {
         setRows((current) => applyConversationMetaPatchToRows(current, id, terminalPatch));
-        return;
       }
       if (activityReloadTimerRef.current) {
         clearTimeout(activityReloadTimerRef.current);

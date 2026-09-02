@@ -2226,7 +2226,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
     setMCPConnectError('');
     setMCPConnectPending(true);
     try {
-      const result = await beginBrowserMCPAuth(mcpLinkRequired.server);
+      const result = await beginBrowserMCPAuth(mcpLinkRequired.server, { forceRestart: true });
       if (result?.connected === true) {
         clearPendingMCPAuth(mcpLinkRequired.server);
         setMCPConnectionReady(true);

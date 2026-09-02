@@ -11,6 +11,8 @@ import {
     __resetAll,
     getProjection,
     getState,
+    getActiveTurnId,
+    hasAssistantRowForTurn,
     isQueued,
     isRunning,
     onSSE,
@@ -65,6 +67,19 @@ describe('chatStore — projection caching', () => {
         submit({ conversationId: CONV, clientRequestId: '2', content: 'b', createdAt: '2025-01-01T00:00:01Z' });
         const p2 = getProjection(CONV);
         expect(p2).not.toBe(p1);
+    });
+});
+
+describe('chatStore — public lifecycle selectors', () => {
+    it('exposes the active turn and assistant projection without private tracker state', () => {
+        submit({ conversationId: CONV, clientRequestId: '1', content: 'hello', createdAt: '2025-01-01T00:00:00Z' });
+        onSSE(CONV, { type: 'turn_started', conversationId: CONV, turnId: 'tn_1', clientRequestId: '1' });
+
+        expect(getActiveTurnId(CONV)).toBe('tn_1');
+        expect(hasAssistantRowForTurn(CONV, 'tn_1')).toBe(true);
+
+        onSSE(CONV, { type: 'turn_completed', conversationId: CONV, turnId: 'tn_1' });
+        expect(getActiveTurnId(CONV)).toBe('');
     });
 });
 

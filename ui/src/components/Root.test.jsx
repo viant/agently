@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   isCompactShellViewport,
@@ -20,18 +20,47 @@ import {
   shouldReplayRouteConversationBootstrap,
   shouldCaptureDesktopSidebarPreference,
   shouldPersistWorkspaceHeight,
+  shouldPromoteFreshWorkspaceSurface,
   shouldRestoreDesktopSidebarPreference,
   resolveMainWindowCloseConversationId,
   resolveMainWindowHeaderTitle,
   resolveSelectedMainWindow,
   resolveWindowRefreshDataSources,
+  scrollConversationFeedToEnd,
   shouldForceWorkspaceFull,
   shouldShowChatChrome,
   shouldShowMainWindowHeader,
+  shouldScrollConversationAfterTurn,
   shouldUseConversationWorkspaceFallback
 } from './Root.jsx';
 
 describe('Root window selection helpers', () => {
+  it('scrolls only for a terminal event on the focused conversation surface', () => {
+    expect(shouldScrollConversationAfterTurn({
+      eventConversationId: 'conv-1', activeConversationId: 'conv-1',
+      activeSurface: 'conversation', eventType: 'turn_completed'
+    })).toBe(true);
+    expect(shouldScrollConversationAfterTurn({
+      eventConversationId: 'conv-1', activeConversationId: 'conv-1',
+      activeSurface: 'workspace', eventType: 'turn_completed'
+    })).toBe(false);
+    expect(shouldScrollConversationAfterTurn({
+      eventConversationId: 'conv-other', activeConversationId: 'conv-1',
+      activeSurface: 'conversation', eventType: 'turn_completed'
+    })).toBe(false);
+    expect(shouldScrollConversationAfterTurn({
+      eventConversationId: 'conv-1', activeConversationId: 'conv-1',
+      activeSurface: 'conversation', eventType: 'tool_call_completed'
+    })).toBe(false);
+  });
+
+  it('scrolls the chat feed stage to its final post-layout height', () => {
+    const scrollTo = vi.fn();
+    const root = { querySelector: vi.fn(() => ({ scrollHeight: 840, scrollTo })) };
+    expect(scrollConversationFeedToEnd(root)).toBe(true);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 840, behavior: 'smooth' });
+  });
+
   it('does not treat an empty mounted chat feed as restored conversation content', () => {
     expect(hasRenderedChatContent({ querySelector: () => ({ childElementCount: 0 }) })).toBe(false);
     expect(hasRenderedChatContent({ querySelector: () => ({ childElementCount: 1 }) })).toBe(true);
@@ -66,6 +95,35 @@ describe('Root window selection helpers', () => {
     expect(shouldPersistWorkspaceHeight({ activeWorkspaceWindowId: 'workspace-1', hasStoredHeight: false })).toBe(true);
     expect(shouldPersistWorkspaceHeight({ activeWorkspaceWindowId: '', hasStoredHeight: true })).toBe(true);
     expect(shouldPersistWorkspaceHeight({ activeWorkspaceWindowId: '', hasStoredHeight: false })).toBe(false);
+  });
+
+  it('promotes a freshly opened hosted workspace selected by a direct action', () => {
+    const freshAdvertiser = {
+      windowId: 'advertiser_85141',
+      windowKey: 'advertiser',
+      conversationId: 'conv-advertiser',
+      presentation: 'hosted',
+      region: 'chat.top',
+      hostOpenState: 'fresh',
+    };
+    expect(shouldPromoteFreshWorkspaceSurface({
+      activeSurface: 'conversation',
+      mainConversationId: 'conv-advertiser',
+      activeWorkspaceWindow: freshAdvertiser,
+      selectedWindowId: 'advertiser_85141',
+    })).toBe(true);
+    expect(shouldPromoteFreshWorkspaceSurface({
+      activeSurface: 'conversation',
+      mainConversationId: 'conv-advertiser',
+      activeWorkspaceWindow: { ...freshAdvertiser, hostOpenState: 'historical_replay' },
+      selectedWindowId: 'advertiser_85141',
+    })).toBe(false);
+    expect(shouldPromoteFreshWorkspaceSurface({
+      activeSurface: 'conversation',
+      mainConversationId: 'conv-advertiser',
+      activeWorkspaceWindow: freshAdvertiser,
+      selectedWindowId: 'chat/new',
+    })).toBe(false);
   });
 
   it('prefers the selected tabbed window over stale focused window state', () => {

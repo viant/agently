@@ -3,6 +3,7 @@ import { useSignals } from '@preact/signals-react/runtime';
 import { activeWindows, removeWindow, selectedWindowId } from 'forge/core';
 import {
   applyExecutionStreamEventToGroups,
+  compareExecutionGroups,
   describeExecutionTimelineEvent,
   isPresentableExecutionGroup,
   mergeLatestTranscriptAndLiveExecutionGroups,
@@ -14,7 +15,6 @@ import RichContent from './chat/LazyRichContent';
 import { client } from '../services/agentlyClient';
 import { setStage } from '../services/stageBus';
 import { publishActiveConversation } from '../services/chatRuntime';
-import { canonicalExecutionPages, extractCanonicalExecutionGroups, transcriptConversationTurns } from '../services/canonicalTranscript';
 import {
   normalizeWorkspaceAgentInfos,
   normalizeWorkspaceModelInfos
@@ -95,7 +95,11 @@ function extractMetadata(payload) {
 }
 
 function extractTurns(payload) {
-  return transcriptConversationTurns(payload);
+  return Array.isArray(payload?.conversation?.turns) ? payload.conversation.turns : [];
+}
+
+function executionPages(turn = {}) {
+  return Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
 }
 
 function summarizeModel(group) {
@@ -244,12 +248,35 @@ export function normalizeToolStep(tool = {}, group = {}) {
 }
 
 function extractExecutionGroups(turns = []) {
-  return extractCanonicalExecutionGroups(turns);
+  const groups = [];
+  for (const turn of Array.isArray(turns) ? turns : []) {
+    const turnId = firstString(turn?.turnId);
+    const turnStatus = firstString(turn?.status);
+    for (const page of executionPages(turn)) {
+      groups.push({
+        ...page,
+        turnId,
+        turnStatus,
+        assistantMessageId: firstString(page?.assistantMessageId, page?.pageId),
+        parentMessageId: firstString(page?.parentMessageId),
+        sequence: firstNumber(page?.pageIndex, page?.iteration),
+        iteration: firstNumber(page?.iteration),
+        narration: firstString(page?.narration),
+        content: firstString(page?.content),
+        status: firstString(page?.status, turnStatus),
+        finalResponse: Boolean(page?.finalResponse),
+        modelSteps: Array.isArray(page?.modelSteps) ? page.modelSteps : [],
+        toolSteps: Array.isArray(page?.toolSteps) ? page.toolSteps : [],
+        toolCallsPlanned: Array.isArray(page?.toolCallsPlanned) ? page.toolCallsPlanned : [],
+      });
+    }
+  }
+  return groups.sort((left, right) => compareExecutionGroups(left, right));
 }
 
 function transcriptMetaFromTurns(turns = [], pageIndex = 0, pageSize = '1') {
   const firstTurn = Array.isArray(turns) && turns.length > 0 ? turns[0] : null;
-  const totalPages = Array.isArray(canonicalExecutionPages(firstTurn)) ? canonicalExecutionPages(firstTurn).length : 0;
+  const totalPages = executionPages(firstTurn).length;
   const total = firstNumber(totalPages);
   const offset = 0;
   const limit = totalPages;

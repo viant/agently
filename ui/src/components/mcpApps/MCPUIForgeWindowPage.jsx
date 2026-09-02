@@ -5,7 +5,7 @@ import { installForgeGuestBridge } from '../../services/mcpApps/forgeGuestBridge
 import MCPUIVerifierRouteDebug from './MCPUIVerifierRouteDebug.jsx';
 import { MCPUI_VERIFIER_ROUTE_WINDOW_KEY } from '../../services/mcpApps/mcpuiVerifierRouteDiagnostics.js';
 
-function parseJSONParam(raw = '') {
+export function parseJSONParam(raw = '') {
   const text = String(raw || '').trim();
   if (!text) return {};
   try {
@@ -15,7 +15,7 @@ function parseJSONParam(raw = '') {
   }
 }
 
-function buildWindowPayload(windowKey, payload, parameters) {
+export function buildWindowPayload(windowKey, payload, parameters) {
   const data = payload?.data && typeof payload.data === 'object' ? payload.data : {};
   const normalizedWindowKey = String(windowKey || '').trim();
   const normalizedWindowId = `mcpui:${normalizedWindowKey}`;
@@ -38,7 +38,7 @@ function buildWindowPayload(windowKey, payload, parameters) {
   };
 }
 
-function appendTargetContext(params, targetContext = {}) {
+export function appendTargetContext(params, targetContext = {}) {
   const platform = String(targetContext.platform || '').trim();
   const formFactor = String(targetContext.formFactor || '').trim();
   const surface = String(targetContext.surface || '').trim();
