@@ -164,6 +164,11 @@ export function conversationDeletionBlocked(row = {}) {
     || ['running', 'executing', 'processing', 'queued', 'thinking', 'streaming'].includes(stage);
 }
 
+export function conversationDeleteButtonDisabled(row = {}, deletingID = '') {
+  const id = conversationID(row);
+  return !id || id === String(deletingID || '').trim();
+}
+
 export function removeConversationRow(rows = [], conversationID = '') {
   const id = String(conversationID || '').trim();
   if (!id || !Array.isArray(rows)) return rows;
@@ -331,10 +336,6 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
     const id = String(row?.Id || row?.id || '').trim();
     if (!id || deletingID) return;
     const title = resolveConversationTitle(row);
-    if (conversationDeletionBlocked(row)) {
-      setDeleteError(`“${title}” is still in progress. Stop or wait for the current turn before deleting it.`);
-      return;
-    }
     openConfirmDialog({
       title: 'Delete conversation',
       message: `Delete "${title}" and its history? This action cannot be undone.`,
@@ -491,7 +492,6 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
             const relative = formatRelativeTime(conversationTimestamp(row));
             const isSelected = id && id === selectedID;
             const tone = conversationStatusTone(row);
-            const deletionBlocked = conversationDeletionBlocked(row);
             const hoverText = summary || title;
             return (
               <div
@@ -517,9 +517,9 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
                 </button>
                 <button
                   className="app-conversation-trash"
-                  title={deletionBlocked ? 'Conversation is still in progress' : 'Delete conversation'}
-                  aria-label={deletionBlocked ? 'Conversation is still in progress' : 'Delete conversation'}
-                  disabled={deletingID === id || deletionBlocked}
+                  title="Delete conversation"
+                  aria-label="Delete conversation"
+                  disabled={conversationDeleteButtonDisabled(row, deletingID)}
                   onClick={(e) => {
                     e.stopPropagation();
                     requestDeleteConversation(row);
