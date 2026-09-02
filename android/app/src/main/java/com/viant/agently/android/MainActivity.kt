@@ -266,7 +266,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
             scope = scope,
             targetContext = forgeTargetContext
         ).also { runtime ->
-            runtime.registerWindowMetadataLoader(
+            runtime.registerWindowMetadataRequestLoader(
                 makeForgeAgentlyWindowMetadataLoader(client, forgeTargetContext)
             )
             runtime.registerDataSourceLoader(makeForgeAgentlyDataSourceLoader(client))

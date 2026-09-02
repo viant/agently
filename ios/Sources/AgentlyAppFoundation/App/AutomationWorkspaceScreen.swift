@@ -63,7 +63,9 @@ struct AutomationWorkspaceScreen: View {
                 client: client,
                 targetContext: forgeRuntime.targetContext
             )
-            guard let metadata = try await loader("schedule") else {
+            guard let metadata = try await loader(
+                ForgeRuntime.WindowMetadataRequest(windowID: "schedule", windowKey: "schedule")
+            ) else {
                 errorMessage = "Automation metadata could not be loaded."
                 return
             }

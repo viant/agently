@@ -242,6 +242,10 @@ func Serve(options ServeOptions) error {
 	}
 	metaRoot := "embed://localhost/"
 	metaHandler := ui.NewEmbeddedHandler(metaRoot, &coremeta.FS)
+	// Forge metadata is routed separately from the main SDK mux. Apply the
+	// same auth runtime explicitly so applyPermission receives the current
+	// principal and MCP token instead of running as an anonymous request.
+	metaHandler = svcauthctx.WithAuthProtection(metaHandler, authRuntime)
 	uiBundle := servedUIBundle{Name: "v1", FS: deployui.FS, Index: deployui.Index}
 
 	h := newRouter(apiHandler, metaHandler, speechHandler, uiDist, uiBundle)
