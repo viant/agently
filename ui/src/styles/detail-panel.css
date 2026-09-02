@@ -131,6 +131,17 @@
   background: #eef4ff;
 }
 
+.app-detail-tool-token-estimate {
+  display: grid;
+  gap: 4px;
+}
+
+.app-detail-token-estimate-note {
+  color: #69758a;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
 .app-detail-thread-link {
   display: flex;
   align-items: center;

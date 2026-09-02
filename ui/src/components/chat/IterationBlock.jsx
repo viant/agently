@@ -2251,6 +2251,11 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
   const renderGroupRow = (group, groupIndex) => (
     (() => {
       const modelStep = group.modelStep || null;
+      const withPricingModel = (toolStep = {}) => ({
+        ...toolStep,
+        pricingProvider: String(toolStep?.pricingProvider || toolStep?.provider || modelStep?.provider || '').trim(),
+        pricingModel: String(toolStep?.pricingModel || toolStep?.model || modelStep?.model || '').trim()
+      });
       const renderToolStepNode = (toolStep, nodeKey, depth = 0) => (
         <React.Fragment key={nodeKey}>
           <div className="app-iteration-tool-row">
@@ -2269,7 +2274,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
               {String(toolStep?.kind || '').toLowerCase() === 'elicitation' ? (
                 <Button minimal small className="app-iteration-link" onClick={() => openElicitationReview(toolStep)}>Open review</Button>
               ) : null}
-              <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, toolStep))}>Details</Button>
+              <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, withPricingModel(toolStep)))}>Details</Button>
             </div>
           </div>
           {Array.isArray(toolStep?.childToolSteps) && toolStep.childToolSteps.length > 0 ? (
@@ -2354,7 +2359,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
                   {String(toolStep?.kind || '').toLowerCase() === 'elicitation' ? (
                     <Button minimal small className="app-iteration-link" onClick={() => openElicitationReview(toolStep)}>Open review</Button>
                   ) : null}
-                  <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, toolStep))}>Details</Button>
+                  <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, withPricingModel(toolStep)))}>Details</Button>
                 </div>
               </div>
             ))}
@@ -2410,7 +2415,11 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
                     minimal
                     small
                     className="app-iteration-link"
-                    onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, toolStep))}
+                    onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, {
+                      ...toolStep,
+                      pricingProvider: String(toolStep?.pricingProvider || toolStep?.provider || modelStep?.provider || '').trim(),
+                      pricingModel: String(toolStep?.pricingModel || toolStep?.model || modelStep?.model || '').trim()
+                    }))}
                   >
                     Details
                   </Button>
