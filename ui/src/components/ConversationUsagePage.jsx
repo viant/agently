@@ -7,6 +7,11 @@ import {
   formatUsageCost,
   summarizeConversationUsage,
 } from '../services/conversationUsage';
+import {
+  formatUsdEstimate,
+  summarizeTranscriptToolUsage,
+} from '../services/tokenUsageEstimation';
+import { readConversationProjectionUsage } from '../services/usageProjectionStore';
 
 function MetricCard({ icon, label, value, detail, tone }) {
   return (
@@ -48,7 +53,7 @@ function ModelRow({ model, overallTokens }) {
         </div>
         <div className="conversation-usage-model-total">
           <strong>{formatTokenCount(model.totalTokens)}</strong>
-          <span>{formatUsageCost(model.cost)}</span>
+          <span>{model.costEstimated ? `Est. ${formatUsageCost(model.cost)}` : formatUsageCost(model.cost)}</span>
         </div>
       </div>
       <div className="conversation-usage-model-bar" aria-label={`${model.model} token distribution`}>
@@ -64,9 +69,73 @@ function ModelRow({ model, overallTokens }) {
   );
 }
 
+function formatBytes(value) {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (bytes < 1024) return `${Math.trunc(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function ToolUsageDirection({ label, usage }) {
+  if (!usage?.available) {
+    return (
+      <div className="conversation-usage-tool-direction is-unavailable">
+        <span>{label}</span>
+        <strong>{usage?.compressed ? 'Compressed payload unavailable' : 'Not captured'}</strong>
+      </div>
+    );
+  }
+  return (
+    <div className="conversation-usage-tool-direction">
+      <span>{label}</span>
+      <strong>{`≈${formatTokenCount(usage.tokens)} ${usage.tokenDirection} tokens`}</strong>
+      <small>{formatBytes(usage.bytes)}{usage.cost != null ? ` · ${formatUsdEstimate(usage.cost)}` : ''}</small>
+    </div>
+  );
+}
+
+function ToolUsageRow({ call }) {
+  const overflow = call?.toolOutput?.overflow || {};
+  const outputModelLabel = [call?.toolInput?.pricingProvider, call?.toolInput?.pricingModel].filter(Boolean).join('/');
+  const inputModelLabel = [call?.toolOutput?.pricingProvider, call?.toolOutput?.pricingModel].filter(Boolean).join('/');
+  const modelLabel = outputModelLabel && inputModelLabel && outputModelLabel !== inputModelLabel
+    ? `${outputModelLabel} → ${inputModelLabel}`
+    : (outputModelLabel || inputModelLabel);
+  return (
+    <article className={`conversation-usage-tool${overflow.overflow ? ' has-overflow' : ''}`}>
+      <div className="conversation-usage-tool-heading">
+        <div>
+          <strong>{call.toolName}</strong>
+          <span>{modelLabel || 'Pricing unavailable'} · {call.status || 'unknown'}</span>
+        </div>
+        <div className="conversation-usage-tool-total">
+          <strong>≈{formatTokenCount(call.totalTokens)}</strong>
+          <span>{call.totalCost == null ? 'Unpriced' : formatUsdEstimate(call.totalCost)}</span>
+        </div>
+      </div>
+      <div className="conversation-usage-tool-directions">
+        <ToolUsageDirection label="Arguments generated" usage={call.toolInput} />
+        <ToolUsageDirection label="Result presented" usage={call.toolOutput} />
+      </div>
+      {overflow.overflow ? (
+        <div className="conversation-usage-overflow-note">
+          <Icon icon="warning-sign" size={13} />
+          <span>
+            Output overflowed; the estimate covers only the result presented to the model.
+            {overflow.remaining != null ? ` ${formatTokenCount(overflow.remaining)} units remain.` : ''}
+            {overflow.nextRange?.length ? ` Next range: ${formatBytes(overflow.nextRange.length)}.` : ''}
+          </span>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
 export default function ConversationUsagePage() {
   const { conversationId = '' } = useParams();
   const [conversation, setConversation] = useState(null);
+  const [transcript, setTranscript] = useState(null);
+  const [projectionUsage, setProjectionUsage] = useState({ entries: [], tokensFreed: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const backHref = `/conversation/${encodeURIComponent(conversationId)}`;
@@ -75,7 +144,17 @@ export default function ConversationUsagePage() {
     setLoading(true);
     setError('');
     try {
-      setConversation(await client.getConversation(conversationId));
+      const [nextConversation, nextTranscript] = await Promise.all([
+        client.getConversation(conversationId),
+        client.getTranscript({
+          conversationId,
+          includeModelCalls: true,
+          includeToolCalls: true,
+        }).catch(() => null),
+      ]);
+      setConversation(nextConversation);
+      setTranscript(nextTranscript);
+      setProjectionUsage(readConversationProjectionUsage(conversationId));
     } catch (err) {
       setError(String(err?.message || err || 'Unable to load conversation usage.'));
     } finally {
@@ -85,6 +164,9 @@ export default function ConversationUsagePage() {
 
   useEffect(() => { void load(); }, [load]);
   const summary = useMemo(() => summarizeConversationUsage(conversation || {}), [conversation]);
+  const toolUsage = useMemo(() => summarizeTranscriptToolUsage(transcript || {}, {
+    projectionTokensFreed: projectionUsage.tokensFreed,
+  }), [projectionUsage.tokensFreed, transcript]);
   const cachedPct = summary.inputTokens > 0 ? Math.round((summary.cachedInputTokens / summary.inputTokens) * 100) : 0;
 
   return (
@@ -114,7 +196,7 @@ export default function ConversationUsagePage() {
             <MetricCard icon="chart" label="Total tokens" value={formatTokenCount(summary.totalTokens)} detail={`${summary.models.length || 1} model role${summary.models.length === 1 ? '' : 's'}`} tone="total" />
             <MetricCard icon="log-in" label="Input" value={formatTokenCount(summary.inputTokens)} detail={summary.cachedInputTokens > 0 ? `${cachedPct}% cached` : 'Prompt and context'} tone="input" />
             <MetricCard icon="log-out" label="Output" value={formatTokenCount(summary.outputTokens)} detail={summary.reasoningTokens > 0 ? `${formatTokenCount(summary.reasoningTokens)} reasoning` : 'Generated response'} tone="output" />
-            <MetricCard icon="dollar" label="Estimated cost" value={formatUsageCost(summary.cost)} detail="Conversation total" tone="cost" />
+            <MetricCard icon="dollar" label="Estimated cost" value={formatUsageCost(summary.cost)} detail={summary.costEstimated ? 'Computed from model pricing' : 'Conversation total'} tone="cost" />
           </section>
 
           <section className="conversation-usage-panel">
@@ -126,6 +208,32 @@ export default function ConversationUsagePage() {
               <ModelRow key={model.id} model={model} overallTokens={summary.totalTokens} />
             )) : (
               <div className="conversation-usage-empty">Per-model usage has not been reported for this conversation.</div>
+            )}
+          </section>
+
+          <section className="conversation-usage-panel conversation-usage-tool-panel">
+            <div className="conversation-usage-panel-heading">
+              <div><span>Attribution estimate</span><h2>Usage by tool call</h2></div>
+              <div className="conversation-usage-tool-summary">
+                <strong>≈{formatTokenCount(toolUsage.totalTokens)} tokens</strong>
+                <span>{toolUsage.totalCost == null ? 'Pricing unavailable' : `${formatUsdEstimate(toolUsage.totalCost)}${toolUsage.costPartial ? ' partial' : ''}`}</span>
+              </div>
+            </div>
+            <div className="conversation-usage-attribution-note">
+              Tool arguments are estimated as model output; tool results are estimated as model input at {toolUsage.bytesPerToken} UTF-8 bytes/token. These values attribute portions of provider-reported usage and are not added to billed totals.
+            </div>
+            {toolUsage.overflowCallCount > 0 || toolUsage.projectionTokensFreed > 0 || toolUsage.unavailablePayloadCount > 0 || toolUsage.unpricedPayloadCount > 0 ? (
+              <div className="conversation-usage-overflow-summary">
+                {toolUsage.overflowCallCount > 0 ? <span><Icon icon="warning-sign" size={13} />{toolUsage.overflowCallCount} overflowed tool result{toolUsage.overflowCallCount === 1 ? '' : 's'}</span> : null}
+                {toolUsage.projectionTokensFreed > 0 ? <span><Icon icon="filter" size={13} />≈{formatTokenCount(toolUsage.projectionTokensFreed)} context tokens freed</span> : null}
+                {toolUsage.unavailablePayloadCount > 0 ? <span><Icon icon="database" size={13} />{toolUsage.unavailablePayloadCount} unavailable payload{toolUsage.unavailablePayloadCount === 1 ? '' : 's'} excluded</span> : null}
+                {toolUsage.unpricedPayloadCount > 0 ? <span><Icon icon="dollar" size={13} />{toolUsage.unpricedPayloadCount} payload{toolUsage.unpricedPayloadCount === 1 ? '' : 's'} lack model pricing</span> : null}
+              </div>
+            ) : null}
+            {toolUsage.calls.length > 0 ? toolUsage.calls.map((call, index) => (
+              <ToolUsageRow key={`${call.id}:${index}`} call={call} />
+            )) : (
+              <div className="conversation-usage-empty">No tool-call payload usage was found in this conversation.</div>
             )}
           </section>
         </div>

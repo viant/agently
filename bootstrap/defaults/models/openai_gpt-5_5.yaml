@@ -10,6 +10,7 @@ options:
   maxTokens: 100000
   inputTokenPrice: 0.005   # $5 per 1M tokens
   outputTokenPrice: 0.03   # $30 per 1M tokens
+  cachedTokenPrice: 0.0005 # $0.50 per 1M cached input tokens
   contextContinuation: true
   enableContinuationFormat: false
 

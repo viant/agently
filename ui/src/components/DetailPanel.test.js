@@ -79,7 +79,7 @@ describe('DetailPanel pricing helpers', () => {
   });
 
   it('estimates payload tokens from UTF-8 bytes rather than JavaScript character count', () => {
-    expect(estimatePayloadTokenUsage('éé')).toEqual({
+    expect(estimatePayloadTokenUsage('éé')).toMatchObject({
       available: true,
       bytes: 4,
       tokens: 1

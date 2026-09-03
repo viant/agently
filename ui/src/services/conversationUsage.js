@@ -1,3 +1,5 @@
+import { resolveModelPricing } from './tokenUsageEstimation';
+
 function numberValue(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -19,6 +21,7 @@ export function formatUsageCost(value) {
   const cost = Number(value);
   if (!Number.isFinite(cost)) return 'Not reported';
   if (cost === 0) return '$0.00';
+  if (cost < 0.0001) return `$${(Math.round((cost + Number.EPSILON) * 1_000_000) / 1_000_000).toFixed(6)}`;
   if (cost < 0.01) return `$${cost.toFixed(4)}`;
   return `$${cost.toFixed(2)}`;
 }
@@ -33,6 +36,16 @@ function normalizeModelUsage(entry = {}, index = 0) {
   const executionRole = String(field(entry, 'ExecutionRole', 'executionRole', 'Role', 'role') || 'react').trim().toLowerCase() || 'react';
   const provider = String(field(entry, 'Provider', 'provider') || '').trim();
   const model = String(field(entry, 'Model', 'model') || 'Unknown model').trim();
+  const pricing = resolveModelPricing({ provider, model });
+  const pricedCachedInputTokens = pricing?.cachedInput != null
+    ? Math.min(inputTokens, cachedInputTokens)
+    : 0;
+  const pricedStandardInputTokens = inputTokens - pricedCachedInputTokens;
+  const computedCost = pricing
+    ? (pricedStandardInputTokens / 1_000_000) * pricing.input
+      + (pricedCachedInputTokens / 1_000_000) * (pricing.cachedInput || 0)
+      + (outputTokens / 1_000_000) * pricing.output
+    : null;
   return {
     id: `${provider}:${model || index}:${executionRole}`,
     provider,
@@ -43,7 +56,8 @@ function normalizeModelUsage(entry = {}, index = 0) {
     cachedInputTokens,
     reasoningTokens,
     totalTokens,
-    cost: rawCost == null ? null : numberValue(rawCost),
+    cost: rawCost == null ? computedCost : numberValue(rawCost),
+    costEstimated: rawCost == null && computedCost != null,
   };
 }
 
@@ -65,6 +79,10 @@ export function summarizeConversationUsage(conversation = {}) {
     || models.reduce((sum, model) => sum + model.reasoningTokens, 0);
   const totalTokens = numberValue(field(usage, 'TotalTokens', 'totalTokens')) || inputTokens + outputTokens;
   const rawCost = field(usage, 'Cost', 'cost');
+  const hasCompleteModelPricing = models.length > 0 && models.every((model) => model.cost != null);
+  const computedModelCost = hasCompleteModelPricing
+    ? models.reduce((sum, model) => sum + model.cost, 0)
+    : null;
   return {
     conversationId: String(field(conversation, 'Id', 'id', 'conversationId', 'ConversationId') || '').trim(),
     title: String(field(conversation, 'Title', 'title', 'Summary', 'summary') || 'Conversation').trim(),
@@ -75,7 +93,8 @@ export function summarizeConversationUsage(conversation = {}) {
     cachedInputTokens,
     reasoningTokens,
     totalTokens,
-    cost: rawCost == null ? null : numberValue(rawCost),
+    cost: rawCost == null ? computedModelCost : numberValue(rawCost),
+    costEstimated: rawCost == null && computedModelCost != null,
     models,
   };
 }

@@ -58,6 +58,7 @@ import {
   syncMessagesSnapshot,
   unbindConversationWindowEvents
 } from './chatRuntime';
+import { recordConversationProjectionUsage } from './usageProjectionStore';
 import NamedLookupInput from '../components/lookups/NamedLookupInput.jsx';
 import { flattenStored } from '../components/lookups/tokens.js';
 import { listLookupRegistry } from '../components/lookups/client.js';
@@ -842,6 +843,11 @@ export async function submitMessage({ context, message, model, agent }) {
     conversationId: conversationID,
     hasInlineContent: String(queryResult?.content || '').trim() !== '',
     resultKeys: queryResult && typeof queryResult === 'object' ? Object.keys(queryResult).length : 0
+  });
+  recordConversationProjectionUsage({
+    conversationId: conversationID,
+    turnId: String(queryResult?.turnId || queryResult?.messageId || '').trim(),
+    projection: queryResult?.projection || null,
   });
   const fastCompletedInlineResult = !queueingDuringActiveTurn
     && !steeringDuringActiveTurn
