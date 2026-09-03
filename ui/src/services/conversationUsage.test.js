@@ -43,11 +43,30 @@ describe('conversation usage', () => {
     });
   });
 
+  it('computes missing model and conversation pricing when rates are known', () => {
+    const summary = summarizeConversationUsage({
+      Usage: {
+        Model: [{
+          Provider: 'openai',
+          Model: 'gpt-5.4',
+          PromptTokens: 1000,
+          PromptCachedTokens: 400,
+          CompletionTokens: 200,
+        }],
+      },
+    });
+    expect(summary.models[0].cost).toBeCloseTo(0.0046, 8);
+    expect(summary.models[0].costEstimated).toBe(true);
+    expect(summary.cost).toBeCloseTo(0.0046, 8);
+    expect(summary.costEstimated).toBe(true);
+  });
+
   it('builds only persisted conversation links', () => {
     expect(conversationUsageHref('')).toBe('');
     expect(conversationUsageHref('c/1')).toBe('/conversation/c%2F1/usage');
     expect(shouldShowConversationUsage('')).toBe(false);
     expect(shouldShowConversationUsage('conversation-1')).toBe(true);
     expect(formatUsageCost(null)).toBe('Not reported');
+    expect(formatUsageCost(0.0000375)).toBe('$0.000038');
   });
 });
