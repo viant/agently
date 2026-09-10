@@ -34,11 +34,12 @@ func configureWorkspaceReporting(ctx context.Context, workspaceRoot string, conf
 		return nil, fmt.Errorf("load workspace reporting registry: %w", err)
 	}
 	log.Printf(
-		"agently-app: workspace reporting registry loaded: root=%s builders=%d presets=%d fragments=%d",
+		"agently-app: workspace reporting registry loaded: root=%s builders=%d presets=%d fragments=%d groups=%d",
 		discovered.Root,
 		len(discovered.Builders),
 		len(discovered.Presets),
 		len(discovered.Fragments),
+		len(discovered.Groups),
 	)
 	runtime := &workspaceReportingRuntime{
 		loader:        loader,
@@ -52,11 +53,12 @@ func configureWorkspaceReporting(ctx context.Context, workspaceRoot string, conf
 				return
 			}
 			log.Printf(
-				"agently-app: workspace reporting registry reloaded: root=%s builders=%d presets=%d fragments=%d",
+				"agently-app: workspace reporting registry reloaded: root=%s builders=%d presets=%d fragments=%d groups=%d",
 				current.Root,
 				len(current.Builders),
 				len(current.Presets),
 				len(current.Fragments),
+				len(current.Groups),
 			)
 		}); err != nil {
 			runtime.Close()
@@ -108,16 +110,32 @@ func (r *workspaceReportingRuntime) EnrichView(_ context.Context, item *uiview.L
 
 func workspaceReportingEnricher(loader *reportregistry.Loader) windowloader.WorkspaceWindowEnricher {
 	return func(_ context.Context, window *forgeTypes.Window) error {
-		if window == nil || window.View.Content == nil || window.View.Content.Kind != "dashboard.reportBuilder" {
+		if window == nil || window.View.Content == nil {
 			return nil
 		}
 		content := window.View.Content
-		if content.Dashboard == nil {
+		if content.Kind != "dashboard.reportCatalog" && content.Kind != "dashboard.reportBuilder" {
 			return nil
 		}
 		registry := loader.Current()
 		if registry == nil {
 			return fmt.Errorf("workspace reporting registry is not initialized")
+		}
+		if content.Kind == "dashboard.reportCatalog" {
+			if content.Dashboard == nil {
+				content.Dashboard = &forgeTypes.Dashboard{}
+			}
+			if content.Dashboard.ReportCatalog == nil {
+				content.Dashboard.ReportCatalog = map[string]any{}
+			}
+			content.Dashboard.ReportCatalog["groups"] = mergeDiscoveredReportGroups(
+				listOfMaps(content.Dashboard.ReportCatalog["groups"]),
+				registry.Groups,
+			)
+			return nil
+		}
+		if content.Dashboard == nil {
+			return nil
 		}
 		if content.Dashboard.ReportBuilders != nil {
 			for _, builder := range registry.Builders {
@@ -146,6 +164,75 @@ func workspaceReportingEnricher(loader *reportregistry.Loader) windowloader.Work
 	}
 }
 
+func mergeDiscoveredReportGroups(existing []map[string]any, groups []*reportregistry.Asset) []any {
+	result := make([]any, 0, len(groups)+len(existing))
+	byID := map[string]int{}
+	for _, group := range groups {
+		if group == nil {
+			continue
+		}
+		variant := reportGroupVariant(group)
+		id := normalizeReportingID(variant["id"])
+		if id == "" {
+			continue
+		}
+		byID[id] = len(result)
+		result = append(result, variant)
+	}
+	for _, configured := range existing {
+		id := normalizeReportingID(configured["id"])
+		if id == "" {
+			continue
+		}
+		if index, ok := byID[id]; ok {
+			result[index] = mergeReportingMaps(result[index].(map[string]any), configured)
+			continue
+		}
+		byID[id] = len(result)
+		result = append(result, cloneReportingMap(configured))
+	}
+	return result
+}
+
+func reportGroupVariant(group *reportregistry.Asset) map[string]any {
+	result := cloneReportingMap(group.Raw)
+	delete(result, "kind")
+	result["id"] = group.ID
+	result["label"] = group.Label
+	result["builderRef"] = group.BuilderRef
+	if group.Description != "" {
+		result["description"] = group.Description
+	}
+	if group.Icon != "" {
+		result["icon"] = group.Icon
+	}
+	if group.Order != nil {
+		result["order"] = *group.Order
+	}
+	if group.Visibility != "" {
+		result["visibility"] = group.Visibility
+	}
+	if group.DefinitionRef != "" {
+		result["definitionRef"] = group.DefinitionRef
+	}
+	if group.CatalogRef != "" {
+		result["catalogRef"] = group.CatalogRef
+	}
+	if group.CatalogDataSourceRef != "" {
+		result["catalogDataSourceRef"] = group.CatalogDataSourceRef
+	}
+	if group.DefinitionDataSourceRef != "" {
+		result["definitionDataSourceRef"] = group.DefinitionDataSourceRef
+	}
+	if len(group.PresetRefs) > 0 {
+		result["presetRefs"] = append([]string(nil), group.PresetRefs...)
+	}
+	if len(group.DefinitionRefs) > 0 {
+		result["definitionRefs"] = append([]string(nil), group.DefinitionRefs...)
+	}
+	return result
+}
+
 func reportBuilderVariant(builder *reportregistry.Asset, presets []*reportregistry.Asset) map[string]any {
 	config := reportBuilderConfig(builder.Raw)
 	config["reportDocumentTemplates"] = mergeDiscoveredPresetTemplates(
@@ -159,8 +246,10 @@ func reportBuilderVariant(builder *reportregistry.Asset, presets []*reportregist
 	}
 	if builder.Label != "" {
 		result["label"] = builder.Label
-	} else if title := strings.TrimSpace(fmt.Sprint(builder.Raw["title"])); title != "" {
-		result["label"] = title
+	} else if rawTitle, ok := builder.Raw["title"]; ok && rawTitle != nil {
+		if title := strings.TrimSpace(fmt.Sprint(rawTitle)); title != "" {
+			result["label"] = title
+		}
 	}
 	return result
 }

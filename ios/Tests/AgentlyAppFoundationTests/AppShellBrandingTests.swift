@@ -21,24 +21,24 @@ final class AppShellBrandingTests: XCTestCase {
     func testResolveWorkspaceHeaderTitleUsesAppNameThenWorkspaceTitle() {
         XCTAssertEqual(
             resolveWorkspaceHeaderTitle(
-                metadata: WorkspaceMetadata(appName: "Steward"),
-                workspaceTitle: "Viant Steward"
+                metadata: WorkspaceMetadata(appName: "Analytics"),
+                workspaceTitle: "Viant Analytics"
             ),
-            "Steward"
+            "Analytics"
         )
         XCTAssertEqual(resolveWorkspaceHeaderTitle(metadata: nil, workspaceTitle: "Viant Metrics"), "Viant Metrics")
         XCTAssertEqual(resolveWorkspaceHeaderTitle(metadata: nil, workspaceTitle: ""), "Agently")
     }
 
-    func testStewardWorkspaceHeaderUsesConfiguredAppNameOnly() {
-        let metadata = WorkspaceMetadata(workspaceRoot: "/deployment/steward", appName: "Steward")
+    func testWorkspaceHeaderUsesConfiguredAppNameOnly() {
+        let metadata = WorkspaceMetadata(workspaceRoot: "/deployment/analytics", appName: "Analytics")
         let workspaceTitle = resolveWorkspaceBrandTitle(workspaceTitle: metadata.workspaceRoot)
         XCTAssertEqual(
             resolveWorkspaceHeaderTitle(
                 metadata: metadata,
                 workspaceTitle: workspaceTitle
             ),
-            "Steward"
+            "Analytics"
         )
     }
 

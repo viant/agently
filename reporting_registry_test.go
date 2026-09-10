@@ -18,12 +18,14 @@ import (
 
 func TestWorkspaceReportingEnricherResolvesBuilderAndReadOnlyPresets(t *testing.T) {
 	workspace := t.TempDir()
+	writeReportingTestAsset(t, workspace, "extension/forge/reporting/performance/profiles/core.json", `{"kind":"forge.reporting.presentationProfileCatalog","schemaVersion":1,"familyId":"core","views":[{"viewId":1294,"visualProfile":"performance_overview","revision":"1","tabs":[{"id":"overview","title":"Overview","blockIds":["context"]}],"blocks":[{"id":"context","kind":"markdownBlock"}]}]}`)
 	writeReportingTestAsset(t, workspace, "extension/forge/reporting/performance/builder.yaml", `
 kind: forge.reporting.builder
 id: performance
 reportBuilder:
   title: Performance
   filterPresentation: rail-left
+  presentationProfileRefs: [./profiles/core.json]
 `)
 	writeReportingTestAsset(t, workspace, "extension/forge/reporting/performance/presets/command-center.yaml", `
 kind: forge.reporting.preset
@@ -58,6 +60,10 @@ document:
 	config := window.View.Content.Dashboard.ReportBuilder
 	if config["title"] != "Performance" || config["filterPresentation"] != "drawer-left" {
 		t.Fatalf("expected registry base with window override, got %#v", config)
+	}
+	profiles, _ := config["presentationProfiles"].([]any)
+	if len(profiles) != 1 || profiles[0].(map[string]any)["familyId"] != "core" {
+		t.Fatalf("expected resolved workspace presentation profile, got %#v", profiles)
 	}
 	templates, _ := config["reportDocumentTemplates"].([]any)
 	if len(templates) != 1 {
@@ -133,6 +139,81 @@ reportBuilder:
 	betaConfig, _ := catalog["beta"]["reportBuilder"].(map[string]any)
 	if got := betaConfig["filterPresentation"]; got != "drawer-left" {
 		t.Fatalf("expected beta workspace config, got %#v", betaConfig)
+	}
+}
+
+func TestWorkspaceReportingEnricherExposesGenericReportGroupsToCatalog(t *testing.T) {
+	workspace := t.TempDir()
+	writeReportingTestAsset(t, workspace, "extension/forge/reporting/advanced/builder.yaml", `
+kind: forge.reporting.builder
+id: customBuilder
+reportBuilder: {}
+`)
+	writeReportingTestAsset(t, workspace, "extension/forge/reporting/advanced/preset.yaml", `
+kind: forge.reporting.preset
+id: custom_overview
+builderRef: customBuilder
+document: {blocks: []}
+`)
+	writeReportingTestAsset(t, workspace, "extension/forge/reporting/advanced/definitions.json", `{"version":"test"}`)
+	writeReportingTestAsset(t, workspace, "extension/forge/reporting/advanced/group.yaml", `
+kind: forge.reporting.group
+id: customReports
+label: Custom reports
+description: Workspace-owned report definitions
+icon: chart
+order: 30
+visibility: visible
+builderRef: customBuilder
+catalogRef: ./definitions.json
+definitionRef: customCatalog
+catalogDataSourceRef: custom_catalog
+definitionDataSourceRef: custom_definition
+presetRefs: [custom_overview]
+definitionRefs: [overview, detail]
+`)
+	loader := reportregistry.NewLoader(reportregistry.Options{WorkspaceRoot: workspace})
+	if _, err := loader.Reload(context.Background()); err != nil {
+		t.Fatalf("reload registry: %v", err)
+	}
+	window := &forgeTypes.Window{View: forgeTypes.View{Content: &forgeTypes.Container{
+		ID:   "reports",
+		Kind: "dashboard.reportCatalog",
+		Dashboard: &forgeTypes.Dashboard{ReportCatalog: map[string]any{
+			"title": "Reports",
+			"groups": []any{map[string]any{
+				"id":    "customReports",
+				"label": "Window label override",
+			}},
+		}},
+	}}}
+	if err := workspaceReportingEnricher(loader)(context.Background(), window); err != nil {
+		t.Fatalf("enrich report catalog: %v", err)
+	}
+	groups, _ := window.View.Content.Dashboard.ReportCatalog["groups"].([]any)
+	if len(groups) != 1 {
+		t.Fatalf("expected one discovered report group, got %#v", groups)
+	}
+	group, _ := groups[0].(map[string]any)
+	if group["id"] != "customReports" || group["label"] != "Window label override" || group["builderRef"] != "customBuilder" {
+		t.Fatalf("unexpected report group identity %#v", group)
+	}
+	if group["catalogRef"] != "definitions.json" || group["definitionRef"] != "customCatalog" || group["order"] != 30 {
+		t.Fatalf("unexpected report group catalog metadata %#v", group)
+	}
+	if group["catalogDataSourceRef"] != "custom_catalog" || group["definitionDataSourceRef"] != "custom_definition" {
+		t.Fatalf("unexpected report group authorized data source references %#v", group)
+	}
+	if _, ok := group["catalog"]; ok {
+		t.Fatalf("report group must expose a catalog data-source reference, not inline catalog rows: %#v", group)
+	}
+	if _, ok := group["definitions"]; ok {
+		t.Fatalf("report group must not expose inline definitions: %#v", group)
+	}
+	presetRefs, _ := group["presetRefs"].([]string)
+	definitionRefs, _ := group["definitionRefs"].([]string)
+	if len(presetRefs) != 1 || presetRefs[0] != "custom_overview" || len(definitionRefs) != 2 {
+		t.Fatalf("unexpected report group references %#v", group)
 	}
 }
 
@@ -228,8 +309,9 @@ func TestConfiguredStewardReportingRootEnrichesCanonicalWindow(t *testing.T) {
 		t.Fatalf("canonical report window is incomplete: %#v", window)
 	}
 	builders := window.View.Content.Dashboard.ReportBuilders
-	if len(builders) != 2 {
-		t.Fatalf("expected two discovered Steward report builders, got %#v", builders)
+	registry := runtime.loader.Current()
+	if registry == nil || len(builders) != len(registry.Builders) {
+		t.Fatalf("expected every discovered workspace report builder, got %d of %d", len(builders), len(registry.Builders))
 	}
 	assertDiscoveredPresetCount(t, builders, "metricsCubeBuilder", 4)
 	assertDiscoveredPresetCount(t, builders, "forecastingCubeBuilder", 3)
@@ -240,6 +322,22 @@ func TestConfiguredStewardReportingRootEnrichesCanonicalWindow(t *testing.T) {
 	}
 	if !strings.Contains(actionCode, "stewardReportBuilder") || !strings.Contains(actionCode, "stewardForecastingBuilder") {
 		t.Fatalf("canonical report window did not merge both workspace hook families")
+	}
+
+	catalogWindow, err := windowloader.LoadWorkspaceWindow(context.Background(), "reports", &metasvc.TargetContext{
+		Platform:   "web",
+		FormFactor: "desktop",
+		Surface:    "browser",
+	})
+	if err != nil {
+		t.Fatalf("load report catalog window: %v", err)
+	}
+	if catalogWindow == nil || catalogWindow.View.Content == nil || catalogWindow.View.Content.Dashboard == nil {
+		t.Fatalf("report catalog window is incomplete: %#v", catalogWindow)
+	}
+	groups, _ := catalogWindow.View.Content.Dashboard.ReportCatalog["groups"].([]any)
+	if len(groups) != len(registry.Groups) {
+		t.Fatalf("expected every discovered workspace report group, got %d of %d", len(groups), len(registry.Groups))
 	}
 }
 
