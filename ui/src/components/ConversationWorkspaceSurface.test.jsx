@@ -12,7 +12,10 @@ vi.mock('./mcpApps/AppRenderer.jsx', () => ({
   default: ({ uri, hosted }) => React.createElement('div', { 'data-mcp-uri': uri, 'data-hosted': hosted ? 'true' : 'false' }),
 }));
 
-import ConversationWorkspaceSurface, { resolveWorkspaceNavigation } from './ConversationWorkspaceSurface';
+import ConversationWorkspaceSurface, { resolveChatWindowRenderKey, resolveWorkspaceNavigation } from './ConversationWorkspaceSurface';
+
+expect(resolveChatWindowRenderKey({windowId: 'chat/new'})).toBe('chat/new:0');
+expect(resolveChatWindowRenderKey({windowId: 'chat/new', conversationInstanceVersion: 2})).toBe('chat/new:2');
 
 describe('ConversationWorkspaceSurface', () => {
   it('resolves explicit navigation with deterministic fallbacks', () => {
@@ -49,6 +52,8 @@ describe('ConversationWorkspaceSurface', () => {
     expect(html).toContain('data-window-id="report"');
     expect(html).toContain('data-window-id="chat"');
     expect(html).toContain('is-composer-only');
+    expect(html).toContain('app-workspace-composer-toggle');
+    expect(html).toContain('aria-label="Expand composer options"');
     expect(html).toContain('aria-label="Close Reports"');
     expect(html).toContain('app-window-dot-close');
   });

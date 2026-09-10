@@ -5,6 +5,7 @@ import * as canonicalChatStore from './chatStore';
 // an observer-compatible replacement, but production never runs without it.
 let _chatStoreModule = canonicalChatStore;
 const streamSubscriptionOwners = new Map();
+const pollingOwnersByWindowId = new Map();
 let nextStreamSubscriptionID = 0;
 function hasActiveConversationTurnStream(conversationID = '') {
   const id = String(conversationID || '').trim();
@@ -705,6 +706,15 @@ export function resolveLastTranscriptCursor(turns = []) {
 const settledConversationBootstrapCache = new Map();
 const pendingConversationBootstrapIds = new Set();
 
+function isSettledConversationBootstrapSnapshot(snapshot = null) {
+  if (!snapshot || typeof snapshot !== 'object') return false;
+  const conversationStatus = String(snapshot?.conversation?.status || snapshot?.conversation?.Status || '').trim().toLowerCase();
+  if (RUNNING_STATUSES.has(conversationStatus)) return false;
+  return !(Array.isArray(snapshot.turns) ? snapshot.turns : []).some((turn) => (
+    RUNNING_STATUSES.has(String(turn?.status || turn?.Status || '').trim().toLowerCase())
+  ));
+}
+
 export function cacheSettledConversationBootstrapSnapshot(conversationID = '', snapshot = null) {
   const id = String(conversationID || '').trim();
   if (!id || !snapshot || typeof snapshot !== 'object') return;
@@ -714,6 +724,11 @@ export function cacheSettledConversationBootstrapSnapshot(conversationID = '', s
       conversationId: id,
       snapshotConversationId: snapshotConversationID
     });
+    return;
+  }
+  if (!isSettledConversationBootstrapSnapshot(snapshot)) {
+    settledConversationBootstrapCache.delete(id);
+    logExecutorDebug('settled-bootstrap-cache-rejected-nonterminal', {conversationId: id});
     return;
   }
   settledConversationBootstrapCache.set(id, {
@@ -742,6 +757,11 @@ export function getSettledConversationBootstrapSnapshot(conversationID = '') {
       conversationId: id,
       snapshotConversationId: snapshotConversationID
     });
+    return null;
+  }
+  if (!isSettledConversationBootstrapSnapshot(snapshot)) {
+    settledConversationBootstrapCache.delete(id);
+    logExecutorDebug('settled-bootstrap-cache-evicted-nonterminal', {conversationId: id});
     return null;
   }
   return snapshot;
@@ -2657,6 +2677,11 @@ export async function createNewConversation(context) {
 export function startPolling(context) {
   const chatState = ensureContextResources(context);
   const windowId = getContextWindowId(context);
+  const previousOwner = pollingOwnersByWindowId.get(windowId);
+  if (previousOwner && previousOwner !== context) {
+    stopPolling(previousOwner);
+  }
+  pollingOwnersByWindowId.set(windowId, context);
   logExecutorDebug('polling-start', {
     windowId,
     conversationId: getCurrentConversationID(context)
@@ -2702,6 +2727,7 @@ export function startPolling(context) {
 
 export function stopPolling(context) {
   const chatState = ensureContextResources(context);
+  const windowId = getContextWindowId(context);
   logExecutorDebug('polling-stop', {
     conversationId: getCurrentConversationID(context),
     hadTimer: !!chatState.timer,
@@ -2721,6 +2747,9 @@ export function stopPolling(context) {
     chatState.postTurnRefreshTimer = null;
   }
   disconnectStream(context);
+  if (pollingOwnersByWindowId.get(windowId) === context) {
+    pollingOwnersByWindowId.delete(windowId);
+  }
 }
 
 export function rememberSeedTitle(conversationID, query) {

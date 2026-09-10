@@ -23,6 +23,12 @@ vi.mock('forge/core', () => ({
 import { connectorConfig, snapshotConversationId } from './connector';
 
 describe('snapshotConversationId', () => {
+  it('keeps hidden workspace polling responsive without a tight request loop', () => {
+    expect(connectorConfig.uiBridge.pollWhenHidden).toBe(true);
+    expect(connectorConfig.uiBridge.pollCycleDelayMs).toBeGreaterThan(0);
+    expect(connectorConfig.window.service.includeTargetContext).toBe(true);
+  });
+
   it('uses the main chat conversation instead of a selected workspace window conversation', () => {
     const snapshot = {
       selected: {

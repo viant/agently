@@ -333,6 +333,30 @@ export function hasScopedWorkspaceState(conversationId = '') {
   return !!getScopedWorkspaceState(conversationId);
 }
 
+function resolveSavedWorkspaceSnapshot(savedSnapshots = [], entry = null, windowId = '') {
+  const snapshots = Array.isArray(savedSnapshots) ? savedSnapshots : [];
+  const exactId = String(windowId || '').trim();
+  if (exactId) {
+    const exact = snapshots.find((candidate) => String(candidate?.windowId || '').trim() === exactId);
+    if (exact) return exact;
+  }
+  const windowKey = String(entry?.windowKey || '').trim();
+  if (!windowKey) return null;
+  const parameters = entry?.parameters && typeof entry.parameters === 'object' ? entry.parameters : {};
+  const parameterizedIdentity = Object.keys(parameters).length > 0
+    ? computeWorkspaceWindowId(windowKey, parameters)
+    : '';
+  const compatible = snapshots.filter((candidate) => {
+    if (String(candidate?.windowKey || '').trim() !== windowKey) return false;
+    if (!parameterizedIdentity) return true;
+    const candidateParameters = candidate?.parameters && typeof candidate.parameters === 'object'
+      ? candidate.parameters
+      : {};
+    return computeWorkspaceWindowId(windowKey, candidateParameters) === parameterizedIdentity;
+  });
+  return compatible.length === 1 ? compatible[0] : null;
+}
+
 export function setScopedWorkspaceState(conversationId = '', win = null) {
   const storage = uiStateStorage();
   if (!storage) return;
@@ -344,18 +368,14 @@ export function setScopedWorkspaceState(conversationId = '', win = null) {
       return;
     }
     const entries = Array.isArray(win) ? win : [win];
-    const savedSnapshotsByWindowId = new Map(
-      getScopedWorkspaceWindowsState(convID)
-        .map((entry) => [String(entry?.windowId || '').trim(), entry])
-        .filter(([windowId]) => !!windowId)
-    );
+    const savedSnapshots = getScopedWorkspaceWindowsState(convID);
     const payloads = entries
       .map((entry) => {
         const windowKey = String(entry?.windowKey || '').trim();
         const parameters = entry?.parameters && typeof entry.parameters === 'object' ? entry.parameters : {};
         const computedWindowId = computeWorkspaceWindowId(windowKey, parameters);
         const windowId = String(entry?.windowId || computedWindowId || '').trim();
-        const savedSnapshot = windowId ? savedSnapshotsByWindowId.get(windowId) : null;
+        const savedSnapshot = resolveSavedWorkspaceSnapshot(savedSnapshots, entry, windowId);
         const mergedEntry = savedSnapshot && entry && typeof entry === 'object'
           ? mergeWorkspaceSnapshotValue(savedSnapshot, entry)
           : entry;
@@ -428,8 +448,16 @@ function hydrateLiveWorkspaceWindowFromSavedState(conversationId = '', win = nul
   const windowId = String(win?.windowId || '').trim();
   if (!convID || !windowId) return win;
   const savedWindows = getScopedWorkspaceWindowsState(convID);
-  const saved = savedWindows.find((entry) => String(entry?.windowId || '').trim() === windowId);
+  const saved = resolveSavedWorkspaceSnapshot(savedWindows, win, windowId);
   if (!saved) return win;
+  const mergedParameters = mergeWorkspaceSnapshotValue(saved.parameters || {}, win?.parameters || {});
+  let hydratedWindow = win;
+  if (JSON.stringify(mergedParameters) !== JSON.stringify(win?.parameters || {})) {
+    hydratedWindow = {...win, parameters: mergedParameters};
+    activeWindows.value = (Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : []).map((entry) => (
+      String(entry?.windowId || '').trim() === windowId ? hydratedWindow : entry
+    ));
+  }
   if (saved.windowForm && typeof saved.windowForm === 'object') {
     const formSignal = getFormSignal(`${windowId}:windowForm`);
     const currentForm = formSignal?.peek?.() || {};
@@ -444,7 +472,7 @@ function hydrateLiveWorkspaceWindowFromSavedState(conversationId = '', win = nul
       viewSignal.value = saved.viewState;
     }
   }
-  return win;
+  return hydratedWindow;
 }
 
 function restoreWorkspaceWindowForConversation(conversationId = '', { focus = true } = {}) {
@@ -452,8 +480,8 @@ function restoreWorkspaceWindowForConversation(conversationId = '', { focus = tr
   if (!convID) return null;
   const live = resolveWorkspaceWindowForConversation(convID);
   if (live) {
-    hydrateLiveWorkspaceWindowFromSavedState(convID, live);
-    return focus ? focusWindow(live) : live;
+    const hydrated = hydrateLiveWorkspaceWindowFromSavedState(convID, live);
+    return focus ? focusWindow(hydrated) : hydrated;
   }
   const savedWindows = getScopedWorkspaceWindowsState(convID);
   if (savedWindows.length === 0) return null;
@@ -752,7 +780,7 @@ export function ensureMainChatWindow() {
   return focusWindow(existing);
 }
 
-function updateMainChatWindowParameters(conversationId = '') {
+function updateMainChatWindowParameters(conversationId = '', { resetInstance = false } = {}) {
   const targetID = String(conversationId || '').trim();
   const windows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
   let changed = false;
@@ -781,6 +809,7 @@ function updateMainChatWindowParameters(conversationId = '') {
     };
     return {
       ...entry,
+      ...(resetInstance ? { conversationInstanceVersion: Math.max(0, Number(entry?.conversationInstanceVersion || 0)) + 1 } : {}),
       parameters
     };
   });
@@ -825,7 +854,7 @@ export function openConversationInMainWindow(conversationId = '') {
 export function requestNewConversationInMainWindow() {
   removeWindowsForConversationChange('');
   const mainWindow = ensureMainChatWindow();
-  updateMainChatWindowParameters('');
+  updateMainChatWindowParameters('', { resetInstance: true });
   publishConversationSelection(mainWindow?.windowId || MAIN_CHAT_WINDOW_ID, '', {
     syncPath: true,
     eventType: 'agently:conversation-new'

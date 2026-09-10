@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildWebClientContext, buildWebQueryContext, detectWebFormFactor } from './clientContext';
+import { buildWebClientContext, buildWebQueryContext, detectWebFormFactor, subscribeWebFormFactor } from './clientContext';
 
 describe('clientContext', () => {
   it('detects phone, tablet, and desktop form factors from window width', () => {
@@ -30,6 +30,32 @@ describe('clientContext', () => {
         surface: 'browser',
         capabilities: ['markdown', 'chart', 'upload', 'code', 'diff'],
       });
+    } finally {
+      global.window = previousWindow;
+    }
+  });
+
+  it('publishes form-factor changes when the browser crosses a responsive breakpoint', () => {
+    const previousWindow = global.window;
+    let resize;
+    const values = [];
+    global.window = {
+      innerWidth: 1365,
+      addEventListener: (name, handler) => { if (name === 'resize') resize = handler; },
+      removeEventListener: () => {},
+    };
+    try {
+      const unsubscribe = subscribeWebFormFactor((value) => values.push(value));
+      global.window.innerWidth = 1024;
+      resize();
+      global.window.innerWidth = 390;
+      resize();
+      global.window.innerWidth = 487;
+      resize();
+      global.window.innerWidth = 1440;
+      resize();
+      unsubscribe();
+      expect(values).toEqual(['desktop', 'tablet', 'phone', 'desktop']);
     } finally {
       global.window = previousWindow;
     }

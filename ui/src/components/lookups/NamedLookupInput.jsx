@@ -17,8 +17,9 @@ import {
 } from './tokens.js';
 import { listLookupRegistry, fetchDatasource } from './client.js';
 import { applyResolvedChipToken, createEditingChipState, shouldSkipEditorSync } from './chipEditing.js';
+import { DEFAULT_LOOKUP_TRIGGER, filterLookupRegistry, findLookupTriggerStart } from './lookupTrigger.js';
 
-const DEFAULT_TRIGGER = '/';
+const DEFAULT_TRIGGER = DEFAULT_LOOKUP_TRIGGER;
 const DATE_CHIP_NAMES = new Set(['date_from', 'date_to']);
 
 function isDateChipName(name = '') {
@@ -646,7 +647,7 @@ export default function NamedLookupInput({
         editorRef.current ? editorRef.current.innerText || '' : String(nextValue || ''),
         caret
       );
-      const slash = display.lastIndexOf(DEFAULT_TRIGGER);
+      const slash = findLookupTriggerStart(display, DEFAULT_TRIGGER);
       if (slash === -1) {
         setActiveTrigger(null);
         return;
@@ -847,8 +848,7 @@ export default function NamedLookupInput({
 
   const nameMenuItems = useMemo(() => {
     if (!activeTrigger || activeTrigger.phase !== 'namePicker') return [];
-    const q = String(activeTrigger.query || '').toLowerCase();
-    return registry.filter((entry) => entry.name.toLowerCase().startsWith(q));
+    return filterLookupRegistry(registry, activeTrigger.query);
   }, [activeTrigger, registry]);
 
   const resolveEditingChip = useCallback(async (options = {}) => {
@@ -1140,7 +1140,7 @@ export default function NamedLookupInput({
             const caret = caretOffsetWithin(editorRef.current);
             const text = editorRef.current?.innerText || '';
             const display = textBeforeCaret(text, caret);
-            const slash = display.lastIndexOf(DEFAULT_TRIGGER);
+            const slash = findLookupTriggerStart(display, DEFAULT_TRIGGER);
             if (slash >= 0 && !/\s/.test(display.slice(slash + 1))) {
               setActiveTrigger({ phase: 'namePicker', start: slash, caret, query: display.slice(slash + 1) });
             }
@@ -1171,7 +1171,7 @@ export default function NamedLookupInput({
             onSelect={(event) => {
               const pos = event.target.selectionStart || 0;
               const display = textBeforeCaret(String(event.target.value || ''), pos);
-              const slash = display.lastIndexOf(DEFAULT_TRIGGER);
+              const slash = findLookupTriggerStart(display, DEFAULT_TRIGGER);
               if (slash >= 0 && !/\s/.test(display.slice(slash + 1))) {
                 setActiveTrigger({ phase: 'namePicker', start: slash, caret: pos, query: display.slice(slash + 1) });
               }
@@ -1288,7 +1288,7 @@ export default function NamedLookupInput({
               onSelect={(event) => {
                 const pos = event.target.selectionStart || 0;
                 const display = textBeforeCaret(String(event.target.value || ''), pos);
-                const slash = display.lastIndexOf(DEFAULT_TRIGGER);
+                const slash = findLookupTriggerStart(display, DEFAULT_TRIGGER);
                 if (slash >= 0 && !/\s/.test(display.slice(slash + 1))) {
                   setActiveTrigger({ phase: 'namePicker', start: slash, caret: pos, query: display.slice(slash + 1) });
                 }

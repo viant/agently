@@ -599,6 +599,70 @@ describe('conversationWindow', () => {
     });
   });
 
+  it('rehydrates resource parameters into an existing hosted window shell', () => {
+    activeWindows.value = [{
+      windowId: 'advertiser_39764637__conv-advertiser',
+      windowKey: 'advertiser',
+      windowTitle: 'Advertiser',
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      presentation: 'hosted',
+      region: 'chat.top',
+      inTab: true,
+      conversationId: 'conv-advertiser',
+      parameters: {}
+    }];
+    setScopedWorkspaceState('conv-advertiser', {
+      ...activeWindows.value[0],
+      parameters: {
+        AdvertiserId: [85141],
+        advertiser_properties: {parameters: {Id: [85141]}}
+      }
+    });
+    expect(getScopedWorkspaceState('conv-advertiser')?.parameters).toEqual({
+      AdvertiserId: [85141],
+      advertiser_properties: {parameters: {Id: [85141]}}
+    });
+
+    const restored = ensureWorkspaceWindowForConversation('conv-advertiser');
+
+    expect(restored?.parameters).toEqual({
+      AdvertiserId: [85141],
+      advertiser_properties: {parameters: {Id: [85141]}}
+    });
+    expect(activeWindows.value[0]?.parameters?.AdvertiserId).toEqual([85141]);
+  });
+
+  it('rehydrates a uniquely matching hosted shell when bound parameters changed its durable window hash', () => {
+    activeWindows.value = [{
+      windowId: 'resource_request_hash__conv-resource',
+      windowKey: 'resourceDetail',
+      windowTitle: 'Resource',
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      presentation: 'hosted',
+      region: 'chat.top',
+      inTab: true,
+      conversationId: 'conv-resource',
+      parameters: {}
+    }];
+    setScopedWorkspaceState('conv-resource', {
+      ...activeWindows.value[0],
+      windowId: 'resource_expanded_hash__conv-resource',
+      parameters: {
+        ResourceId: [42],
+        resource_properties: {parameters: {Id: [42]}}
+      }
+    });
+
+    const restored = ensureWorkspaceWindowForConversation('conv-resource');
+
+    expect(restored?.windowId).toBe('resource_request_hash__conv-resource');
+    expect(restored?.parameters).toEqual({
+      ResourceId: [42],
+      resource_properties: {parameters: {Id: [42]}}
+    });
+    expect(activeWindows.value[0]?.parameters?.ResourceId).toEqual([42]);
+  });
+
   it('prefers scoped workspace windowForm over default-seeded live builder state on restore', () => {
     activeWindows.value = [{
       windowId: MAIN_CHAT_WINDOW_ID,
@@ -968,6 +1032,27 @@ describe('conversationWindow', () => {
     expect(selectedTabId.value).toBe(restored?.windowId);
   });
 
+  it('does not merge a saved report snapshot into a different advertiser suite or view', () => {
+    const firstParameters = {AdvertiserId: [95420], SuiteId: 5, ViewId: 1447, Trial: false};
+    setScopedWorkspaceState('conv-report-isolation', {
+      windowId: 'advancedReportBuilder_foot_traffic',
+      windowKey: 'advancedReportBuilder',
+      parameters: firstParameters,
+      windowForm: {ReportName: 'Foot Traffic', ViewId: 1447},
+    });
+
+    const funnelParameters = {AdvertiserId: [95420], SuiteId: 4, ViewId: 1338, Trial: false};
+    setScopedWorkspaceState('conv-report-isolation', {
+      windowId: 'advancedReportBuilder_conversion_funnel',
+      windowKey: 'advancedReportBuilder',
+      parameters: funnelParameters,
+    });
+
+    const snapshot = getScopedWorkspaceState('conv-report-isolation');
+    expect(snapshot?.parameters).toEqual(funnelParameters);
+    expect(snapshot?.windowForm).toBeUndefined();
+  });
+
   it('uses /conversation on localhost and 127.0.0.1 hosts', () => {
     activeWindows.value = [{
       windowId: MAIN_CHAT_WINDOW_ID,
@@ -1007,6 +1092,10 @@ describe('conversationWindow', () => {
     expect(String(window.sessionStorage.getItem('agently.selectedConversationId') || '')).toBe('');
     expect(String(activeWindows.value[0]?.parameters?.conversations?.form?.id || '')).toBe('');
     expect(String(activeWindows.value[0]?.parameters?.messages?.input?.parameters?.convID || '')).toBe('');
+    expect(activeWindows.value[0]?.conversationInstanceVersion).toBe(1);
+
+    requestNewConversationInMainWindow();
+    expect(activeWindows.value[0]?.conversationInstanceVersion).toBe(2);
   });
 
   it('removes top-level non-chat windows when opening a new main chat conversation', () => {

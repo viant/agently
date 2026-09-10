@@ -342,6 +342,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
   const nextCursorRef = React.useRef('');
   const activityReloadTimerRef = React.useRef(null);
   const queryReloadTimerRef = React.useRef(null);
+  const initialReloadRetryTimerRef = React.useRef(null);
   const inFlightReloadRef = React.useRef({ key: '', promise: null });
   const reloadSeqRef = React.useRef(0);
   const lastResolvedReloadKeyRef = React.useRef('');
@@ -498,6 +499,25 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
       }
     };
   }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    // A freshly restarted local server can render the shell before its authenticated
+    // conversation endpoint is ready. The normal initial reload intentionally hides
+    // that transient connectivity error, but without one bounded retry the sidebar
+    // remains on a false empty state until the user presses Refresh.
+    initialReloadRetryTimerRef.current = setTimeout(() => {
+      initialReloadRetryTimerRef.current = null;
+      if (rowsRef.current.length === 0) {
+        void reload('latest', '', { force: true }).catch(() => {});
+      }
+    }, 1000);
+    return () => {
+      if (initialReloadRetryTimerRef.current) {
+        clearTimeout(initialReloadRetryTimerRef.current);
+        initialReloadRetryTimerRef.current = null;
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const content = useMemo(() => {
     if (loading) return <div className="app-sidebar-loading"><Spinner size={18} /></div>;

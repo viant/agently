@@ -1458,6 +1458,27 @@ describe('switchConversation', () => {
     expect(getSettledConversationBootstrapSnapshot('conv-target')).toBeNull();
   });
 
+  it('rejects and evicts non-terminal turns from the settled bootstrap cache', () => {
+    cacheSettledConversationBootstrapSnapshot('conv-running', {
+      conversation: { id: 'conv-running', status: 'canceled' },
+      turns: [{ turnId: 'turn-running', status: 'running' }],
+      pendingElicitations: [],
+      generatedFiles: []
+    });
+    expect(getSettledConversationBootstrapSnapshot('conv-running')).toBeNull();
+
+    const completedTurn = { turnId: 'turn-completed', status: 'completed' };
+    cacheSettledConversationBootstrapSnapshot('conv-mutated', {
+      conversation: { id: 'conv-mutated', status: 'succeeded' },
+      turns: [completedTurn],
+      pendingElicitations: [],
+      generatedFiles: []
+    });
+    expect(getSettledConversationBootstrapSnapshot('conv-mutated')).not.toBeNull();
+    completedTurn.status = 'thinking';
+    expect(getSettledConversationBootstrapSnapshot('conv-mutated')).toBeNull();
+  });
+
   it('clears the previous transcript before the target conversation request settles', async () => {
     const messageState = { collection: [{ id: 'old-msg', role: 'assistant', content: 'stale report' }] };
     const conversationState = { values: { id: 'conv-old', queuedTurns: [] } };
@@ -2375,6 +2396,29 @@ describe('getCurrentConversationID fallback behavior', () => {
 });
 
 describe('startPolling', () => {
+  it('replaces a stale poll owner when the same chat window remounts', () => {
+    vi.useFakeTimers();
+    const makeContext = () => ({
+      identity: { windowId: 'chat/new' },
+      resources: { chat: {} },
+      Context: () => null,
+    });
+    const first = makeContext();
+    const second = makeContext();
+
+    try {
+      startPolling(first);
+      expect(first.resources.chat.timer).toBeTruthy();
+      startPolling(second);
+      expect(first.resources.chat.timer).toBeNull();
+      expect(second.resources.chat.timer).toBeTruthy();
+    } finally {
+      stopPolling(first);
+      stopPolling(second);
+      vi.useRealTimers();
+    }
+  });
+
   it('does not poll finished conversations once transcript is already loaded', async () => {
     vi.useFakeTimers();
     const context = {

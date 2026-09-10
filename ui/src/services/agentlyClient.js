@@ -15,6 +15,7 @@ let oauthConfigInFlight = null;
 let authMeInFlight = null;
 let authMeCacheReady = false;
 let authMeCacheValue = null;
+let unauthorizedLatched = false;
 const workspaceMetadataInFlight = new Map();
 const workspaceMetadataCache = new Map();
 const AUTH_REQUEST_TIMEOUT_MS = 4500;
@@ -30,10 +31,17 @@ function workspaceMetadataCacheKey(targetContext = null) {
 }
 
 function dispatchAuthRecovered() {
+  unauthorizedLatched = false;
   if (typeof window === 'undefined') return;
   try {
     window.dispatchEvent(new CustomEvent('agently:authorized'));
   } catch (_) {}
+}
+
+function requireLoginOnce() {
+  if (unauthorizedLatched) return;
+  unauthorizedLatched = true;
+  redirectToLogin();
 }
 
 function clearAuthMeCache() {
@@ -182,15 +190,16 @@ export const client = new AgentlyClient({
   retryDelayMs: 250,
   retryStatuses: [408, 425, 429, 500, 502, 503, 504],
   timeoutMs: 0, // No timeout — agent queries can take minutes (tool elicitations, long chains)
-  onUnauthorized: async () => {
+  onUnauthorized: () => {
     clearAuthMeCache();
-    const recovered = await recoverSessionSilently();
-    if (!recovered) {
-      redirectToLogin();
-    }
+    // A protected endpoint is authoritative. Probing auth/me here can report a
+    // cookie-backed session as healthy even when its token is unusable, which
+    // oscillates Root between the app shell and the sign-in screen.
+    requireLoginOnce();
   },
   onError: (err) => {
     const status = err?.status || 0;
+    if (status === 401 || status === 403) return;
     const transient = [408, 425, 429, 500, 502, 503, 504].includes(status);
     const message = apiErrorMessage(err);
     showToast(
