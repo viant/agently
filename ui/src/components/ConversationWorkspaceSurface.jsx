@@ -87,8 +87,7 @@ export default function ConversationWorkspaceSurface({
               <Button
                 minimal
                 small
-                icon="chat"
-                text="Chat"
+                icon="arrow-left"
                 className="app-summary-workspace-chat-action"
                 aria-label="Return to chat"
                 title="Return to chat"

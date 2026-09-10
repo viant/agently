@@ -22,7 +22,7 @@ import Sidebar from './Sidebar';
 import ScheduleConversationHistory from './ScheduleConversationHistory';
 import ElicitationOverlay from './ElicitationOverlay';
 import { useApprovalQueue } from '../hooks/useApprovalQueue';
-import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, ensureWorkspaceWindowForConversation, getScopedActiveSurface, getScopedConversationSelection, getScopedWorkspacePresentationMode, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
+import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, dismissWorkspaceWindowForConversation, ensureWorkspaceWindowForConversation, getScopedActiveSurface, getScopedConversationSelection, getScopedWorkspacePresentationMode, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
 import { conversationIDFromPath, publishActiveConversation } from '../services/chatRuntime';
 import { beginLogin, getAuthMeSilently, getAuthProvidersSilently, recoverSessionSilently } from '../services/agentlyClient';
@@ -42,6 +42,22 @@ const WORKSPACE_DEFAULT_HEIGHT = 620;
 const WORKSPACE_MIN_HEIGHT = 240;
 const WORKSPACE_MAX_HEIGHT = 960;
 const TERMINAL_TURN_ACTIVITY_TYPES = new Set(['turn_completed', 'turn_failed', 'turn_canceled']);
+const CONVERSATION_RESTORE_ACTIVITY_TYPES = new Set(['turn_started', 'turn_queued', 'turn_submitted']);
+
+export function shouldRestoreConversationForActivity({
+  eventConversationId = '',
+  activeConversationId = '',
+  activeSurface = 'conversation',
+  workspaceFull = false,
+  eventType = '',
+} = {}) {
+  const eventID = String(eventConversationId || '').trim();
+  const activeID = String(activeConversationId || '').trim();
+  return (activeSurface === 'workspace' || workspaceFull === true)
+    && !!eventID
+    && eventID === activeID
+    && CONVERSATION_RESTORE_ACTIVITY_TYPES.has(String(eventType || '').trim().toLowerCase());
+}
 
 export function shouldScrollConversationAfterTurn({
   eventConversationId = '',
@@ -491,8 +507,12 @@ export function hasRenderedChatContent(doc = null) {
   return !!feed && Number(feed.childElementCount || 0) > 0;
 }
 
-export function resolveSplitChatClassName({ showWorkspacePane = false, composerExpanded = false } = {}) {
-  if (!showWorkspacePane) return 'app-window-split-chat';
+export function resolveSplitChatClassName({
+  showWorkspacePane = false,
+  activeSurface = 'conversation',
+  composerExpanded = false,
+} = {}) {
+  if (!showWorkspacePane || activeSurface !== 'workspace') return 'app-window-split-chat';
   return `app-window-split-chat is-composer-only${composerExpanded ? ' is-composer-expanded' : ''}`;
 }
 
@@ -773,6 +793,7 @@ export default function Root() {
     const remaining = workspaceWindows.filter((entry) => String(entry?.windowId || '').trim() !== activeWindowId);
     setWorkspacePresentationModeState('split');
     setScopedWorkspacePresentationMode(restoreConversationId, 'split');
+    dismissWorkspaceWindowForConversation(restoreConversationId, activeWindowId);
     removeWindow(activeWindowId);
     if (remaining.length > 0) {
       const nextIndex = currentIndex <= 0 ? 0 : Math.min(currentIndex - 1, remaining.length - 1);
@@ -1231,6 +1252,18 @@ export default function Root() {
       ? window.requestAnimationFrame.bind(window)
       : (callback) => window.setTimeout(callback, 0);
     const onConversationActivity = (event) => {
+      if (shouldRestoreConversationForActivity({
+        eventConversationId: event?.detail?.id,
+        activeConversationId: mainConversationId,
+        activeSurface,
+        workspaceFull: effectiveWorkspaceFull,
+        eventType: event?.detail?.type,
+      })) {
+        setWorkspacePresentationMode('split');
+        setWorkspaceComposerExpanded(false);
+        returnToConversationSurface();
+        return;
+      }
       if (!shouldScrollConversationAfterTurn({
         eventConversationId: event?.detail?.id,
         activeConversationId: mainConversationId,
@@ -1249,7 +1282,7 @@ export default function Root() {
       cancelled = true;
       window.removeEventListener('agently:conversation-activity', onConversationActivity);
     };
-  }, [activeSurface, mainConversationId]);
+  }, [activeSurface, effectiveWorkspaceFull, mainConversationId, returnToConversationSurface]);
 
   useEffect(() => {
     if (showWorkspacePane) return;
@@ -1404,6 +1437,15 @@ export default function Root() {
                       data-workspace-collapsed={effectiveWorkspaceCollapsed ? 'true' : 'false'}
                     >
                       <div className="app-window-split-workspace-header">
+                        <button
+                          type="button"
+                          className="app-summary-workspace-chat-action"
+                          aria-label="Return to chat"
+                          title="Return to chat"
+                          onClick={returnToConversationSurface}
+                        >
+                          <Icon icon="arrow-left" size={14} />
+                        </button>
                         <div className="app-window-split-workspace-dots" aria-label="Workspace window controls">
                           <button
                             type="button"
@@ -1479,7 +1521,11 @@ export default function Root() {
                   ) : null}
                   <section
                     key="chat"
-                    className={resolveSplitChatClassName({ showWorkspacePane, composerExpanded: workspaceComposerExpanded })}
+                    className={resolveSplitChatClassName({
+                      showWorkspacePane,
+                      activeSurface,
+                      composerExpanded: workspaceComposerExpanded,
+                    })}
                     aria-label={shouldShowChatChrome(hostedBottomWindow) ? 'Conversation' : `${resolveMainWindowHeaderTitle(hostedBottomWindow)} panel`}
                   >
                     {showWorkspacePane ? (

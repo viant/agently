@@ -19,6 +19,7 @@ const WORKSPACE_SELECTION_KEY = 'agently.selectedWorkspaceWindowId';
 const WORKSPACE_STATE_KEY = 'agently.workspaceState';
 const WORKSPACE_PRESENTATION_MODE_KEY = 'agently.workspacePresentationMode';
 const ACTIVE_SURFACE_KEY = 'agently.activeSurface';
+const DISMISSED_WORKSPACE_WINDOWS_KEY = 'agently.dismissedWorkspaceWindowIds';
 
 function uiStateStorage() {
   if (typeof window === 'undefined') return null;
@@ -79,6 +80,38 @@ function workspacePresentationModeKey(conversationId = '') {
 function activeSurfaceKey(conversationId = '') {
   const id = String(conversationId || '').trim();
   return id ? `${ACTIVE_SURFACE_KEY}:${id}` : ACTIVE_SURFACE_KEY;
+}
+
+function dismissedWorkspaceWindowsKey(conversationId = '') {
+  const id = String(conversationId || '').trim();
+  return id ? `${DISMISSED_WORKSPACE_WINDOWS_KEY}:${id}` : DISMISSED_WORKSPACE_WINDOWS_KEY;
+}
+
+function dismissedWorkspaceWindowIds(conversationId = '') {
+  const storage = uiStateStorage();
+  const convID = String(conversationId || '').trim();
+  if (!storage || !convID) return new Set();
+  try {
+    const parsed = JSON.parse(String(storage.getItem(dismissedWorkspaceWindowsKey(convID)) || '[]'));
+    return new Set((Array.isArray(parsed) ? parsed : []).map((value) => String(value || '').trim()).filter(Boolean));
+  } catch (_) {
+    return new Set();
+  }
+}
+
+export function dismissWorkspaceWindowForConversation(conversationId = '', windowId = '') {
+  const storage = uiStateStorage();
+  const convID = String(conversationId || '').trim();
+  const targetWindowId = String(windowId || '').trim();
+  if (!storage || !convID || !targetWindowId) return;
+  const ids = dismissedWorkspaceWindowIds(convID);
+  ids.add(targetWindowId);
+  try { storage.setItem(dismissedWorkspaceWindowsKey(convID), JSON.stringify([...ids])); } catch (_) {}
+}
+
+export function isWorkspaceWindowDismissed(conversationId = '', windowId = '') {
+  const targetWindowId = String(windowId || '').trim();
+  return !!targetWindowId && dismissedWorkspaceWindowIds(conversationId).has(targetWindowId);
 }
 
 export function getScopedActiveSurface(conversationId = '') {
@@ -306,7 +339,7 @@ export function getScopedWorkspaceWindowsState(conversationId = '') {
   const list = Array.isArray(saved?.windows) ? saved.windows : [saved];
   return list
     .map((entry) => normalizeWorkspaceStateSnapshot(entry, { preferLiveSignals: false }))
-    .filter(Boolean);
+    .filter((entry) => entry && !isWorkspaceWindowDismissed(conversationId, entry.windowId));
 }
 
 export function getScopedWorkspacePresentationMode(conversationId = '') {
@@ -381,7 +414,7 @@ export function setScopedWorkspaceState(conversationId = '', win = null) {
           : entry;
         return normalizeWorkspaceStateSnapshot(mergedEntry, { preferLiveSignals: true });
       })
-      .filter(Boolean);
+      .filter((entry) => entry && !isWorkspaceWindowDismissed(convID, entry.windowId));
     if (payloads.length === 0) {
       storage.removeItem(workspaceStateKey(convID));
       return;
@@ -737,10 +770,20 @@ export function syncScopedWorkspaceStateFromTranscriptTurns(
   if (!allowRunning && transcriptTurnsHaveRunningStatus(turns)) return null;
   const derived = deriveWorkspaceStateFromTranscriptTurns(turns);
   if (!derived?.windows?.length) return null;
-  setScopedWorkspaceState(convID, derived.windows);
-  setScopedWorkspaceSelection(convID, String(derived.selectedWindowId || '').trim());
+  const windows = derived.windows.filter((entry) => !isWorkspaceWindowDismissed(convID, entry?.windowId));
+  if (windows.length === 0) {
+    setScopedWorkspaceState(convID, null);
+    setScopedWorkspaceSelection(convID, '');
+    return null;
+  }
+  const selectedWindowId = windows.some((entry) => String(entry?.windowId || '').trim() === String(derived.selectedWindowId || '').trim())
+    ? String(derived.selectedWindowId || '').trim()
+    : String(windows[0]?.windowId || '').trim();
+  const visibleDerived = {...derived, windows, selectedWindowId};
+  setScopedWorkspaceState(convID, windows);
+  setScopedWorkspaceSelection(convID, selectedWindowId);
   if (!announce || typeof window === 'undefined') {
-    return derived;
+    return visibleDerived;
   }
   if (reopen && typeof window.setTimeout === 'function') {
     window.setTimeout(() => {
@@ -748,15 +791,15 @@ export function syncScopedWorkspaceStateFromTranscriptTurns(
       dispatchWorkspaceStateEvent(convID);
     }, 0);
     nudgeWorkspaceRestore(convID, 4);
-    return derived;
+    return visibleDerived;
   }
   if (reopen) {
     reopenWorkspaceForConversation(convID);
     dispatchWorkspaceStateEvent(convID);
-    return derived;
+    return visibleDerived;
   }
   nudgeWorkspaceRestore(convID, 4);
-  return derived;
+  return visibleDerived;
 }
 
 export function syncHydratedWorkspaceStateFromTranscriptTurns(
@@ -841,9 +884,9 @@ export function openConversationInMainWindow(conversationId = '') {
     syncPath: true,
     eventType: 'agently:conversation-select'
   });
-  const workspaceWindow = reopenWorkspaceForConversation(targetID);
+  const workspaceWindow = ensureWorkspaceWindowForConversation(targetID);
   if (workspaceWindow) {
-    return workspaceWindow;
+    return mainWindow;
   }
   if (targetID && hasScopedWorkspaceState(targetID)) {
     nudgeWorkspaceRestore(targetID, 4);
