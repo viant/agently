@@ -14,7 +14,7 @@ import { connectorConfig } from './connector';
 import { appRoutePaths } from './appRoutePaths.js';
 import { forgeHostServices } from './services/forgeHostServices';
 import { redirectToLogin } from './services/httpClient';
-import { buildWebClientContext } from './services/clientContext';
+import { buildWebClientContext, subscribeWebFormFactor } from './services/clientContext';
 import * as chatStore from './services/chatStore';
 
 if (typeof window !== 'undefined') {
@@ -45,7 +45,7 @@ const authContext = {
 };
 
 const webClientContext = buildWebClientContext();
-const targetContext = {
+const initialTargetContext = {
   platform: webClientContext.platform,
   formFactor: webClientContext.formFactor,
   surface: webClientContext.surface,
@@ -70,6 +70,12 @@ if (JSON.stringify(routes.map((entry) => entry.path)) !== JSON.stringify(appRout
 const router = createBrowserRouter(routes);
 
 export default function App() {
+  const [formFactor, setFormFactor] = React.useState(initialTargetContext.formFactor);
+  React.useEffect(() => subscribeWebFormFactor(setFormFactor), []);
+  const targetContext = React.useMemo(() => ({
+    ...initialTargetContext,
+    formFactor,
+  }), [formFactor]);
   return (
     <AgentlyAuthContext.Provider value={authContext}>
       <SettingProvider endpoints={endpoints} connectorConfig={connectorConfig} authContext={AgentlyAuthContext} services={forgeHostServices} targetContext={targetContext}>

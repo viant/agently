@@ -223,6 +223,20 @@ describe('client error toasts', () => {
       { intent: 'warning' }
     );
   });
+
+  it('latches concurrent unauthorized failures without recovery polling or error toasts', async () => {
+    globalThis.fetch = vi.fn();
+    const { client } = await import('./agentlyClient.js');
+    const { redirectToLogin, showToast } = await import('./httpClient');
+
+    client.options.onUnauthorized();
+    client.options.onUnauthorized();
+    client.options.onError({ status: 401 });
+
+    expect(redirectToLogin).toHaveBeenCalledTimes(1);
+    expect(showToast).not.toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
 });
 
 describe('beginLogin', () => {

@@ -44,7 +44,8 @@ export const connectorConfig = {
   window: {
     service: {
       endpoint: 'appAPI',
-      uri: 'agently/forge/window'
+      uri: 'agently/forge/window',
+      includeTargetContext: true
     }
   },
   navigation: {
@@ -57,6 +58,10 @@ export const connectorConfig = {
   uiBridge: {
     url: '/v1/ui/rpc',
     transport: 'http',
+    pollWhenHidden: true,
+    // Keep background workspaces responsive without letting an immediately
+    // completed/invalidated long-poll turn into a tight request loop.
+    pollCycleDelayMs: 1000,
     startupReadyEvent: 'forge:conversation-active',
     startupReadyTimeoutMs: 1200,
     snapshotOptions: {

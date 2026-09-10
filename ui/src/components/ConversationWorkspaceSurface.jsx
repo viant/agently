@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Button } from '@blueprintjs/core';
 import { WindowContent } from 'forge/components';
 import AppRenderer from './mcpApps/AppRenderer.jsx';
@@ -36,6 +36,12 @@ export function resolveWorkspaceNavigation(windowEntry = null) {
   };
 }
 
+export function resolveChatWindowRenderKey(chatWindow = null) {
+  const windowId = String(chatWindow?.windowId || 'chat').trim() || 'chat';
+  const instanceVersion = Math.max(0, Number(chatWindow?.conversationInstanceVersion || 0));
+  return `${windowId}:${instanceVersion}`;
+}
+
 export default function ConversationWorkspaceSurface({
   activeSurface = 'conversation',
   chatWindow = null,
@@ -50,6 +56,7 @@ export default function ConversationWorkspaceSurface({
   const hasWorkspace = !!workspaceWindow;
   const workspaceActive = hasWorkspace && activeSurface === 'workspace';
   const navigation = resolveWorkspaceNavigation(workspaceWindow);
+  const [composerExpanded, setComposerExpanded] = useState(false);
 
   return (
     <div className={`app-summary-surface-shell${workspaceActive ? ' is-workspace' : ' is-conversation'}`} data-active-surface={workspaceActive ? 'workspace' : 'conversation'}>
@@ -112,8 +119,19 @@ export default function ConversationWorkspaceSurface({
         </section>
       ) : null}
 
-      <section className={`app-summary-conversation${workspaceActive ? ' is-composer-only' : ''}`} aria-label="Conversation">
-        <WindowContent key={String(chatWindow?.windowId || 'chat')} window={chatWindow} isInTab />
+      <section className={`app-summary-conversation${workspaceActive ? ` is-composer-only${composerExpanded ? ' is-composer-expanded' : ''}` : ''}`} aria-label="Conversation">
+        {workspaceActive ? (
+          <Button
+            minimal
+            small
+            icon={composerExpanded ? 'chevron-down' : 'chevron-up'}
+            className="app-workspace-composer-toggle"
+            aria-label={composerExpanded ? 'Collapse composer options' : 'Expand composer options'}
+            title={composerExpanded ? 'Collapse composer options' : 'Expand composer options'}
+            onClick={() => setComposerExpanded((expanded) => !expanded)}
+          />
+        ) : null}
+        <WindowContent key={resolveChatWindowRenderKey(chatWindow)} window={chatWindow} isInTab />
       </section>
     </div>
   );

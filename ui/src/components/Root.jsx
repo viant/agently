@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSignals } from '@preact/signals-react/runtime';
-import { Dialog } from '@blueprintjs/core';
+import { Button, Dialog } from '@blueprintjs/core';
 import { activeWindows, addWindow, findCollectionSignal, findFormSignal, findMetadataSignal, findMetricsSignal, findViewSignal, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
 import { WindowManager, WindowContent } from 'forge/components';
 import { DetailContext } from '../context/DetailContext';
@@ -494,6 +494,11 @@ export function hasRenderedChatContent(doc = null) {
   return !!feed && Number(feed.childElementCount || 0) > 0;
 }
 
+export function resolveSplitChatClassName({ showWorkspacePane = false, composerExpanded = false } = {}) {
+  if (!showWorkspacePane) return 'app-window-split-chat';
+  return `app-window-split-chat is-composer-only${composerExpanded ? ' is-composer-expanded' : ''}`;
+}
+
 export default function Root() {
   useSignals();
   void selectedTabId.value;
@@ -525,6 +530,7 @@ export default function Root() {
   const developerMode = useDeveloperMode();
   const [goalDraftState, setGoalDraftState] = useState({ isOpen: false, conversationId: '', initialDraft: '' });
   const [workspacePresentationMode, setWorkspacePresentationModeState] = useState('split');
+  const [workspaceComposerExpanded, setWorkspaceComposerExpanded] = useState(false);
   const [activeSurface, setActiveSurfaceState] = useState('conversation');
   const [workspaceHeight, setWorkspaceHeight] = useState(WORKSPACE_DEFAULT_HEIGHT);
   const [stableMainChatWindow, setStableMainChatWindow] = useState(null);
@@ -893,45 +899,6 @@ export default function Root() {
     const initialDraft = String(detail?.initialDraft || '').trim();
     setGoalDraftState({ isOpen: true, conversationId, initialDraft });
   }), []);
-
-  useEffect(() => {
-    if (authState !== 'required' || typeof window === 'undefined') {
-      return () => {};
-    }
-    let cancelled = false;
-    const recheck = async () => {
-      try {
-        const recovered = await recoverSessionSilently();
-        if (cancelled) return;
-        if (recovered) {
-          setAuthState('ready');
-        }
-      } catch (_) {}
-    };
-    const onFocus = () => {
-      void recheck();
-    };
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        void recheck();
-      }
-    };
-    const timer = window.setTimeout(() => {
-      void recheck();
-    }, 300);
-    const interval = window.setInterval(() => {
-      void recheck();
-    }, 2000);
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-      window.clearInterval(interval);
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-  }, [authState]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1514,9 +1481,20 @@ export default function Root() {
                   ) : null}
                   <section
                     key="chat"
-                    className="app-window-split-chat"
+                    className={resolveSplitChatClassName({ showWorkspacePane, composerExpanded: workspaceComposerExpanded })}
                     aria-label={shouldShowChatChrome(hostedBottomWindow) ? 'Conversation' : `${resolveMainWindowHeaderTitle(hostedBottomWindow)} panel`}
                   >
+                    {showWorkspacePane ? (
+                      <Button
+                        minimal
+                        small
+                        icon={workspaceComposerExpanded ? 'chevron-down' : 'chevron-up'}
+                        className="app-workspace-composer-toggle"
+                        aria-label={workspaceComposerExpanded ? 'Collapse composer options' : 'Expand composer options'}
+                        title={workspaceComposerExpanded ? 'Collapse composer options' : 'Expand composer options'}
+                        onClick={() => setWorkspaceComposerExpanded((expanded) => !expanded)}
+                      />
+                    ) : null}
                     <WindowContent key={String(hostedBottomWindow?.windowId || 'chat')} window={hostedBottomWindow} isInTab />
                   </section>
                   </div>

@@ -8,6 +8,22 @@ export function detectWebFormFactor() {
   return 'desktop';
 }
 
+export function subscribeWebFormFactor(onChange) {
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') {
+    return () => {};
+  }
+  let current = detectWebFormFactor();
+  onChange?.(current);
+  const handleResize = () => {
+    const next = detectWebFormFactor();
+    if (next === current) return;
+    current = next;
+    onChange?.(next);
+  };
+  window.addEventListener('resize', handleResize);
+  return () => window.removeEventListener?.('resize', handleResize);
+}
+
 export function buildWebTargetContext() {
   return {
     platform: 'web',

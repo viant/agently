@@ -12,6 +12,7 @@ import {
   resolveHostedWorkspaceTabs,
   resolveHostedBottomWindow,
   hasRenderedChatContent,
+  resolveSplitChatClassName,
   resolveRouteBootstrapAction,
   shouldReturnSelectionToMainChat,
   shouldReturnCollapsedWorkspaceSelectionToMainChat,
@@ -64,6 +65,14 @@ describe('Root window selection helpers', () => {
   it('does not treat an empty mounted chat feed as restored conversation content', () => {
     expect(hasRenderedChatContent({ querySelector: () => ({ childElementCount: 0 }) })).toBe(false);
     expect(hasRenderedChatContent({ querySelector: () => ({ childElementCount: 1 }) })).toBe(true);
+  });
+
+  it('uses composer-only chat layout only while a workspace is visible', () => {
+    expect(resolveSplitChatClassName()).toBe('app-window-split-chat');
+    expect(resolveSplitChatClassName({ showWorkspacePane: false, composerExpanded: true }))
+      .toBe('app-window-split-chat');
+    expect(resolveSplitChatClassName({ showWorkspacePane: true }))
+      .toBe('app-window-split-chat is-composer-only');
   });
   it('detects phone-sized shell viewports for overlay navigation', () => {
     expect(isCompactShellViewport(390)).toBe(true);

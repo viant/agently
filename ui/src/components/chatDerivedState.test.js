@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { computeChatDerivedState, computeEffectiveQueuedTurns } from '../../../../forge/src/components/chatDerivedState.js';
+import { computeChatDerivedState, computeEffectiveQueuedTurns, effectiveBackendConversationRunning } from '../../../../forge/src/components/chatDerivedState.js';
 
 describe('chatDerivedState', () => {
+  it('does not let a stale running flag override explicit terminal conversation state', () => {
+    expect(effectiveBackendConversationRunning({ running: true, status: 'canceled', stage: 'thinking' })).toBe(false);
+    expect(effectiveBackendConversationRunning({ running: true, status: 'running', stage: 'executing' })).toBe(true);
+    expect(effectiveBackendConversationRunning({ running: true })).toBe(true);
+    expect(effectiveBackendConversationRunning({ running: false, status: 'running' })).toBe(false);
+  });
+
   it('merges queued turns on the legacy path and passes through on the external path', () => {
     expect(computeEffectiveQueuedTurns({
       usesExternalFeedState: false,

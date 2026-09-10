@@ -752,6 +752,32 @@ body {
   }
 }
 
+@media (max-width: 600px) {
+  .app-summary-workspace-header {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    gap: 2px;
+    padding: 6px 8px;
+  }
+
+  .app-summary-workspace-header-actions {
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+  }
+
+  .app-summary-workspace-title {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: center;
+    min-width: 0;
+    font-size: 14px;
+    line-height: 1.15;
+    text-align: center;
+    overflow-wrap: anywhere;
+  }
+}
+
 .app-sidebar-loading,
 .app-sidebar-empty,
 .app-sidebar-error {
@@ -3002,11 +3028,7 @@ td[data-col="enabled"] {
   transition: background 0.15s ease;
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   SCHEDULE WINDOW — DESIGN IMPROVEMENTS
-   ═══════════════════════════════════════════════════════════════ */
-
-/* ─── A: Weekday day-toggle pills ─── */
+/* Shared pill multi-select. Labels must remain readable in both states. */
 .forge-pills-container {
   flex-wrap: nowrap;
 }
@@ -3025,12 +3047,29 @@ td[data-col="enabled"] {
   border: 1.5px solid #cdd6e8 !important;
 }
 
+.forge-pills-container .bp6-button .forge-pill-label {
+  display: inline-block;
+  background: transparent !important;
+  color: inherit !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+.forge-pills-container .bp6-button .bp6-button-text {
+  background: transparent !important;
+  color: inherit !important;
+}
+
 /* Selected pill — minimal=false, Blueprint omits bp6-minimal */
 .forge-pills-container .bp6-button:not(.bp6-minimal) {
   background: linear-gradient(135deg, #2d6ce2 0%, #1a52b8 100%) !important;
   color: #ffffff !important;
   border-color: #1a52b8 !important;
   box-shadow: 0 2px 8px rgba(29, 82, 184, 0.28) !important;
+}
+
+.forge-pills-container .bp6-button:not(.bp6-minimal) .forge-pill-label {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
 }
 
 .forge-pills-container .bp6-button:not([disabled]):hover {
@@ -3263,16 +3302,119 @@ td[data-col="enabled"] {
 .app-summary-workspace.is-surface-hidden { display: none; }
 .app-summary-conversation { flex: 1 1 auto; min-height: 0; overflow: hidden; }
 .app-summary-surface-shell.is-workspace .app-summary-conversation { flex: 0 0 auto; }
+.app-summary-conversation.is-composer-only {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px 6px;
+  overflow: visible;
+}
+.app-summary-conversation.is-composer-only > .app-workspace-composer-toggle {
+  grid-column: 1;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  color: #61708a;
+}
+.app-summary-conversation.is-composer-only > :not(.app-workspace-composer-toggle) {
+  grid-column: 2;
+  min-width: 0;
+}
 .app-summary-conversation.is-composer-only [data-testid="chat-toolbar"],
 .app-summary-conversation.is-composer-only [data-testid="chat-error"],
 .app-summary-conversation.is-composer-only [data-testid="chat-feed-stage"] { display: none !important; }
 .app-summary-conversation.is-composer-only [data-testid="chat-root"] { height: auto !important; padding-top: 0 !important; }
+
+.app-summary-conversation.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer"] {
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+}
+.app-summary-conversation.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-shell"] {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) auto;
+  grid-template-rows: minmax(36px, auto);
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 999px !important;
+  box-shadow: 0 8px 18px rgba(22, 39, 70, 0.08);
+}
+.app-summary-conversation.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-bar"] {
+  display: contents;
+}
+.app-summary-conversation.is-composer-only:not(.is-composer-expanded) .composer-bar-left {
+  grid-column: 1;
+  grid-row: 1;
+  flex-wrap: nowrap;
+}
+.app-summary-conversation.is-composer-only:not(.is-composer-expanded) .composer-input-wrap {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
+.app-summary-conversation.is-composer-only:not(.is-composer-expanded) .composer-bar-right {
+  grid-column: 3;
+  grid-row: 1;
+  flex-wrap: nowrap;
+}
+.app-summary-conversation.is-composer-only:not(.is-composer-expanded) .composer-bar-center,
+.app-summary-conversation.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-agent"],
+.app-summary-conversation.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-model"],
+.app-summary-conversation.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-tools"],
+.app-summary-conversation.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-reasoning"],
+.app-summary-conversation.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-settings"],
+.app-summary-conversation.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-queue-badge"],
+.app-summary-conversation.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-chips"],
+.app-summary-conversation.is-composer-only:not(.is-composer-expanded) [data-testid="chat-attachments"] {
+  display: none !important;
+}
+.app-summary-conversation.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-input"] {
+  min-height: 32px !important;
+  height: 32px !important;
+  max-height: 32px !important;
+  padding: 5px 8px !important;
+  overflow: hidden !important;
+  white-space: nowrap;
+}
+.app-summary-conversation.is-composer-only.is-composer-expanded {
+  align-items: end;
+}
 
 @media (max-width: 820px) {
   .app-summary-surface-navigation .bp6-button,
   .app-summary-workspace-header .bp6-button {
     min-width: 44px;
     min-height: 44px;
+  }
+}
+
+@media (max-width: 600px) {
+  .app-summary-workspace-header {
+    grid-template-columns: minmax(72px, 1fr) minmax(0, auto) minmax(72px, 1fr);
+    padding: 4px 8px;
+  }
+
+  .app-summary-workspace-header-actions :is(.bp6-button-text, .bp5-button-text, .bp4-button-text) {
+    display: none;
+  }
+
+  .app-summary-workspace-title {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-height: 1.15;
+    max-height: 2.3em;
+    text-overflow: clip;
+    white-space: normal;
   }
 }
 
@@ -3677,6 +3819,31 @@ td[data-col="enabled"] {
   border-top: 1px solid rgba(148, 163, 184, 0.14);
 }
 
+.app-window-split-chat.is-composer-only {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px 6px;
+  overflow: visible;
+}
+
+.app-window-split-chat.is-composer-only > .app-workspace-composer-toggle {
+  grid-column: 1;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  color: #61708a;
+}
+
+.app-window-split-chat.is-composer-only > :not(.app-workspace-composer-toggle) {
+  grid-column: 2;
+  min-width: 0;
+}
+
 .app-window-split-chat > *,
 .app-window-split-chat > * > *,
 .app-window-split-chat .bp6-tabs,
@@ -3737,6 +3904,71 @@ td[data-col="enabled"] {
   bottom: 8px !important;
 }
 
+.app-window-split-chat.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer"] {
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+}
+
+.app-window-split-chat.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-shell"] {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) auto;
+  grid-template-rows: minmax(36px, auto);
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 999px !important;
+  box-shadow: 0 8px 18px rgba(22, 39, 70, 0.08);
+}
+
+.app-window-split-chat.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-bar"] {
+  display: contents;
+}
+
+.app-window-split-chat.is-composer-only:not(.is-composer-expanded) .composer-bar-left {
+  grid-column: 1;
+  grid-row: 1;
+  flex-wrap: nowrap;
+}
+
+.app-window-split-chat.is-composer-only:not(.is-composer-expanded) .composer-input-wrap {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.app-window-split-chat.is-composer-only:not(.is-composer-expanded) .composer-bar-right {
+  grid-column: 3;
+  grid-row: 1;
+  flex-wrap: nowrap;
+}
+
+.app-window-split-chat.is-composer-only:not(.is-composer-expanded) .composer-bar-center,
+.app-window-split-chat.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-agent"],
+.app-window-split-chat.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-model"],
+.app-window-split-chat.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-tools"],
+.app-window-split-chat.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-reasoning"],
+.app-window-split-chat.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-settings"],
+.app-window-split-chat.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-queue-badge"],
+.app-window-split-chat.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-chips"],
+.app-window-split-chat.is-composer-only:not(.is-composer-expanded) [data-testid="chat-attachments"] {
+  display: none !important;
+}
+
+.app-window-split-chat.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer-input"] {
+  min-height: 32px !important;
+  height: 32px !important;
+  max-height: 32px !important;
+  padding: 5px 8px !important;
+  overflow: hidden !important;
+  white-space: nowrap;
+}
+
+.app-window-split-chat.is-composer-only.is-composer-expanded {
+  align-items: end;
+}
+
 .app-window-split-chat [data-testid="chat-composer-shell"] {
   border-radius: 16px !important;
   box-shadow: 0 10px 20px rgba(22, 39, 70, 0.08);
@@ -3760,7 +3992,9 @@ td[data-col="enabled"] {
   min-width: 24px;
 }
 
-.app-window-split-chat [data-testid="chat-feed"] {
+.app-window-split-chat.is-composer-only [data-testid="chat-feed"],
+.app-window-split-chat.is-composer-only [data-testid="chat-feed-stage"],
+.app-window-split-chat.is-composer-only .app-chat-feed {
   display: none !important;
 }
 
