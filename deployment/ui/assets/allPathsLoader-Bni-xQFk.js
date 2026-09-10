@@ -1,0 +1,2 @@
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/forge-reporting-CVSBZjH1.js","assets/forge-reporting-C5XhmW_A.css"])))=>i.map(i=>d[i]);
+import{_ as n}from"./forge-reporting-CVSBZjH1.js";const c=async(t,a)=>{const{getIconPaths:o}=await n(async()=>{const{getIconPaths:r}=await import("./forge-reporting-CVSBZjH1.js").then(e=>e.cQ);return{getIconPaths:r}},__vite__mapDeps([0,1]));return o(t,a)};export{c as allPathsLoader};

@@ -47,7 +47,10 @@ vi.mock('./MCPUIBubble.jsx', () => ({
   default: (props) => mcpuiBubbleSpy(props),
 }));
 
-import ChatFeedFromChatStore, { resolveWorkspaceAttachmentOwnerIndex } from './ChatFeedFromChatStore.jsx';
+import ChatFeedFromChatStore, {
+  resolveStarterTaskPresentation,
+  resolveWorkspaceAttachmentOwnerIndex,
+} from './ChatFeedFromChatStore.jsx';
 import { ConversationViewContext } from '../../context/ConversationViewContext.js';
 
 const h = React.createElement;
@@ -79,6 +82,19 @@ function makeContext({ conversation = {}, meta = {} } = {}) {
 }
 
 describe('ChatFeedFromChatStore', () => {
+  it('falls back to authoritative workspace starter metadata when the scoped meta form is empty', () => {
+    expect(resolveStarterTaskPresentation(
+      { starterTasks: [], starterTaskCategories: [] },
+      {
+        starterTasks: [{ id: 'review', title: 'Review campaign', prompt: 'Review campaign 1.' }],
+        starterTaskCategories: [{ id: 'measure', title: 'Measure' }],
+      },
+    )).toEqual({
+      starterTasks: [{ id: 'review', title: 'Review campaign', prompt: 'Review campaign 1.' }],
+      starterTaskCategories: [{ id: 'measure', title: 'Measure' }],
+    });
+  });
+
   it('attaches a hosted workspace card to the final bubble from the opening turn only', () => {
     const rows = [
       {
