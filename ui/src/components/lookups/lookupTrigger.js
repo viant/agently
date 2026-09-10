@@ -12,6 +12,22 @@ export function findLookupTriggerStart(value = '', trigger = DEFAULT_LOOKUP_TRIG
   return -1;
 }
 
+export function shouldClearSoleLookupTrigger({
+  value = '',
+  key = '',
+  selectionStart = null,
+  selectionEnd = null,
+  trigger = DEFAULT_LOOKUP_TRIGGER,
+} = {}) {
+  const text = String(value || '');
+  const start = Number.isInteger(selectionStart) ? selectionStart : text.length;
+  const end = Number.isInteger(selectionEnd) ? selectionEnd : start;
+  return key === 'Backspace'
+    && text === trigger
+    && start === text.length
+    && end === text.length;
+}
+
 export function filterLookupRegistry(registry = [], query = '') {
   const q = normalize(query);
   if (!q) return Array.isArray(registry) ? registry : [];
