@@ -106,7 +106,7 @@ describe('Root window selection helpers', () => {
     expect(shouldPersistWorkspaceHeight({ activeWorkspaceWindowId: '', hasStoredHeight: false })).toBe(false);
   });
 
-  it('promotes a freshly opened hosted workspace selected by a direct action', () => {
+  it('does not let a freshly opened hosted workspace overtake the active conversation', () => {
     const freshAdvertiser = {
       windowId: 'advertiser_85141',
       windowKey: 'advertiser',
@@ -120,7 +120,7 @@ describe('Root window selection helpers', () => {
       mainConversationId: 'conv-advertiser',
       activeWorkspaceWindow: freshAdvertiser,
       selectedWindowId: 'advertiser_85141',
-    })).toBe(true);
+    })).toBe(false);
     expect(shouldPromoteFreshWorkspaceSurface({
       activeSurface: 'conversation',
       mainConversationId: 'conv-advertiser',

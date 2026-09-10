@@ -2396,6 +2396,37 @@ describe('getCurrentConversationID fallback behavior', () => {
 });
 
 describe('startPolling', () => {
+  it('never fetches an empty conversation transcript on the new-conversation route', async () => {
+    vi.useFakeTimers();
+    const context = {
+      identity: { windowId: 'chat/new' },
+      resources: { chat: {} },
+      Context(name) {
+        if (name !== 'conversations') return null;
+        return {
+          handlers: {
+            dataSource: {
+              peekFormData: () => ({ id: '' }),
+              setFormData: vi.fn(),
+            },
+          },
+        };
+      },
+    };
+
+    try {
+      client.getTranscript.mockClear();
+      const tick = await dsTick(context);
+      expect(tick).toMatchObject({ conversationID: '', skippedEmptyConversation: true });
+      startPolling(context);
+      await vi.advanceTimersByTimeAsync(12000);
+      expect(client.getTranscript).not.toHaveBeenCalled();
+    } finally {
+      stopPolling(context);
+      vi.useRealTimers();
+    }
+  });
+
   it('replaces a stale poll owner when the same chat window remounts', () => {
     vi.useFakeTimers();
     const makeContext = () => ({

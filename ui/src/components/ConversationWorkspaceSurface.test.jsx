@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 vi.mock('@blueprintjs/core', () => ({
   Button: ({ text = '', icon = '', minimal: _minimal, small: _small, ...props }) => React.createElement('button', { ...props, 'data-icon': icon }, text),
+  Icon: ({ icon = '', size = 16 }) => React.createElement('span', { 'data-icon': icon, 'data-size': size }),
 }));
 vi.mock('forge/components', () => ({
   WindowContent: ({ window }) => React.createElement('div', { 'data-window-id': window?.windowId || '' }),
@@ -42,13 +43,16 @@ describe('ConversationWorkspaceSurface', () => {
     expect(html).toContain('is-surface-hidden');
   });
 
-  it('shows Workspace with a back link while retaining the composer host', () => {
+  it('shows an explicit chat-cloud return action and workspace identity while retaining the composer host', () => {
     const html = renderToStaticMarkup(<ConversationWorkspaceSurface
       activeSurface="workspace"
       chatWindow={{ windowId: 'chat' }}
       workspaceWindow={{ windowId: 'report', windowKey: 'reportBuilder', navigation: { label: 'Reports', icon: 'chart' } }}
     />);
-    expect(html).toContain('Conversation');
+    expect(html).toContain('aria-label="Return to chat"');
+    expect(html).toContain('app-summary-workspace-chat-action');
+    expect(html).toContain('app-summary-workspace-identity');
+    expect(html).toContain('Chat remains available');
     expect(html).toContain('data-window-id="report"');
     expect(html).toContain('data-window-id="chat"');
     expect(html).toContain('is-composer-only');
@@ -110,6 +114,6 @@ describe('ConversationWorkspaceSurface', () => {
     expect(html).toContain('Diagnostics');
     expect(html).toContain('data-mcp-uri="ui://diagnostics"');
     expect(html).toContain('data-hosted="true"');
-    expect(html).toContain('Back to Conversation');
+    expect(html).toContain('aria-label="Return to chat"');
   });
 });

@@ -3291,6 +3291,93 @@ td[data-col="enabled"] {
   border-bottom: 1px solid var(--app-border);
   background: #f8fafc;
 }
+
+.app-summary-workspace-header {
+  min-height: 64px;
+  padding: 10px 18px;
+  border-bottom: 1px solid rgba(67, 104, 164, 0.18);
+  background:
+    radial-gradient(circle at 72% -40%, rgba(75, 132, 225, 0.18), transparent 52%),
+    linear-gradient(135deg, #f8fbff 0%, #eef5ff 55%, #f7fbff 100%);
+}
+
+.app-summary-workspace-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.app-summary-workspace-chat-action.bp6-button,
+.app-summary-workspace-chat-action.bp5-button {
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid rgba(63, 102, 164, 0.18);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #24446f;
+  font-weight: 700;
+}
+
+.app-summary-workspace-identity {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.app-summary-workspace-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  display: inline-grid;
+  place-items: center;
+  color: #1f5fbf;
+  background: linear-gradient(145deg, #ffffff 0%, #e1edff 100%);
+  box-shadow: 0 5px 14px rgba(43, 94, 167, 0.16);
+}
+
+.app-summary-workspace-title-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.1;
+}
+
+.app-summary-workspace-eyebrow {
+  color: #6280a8;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.app-summary-workspace-context {
+  color: #60748f;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .app-summary-workspace-header {
+    min-height: 56px;
+    padding: 8px 10px;
+  }
+
+  .app-summary-workspace-context,
+  .app-summary-workspace-chat-action .bp6-button-text,
+  .app-summary-workspace-chat-action .bp5-button-text {
+    display: none;
+  }
+
+  .app-summary-workspace-chat-action.bp6-button,
+  .app-summary-workspace-chat-action.bp5-button {
+    min-width: 34px;
+    padding: 0;
+  }
+}
 .app-summary-workspace-header-actions {
   display: flex;
   align-items: center;

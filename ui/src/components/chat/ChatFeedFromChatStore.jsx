@@ -26,8 +26,23 @@ import StarterTasks from './StarterTasks.jsx';
 import WorkspaceAttachmentCard from './WorkspaceAttachmentCard.jsx';
 import { ConversationViewContext } from '../../context/ConversationViewContext.js';
 import { resolveWorkspaceAttachmentOwnerIndex } from '../../services/workspaceAttachment.js';
+import {
+  getWorkspaceMetadataSnapshot,
+  subscribeWorkspaceMetadata,
+} from '../../services/workspaceMetadata.js';
 
 export { resolveWorkspaceAttachmentOwnerIndex } from '../../services/workspaceAttachment.js';
+
+export function resolveStarterTaskPresentation(metaForm = {}, workspaceMetadata = {}) {
+  const localTasks = Array.isArray(metaForm?.starterTasks) ? metaForm.starterTasks : [];
+  const localCategories = Array.isArray(metaForm?.starterTaskCategories) ? metaForm.starterTaskCategories : [];
+  const snapshotTasks = Array.isArray(workspaceMetadata?.starterTasks) ? workspaceMetadata.starterTasks : [];
+  const snapshotCategories = Array.isArray(workspaceMetadata?.starterTaskCategories) ? workspaceMetadata.starterTaskCategories : [];
+  return {
+    starterTasks: localTasks.length > 0 ? localTasks : snapshotTasks,
+    starterTaskCategories: localCategories.length > 0 ? localCategories : snapshotCategories,
+  };
+}
 
 function UserBubble({ row, conversationId = '' }) {
   return (
@@ -109,12 +124,15 @@ function latestTurnRowIndex(rows = []) {
  */
 export default function ChatFeedFromChatStore({ conversationId, rowsOverride, context }) {
   const viewContext = useContext(ConversationViewContext);
+  const [workspaceMetadata, setWorkspaceMetadata] = React.useState(() => getWorkspaceMetadataSnapshot() || {});
+  React.useEffect(() => subscribeWorkspaceMetadata((snapshot) => {
+    setWorkspaceMetadata(snapshot || {});
+  }), []);
   const subscribed = useChatProjection(conversationId);
   const rows = rowsOverride !== undefined ? rowsOverride : subscribed;
   const conversationForm = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
   const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
-  const starterTasks = Array.isArray(metaForm?.starterTasks) ? metaForm.starterTasks : [];
-  const starterTaskCategories = Array.isArray(metaForm?.starterTaskCategories) ? metaForm.starterTaskCategories : [];
+  const { starterTasks, starterTaskCategories } = resolveStarterTaskPresentation(metaForm, workspaceMetadata);
   const showStarterTasks = !String(conversationForm?.id || conversationId || '').trim() && starterTasks.length > 0;
 
   React.useEffect(() => {

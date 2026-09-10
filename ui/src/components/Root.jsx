@@ -275,17 +275,14 @@ export function shouldPromoteFreshWorkspaceSurface({
   activeWorkspaceWindow = null,
   selectedWindowId = '',
 } = {}) {
-  if (developerMode || String(activeSurface || '').trim().toLowerCase() === 'workspace') return false;
-  const conversationId = String(mainConversationId || '').trim();
-  const workspaceWindowId = String(activeWorkspaceWindow?.windowId || '').trim();
-  const workspaceConversationId = String(activeWorkspaceWindow?.conversationId || '').trim();
-  const selectedId = String(selectedWindowId || '').trim();
-  const openState = String(activeWorkspaceWindow?.hostOpenState || '').trim().toLowerCase();
-  return !!conversationId
-    && workspaceConversationId === conversationId
-    && !!workspaceWindowId
-    && selectedId === workspaceWindowId
-    && openState === 'fresh';
+  // Workspace availability never overrides the user's active chat surface.
+  // Explicit attachment/tab actions call setActiveSurface('workspace') directly.
+  void activeSurface;
+  void developerMode;
+  void mainConversationId;
+  void activeWorkspaceWindow;
+  void selectedWindowId;
+  return false;
 }
 
 export function isHostedWorkspaceChildOfMainChat(windowEntry = null) {
@@ -728,14 +725,15 @@ export default function Root() {
         }
       );
       if (opened?.windowId) {
-        selectedWindowId.value = opened.windowId;
-        selectedTabId.value = opened.windowId;
-        setActiveSurface('workspace');
+        const chatWindowId = String(effectiveMainChatWindow?.windowId || MAIN_CHAT_WINDOW_ID).trim() || MAIN_CHAT_WINDOW_ID;
+        selectedWindowId.value = chatWindowId;
+        selectedTabId.value = chatWindowId;
+        setActiveSurface('conversation');
       }
     };
     window.addEventListener('agently:mcpui-workspace-open', onOpenMCPUIWorkspace);
     return () => window.removeEventListener('agently:mcpui-workspace-open', onOpenMCPUIWorkspace);
-  }, [mainConversationId, setActiveSurface]);
+  }, [effectiveMainChatWindow?.windowId, mainConversationId, setActiveSurface]);
 
   const setActiveWorkspaceCollapsed = (collapsed) => {
     const targetWindowId = String(activeWorkspaceWindow?.windowId || '').trim();

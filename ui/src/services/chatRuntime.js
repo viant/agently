@@ -1054,17 +1054,19 @@ export function resolveUserID(context) {
 }
 
 export async function fetchTranscript(conversationID, since = '', options = {}) {
+  const normalizedConversationID = String(conversationID || '').trim();
+  if (!normalizedConversationID) return [];
   if (isStreamDebugEnabled()) {
-    console.log('[transcript-fetch]', { conversationID, since });
+    console.log('[transcript-fetch]', { conversationID: normalizedConversationID, since });
   }
   const activeChatState = typeof window !== 'undefined' ? window.__agentlyActiveChatState : null;
-  const latestTurnLiveOwned = transcriptShouldBeIdle(activeChatState, conversationID);
-  const pendingBootstrap = hasPendingConversationBootstrap(conversationID);
-  if (!pendingBootstrap && (hasActiveConversationTurnStream(conversationID) || latestTurnLiveOwned)) {
+  const latestTurnLiveOwned = transcriptShouldBeIdle(activeChatState, normalizedConversationID);
+  const pendingBootstrap = hasPendingConversationBootstrap(normalizedConversationID);
+  if (!pendingBootstrap && (hasActiveConversationTurnStream(normalizedConversationID) || latestTurnLiveOwned)) {
     logExecutorDebug('transcript-fetch-deferred-to-sse-owner', {
-      conversationId: String(conversationID || '').trim(),
+      conversationId: normalizedConversationID,
       pendingBootstrap,
-      activeStreamOwner: hasActiveConversationTurnStream(conversationID),
+      activeStreamOwner: hasActiveConversationTurnStream(normalizedConversationID),
       localLiveOwner: latestTurnLiveOwned
     });
     return [];
@@ -1073,7 +1075,7 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     const chatState = activeChatState;
     if (latestTurnLiveOwned) {
       logExecutorDebug('transcript-fetch-while-live-owned', {
-        conversationId: conversationID,
+        conversationId: normalizedConversationID,
         since,
         liveOwnedConversationID: String(chatState?.liveOwnedConversationID || '').trim(),
         liveOwnedTurnIds: Array.isArray(chatState?.liveOwnedTurnIds) ? chatState.liveOwnedTurnIds : [],
@@ -1087,7 +1089,7 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
   const includeExecutionDetails = options?.includeExecutionDetails !== false;
   const includeFeeds = options?.includeFeeds !== false;
   const transcriptInput = {
-    conversationId: conversationID,
+    conversationId: normalizedConversationID,
     includeModelCalls: includeExecutionDetails,
     includeToolCalls: includeExecutionDetails,
     includeFeeds,
@@ -1135,11 +1137,11 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
   const resolvedFeeds = Array.isArray(data?.feeds)
     ? data.feeds
     : (Array.isArray(canonicalConversation?.feeds) ? canonicalConversation.feeds : []);
-  if ((!latestTurnLiveOwned || !canonicalHasRunning) && activeChatState && conversationID) {
+  if ((!latestTurnLiveOwned || !canonicalHasRunning) && activeChatState && normalizedConversationID) {
     const current = activeChatState.lastTranscriptFeedsByConversation || {};
     activeChatState.lastTranscriptFeedsByConversation = {
       ...current,
-      [conversationID]: Array.isArray(resolvedFeeds) ? resolvedFeeds : []
+      [normalizedConversationID]: Array.isArray(resolvedFeeds) ? resolvedFeeds : []
     };
   }
   if (Array.isArray(canonicalTurns) && canonicalTurns.length > 0 && isCanonicalTranscriptTurn(canonicalTurns[0])) {
@@ -1372,6 +1374,16 @@ export async function dsTick(context, options = {}) {
     try {
       window.__agentlyActiveChatState = chatState;
     } catch (_) {}
+  }
+  if (!requestedConversationID) {
+    return {
+      projection: [],
+      queuedTurns: [],
+      hasRunning: false,
+      runningTurnId: '',
+      conversationID: '',
+      skippedEmptyConversation: true,
+    };
   }
   const pendingBootstrapOwned = hasPendingConversationBootstrap(requestedConversationID);
   const activeStreamOwned = hasActiveConversationTurnStream(requestedConversationID);
@@ -2713,6 +2725,7 @@ export function startPolling(context) {
       });
       return;
     }
+    if (!desiredID && !currentID) return;
     const streamIsHot = !!chatState.stream
       && (Date.now() - Number(chatState.lastStreamEventAt || 0) < 6000);
     if (streamIsHot) return;
