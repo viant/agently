@@ -31,6 +31,7 @@ import {
   shouldForceWorkspaceFull,
   shouldShowChatChrome,
   shouldShowMainWindowHeader,
+  shouldRestoreConversationForActivity,
   shouldScrollConversationAfterTurn,
   shouldUseConversationWorkspaceFallback
 } from './Root.jsx';
@@ -71,8 +72,55 @@ describe('Root window selection helpers', () => {
     expect(resolveSplitChatClassName()).toBe('app-window-split-chat');
     expect(resolveSplitChatClassName({ showWorkspacePane: false, composerExpanded: true }))
       .toBe('app-window-split-chat');
-    expect(resolveSplitChatClassName({ showWorkspacePane: true }))
+    expect(resolveSplitChatClassName({ showWorkspacePane: true, activeSurface: 'conversation' }))
+      .toBe('app-window-split-chat');
+    expect(resolveSplitChatClassName({ showWorkspacePane: true, activeSurface: 'workspace' }))
       .toBe('app-window-split-chat is-composer-only');
+    expect(resolveSplitChatClassName({
+      showWorkspacePane: true,
+      activeSurface: 'workspace',
+      composerExpanded: true,
+    })).toBe('app-window-split-chat is-composer-only is-composer-expanded');
+  });
+
+  it('restores chat for a newly submitted turn while preserving the workspace split', () => {
+    expect(shouldRestoreConversationForActivity({
+      eventConversationId: 'conv-1',
+      activeConversationId: 'conv-1',
+      activeSurface: 'workspace',
+      eventType: 'turn_started',
+    })).toBe(true);
+    expect(shouldRestoreConversationForActivity({
+      eventConversationId: 'conv-1',
+      activeConversationId: 'conv-1',
+      activeSurface: 'workspace',
+      eventType: 'turn_queued',
+    })).toBe(true);
+    expect(shouldRestoreConversationForActivity({
+      eventConversationId: 'conv-1',
+      activeConversationId: 'conv-1',
+      activeSurface: 'conversation',
+      workspaceFull: true,
+      eventType: 'turn_started',
+    })).toBe(true);
+    expect(shouldRestoreConversationForActivity({
+      eventConversationId: 'conv-other',
+      activeConversationId: 'conv-1',
+      activeSurface: 'workspace',
+      eventType: 'turn_started',
+    })).toBe(false);
+    expect(shouldRestoreConversationForActivity({
+      eventConversationId: 'conv-1',
+      activeConversationId: 'conv-1',
+      activeSurface: 'conversation',
+      eventType: 'turn_started',
+    })).toBe(false);
+    expect(shouldRestoreConversationForActivity({
+      eventConversationId: 'conv-1',
+      activeConversationId: 'conv-1',
+      activeSurface: 'workspace',
+      eventType: 'tool_call_completed',
+    })).toBe(false);
   });
   it('detects phone-sized shell viewports for overlay navigation', () => {
     expect(isCompactShellViewport(390)).toBe(true);

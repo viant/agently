@@ -1336,7 +1336,7 @@ export function syncMessagesSnapshot(context, turns, reason = 'poll', pendingEli
   }
   if (currentConversationID && !hasRunning) {
     Promise.resolve(syncHydratedWorkspaceStateFromTranscriptTurns(currentConversationID, normalizedTurns, {
-      reopen: true,
+      reopen: false,
       announce: true,
     })).catch(() => {});
   }
