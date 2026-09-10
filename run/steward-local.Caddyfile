@@ -1,0 +1,13 @@
+https://steward-local.viant.ai, https://AWITAS-FD464JLF9P.local, https://192.168.118.48 {
+	tls /Users/awitas/go/src/github.com/viant/agently/run/steward-local-lan.pem /Users/awitas/go/src/github.com/viant/agently/run/steward-local-lan-key.pem
+	reverse_proxy 127.0.0.1:8787 {
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-Host steward-local.viant.ai
+	}
+}
+
+http://192.168.118.48:8081 {
+	root * /Users/awitas/go/src/github.com/viant/agently/run/cert-profile
+	header Content-Disposition "attachment; filename=local-dev-ca.cer"
+	file_server
+}

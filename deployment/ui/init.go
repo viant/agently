@@ -2,7 +2,7 @@ package ui
 
 import "embed"
 
-// FS exposes the embedded UI bundle for the app server.
+// FS exposes the content-hashed embedded UI bundle for the app server.
 //
 //go:embed index.html favicon.ico assets/*
 var FS embed.FS
