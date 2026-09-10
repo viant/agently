@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
-import {filterLookupRegistry, findLookupTriggerStart} from './lookupTrigger.js';
+import {filterLookupRegistry, findLookupTriggerStart, shouldClearSoleLookupTrigger} from './lookupTrigger.js';
 
 assert.equal(findLookupTriggerStart('/campaign'), 0);
 assert.equal(findLookupTriggerStart('open /campaign'), 5);
 assert.equal(findLookupTriggerStart('open (/order'), 6);
 assert.equal(findLookupTriggerStart('https://example.com/path'), -1);
 assert.equal(findLookupTriggerStart('folder/name'), -1);
+assert.equal(shouldClearSoleLookupTrigger({value: '/', key: 'Backspace', selectionStart: 1, selectionEnd: 1}), true);
+assert.equal(shouldClearSoleLookupTrigger({value: '/campaign', key: 'Backspace', selectionStart: 9, selectionEnd: 9}), false);
+assert.equal(shouldClearSoleLookupTrigger({value: '/', key: 'Escape', selectionStart: 1, selectionEnd: 1}), false);
+assert.equal(shouldClearSoleLookupTrigger({value: '/', key: 'Backspace', selectionStart: 0, selectionEnd: 0}), false);
 
 const registry = [
   {name: 'order', title: 'Ad Order'},

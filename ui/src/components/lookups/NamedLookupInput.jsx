@@ -17,7 +17,7 @@ import {
 } from './tokens.js';
 import { listLookupRegistry, fetchDatasource } from './client.js';
 import { applyResolvedChipToken, createEditingChipState, shouldSkipEditorSync } from './chipEditing.js';
-import { DEFAULT_LOOKUP_TRIGGER, filterLookupRegistry, findLookupTriggerStart } from './lookupTrigger.js';
+import { DEFAULT_LOOKUP_TRIGGER, filterLookupRegistry, findLookupTriggerStart, shouldClearSoleLookupTrigger } from './lookupTrigger.js';
 
 const DEFAULT_TRIGGER = DEFAULT_LOOKUP_TRIGGER;
 const DATE_CHIP_NAMES = new Set(['date_from', 'date_to']);
@@ -575,6 +575,17 @@ export default function NamedLookupInput({
   }, [hasInlineChips]);
 
   useEffect(() => {
+    if (!activeTrigger) return;
+    const display = multiline && editorRef.current
+      ? String(editorRef.current.innerText || '')
+      : String(value || '');
+    const slash = findLookupTriggerStart(display, DEFAULT_TRIGGER);
+    if (slash >= 0 && !/\s/.test(display.slice(slash + 1))) return;
+    setRows([]);
+    setActiveTrigger(null);
+  }, [activeTrigger, multiline, value]);
+
+  useEffect(() => {
     if (!editingChip || !chipEditInputRef.current || disabled) return;
     requestAnimationFrame(() => {
       try {
@@ -691,6 +702,41 @@ export default function NamedLookupInput({
     },
     [handleTextChange]
   );
+
+  const handleLookupKeyDown = useCallback((event) => {
+    const currentValue = multiline && editorRef.current
+      ? serializeEditor(editorRef.current)
+      : String(value || '');
+    const selectionStart = multiline && editorRef.current
+      ? caretOffsetWithin(editorRef.current)
+      : event?.currentTarget?.selectionStart;
+    const selectionEnd = multiline && editorRef.current
+      ? selectionStart
+      : event?.currentTarget?.selectionEnd;
+    if (shouldClearSoleLookupTrigger({
+      value: currentValue,
+      key: event?.key,
+      selectionStart,
+      selectionEnd,
+      trigger: DEFAULT_TRIGGER,
+    })) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (editorRef.current) editorRef.current.textContent = '';
+      lastSyncedValueRef.current = '';
+      setRows([]);
+      setActiveTrigger(null);
+      onChange('');
+      return;
+    }
+    if (event?.key === 'Escape' && activeTrigger) {
+      event.preventDefault();
+      setRows([]);
+      setActiveTrigger(null);
+      return;
+    }
+    onKeyDown?.(event);
+  }, [activeTrigger, multiline, onChange, onKeyDown, value]);
 
   const pickName = useCallback(
     (entry) => {
@@ -1155,7 +1201,7 @@ export default function NamedLookupInput({
             }
             onBlur?.(event);
           }}
-          onKeyDown={onKeyDown}
+          onKeyDown={handleLookupKeyDown}
           style={editorStyle}
         />
       ) : (
@@ -1179,7 +1225,7 @@ export default function NamedLookupInput({
             data-testid={dataTestId || 'chat-composer-input'}
             className={className}
             style={editorStyle}
-            onKeyDown={onKeyDown}
+            onKeyDown={handleLookupKeyDown}
           />
         ) : (
           <>
@@ -1296,7 +1342,7 @@ export default function NamedLookupInput({
               fill
               data-testid={dataTestId || 'chat-composer-input'}
               className={className}
-              onKeyDown={onKeyDown}
+              onKeyDown={handleLookupKeyDown}
             />
           </>
         )
