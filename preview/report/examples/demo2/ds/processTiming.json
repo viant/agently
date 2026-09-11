@@ -1,0 +1,14 @@
+{
+  "status": "ok",
+  "rows": [
+    {"processType": "Standard Order", "planningDays": 16.0, "fulfillmentDays": 9.4, "averageSteps": 4.8},
+    {"processType": "Service Request", "planningDays": 12.6, "fulfillmentDays": 6.8, "averageSteps": 3.7},
+    {"processType": "Support Request", "planningDays": 8.9, "fulfillmentDays": 3.1, "averageSteps": 2.9}
+  ],
+  "hasMore": false,
+  "meta": {
+    "viewId": 403,
+    "source": "mock-records"
+  }
+}
+

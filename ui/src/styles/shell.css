@@ -3412,7 +3412,6 @@ td[data-col="enabled"] {
   min-width: 0;
 }
 .app-summary-conversation.is-composer-only [data-testid="chat-toolbar"],
-.app-summary-conversation.is-composer-only [data-testid="chat-error"],
 .app-summary-conversation.is-composer-only [data-testid="chat-feed-stage"] { display: none !important; }
 .app-summary-conversation.is-composer-only [data-testid="chat-root"] { height: auto !important; padding-top: 0 !important; }
 
@@ -5110,3 +5109,53 @@ td[data-col="enabled"] {
   font-weight: 750;
   vertical-align: baseline;
 }
+
+/* The same conversation-owned shell is used in regular and developer modes. */
+.app-summary-workspace-header-actions .app-summary-workspace-chat-action { width: auto; min-width: 72px; }
+.app-summary-workspace-context { display: flex; gap: 8px; align-items: center; }
+.app-summary-surface-shell.is-split .app-summary-workspace { flex: 1 1 55%; min-height: 220px; }
+.app-summary-surface-shell.is-split .app-summary-conversation { flex: 1 1 45%; min-height: 180px; }
+.app-workspace-attachment { padding: 8px 12px; }
+.app-workspace-attachment-copy { display: flex; flex-direction: row; gap: 12px; align-items: center; }
+.app-workspace-attachment-arrow { font-size: 12px; font-weight: 600; }
+@media (max-width: 600px) {
+  .app-summary-workspace-header { gap: 8px; padding: 8px; }
+  .app-summary-workspace-context { gap: 2px; }
+  .app-summary-workspace-title { max-width: 36vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+.app-workspace-renderer { height: 100%; min-height: 0; }
+.app-workspace-renderer[hidden] { display: none; }
+.app-workspace-object-chip { display: inline-flex; align-items: center; gap: 2px; }
+.app-workspace-object-chip > button:last-child { border: 0; background: transparent; padding: 6px; cursor: pointer; }
+@media (max-width: 600px) { .app-workspace-layout-action { display: none !important; } }
+
+@media (max-width: 720px) {
+  .app-summary-workspace-context { display: flex; }
+  .app-summary-workspace-chat-action .bp6-button-text,
+  .app-summary-workspace-chat-action .bp5-button-text { display: inline; }
+}
+
+.app-summary-workspace-context { justify-self: end; }
+.app-workspace-object-chip > button:last-child { min-width: 32px; min-height: 32px; }
+@media (max-width: 600px) { .app-workspace-object-chip > button:last-child { min-width: 36px; min-height: 36px; } }
+
+.app-tool-feed-promote {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 5px 10px;
+  margin: 4px 0 8px;
+  border: 1px solid #c7d5e8;
+  border-radius: 6px;
+  background: #f6f9ff;
+  color: #234d80;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.app-tool-feed-surface-action { min-height: 32px; padding: 5px 9px; border: 1px solid #c7d5e8; border-radius: 6px; background: #fff; color: #274974; font-size: 12px; font-weight: 600; cursor: pointer; }
+
+.app-statusbar.phase-attention .app-statusbar-icon { color: #60748f; }

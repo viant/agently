@@ -263,7 +263,7 @@ export function onFeedDataChange(fn) {
 }
 
 /** Fetch fresh feed data from backend (always makes a call, no cache check). */
-export function fetchFeedDataNow(feedId, conversationId) {
+export function fetchFeedDataNow(feedId, conversationId, {rethrow = false} = {}) {
   const { feedId: normalizedFeedId, conversationId: normalizedConversationId, scopedKey } = normalizeScopedFeedIdentity(feedId, conversationId);
   if (!scopedKey || !normalizedConversationId) return;
   const existing = feedDataCache[scopedKey] || null;
@@ -271,7 +271,7 @@ export function fetchFeedDataNow(feedId, conversationId) {
   if (!existing?.data) {
     delete feedDataCache[scopedKey];
   }
-  client.getFeedData(normalizedFeedId, normalizedConversationId).then((data) => {
+  return client.getFeedData(normalizedFeedId, normalizedConversationId).then((data) => {
     if (data) {
       syncFeedPresentation(scopedKey, data.presentation);
       const latest = feedDataCache[scopedKey] || existing || {};
@@ -288,8 +288,11 @@ export function fetchFeedDataNow(feedId, conversationId) {
       registerFeedEntityAlias(feedDataCache[scopedKey], normalizedConversationId);
     }
     notifyDataChange();
-  }).catch(() => {
+    return data;
+  }).catch((error) => {
+    if (rethrow) delete feedDataCache[scopedKey];
     notifyDataChange();
+    if (rethrow) throw error;
   });
 }
 

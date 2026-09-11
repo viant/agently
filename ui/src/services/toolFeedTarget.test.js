@@ -5,10 +5,14 @@ import { normalizeToolFeedTarget, toolFeedTargetsPlacement } from './toolFeedTar
 describe('tool feed presentation target', () => {
   it('normalizes known values and defaults unknown values to auto', () => {
     expect(normalizeToolFeedTarget(' INLINE ')).toBe('inline');
-    expect(normalizeToolFeedTarget('workspace')).toBe('workspace');
-    expect(normalizeToolFeedTarget('detached')).toBe('detached');
+    expect(normalizeToolFeedTarget('workspace')).toBe('rail');
+    expect(normalizeToolFeedTarget('detached')).toBe('overlay');
     expect(normalizeToolFeedTarget('future-target')).toBe('auto');
     expect(normalizeToolFeedTarget()).toBe('auto');
+  });
+
+  it('suppresses the original surface while a durable workspace owns the feed', () => {
+    expect(toolFeedTargetsPlacement({presentation: {target: 'inline', workspaceObjectId: 'object-1'}}, 'inline')).toBe(false);
   });
 
   it('routes explicit feeds only to their declared placement', () => {

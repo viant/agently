@@ -1,0 +1,178 @@
+apiVersion: reporting.viant.ai/v1alpha1
+kind: ReportDefinition
+
+metadata:
+  id: order-fulfillment-demo
+  title: Order Fulfillment Preview
+  description: Renderer-neutral report backed entirely by ordinary object-row JSON fixtures.
+  revision: 1
+
+parameters:
+  - {name: from, type: date, label: Order From}
+  - {name: to, type: date, label: Order To}
+  - {name: region, type: string, label: Region, multiple: true}
+  - {name: scenario, type: string, label: Scenario, default: Actual, values: [Planned, Actual]}
+
+endpoints:
+  mockReports:
+    type: mcp
+    transport: streamable
+    baseURL: /mcp
+
+dataSources:
+  orders:
+    service: {endpoint: mockReports, uri: orders, method: POST}
+    description: Order observations supplied as ordinary JSON records.
+    resultContract: {shape: records, rowPath: rows, hasMorePath: hasMore}
+    columns:
+      - {name: orderDate, type: date, role: dimension, label: Order Date, nullable: false}
+      - {name: region, type: string, role: dimension, label: Region, nullable: false}
+      - {name: scenario, type: string, role: dimension, label: Scenario, nullable: false}
+      - {name: orders, type: integer, role: measure, label: Orders, format: compactNumber, nullable: false}
+      - {name: revenue, type: number, role: measure, label: Revenue, format: currency, nullable: false}
+      - {name: operatingCost, type: number, role: measure, label: Operating Cost, format: currency, nullable: false}
+    parameterBindings:
+      - {parameter: from, field: orderDate, operator: gte}
+      - {parameter: to, field: orderDate, operator: lte}
+      - {parameter: region, field: region, operator: in}
+      - {parameter: scenario, field: scenario, operator: eq}
+
+  processTiming:
+    service: {endpoint: mockReports, uri: processTiming, method: POST}
+    description: Planning and fulfillment timing supplied as ordinary JSON records.
+    resultContract: {shape: records, rowPath: rows, hasMorePath: hasMore}
+    columns:
+      - {name: processType, type: string, role: dimension, label: Process Type, nullable: false}
+      - {name: planningDays, type: number, role: measure, label: Planning Days, format: number, nullable: true}
+      - {name: fulfillmentDays, type: number, role: measure, label: Fulfillment Days, format: number, nullable: true}
+      - {name: averageSteps, type: number, role: measure, label: Average Steps, format: number, nullable: true}
+
+datasets:
+  orderSummary:
+    dataSource: orders
+    query:
+      projection:
+        dimensions: []
+        measures:
+          - {field: orders, aggregation: sum}
+          - {field: revenue, aggregation: sum}
+          - {field: operatingCost, aggregation: sum}
+
+  regionPerformance:
+    dataSource: orders
+    query:
+      projection:
+        dimensions: [region]
+        measures:
+          - {field: orders, aggregation: sum}
+          - {field: revenue, aggregation: sum}
+          - {field: operatingCost, aggregation: sum}
+      orderBy:
+        - {field: orders, direction: desc}
+      page: {limit: 10, offset: 0}
+
+  orderEvidence:
+    dataSource: orders
+    query:
+      projection:
+        dimensions: [orderDate, region, scenario]
+        measures:
+          - {field: orders, aggregation: sum}
+          - {field: revenue, aggregation: sum}
+          - {field: operatingCost, aggregation: sum}
+      orderBy:
+        - {field: orderDate, direction: asc}
+        - {field: region, direction: asc}
+      page: {limit: 4, offset: 0}
+
+  timing:
+    dataSource: processTiming
+    query:
+      projection:
+        dimensions: [processType]
+        measures:
+          - {field: planningDays, aggregation: none}
+          - {field: fulfillmentDays, aggregation: none}
+          - {field: averageSteps, aggregation: none}
+      orderBy:
+        - {field: processType, direction: asc}
+      page: {limit: 25, offset: 0}
+
+sections:
+  - id: overview
+    title: Overview
+    blocks:
+      - id: outcomeKpis
+        type: kpiGroup
+        title: Order summary
+        dataset: orderSummary
+        metrics:
+          - {field: orders, label: Orders, format: compactNumber}
+          - {field: revenue, label: Revenue, format: currency}
+          - {field: operatingCost, label: Operating Cost, format: currency}
+
+      - id: regionChart
+        type: chart
+        title: Orders by region
+        dataset: regionPerformance
+        visual:
+          type: horizontalBar
+          category: region
+          series: [orders]
+
+      - id: regionTable
+        type: table
+        title: Region performance
+        dataset: regionPerformance
+        columns: [region, orders, revenue, operatingCost]
+
+  - id: timing
+    title: Process Timing
+    blocks:
+      - id: timingTable
+        type: table
+        title: Process completion time
+        dataset: timing
+        columns: [processType, planningDays, fulfillmentDays, averageSteps]
+
+  - id: evidence
+    title: Evidence
+    blocks:
+      - id: orderEvidenceTable
+        type: table
+        title: Order evidence
+        dataset: orderEvidence
+        columns: [orderDate, region, scenario, orders, revenue, operatingCost]
+        paging: {enabled: true}
+
+exports:
+  formats: [pdf, csv, xlsx]
+  useResolvedDatasets: true
+
+x-mock-preview:
+  version: 1
+  dataRoot: ./ds
+  primaryDataSource: orders
+  maxPageSize: 1000
+  label: Synthetic regular-JSON preview
+  dataSources:
+    orders:
+      file: orders.json
+      inputContract: {shape: records, rowPath: rows, hasMorePath: hasMore}
+      query: {projection: true, filtering: true, grouping: true, sorting: true, pagination: offset}
+      dimensions: [orderDate, region, scenario]
+      measures:
+        orders: {aggregation: sum}
+        revenue: {aggregation: sum}
+        operatingCost: {aggregation: sum}
+
+    processTiming:
+      file: processTiming.json
+      inputContract: {shape: records, rowPath: rows, hasMorePath: hasMore}
+      query: {projection: true, filtering: true, grouping: false, sorting: true, pagination: offset}
+      dimensions: [processType]
+      measures:
+        planningDays: {aggregation: none}
+        fulfillmentDays: {aggregation: none}
+        averageSteps: {aggregation: none}
+

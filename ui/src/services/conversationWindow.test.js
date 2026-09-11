@@ -149,6 +149,8 @@ describe('conversationWindow', () => {
     selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
     setScopedWorkspaceSelection('conv-123', 'orderPerformance_1');
 
+    // Restore the user's explicitly selected workspace surface.
+    setScopedActiveSurface('conv-123', 'workspace');
     const selected = openConversationInMainWindow('conv-123');
 
     expect(getScopedWorkspaceSelection('conv-123')).toBe('orderPerformance_1');
@@ -184,6 +186,8 @@ describe('conversationWindow', () => {
     selectedWindowId.value = 'schedule/history';
     setScopedWorkspaceSelection('conv-123', 'order_1527048368');
 
+    // Restore the user's explicitly selected workspace surface.
+    setScopedActiveSurface('conv-123', 'workspace');
     const selected = openConversationInMainWindow('conv-123');
 
     expect(activeWindows.value.some((entry) => entry.windowKey === 'schedule/history')).toBe(false);
@@ -220,6 +224,8 @@ describe('conversationWindow', () => {
     ];
     setScopedWorkspaceSelection('conv-target', 'forecast_target');
 
+    // Restore the user's explicitly selected workspace surface.
+    setScopedActiveSurface('conv-target', 'workspace');
     const selected = openConversationInMainWindow('conv-target');
 
     expect(activeWindows.value.some((entry) => entry.windowId === 'forecast_previous')).toBe(false);
@@ -348,6 +354,8 @@ describe('conversationWindow', () => {
       }
     });
 
+    // Restore the user's explicitly selected workspace surface.
+    setScopedActiveSurface('conv-456', 'workspace');
     const selected = openConversationInMainWindow('conv-456');
 
     expect(getScopedWorkspaceState('conv-456')?.windowKey).toBe('orderPerformance');
@@ -423,6 +431,8 @@ describe('conversationWindow', () => {
 
     expect(getScopedWorkspaceState('conv-report-replay')).not.toHaveProperty('hostOpenState');
 
+    // Restore the user's explicitly selected workspace surface.
+    setScopedActiveSurface('conv-report-replay', 'workspace');
     const restored = openConversationInMainWindow('conv-report-replay');
 
     expect(restored?.hostOpenState).toBe('historical_replay');
@@ -1017,6 +1027,8 @@ describe('conversationWindow', () => {
     ]);
     expect(getScopedWorkspaceWindowsState('conv-compare').every((entry) => entry.inlineMetadata == null)).toBe(true);
 
+    // Restore the user's explicitly selected workspace surface.
+    setScopedActiveSurface('conv-compare', 'workspace');
     const restored = openConversationInMainWindow('conv-compare');
 
     const restoredOrders = activeWindows.value.filter((entry) => entry.windowKey === 'order');

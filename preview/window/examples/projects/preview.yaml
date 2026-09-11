@@ -1,0 +1,25 @@
+title: Business workspace preview
+defaultWindow: projects
+windows:
+  projects: {title: Projects, file: windows/projects.yaml}
+  project-tasks: {title: Project Tasks, file: windows/project-tasks.yaml}
+endpoints:
+  mockData: {type: mcp, transport: streamable, baseURL: /mcp}
+dataSources:
+  projects:
+    cardinality: collection
+    autoFetch: true
+    uniqueKey: [{field: projectId}]
+    selectors: {data: rows, dataInfo: dataInfo}
+    paging: {enabled: true, size: 5, openEnded: true, parameters: {page: offset, size: size}}
+    backend: {kind: mcp_tool, service: mockData, method: projects}
+    filterFields: {projectId: projectId, region: region}
+    query: {orderBy: [{field: projectId, direction: asc}], page: {limit: 5, offset: 0}}
+  tasks:
+    cardinality: collection
+    autoFetch: true
+    uniqueKey: [{field: taskId}]
+    selectors: {data: rows, dataInfo: dataInfo}
+    backend: {kind: mcp_tool, service: mockData, method: tasks}
+    filterFields: {projectId: projectId}
+    query: {orderBy: [{field: taskId, direction: asc}], page: {limit: 25, offset: 0}}

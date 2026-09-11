@@ -13,7 +13,7 @@ export function filterDetachedFeeds(feeds = [], conversationId = '', developerMo
     if (feed?.developerOnly === true && !developerMode) return false;
     const feedConversationId = String(feed?.conversationId || '').trim();
     if (scope && feedConversationId && feedConversationId !== scope) return false;
-    return toolFeedTargetsPlacement(feed, 'detached', false);
+    return toolFeedTargetsPlacement(feed, 'overlay', false);
   });
 }
 
@@ -53,7 +53,7 @@ export default function ToolFeedDetached({ conversationId = '', developerMode = 
           className="app-tool-feed-detached-launcher"
           onClick={() => setOpen(true)}
           style={{ '--feed-accent': accent }}
-          aria-label={`Open ${selected?.title || 'detached tool feed'}`}
+          aria-label={`Open ${selected?.title || 'tool feed overlay'}`}
         >
           <Icon icon={feedIconName(selected?.presentation)} size={15} />
           <span>{selected?.title || 'Tool feed'}</span>
@@ -67,16 +67,16 @@ export default function ToolFeedDetached({ conversationId = '', developerMode = 
         className="app-tool-feed-detached-drawer"
         portalClassName="app-tool-feed-detached-portal"
       >
-        <section className="app-tool-feed-detached" aria-label="Detached tool feed">
+        <section className="app-tool-feed-detached" aria-label="Tool feed overlay">
           <header className="app-tool-feed-detached-header" style={{ '--feed-accent': accent }}>
             <div className="app-tool-feed-detached-title">
               <Icon icon={feedIconName(selected?.presentation)} size={16} />
               <span>{selected?.title || 'Tool feed'}</span>
             </div>
-            <button type="button" onClick={() => setOpen(false)} aria-label="Close detached tool feed">Close</button>
+            <button type="button" className="app-tool-feed-surface-action" onClick={() => setOpen(false)} aria-label="Close tool feed overlay">Close</button>
           </header>
           {visibleFeeds.length > 1 ? (
-            <div className="app-tool-feed-detached-tabs" role="tablist" aria-label="Detached tool feeds">
+            <div className="app-tool-feed-detached-tabs" role="tablist" aria-label="Tool feed overlays">
               {visibleFeeds.map((feed) => (
                 <button
                   key={feed.feedId}
@@ -94,7 +94,7 @@ export default function ToolFeedDetached({ conversationId = '', developerMode = 
             </div>
           ) : null}
           <div className="app-tool-feed-detached-body">
-            <ToolFeedDetail variant="rail" placement="detached" includeAuto={false} conversationId={conversationId} />
+            <ToolFeedDetail variant="rail" placement="overlay" includeAuto={false} conversationId={conversationId} />
           </div>
         </section>
       </Drawer>

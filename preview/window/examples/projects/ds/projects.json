@@ -1,0 +1,65 @@
+{
+  "status": "ok",
+  "rows": [
+    {
+      "projectId": 1,
+      "project": "Process Improvement",
+      "region": "North",
+      "owner": "Operations",
+      "budget": 12000
+    },
+    {
+      "projectId": 2,
+      "project": "Service Expansion",
+      "region": "Central",
+      "owner": "Services",
+      "budget": 24000
+    },
+    {
+      "projectId": 3,
+      "project": "Quality Initiative",
+      "region": "South",
+      "owner": "Quality",
+      "budget": 36000
+    },
+    {
+      "projectId": 4,
+      "project": "Resource Planning",
+      "region": "North",
+      "owner": "Operations",
+      "budget": 48000
+    },
+    {
+      "projectId": 5,
+      "project": "Team Onboarding",
+      "region": "Central",
+      "owner": "Services",
+      "budget": 60000
+    },
+    {
+      "projectId": 6,
+      "project": "Knowledge Base",
+      "region": "South",
+      "owner": "Quality",
+      "budget": 72000
+    },
+    {
+      "projectId": 7,
+      "project": "Workflow Review",
+      "region": "North",
+      "owner": "Operations",
+      "budget": 84000
+    },
+    {
+      "projectId": 8,
+      "project": "Capacity Planning",
+      "region": "Central",
+      "owner": "Services",
+      "budget": 96000
+    }
+  ],
+  "hasMore": false,
+  "meta": {
+    "source": "synthetic-example"
+  }
+}

@@ -23,13 +23,8 @@ public final class SettingsRuntime: ObservableObject {
 
     private let store: AppSettingsStore
 
-    nonisolated public static let defaultWorkspacePresets: [WorkspaceEndpointOption] = [
-        WorkspaceEndpointOption(
-            title: "Steward",
-            subtitle: "Viant Steward workspace",
-            value: "https://steward.agently.viantinc.com"
-        )
-    ]
+    // Deployment-specific presets are supplied through environment or launch configuration.
+    nonisolated public static let defaultWorkspacePresets: [WorkspaceEndpointOption] = []
 
     nonisolated public static let workspacePresets: [WorkspaceEndpointOption] = mergeWorkspaceEndpointOptions(
         configuredWorkspaceEndpointOptions(

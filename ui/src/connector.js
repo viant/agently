@@ -36,6 +36,7 @@ function uiBridgeClientId() {
 }
 
 export const connectorConfig = {
+  workspace: { tabs: String(import.meta.env.VITE_WORKSPACE_TABS || 'auto').trim().toLowerCase() },
   mcpUI: {
     // Resource metadata is a request; deployments must opt in before an
     // MCP/UI iframe may become a conversation Workspace surface.

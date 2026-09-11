@@ -22,7 +22,7 @@ export function filterWorkspaceFeeds(feeds = [], conversationId = '', developerM
     if (feed?.developerOnly === true && !developerMode) return false;
     const feedConversationId = String(feed?.conversationId || '').trim();
     const conversationMatches = !feedConversationId || !scopedConversationId || feedConversationId === scopedConversationId;
-    return conversationMatches && toolFeedTargetsPlacement(feed, 'workspace', true);
+    return conversationMatches && toolFeedTargetsPlacement(feed, 'rail', true);
   });
   return sortWorkspaceFeeds(dedupeFeeds(visible));
 }
@@ -185,7 +185,7 @@ export default function ToolFeedWorkspace({ conversationId = '', developerMode =
             </header>
             <div className="app-tool-workspace-drawer-tabs">{tabs(false)}</div>
             <div className="app-tool-workspace-drawer-body">
-              <ToolFeedDetail variant="rail" placement="workspace" conversationId={conversationId} />
+              <ToolFeedDetail variant="rail" placement="rail" conversationId={conversationId} />
             </div>
           </section>
         </Drawer>
@@ -201,17 +201,17 @@ export default function ToolFeedWorkspace({ conversationId = '', developerMode =
           <div className="app-tool-workspace-header-actions">
             <button
               type="button"
-              className="app-tool-workspace-dot app-tool-workspace-dot--close"
+              className="app-tool-feed-surface-action"
               aria-label="Close tool feeds"
               title="Close tool feeds"
               onClick={() => {
                 clearFeedSelectionForConversation(conversationId);
                 setDismissed(true);
               }}
-            />
+            >Close</button>
             <button
               type="button"
-              className="app-tool-workspace-dot app-tool-workspace-dot--collapse"
+              className="app-tool-feed-surface-action"
               aria-label={collapsed ? 'Show Tool feeds' : 'Collapse Tool feeds to header'}
               title={collapsed ? 'Show Tool feeds' : 'Collapse Tool feeds to header'}
               aria-pressed={collapsed}
@@ -219,10 +219,10 @@ export default function ToolFeedWorkspace({ conversationId = '', developerMode =
                 setExpanded(false);
                 setCollapsed((value) => !value);
               }}
-            />
+            >{collapsed ? 'Show' : 'Collapse'}</button>
             <button
               type="button"
-              className="app-tool-workspace-dot app-tool-workspace-dot--expand"
+              className="app-tool-feed-surface-action"
               aria-label={expanded ? 'Restore Conversation and Tool feeds' : 'Maximize Tool feeds'}
               title={expanded ? 'Restore Conversation and Tool feeds' : 'Maximize Tool feeds'}
               aria-pressed={expanded}
@@ -230,13 +230,13 @@ export default function ToolFeedWorkspace({ conversationId = '', developerMode =
                 setCollapsed(false);
                 setExpanded((value) => !value);
               }}
-            />
+            >{expanded ? 'Restore' : 'Expand'}</button>
           </div>
         </div>
         {!collapsed ? tabs(false) : null}
         {!collapsed ? (
           <div className="app-tool-workspace-body">
-            <ToolFeedDetail variant="rail" placement="workspace" conversationId={conversationId} />
+            <ToolFeedDetail variant="rail" placement="rail" conversationId={conversationId} />
           </div>
         ) : null}
       </div>

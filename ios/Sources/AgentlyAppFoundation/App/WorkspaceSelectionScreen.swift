@@ -59,6 +59,12 @@ struct WorkspaceSelectionScreen: View {
             ForEach(SettingsRuntime.workspacePresets) { preset in
                 workspaceEndpointOptionRow(preset)
             }
+            if SettingsRuntime.workspacePresets.isEmpty {
+                TextField("Workspace URL", text: $selectedEndpoint)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    .accessibilityIdentifier("workspace-selection-url")
+            }
         }
     }
 
@@ -132,7 +138,15 @@ struct WorkspaceSelectionScreen: View {
     }
 
     private var selectedOption: WorkspaceEndpointOption? {
-        SettingsRuntime.workspacePresets.first { $0.value == selectedEndpoint }
+        if let preset = SettingsRuntime.workspacePresets.first(where: { $0.value == selectedEndpoint }) {
+            return preset
+        }
+        let normalized = AppSettingsStore.normalizeAPIBaseURL(selectedEndpoint)
+        guard let url = URL(string: normalized),
+              let scheme = url.scheme?.lowercased(),
+              ["https", "http"].contains(scheme),
+              let host = url.host, !host.isEmpty else { return nil }
+        return WorkspaceEndpointOption(title: "Workspace", subtitle: "", value: normalized)
     }
 
     private func startSelectedWorkspace() {

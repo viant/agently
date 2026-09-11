@@ -1,0 +1,25 @@
+{
+  "status": "ok",
+  "rows": [
+    {"orderDate": "2026-08-01", "region": "North", "scenario": "Planned", "orders": 184, "revenue": 28940.00, "operatingCost": 6420.50},
+    {"orderDate": "2026-08-01", "region": "North", "scenario": "Actual", "orders": 213, "revenue": 33185.50, "operatingCost": 6420.50},
+    {"orderDate": "2026-08-01", "region": "Central", "scenario": "Planned", "orders": 121, "revenue": 14810.00, "operatingCost": 2380.00},
+    {"orderDate": "2026-08-01", "region": "Central", "scenario": "Actual", "orders": 146, "revenue": 17922.00, "operatingCost": 2380.00},
+    {"orderDate": "2026-08-02", "region": "North", "scenario": "Planned", "orders": 197, "revenue": 30732.00, "operatingCost": 6810.75},
+    {"orderDate": "2026-08-02", "region": "North", "scenario": "Actual", "orders": 228, "revenue": 35568.00, "operatingCost": 6810.75},
+    {"orderDate": "2026-08-02", "region": "Central", "scenario": "Planned", "orders": 132, "revenue": 16236.00, "operatingCost": 2515.50},
+    {"orderDate": "2026-08-02", "region": "Central", "scenario": "Actual", "orders": 155, "revenue": 19065.00, "operatingCost": 2515.50},
+    {"orderDate": "2026-08-03", "region": "South", "scenario": "Planned", "orders": 48, "revenue": 5760.00, "operatingCost": 1038.20},
+    {"orderDate": "2026-08-03", "region": "South", "scenario": "Actual", "orders": 61, "revenue": 7320.00, "operatingCost": 1038.20},
+    {"orderDate": "2026-08-03", "region": "North", "scenario": "Planned", "orders": 205, "revenue": 31980.00, "operatingCost": 6604.25},
+    {"orderDate": "2026-08-03", "region": "North", "scenario": "Actual", "orders": 239, "revenue": 37284.00, "operatingCost": 6604.25}
+  ],
+  "hasMore": false,
+  "meta": {
+    "viewId": 403,
+    "source": "mock-records",
+    "from": "2026-08-01",
+    "to": "2026-08-03"
+  }
+}
+

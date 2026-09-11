@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CompactFeedList, Container, Terminal } from 'forge/components';
-import { getFeedData, onFeedDataChange, getActiveFeeds, onFeedChange, splitFeedKey } from '../services/toolFeedBus';
+import { getFeedData, fetchFeedDataNow, onFeedDataChange, getActiveFeeds, onFeedChange, splitFeedKey } from '../services/toolFeedBus';
 import { openResourceFeedPath } from '../services/chatService';
 import {
   getExpandedFeedIds,
@@ -59,9 +59,10 @@ function resolveFeedDetailConversationId(explicitConversationId = '', context = 
  * Uses Forge Container to render feed UI specs from YAML.
  * Falls back to generic InlineRenderer when no UI spec is present.
  */
-export default function ToolFeedDetail({ context, variant = 'inline', conversationId = '', turnId = '', placement = 'inline', includeAuto = true }) {
+export default function ToolFeedDetail({ context, variant = 'inline', conversationId = '', turnId = '', placement = 'inline', includeAuto = true, hostedFeedId = '', onLifecycle }) {
   const [feeds, setFeeds] = useState(getActiveFeeds);
   const [dataVersion, setDataVersion] = useState(0);
+  const [hostedLoad, setHostedLoad] = useState({loading: !!hostedFeedId, error: ''});
   const [expandedFeeds, setExpandedFeeds] = useState(() => getExpandedFeedIds());
   const scopedConversationId = resolveFeedDetailConversationId(conversationId, context);
   const [selectedFeedId, setSelectedFeedId] = useState(() => getSelectedFeedId(scopedConversationId));
@@ -82,13 +83,25 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
     return () => { u1(); u2(); u3(); u4(); };
   }, [scopedConversationId]);
 
+  useEffect(() => {
+    if (!hostedFeedId) return undefined;
+    let active = true;
+    setHostedLoad({loading: true, error: ''});
+    Promise.resolve(fetchFeedDataNow(hostedFeedId, scopedConversationId, {rethrow: true})).then((data) => {
+      if (active) setHostedLoad({loading: false, error: data ? '' : 'Tool output is unavailable.'});
+    }).catch(() => { if (active) setHostedLoad({loading: false, error: 'Tool output is unavailable or access was denied.'}); });
+    return () => { active = false; };
+  }, [hostedFeedId, scopedConversationId]);
+
   // Collect expanded feeds that have data.
-  const candidateFeeds = dedupeFeeds((feeds || []).filter((feed) => {
+  const scopedFeeds = hostedFeedId && !(feeds || []).some((entry) => entry.feedId === hostedFeedId)
+    ? [...(feeds || []), {feedId: hostedFeedId, conversationId: scopedConversationId, title: 'Tool output'}] : feeds;
+  const candidateFeeds = dedupeFeeds((scopedFeeds || []).filter((feed) => {
     const feedConversationId = String(feed?.conversationId || '').trim();
     if (scopedConversationId && feedConversationId && feedConversationId !== scopedConversationId) {
       return false;
     }
-    if (!toolFeedTargetsPlacement(feed, placement, includeAuto)) return false;
+    if (hostedFeedId ? feed.feedId !== hostedFeedId : !toolFeedTargetsPlacement(feed, placement, includeAuto)) return false;
     const feedTurnId = String(feed?.turnId || '').trim();
     const scopedTurnId = String(turnId || '').trim();
     if (normalizeToolFeedTarget(feed?.presentation?.target) === 'inline' && feedTurnId && scopedTurnId && feedTurnId !== scopedTurnId) return false;
@@ -104,7 +117,7 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
     ? candidateFeeds.filter((feed) => normalizeToolFeedTarget(feed?.presentation?.target) === 'inline')
     : [];
   const forceExpandedInline = normalizeToolFeedTarget(placement) === 'inline' && candidateFeeds.length > 0;
-  const visibleFeeds = dedupeFeeds([...explicitInlineFeeds, ...expandedVisibleFeeds]);
+  const visibleFeeds = hostedFeedId ? candidateFeeds : dedupeFeeds([...explicitInlineFeeds, ...expandedVisibleFeeds]);
   const renderableFeeds = visibleFeeds.filter((feed) => {
     const data = getFeedData(feed.feedId, feed.conversationId);
     if (!data) return false;
@@ -153,6 +166,13 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
     };
   }, [collapsedHeight, dataVersion, selectedFeedId, visibleFeeds.map((feed) => feed.feedId).join('|')]);
 
+  useEffect(() => {
+    if (hostedFeedId && hostedLoad.error) onLifecycle?.('failed');
+    else if (hostedFeedId && !hostedLoad.loading && renderableFeeds.length > 0) onLifecycle?.('ready');
+  }, [hostedFeedId, renderableFeeds.length, hostedLoad.loading, hostedLoad.error, onLifecycle]);
+
+  if (hostedFeedId && hostedLoad.loading) return <div role="status">Loading tool output…</div>;
+  if (hostedFeedId && hostedLoad.error) return <div role="alert">{hostedLoad.error}</div>;
   if (renderableFeeds.length === 0) {
     // Inline feed details share the assistant response surface. An empty or
     // workspace-targeted selection must not leave a misleading placeholder
@@ -181,6 +201,8 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
                 {feed.itemCount > 0 ? <span className="app-tool-feed-detail-section-badge">{feed.itemCount}</span> : null}
               </div>
             ) : null}
+            {!hostedFeedId && feed.conversationId ? <button type="button" className="app-tool-feed-promote"
+              onClick={() => window.dispatchEvent(new CustomEvent('agently:toolfeed-workspace-open', {detail: feed}))}>Open in workspace</button> : null}
             <FeedPanel
               feedId={feed.feedId}
               rawFeedId={feed.rawFeedId || splitFeedKey(feed.feedId).feedId}

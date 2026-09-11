@@ -1,7 +1,10 @@
+import { feedTracker, getActiveFeeds } from '../services/toolFeedBus.js';
+import { useWorkspaceAdapters, setWorkspaceLifecycle } from '../services/useWorkspaceAdapters.js';
+import { getWorkspaceHistory, reopenWorkspaceObject } from '../services/conversationWindow.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSignals } from '@preact/signals-react/runtime';
 import { Button, Dialog } from '@blueprintjs/core';
-import { activeWindows, addWindow, findCollectionSignal, findFormSignal, findMetadataSignal, findMetricsSignal, findViewSignal, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
+import { useSetting, activeWindows, addWindow, findCollectionSignal, findFormSignal, findMetadataSignal, findMetricsSignal, findViewSignal, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
 import { WindowManager, WindowContent } from 'forge/components';
 import { DetailContext } from '../context/DetailContext';
 import { ConversationViewContext } from '../context/ConversationViewContext';
@@ -22,13 +25,13 @@ import Sidebar from './Sidebar';
 import ScheduleConversationHistory from './ScheduleConversationHistory';
 import ElicitationOverlay from './ElicitationOverlay';
 import { useApprovalQueue } from '../hooks/useApprovalQueue';
-import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, dismissWorkspaceWindowForConversation, ensureWorkspaceWindowForConversation, getScopedActiveSurface, getScopedConversationSelection, getScopedWorkspacePresentationMode, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
+import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, dismissWorkspaceWindowForConversation, ensureWorkspaceWindowForConversation, getScopedActiveSurface, getScopedConversationSelection, getScopedWorkspacePresentationMode, getScopedWorkspaceSelection, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
 import { conversationIDFromPath, publishActiveConversation } from '../services/chatRuntime';
 import { beginLogin, getAuthMeSilently, getAuthProvidersSilently, recoverSessionSilently } from '../services/agentlyClient';
 import { onGoalDraftOpen } from '../services/goalDraftBus';
 import { useDeveloperMode } from '../services/uiPreferences';
-import { useChatProjection } from '../services/chatStore.js';
+import { useChatProjection, useChatIsRunning } from '../services/chatStore.js';
 import { resolveWorkspaceAttachmentOwnerIndex } from '../services/workspaceAttachment.js';
 import { beginEagerMCPAuth, currentPendingMCPAuth, resumePendingMCPAuth } from '../services/mcpAuth';
 
@@ -53,10 +56,9 @@ export function shouldRestoreConversationForActivity({
 } = {}) {
   const eventID = String(eventConversationId || '').trim();
   const activeID = String(activeConversationId || '').trim();
-  return (activeSurface === 'workspace' || workspaceFull === true)
-    && !!eventID
-    && eventID === activeID
-    && CONVERSATION_RESTORE_ACTIVITY_TYPES.has(String(eventType || '').trim().toLowerCase());
+  // Ordinary conversation activity preserves the user's current surface.
+  // Only an explicit history request should return to the transcript.
+  return !!eventID && eventID === activeID && eventType === 'conversation_requested';
 }
 
 export function shouldScrollConversationAfterTurn({
@@ -290,15 +292,33 @@ export function shouldPromoteFreshWorkspaceSurface({
   mainConversationId = '',
   activeWorkspaceWindow = null,
   selectedWindowId = '',
+  conversationRows = [],
 } = {}) {
-  // Workspace availability never overrides the user's active chat surface.
-  // Explicit attachment/tab actions call setActiveSurface('workspace') directly.
-  void activeSurface;
-  void developerMode;
-  void mainConversationId;
-  void activeWorkspaceWindow;
-  void selectedWindowId;
-  return false;
+  // A live explicit open is eligible only after the renderer acknowledges readiness.
+  const originTurnId = activeWorkspaceWindow?.workspaceObject?.lastActivatedBy?.turnId || activeWorkspaceWindow?.workspaceObject?.origin?.turnId;
+  const confirmationCommitted = conversationRows.some((row) => row.turnId === originTurnId && (
+    (row.kind === 'assistant' && !!String(row.content || '').trim() && !['running', 'streaming', 'pending'].includes(row.status))
+    || (row.kind === 'iteration' && row.lifecycle === 'completed' && row.rounds?.some((round) => round.finalResponse && !!String(round.content || '').trim()))
+  ));
+  return confirmationCommitted && activeSurface !== 'workspace'
+    && !!mainConversationId
+    && activeWorkspaceWindow?.conversationId === mainConversationId
+    && activeWorkspaceWindow?.hostOpenState === 'fresh'
+    && activeWorkspaceWindow?.workspaceObject?.lifecycle?.state === 'ready'
+    && !!originTurnId
+    && activeWorkspaceWindow?.windowId === selectedWindowId;
+
+}
+
+export function resolveAcknowledgedWorkspaceWindow({candidate, windows = [], conversationId, previousWindowId, rows = []}) {
+  const canActivate = (entry) => !entry?.workspaceObject || entry?.hostOpenState !== 'fresh'
+    || shouldPromoteFreshWorkspaceSurface({activeSurface: 'conversation', mainConversationId: conversationId,
+      activeWorkspaceWindow: entry, selectedWindowId: entry?.windowId, conversationRows: rows});
+  if (!candidate || canActivate(candidate)) return candidate;
+  // Pending renderers remain mounted in the hidden host; keep the acknowledged
+  // object visible until its successor has both readiness and confirmation.
+  return windows.find((entry) => entry.windowId === previousWindowId && canActivate(entry))
+    || windows.filter(canActivate).at(-1) || candidate;
 }
 
 export function isHostedWorkspaceChildOfMainChat(windowEntry = null) {
@@ -517,11 +537,13 @@ export function resolveSplitChatClassName({
 }
 
 export default function Root() {
+  const {connectorConfig: hostConfig} = useSetting();
   useSignals();
   void selectedTabId.value;
   void selectedWindowId.value;
   void activeWindows.value;
   const [conversationSelectionEpoch, setConversationSelectionEpoch] = useState(0);
+  const activatedWorkspaceIntents = useRef(new Set());
   const [selectedTool, setSelectedTool] = useState(null);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [detailMode, setDetailMode] = useState(() => {
@@ -591,6 +613,20 @@ export default function Root() {
     || ''
   ).trim();
   const projectedConversationRows = useChatProjection(mainConversationId);
+  const chatRunning = useChatIsRunning(mainConversationId);
+  const [readChatRows, setReadChatRows] = useState({conversationId: '', keys: []});
+  const assistantRows = projectedConversationRows.filter((row) => row.kind === 'assistant' || row.kind === 'iteration');
+  const unreadChatCount = readChatRows.conversationId === mainConversationId
+    ? assistantRows.filter((row) => !readChatRows.keys.includes(row.renderKey)).length : 0;
+  useEffect(() => {
+    if (activeSurface === 'conversation' || readChatRows.conversationId !== mainConversationId) {
+      const keys = assistantRows.map((row) => row.renderKey);
+      if (readChatRows.conversationId !== mainConversationId || JSON.stringify(keys) !== JSON.stringify(readChatRows.keys)) {
+        setReadChatRows({conversationId: mainConversationId, keys});
+      }
+    }
+  }, [mainConversationId, activeSurface, projectedConversationRows, readChatRows]);
+
   const resolvedConversationWorkspaceWindow = useMemo(
     () => resolveWorkspaceWindowForConversation(mainConversationId),
     [mainConversationId, activeWindows.value]
@@ -610,7 +646,7 @@ export default function Root() {
   const linkedChildWindow = isLinkedChildWindow(selectedWindow) ? selectedWindow : null;
   const activeWindowTitle = resolveMainWindowHeaderTitle(selectedWindowForTitle);
   const useConversationWorkspaceFallback = shouldUseConversationWorkspaceFallback(selectedWindow);
-  const activeWorkspaceWindow = !linkedChildWindow
+  const workspaceCandidate = !linkedChildWindow
     ? (
         selectedWindow
         && (
@@ -627,6 +663,8 @@ export default function Root() {
             )
       )
     : null;
+  const activeWorkspaceWindow = resolveAcknowledgedWorkspaceWindow({candidate: workspaceCandidate, windows: workspaceWindows,
+    conversationId: mainConversationId, previousWindowId: getScopedWorkspaceSelection(mainConversationId), rows: projectedConversationRows});
   const workspaceTabs = useMemo(
     () => resolveHostedWorkspaceTabs(workspaceWindows, activeWorkspaceWindow?.windowId),
     [workspaceWindows, activeWorkspaceWindow?.windowId]
@@ -695,21 +733,18 @@ export default function Root() {
     setActiveSurface('workspace');
   }, [activeWorkspaceWindow?.windowId, setActiveSurface]);
 
-  const activateWorkspaceAttachment = React.useCallback(() => {
-    if (!activeWorkspaceWindow?.windowId) return;
-    selectedWindowId.value = activeWorkspaceWindow.windowId;
-    selectedTabId.value = activeWorkspaceWindow.windowId;
-    if (developerMode) {
-      const targetWindowId = String(activeWorkspaceWindow.windowId || '').trim();
-      activeWindows.value = (Array.isArray(activeWindows.value) ? activeWindows.value : []).map((entry) => (
-        String(entry?.windowId || '').trim() === targetWindowId
-          ? { ...entry, workspaceCollapsed: false }
-          : entry
-      ));
-      return;
+  const activateWorkspaceAttachment = React.useCallback((requested) => {
+    const targetId = requested?.windowId || activeWorkspaceWindow?.windowId;
+    if (!targetId) return;
+    if (requested?.workspaceObject && !getWorkspaceHistory(mainConversationId).some((entry) => entry.windowId === targetId)) {
+      setScopedWorkspaceState(mainConversationId, [...resolveWorkspaceWindowsForConversation(mainConversationId), requested]);
     }
+    const restored = reopenWorkspaceObject(mainConversationId, targetId);
+    if (!restored) return;
+    selectedWindowId.value = restored.windowId;
+    selectedTabId.value = restored.windowId;
     setActiveSurface('workspace');
-  }, [activeWorkspaceWindow?.windowId, developerMode, setActiveSurface]);
+  }, [activeWorkspaceWindow?.windowId, mainConversationId, setActiveSurface]);
 
   const returnToConversationSurface = React.useCallback(() => {
     const chatWindowId = String(effectiveMainChatWindow?.windowId || MAIN_CHAT_WINDOW_ID).trim() || MAIN_CHAT_WINDOW_ID;
@@ -718,42 +753,7 @@ export default function Root() {
     setActiveSurface('conversation');
   }, [effectiveMainChatWindow?.windowId, setActiveSurface]);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return () => {};
-    const onOpenMCPUIWorkspace = (event) => {
-      const detail = event?.detail || {};
-      const uri = String(detail?.uri || '').trim();
-      const conversationId = String(detail?.conversationId || mainConversationId || '').trim();
-      if (!uri || !conversationId || conversationId !== String(mainConversationId || '').trim()) return;
-      const navigation = detail?.navigation && typeof detail.navigation === 'object'
-        ? detail.navigation
-        : { label: String(detail?.title || 'Interactive app').trim(), icon: 'application' };
-      const opened = addWindow(
-        String(navigation?.label || detail?.title || 'Interactive app').trim(),
-        MAIN_CHAT_WINDOW_ID,
-        'mcpui/workspace',
-        null,
-        true,
-        { uri, conversationId },
-        {
-          autoIndexTitle: false,
-          conversationId,
-          presentation: 'hosted',
-          region: 'chat.top',
-          navigation,
-          mcpUI: { uri, title: String(detail?.title || navigation?.label || 'Interactive app').trim() },
-        }
-      );
-      if (opened?.windowId) {
-        const chatWindowId = String(effectiveMainChatWindow?.windowId || MAIN_CHAT_WINDOW_ID).trim() || MAIN_CHAT_WINDOW_ID;
-        selectedWindowId.value = chatWindowId;
-        selectedTabId.value = chatWindowId;
-        setActiveSurface('conversation');
-      }
-    };
-    window.addEventListener('agently:mcpui-workspace-open', onOpenMCPUIWorkspace);
-    return () => window.removeEventListener('agently:mcpui-workspace-open', onOpenMCPUIWorkspace);
-  }, [effectiveMainChatWindow?.windowId, mainConversationId, setActiveSurface]);
+  useWorkspaceAdapters({mainConversationId, workspaceWindows, setActiveSurface, setWorkspacePresentationMode});
 
   const setActiveWorkspaceCollapsed = (collapsed) => {
     const targetWindowId = String(activeWorkspaceWindow?.windowId || '').trim();
@@ -780,19 +780,25 @@ export default function Root() {
     }
   };
 
-  const closeActiveWorkspaceWindow = () => {
+  const closeActiveWorkspaceWindow = (targetWindowId) => {
     const restoreConversationId = resolveMainWindowCloseConversationId(
       getScopedConversationSelection(MAIN_CHAT_WINDOW_ID)
     );
-    const activeWindowId = String(activeWorkspaceWindow?.windowId || '').trim();
+    const activeWindowId = String(typeof targetWindowId === 'string' ? targetWindowId : activeWorkspaceWindow?.windowId || '').trim();
     if (!activeWindowId) {
       openConversationInMainWindow(restoreConversationId);
       return;
     }
+    if (workspaceWindows.find((entry) => entry.windowId === activeWindowId)?.workspaceObject?.capabilities?.close === false) return;
     const currentIndex = workspaceWindows.findIndex((entry) => String(entry?.windowId || '').trim() === activeWindowId);
     const remaining = workspaceWindows.filter((entry) => String(entry?.windowId || '').trim() !== activeWindowId);
     setWorkspacePresentationModeState('split');
     setScopedWorkspacePresentationMode(restoreConversationId, 'split');
+    const closingWindow = workspaceWindows.find((entry) => entry.windowId === activeWindowId);
+    if (closingWindow?.workspaceObject?.content?.renderer === 'toolFeed') {
+      const feed = getActiveFeeds().find((entry) => entry.feedId === closingWindow.workspaceObject.content.feedId && entry.conversationId === mainConversationId);
+      if (feed) feedTracker.setActive({...feed, presentation: {...feed.presentation, workspaceObjectId: undefined}});
+    }
     dismissWorkspaceWindowForConversation(restoreConversationId, activeWindowId);
     removeWindow(activeWindowId);
     if (remaining.length > 0) {
@@ -1236,14 +1242,20 @@ export default function Root() {
 
   useEffect(() => {
     if (!shouldPromoteFreshWorkspaceSurface({
-      activeSurface,
+      activeSurface: 'conversation',
       developerMode,
       mainConversationId,
       activeWorkspaceWindow,
       selectedWindowId: selectedWindow?.windowId,
+      conversationRows: projectedConversationRows,
     })) return;
+    const descriptor = activeWorkspaceWindow.workspaceObject;
+    const key = JSON.stringify([mainConversationId, activeWorkspaceWindow.windowId, descriptor.lastActivatedBy?.turnId || descriptor.origin?.turnId]);
+    if (activatedWorkspaceIntents.current.has(key)) return;
+    activatedWorkspaceIntents.current.add(key);
+    setWorkspacePresentationMode('full');
     setActiveSurface('workspace');
-  }, [activeSurface, activeWorkspaceWindow, developerMode, mainConversationId, selectedWindow?.windowId, setActiveSurface]);
+  }, [activeSurface, activeWorkspaceWindow, developerMode, mainConversationId, selectedWindow?.windowId, setActiveSurface, projectedConversationRows]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
@@ -1337,6 +1349,11 @@ export default function Root() {
         showIntakeDetails: false,
         toolFeedDock: showChatChrome ? 'right' : 'inline',
         workspaceWindow: showWorkspacePane ? activeWorkspaceWindow : null,
+        workspaceWindows: (() => {
+          const history = new Map(getWorkspaceHistory(mainConversationId).map((entry) => [entry.windowId, entry]));
+          workspaceWindows.forEach((entry) => history.set(entry.windowId, entry));
+          return [...history.values()];
+        })(),
         workspaceVisible: developerMode
           ? (showWorkspacePane && !effectiveWorkspaceCollapsed)
           : (showWorkspacePane && activeSurface === 'workspace'),
@@ -1415,147 +1432,27 @@ export default function Root() {
                 </div>
               ) : null}
               {showChatChrome ? <TurnProgressStatus conversationId={activeConversationId} developerMode={developerMode} connectionResumePending={mcpResumePending} /> : null}
-              {shouldRenderSplitShell ? (developerMode ? (
-                <div className={`app-window-split-stack${effectiveWorkspaceFull ? ' is-full' : ''}${effectiveWorkspaceCollapsed ? ' is-collapsed' : ''}${!showWorkspacePane ? ' is-chat-only' : ''}`}>
-                  <div
-                    className={`app-window-split-shell${effectiveWorkspaceFull ? ' is-full' : ''}${effectiveWorkspaceCollapsed ? ' is-collapsed' : ''}${!showWorkspacePane ? ' is-chat-only' : ''}`}
-                    style={{
-                      ...(workspaceSharePct > 0 ? { '--app-workspace-share': `${workspaceSharePct}%` } : {}),
-                      ...(workspaceMinHeight > 0 ? { '--app-workspace-min-height': `${workspaceMinHeight}px` } : {}),
-                      '--app-workspace-height': `${clampWorkspaceHeight(workspaceHeight)}px`,
-                    }}
-                  >
-                  {showWorkspacePane ? (
-                    <section
-                      key="workspace"
-                      className="app-window-split-workspace"
-                      aria-label={`${activeWorkspaceTitle} workspace`}
-                      aria-expanded={!effectiveWorkspaceCollapsed}
-                      data-workspace-window-id={String(activeWorkspaceWindow?.windowId || '')}
-                      data-workspace-window-key={String(activeWorkspaceWindow?.windowKey || '')}
-                      data-workspace-region="chat.top"
-                      data-workspace-collapsed={effectiveWorkspaceCollapsed ? 'true' : 'false'}
-                    >
-                      <div className="app-window-split-workspace-header">
-                        <button
-                          type="button"
-                          className="app-summary-workspace-chat-action"
-                          aria-label="Return to chat"
-                          title="Return to chat"
-                          onClick={returnToConversationSurface}
-                        >
-                          <Icon icon="arrow-left" size={14} />
-                        </button>
-                        <div className="app-window-split-workspace-dots" aria-label="Workspace window controls">
-                          <button
-                            type="button"
-                            className="app-window-dot app-window-dot-close"
-                            aria-label={`Close ${activeWorkspaceTitle}`}
-                            title="Close workspace"
-                            onClick={closeActiveWorkspaceWindow}
-                          />
-                          {!isCompactShell ? (
-                            <button
-                              type="button"
-                              className="app-window-dot app-window-dot-collapse"
-                              aria-label={isWorkspaceCollapsed ? `Restore split view for ${activeWorkspaceTitle}` : `Collapse ${activeWorkspaceTitle}`}
-                              title={isWorkspaceCollapsed ? 'Restore split workspace' : 'Collapse workspace body'}
-                              onClick={() => setActiveWorkspaceCollapsed(!isWorkspaceCollapsed)}
-                            />
-                          ) : null}
-                          {!isCompactShell ? (
-                            <button
-                              type="button"
-                              className="app-window-dot app-window-dot-expand"
-                              aria-label={isWorkspaceFull ? `Restore split view for ${activeWorkspaceTitle}` : `Expand ${activeWorkspaceTitle}`}
-                              title={isWorkspaceFull ? 'Restore split workspace' : 'Expand workspace'}
-                              onClick={() => {
-                                setActiveWorkspaceCollapsed(false);
-                                setWorkspacePresentationMode(isWorkspaceFull ? 'split' : 'full');
-                              }}
-                            />
-                          ) : null}
-                        </div>
-                        <div className="app-window-split-workspace-title">{activeWorkspaceTitle}</div>
-                      </div>
-                          {!effectiveWorkspaceCollapsed && workspaceTabs.length > 1 ? (
-                            <div className="app-window-split-workspace-tabs" role="tablist" aria-label="Workspace compare tabs">
-                          {workspaceTabs.map((tab) => (
-                            <button
-                              key={tab.windowId}
-                              type="button"
-                              role="tab"
-                              aria-selected={tab.isActive}
-                              className={`app-window-split-workspace-tab${tab.isActive ? ' is-active' : ''}`}
-                              onClick={() => focusWorkspaceWindow(tab.windowId)}
-                            >
-                              {tab.label}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                      <div
-                        className="app-window-split-workspace-body"
-                        hidden={effectiveWorkspaceCollapsed}
-                        key={String(activeWorkspaceWindow?.windowId || 'workspace')}
-                      >
-                        <WindowContent key={String(activeWorkspaceWindow?.windowId || 'workspace')} window={activeWorkspaceWindow} isInTab />
-                      </div>
-                    </section>
-                  ) : null}
-                  {showWorkspacePane && !effectiveWorkspaceFull && !effectiveWorkspaceCollapsed ? (
-                    <div
-                      className="app-window-split-workspace-resizer"
-                      role="separator"
-                      aria-orientation="horizontal"
-                      aria-label="Resize workspace panel"
-                      onPointerDown={(event) => {
-                        workspaceResizeStateRef.current = {
-                          startY: Number(event.clientY || 0),
-                          startHeight: clampWorkspaceHeight(workspaceHeight),
-                        };
-                        try { document.body.style.cursor = 'row-resize'; } catch (_) {}
-                        try { document.body.style.userSelect = 'none'; } catch (_) {}
-                      }}
-                    />
-                  ) : null}
-                  <section
-                    key="chat"
-                    className={resolveSplitChatClassName({
-                      showWorkspacePane,
-                      activeSurface,
-                      composerExpanded: workspaceComposerExpanded,
-                    })}
-                    aria-label={shouldShowChatChrome(hostedBottomWindow) ? 'Conversation' : `${resolveMainWindowHeaderTitle(hostedBottomWindow)} panel`}
-                  >
-                    {showWorkspacePane ? (
-                      <Button
-                        minimal
-                        small
-                        icon={workspaceComposerExpanded ? 'chevron-down' : 'chevron-up'}
-                        className="app-workspace-composer-toggle"
-                        aria-label={workspaceComposerExpanded ? 'Collapse composer options' : 'Expand composer options'}
-                        title={workspaceComposerExpanded ? 'Collapse composer options' : 'Expand composer options'}
-                        onClick={() => setWorkspaceComposerExpanded((expanded) => !expanded)}
-                      />
-                    ) : null}
-                    <WindowContent key={String(hostedBottomWindow?.windowId || 'chat')} window={hostedBottomWindow} isInTab />
-                  </section>
-                  </div>
-                </div>
-              ) : (
+              {shouldRenderSplitShell ? (
                 <ConversationWorkspaceSurface
                   activeSurface={activeSurface}
+                  unreadCount={unreadChatCount}
+                  chatRunning={chatRunning}
+                  workspaceMode={workspacePresentationMode === 'full' ? 'focus' : 'split'}
+                  onChangeWorkspaceMode={(mode) => setWorkspacePresentationMode(mode === 'focus' ? 'full' : 'split')}
                   chatWindow={hostedBottomWindow}
                   workspaceWindow={showWorkspacePane ? activeWorkspaceWindow : null}
                   workspaceTabs={workspaceTabs}
+                  workspaceTabsVisibility={hostConfig?.workspace?.tabs || 'auto'}
+                  workspaceWindows={workspaceWindows}
+                  onCloseWorkspaceTab={closeActiveWorkspaceWindow}
+                  onWorkspaceLifecycle={setWorkspaceLifecycle}
                   suppressConversationWorkspaceLink={hasAssistantWorkspaceLink}
                   onOpenWorkspace={openWorkspaceSurface}
                   onBackToConversation={returnToConversationSurface}
                   onCloseWorkspace={closeActiveWorkspaceWindow}
                   onSelectWorkspaceTab={focusWorkspaceWindow}
                 />
-              )) : (
+              ) : (
                 <WindowManager
                   isTabVisible={(windowEntry) => String(windowEntry?.windowId || '').trim() !== MAIN_CHAT_WINDOW_ID}
                   renderWindowContent={({ window: windowEntry, defaultContent }) => (
@@ -1573,7 +1470,7 @@ export default function Root() {
           </main>
         </div>
 
-          <StatusBar backendUnavailable={!!approvals?.backendUnavailable} approvals={approvals} />
+          <StatusBar developerMode={developerMode} backendUnavailable={!!approvals?.backendUnavailable} approvals={approvals} />
         </div>
       </ConversationViewContext.Provider>
 

@@ -66,7 +66,7 @@
 
 .app-turn-progress-chip.is-activity { background: #dcecff; color: #1a73f0; }
 .app-turn-progress-chip.is-tokens { background: #e7edf5; color: #667085; }
-.app-turn-progress-chip.has-failure { background: #fee4e2; color: #b42318; }
+.app-turn-progress-warning { color: #8b7c55; margin-left: 5px; }
 .app-turn-progress-chip.is-button { cursor: pointer; }
 .app-turn-progress-chip.is-button:hover,
 .app-turn-progress-chip.is-button:focus-visible { outline: 2px solid rgba(26, 115, 240, 0.35); outline-offset: 1px; }
@@ -106,17 +106,17 @@
   gap: 16px;
   margin: 8px 0 12px;
   padding: 12px 14px;
-  border: 1px solid #f4b4b0;
+  border: 1px solid #cbd7e6;
   border-radius: 14px;
-  background: #fff2f1;
-  color: #912018;
+  background: #f4f7fb;
+  color: #354e6b;
 }
 .app-turn-terminal-notice.is-canceled { border-color: #d7dce5; background: #f7f8fa; color: #596273; }
 .app-turn-terminal-notice.is-connected { border-color: #9dd8c8; background: #effaf6; color: #12634f; }
 .app-turn-terminal-title { font-weight: 700; }
 .app-turn-terminal-message { margin-top: 2px; font-size: 12px; opacity: 0.85; }
 .app-turn-terminal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
-.app-turn-terminal-category { padding: 3px 8px; border-radius: 999px; background: rgba(145, 32, 24, 0.09); font-size: 11px; font-weight: 700; }
+.app-turn-terminal-category { padding: 3px 8px; border-radius: 999px; background: rgba(53, 78, 107, 0.08); font-size: 11px; font-weight: 700; }
 .app-turn-terminal-notice.is-canceled .app-turn-terminal-category { background: rgba(89, 98, 115, 0.10); }
 .app-turn-terminal-notice.is-connected .app-turn-terminal-category { background: rgba(18, 99, 79, 0.10); }
 

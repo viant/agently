@@ -17,7 +17,7 @@ settings:
     MARKETING_VERSION: 0.1.0
     AGENTLY_GIT_REVISION: unknown
     AGENTLY_GIT_VERSION: unknown
-    AGENTLY_WORKSPACE_ENDPOINT: https://steward.agently.viantinc.com/
+    AGENTLY_WORKSPACE_ENDPOINT: ""
 
 targets:
   AgentlyApp:

@@ -1003,7 +1003,7 @@ function extractEmbeddedElicitationPayload(text = '') {
 
 function resolveFailedBubbleContent(visibleGroups = [], fallbackError = '') {
   const explicit = String(fallbackError || '').trim();
-  if (explicit) return 'We experienced an error while processing this request.';
+  if (explicit) return 'This request couldn’t be completed. You can try again.';
   const groups = Array.isArray(visibleGroups) ? visibleGroups : [];
   const hasError = groups.some((group) => {
     const status = String(group?.status || group?.modelStep?.status || '').trim().toLowerCase();
@@ -1012,7 +1012,7 @@ function resolveFailedBubbleContent(visibleGroups = [], fallbackError = '') {
       || status === 'terminated'
       || String(group?.errorMessage || group?.modelStep?.errorMessage || '').trim() !== '';
   });
-  return hasError ? 'We experienced an error while processing this request.' : '';
+  return hasError ? 'This request couldn’t be completed. You can try again.' : '';
 }
 
 export function resolveIterationBubbleContent({
@@ -2203,7 +2203,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
   }, [visibleGroups]);
   const terminalCategory = normalizedTerminalStatus.startsWith('cancel')
     ? 'Canceled'
-    : (normalizedTerminalStatus.includes('timeout') ? 'Timed out' : 'Tool failed');
+    : (normalizedTerminalStatus.includes('timeout') ? 'Timed out' : 'Needs attention');
   const terminalFailureMessage = resolveTerminalFailureMessage(data?.errorMessage || message?.errorMessage);
   const mcpLinkRequired = resolveMCPLinkRequired(data?.errorMessage || message?.errorMessage);
 

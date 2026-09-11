@@ -1,0 +1,22 @@
+namespace: Project Tasks
+window: {title: Project Tasks}
+dataSource:
+  tasks: {dataSourceRef: tasks}
+view:
+  content:
+    id: tasksTable
+    title: Tasks for selected project
+    dataSourceRef: tasks
+    table:
+      columns:
+        - {id: taskId, name: Task ID, type: number}
+        - {id: task, name: Task}
+        - {id: status, name: Status}
+        - id: project
+          name: Project
+          type: link
+          link:
+            kind: window
+            windowKey: projects
+            windowTitle: Projects
+        - {id: hours, name: Planned Hours, type: number}

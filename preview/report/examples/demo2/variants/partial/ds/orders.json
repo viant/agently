@@ -1,0 +1,1 @@
+{"status":"ok","rows":[{"orderDate":"2026-08-01","region":"North","scenario":"Planned","orders":184,"revenue":28940.0,"operatingCost":6420.5},{"orderDate":"2026-08-01","region":"North","scenario":"Actual","orders":213,"revenue":33185.5,"operatingCost":6420.5}],"hasMore":true,"meta":{"viewId":403,"source":"mock-records","from":"2026-08-01","to":"2026-08-03"}}
