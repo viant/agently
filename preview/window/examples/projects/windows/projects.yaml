@@ -1,0 +1,24 @@
+namespace: Projects
+window: {title: Projects}
+dataSource:
+  projects: {dataSourceRef: projects}
+view:
+  content:
+    id: projectsTable
+    title: Projects
+    dataSourceRef: projects
+    table:
+      columns:
+        - {id: projectId, name: Project ID, type: number, sortable: true}
+        - id: project
+          name: Project
+          type: link
+          link:
+            kind: window
+            windowKey: project-tasks
+            windowTitle: Project Tasks
+            parameters:
+              projectId: {source: row, selector: projectId}
+        - {id: region, name: Region, sortable: true}
+        - {id: owner, name: Owner}
+        - {id: budget, name: Budget, format: currency, sortable: true}

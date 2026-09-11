@@ -889,3 +889,10 @@ AGENTLY_SCHEDULER_RUNNER=true AGENTLY_SCHEDULER_API=false ./agently serve
 Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 This product includes software developed at Viant (http://viantinc.com/).
+
+### Report and window previews
+
+The [preview applications](preview/README.md) provide report rendering/export,
+native Forge window previews, and a shared filesystem-backed MCP mock server.
+Their hosts, frontend, fixtures, guides, and standalone launchers live under
+`preview/`, with Forge used as a rendering library.

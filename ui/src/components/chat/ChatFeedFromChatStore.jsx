@@ -96,7 +96,7 @@ function renderRow(row, context, conversationId = '', attachment = null) {
     case 'assistant':
       return <AssistantBubble key={row.renderKey} row={row} conversationId={conversationId} attachment={attachment} />;
     case 'mcpui':
-      return <MCPUIBubble key={row.renderKey} row={row} />;
+      return <MCPUIBubble key={row.renderKey} row={row} conversationId={conversationId} />;
     case 'iteration':
       return <IterationRowBlock key={row.renderKey} iterationRow={row} context={context} />;
     default:
@@ -172,15 +172,43 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
     );
   }
   const lastIndexByTurn = latestTurnRowIndex(rows);
-  const workspaceAttachmentOwnerIndex = viewContext?.workspaceVisible
-    ? -1
-    : resolveWorkspaceAttachmentOwnerIndex(rows, viewContext?.workspaceWindow);
-  const workspaceAttachment = workspaceAttachmentOwnerIndex >= 0 ? (
-    <WorkspaceAttachmentCard
-      workspaceWindow={viewContext.workspaceWindow}
-      onOpen={viewContext.onOpenWorkspace}
-    />
-  ) : null;
+  const attachmentsByOwner = new Map();
+  const workspaceEntries = viewContext?.workspaceWindows || (viewContext?.workspaceWindow ? [viewContext.workspaceWindow] : []);
+  const projectedObjectIds = new Set();
+  rows.map((row, index) => ({row, index})).reverse().forEach(({row, index}) => {
+    for (const attachment of row.attachments || []) {
+      if (attachment.kind !== 'workspaceObject' || projectedObjectIds.has(attachment.objectId)) continue;
+      const known = workspaceEntries.find((entry) => entry.workspaceObject?.objectId === attachment.objectId);
+      const descriptor = attachment.workspaceObject;
+      if (descriptor?.origin?.turnId && descriptor.origin.turnId !== row.turnId) continue;
+      const entry = known || (descriptor?.content?.windowId && descriptor?.content?.windowKey ? {
+        windowId: descriptor.content.windowId, windowKey: descriptor.content.windowKey,
+        conversationId: descriptor.conversationId || conversationId, presentation: 'hosted', region: 'chat.top',
+        parameters: descriptor.content.parameters || {}, workspaceObject: descriptor,
+        navigation: { label: attachment.label, icon: attachment.icon },
+      } : null);
+      if (!entry) continue;
+      projectedObjectIds.add(attachment.objectId);
+      if (!attachmentsByOwner.has(index)) attachmentsByOwner.set(index, []);
+      attachmentsByOwner.get(index).push(entry);
+    }
+  });
+  for (const entry of workspaceEntries) {
+    if (projectedObjectIds.has(entry.workspaceObject?.objectId)) continue;
+    const owner = resolveWorkspaceAttachmentOwnerIndex(rows, entry);
+    if (owner < 0) continue;
+    if (!attachmentsByOwner.has(owner)) attachmentsByOwner.set(owner, []);
+    attachmentsByOwner.get(owner).push(entry);
+  }
+  const workspaceAttachmentFor = (index) => {
+    const entries = attachmentsByOwner.get(index);
+    if (!entries?.length) return null;
+    return <div className="app-workspace-attachments" role="group" aria-label={entries.length > 1 ? `${entries.length} workspaces` : 'Workspace'}>
+      {entries.length > 1 ? <span>{entries.length} workspaces</span> : null}
+      {entries.map((entry) => <WorkspaceAttachmentCard key={entry.windowId} workspaceWindow={entry}
+        onOpen={() => viewContext.onOpenWorkspace?.(entry)} />)}
+    </div>;
+  };
   const retryPromptByTurn = new Map();
   rows.forEach((row) => {
     const turnId = String(row?.turnId || '').trim();
@@ -210,7 +238,7 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
             row,
             context,
             conversationId,
-            index === workspaceAttachmentOwnerIndex ? workspaceAttachment : null
+            workspaceAttachmentFor(index)
           );
           if (!inlineFeed) return rendered;
           return (
@@ -229,7 +257,7 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
               showToolFeedDetail={false}
               suppressBubble={suppressBubble}
               retryPrompt={retryPromptByTurn.get(turnId) || ''}
-              attachment={index === workspaceAttachmentOwnerIndex ? workspaceAttachment : null}
+              attachment={workspaceAttachmentFor(index)}
             />
             {inlineFeed}
           </React.Fragment>

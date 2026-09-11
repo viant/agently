@@ -995,7 +995,7 @@ describe('mapCanonicalExecutionGroups', () => {
       visibleGroups: groups,
       responseContent: intakePayload,
       errorMessage: 'required tools unavailable',
-    })).toBe('We experienced an error while processing this request.');
+    })).toBe('This request couldn’t be completed. You can try again.');
   });
 
   it('preserves narrator executionRole on canonical model groups', () => {
@@ -2199,7 +2199,7 @@ describe('mapCanonicalExecutionGroups', () => {
       errorMessage: 'dial tcp: lookup api.openai.com: no such host'
     });
 
-    expect(text).toBe('We experienced an error while processing this request.');
+    expect(text).toBe('This request couldn’t be completed. You can try again.');
   });
 
   it('maps canonical page fields (modelSteps / toolSteps) with camelCase-only keys', () => {
@@ -2417,7 +2417,7 @@ describe('mapCanonicalExecutionGroups', () => {
     }));
 
     expect(html).toContain('Request couldn’t be completed');
-    expect(html).toContain('Tool failed');
+    expect(html).toContain('Needs attention');
     expect(html).toContain('Developer details');
     expect(html).toContain('Try again');
     expect(html).not.toContain('private backend diagnostic');

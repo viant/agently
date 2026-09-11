@@ -5,17 +5,18 @@ import { resolveWorkspaceNavigation } from '../ConversationWorkspaceSurface.jsx'
 export default function WorkspaceAttachmentCard({ workspaceWindow = null, onOpen }) {
   if (!workspaceWindow) return null;
   const navigation = resolveWorkspaceNavigation(workspaceWindow);
-  const detail = navigation.supportingText
-    || navigation.subtitle
-    || `Open the ${navigation.label} workspace.`;
+  const lifecycle = workspaceWindow.workspaceObject?.lifecycle?.state || 'ready';
+  const action = lifecycle === 'opening' ? 'Opening…' : lifecycle === 'closed' || lifecycle === 'stale' ? 'Reopen' : lifecycle === 'failed' ? 'Retry' : 'Show';
   return (
     <button
       type="button"
       className="app-workspace-attachment"
       data-testid="workspace-attachment-card"
       data-workspace-window-id={workspaceWindow?.windowId || ''}
-      aria-label={`Open ${navigation.label}`}
+      data-workspace-object-id={workspaceWindow?.workspaceObject?.objectId || ''}
+      aria-label={`${action} ${navigation.label}`}
       title={navigation.tooltip || `Open ${navigation.label}`}
+      disabled={lifecycle === 'opening'}
       onClick={onOpen}
     >
       <span className="app-workspace-attachment-icon" aria-hidden="true">
@@ -23,9 +24,9 @@ export default function WorkspaceAttachmentCard({ workspaceWindow = null, onOpen
       </span>
       <span className="app-workspace-attachment-copy">
         <strong>{navigation.label}</strong>
-        <span>{detail}</span>
+        <span>{lifecycle === 'ready' ? 'Ready' : lifecycle === 'failed' ? 'Needs attention' : lifecycle}</span>
       </span>
-      <span className="app-workspace-attachment-arrow" aria-hidden="true">→</span>
+      <span className="app-workspace-attachment-arrow">{action}</span>
     </button>
   );
 }

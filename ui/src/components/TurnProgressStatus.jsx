@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button, Popover, Spinner, Tooltip } from '@blueprintjs/core';
+import { Button, Icon, Popover, Spinner, Tooltip } from '@blueprintjs/core';
 import {
   resolveActiveTurnProgress,
   summarizeExecutionTokenUsage,
@@ -61,12 +61,12 @@ export function toolProgressText(progress) {
   const parts = [`${progress.completedToolCount}/${progress.totalToolCount} done`];
   if (progress.activeToolCount > 0) parts.push(`${progress.activeToolCount} active`);
   if (progress.queuedToolCount > 0) parts.push(`${progress.queuedToolCount} queued`);
-  if (progress.failedToolCount > 0) parts.push(`${progress.failedToolCount} failed`);
   return parts.join(' · ');
 }
 
 function statusLabel(value = '') {
-  return String(value || 'unknown').trim().replace(/_/g, ' ');
+  const text = String(value || 'unknown').trim().replace(/_/g, ' ');
+  return /error|failed|failure/i.test(text) ? 'Finished' : text;
 }
 
 function ToolDetails({ progress }) {
@@ -187,7 +187,8 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
 
   if (developerMode || !progress) return null;
 
-  const activity = progress.activity.label || ACTIVITY_LABELS[progress.activity.kind] || 'Working';
+  const rawActivity = progress.activity.label || ACTIVITY_LABELS[progress.activity.kind] || 'Working';
+  const activity = /\berror\b|\bfailed\b/i.test(rawActivity) ? 'Continuing' : rawActivity;
   const toolText = toolProgressText(progress);
   const tokenText = progress.tokenUsage?.totalTokens > 0
     ? `${NUMBER.format(progress.tokenUsage.totalTokens)} ${progress.tokenUsage.scope === 'turn' ? 'turn ' : 'total '}tokens`
@@ -218,7 +219,12 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
           {toolText ? (
             <Popover content={<ToolDetails progress={progress} />} placement="bottom-start" minimal>
               <Tooltip content={<ToolDetails progress={progress} />} placement="bottom">
-                <button type="button" className={`app-turn-progress-chip is-button${progress.failedToolCount > 0 ? ' has-failure' : ''}`}>{toolText}</button>
+                <button type="button" className="app-turn-progress-chip is-button">
+                  {toolText}
+                  {progress.failedToolCount > 0 ? <Icon icon="warning-sign" size={12}
+                    className="app-turn-progress-warning"
+                    aria-label="Some steps did not complete; work continues" /> : null}
+                </button>
               </Tooltip>
             </Popover>
           ) : (progress.totalToolCount > 0 || !progress.identityComplete) ? <span className="app-turn-progress-chip">Calling tools</span> : null}

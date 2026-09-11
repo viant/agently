@@ -87,7 +87,9 @@ export default defineConfig(({ mode, command }) => {
   return {
     base: '/',
     resolve: {
-      preserveSymlinks: true,
+      // Resolve package-local dependencies correctly with both npm and pnpm.
+      // Shared React/Forge identities remain controlled by aliases and dedupe.
+      preserveSymlinks: false,
       dedupe: [
         'react',
         'react-dom',

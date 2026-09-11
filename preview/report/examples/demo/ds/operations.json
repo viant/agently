@@ -1,0 +1,41 @@
+{
+  "status": "ok",
+  "data": [
+    {
+      "name": "operations",
+      "columns": [
+        {"name": "operationsDate", "type": "date", "role": "dimension", "nullable": false},
+        {"name": "region", "type": "string", "role": "dimension", "nullable": false},
+        {"name": "processedUnits", "type": "integer", "role": "measure", "format": "compactNumber", "nullable": false},
+        {"name": "completedTasks", "type": "integer", "role": "measure", "format": "compactNumber", "nullable": false},
+        {"name": "operatingCost", "type": "number", "role": "measure", "format": "currency", "nullable": false}
+      ],
+      "rows": [
+        ["2026-08-01", "North", 420000, 1840, 6420.50],
+        ["2026-08-01", "Central", 260000, 2210, 2380.00],
+        ["2026-08-01", "South", 85000, 310, 940.25],
+        ["2026-08-02", "North", 455000, 2010, 6810.75],
+        ["2026-08-02", "Central", 278000, 2360, 2515.50],
+        ["2026-08-02", "South", 91000, 348, 1004.00],
+        ["2026-08-03", "North", 438000, 1922, 6604.25],
+        ["2026-08-03", "Central", 294000, 2499, 2678.80],
+        ["2026-08-03", "South", 94000, 361, 1038.20],
+        ["2026-08-04", "North", 472000, 2124, 7025.00],
+        ["2026-08-04", "Central", 301000, 2581, 2754.40],
+        ["2026-08-04", "South", 99000, 386, 1098.75]
+      ],
+      "hasMore": false
+    }
+  ],
+  "meta": {
+    "suiteId": 91,
+    "viewId": 90001,
+    "family": "project_operations_demo",
+    "source": "mock_operations",
+    "from": "2026-08-01",
+    "to": "2026-08-04",
+    "cached": false,
+    "resultSet": "operations"
+  }
+}
+

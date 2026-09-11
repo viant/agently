@@ -1,0 +1,187 @@
+apiVersion: reporting.viant.ai/v1alpha1
+kind: ReportDefinition
+
+metadata:
+  id: operations-overview-demo
+  title: Operations Overview Preview
+  description: Renderer-neutral demonstration of a report definition backed by local mock datasources.
+  revision: 1
+
+parameters:
+  - {name: from, type: date, label: From}
+  - {name: to, type: date, label: To}
+  - {name: region, type: string, label: Region, multiple: true}
+
+endpoints:
+  mockReports:
+    type: mcp
+    transport: streamable
+    baseURL: /mcp
+
+dataSources:
+  operations:
+    service: {endpoint: mockReports, uri: operations, method: POST}
+    description: Daily project operations returned in the public MCP tabular form.
+    resultContract: {shape: tabular, resultsPath: data, resultName: operations}
+    columns:
+      - {name: operationsDate, type: date, role: dimension, label: Operations Date, nullable: false}
+      - {name: region, type: string, role: dimension, label: Region, nullable: false}
+      - {name: processedUnits, type: integer, role: measure, label: Processed Units, format: compactNumber, nullable: false}
+      - {name: completedTasks, type: integer, role: measure, label: Completed Tasks, format: compactNumber, nullable: false}
+      - {name: operatingCost, type: number, role: measure, label: Operating Cost, format: currency, nullable: false}
+    parameterBindings:
+      - {parameter: from, field: operationsDate, operator: gte}
+      - {parameter: to, field: operationsDate, operator: lte}
+      - {parameter: region, field: region, operator: in}
+
+  projectTargets:
+    service: {endpoint: mockReports, uri: projectTargets, method: POST}
+    description: Project targets supplied as ordinary object-row JSON.
+    resultContract: {shape: records, rowPath: rows, hasMorePath: hasMore}
+    columns:
+      - {name: project, type: string, role: dimension, label: Project, nullable: false}
+      - {name: owner, type: string, role: dimension, label: Owner, nullable: false}
+      - {name: targetUnits, type: integer, role: measure, label: Target Units, format: compactNumber, nullable: false}
+      - {name: budget, type: number, role: measure, label: Budget, format: currency, nullable: false}
+
+datasets:
+  operationsSummary:
+    dataSource: operations
+    query:
+      projection:
+        dimensions: []
+        measures:
+          - {field: processedUnits, aggregation: sum}
+          - {field: completedTasks, aggregation: sum}
+          - {field: operatingCost, aggregation: sum}
+
+  operationsByDate:
+    dataSource: operations
+    query:
+      projection:
+        dimensions: [operationsDate]
+        measures:
+          - {field: processedUnits, aggregation: sum}
+          - {field: completedTasks, aggregation: sum}
+          - {field: operatingCost, aggregation: sum}
+      orderBy:
+        - {field: operationsDate, direction: asc}
+      page: {limit: 100, offset: 0}
+
+  operationsByRegion:
+    dataSource: operations
+    query:
+      projection:
+        dimensions: [region]
+        measures:
+          - {field: processedUnits, aggregation: sum}
+          - {field: completedTasks, aggregation: sum}
+          - {field: operatingCost, aggregation: sum}
+      orderBy:
+        - {field: processedUnits, direction: desc}
+      page: {limit: 20, offset: 0}
+
+  operationsEvidence:
+    dataSource: operations
+    query:
+      projection:
+        dimensions: [operationsDate, region]
+        measures:
+          - {field: processedUnits, aggregation: sum}
+          - {field: completedTasks, aggregation: sum}
+          - {field: operatingCost, aggregation: sum}
+      orderBy:
+        - {field: operationsDate, direction: asc}
+        - {field: region, direction: asc}
+      page: {limit: 5, offset: 0}
+
+  targets:
+    dataSource: projectTargets
+    query:
+      projection:
+        dimensions: [project, owner]
+        measures:
+          - {field: targetUnits, aggregation: none}
+          - {field: budget, aggregation: none}
+      orderBy:
+        - {field: targetUnits, direction: desc}
+      page: {limit: 25, offset: 0}
+
+sections:
+  - id: overview
+    title: Overview
+    blocks:
+      - id: operationsKpis
+        type: kpiGroup
+        title: Operations summary
+        dataset: operationsSummary
+        metrics:
+          - {field: processedUnits, label: Processed Units, format: compactNumber}
+          - {field: completedTasks, label: Completed Tasks, format: compactNumber}
+          - {field: operatingCost, label: Operating Cost, format: currency}
+
+      - id: operationsTrend
+        type: chart
+        title: Operations trend
+        dataset: operationsByDate
+        visual:
+          type: line
+          category: operationsDate
+          series: [processedUnits, completedTasks]
+
+      - id: regionMix
+        type: chart
+        title: Operations by region
+        dataset: operationsByRegion
+        visual:
+          type: horizontalBar
+          category: region
+          series: [processedUnits]
+
+  - id: evidence
+    title: Evidence
+    blocks:
+      - id: operationsTable
+        type: table
+        title: Daily operations
+        dataset: operationsEvidence
+        columns: [operationsDate, region, processedUnits, completedTasks, operatingCost]
+        paging: {enabled: true}
+
+      - id: targetTable
+        type: table
+        title: Project targets
+        dataset: targets
+        columns: [project, owner, targetUnits, budget]
+
+exports:
+  formats: [pdf, csv, xlsx]
+  useResolvedDatasets: true
+
+x-mock-preview:
+  version: 1
+  dataRoot: ./ds
+  primaryDataSource: operations
+  maxPageSize: 1000
+  label: Synthetic mock preview
+  dataSources:
+    operations:
+      file: operations.json
+      inputContract: {shape: tabular, resultsPath: data}
+      resultName: operations
+      query: {projection: true, filtering: true, grouping: true, sorting: true, pagination: offset}
+      dimensions: [operationsDate, region]
+      measures:
+        processedUnits: {aggregation: sum}
+        completedTasks: {aggregation: sum}
+        operatingCost: {aggregation: sum}
+
+    projectTargets:
+      file: projectTargets.json
+      inputContract: {shape: records, rowPath: rows, hasMorePath: hasMore}
+      query: {projection: true, filtering: true, grouping: false, sorting: true, pagination: offset}
+      dimensions: [project, owner]
+      measures:
+        targetUnits: {aggregation: none}
+        budget: {aggregation: none}
+

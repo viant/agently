@@ -22,6 +22,7 @@ import {
   shouldCaptureDesktopSidebarPreference,
   shouldPersistWorkspaceHeight,
   shouldPromoteFreshWorkspaceSurface,
+  resolveAcknowledgedWorkspaceWindow,
   shouldRestoreDesktopSidebarPreference,
   resolveMainWindowCloseConversationId,
   resolveMainWindowHeaderTitle,
@@ -83,26 +84,26 @@ describe('Root window selection helpers', () => {
     })).toBe('app-window-split-chat is-composer-only is-composer-expanded');
   });
 
-  it('restores chat for a newly submitted turn while preserving the workspace split', () => {
+  it('keeps workspace active for submitted, queued, and started turns', () => {
     expect(shouldRestoreConversationForActivity({
       eventConversationId: 'conv-1',
       activeConversationId: 'conv-1',
       activeSurface: 'workspace',
       eventType: 'turn_started',
-    })).toBe(true);
+    })).toBe(false);
     expect(shouldRestoreConversationForActivity({
       eventConversationId: 'conv-1',
       activeConversationId: 'conv-1',
       activeSurface: 'workspace',
       eventType: 'turn_queued',
-    })).toBe(true);
+    })).toBe(false);
     expect(shouldRestoreConversationForActivity({
       eventConversationId: 'conv-1',
       activeConversationId: 'conv-1',
       activeSurface: 'conversation',
       workspaceFull: true,
       eventType: 'turn_started',
-    })).toBe(true);
+    })).toBe(false);
     expect(shouldRestoreConversationForActivity({
       eventConversationId: 'conv-other',
       activeConversationId: 'conv-1',
@@ -152,6 +153,34 @@ describe('Root window selection helpers', () => {
     expect(shouldPersistWorkspaceHeight({ activeWorkspaceWindowId: 'workspace-1', hasStoredHeight: false })).toBe(true);
     expect(shouldPersistWorkspaceHeight({ activeWorkspaceWindowId: '', hasStoredHeight: true })).toBe(true);
     expect(shouldPersistWorkspaceHeight({ activeWorkspaceWindowId: '', hasStoredHeight: false })).toBe(false);
+  });
+
+  it('keeps the previous workspace visible until the successor is ready and confirmed', () => {
+    const previous = {windowId: 'old', conversationId: 'c', hostOpenState: 'historical_replay'};
+    const candidate = {windowId: 'new', conversationId: 'c', hostOpenState: 'fresh', workspaceObject: {origin: {turnId: 'new-turn'}, lifecycle: {state: 'opening'}}};
+    const input = {candidate, windows: [previous, candidate], conversationId: 'c', previousWindowId: 'old'};
+    expect(resolveAcknowledgedWorkspaceWindow(input)).toBe(previous);
+    candidate.workspaceObject.lifecycle.state = 'ready';
+    expect(resolveAcknowledgedWorkspaceWindow(input)).toBe(previous);
+    expect(resolveAcknowledgedWorkspaceWindow({...input, rows: [{kind: 'assistant', turnId: 'new-turn', content: 'Opened.'}]})).toBe(candidate);
+  });
+
+  it('activates only a ready, explicitly opened object in the current conversation', () => {
+    const input = { activeSurface: 'conversation', mainConversationId: 'conv-1', selectedWindowId: 'resource-1',
+      conversationRows: [{kind: 'assistant', turnId: 'turn-1', content: 'The workspace is open.', status: 'completed'}],
+      activeWorkspaceWindow: { windowId: 'resource-1', conversationId: 'conv-1', hostOpenState: 'fresh',
+        workspaceObject: { origin: { turnId: 'turn-1' }, lifecycle: { state: 'ready' } } } };
+    expect(shouldPromoteFreshWorkspaceSurface(input)).toBe(true);
+    expect(shouldPromoteFreshWorkspaceSurface({...input, activeWorkspaceWindow: {...input.activeWorkspaceWindow,
+      workspaceObject: {...input.activeWorkspaceWindow.workspaceObject, lastActivatedBy: {turnId: 'latest-turn'}}}})).toBe(false);
+    expect(shouldPromoteFreshWorkspaceSurface({...input, conversationRows: []})).toBe(false);
+    expect(shouldPromoteFreshWorkspaceSurface({...input, conversationRows: [{...input.conversationRows[0], status: 'streaming'}]})).toBe(false);
+    expect(shouldPromoteFreshWorkspaceSurface({ ...input, mainConversationId: 'other' })).toBe(false);
+    expect(shouldPromoteFreshWorkspaceSurface({ ...input, activeWorkspaceWindow: { ...input.activeWorkspaceWindow, hostOpenState: 'historical_replay' } })).toBe(false);
+    for (const state of ['opening', 'failed', 'closed']) {
+      expect(shouldPromoteFreshWorkspaceSurface({ ...input, activeWorkspaceWindow: { ...input.activeWorkspaceWindow,
+        workspaceObject: { origin: { turnId: 'turn-1' }, lifecycle: { state } } } })).toBe(false);
+    }
   });
 
   it('does not let a freshly opened hosted workspace overtake the active conversation', () => {

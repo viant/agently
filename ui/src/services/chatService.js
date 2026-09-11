@@ -1,3 +1,4 @@
+import { buildWorkspaceQueryContext } from './workspaceQueryContext.js';
 import React from 'react';
 import { publishUIBridgeSnapshotNow } from 'forge/core';
 import {
@@ -764,6 +765,7 @@ export async function submitMessage({ context, message, model, agent }) {
     reasoningEffort: metaForm?.reasoningEffort || undefined,
     context: {
       ...buildWebQueryContext(),
+      ...buildWorkspaceQueryContext(conversationID),
       ...(extraContext || {}),
     },
     attachments: queryAttachments.length > 0 ? queryAttachments : undefined

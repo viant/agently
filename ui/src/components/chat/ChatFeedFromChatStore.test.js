@@ -82,6 +82,28 @@ function makeContext({ conversation = {}, meta = {} } = {}) {
 }
 
 describe('ChatFeedFromChatStore', () => {
+  it('keeps refined final-message attachments out of a suppressed iteration bubble', () => {
+    const descriptor = {version: 1, objectId: 'object-1', origin: {turnId: 'turn-1'}, lifecycle: {state: 'ready'}, content: {windowId: 'view-1', windowKey: 'resource'}};
+    const attachments = [{kind: 'workspaceObject', objectId: 'object-1', label: 'Resource', workspaceObject: descriptor}];
+    const rows = [{kind: 'iteration', renderKey: 'iteration', turnId: 'turn-1', rounds: [], lifecycle: 'completed', attachments},
+      {kind: 'assistant', renderKey: 'final-answer', turnId: 'turn-1', content: 'Ready.', attachments}];
+    const html = renderToStaticMarkup(h(ConversationViewContext.Provider, {value: {workspaceWindows: []}}, h(ChatFeedFromChatStore, {conversationId: 'c', rowsOverride: rows})));
+    expect(html.match(/data-workspace-object-id="object-1"/g)).toHaveLength(1);
+    expect(html.indexOf('data-workspace-object-id="object-1"')).toBeGreaterThan(html.indexOf('data-render-key="final-answer"'));
+  });
+
+  it('renders structured historical attachments with no live window or tool history', () => {
+    const workspaceObject = { version: 1, objectId: 'workspace:resource-1',
+      conversationId: 'c', origin: { turnId: 'turn-1', messageId: 'message-1' },
+      lifecycle: { state: 'ready' }, content: { renderer: 'forgeWindow', windowId: 'resource-1', windowKey: 'resource' } };
+    const rows = [{kind: 'assistant', renderKey: 'answer', messageId: 'message-1', turnId: 'turn-1', content: 'The resource is open.',
+      attachments: [{kind: 'workspaceObject', objectId: workspaceObject.objectId, label: 'Resource', workspaceObject}]}];
+    const html = renderToStaticMarkup(h(ConversationViewContext.Provider, {value: {workspaceWindows: []}},
+      h(ChatFeedFromChatStore, {conversationId: 'c', rowsOverride: rows})));
+    expect(html).toContain('data-workspace-window-id="resource-1"');
+    expect(html).toContain('Show Resource');
+  });
+
   it('falls back to authoritative workspace starter metadata when the scoped meta form is empty', () => {
     expect(resolveStarterTaskPresentation(
       { starterTasks: [], starterTaskCategories: [] },
@@ -106,6 +128,7 @@ describe('ChatFeedFromChatStore', () => {
     ];
     const workspaceWindow = {
       windowId: 'reports-window',
+      sourceTurnId: 'turn-report',
       windowKey: 'reports',
       navigation: { label: 'Reports', icon: 'chart', supportingText: 'Saved reports and built-in presets' },
     };
@@ -116,7 +139,8 @@ describe('ChatFeedFromChatStore', () => {
       }, h(ChatFeedFromChatStore, { conversationId: 'c', rowsOverride: rows })),
     );
     expect(html).toContain('data-testid="workspace-attachment-card"');
-    expect(html).toContain('Saved reports and built-in presets');
+    expect(html).toContain('Ready');
+    expect(html).not.toContain('Saved reports and built-in presets');
     expect(html.indexOf('workspace-attachment-card')).toBeLessThan(html.indexOf('data-render-key="rk_later"'));
   });
 

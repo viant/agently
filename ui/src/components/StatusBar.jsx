@@ -1,3 +1,4 @@
+import {progressStatusPresentation} from '../services/progressPresentation.js';
 import React from 'react';
 import { useStage } from '../services/stageBus';
 
@@ -9,6 +10,7 @@ const PHASE_ICON = {
   streaming: '✍',
   done: '✓',
   error: '⚠',
+  attention: '●',
   terminated: '■',
   offline: '●'
 };
@@ -21,13 +23,10 @@ function formatElapsed(ms = 0) {
   return `${Math.round(sec)}s`;
 }
 
-export default function StatusBar({ backendUnavailable = false, approvals = null }) {
+export default function StatusBar({ backendUnavailable = false, approvals = null, developerMode = false }) {
   const stage = useStage();
   const [now, setNow] = React.useState(Date.now());
-  const phase = backendUnavailable ? 'offline' : String(stage?.phase || 'ready');
-  const text = backendUnavailable
-    ? 'Service temporarily unavailable. Reconnecting...'
-    : String(stage?.text || 'Ready');
+  const {phase, text} = progressStatusPresentation(stage, developerMode, backendUnavailable);
   const pendingApprovals = Number(approvals?.pendingCount || 0);
   const isElapsedActive = !backendUnavailable && ELAPSED_PHASES.has(phase);
   const startedAt = Number(stage?.startedAt || 0);
@@ -43,7 +42,7 @@ export default function StatusBar({ backendUnavailable = false, approvals = null
   }, [isElapsedActive, phase, stage?.updatedAt]);
 
   return (
-    <footer className={`app-statusbar phase-${phase}`}>
+    <footer className={`app-statusbar phase-${phase}`} role="status" aria-live="polite">
       <div className="app-statusbar-main">
         <span className="app-statusbar-icon">{PHASE_ICON[phase] || '●'}</span>
         <span className="app-statusbar-text">

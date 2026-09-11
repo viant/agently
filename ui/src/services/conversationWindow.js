@@ -1,14 +1,16 @@
+import { readWorkspaceSession, updateWorkspaceSession, mergeWorkspaceSessionWindows, workspaceHistory } from './workspaceSession.js';
 import {
   addWindow,
   activeWindows,
   getFormSignal,
+  findInputSignal, findSelectionSignal, findMetadataSignal, getInputSignal, getSelectionSignal,
   getViewSignal,
   publishUIBridgeSnapshotNow,
   removeWindow,
   selectedTabId,
   selectedWindowId
 } from 'forge/core';
-import { deriveHostedWorkspaceRestoreStateFromTranscriptTurns } from 'agently-core-ui-sdk/workspaceRestore';
+import { deriveHostedWorkspaceRestoreStateFromTranscriptTurns, deriveWorkspaceHistoryFromTranscriptTurns } from 'agently-core-ui-sdk/workspaceRestore';
 import { generateIntHash } from '../../../../forge/src/utils/hash.js';
 import { client } from './agentlyClient';
 
@@ -91,12 +93,7 @@ function dismissedWorkspaceWindowIds(conversationId = '') {
   const storage = uiStateStorage();
   const convID = String(conversationId || '').trim();
   if (!storage || !convID) return new Set();
-  try {
-    const parsed = JSON.parse(String(storage.getItem(dismissedWorkspaceWindowsKey(convID)) || '[]'));
-    return new Set((Array.isArray(parsed) ? parsed : []).map((value) => String(value || '').trim()).filter(Boolean));
-  } catch (_) {
-    return new Set();
-  }
+  return new Set(readWorkspaceSession(storage, convID).closedWindowIds);
 }
 
 export function dismissWorkspaceWindowForConversation(conversationId = '', windowId = '') {
@@ -106,7 +103,7 @@ export function dismissWorkspaceWindowForConversation(conversationId = '', windo
   if (!storage || !convID || !targetWindowId) return;
   const ids = dismissedWorkspaceWindowIds(convID);
   ids.add(targetWindowId);
-  try { storage.setItem(dismissedWorkspaceWindowsKey(convID), JSON.stringify([...ids])); } catch (_) {}
+  updateWorkspaceSession(storage, convID, (state) => ({ ...state, closedWindowIds: [...ids] }));
 }
 
 export function isWorkspaceWindowDismissed(conversationId = '', windowId = '') {
@@ -118,9 +115,7 @@ export function getScopedActiveSurface(conversationId = '') {
   const storage = uiStateStorage();
   const id = String(conversationId || '').trim();
   if (!storage || !id) return 'conversation';
-  return String(storage.getItem(activeSurfaceKey(id)) || '').trim().toLowerCase() === 'workspace'
-    ? 'workspace'
-    : 'conversation';
+  return readWorkspaceSession(storage, id).activeSurface;
 }
 
 export function setScopedActiveSurface(conversationId = '', surface = 'conversation') {
@@ -128,7 +123,7 @@ export function setScopedActiveSurface(conversationId = '', surface = 'conversat
   const id = String(conversationId || '').trim();
   if (!storage || !id) return;
   const next = String(surface || '').trim().toLowerCase() === 'workspace' ? 'workspace' : 'conversation';
-  try { storage.setItem(activeSurfaceKey(id), next); } catch (_) {}
+  updateWorkspaceSession(storage, id, (state) => ({ ...state, activeSurface: next }));
 }
 
 const RUNNING_TRANSCRIPT_STATUSES = new Set(['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress']);
@@ -299,7 +294,7 @@ export function getScopedWorkspaceSelection(conversationId = '') {
   if (!storage) return '';
   const id = String(conversationId || '').trim();
   if (!id) return '';
-  return String(storage.getItem(workspaceSelectionKey(id)) || '').trim();
+  return readWorkspaceSession(storage, id).activeWindowId;
 }
 
 export function setScopedWorkspaceSelection(conversationId = '', windowId = '') {
@@ -308,13 +303,7 @@ export function setScopedWorkspaceSelection(conversationId = '', windowId = '') 
   const convID = String(conversationId || '').trim();
   if (!convID) return;
   const targetWindowId = String(windowId || '').trim();
-  try {
-    if (targetWindowId) {
-      storage.setItem(workspaceSelectionKey(convID), targetWindowId);
-    } else {
-      storage.removeItem(workspaceSelectionKey(convID));
-    }
-  } catch (_) {}
+  updateWorkspaceSession(storage, convID, (state) => ({ ...state, activeWindowId: targetWindowId }));
 }
 
 export function getScopedWorkspaceState(conversationId = '') {
@@ -322,15 +311,9 @@ export function getScopedWorkspaceState(conversationId = '') {
   if (!storage) return null;
   const id = String(conversationId || '').trim();
   if (!id) return null;
-  try {
-    const raw = String(storage.getItem(workspaceStateKey(id)) || '').trim();
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return null;
-    return parsed;
-  } catch (_) {
-    return null;
-  }
+  const state = readWorkspaceSession(storage, id);
+  const windows = state.windows.filter((entry) => !state.closedWindowIds.includes(entry.windowId) && (!state.openWindowIds || state.openWindowIds.includes(entry.windowId)));
+  return windows.length > 1 ? { windows } : windows[0] || null;
 }
 
 export function getScopedWorkspaceWindowsState(conversationId = '') {
@@ -347,8 +330,7 @@ export function getScopedWorkspacePresentationMode(conversationId = '') {
   if (!storage) return 'split';
   const id = String(conversationId || '').trim();
   if (!id) return 'split';
-  const raw = String(storage.getItem(workspacePresentationModeKey(id)) || '').trim().toLowerCase();
-  return raw === 'full' ? 'full' : 'split';
+  return readWorkspaceSession(storage, id).workspaceMode === 'focus' ? 'full' : 'split';
 }
 
 export function setScopedWorkspacePresentationMode(conversationId = '', mode = 'split') {
@@ -357,9 +339,7 @@ export function setScopedWorkspacePresentationMode(conversationId = '', mode = '
   const id = String(conversationId || '').trim();
   if (!id) return;
   const next = String(mode || '').trim().toLowerCase() === 'full' ? 'full' : 'split';
-  try {
-    storage.setItem(workspacePresentationModeKey(id), next);
-  } catch (_) {}
+  updateWorkspaceSession(storage, id, (state) => ({ ...state, workspaceMode: next === 'full' ? 'focus' : 'split' }));
 }
 
 export function hasScopedWorkspaceState(conversationId = '') {
@@ -397,7 +377,7 @@ export function setScopedWorkspaceState(conversationId = '', win = null) {
   if (!convID) return;
   try {
     if (!win || typeof win !== 'object') {
-      storage.removeItem(workspaceStateKey(convID));
+      updateWorkspaceSession(storage, convID, (state) => ({ ...state, openWindowIds: [] }));
       return;
     }
     const entries = Array.isArray(win) ? win : [win];
@@ -416,13 +396,12 @@ export function setScopedWorkspaceState(conversationId = '', win = null) {
       })
       .filter((entry) => entry && !isWorkspaceWindowDismissed(convID, entry.windowId));
     if (payloads.length === 0) {
-      storage.removeItem(workspaceStateKey(convID));
       return;
     }
     const payload = payloads.length === 1
       ? payloads[0]
       : { windows: payloads };
-    storage.setItem(workspaceStateKey(convID), JSON.stringify(payload));
+    updateWorkspaceSession(storage, convID, (state) => ({ ...mergeWorkspaceSessionWindows(state, payloads), openWindowIds: payloads.map((entry) => entry.windowId) }));
   } catch (_) {}
 }
 
@@ -540,6 +519,7 @@ function restoreWorkspaceWindowForConversation(conversationId = '', { focus = tr
         workspaceSharePct: saved.workspaceSharePct ?? undefined,
         workspaceMinHeight: saved.workspaceMinHeight ?? undefined,
         workspaceCollapsed: saved.workspaceCollapsed === true,
+        workspaceObject: saved.workspaceObject,
         navigation: saved.navigation && typeof saved.navigation === 'object' ? saved.navigation : undefined,
         mcpUI: saved.mcpUI && typeof saved.mcpUI === 'object' ? saved.mcpUI : undefined,
         hostOpenState: 'historical_replay',
@@ -547,6 +527,10 @@ function restoreWorkspaceWindowForConversation(conversationId = '', { focus = tr
     );
     if (restored?.windowId && saved?.windowForm && typeof saved.windowForm === 'object') {
       getFormSignal(`${restored.windowId}:windowForm`).value = saved.windowForm;
+    }
+    if (restored?.windowId) restoreWorkspaceDataSourceState(restored.windowId, saved.dataSourceState);
+    if (restored?.windowId && saved?.viewState && typeof saved.viewState === 'object') {
+      getViewSignal(restored.windowId).value = saved.viewState;
     }
   }
   if (!restored) return null;
@@ -618,6 +602,20 @@ function normalizeWorkspaceStateSnapshot(raw = null, { preferLiveSignals = true 
   const parameters = raw.parameters && typeof raw.parameters === 'object' ? raw.parameters : {};
   const computedWindowId = computeWorkspaceWindowId(windowKey, parameters);
   const windowId = String(raw.windowId || computedWindowId || '').trim();
+  const dataSourceState = { ...(raw.dataSourceState || {}) };
+  if (preferLiveSignals) {
+    const definitions = findMetadataSignal(windowId)?.peek?.()?.dataSource || {};
+    for (const ref of Object.keys(definitions)) {
+      const input = findInputSignal(`${windowId}DS${ref}`)?.peek?.();
+      const selection = findSelectionSignal(`${windowId}DS${ref}`)?.peek?.();
+      const savedInput = {};
+      // Save presentation/query choices only; never replay fetch, refresh or mutation flags.
+      for (const field of ['filter', 'sort', 'orderBy', 'page', 'pageSize']) {
+        if (input?.[field] !== undefined) savedInput[field] = input[field];
+      }
+      dataSourceState[ref] = { input: savedInput, selection };
+    }
+  }
   const liveWindowForm = preferLiveSignals && windowId ? (getFormSignal(`${windowId}:windowForm`)?.peek?.() || {}) : {};
   const liveViewState = preferLiveSignals && windowId ? (getViewSignal(windowId)?.peek?.() || {}) : {};
   const rawWindowForm = raw.windowForm && typeof raw.windowForm === 'object' ? raw.windowForm : undefined;
@@ -640,6 +638,8 @@ function normalizeWorkspaceStateSnapshot(raw = null, { preferLiveSignals = true 
     workspaceSharePct: normalizeOptionalFiniteNumber(raw.workspaceSharePct),
     workspaceMinHeight: normalizeOptionalFiniteNumber(raw.workspaceMinHeight),
     workspaceCollapsed: raw.workspaceCollapsed === true,
+    workspaceObject: raw.workspaceObject || null,
+    sourceTurnId: String(raw.workspaceObject?.origin?.turnId || raw.sourceTurnId || raw.turnId || ""),
     navigation: raw.navigation && typeof raw.navigation === 'object' ? {
       label: String(raw.navigation.label || '').trim(),
       icon: String(raw.navigation.icon || '').trim(),
@@ -649,6 +649,7 @@ function normalizeWorkspaceStateSnapshot(raw = null, { preferLiveSignals = true 
       accent: String(raw.navigation.accent || '').trim(),
     } : null,
     mcpUI: raw.mcpUI && typeof raw.mcpUI === 'object' ? { ...raw.mcpUI } : null,
+    dataSourceState,
     windowForm: resolvedWindowForm,
     viewState: resolvedViewState,
     parameters,
@@ -768,6 +769,13 @@ export function syncScopedWorkspaceStateFromTranscriptTurns(
   const convID = String(conversationId || '').trim();
   if (!convID) return null;
   if (!allowRunning && transcriptTurnsHaveRunningStatus(turns)) return null;
+  const history = deriveWorkspaceHistoryFromTranscriptTurns(turns);
+  if (history.length) updateWorkspaceSession(uiStateStorage(), convID, (state) => {
+    const merged = mergeWorkspaceSessionWindows(state, history);
+    const closed = new Set(state.closedWindowIds);
+    history.forEach((entry) => { if (entry.workspaceObject?.lifecycle?.state === 'closed') closed.add(entry.windowId); });
+    return { ...merged, closedWindowIds: [...closed] };
+  });
   const derived = deriveWorkspaceStateFromTranscriptTurns(turns);
   if (!derived?.windows?.length) return null;
   const windows = derived.windows.filter((entry) => !isWorkspaceWindowDismissed(convID, entry?.windowId));
@@ -886,7 +894,7 @@ export function openConversationInMainWindow(conversationId = '') {
   });
   const workspaceWindow = ensureWorkspaceWindowForConversation(targetID);
   if (workspaceWindow) {
-    return mainWindow;
+    return getScopedActiveSurface(targetID) === 'workspace' ? focusWindow(workspaceWindow) : mainWindow;
   }
   if (targetID && hasScopedWorkspaceState(targetID)) {
     nudgeWorkspaceRestore(targetID, 4);
@@ -957,4 +965,43 @@ export function returnToParentConversation(win = null, { closeCurrent = false } 
   openConversationInMainWindow(parentConversationId);
   const parentWindow = getWindowById(linkedParentWindowId(target)) || getWindowById(MAIN_CHAT_WINDOW_ID);
   focusWindow(parentWindow);
+}
+
+// Historical markers survive closing an object. The descriptor is presentation
+// data only; reopening still uses WindowContent's fresh authorization preflight.
+export function getWorkspaceHistory(conversationId) {
+  return workspaceHistory(readWorkspaceSession(uiStateStorage(), conversationId));
+}
+export function reopenWorkspaceObject(conversationId, windowId) {
+  const storage = uiStateStorage();
+  const state = readWorkspaceSession(storage, conversationId);
+  const saved = state.windows.find((entry) => entry.windowId === windowId);
+  if (!saved) return null;
+  updateWorkspaceSession(storage, conversationId, (current) => ({ ...current,
+    closedWindowIds: current.closedWindowIds.filter((id) => id !== windowId), activeWindowId: windowId,
+    openWindowIds: [...new Set([...(current.openWindowIds || current.windows.map((entry) => entry.windowId)), windowId])],
+  }));
+  const existing = activeWindows.peek().find((entry) => entry.windowId === windowId && entry.conversationId === conversationId);
+  if (existing) return focusWindow(existing);
+  const restored = addWindow(saved.windowTitle, saved.parentKey || MAIN_CHAT_WINDOW_ID, saved.windowKey,
+    null, true, saved.parameters || {}, { ...saved, inlineMetadata: undefined, hostOpenState: 'historical_replay',
+      workspaceObject: saved.workspaceObject ? { ...saved.workspaceObject,
+        lifecycle: { ...saved.workspaceObject.lifecycle, state: 'opening' } } : undefined,
+    });
+  restoreWorkspaceDataSourceState(windowId, saved.dataSourceState);
+  if (saved.windowForm) getFormSignal(`${windowId}:windowForm`).value = saved.windowForm;
+  if (saved.viewState) getViewSignal(windowId).value = saved.viewState;
+  return restored;
+}
+
+function restoreWorkspaceDataSourceState(windowId, state = {}) {
+  for (const [ref, saved] of Object.entries(state || {})) {
+    const input = getInputSignal(`${windowId}DS${ref}`);
+    const patch = {};
+    for (const field of ['filter', 'sort', 'orderBy', 'page', 'pageSize']) {
+      if (saved.input?.[field] !== undefined) patch[field] = saved.input[field];
+    }
+    input.value = { ...input.peek(), ...patch, fetch: false, refresh: false };
+    if (saved.selection) getSelectionSignal(`${windowId}DS${ref}`).value = saved.selection;
+  }
 }

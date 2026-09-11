@@ -4,6 +4,7 @@
   "type": "module",
   "version": "0.1.0",
   "scripts": {
+    "build:window-preview": "vite build --config ../preview/ui/vite.config.mjs",
     "dev": "vite",
     "build": "vite build",
     "proof:browser": "node scripts/browser-proof-runner.mjs",

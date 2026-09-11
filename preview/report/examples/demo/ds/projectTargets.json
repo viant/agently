@@ -1,0 +1,29 @@
+{
+  "status": "ok",
+  "rows": [
+    {
+      "project": "Process Improvement",
+      "owner": "Operations Team",
+      "targetUnits": 3200000,
+      "budget": 48000.00
+    },
+    {
+      "project": "Service Expansion",
+      "owner": "Service Team",
+      "targetUnits": 2100000,
+      "budget": 19000.00
+    },
+    {
+      "project": "Quality Initiative",
+      "owner": "Quality Team",
+      "targetUnits": 750000,
+      "budget": 8500.00
+    }
+  ],
+  "hasMore": false,
+  "meta": {
+    "source": "mock-records",
+    "snapshotDate": "2026-08-04"
+  }
+}
+

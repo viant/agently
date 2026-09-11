@@ -13,12 +13,20 @@ vi.mock('./mcpApps/AppRenderer.jsx', () => ({
   default: ({ uri, hosted }) => React.createElement('div', { 'data-mcp-uri': uri, 'data-hosted': hosted ? 'true' : 'false' }),
 }));
 
-import ConversationWorkspaceSurface, { resolveChatWindowRenderKey, resolveWorkspaceNavigation } from './ConversationWorkspaceSurface';
+import ConversationWorkspaceSurface, { resolveChatWindowRenderKey, resolveWorkspaceNavigation, shouldShowWorkspaceTabs } from './ConversationWorkspaceSurface';
 
 expect(resolveChatWindowRenderKey({windowId: 'chat/new'})).toBe('chat/new:0');
 expect(resolveChatWindowRenderKey({windowId: 'chat/new', conversationInstanceVersion: 2})).toBe('chat/new:2');
 
 describe('ConversationWorkspaceSurface', () => {
+  it('uses no tabs for one object and one tab per object for multiple objects by default', () => {
+    expect(shouldShowWorkspaceTabs(0)).toBe(false);
+    expect(shouldShowWorkspaceTabs(1)).toBe(false);
+    expect(shouldShowWorkspaceTabs(2)).toBe(true);
+    expect(shouldShowWorkspaceTabs(1, 'always')).toBe(true);
+    expect(shouldShowWorkspaceTabs(2, 'never')).toBe(false);
+  });
+
   it('resolves explicit navigation with deterministic fallbacks', () => {
     expect(resolveWorkspaceNavigation({
       windowKey: 'reportBuilder',
@@ -41,6 +49,7 @@ describe('ConversationWorkspaceSurface', () => {
     expect(html).toContain('data-window-id="chat"');
     expect(html).toContain('data-window-id="report"');
     expect(html).toContain('is-surface-hidden');
+    expect(html).toContain('inert=""');
   });
 
   it('shows an explicit chat-cloud return action and workspace identity while retaining the composer host', () => {
@@ -52,14 +61,15 @@ describe('ConversationWorkspaceSurface', () => {
     expect(html).toContain('aria-label="Return to chat"');
     expect(html).toContain('app-summary-workspace-chat-action');
     expect(html).toContain('app-summary-workspace-identity');
-    expect(html).toContain('Chat remains available');
+    expect(html).toContain('>Chat</button>');
     expect(html).toContain('data-window-id="report"');
     expect(html).toContain('data-window-id="chat"');
     expect(html).toContain('is-composer-only');
     expect(html).toContain('app-workspace-composer-toggle');
     expect(html).toContain('aria-label="Expand composer options"');
     expect(html).toContain('aria-label="Close Reports"');
-    expect(html).toContain('app-window-dot-close');
+    expect(html).toContain('>Close</button>');
+    expect(html).not.toContain('app-window-dot-close');
   });
 
   it('suppresses duplicate top navigation when the transcript owns the workspace link', () => {

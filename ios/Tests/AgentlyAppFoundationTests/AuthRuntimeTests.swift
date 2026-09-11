@@ -249,7 +249,7 @@ final class AuthRuntimeTests: XCTestCase {
         defaults.removePersistentDomain(forName: #function)
         let store = AppSettingsStore(defaults: defaults)
         let runtime = SettingsRuntime(store: store)
-        let local = SettingsRuntime.workspacePresets[0]
+        let local = SettingsRuntime.localWorkspacePresets[0]
 
         runtime.selectWorkspaceEndpoint(local)
 
@@ -259,42 +259,22 @@ final class AuthRuntimeTests: XCTestCase {
 
         let restored = SettingsRuntime(store: store)
         XCTAssertTrue(restored.hasWorkspaceEndpointSelection)
-        XCTAssertEqual(restored.selectedWorkspacePreset, local)
+        XCTAssertEqual(restored.normalizedAPIBaseURL, local.value)
     }
 
-    func testConfiguredWorkspaceEndpointOptionsDeduplicatesStewardDefault() {
+    func testConfiguredWorkspaceEndpointOptionsDeduplicatesExplicitDefaults() {
+        let option = WorkspaceEndpointOption(title: "Example", subtitle: "Example workspace", value: "https://workspace.example.com")
         let options = mergeWorkspaceEndpointOptions(
-            parseWorkspaceEndpointOptions(
-                """
-                [
-                  {
-                    "title": "Steward",
-                    "subtitle": "Viant Steward workspace",
-                    "value": "https://steward.agently.viantinc.com/v1/api/"
-                  }
-                ]
-                """
-            )
+            parseWorkspaceEndpointOptions("[{\"title\":\"Example\",\"subtitle\":\"Example workspace\",\"value\":\"https://workspace.example.com/v1/api/\"}]"),
+            defaults: [option]
         )
-
-        XCTAssertEqual(
-            options.first,
-            WorkspaceEndpointOption(
-                title: "Steward",
-                subtitle: "Viant Steward workspace",
-                value: "https://steward.agently.viantinc.com"
-            )
-        )
-        XCTAssertEqual(options.count { $0.value == "https://steward.agently.viantinc.com" }, 1)
-        XCTAssertFalse(options.contains { $0.value == "http://localhost:9292" })
-        XCTAssertTrue(SettingsRuntime.workspacePresets.contains { $0.value == "https://steward.agently.viantinc.com" })
+        XCTAssertEqual(options, [option])
     }
 
-    @MainActor
-    func testWorkspaceEndpointOptionsDefaultToPublicStewardOnly() {
-        XCTAssertEqual(SettingsRuntime.workspacePresets.first?.title, "Steward")
-        XCTAssertEqual(SettingsRuntime.workspacePresets.first?.value, "https://steward.agently.viantinc.com")
-        XCTAssertFalse(SettingsRuntime.workspacePresets.contains { $0.value == "http://localhost:9292" })
+    func testWorkspaceEndpointOptionsHaveNoBuiltInDeployment() {
+        XCTAssertTrue(SettingsRuntime.defaultWorkspacePresets.isEmpty)
+        XCTAssertTrue(mergeWorkspaceEndpointOptions([]).isEmpty)
+        XCTAssertTrue(configuredWorkspaceEndpointOptions(environmentValue: nil, launchArguments: []).isEmpty)
     }
 
     @MainActor
@@ -320,7 +300,7 @@ final class AuthRuntimeTests: XCTestCase {
     @MainActor
     func testAuthURLUsesMobileRedirectRejectsWebCallback() throws {
         let mobileURL = try XCTUnwrap(URL(string: "https://idp.viantinc.com/v1/api/oauth2/authorize?redirect_uri=agently-ios%3A%2F%2Foauth%2Fcallback"))
-        let webURL = try XCTUnwrap(URL(string: "https://idp.viantinc.com/v1/api/oauth2/authorize?redirect_uri=https%3A%2F%2Fsteward.agently.viantinc.com%2Fv1%2Fapi%2Fauth%2Foauth%2Fcallback"))
+        let webURL = try XCTUnwrap(URL(string: "https://idp.viantinc.com/v1/api/oauth2/authorize?redirect_uri=https%3A%2F%2Fworkspace.example.com%2Fv1%2Fapi%2Fauth%2Foauth%2Fcallback"))
 
         XCTAssertTrue(AuthRuntime.authURLUsesMobileRedirect(mobileURL, expectedRedirectURI: AuthRuntime.mobileOAuthRedirectURI))
         XCTAssertFalse(AuthRuntime.authURLUsesMobileRedirect(webURL, expectedRedirectURI: AuthRuntime.mobileOAuthRedirectURI))

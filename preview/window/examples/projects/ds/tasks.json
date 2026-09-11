@@ -1,0 +1,201 @@
+{
+  "status": "ok",
+  "rows": [
+    {
+      "taskId": 11,
+      "projectId": 1,
+      "project": "Process Improvement",
+      "task": "Review requirements",
+      "status": "Complete",
+      "hours": 8
+    },
+    {
+      "taskId": 12,
+      "projectId": 1,
+      "project": "Process Improvement",
+      "task": "Prepare plan",
+      "status": "In Progress",
+      "hours": 16
+    },
+    {
+      "taskId": 13,
+      "projectId": 1,
+      "project": "Process Improvement",
+      "task": "Complete delivery",
+      "status": "Planned",
+      "hours": 24
+    },
+    {
+      "taskId": 21,
+      "projectId": 2,
+      "project": "Service Expansion",
+      "task": "Review requirements",
+      "status": "Complete",
+      "hours": 8
+    },
+    {
+      "taskId": 22,
+      "projectId": 2,
+      "project": "Service Expansion",
+      "task": "Prepare plan",
+      "status": "In Progress",
+      "hours": 16
+    },
+    {
+      "taskId": 23,
+      "projectId": 2,
+      "project": "Service Expansion",
+      "task": "Complete delivery",
+      "status": "Planned",
+      "hours": 24
+    },
+    {
+      "taskId": 31,
+      "projectId": 3,
+      "project": "Quality Initiative",
+      "task": "Review requirements",
+      "status": "Complete",
+      "hours": 8
+    },
+    {
+      "taskId": 32,
+      "projectId": 3,
+      "project": "Quality Initiative",
+      "task": "Prepare plan",
+      "status": "In Progress",
+      "hours": 16
+    },
+    {
+      "taskId": 33,
+      "projectId": 3,
+      "project": "Quality Initiative",
+      "task": "Complete delivery",
+      "status": "Planned",
+      "hours": 24
+    },
+    {
+      "taskId": 41,
+      "projectId": 4,
+      "project": "Resource Planning",
+      "task": "Review requirements",
+      "status": "Complete",
+      "hours": 8
+    },
+    {
+      "taskId": 42,
+      "projectId": 4,
+      "project": "Resource Planning",
+      "task": "Prepare plan",
+      "status": "In Progress",
+      "hours": 16
+    },
+    {
+      "taskId": 43,
+      "projectId": 4,
+      "project": "Resource Planning",
+      "task": "Complete delivery",
+      "status": "Planned",
+      "hours": 24
+    },
+    {
+      "taskId": 51,
+      "projectId": 5,
+      "project": "Team Onboarding",
+      "task": "Review requirements",
+      "status": "Complete",
+      "hours": 8
+    },
+    {
+      "taskId": 52,
+      "projectId": 5,
+      "project": "Team Onboarding",
+      "task": "Prepare plan",
+      "status": "In Progress",
+      "hours": 16
+    },
+    {
+      "taskId": 53,
+      "projectId": 5,
+      "project": "Team Onboarding",
+      "task": "Complete delivery",
+      "status": "Planned",
+      "hours": 24
+    },
+    {
+      "taskId": 61,
+      "projectId": 6,
+      "project": "Knowledge Base",
+      "task": "Review requirements",
+      "status": "Complete",
+      "hours": 8
+    },
+    {
+      "taskId": 62,
+      "projectId": 6,
+      "project": "Knowledge Base",
+      "task": "Prepare plan",
+      "status": "In Progress",
+      "hours": 16
+    },
+    {
+      "taskId": 63,
+      "projectId": 6,
+      "project": "Knowledge Base",
+      "task": "Complete delivery",
+      "status": "Planned",
+      "hours": 24
+    },
+    {
+      "taskId": 71,
+      "projectId": 7,
+      "project": "Workflow Review",
+      "task": "Review requirements",
+      "status": "Complete",
+      "hours": 8
+    },
+    {
+      "taskId": 72,
+      "projectId": 7,
+      "project": "Workflow Review",
+      "task": "Prepare plan",
+      "status": "In Progress",
+      "hours": 16
+    },
+    {
+      "taskId": 73,
+      "projectId": 7,
+      "project": "Workflow Review",
+      "task": "Complete delivery",
+      "status": "Planned",
+      "hours": 24
+    },
+    {
+      "taskId": 81,
+      "projectId": 8,
+      "project": "Capacity Planning",
+      "task": "Review requirements",
+      "status": "Complete",
+      "hours": 8
+    },
+    {
+      "taskId": 82,
+      "projectId": 8,
+      "project": "Capacity Planning",
+      "task": "Prepare plan",
+      "status": "In Progress",
+      "hours": 16
+    },
+    {
+      "taskId": 83,
+      "projectId": 8,
+      "project": "Capacity Planning",
+      "task": "Complete delivery",
+      "status": "Planned",
+      "hours": 24
+    }
+  ],
+  "hasMore": false,
+  "meta": {
+    "source": "synthetic-example"
+  }
+}

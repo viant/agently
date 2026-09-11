@@ -2,7 +2,7 @@ import React from 'react';
 import { AvatarIcon } from 'forge/components';
 import AppRenderer from '../mcpApps/AppRenderer.jsx';
 
-export default function MCPUIBubble({ row }) {
+export default function MCPUIBubble({ row, conversationId = '' }) {
   const title = String(row?.toolName || 'Interactive app').trim() || 'Interactive app';
   const uri = String(row?.uri || '').trim();
   if (!uri) return null;
@@ -20,7 +20,7 @@ export default function MCPUIBubble({ row }) {
       <div className="app-bubble app-bubble-assistant app-mcpui-bubble">
         <div className="app-bubble-content app-mcpui-bubble-content">
           <div className="app-mcpui-bubble-label">{title}</div>
-          <AppRenderer uri={uri} title={title} toolInput={row?.toolInput ?? null} conversationId={String(row?.conversationId || '').trim()} />
+          <AppRenderer origin={{turnId: row?.turnId, toolCallId: row?.toolCallId}} historical={row?.historical !== false} uri={uri} title={title} toolInput={row?.toolInput ?? null} conversationId={String(row?.conversationId || conversationId || '').trim()} />
         </div>
       </div>
     </div>

@@ -272,8 +272,8 @@ final class AppStateTargetingTests: XCTestCase {
             "http://127.0.0.1:9292"
         )
         XCTAssertEqual(
-            AppSettingsStore.normalizeAPIBaseURL("https:/steward.agently.viantinc.com/v1/api"),
-            "https://steward.agently.viantinc.com"
+            AppSettingsStore.normalizeAPIBaseURL("https:/workspace.example.com/v1/api"),
+            "https://workspace.example.com"
         )
     }
 }

@@ -67,6 +67,19 @@ describe('TurnProgressStatus helpers', () => {
     });
   });
 
+  it('shows only a small warning icon for incomplete tools while continuing', () => {
+    projectedRows = [{kind: 'iteration', turnId: 'active', lifecycle: 'running', rounds: [{
+      pageId: 'page-1', phase: 'main', status: 'running',
+      toolCalls: [{toolCallId: 'one', toolName: 'Read', status: 'failed'}, {toolCallId: 'two', toolName: 'Search', status: 'running'}],
+      toolCallsPlanned: [{toolCallId: 'one', toolName: 'Read'}, {toolCallId: 'two', toolName: 'Search'}],
+    }]}];
+    const html = renderToStaticMarkup(React.createElement(TurnProgressStatus, {conversationId: 'c'}));
+    expect(html).toContain('app-turn-progress-warning');
+    expect(html).not.toContain('has-failure');
+    expect(html).not.toContain('Needs attention');
+    expect(html).not.toContain('failed');
+  });
+
   it('formats explicit tool-state counts', () => {
     expect(toolProgressText({
       identityComplete: true,
@@ -75,7 +88,7 @@ describe('TurnProgressStatus helpers', () => {
       activeToolCount: 2,
       queuedToolCount: 0,
       failedToolCount: 1,
-    })).toBe('2/5 done · 2 active · 1 failed');
+    })).toBe('2/5 done · 2 active');
   });
 
   it('does not present default workspace initialization as an active turn', () => {

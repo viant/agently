@@ -205,8 +205,10 @@ final class ForecastingPrefillUITests: XCTestCase {
             "Enable live iOS UI tests to run auth-window verification."
         )
 
-        let baseURL = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_BASE_URL"]
-            ?? "https://steward.agently.viantinc.com"
+        guard let baseURL = ProcessInfo.processInfo.environment["AGENTLY_IOS_UI_TEST_BASE_URL"],
+              !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw XCTSkip("Set AGENTLY_IOS_UI_TEST_BASE_URL to the workspace endpoint for live verification.")
+        }
         let app = XCUIApplication()
         app.launchArguments = [
             "--enableDevAuth=1",

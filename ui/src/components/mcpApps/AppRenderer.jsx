@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import AppFrame from './AppFrame.jsx';
 import { buildSandboxedSrcDoc, readMCPUIResource, resolveMCPUIFrameConfig, resolveMCPUIHostPresentation } from '../../services/mcpApps/resourceLoader.js';
+import { useSetting } from 'forge/core';
 import { connectorConfig } from '../../connector.js';
 import { buildEnvelope, MCPUI_METHODS, MCPUI_VERSION, validateEnvelope } from '../../services/mcpApps/appproto.js';
 import { dispatchMCPUIApprovalRequest, subscribeMCPUIApprovalOutcomes } from '../../services/mcpApps/approvalEvents.js';
@@ -158,7 +159,9 @@ export function buildApprovalOutcomeToolResultEnvelope({ windowId = '', resource
   });
 }
 
-export default function AppRenderer({ uri = '', title = 'MCP UI Preview', toolInput = null, toolInputPartial = null, conversationId = '', hosted = false }) {
+export default function AppRenderer({ uri = '', title = 'MCP UI Preview', toolInput = null, toolInputPartial = null, conversationId = '', hosted = false, origin = {}, historical = true, onLifecycle }) {
+  const {connectorConfig: hostConnectorConfig} = useSetting();
+  const effectiveConnectorConfig = hostConnectorConfig || connectorConfig;
   const frameRef = useRef(null);
   const windowId = useMemo(() => `mcpui-preview:${String(uri || '').trim()}`, [uri]);
   const [frameLoaded, setFrameLoaded] = useState(false);
@@ -209,11 +212,11 @@ export default function AppRenderer({ uri = '', title = 'MCP UI Preview', toolIn
         const uiMeta = payload?._meta?.ui || {};
         const frame = resolveMCPUIFrameConfig(payload);
         const hostPresentation = resolveMCPUIHostPresentation(payload, {
-          allowWorkspace: connectorConfig?.mcpUI?.allowWorkspacePlacement === true,
+          allowWorkspace: effectiveConnectorConfig?.mcpUI?.allowWorkspacePlacement === true,
         });
         if (!hosted && hostPresentation.placement === 'workspace' && typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('agently:mcpui-workspace-open', {
-            detail: { uri, title, conversationId, navigation: hostPresentation.navigation },
+            detail: { uri, title, conversationId, navigation: hostPresentation.navigation, origin, historical },
           }));
         }
         setState({
@@ -365,11 +368,16 @@ export default function AppRenderer({ uri = '', title = 'MCP UI Preview', toolIn
     return () => window.removeEventListener('message', onMessage);
   }, [state.allowedToolBundles, state.allowedTools, state.conversationId, state.protocolVersion]);
 
+  useEffect(() => {
+    if (state.error) onLifecycle?.('failed');
+    else if (frameLoaded && !state.loading) onLifecycle?.('ready');
+  }, [frameLoaded, state.loading, state.error, onLifecycle]);
+
   if (state.loading) {
     return <div data-testid="mcpui-loading">Loading MCP UI resource...</div>;
   }
   if (state.error) {
-    return <div data-testid="mcpui-error" style={{ color: '#b42318' }}>{state.error}</div>;
+    return <div role="alert" data-testid="mcpui-error" style={{ color: '#b42318' }}>{state.error}</div>;
   }
   if (!hosted && state.placement === 'workspace') {
     return <div className="app-mcpui-workspace-promoted">Opened in Workspace</div>;
