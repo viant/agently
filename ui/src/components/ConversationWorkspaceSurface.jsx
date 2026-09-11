@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Button, Icon } from '@blueprintjs/core';
+import { Button } from '@blueprintjs/core';
 import { WindowContent } from 'forge/components';
 import AppRenderer from './mcpApps/AppRenderer.jsx';
 
@@ -95,15 +95,10 @@ export default function ConversationWorkspaceSurface({
               />
             </div>
             <div className="app-summary-workspace-identity">
-              <span className="app-summary-workspace-icon" aria-hidden="true">
-                <Icon icon={navigation.icon} size={18} />
-              </span>
               <span className="app-summary-workspace-title-copy">
-                <span className="app-summary-workspace-eyebrow">Workspace</span>
                 <span className="app-summary-workspace-title">{navigation.label}</span>
               </span>
             </div>
-            <div className="app-summary-workspace-context">Chat remains available</div>
           </header>
           {workspaceTabs.length > 1 ? (
             <div className="app-window-split-workspace-tabs" role="tablist" aria-label="Workspace tabs">

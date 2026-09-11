@@ -52,7 +52,8 @@ describe('ConversationWorkspaceSurface', () => {
     expect(html).toContain('aria-label="Return to chat"');
     expect(html).toContain('app-summary-workspace-chat-action');
     expect(html).toContain('app-summary-workspace-identity');
-    expect(html).toContain('Chat remains available');
+    expect(html).not.toContain('app-summary-workspace-eyebrow');
+    expect(html).not.toContain('>Workspace<');
     expect(html).toContain('data-window-id="report"');
     expect(html).toContain('data-window-id="chat"');
     expect(html).toContain('is-composer-only');

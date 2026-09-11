@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSignals } from '@preact/signals-react/runtime';
-import { Button, Dialog } from '@blueprintjs/core';
+import { Button, Dialog, Icon } from '@blueprintjs/core';
 import { activeWindows, addWindow, findCollectionSignal, findFormSignal, findMetadataSignal, findMetricsSignal, findViewSignal, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
 import { WindowManager, WindowContent } from 'forge/components';
 import { DetailContext } from '../context/DetailContext';
