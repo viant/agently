@@ -135,9 +135,6 @@ export default function ConversationWorkspaceSurface({
               />
             </div>
             <div className="app-summary-workspace-identity">
-              <span className="app-summary-workspace-icon" aria-hidden="true">
-                <Icon icon={navigation.icon} size={18} />
-              </span>
               <span className="app-summary-workspace-title-copy">
                 <span ref={headingRef} tabIndex={-1} role="heading" aria-level={1} className="app-summary-workspace-title">{navigation.label}</span>
                 {!showObjectTabs && workspaceTabs.length > 1 ? <select aria-label="Choose workspace"
