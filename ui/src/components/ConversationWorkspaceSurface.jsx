@@ -147,10 +147,24 @@ export default function ConversationWorkspaceSurface({
               <span className="app-workspace-conversation-status" role="status" aria-live="polite">
                 {chatRunning ? 'Working…' : unreadCount > 0 ? `${unreadCount} new` : ''}
               </span>
-              <Button disabled={capabilities.split === false} className="app-workspace-layout-action" minimal small text={workspaceMode === 'focus' ? 'Split' : 'Focus'}
-                aria-label={workspaceMode === 'focus' ? 'Show chat and workspace' : 'Focus workspace'}
-                onClick={() => onChangeWorkspaceMode?.(workspaceMode === 'focus' ? 'split' : 'focus')} />
-              <Button minimal small icon="cross" text="Close" disabled={capabilities.close === false} aria-label={`Close ${navigation.label}`} onClick={onCloseWorkspace} />
+              <div className="app-workspace-window-controls" role="group" aria-label="Workspace controls">
+                <button type="button" className="app-workspace-window-control is-close"
+                  disabled={capabilities.close === false}
+                  aria-label={`Close ${navigation.label}`} title={`Close ${navigation.label}`} onClick={onCloseWorkspace}>
+                  <span className="app-workspace-control-dot" aria-hidden="true">
+                    <svg viewBox="0 0 10 10"><path d="M2 2l6 6M8 2L2 8" /></svg>
+                  </span>
+                </button>
+                <button type="button" className="app-workspace-window-control is-layout"
+                  disabled={compact || capabilities.split === false}
+                  aria-label={compact ? 'Focus layout on small screens' : effectiveMode === 'focus' ? 'Show chat and workspace' : 'Focus workspace'}
+                  title={compact ? 'Focus layout on small screens' : capabilities.split === false ? 'Split layout unavailable' : effectiveMode === 'focus' ? 'Split view — show chat and workspace' : 'Focus workspace'}
+                  onClick={() => onChangeWorkspaceMode?.(effectiveMode === 'focus' ? 'split' : 'focus')}>
+                  <span className="app-workspace-control-dot" aria-hidden="true">
+                    <svg viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7" rx="0.6" />{effectiveMode === 'focus' ? <path d="M5 1.5v7" /> : null}</svg>
+                  </span>
+                </button>
+              </div>
             </div>
           </header>
           {showObjectTabs ? (
