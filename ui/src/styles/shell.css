@@ -5159,3 +5159,17 @@ td[data-col="enabled"] {
 .app-tool-feed-surface-action { min-height: 32px; padding: 5px 9px; border: 1px solid #c7d5e8; border-radius: 6px; background: #fff; color: #274974; font-size: 12px; font-weight: 600; cursor: pointer; }
 
 .app-statusbar.phase-attention .app-statusbar-icon { color: #60748f; }
+
+/* Right-aligned macOS-style controls; circles stay small while targets stay usable. */
+.app-workspace-window-controls { display: inline-flex; align-items: center; gap: 4px; }
+.app-workspace-window-control { display: grid; place-items: center; width: 32px; height: 32px; min-width: 32px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
+.app-workspace-control-dot { display: grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(0,0,0,.15); }
+.app-workspace-window-control.is-close .app-workspace-control-dot { background: #ff6058; color: #641b17; }
+.app-workspace-window-control.is-layout .app-workspace-control-dot { background: #ffbd2e; color: #614500; }
+.app-workspace-control-dot svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; opacity: 0; }
+.app-workspace-window-controls:hover .app-workspace-window-control:not(:disabled) svg,
+.app-workspace-window-control:focus-visible svg { opacity: 1; }
+.app-workspace-window-control:hover:not(:disabled) { background: rgba(33,61,99,.06); }
+.app-workspace-window-control:focus-visible { outline: 2px solid #335e9d; outline-offset: 1px; }
+.app-workspace-window-control:disabled { cursor: not-allowed; opacity: .45; }
+@media (hover: none) { .app-workspace-control-dot svg { opacity: 1; } }
