@@ -33,11 +33,9 @@ go run ./preview/cmd/window-preview --root ./preview/window/examples/projects
 go run ./preview/cmd/mock-mcp --root ./preview/report/examples/demo --report --addr 127.0.0.1:8097
 ```
 
-Catalog-backed reporting packages for all 25 authored Advanced Reporting profile
-identities are listed in
-[`report/examples/advanced-reporting/README.md`](report/examples/advanced-reporting/README.md).
-The real report-group definitions and presentation profiles are loaded at
-runtime; the packages supply only small datasource fixtures.
+Product-owned report catalogs and fixtures must live in their product workspace.
+Agently contains only the generic preview runtime, mock MCP implementation, and
+product-neutral examples.
 
 - Report preview: <http://127.0.0.1:8095>
 - Window preview: <http://127.0.0.1:8098/?window=projects>
