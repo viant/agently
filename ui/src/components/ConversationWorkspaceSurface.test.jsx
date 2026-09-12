@@ -70,7 +70,12 @@ describe('ConversationWorkspaceSurface', () => {
     expect(html).toContain('app-workspace-composer-toggle');
     expect(html).toContain('aria-label="Expand composer options"');
     expect(html).toContain('aria-label="Close Reports"');
-    expect(html).toContain('>Close</button>');
+    expect(html).toContain('app-workspace-window-control is-close');
+    expect(html).toContain('app-workspace-window-control is-layout');
+    expect(html).toContain('title="Split view — show chat and workspace"');
+    expect(html).not.toContain('>Close</button>');
+    expect(html).not.toContain('>Focus</button>');
+    expect(html).not.toContain('>Split</button>');
     expect(html).not.toContain('app-window-dot-close');
   });
 

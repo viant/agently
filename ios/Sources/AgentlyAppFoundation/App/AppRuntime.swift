@@ -445,7 +445,8 @@ public final class AppRuntime: ObservableObject {
                 conversationID: conversationID,
                 agentID: selectedAgentID,
                 query: text,
-                attachments: attachments,
+                attachments: attachments.legacy,
+                resourceURIs: attachments.resourceURIs,
                 context: queryContext
             ) {
                 chatRuntime.markOptimisticTurnAccepted(optimisticTurn)
@@ -1132,8 +1133,8 @@ public final class AppRuntime: ObservableObject {
         return conversation.id
     }
 
-    private func uploadDraftAttachments(conversationID: String?) async throws -> [QueryAttachment] {
-        guard !composerRuntime.attachments.isEmpty else { return [] }
+    private func uploadDraftAttachments(conversationID: String?) async throws -> (legacy: [QueryAttachment], resourceURIs: [String]) {
+        guard !composerRuntime.attachments.isEmpty else { return ([], []) }
         guard let conversationID, !conversationID.isEmpty else {
             throw NSError(
                 domain: "AgentlyAppRuntime",
@@ -1143,6 +1144,7 @@ public final class AppRuntime: ObservableObject {
         }
 
         var uploaded: [QueryAttachment] = []
+        var resourceURIs: [String] = []
         for attachment in composerRuntime.attachments {
             let output = try await state.client.uploadFile(
                 UploadFileInput(
@@ -1152,6 +1154,10 @@ public final class AppRuntime: ObservableObject {
                     data: attachment.data
                 )
             )
+            if let uri = output.resource?.uri, !uri.isEmpty {
+                resourceURIs.append(uri)
+                continue
+            }
             uploaded.append(
                 QueryAttachment(
                     name: attachment.name,
@@ -1161,7 +1167,7 @@ public final class AppRuntime: ObservableObject {
                 )
             )
         }
-        return uploaded
+        return (uploaded, resourceURIs)
     }
 
     private func mergeArtifacts(

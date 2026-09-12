@@ -116,12 +116,19 @@ internal fun shouldRestoreComposerDraft(
     return currentPrompt.isBlank() && currentAttachments.isEmpty()
 }
 
+internal data class UploadedComposerAttachments(
+    val attachments: List<QueryAttachment>,
+    val resourceURIs: List<String>
+)
+
 internal suspend fun uploadComposerAttachments(
     client: AgentlyClient,
     conversationId: String,
     attachments: List<ComposerAttachmentDraft>
-): List<QueryAttachment> {
-    return attachments.map { attachment ->
+): UploadedComposerAttachments {
+    val legacy = mutableListOf<QueryAttachment>()
+    val resourceURIs = mutableListOf<String>()
+    attachments.forEach { attachment ->
         val uploaded = client.uploadFile(
             UploadFileInput(
                 conversationId = conversationId,
@@ -130,13 +137,15 @@ internal suspend fun uploadComposerAttachments(
                 data = attachment.bytes
             )
         )
-        QueryAttachment(
+        val resourceURI = uploaded.resource?.uri?.takeIf { it.isNotBlank() }
+        if (resourceURI != null) { resourceURIs += resourceURI } else legacy += QueryAttachment(
             name = attachment.name,
             uri = uploaded.uri,
             size = attachment.bytes.size.toLong(),
             mime = attachment.mimeType
         )
     }
+    return UploadedComposerAttachments(legacy, resourceURIs)
 }
 
 internal fun buildArtifactPreview(
@@ -302,7 +311,8 @@ internal suspend fun executeQueryTurn(
             agentId = effectiveAgentId,
             model = workspaceMetadata.defaultModel ?: workspaceMetadata.defaults?.model,
             query = prompt,
-            attachments = uploadedAttachments,
+            attachments = uploadedAttachments.attachments,
+            resourceURIs = uploadedAttachments.resourceURIs,
             context = queryContext
         )
     )
