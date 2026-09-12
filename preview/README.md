@@ -26,12 +26,18 @@ of either renderer and can be extracted to `viant/mcp` separately.
 go run ./preview/cmd/report-preview serve ./preview/report/examples/demo
 
 # Windows: reuse the dependencies installed for agently/ui.
-npm --prefix ui run build:window-preview
+npm --prefix ui run build:preview
 go run ./preview/cmd/window-preview --root ./preview/window/examples/projects
 
 # Standalone fixture MCP server.
 go run ./preview/cmd/mock-mcp --root ./preview/report/examples/demo --report --addr 127.0.0.1:8097
 ```
+
+Catalog-backed reporting packages for all 25 authored Advanced Reporting profile
+identities are listed in
+[`report/examples/advanced-reporting/README.md`](report/examples/advanced-reporting/README.md).
+The real report-group definitions and presentation profiles are loaded at
+runtime; the packages supply only small datasource fixtures.
 
 - Report preview: <http://127.0.0.1:8095>
 - Window preview: <http://127.0.0.1:8098/?window=projects>
@@ -41,11 +47,16 @@ The window bundle is built under `preview/ui/dist` and is not committed. Its Vit
 configuration uses agently/ui's dependencies and the sibling Forge checkout,
 consistent with agently's existing UI development setup.
 
-These are the relocated standalone launchers. The proposed `agently report ...`,
-`agently window ...`, and `agently mcp mock serve ...` command groups are not yet
-registered in the main CLI. This move also preserves the current preview datasource
-adapter; full integration with agently-core's workspace datasource service is a
-separate step.
+The main Agently CLI exposes `agently report-preview`; the standalone launchers
+remain useful for focused development. Report selection uses generic `groupId` and
+`reportId`, and definitions may be loaded from a local catalog or a remote MCP
+contract.
+
+Remote mode accepts either the full optional preview-definition extension or a
+production `describe` response containing one report, its field catalog, and named
+result sets. When authored presentation is absent, Agently generates a neutral
+generic tab/chart/evidence layout and maps queries back into the server's declared
+`run` request shape.
 
 ## Guides
 
@@ -59,5 +70,5 @@ separate step.
 go test -race ./preview/...
 go vet ./preview/...
 node --no-warnings preview/ui/window/route.test.js
-npm --prefix ui run build:window-preview
+npm --prefix ui run build:preview
 ```

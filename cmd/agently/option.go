@@ -12,6 +12,7 @@ type Options struct {
 	EvalWorkspace *EvalWorkspaceCmd `command:"eval-workspace" description:"Run generic workspace eval/contract checks"`
 	ListTools     *ListToolsCmd     `command:"list-tools" description:"List available tools"`
 	TemplateLoad  *TemplateLoadCmd  `command:"template-load" description:"Load and validate a template file or workspace template"`
+	ReportPreview *ReportPreviewCmd `command:"report-preview" description:"Preview a generic Forge report from local or MCP-backed data"`
 	MCP           *MCPCmd           `command:"mcp" description:"MCP-oriented tool discovery and execution"`
 	ChatGPTLogin  *ChatGPTLoginCmd  `command:"chatgpt-login" description:"Login via ChatGPT OAuth and persist tokens for OpenAI providers"`
 }
@@ -36,6 +37,8 @@ func (o *Options) Init(firstArg string) {
 		o.ListTools = &ListToolsCmd{}
 	case "template-load":
 		o.TemplateLoad = &TemplateLoadCmd{}
+	case "report-preview":
+		o.ReportPreview = &ReportPreviewCmd{}
 	case "mcp":
 		o.MCP = &MCPCmd{}
 	case "chatgpt-login":

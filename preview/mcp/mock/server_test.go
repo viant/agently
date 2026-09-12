@@ -86,6 +86,42 @@ func TestFixtureReloadAndRawEnvelope(t *testing.T) {
 		t.Fatalf("%s: %v", got, e)
 	}
 }
+
+func TestContractRoutesAndDefaultResponse(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "ds"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"default.json":  `{"status":"ok","reports":[{"reportId":"default"}]}`,
+		"channels.json": `{"status":"ok","data":[{"name":"channels","rows":[[1]]}]}`,
+	} {
+		if err := os.WriteFile(filepath.Join(root, "ds", name), []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server, err := mock.New(mock.Config{Root: root, Tools: map[string]mock.Tool{
+		"ReportService": {File: "default.json", Routes: []mock.Route{{Match: map[string]any{"request.reportId": "channels"}, File: "channels.json"}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := httptest.NewServer(server.HTTPHandler())
+	defer host.Close()
+	client, err := datasource.Dial(context.Background(), host.URL+"/mcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	defaultBody, err := client.Call(context.Background(), "ReportService", map[string]any{})
+	if err != nil || !strings.Contains(string(defaultBody), `"reportId":"default"`) {
+		t.Fatalf("default: %s %v", defaultBody, err)
+	}
+	routedBody, err := client.Call(context.Background(), "ReportService", map[string]any{"request": map[string]any{"reportId": "channels"}})
+	if err != nil || !strings.Contains(string(routedBody), `"name":"channels"`) {
+		t.Fatalf("route: %s %v", routedBody, err)
+	}
+}
 func TestPathEscape(t *testing.T) {
 	root := t.TempDir()
 	_ = os.Mkdir(filepath.Join(root, "ds"), 0755)

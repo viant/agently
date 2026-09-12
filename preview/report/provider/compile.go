@@ -11,9 +11,10 @@ import (
 
 type Compiled struct {
 	*fenced.CompileResult
-	Results  map[string]*Result `json:"results"`
-	Variant  string             `json:"variant"`
-	Warnings []string           `json:"warnings,omitempty"`
+	Results         map[string]*Result `json:"results"`
+	ConditionValues Object             `json:"conditionValues,omitempty"`
+	Variant         string             `json:"variant"`
+	Warnings        []string           `json:"warnings,omitempty"`
 }
 
 // Compile resolves datasets through validated queries before invoking Forge's
@@ -111,7 +112,7 @@ func (p *Package) Compile(parameters Object, full bool) (*Compiled, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Forge compile: %w", err)
 	}
-	return &Compiled{compiled, results, p.Variant, warnings}, nil
+	return &Compiled{CompileResult: compiled, Results: results, Variant: p.Variant, ConditionValues: parameters, Warnings: warnings}, nil
 }
 func (p *Package) resolveParameters(input Object) (Object, error) {
 	params := clone(input)

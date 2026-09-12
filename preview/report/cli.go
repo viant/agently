@@ -16,7 +16,7 @@ import (
 // RunCLI supports both `serve folder --variant empty` and flags before folder.
 func RunCLI(ctx context.Context, args []string, out, errOut io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: report-preview <serve|validate|describe|query|compile|export> <folder> [--variant name] [--datasource id] [--request file] [--parameters file] [--out file] [--addr 127.0.0.1:8095]")
+		return fmt.Errorf("usage: report-preview <list|serve|validate|describe|query|compile|export> [fixture-folder] [--report-root folder --group-id id --report-id id] [--mcp-url url] [--variant name] [--datasource id] [--request file] [--parameters file] [--out file] [--addr 127.0.0.1:8095]")
 	}
 	command := args[0]
 	args = args[1:]
@@ -34,6 +34,11 @@ func RunCLI(ctx context.Context, args []string, out, errOut io.Writer) error {
 	block := fs.String("block", "", "table block for CSV/XLSX export")
 	output := fs.String("out", "", "output file")
 	addr := fs.String("addr", "127.0.0.1:8095", "loopback listen address")
+	assets := fs.String("assets", "preview/ui/dist", "built frontend directory")
+	reportRoot := fs.String("report-root", "", "existing Forge report catalog directory")
+	groupID := fs.String("group-id", "", "report group identity")
+	reportID := fs.String("report-id", "", "report identity to preview")
+	mcpURL := fs.String("mcp-url", "", "optional MCP endpoint override for report datasources")
 	full := fs.Bool("full", false, "compile all matching rows")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -43,13 +48,38 @@ func RunCLI(ctx context.Context, args []string, out, errOut io.Writer) error {
 	} else if fs.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments")
 	}
-	if folder == "" {
+	if folder == "" && command != "list" {
 		return fmt.Errorf("report folder is required")
 	}
-	if command == "serve" {
-		return Serve(ctx, Config{Folder: folder, Variant: *variant, Addr: *addr}, out)
+	config := Config{Folder: folder, Variant: *variant, Addr: *addr, Assets: *assets, ReportRoot: *reportRoot, GroupID: *groupID, ReportID: *reportID, MCPURL: *mcpURL}
+	if command == "list" {
+		if *reportRoot == "" || *groupID == "" || *reportID != "" {
+			return fmt.Errorf("list requires --report-root and --group-id, without --report-id")
+		}
+		value, err := preview.ListCatalog(*reportRoot, *groupID)
+		if err != nil {
+			return err
+		}
+		body, err := json.MarshalIndent(value, "", "  ")
+		if err != nil {
+			return err
+		}
+		_, err = out.Write(append(body, '\n'))
+		return err
 	}
-	p, err := preview.Load(folder, *variant)
+	if (*groupID == "") != (*reportID == "") {
+		return fmt.Errorf("--group-id and --report-id must be supplied together")
+	}
+	if *reportRoot != "" && (*groupID == "" || *reportID == "") {
+		return fmt.Errorf("--report-root requires --group-id and --report-id")
+	}
+	if *reportRoot == "" && *groupID != "" && *mcpURL == "" {
+		return fmt.Errorf("remote report definition requires --mcp-url")
+	}
+	if command == "serve" {
+		return Serve(ctx, config, out)
+	}
+	p, err := loadPackage(config, *variant)
 	if err != nil {
 		return err
 	}
@@ -63,8 +93,8 @@ func RunCLI(ctx context.Context, args []string, out, errOut io.Writer) error {
 			return e
 		}
 	}
-	if command == "query" || command == "compile" || command == "export" {
-		close, err := connectCLI(ctx, p, folder, *variant)
+	if command == "validate" || command == "query" || command == "compile" || command == "export" {
+		close, err := connectCLI(ctx, p, config)
 		if err != nil {
 			return err
 		}

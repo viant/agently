@@ -4,7 +4,7 @@ Reusable native Forge window preview with a workspace catalog and shared MCP
 fixtures. See the [window preview guide](../doc/window-preview.md).
 
 ```sh
-npm --prefix ui run build:window-preview
+npm --prefix ui run build:preview
 go run ./preview/cmd/window-preview --root ./preview/window/examples/projects
 ```
 

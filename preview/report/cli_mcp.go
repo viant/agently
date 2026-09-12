@@ -12,8 +12,17 @@ import (
 
 // connectCLI gives offline CLI invocations the same real MCP transport as the
 // browser host, using an ephemeral loopback port and closing it after the command.
-func connectCLI(ctx context.Context, p *preview.Package, folder, variant string) (func(), error) {
-	server, err := MockServer(Config{Folder: folder, Variant: variant})
+func connectCLI(ctx context.Context, p *preview.Package, config Config) (func(), error) {
+	if config.MCPURL != "" {
+		endpoint := p.Endpoints["mockReports"]
+		endpoint.BaseURL = config.MCPURL
+		p.Endpoints["mockReports"] = endpoint
+		if err := p.UseMCP(ctx, "http://127.0.0.1"); err != nil {
+			return nil, err
+		}
+		return func() {}, nil
+	}
+	server, err := MockServer(config)
 	if err != nil {
 		return nil, err
 	}

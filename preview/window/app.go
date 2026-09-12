@@ -12,7 +12,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/viant/afs"
@@ -23,7 +25,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type Config struct{ Root, Assets, Addr string }
+type Config struct {
+	Root, Assets, Addr, MetadataRoot string
+	MCPURL                           string
+	PlatformMCPURL                   string
+	StewardMCPURL                    string
+	DisableAuthorization             bool
+	ReadOnly                         bool
+}
 type Workspace struct {
 	Title         string                         `yaml:"title" json:"title"`
 	DefaultWindow string                         `yaml:"defaultWindow" json:"defaultWindow"`
@@ -32,8 +41,9 @@ type Workspace struct {
 	DataSources   map[string]Source              `yaml:"dataSources" json:"-"`
 }
 type Window struct {
-	Title string `yaml:"title" json:"title"`
-	File  string `yaml:"file" json:"-"`
+	Title       string   `yaml:"title" json:"title"`
+	File        string   `yaml:"file" json:"-"`
+	DataSources []string `yaml:"dataSources" json:"-"`
 }
 
 // Backend follows agently-core's mcp_tool datasource declaration.
@@ -44,6 +54,7 @@ type Backend struct {
 	Pinned  map[string]any `yaml:"pinned"`
 }
 type Source struct {
+	ID               string `yaml:"id,omitempty"`
 	types.DataSource `yaml:",inline"`
 	Backend          Backend           `yaml:"backend"`
 	Query            mock.Query        `yaml:"query"`
@@ -54,6 +65,9 @@ type App struct {
 	workspace Workspace
 	root      string
 	mock      *mock.Server
+	mu        sync.Mutex
+	fetches   map[string]int
+	routes    map[string]string
 }
 
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
@@ -67,12 +81,30 @@ func New(config Config) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &App{config: config, root: root}
+	a := &App{config: config, root: root, fetches: map[string]int{}, routes: map[string]string{}}
+	a.config.MetadataRoot = root
+	if strings.TrimSpace(config.MetadataRoot) != "" {
+		metadataRoot, e := filepath.Abs(config.MetadataRoot)
+		if e != nil {
+			return nil, e
+		}
+		metadataRoot, e = filepath.EvalSymlinks(metadataRoot)
+		if e != nil {
+			return nil, e
+		}
+		a.config.MetadataRoot = metadataRoot
+	}
 	b, err := a.read("preview.yaml")
 	if err != nil {
 		return nil, err
 	}
 	if err = yaml.Unmarshal(b, &a.workspace); err != nil {
+		return nil, err
+	}
+	if err = a.configureMCPEndpoints(); err != nil {
+		return nil, err
+	}
+	if err = a.hydrateWorkspaceDataSources(); err != nil {
 		return nil, err
 	}
 	if len(a.workspace.Windows) == 0 {
@@ -103,6 +135,84 @@ func New(config Config) (*App, error) {
 	}
 	return a, nil
 }
+
+// hydrateWorkspaceDataSources keeps the authored Forge datasource contract
+// (parameters, selectors, cache policy, and autoFetch) while routing every
+// request to the stable synthetic MCP tool named after its datasource ID.
+func (a *App) hydrateWorkspaceDataSources() error {
+	if filepath.Clean(a.config.MetadataRoot) == filepath.Clean(a.root) {
+		return nil
+	}
+	definitions := map[string]Source{}
+	root := filepath.Join(a.config.MetadataRoot, "datasources")
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || filepath.Ext(path) != ".yaml" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(strings.TrimSpace(string(data)), "$import(") {
+			return nil
+		}
+		var source Source
+		if err = yaml.Unmarshal(data, &source); err != nil {
+			return fmt.Errorf("parse datasource %s: %w", path, err)
+		}
+		if source.ID != "" {
+			definitions[source.ID] = source
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for id := range a.workspace.DataSources {
+		override := a.workspace.DataSources[id]
+		source, ok := definitions[id]
+		if !ok {
+			return fmt.Errorf("preview datasource %s is absent from workspace metadata", id)
+		}
+		service := strings.ToLower(strings.TrimSpace(source.Backend.Service))
+		if service != "platform" && service != "steward" {
+			// Draft-only sources have no live MCP owner. In preview they use the
+			// synthetic Steward endpoint and are never allowed to reach production.
+			service = "steward"
+		}
+		source.Backend = Backend{Kind: "mcp_tool", Service: service, Method: id}
+		if override.AutoFetch != nil {
+			source.AutoFetch = override.AutoFetch
+		}
+		a.workspace.DataSources[id] = source
+	}
+	return nil
+}
+
+func (a *App) configureMCPEndpoints() error {
+	shared := strings.TrimRight(strings.TrimSpace(a.config.MCPURL), "/")
+	platform := strings.TrimRight(strings.TrimSpace(a.config.PlatformMCPURL), "/")
+	steward := strings.TrimRight(strings.TrimSpace(a.config.StewardMCPURL), "/")
+	if platform == "" {
+		platform = shared
+	}
+	if steward == "" {
+		steward = shared
+	}
+	for name, endpoint := range map[string]string{"platform": platform, "steward": steward} {
+		if endpoint == "" {
+			continue
+		}
+		if !strings.HasPrefix(endpoint, "http://127.0.0.1:") && !strings.HasPrefix(endpoint, "http://localhost:") {
+			return fmt.Errorf("%s MCP URL must be loopback HTTP", name)
+		}
+		a.workspace.Endpoints[name] = datasource.Endpoint{Type: "mcp", Transport: "streamable", BaseURL: endpoint}
+	}
+	return nil
+}
 func (a *App) read(relative string) ([]byte, error) {
 	if filepath.IsAbs(relative) {
 		return nil, fmt.Errorf("absolute paths are not allowed")
@@ -131,7 +241,7 @@ func (a *App) LoadWindow(ctx context.Context, id string) (*types.Window, error) 
 	if !ok {
 		return nil, fmt.Errorf("unknown window %q", id)
 	}
-	if _, e := a.read(item.File); e != nil {
+	if _, e := a.readMetadata(item.File); e != nil {
 		return nil, e
 	}
 	// Preflight import paths before using the standard Forge metadata loader.
@@ -140,8 +250,27 @@ func (a *App) LoadWindow(ctx context.Context, id string) (*types.Window, error) 
 	}
 	loader := meta.New(afs.New(), "")
 	w := &types.Window{}
-	if e := loader.LoadWithURLAndTarget(ctx, filepath.Join(a.root, item.File), w, &meta.TargetContext{Platform: "web", FormFactor: "desktop", Surface: "app"}); e != nil {
+	if e := loader.LoadWithURLAndTarget(ctx, filepath.Join(a.config.MetadataRoot, item.File), w, &meta.TargetContext{Platform: "web", FormFactor: "desktop", Surface: "app"}); e != nil {
 		return nil, e
+	}
+	if e := a.mergeActionRefs(w); e != nil {
+		return nil, e
+	}
+	// Production Agently supplies workspace-level Forge datasources alongside
+	// window metadata. Inject only the declared dependency set for this window:
+	// opening Advertiser must not initialize unrelated workspace contexts.
+	if w.DataSource == nil {
+		w.DataSource = map[string]types.DataSource{}
+	}
+	for _, ref := range item.DataSources {
+		if _, exists := w.DataSource[ref]; exists {
+			continue
+		}
+		shared, exists := a.workspace.DataSources[ref]
+		if !exists {
+			return nil, fmt.Errorf("window %s references unknown shared datasource %s", id, ref)
+		}
+		w.DataSource[ref] = shared.DataSource
 	}
 	for local, ds := range w.DataSource {
 		ref := ds.DataSourceRef
@@ -162,6 +291,8 @@ func (a *App) LoadWindow(ctx context.Context, id string) (*types.Window, error) 
 				merged[k] = v
 			}
 		}
+		// Keep browser calls on the preview bridge. The bridge uses MCPURL, when
+		// configured, so a stable MCP service can outlive the window preview.
 		merged["service"] = map[string]any{"endpoint": "preview", "uri": "/v1/api/datasources/" + ref + "/fetch", "method": "POST"}
 		delete(merged, "dataSourceRef")
 		raw, _ := json.Marshal(merged)
@@ -171,11 +302,128 @@ func (a *App) LoadWindow(ctx context.Context, id string) (*types.Window, error) 
 		}
 		w.DataSource[local] = ds
 	}
+	if a.config.DisableAuthorization {
+		w.Authorization = nil
+	}
+	if a.config.ReadOnly {
+		// Workspace action modules are hosted by Agently, not the standalone
+		// preview. Suppress mutations and action hooks while retaining the
+		// production window structure and datasource contracts.
+		w.On = nil
+		w.Dialogs = nil
+		w.Schemas = nil
+		w.ResourceModels = nil
+		w.AuthorizationSnapshot = map[string]interface{}{
+			"principal": map[string]interface{}{"roles": []string{}, "features": []string{}},
+			"account":   map[string]interface{}{"id": 880001},
+			"resource": map[string]interface{}{
+				"id":   700001,
+				"type": "advertiser",
+				"capabilities": map[string]bool{
+					"read":                       true,
+					"write":                      false,
+					"writeCampaign":              false,
+					"manageDefaults":             true,
+					"managePermissions":          true,
+					"viewAdvancedRates":          true,
+					"viewHistory":                true,
+					"viewCreativeExchangeStatus": true,
+				},
+			},
+		}
+		// Hosted chat regions are rendered by Agently's conversation shell. The
+		// standalone preview has only a tab manager, so render this same window
+		// in a regular tab without changing the authored workspace metadata.
+		w.Presentation = ""
+		w.Region = ""
+		seedAdvertiserPreviewDates(w)
+		for ref, source := range w.DataSource {
+			source.On = nil
+			source.ResourceModelRef = ""
+			w.DataSource[ref] = source
+		}
+	}
 	if e := types.ValidateResourceModels(w); e != nil {
 		return nil, e
 	}
 	w.WindowKey = id
 	return w, nil
+}
+
+func seedAdvertiserPreviewDates(window *types.Window) {
+	if window == nil || window.Window == nil {
+		return
+	}
+	for _, execute := range window.Window.On {
+		if execute == nil || execute.Handler != "dataSource.setWindowFormData" {
+			continue
+		}
+		for _, parameter := range execute.Parameters {
+			if parameter == nil || parameter.In != "const" || parameter.Location != "" {
+				continue
+			}
+			switch parameter.Name {
+			case "creativeDateStart":
+				parameter.Location = "2026-01-01"
+			case "creativeDateEnd":
+				parameter.Location = "2026-12-31"
+			}
+		}
+	}
+}
+
+// mergeActionRefs mirrors Agently's workspace window loader: actionRefs are
+// authored beside window metadata and must be compiled into Actions.Code before
+// Forge can resolve namespace callbacks during rendering.
+func (a *App) mergeActionRefs(window *types.Window) error {
+	if window == nil || len(window.ActionRefs) == 0 {
+		return nil
+	}
+	code := []string{}
+	if window.Actions != nil && strings.TrimSpace(window.Actions.Code) != "" {
+		code = append(code, strings.TrimSpace(window.Actions.Code))
+	}
+	seen := map[string]bool{}
+	for _, ref := range window.ActionRefs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" || seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		source, err := a.readMetadata(filepath.Join("windows", ref+".js"))
+		if err != nil {
+			return fmt.Errorf("load window action ref %q: %w", ref, err)
+		}
+		code = append(code, strings.TrimSpace(string(source)))
+	}
+	if len(code) == 0 {
+		return nil
+	}
+	window.SetCode([]byte("(() => Object.assign({},\n" + strings.Join(code, ",\n") + "\n))()"))
+	return nil
+}
+func (a *App) readMetadata(relative string) ([]byte, error) {
+	if filepath.IsAbs(relative) {
+		return nil, fmt.Errorf("absolute paths are not allowed")
+	}
+	p, e := filepath.EvalSymlinks(filepath.Join(a.config.MetadataRoot, relative))
+	if e != nil {
+		return nil, e
+	}
+	rel, e := filepath.Rel(a.config.MetadataRoot, p)
+	if e != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("metadata path escapes workspace")
+	}
+	f, e := os.Open(p)
+	if e != nil {
+		return nil, e
+	}
+	defer f.Close()
+	b, e := io.ReadAll(io.LimitReader(f, 2<<20+1))
+	if len(b) > 2<<20 {
+		return nil, fmt.Errorf("YAML exceeds 2 MB")
+	}
+	return b, e
 }
 func (a *App) checkImports(file string, seen map[string]bool) error {
 	if seen[file] {
@@ -183,7 +431,7 @@ func (a *App) checkImports(file string, seen map[string]bool) error {
 	}
 	seen[file] = true
 	defer delete(seen, file)
-	b, e := a.read(file)
+	b, e := a.readMetadata(file)
 	if e != nil {
 		return e
 	}
@@ -228,6 +476,19 @@ func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", a.mock.HTTPHandler())
 	mux.HandleFunc("/api/workspace", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, a.workspace) })
+	mux.HandleFunc("/api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		fetches := make(map[string]int, len(a.fetches))
+		for id, count := range a.fetches {
+			fetches[id] = count
+		}
+		routes := make(map[string]string, len(a.routes))
+		for id, service := range a.routes {
+			routes[id] = service
+		}
+		a.mu.Unlock()
+		writeJSON(w, map[string]any{"fetches": fetches, "routes": routes})
+	})
 	mux.HandleFunc("/api/windows/", func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(r.URL.Path, "/api/windows/")
 		win, e := a.LoadWindow(r.Context(), id)
@@ -259,6 +520,10 @@ func (a *App) fetch(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	a.mu.Lock()
+	a.fetches[id]++
+	a.routes[id] = s.Backend.Service
+	a.mu.Unlock()
 	var request struct {
 		Inputs       map[string]any `json:"inputs"`
 		Variant      string         `json:"variant"`
@@ -331,13 +596,15 @@ func (a *App) fetch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, e)
 		return
 	}
-	client, e := datasource.Dial(r.Context(), endpoint)
+	mcpContext, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	client, e := datasource.Dial(mcpContext, endpoint)
 	if e != nil {
 		writeError(w, e)
 		return
 	}
 	defer client.Close()
-	body, e := client.Call(r.Context(), tool, map[string]any{"query": q, "variant": request.Variant})
+	body, e := client.Call(mcpContext, tool, map[string]any{"query": q, "variant": request.Variant})
 	if e != nil {
 		writeError(w, e)
 		return
@@ -357,7 +624,86 @@ func (a *App) fetch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("datasource %s must return record rows", id))
 		return
 	}
-	writeJSON(w, map[string]any{"rows": rows, "dataInfo": map[string]any{"hasMore": obj["hasMore"]}, "metrics": obj["meta"]})
+	// Preserve the public MCP envelope alongside the normalized rows. Forge
+	// datasource selectors are authored per source (for example, Advertiser
+	// Properties selects `data`, while tables commonly select `rows`).
+	payload := map[string]any{"rows": rows, "dataInfo": map[string]any{"hasMore": obj["hasMore"]}}
+	for key, value := range obj {
+		if key != "status" {
+			payload[key] = value
+		}
+	}
+	if s.Selectors != nil {
+		ensureSelectorValue(payload, s.Selectors.Data, rows)
+		if recordRows, ok := rows.([]any); ok && len(recordRows) > 0 {
+			ensureSelectorValue(payload, s.Selectors.Metrics, recordRows[0])
+		}
+	}
+	writeJSON(w, payload)
+}
+
+// ensureSelectorValue supplies a synthetic value at an authored selector only
+// when the fixture does not already provide one. This supports nested source
+// contracts such as data.0.acl without copying production responses.
+func ensureSelectorValue(root map[string]any, selector string, value any) {
+	parts := strings.Split(strings.TrimSpace(selector), ".")
+	if len(parts) == 0 || parts[0] == "" {
+		return
+	}
+	var current any = root
+	for index, part := range parts {
+		last := index == len(parts)-1
+		nextIsIndex := !last && isSelectorIndex(parts[index+1])
+		switch node := current.(type) {
+		case map[string]any:
+			if last {
+				if _, exists := node[part]; !exists {
+					node[part] = value
+				}
+				return
+			}
+			next, exists := node[part]
+			if !exists || next == nil {
+				if nextIsIndex {
+					position, _ := strconv.Atoi(parts[index+1])
+					next = make([]any, position+1)
+				} else {
+					next = map[string]any{}
+				}
+				node[part] = next
+			}
+			current = next
+		case []any:
+			position, err := strconv.Atoi(part)
+			if err != nil || position < 0 {
+				return
+			}
+			for len(node) <= position {
+				node = append(node, nil)
+			}
+			if last {
+				if node[position] == nil {
+					node[position] = value
+				}
+				return
+			}
+			if node[position] == nil {
+				if nextIsIndex {
+					node[position] = []any{}
+				} else {
+					node[position] = map[string]any{}
+				}
+			}
+			current = node[position]
+		default:
+			return
+		}
+	}
+}
+
+func isSelectorIndex(value string) bool {
+	_, err := strconv.Atoi(value)
+	return err == nil
 }
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")

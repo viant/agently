@@ -13,7 +13,11 @@ import (
 func (p *Package) DescribeDataSource(id string) (Object, error) {
 	f, ok := p.fixtures[id]
 	if !ok {
-		return nil, fail("MissingDataSource", id, "", "unknown datasource")
+		source, exists := p.Sources[id]
+		if !exists {
+			return nil, fail("MissingDataSource", id, "", "unknown datasource")
+		}
+		return clone(Object{"id": id, "columns": source.Columns, "capabilities": p.Extension.DataSources[id].Query, "resultContract": source.ResultContract}), nil
 	}
 	return clone(Object{"id": id, "columns": f.columns, "capabilities": p.Extension.DataSources[id].Query, "resultContract": p.Sources[id].ResultContract}), nil
 }
