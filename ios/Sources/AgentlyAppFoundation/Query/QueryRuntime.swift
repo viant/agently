@@ -20,6 +20,7 @@ public final class QueryRuntime: ObservableObject {
         agentID: String?,
         query: String,
         attachments: [QueryAttachment] = [],
+        resourceURIs: [String] = [],
         context: [String: JSONValue] = [:]
     ) async -> QueryOutput? {
         isSending = true
@@ -37,6 +38,7 @@ public final class QueryRuntime: ObservableObject {
                     agentID: agentID,
                     query: query,
                     attachments: attachments,
+                    resourceURIs: resourceURIs.isEmpty ? nil : resourceURIs,
                     context: context
                 )
             )
