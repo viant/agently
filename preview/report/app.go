@@ -10,8 +10,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/viant/agently/preview/datasource"
 	preview "github.com/viant/agently/preview/report/provider"
 )
 
@@ -19,29 +22,83 @@ import (
 var indexHTML []byte
 
 type Config struct {
-	Folder  string
-	Variant string
-	Addr    string
+	Folder     string
+	Variant    string
+	Addr       string
+	Assets     string
+	ReportRoot string
+	GroupID    string
+	ReportID   string
+	MCPURL     string
+}
+
+func loadPackage(config Config, variant string) (*preview.Package, error) {
+	if config.ReportRoot != "" {
+		return preview.LoadCatalog(preview.CatalogOptions{
+			ReportRoot:  config.ReportRoot,
+			FixtureRoot: config.Folder,
+			GroupID:     config.GroupID,
+			ReportID:    config.ReportID,
+			Variant:     variant,
+		})
+	}
+	if config.GroupID != "" || config.ReportID != "" {
+		if config.GroupID == "" || config.ReportID == "" || config.MCPURL == "" {
+			return nil, fmt.Errorf("remote report definition requires --group-id, --report-id, and --mcp-url")
+		}
+		manifest, err := loadPreviewManifest(config.Folder, config.GroupID, config.ReportID)
+		if err != nil {
+			return nil, err
+		}
+		if len(manifest.MCP.Definition.Arguments) == 0 {
+			return nil, fmt.Errorf("report preview manifest requires mcp.definition.arguments for remote definition mode")
+		}
+		client, err := datasource.Dial(context.Background(), config.MCPURL)
+		if err != nil {
+			return nil, fmt.Errorf("remote report definition connect: %w", err)
+		}
+		defer client.Close()
+		arguments, _ := expandManifestValue(manifest.MCP.Definition.Arguments, config.GroupID, config.ReportID).(map[string]any)
+		body, err := client.Call(context.Background(), manifest.MCP.Definition.Tool, arguments)
+		if err != nil {
+			return nil, fmt.Errorf("remote report definition call: %w", err)
+		}
+		return preview.DecodeRemoteDefinition(body, config.GroupID, config.ReportID, variant, manifest.MCP.Definition.Tool)
+	}
+	return preview.Load(config.Folder, variant)
 }
 
 // Handler loads only the folder supplied by the host. Browser parameters never
 // select filesystem paths. Query work is bounded to eight concurrent requests.
 func Handler(config Config) (http.Handler, error) {
-	_, err := preview.Load(config.Folder, config.Variant)
+	_, err := loadPackage(config, config.Variant)
 	if err != nil {
 		return nil, err
 	}
 	sem := make(chan struct{}, 8)
 	mux := http.NewServeMux()
-	mockServer, err := MockServer(config)
-	if err != nil {
-		return nil, err
+	if config.MCPURL == "" {
+		mockServer, err := MockServer(config)
+		if err != nil {
+			return nil, err
+		}
+		mux.Handle("/mcp", mockServer.HTTPHandler())
 	}
-	mux.Handle("/mcp", mockServer.HTTPHandler())
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
+			if config.Assets != "" {
+				http.FileServer(http.Dir(config.Assets)).ServeHTTP(w, r)
+				return
+			}
 			http.NotFound(w, r)
 			return
+		}
+		if config.Assets != "" {
+			entry := filepath.Join(config.Assets, "report-preview.html")
+			if _, statErr := os.Stat(entry); statErr == nil {
+				http.ServeFile(w, r, entry)
+				return
+			}
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(indexHTML)
@@ -185,9 +242,14 @@ func load(c Config, r *http.Request) (*preview.Package, error) {
 	if variant == "" {
 		variant = c.Variant
 	}
-	p, err := preview.Load(c.Folder, variant)
+	p, err := loadPackage(c, variant)
 	if err != nil {
 		return nil, err
+	}
+	if c.MCPURL != "" {
+		endpoint := p.Endpoints["mockReports"]
+		endpoint.BaseURL = c.MCPURL
+		p.Endpoints["mockReports"] = endpoint
 	}
 	if err = p.UseMCP(r.Context(), "http://"+r.Host); err != nil {
 		return nil, err
@@ -253,7 +315,13 @@ func Serve(ctx context.Context, c Config, output io.Writer) error {
 		return err
 	}
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 120 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 128 << 10}
-	fmt.Fprintf(output, "Synthetic report preview: http://%s\n", listener.Addr())
+	label := "Synthetic report preview"
+	if c.ReportRoot != "" {
+		label = "Report catalog preview"
+	} else if c.GroupID != "" && c.MCPURL != "" {
+		label = "Remote MCP report preview"
+	}
+	fmt.Fprintf(output, "%s: http://%s\n", label, listener.Addr())
 	done := make(chan struct{})
 	defer close(done)
 	go func() {

@@ -10,7 +10,7 @@ cross-window navigation grammar.
 From the agently repository root:
 
 ```sh
-npm --prefix ui run build:window-preview
+npm --prefix ui run build:preview
 go run ./preview/cmd/window-preview --root ./preview/window/examples/projects
 ```
 
@@ -167,7 +167,7 @@ for full workspace integration.
 ```sh
 go test -race ./preview/window ./preview/cmd/window-preview
 node --no-warnings preview/ui/window/route.test.js
-npm --prefix ui run build:window-preview
+npm --prefix ui run build:preview
 ```
 
 The demo contains two linked business-neutral windows and default, empty, error,

@@ -66,6 +66,14 @@ type Source struct {
 	Columns           []Object       `json:"columns"`
 	ResultContract    Contract       `json:"resultContract"`
 	ParameterBindings []Binding      `json:"parameterBindings"`
+	MCPRequest        *MCPRequest    `json:"mcpRequest,omitempty"`
+}
+
+// MCPRequest declares a generic tool-call argument template for servers whose
+// public contract does not use the preview query envelope.
+type MCPRequest struct {
+	Arguments   Object `json:"arguments"`
+	RequestPath string `json:"requestPath,omitempty"`
 }
 type Binding struct {
 	Parameter string `json:"parameter"`

@@ -28,6 +28,11 @@ type Tool struct {
 	File        string                 `json:"file"`
 	Description string                 `json:"description,omitempty"`
 	InputSchema schema.ToolInputSchema `json:"inputSchema,omitempty"`
+	Routes      []Route                `json:"routes,omitempty"`
+}
+type Route struct {
+	Match map[string]any `json:"match"`
+	File  string         `json:"file"`
 }
 type Call struct {
 	Tool      string
@@ -39,6 +44,7 @@ type Transform func(context.Context, Call) (any, error)
 type Config struct {
 	Root          string
 	DataRoot      string
+	MCPPath       string
 	Variant       string
 	Tools         map[string]Tool
 	Transform     Transform
@@ -66,6 +72,12 @@ func New(config Config) (*Server, error) {
 	config.Root = root
 	if config.DataRoot == "" {
 		config.DataRoot = "ds"
+	}
+	if config.MCPPath == "" {
+		config.MCPPath = "/mcp"
+	}
+	if !strings.HasPrefix(config.MCPPath, "/") || strings.Contains(config.MCPPath, "?") || strings.Contains(config.MCPPath, "#") {
+		return nil, fmt.Errorf("MCP path must be an absolute path without query or fragment")
 	}
 	if config.MaxFileBytes == 0 {
 		config.MaxFileBytes = 25 << 20
@@ -121,8 +133,16 @@ func New(config Config) (*Server, error) {
 		if _, err := s.read(t, "default"); err != nil {
 			return nil, fmt.Errorf("tool %s: %w", name, err)
 		}
+		for index, route := range t.Routes {
+			if len(route.Match) == 0 || route.File == "" {
+				return nil, fmt.Errorf("tool %s route %d requires match and file", name, index)
+			}
+			if _, err := s.read(Tool{File: route.File}, "default"); err != nil {
+				return nil, fmt.Errorf("tool %s route %d: %w", name, index, err)
+			}
+		}
 	}
-	s.server, err = mcpsrv.New(mcpsrv.WithImplementation(schema.Implementation{Name: "forge-mock-datasources", Version: "1.0.0"}), mcpsrv.WithNewHandler(s.newHandler), mcpsrv.WithStreamableURI("/mcp"), mcpsrv.WithRootRedirect(false))
+	s.server, err = mcpsrv.New(mcpsrv.WithImplementation(schema.Implementation{Name: "forge-mock-datasources", Version: "1.0.0"}), mcpsrv.WithNewHandler(s.newHandler), mcpsrv.WithStreamableURI(config.MCPPath), mcpsrv.WithRootRedirect(false))
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +185,11 @@ func (s *Server) newHandler(_ context.Context, notifier transport.Notifier, log 
 					variant = s.config.Variant
 				}
 			}
-			body, err := s.read(tool, variant)
+			selected := tool
+			if route := matchRoute(tool.Routes, args); route != nil {
+				selected.File = route.File
+			}
+			body, err := s.read(selected, variant)
 			if err != nil {
 				return toolError(err), nil
 			}
@@ -196,6 +220,53 @@ func (s *Server) newHandler(_ context.Context, notifier transport.Notifier, log 
 		})
 	}
 	return base, nil
+}
+
+func matchRoute(routes []Route, arguments map[string]any) *Route {
+	for index := range routes {
+		matched := true
+		for path, expected := range routes[index].Match {
+			actual, ok := nestedValue(arguments, path)
+			if !ok || !sameJSONValue(actual, expected) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return &routes[index]
+		}
+	}
+	return nil
+}
+
+// Matches reports whether decoded MCP tool arguments satisfy every dotted-path
+// equality in a contract match rule. HTTP transport details are not considered.
+func Matches(arguments, match map[string]any) bool {
+	if len(match) == 0 {
+		return false
+	}
+	return matchRoute([]Route{{Match: match}}, arguments) != nil
+}
+
+func nestedValue(value any, path string) (any, bool) {
+	current := value
+	for _, part := range strings.Split(path, ".") {
+		object, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		current, ok = object[part]
+		if !ok {
+			return nil, false
+		}
+	}
+	return current, true
+}
+
+func sameJSONValue(left, right any) bool {
+	a, errA := json.Marshal(left)
+	b, errB := json.Marshal(right)
+	return errA == nil && errB == nil && bytes.Equal(a, b)
 }
 func (s *Server) read(t Tool, variant string) (json.RawMessage, error) {
 	if !safeName.MatchString(variant) || variant == "." || variant == ".." {
