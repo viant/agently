@@ -892,6 +892,12 @@ export function openConversationInMainWindow(conversationId = '') {
     syncPath: true,
     eventType: 'agently:conversation-select'
   });
+  // A history/chat selection must not mount a saved hosted workspace. Its
+  // metadata, applyPermission call, and auto-fetch datasources stay dormant
+  // until the user explicitly selects the workspace surface.
+  if (getScopedActiveSurface(targetID) !== 'workspace') {
+    return mainWindow;
+  }
   const workspaceWindow = ensureWorkspaceWindowForConversation(targetID);
   if (workspaceWindow) {
     return getScopedActiveSurface(targetID) === 'workspace' ? focusWindow(workspaceWindow) : mainWindow;

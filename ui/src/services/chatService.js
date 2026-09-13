@@ -481,7 +481,10 @@ export async function onInit({ context }) {
       resources.forgeUIActionUnsub = connectForgeUIActionsToCallbacksOrChat(submitMessage, () => context);
     }
     bindConversationWindowEvents(context);
-    await hydrateMeta(context);
+    // Workspace/Forge metadata is not required to render an existing chat.
+    // Hydrate it in parallel so protected metadata and window configuration
+    // cannot hold the transcript behind an authorization or network delay.
+    void Promise.resolve(hydrateMeta(context)).catch(() => {});
     bootstrapConversationSelection(context);
     renderMergedRowsForContext(context);
     setStage({ phase: 'ready', text: 'Ready' });
@@ -515,47 +518,51 @@ export async function onInit({ context }) {
         renderMergedRowsForContext(context);
         return;
       }
-      const existing = await fetchConversation(conversationID);
-      if (!existing) {
-        const metaDefaults = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.()?.defaults || {};
-        conversationsDS?.setFormData?.({
-          values: {
-            ...(conversationsDS?.peekFormData?.() || {}),
-            id: '',
-            title: 'New conversation',
-            agent: metaDefaults?.agent || '',
-            model: metaDefaults?.model || '',
-            embedder: metaDefaults?.embedder || ''
-          }
+      {
+        // Keep detail metadata for title/status parity, but do not let its
+        // linked-conversation expansion block the transcript render.
+        const existingPromise = fetchConversation(conversationID);
+        const snapshot = await dsTick(context, {
+          conversationID,
+          allowLiveHydration: true,
+          transcript: {
+            // A route-mounted historical conversation must not eagerly load
+            // model/tool payload graphs. The execution-details surface owns
+            // that heavier, explicitly requested read.
+            includeExecutionDetails: false,
+          },
+          restoreWorkspace: false,
         });
-        messagesDS?.setCollection?.([]);
-        messagesDS?.setError?.('');
-        publishActiveConversation('', context);
-      } else {
+        const existing = await existingPromise;
+        if (!existing) {
+          const metaDefaults = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.()?.defaults || {};
+          conversationsDS?.setFormData?.({
+            values: {
+              ...(conversationsDS?.peekFormData?.() || {}),
+              id: '',
+              title: 'New conversation',
+              agent: metaDefaults?.agent || '',
+              model: metaDefaults?.model || '',
+              embedder: metaDefaults?.embedder || ''
+            }
+          });
+          messagesDS?.setCollection?.([]);
+          messagesDS?.setError?.('');
+          publishActiveConversation('', context);
+          return;
+        }
         const mergedConversation = mergeConversationSnapshot(conversationsDS?.peekFormData?.() || {}, existing);
-        conversationsDS?.setFormData?.({
-          values: mergedConversation
-        });
+        conversationsDS?.setFormData?.({ values: mergedConversation });
         publishConversationMetaUpdated(conversationID, {
           title: String(mergedConversation?.title || mergedConversation?.Title || '').trim(),
           stage: String(mergedConversation?.stage || mergedConversation?.Stage || '').trim(),
           status: String(mergedConversation?.status || mergedConversation?.Status || '').trim(),
           running: !!mergedConversation?.running,
         });
-        const conversationLiveish = isConversationLiveish(existing);
-        const initialTransportActive = syncConversationTransport(context, conversationID);
-        const snapshot = await dsTick(context, {
-          conversationID,
-          transcript: {
-            includeExecutionDetails: !conversationLiveish,
-          },
-        });
-        if ((snapshot?.hasRunning || conversationLiveish) && !initialTransportActive) {
+        if (snapshot?.hasRunning || ((snapshot?.projection || []).length === 0 && isConversationLiveish(existing))) {
           syncConversationTransport(context, conversationID);
         } else {
-          if (!initialTransportActive) {
-            disconnectStream(context);
-          }
+          disconnectStream(context);
         }
         await refreshGoalFeed(conversationID);
         publishActiveConversation(conversationID, context);

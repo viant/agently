@@ -118,9 +118,10 @@ export async function getAuthMeSilently() {
       authMeCacheReady = true;
       return null;
     }
-    authMeCacheValue = null;
-    authMeCacheReady = true;
-    return null;
+    // A transient/server failure is not evidence that the session is absent.
+    // Keep the optimistic shell alive and let protected endpoints remain the
+    // authority for forcing login.
+    throw new Error(`auth/me failed with HTTP ${response.status}`);
   })().finally(() => {
     authMeInFlight = null;
   });

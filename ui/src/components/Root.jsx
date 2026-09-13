@@ -28,12 +28,12 @@ import { useApprovalQueue } from '../hooks/useApprovalQueue';
 import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, dismissWorkspaceWindowForConversation, ensureWorkspaceWindowForConversation, getScopedActiveSurface, getScopedConversationSelection, getScopedWorkspacePresentationMode, getScopedWorkspaceSelection, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
 import { conversationIDFromPath, publishActiveConversation } from '../services/chatRuntime';
-import { beginLogin, getAuthMeSilently, getAuthProvidersSilently, recoverSessionSilently } from '../services/agentlyClient';
+import { beginLogin, getAuthMeSilently, getAuthProvidersSilently } from '../services/agentlyClient';
 import { onGoalDraftOpen } from '../services/goalDraftBus';
 import { useDeveloperMode } from '../services/uiPreferences';
 import { useChatProjection, useChatIsRunning } from '../services/chatStore.js';
 import { resolveWorkspaceAttachmentOwnerIndex } from '../services/workspaceAttachment.js';
-import { beginEagerMCPAuth, currentPendingMCPAuth, resumePendingMCPAuth } from '../services/mcpAuth';
+import { currentPendingMCPAuth, resumePendingMCPAuth } from '../services/mcpAuth';
 
 const SIDEBAR_WIDTH_KEY = 'agently.sidebarWidth';
 const SIDEBAR_DEFAULT_WIDTH = 320;
@@ -563,7 +563,9 @@ export default function Root() {
       return SIDEBAR_DEFAULT_WIDTH;
     }
   });
-  const [authState, setAuthState] = useState('checking');
+  // Render the shell optimistically. Protected endpoints still emit the
+  // authoritative unauthorized event; auth discovery must not gate chat.
+  const [authState, setAuthState] = useState('ready');
   const [mcpResumePending, setMCPResumePending] = useState(() => currentPendingMCPAuth());
   const [oauthProviderLabel, setOAuthProviderLabel] = useState('');
   const developerMode = useDeveloperMode();
@@ -862,11 +864,6 @@ export default function Root() {
       if (pending?.conversationId && pending.conversationId !== restoredConversationId) {
         restoreConversation(pending);
       }
-      await beginEagerMCPAuth({
-        navigate: (authorizationURL) => {
-          if (active) window.location.assign(authorizationURL);
-        },
-      });
     })().catch(() => {});
     return () => { active = false; };
   }, [authState]);
@@ -883,16 +880,13 @@ export default function Root() {
       .then(async (results) => {
         if (!mounted) return;
         const providers = results[0]?.status === 'fulfilled' ? results[0].value : [];
-        let me = results[1]?.status === 'fulfilled' ? results[1].value : null;
-        if (!me && Array.isArray(providers) && providers.length > 0) {
-          const recovered = await recoverSessionSilently();
-          if (!mounted) return;
-          if (recovered) {
-            me = await getAuthMeSilently();
-          }
-        }
+        const authProbeSucceeded = results[1]?.status === 'fulfilled';
+        const me = authProbeSucceeded ? results[1].value : null;
         setOAuthProviderLabel(resolveOAuthProviderLabel(providers));
-        setAuthState(resolveInitialAuthState(providers, me));
+        // Only an explicit unauthenticated auth/me response should replace the
+        // shell. Transient failures stay optimistic until a protected request
+        // emits agently:unauthorized.
+        if (authProbeSucceeded) setAuthState(resolveInitialAuthState(providers, me));
       })
       .catch((err) => {
         if (!mounted) return;
@@ -1167,6 +1161,7 @@ export default function Root() {
     if (!conversationId) return;
     if (linkedChildWindow?.windowId) return;
     if (!useConversationWorkspaceFallback) return;
+    if (getScopedActiveSurface(conversationId) !== 'workspace') return;
     ensureWorkspaceWindowForConversation(conversationId);
   }, [linkedChildWindow?.windowId, mainConversationId, conversationSelectionEpoch, useConversationWorkspaceFallback]);
 
@@ -1175,6 +1170,7 @@ export default function Root() {
     if (!conversationId) return () => {};
     if (linkedChildWindow?.windowId) return () => {};
     if (!useConversationWorkspaceFallback) return () => {};
+    if (getScopedActiveSurface(conversationId) !== 'workspace') return () => {};
     if (activeWorkspaceWindow?.windowId) return () => {};
     let cancelled = false;
     const restoreIfNeeded = () => {

@@ -18,7 +18,7 @@ vi.mock('./elicitationBus', () => ({
   replacePendingElicitationsForConversation: replacePendingElicitationsForConversationMock,
 }));
 
-import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, clearPendingConversationBootstrap, connectStream, createNewConversation, dsTick, enqueueConversationSwitch, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, getSettledConversationBootstrapSnapshot, handleStreamEvent, hasPendingConversationBootstrap, hydrateMeta, installChatStoreMirror, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTaskCategories, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
+import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, clearPendingConversationBootstrap, connectStream, createNewConversation, dsTick, enqueueConversationSwitch, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, getSettledConversationBootstrapSnapshot, handleStreamEvent, hasPendingConversationBootstrap, hydrateMeta, installChatStoreMirror, isConversationLiveish, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolveStarterTaskCategories, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
 import { client } from './agentlyClient';
 import { applyFeedEvent, clearFeedState, getFeedData } from './toolFeedBus';
 
@@ -1445,6 +1445,28 @@ describe('createNewConversation', () => {
   });
 });
 
+describe('isConversationLiveish', () => {
+  it('lets the latest terminal turn override stale conversation-level running state', () => {
+    expect(isConversationLiveish({
+      status: 'running',
+      turns: [
+        { turnId: 'old', status: 'failed', createdAt: '2026-09-12T10:00:00Z' },
+        { turnId: 'resumed', status: 'completed', createdAt: '2026-09-12T10:05:00Z' },
+      ],
+    })).toBe(false);
+  });
+
+  it('treats a latest running turn as live even when conversation metadata is stale', () => {
+    expect(isConversationLiveish({
+      status: 'succeeded',
+      turns: [
+        { turnId: 'old', status: 'completed', createdAt: '2026-09-12T10:00:00Z' },
+        { turnId: 'active', status: 'running', createdAt: '2026-09-12T10:05:00Z' },
+      ],
+    })).toBe(true);
+  });
+});
+
 describe('switchConversation', () => {
   beforeEach(() => {
     client.getConversation.mockReset();
@@ -1774,7 +1796,14 @@ describe('switchConversation', () => {
     await switchConversation(context, 'conv-live-target');
 
     expect(client.streamEvents).toHaveBeenCalledWith('conv-live-target', expect.any(Object));
-    expect(client.getTranscript).not.toHaveBeenCalled();
+    expect(client.getTranscript).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conv-live-target',
+        includeModelCalls: false,
+        includeToolCalls: false,
+      }),
+      undefined,
+    );
     expect(messageState.collection).toEqual(expect.any(Array));
   });
 
@@ -2459,6 +2488,13 @@ describe('startPolling', () => {
 
   it('does not poll finished conversations once transcript is already loaded', async () => {
     vi.useFakeTimers();
+    const sessionStorage = createStorage();
+    sessionStorage.setItem('agently.selectedConversationId:chat/new', 'conv-1');
+    global.window = {
+      ...(global.window || {}),
+      location: { pathname: '/conversation/conv-1' },
+      sessionStorage,
+    };
     const context = {
       resources: {
         chat: {
@@ -2515,6 +2551,13 @@ describe('startPolling', () => {
 
   it('does not poll while terminal hydration is still in progress for the active conversation', async () => {
     vi.useFakeTimers();
+    const sessionStorage = createStorage();
+    sessionStorage.setItem('agently.selectedConversationId:chat/new', 'conv-1');
+    global.window = {
+      ...(global.window || {}),
+      location: { pathname: '/conversation/conv-1' },
+      sessionStorage,
+    };
     const context = {
       resources: {
         chat: {
