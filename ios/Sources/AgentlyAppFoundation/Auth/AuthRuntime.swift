@@ -17,6 +17,8 @@ public final class AuthRuntime: ObservableObject {
     @Published public var lastError: String?
     @Published public var lastAuthSessionID: String?
 
+    public var onSessionCleared: (() -> Void)?
+
     private let client: AgentlyClient
     private let oauthSession = OAuthWebAuthenticationSession()
     public static let mobileOAuthRedirectURI = "agently-ios://oauth/callback"
@@ -160,6 +162,7 @@ public final class AuthRuntime: ObservableObject {
             logger.info("Logging out current session")
             try await client.logout()
             client.clearSessionCookies()
+            onSessionCleared?()
             currentUser = nil
             lastAuthSessionID = nil
             await refreshConnectionContext()

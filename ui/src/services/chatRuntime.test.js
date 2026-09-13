@@ -281,6 +281,13 @@ describe('normalizeMetaResponse', () => {
 });
 
 describe('resolveStarterTasks', () => {
+  it('preserves an explicit task agent rather than the publishing agent', () => {
+    const tasks = resolveStarterTasks({ selectedAgent: 'chatter', agentInfos: [
+      { id: 'chatter', name: 'Chatter', starterTasks: [{ id: 'csv', title: 'Analyze CSV', prompt: 'Analyze attached CSV.', agentId: 'coder' }] }
+    ] });
+    expect(tasks[0].agentId).toBe('coder');
+  });
+
   it('merges starter tasks across all agents for auto-select', () => {
     const got = resolveStarterTasks({
       selectedAgent: 'auto',

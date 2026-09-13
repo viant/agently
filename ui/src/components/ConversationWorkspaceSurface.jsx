@@ -157,8 +157,9 @@ export default function ConversationWorkspaceSurface({
                 </button>
                 <button type="button" className="app-workspace-window-control is-layout"
                   disabled={compact || capabilities.split === false}
-                  aria-label={compact ? 'Focus layout on small screens' : effectiveMode === 'focus' ? 'Show chat and workspace' : 'Focus workspace'}
-                  title={compact ? 'Focus layout on small screens' : capabilities.split === false ? 'Split layout unavailable' : effectiveMode === 'focus' ? 'Split view — show chat and workspace' : 'Focus workspace'}
+                  aria-label={compact ? 'Workspace is maximized on small screens' : effectiveMode === 'focus' ? 'Restore split view' : 'Maximize workspace'}
+                  aria-pressed={effectiveMode === 'focus'}
+                  title={compact ? 'Workspace is maximized on small screens' : capabilities.split === false ? 'Split layout unavailable' : effectiveMode === 'focus' ? 'Restore split view' : 'Maximize workspace'}
                   onClick={() => onChangeWorkspaceMode?.(effectiveMode === 'focus' ? 'split' : 'focus')}>
                   <span className="app-workspace-control-dot" aria-hidden="true">
                     <svg viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7" rx="0.6" />{effectiveMode === 'focus' ? <path d="M5 1.5v7" /> : null}</svg>

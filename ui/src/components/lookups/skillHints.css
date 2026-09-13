@@ -1,0 +1,18 @@
+.agently-skill-hints {
+  width: min(420px, calc(100vw - 32px));
+  max-height: 300px;
+  overflow-y: auto;
+}
+.agently-skill-hints .bp6-menu-item {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 3px;
+}
+.agently-skill-hints .bp6-menu-item-label {
+  margin-left: 0;
+  max-width: 100%;
+  white-space: normal;
+  font-size: 12px;
+  line-height: 1.4;
+  color: inherit;
+}

@@ -20,6 +20,8 @@ vi.mock('agently-core-ui-sdk', () => ({
       return Promise.resolve({});
     }
 
+    logout() { return Promise.resolve(); }
+
     loginWithRedirect() {}
 
     loginWithPopup() {

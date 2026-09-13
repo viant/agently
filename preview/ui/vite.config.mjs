@@ -21,7 +21,6 @@ export default {
   {find:'@blueprintjs/icons',replacement:resolve(uiRoot,'node_modules/@blueprintjs/icons')},
  ]},
  build:{outDir:resolve(here,'dist'),emptyOutDir:true,rollupOptions:{input:{
-  windowPreview:resolve(here,'window-preview.html'),
-  reportPreview:resolve(here,'report-preview.html'),
+ windowPreview:resolve(here,'window-preview.html'),
  }}},
 };

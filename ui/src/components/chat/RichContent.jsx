@@ -39,7 +39,7 @@ import {
 } from 'agently-core-ui-sdk';
 import { getFeedEntityAliasVersion, rewriteFeedEntityAliases, subscribeFeedEntityAliases } from '../../services/feedEntityAliases';
 import { DashboardBlock, ReportRuntime } from 'forge/components';
-import { buildDraftReportExportRequest, compileInlineReport, materializeInlineReport } from 'forge/reporting';
+import { buildDraftReportExportRequest, compileInlineReport, materializeInlineReport, applyInlineReportFilterValues } from 'forge/reporting';
 import {
   buildStandaloneDashboardDocument,
   captureDashboardChartSvgs,
@@ -1555,7 +1555,29 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
 		});
 		return () => { active = false; };
 	}, [compiledSource]);
-	const compiled = materialization.compiled || compiledSource;
+	const [filterValues, setFilterValues] = React.useState({});
+  React.useEffect(() => setFilterValues({}), [assembly?.scope, assembly?.id]);
+  React.useEffect(() => setArtifactDownload(null), [filterValues]);
+  const compiled = React.useMemo(() => applyInlineReportFilterValues(
+    materialization.compiled || compiledSource, filterValues,
+  ), [materialization.compiled, compiledSource, filterValues]);
+  const runtimeHandlers = {
+    toggleScopeParamOption: (param, value) => setFilterValues((current) => {
+      const previous = Object.prototype.hasOwnProperty.call(current, param.id)
+        ? current[param.id] : param.value;
+      const next = param.multiple
+        ? (Array.isArray(previous) && previous.includes(value)
+          ? previous.filter((entry) => entry !== value) : [...(Array.isArray(previous) ? previous : []), value])
+        : (previous === value ? null : value);
+      return { ...current, [param.id]: next };
+    }),
+    setScopeParamDate: (param, edge, value) => setFilterValues((current) => ({
+      ...current, [param.id]: { ...(current[param.id] || param.value || {}), [edge]: value },
+    })),
+    clearScopeParams: (params) => setFilterValues((current) => ({
+      ...current, ...Object.fromEntries(params.map((param) => [param.id, null])),
+    })),
+  };
   const reportDiagnostics = diagnostics.filter((entry) => String(entry?.reportId || '') === String(assembly?.id || ''));
   const emittedContextRevisionRef = React.useRef('');
   React.useEffect(() => {
@@ -1695,6 +1717,7 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
         ) : null}
         <ReportRuntime
           key={inlineReportRuntimeKey(assembly)}
+          runtimeHandlers={runtimeHandlers}
           reportDocument={compiled.reportDocument}
           reportSpec={compiled.reportSpec}
           reportFill={compiled.reportFill}

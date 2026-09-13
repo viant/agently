@@ -2,6 +2,7 @@ import React from 'react';
 import {createRoot} from 'react-dom/client';
 import '@blueprintjs/core/lib/css/blueprint.css';
 import '@blueprintjs/icons/lib/css/blueprint-icons.css';
+import 'forge/packs/blueprint/theme.css';
 window.global ||= window;
 window.process ||= {env: {}};
 async function boot(){

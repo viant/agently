@@ -12,10 +12,10 @@ import { ConversationViewContext } from '../../context/ConversationViewContext';
 
 const h = React.createElement;
 
-function renderRow(iterationRow) {
+function renderRow(iterationRow, developerMode = true) {
   return renderToStaticMarkup(h(
     ConversationViewContext.Provider,
-    { value: { developerMode: true, showIntakeDetails: true, toolFeedDock: 'inline' } },
+    { value: { developerMode, showIntakeDetails: true, toolFeedDock: 'inline' } },
     h(IterationRowBlock, { iterationRow })
   ));
 }
@@ -155,3 +155,19 @@ describe('IterationRowBlock', () => {
     expect(html).toContain('app-bubble');
   });
 });
+
+ describe('normal conversation mode', () => {
+  const rounds = [{renderKey:'normal-round',pageId:'normal-round',phase:'main',status:'completed',content:'Final response text',finalResponse:true,modelSteps:[{renderKey:'model-normal',provider:'private-provider',model:'private-model',status:'completed'}],toolCalls:[{renderKey:'tool-normal',toolName:'ui/view/open',status:'completed'}]}];
+  it('hides execution details and intermediate text during an active turn', () => {
+    const html = renderRow(makeRow({rounds}), false);
+    expect(html).not.toContain('app-iteration-card');
+    expect(html).not.toContain('private-provider');
+    expect(html).not.toContain('chat-message-iteration:narration-row');
+  });
+  it('retains the final response without execution details after completion', () => {
+    const html = renderRow(makeRow({lifecycle:'completed',isStreaming:false,rounds}), false);
+    expect(html).toContain('chat-message-iteration:narration-row');
+    expect(html).not.toContain('app-iteration-card');
+    expect(html).not.toContain('ui/view/open');
+  });
+ });

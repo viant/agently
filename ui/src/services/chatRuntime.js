@@ -1,3 +1,4 @@
+import {readComposerDefaults} from "./composerDefaults";
 import { conversationLifecyclePatchForStreamPhase, isLiveConversationState } from 'agently-core-ui-sdk';
 import * as canonicalChatStore from './chatStore';
 
@@ -478,10 +479,11 @@ export function normalizeMetaResponse(payload) {
     structuredElicitation: !!data?.capabilities?.structuredElicitation,
     turnStartedEvent: !!data?.capabilities?.turnStartedEvent
   };
+  const savedDefaults = readComposerDefaults(data);
   const defaults = {
     ...(data?.defaults || {}),
-    agent: data?.defaults?.agent || data?.defaultAgent || '',
-    model: data?.defaults?.model || data?.defaultModel || '',
+    agent: (data?.agents || []).includes(savedDefaults.agent) ? savedDefaults.agent : data?.defaults?.agent || data?.defaultAgent || '',
+    model: (data?.models || []).includes(savedDefaults.model) ? savedDefaults.model : data?.defaults?.model || data?.defaultModel || '',
     embedder: data?.defaults?.embedder || data?.defaultEmbedder || '',
     autoSelectTools: !!data?.defaults?.autoSelectTools
   };
@@ -526,6 +528,7 @@ export function normalizeMetaResponse(payload) {
   }, {});
   return {
     ...data,
+    userDefaultModel: (data?.models || []).includes(savedDefaults.model) ? savedDefaults.model : undefined,
     capabilities,
     defaults,
     agent: sanitizeAutoSelection(data?.agent || defaults.agent || ''),
@@ -563,8 +566,8 @@ function normalizeStarterTaskEntries(entries = [], agent = null) {
       prompt,
       description: String(entry.description || '').trim(),
       icon: String(entry.icon || '').trim(),
-      agentId: String(agent?.id || '').trim(),
-      agentName: String(agent?.name || '').trim()
+      agentId: String(entry.agentId || agent?.id || '').trim(),
+      agentName: String(entry.agentId && entry.agentId !== agent?.id ? entry.agentId : agent?.name || '').trim()
     };
   }).filter(Boolean);
 }

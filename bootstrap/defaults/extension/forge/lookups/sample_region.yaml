@@ -1,0 +1,15 @@
+id: sample_region
+priority: 10
+bindings:
+  - lookup:
+      dataSource: sample_regions
+      display: "${name}"
+    named:
+      name: region
+      title: Sample region
+      queryInput: name
+      resolveInput: id
+      required: true
+      store: "${id}"
+      display: "${name}"
+      modelForm: "${name}"

@@ -10,6 +10,7 @@ dialogs:
 
 view:
   content:
+    sizingMode: fill
     containers:
       # Removed agents/models/tools loaders – use aggregated metadata
 
@@ -18,6 +19,7 @@ view:
         fetchData: true
 
       - id: conversationSection
+        sizingMode: fill
         chat:
           dataSourceRef: messages
           showSettings: false

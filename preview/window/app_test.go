@@ -9,7 +9,35 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/viant/forge/backend/types"
 )
+
+func TestReadOnlyPreservesPresentationDataHooks(t *testing.T) {
+	a := example(t)
+	a.config.ReadOnly = true
+	definition := a.workspace.Windows["projects"]
+	definition.AuthorizationSnapshot = map[string]interface{}{"principal": map[string]interface{}{"roles": []string{"PROJECT_REVIEWER"}}}
+	a.workspace.Windows["projects"] = definition
+	source := a.workspace.DataSources["projects"]
+	source.On = []*types.Execute{{Event: "onSuccess", Handler: "Projects.resolveLabels"}}
+	a.workspace.DataSources["projects"] = source
+	w, err := a.LoadWindow(context.Background(), "projects")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds := w.DataSource["projects"]
+	if len(ds.On) != 1 || ds.On[0].Handler != "Projects.resolveLabels" {
+		t.Fatal("read-only preview dropped label-resolution lifecycle hook")
+	}
+	if ds.Service.Endpoint != "preview" || ds.Service.URI != "/v1/api/datasources/projects/fetch" {
+		t.Fatal("presentation hook datasource escaped the synthetic preview bridge")
+	}
+	principal, ok := w.AuthorizationSnapshot["principal"].(map[string]interface{})
+	if !ok || principal["roles"].([]string)[0] != "PROJECT_REVIEWER" {
+		t.Fatal("read-only preview did not use its window's configured mock principal")
+	}
+}
 
 func example(t *testing.T) *App {
 	t.Helper()
@@ -37,6 +65,21 @@ func TestCatalogAndNativeLinks(t *testing.T) {
 	}
 	if _, e = a.LoadWindow(context.Background(), "../outside"); e == nil {
 		t.Fatal("window allowlist bypass")
+	}
+}
+
+func TestWindowEndpointHonorsPhoneTarget(t *testing.T) {
+	a := example(t)
+	server := httptest.NewServer(a.Handler())
+	defer server.Close()
+	response, err := server.Client().Get(server.URL + "/api/windows/projects?platform=android&formFactor=phone&surface=app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 200 {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("status %d: %s", response.StatusCode, body)
 	}
 }
 func TestWindowFetchUsesMCP(t *testing.T) {
@@ -93,6 +136,74 @@ func TestImportBoundary(t *testing.T) {
 	_ = os.WriteFile(p, []byte("$import: https://example.com/window.yaml\n"), 0644)
 	if _, e := New(Config{Root: root}); e == nil {
 		t.Fatal("remote import accepted")
+	}
+}
+
+func TestWorkspaceStylesAreVersionedAndReloaded(t *testing.T) {
+	root := t.TempDir()
+	if e := os.CopyFS(root, os.DirFS("examples/projects")); e != nil {
+		t.Fatal(e)
+	}
+	styles := filepath.Join(root, "extension", "forge", "styles")
+	if e := os.MkdirAll(styles, 0755); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.WriteFile(filepath.Join(styles, "manifest.yaml"), []byte("version: 1\nfiles: [preview.css]\n"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	writeCSS := func(value string) {
+		t.Helper()
+		if e := os.WriteFile(filepath.Join(styles, "preview.css"), []byte(".agently-workspace { --preview-accent: "+value+"; }\n"), 0600); e != nil {
+			t.Fatal(e)
+		}
+	}
+	writeCSS("#123456")
+	a, e := New(Config{Root: root})
+	if e != nil {
+		t.Fatal(e)
+	}
+	server := httptest.NewServer(a.Handler())
+	defer server.Close()
+	load := func() (string, string) {
+		t.Helper()
+		response, err := server.Client().Get(server.URL + "/api/workspace")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		var metadata struct {
+			UIStyles *struct{ Revision, Href string } `json:"uiStyles"`
+		}
+		if err = json.NewDecoder(response.Body).Decode(&metadata); err != nil || metadata.UIStyles == nil {
+			t.Fatalf("workspace styles missing: %v", err)
+		}
+		cssResponse, err := server.Client().Get(server.URL + metadata.UIStyles.Href)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer cssResponse.Body.Close()
+		body, _ := io.ReadAll(cssResponse.Body)
+		if cssResponse.Header.Get("X-Content-Type-Options") != "nosniff" || cssResponse.Header.Get("Cache-Control") != "private, no-cache" {
+			t.Fatal("workspace stylesheet security headers missing")
+		}
+		return metadata.UIStyles.Revision, string(body)
+	}
+	firstRevision, firstCSS := load()
+	if !strings.Contains(firstCSS, "#123456") {
+		t.Fatal(firstCSS)
+	}
+	writeCSS("#654321")
+	secondRevision, secondCSS := load()
+	if firstRevision == secondRevision || !strings.Contains(secondCSS, "#654321") {
+		t.Fatalf("stylesheet did not reload: %s %s", firstRevision, secondRevision)
+	}
+	response, err := server.Client().Get(server.URL + "/v1/workspace/ui/styles/../../preview.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 404 {
+		t.Fatalf("unsafe stylesheet path returned %d", response.StatusCode)
 	}
 }
 func TestMCPFailureNoFixtureFallback(t *testing.T) {

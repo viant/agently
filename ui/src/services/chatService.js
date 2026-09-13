@@ -64,7 +64,7 @@ import NamedLookupInput from '../components/lookups/NamedLookupInput.jsx';
 import { flattenStored } from '../components/lookups/tokens.js';
 import { listLookupRegistry } from '../components/lookups/client.js';
 import { composerPresentation } from './composerPresentation';
-import { publishWorkspaceMetadataSnapshot } from './workspaceMetadata';
+import { publishWorkspaceMetadataSnapshot, getWorkspaceMetadataSnapshot } from './workspaceMetadata';
 import { connectForgeUIActionsToCallbacksOrChat } from './forgeUIActions';
 import { openCodeDiffDialog, openFileViewDialog, updateCodeDiffDialog, updateFileViewDialog } from '../utils/dialogBus';
 import { derivePreviousTextFromUnifiedDiff } from 'forge/utils/unifiedDiff';
@@ -586,7 +586,7 @@ export function onDestroy({ context }) {
   setStage({ phase: 'ready', text: 'Ready' });
 }
 
-export async function onFetchMeta({ context, data, result, payload, collection }) {
+export function onFetchMeta({ context, data, result, payload, collection }) {
   const singletonCollectionPayload = Array.isArray(collection)
     && collection.length === 1
     && collection[0]
@@ -1071,6 +1071,7 @@ export function resolveComposerProps({ context, container, metaCtx: providedMeta
 
   return {
     commandCenter: true,
+    conversationId: resolveFeedConversationId(context, convForm?.id),
     starterTasks: Array.isArray(metaForm?.starterTasks) ? metaForm.starterTasks : [],
     starterTaskCategories: Array.isArray(metaForm?.starterTaskCategories) ? metaForm.starterTaskCategories : [],
     inputComponent: NamedLookupInput,
@@ -1078,11 +1079,14 @@ export function resolveComposerProps({ context, container, metaCtx: providedMeta
       context,
       contextKind: 'chat-composer',
       contextID: effectiveLookupAgent,
+      skillsEnabled: true,
+      skillAgentID: currentAgent || effectiveLookupAgent,
+      skillConversationID: resolveFeedConversationId(context, convForm?.id),
     },
-    agentOptions,
+    agentOptions: getWorkspaceMetadataSnapshot()?.composer?.allowAgentSelection === false ? [] : agentOptions,
     agentValue: currentAgent,
     onAgentChange: (agentID) => applyAgentSelection({ agentID, metaDS, metaSnapshot: metaForm, context }),
-    modelOptions,
+    modelOptions: getWorkspaceMetadataSnapshot()?.composer?.allowModelSelection === false ? [] : modelOptions,
     modelInfo: metaForm?.modelInfo || {},
     modelValue: currentModel,
     defaultModel,

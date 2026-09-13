@@ -733,3 +733,7 @@
     margin: 10px 12px 12px;
   }
 }
+
+.agently-workspace[data-forge-theme] .app-iteration-card { background: var(--forge-control-bg); color: var(--forge-text); border-color: var(--forge-control-border); }
+.agently-workspace[data-forge-theme] .app-iteration-card .app-iteration-head { background: var(--forge-table-header-surface); color: var(--forge-text); }
+.agently-workspace[data-forge-theme] .app-iteration-card .app-iteration-title { color: var(--forge-text); }

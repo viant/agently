@@ -72,7 +72,7 @@ describe('ConversationWorkspaceSurface', () => {
     expect(html).toContain('aria-label="Close Reports"');
     expect(html).toContain('app-workspace-window-control is-close');
     expect(html).toContain('app-workspace-window-control is-layout');
-    expect(html).toContain('title="Split view — show chat and workspace"');
+    expect(html).toContain('title="Restore split view"');
     expect(html).not.toContain('>Close</button>');
     expect(html).not.toContain('>Focus</button>');
     expect(html).not.toContain('>Split</button>');
@@ -133,4 +133,12 @@ describe('ConversationWorkspaceSurface', () => {
     expect(html).toContain('data-hosted="true"');
     expect(html).toContain('aria-label="Return to chat"');
   });
+});
+
+it('names the green layout control for maximize and restore states', () => {
+  for (const [mode, label, pressed] of [['split', 'Maximize workspace', 'false'], ['focus', 'Restore split view', 'true']]) {
+    const html = renderToStaticMarkup(<ConversationWorkspaceSurface activeSurface="workspace" workspaceMode={mode} chatWindow={{windowId:'chat'}} workspaceWindow={{windowId:'report',windowKey:'reportBuilder'}} />);
+    expect(html).toContain(`aria-label="${label}"`);
+    expect(html).toContain(`aria-pressed="${pressed}"`);
+  }
 });

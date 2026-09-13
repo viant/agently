@@ -3,6 +3,7 @@ import SwiftUI
 public struct SettingsScreen: View {
     private enum FocusedField: Hashable { case apiBaseURL, oobSecretReference }
 
+    @Environment(\.workspaceThemeRuntime) private var workspaceTheme
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focusedField: FocusedField?
     @ObservedObject private var runtime: SettingsRuntime
@@ -40,6 +41,7 @@ public struct SettingsScreen: View {
     public var body: some View {
         let developerAuthEnabled = developerAuthFeaturesEnabled()
         Form {
+            if let workspaceTheme { WorkspaceThemeSettingsSection(runtime: workspaceTheme) }
             Section("Workspace Endpoint") {
                 Picker("Workspace", selection: $runtime.apiBaseURL) {
                     ForEach(SettingsRuntime.workspacePresets) { preset in

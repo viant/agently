@@ -28,10 +28,9 @@
 
 .conversation-usage-back { display: inline-flex; align-items: center; gap: 8px; color: #334155; text-decoration: none; font-weight: 700; }
 .conversation-usage-content { max-width: 1120px; margin: 0 auto; }
-.conversation-usage-hero { padding: 42px 0 28px; }
-.conversation-usage-eyebrow { display: inline-flex; align-items: center; gap: 7px; color: #0f766e; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
-.conversation-usage-hero h1 { display: -webkit-box; max-width: 900px; margin: 12px 0 10px; overflow: hidden; font-size: clamp(28px, 3.2vw, 40px); line-height: 1.1; letter-spacing: -.035em; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
-.conversation-usage-hero p { color: var(--usage-muted); font-size: 16px; }
+.conversation-usage-hero { padding: 24px 0 20px; }
+.conversation-usage-hero h1 { margin: 0 0 8px; font-size: 28px; line-height: 1.2; letter-spacing: -.02em; }
+.conversation-usage-title { display: -webkit-box; margin: 0; max-width: 75ch; overflow: hidden; color: var(--usage-muted); font-size: 15px; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .conversation-usage-hero time { display: block; margin-top: 12px; color: #8490a3; font-size: 12px; }
 
 .conversation-usage-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
@@ -105,7 +104,7 @@
 @media (max-width: 520px) {
   .conversation-usage-page { padding: 0 16px 36px; }
   .conversation-usage-header { height: 56px; }
-  .conversation-usage-hero { padding: 34px 0 24px; }
+  .conversation-usage-hero { padding: 20px 0; }
   .conversation-usage-metrics { grid-template-columns: 1fr 1fr; gap: 10px; }
   .conversation-usage-metric { min-height: 112px; padding: 14px; gap: 9px; }
   .conversation-usage-metric-icon { display: none; }

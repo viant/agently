@@ -2,7 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { activeIteration, conversationTokenFallback, groupsFromRow, TokenDetails, toolProgressText } from './TurnProgressStatus';
+import { activeIteration, conversationTokenFallback, groupsFromRow, TokenDetails, toolProgressText, statusLabel } from './TurnProgressStatus';
 
 let projectedRows = [];
 
@@ -29,6 +29,12 @@ import TurnProgressStatus from './TurnProgressStatus';
 describe('TurnProgressStatus helpers', () => {
   beforeEach(() => {
     projectedRows = [];
+  });
+
+  it('keeps failure distinct from completion in tool details', () => {
+    expect(statusLabel('failed')).toBe('Failed');
+    expect(statusLabel('error')).toBe('Failed');
+    expect(statusLabel('completed')).toBe('completed');
   });
 
   it('selects the latest active iteration only', () => {

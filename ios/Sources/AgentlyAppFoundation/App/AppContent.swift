@@ -74,6 +74,7 @@ public struct AppContent: View {
                 }
             }
         }
+        .modifier(WorkspaceThemePresentation(runtime: runtime.themeRuntime))
     }
 }
 

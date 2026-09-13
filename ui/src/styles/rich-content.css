@@ -76,6 +76,7 @@
 
 .app-rich-prose,
 .app-rich-markdown {
+  white-space: normal;
   line-height: 1.6;
   font-size: 14px;
   color: inherit;
@@ -424,4 +425,8 @@
 .app-rich-chart-canvas {
   width: 100%;
   height: 240px;
+}
+
+.agently-workspace[data-forge-theme] .app-bubble code {
+  background: var(--forge-table-header-surface); color: var(--forge-text); border-color: var(--forge-control-border);
 }

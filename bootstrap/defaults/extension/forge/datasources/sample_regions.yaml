@@ -1,0 +1,7 @@
+id: sample_regions
+backend:
+  kind: inline
+  rows:
+    - {id: north, name: North, revenue: 125000}
+    - {id: south, name: South, revenue: 98000}
+    - {id: west, name: West, revenue: 143000}

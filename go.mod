@@ -2,12 +2,6 @@ module github.com/viant/agently
 
 go 1.25.5
 
-//replace github.com/viant/sqlx => ../sqlx-agently-fixed
-//
-replace github.com/viant/agently-core => ../agently-core
-
-replace github.com/viant/forge => ../forge
-
 exclude google.golang.org/grpc/stats/opentelemetry v0.0.0-20240907200651-3ffb98b2c93a
 
 require (
@@ -19,13 +13,13 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.1-0.20260707124824-0373fe4ae4cb
 	github.com/viant/afsc v1.17.0
-	github.com/viant/agently-core v0.1.38
+	github.com/viant/agently-core v0.1.39
 	github.com/viant/datly v0.37.1-0.20260409194131-e40dcc4467ab
 	github.com/viant/embedius v0.5.3 // indirect
-	github.com/viant/forge v0.3.34
-	github.com/viant/jsonrpc v0.24.0 // indirect
+	github.com/viant/forge v0.3.35
+	github.com/viant/jsonrpc v0.24.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
-	github.com/viant/mcp v0.22.0 // indirect
+	github.com/viant/mcp v0.22.0
 	github.com/viant/mcp-protocol v0.17.0
 	github.com/viant/mcp-ui v0.2.0 // indirect
 	github.com/viant/scy v0.30.0
@@ -142,6 +136,7 @@ require (
 	github.com/shakinm/xlsReader v0.9.12 // indirect
 	github.com/sourcegraph/go-diff v0.7.0 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
+	github.com/tdewolff/parse/v2 v2.8.16 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect

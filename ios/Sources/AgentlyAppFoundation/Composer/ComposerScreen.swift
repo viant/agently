@@ -590,7 +590,7 @@ public struct ComposerScreen: View {
     private var sendButton: some View {
         Button(action: handleSendTap) {
             AppleToolbarActionIcon(
-                systemImage: "arrow.up",
+                systemImage: "paperplane.fill",
                 color: Color(red: 0.22, green: 0.23, blue: 0.86),
                 isLoading: isSending
             )

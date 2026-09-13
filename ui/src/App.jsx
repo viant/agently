@@ -1,3 +1,4 @@
+import AppWorkspaceStyles from './components/AppWorkspaceStyles.jsx';
 import React from 'react';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { HotkeysProvider } from '@blueprintjs/core';
@@ -80,7 +81,7 @@ export default function App() {
     <AgentlyAuthContext.Provider value={authContext}>
       <SettingProvider endpoints={endpoints} connectorConfig={connectorConfig} authContext={AgentlyAuthContext} services={forgeHostServices} targetContext={targetContext}>
         <HotkeysProvider>
-          <RouterProvider router={router} />
+          <AppWorkspaceStyles><RouterProvider router={router} /></AppWorkspaceStyles>
         </HotkeysProvider>
       </SettingProvider>
     </AgentlyAuthContext.Provider>

@@ -27,3 +27,5 @@ agently.sql
 e2e/database/agently/script/schema.ddl
 /ui/scripts/*
 !/ui/scripts/sync-deployment-ui.sh
+
+ui/theme-proof-dist/

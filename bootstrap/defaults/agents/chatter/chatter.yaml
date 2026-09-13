@@ -63,3 +63,36 @@ attachment:
   limitMB: 32
   tTLSec: 3600    # 3600 seconds = 1 hour (minimum), 86400 seconds = 24 hours (default)
   mode: inline #  ref, inline
+
+starterTasks:
+  - id: analyze-csv-report
+    agentId: coder
+    title: Analyze CSV and build report
+    description: Attach a CSV, then let Coder analyze it and build a report.
+    icon: chart
+    prompt: >-
+      $forge-report-authoring Analyze the CSV attached to this conversation and build a report using the
+      forge-report-authoring skill. If no CSV is attached, ask me to upload one
+      and stop until it is available. Read the actual attachment and inspect its
+      columns before choosing metrics. Use only its real data; do not invent
+      records or substitute sample data. Show the report and summarize findings.
+  - id: generate-inline-report
+    agentId: coder
+    title: Generate report
+    description: Build an inline report from conversation data or attachments.
+    icon: chart
+    prompt: >-
+      $forge-report-authoring Generate an inline Forge report using the forge-report-authoring skill
+      and the data already supplied in this conversation or its attachments.
+      Read the actual data first. If no data is available, ask me to supply it
+      and stop until it is available. Do not invent data or require a registered
+      workspace report. Render the report inline with useful metrics and a
+      table or chart appropriate to the supplied data.
+  - id: summarize-region
+    title: Summarize a region
+    description: Choose a sample region using lookup.
+    prompt: "Summarize the selected sample region /region and suggest three useful sales metrics."
+  - id: build-operations-dashboard
+    title: Build a dashboard
+    description: Create a dashboard with synthetic weekly data.
+    prompt: "Use the analytics_dashboard template to create a six-week operations dashboard with synthetic data, a trend chart and detail table."

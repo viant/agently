@@ -48,6 +48,9 @@ import { summarizeLinkedConversationTranscript } from 'agently-core-ui-sdk';
 import { ConversationViewContext } from '../../context/ConversationViewContext';
 
 describe('resolveTerminalFailureMessage', () => {
+  it('gives recovery guidance for a missing model credential', () => {
+    expect(resolveTerminalFailureMessage('failed to stream: API key is required')).toContain('Choose a configured model');
+  });
   it('surfaces a safe generic connectivity message for unresolved required bundles', () => {
     expect(resolveTerminalFailureMessage('requested tool bundles resolved zero tool definitions: required-tools'))
       .toBe('Required tools are unavailable (required-tools). Check the configured connection or authorization, then retry.');
@@ -2392,7 +2395,7 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(html).toContain('app-rich-content-loading');
   });
 
-  it('renders a safe terminal notice with category, developer details, and explicit retry prefill', () => {
+  it('renders one safe terminal notice and retry without developer details', () => {
     const html = renderToStaticMarkup(React.createElement(IterationBlock, {
       canonicalRow: {
         kind: 'iteration',
@@ -2417,8 +2420,8 @@ describe('mapCanonicalExecutionGroups', () => {
     }));
 
     expect(html).toContain('Request couldn’t be completed');
-    expect(html).toContain('Needs attention');
-    expect(html).toContain('Developer details');
+    expect(html).not.toContain('Needs attention');
+    expect(html).not.toContain('Developer details');
     expect(html).toContain('Try again');
     expect(html).not.toContain('private backend diagnostic');
     expect(html).not.toContain('Execution details');
