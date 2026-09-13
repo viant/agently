@@ -80,23 +80,23 @@ func TestProductionDescribeContractBootstrapsGenericRemoteReport(t *testing.T) {
 		}
 	}
 	write("preview.yaml", `version: 1
-groupId: advancedReporting
-reportId: "400"
+groupId: performance
+reportId: channels
 mcp:
-  tool: AdvancedReportingRun
+  tool: ReportRun
   defaultFile: default.json
   definition:
-    tool: AdvancedReportingRun
+    tool: ReportRun
     arguments: {request: {action: describe, groupId: "${groupId}", reportId: "${reportId}"}}
     match: {request.action: describe, request.groupId: "${groupId}", request.reportId: "${reportId}"}
 `)
 	write("ds/default.json", `{"status":"error","code":"unsupported_request"}`)
-	write("ds/describe.json", `{"status":"ok","reports":[{"reportId":"400","viewName":"Channels & Devices","visualProfile":"mta_channels","fieldCatalog":{"reportId":"400","visualProfile":"mta_channels","columns":[{"name":"deviceChannelMix","type":"unknown","role":"dimension","nullable":true},{"name":"conversions","type":"unknown","role":"measure","format":"compactNumber","nullable":true}],"defaultDimensions":["deviceChannelMix"],"defaultMeasures":["conversions"],"allowedFilters":["advertiserId","campaignIds"],"resultSets":[{"name":"mtaChannelRanking","dimensions":["deviceChannelMix"],"measures":["conversions"],"fields":[{"name":"deviceChannelMix","role":"dimension"},{"name":"conversions","role":"measure"}]}]}}]}`)
-	write("ds/run.json", `{"status":"ok","data":[{"name":"mtaChannelRanking","columns":[{"name":"deviceChannelMix","type":"string","role":"dimension","nullable":true},{"name":"conversions","type":"integer","role":"measure","format":"compactNumber","nullable":true}],"rows":[["SYN CTV / TV",42]],"hasMore":false}]}`)
+	write("ds/describe.json", `{"status":"ok","reports":[{"reportId":"channels","viewName":"Channel Performance","visualProfile":"channel_performance","fieldCatalog":{"reportId":"channels","visualProfile":"channel_performance","columns":[{"name":"channel","type":"unknown","role":"dimension","nullable":true},{"name":"units","type":"unknown","role":"measure","format":"compactNumber","nullable":true}],"defaultDimensions":["channel"],"defaultMeasures":["units"],"allowedFilters":["accountId"],"resultSets":[{"name":"channelSummary","dimensions":["channel"],"measures":["units"],"fields":[{"name":"channel","role":"dimension"},{"name":"units","role":"measure"}]}]}}]}`)
+	write("ds/run.json", `{"status":"ok","data":[{"name":"channelSummary","columns":[{"name":"channel","type":"string","role":"dimension","nullable":true},{"name":"units","type":"integer","role":"measure","format":"compactNumber","nullable":true}],"rows":[["Synthetic Direct",42]],"hasMore":false}]}`)
 	server, err := mock.New(mock.Config{Root: root, Tools: map[string]mock.Tool{
-		"AdvancedReportingRun": {File: "default.json", Routes: []mock.Route{
-			{Match: map[string]any{"request.action": "describe", "request.groupId": "advancedReporting", "request.reportId": "400"}, File: "describe.json"},
-			{Match: map[string]any{"request.action": "run", "request.groupId": "advancedReporting", "request.reportId": "400", "request.resultSet": "mtaChannelRanking"}, File: "run.json"},
+		"ReportRun": {File: "default.json", Routes: []mock.Route{
+			{Match: map[string]any{"request.action": "describe", "request.groupId": "performance", "request.reportId": "channels"}, File: "describe.json"},
+			{Match: map[string]any{"request.action": "run", "request.groupId": "performance", "request.reportId": "channels", "request.resultSet": "channelSummary"}, File: "run.json"},
 		}},
 	}})
 	if err != nil {
@@ -104,7 +104,7 @@ mcp:
 	}
 	mcpHost := httptest.NewServer(server.HTTPHandler())
 	defer mcpHost.Close()
-	handler, err := Handler(Config{Folder: root, GroupID: "advancedReporting", ReportID: "400", MCPURL: mcpHost.URL + "/mcp"})
+	handler, err := Handler(Config{Folder: root, GroupID: "performance", ReportID: "channels", MCPURL: mcpHost.URL + "/mcp"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ mcp:
 	}
 	defer response.Body.Close()
 	body, _ := io.ReadAll(response.Body)
-	if response.StatusCode != 200 || !strings.Contains(string(body), `"title":"Channels \u0026 Devices"`) || !strings.Contains(string(body), `"deviceChannelMix":"SYN CTV / TV"`) {
+	if response.StatusCode != 200 || !strings.Contains(string(body), `"title":"Channel Performance"`) || !strings.Contains(string(body), `"channel":"Synthetic Direct"`) {
 		t.Fatalf("production describe bootstrap failed: %d %.1500s", response.StatusCode, body)
 	}
 }
