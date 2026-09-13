@@ -4,11 +4,30 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestForgeMetadataRequiresAuthOnlyForExplicitPermissionApplication(t *testing.T) {
+	for _, testCase := range []struct {
+		url  string
+		want bool
+	}{
+		{url: "/window/chat/new", want: false},
+		{url: "/window/order", want: false},
+		{url: "/window/order?applyPermission=false", want: false},
+		{url: "/window/order?applyPermission=true", want: true},
+		{url: "/window/order?applyPermission=1", want: true},
+	} {
+		req := httptest.NewRequest(http.MethodGet, testCase.url, nil)
+		if got := forgeMetadataRequiresAuth(req); got != testCase.want {
+			t.Fatalf("forgeMetadataRequiresAuth(%q) = %v, want %v", testCase.url, got, testCase.want)
+		}
+	}
+}
 
 func TestApplyScratchpadRootURI(t *testing.T) {
 	const envName = "AGENTLY_SCRATCHPAD_URI"

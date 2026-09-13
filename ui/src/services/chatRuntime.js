@@ -241,6 +241,23 @@ export function publishConversationMetaUpdated(conversationID = '', patch = {}) 
 }
 
 export function isConversationLiveish(conversation = null) {
+  const turns = Array.isArray(conversation?.turns)
+    ? conversation.turns
+    : (Array.isArray(conversation?.Transcript) ? conversation.Transcript : []);
+  if (turns.length > 0) {
+    const latest = [...turns].sort((left, right) => {
+      const leftTime = Date.parse(String(left?.updatedAt || left?.UpdatedAt || left?.createdAt || left?.CreatedAt || '')) || 0;
+      const rightTime = Date.parse(String(right?.updatedAt || right?.UpdatedAt || right?.createdAt || right?.CreatedAt || '')) || 0;
+      return rightTime - leftTime;
+    })[0];
+    const latestStatus = String(latest?.status || latest?.Status || '').trim().toLowerCase();
+    if (['completed', 'succeeded', 'success', 'done', 'failed', 'error', 'canceled', 'cancelled', 'terminated', 'compacted', 'pruned'].includes(latestStatus)) {
+      return false;
+    }
+    if (['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress', 'queued', 'pending', 'open'].includes(latestStatus)) {
+      return true;
+    }
+  }
   return isLiveConversationState(conversation);
 }
 
@@ -1129,14 +1146,9 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     // allowing persisted transcript data to refine and settle the same entity.
     store.onTranscript(canonicalConversation.conversationId, canonicalConversation);
   }
-  try {
-    if (canonicalConversation?.conversationId && Array.isArray(canonicalTurns) && canonicalTurns.length > 0 && !canonicalHasRunning) {
-      await syncHydratedWorkspaceStateFromTranscriptTurns(canonicalConversation.conversationId, canonicalTurns, {
-        reopen: false,
-        announce: true,
-      });
-    }
-  } catch (_) { /* best-effort workspace restore cache */ }
+  // Workspace payload hydration is presentation-only. Do not make a history
+  // switch wait for hosted workspace payload reads or authorization; the chat
+  // rows are rendered by syncMessagesSnapshot below.
   const resolvedFeeds = Array.isArray(data?.feeds)
     ? data.feeds
     : (Array.isArray(canonicalConversation?.feeds) ? canonicalConversation.feeds : []);
@@ -1285,7 +1297,7 @@ export async function hydrateMeta(context) {
   }
 }
 
-export function syncMessagesSnapshot(context, turns, reason = 'poll', pendingElicitations = []) {
+export function syncMessagesSnapshot(context, turns, reason = 'poll', pendingElicitations = [], options = {}) {
   const chatState = ensureContextResources(context);
   const currentConversationID = String(getCurrentConversationID(context) || '').trim();
   const normalizedTurns = Array.isArray(turns) ? turns : [];
@@ -1340,7 +1352,9 @@ export function syncMessagesSnapshot(context, turns, reason = 'poll', pendingEli
   if (currentConversationID && !hasRunning) {
     Promise.resolve(syncHydratedWorkspaceStateFromTranscriptTurns(currentConversationID, normalizedTurns, {
       reopen: false,
-      announce: true,
+      // History selection must not wake a hosted workspace. It is restored
+      // lazily when the user explicitly selects/opens that workspace.
+      announce: options.restoreWorkspace !== false,
     })).catch(() => {});
   }
   if (hasRunning) {
@@ -1443,7 +1457,9 @@ export async function dsTick(context, options = {}) {
   const pendingElicitations = Array.isArray(options?.prefetchedPendingElicitations)
     ? options.prefetchedPendingElicitations
     : await fetchPendingElicitations(conversationID);
-  syncMessagesSnapshot(context, turns, String(options?.reason || 'poll').trim() || 'poll', pendingElicitations);
+  syncMessagesSnapshot(context, turns, String(options?.reason || 'poll').trim() || 'poll', pendingElicitations, {
+    restoreWorkspace: options?.restoreWorkspace,
+  });
   const result = {
     projection: _chatStoreRef()?.getProjection?.(conversationID) || [],
     queuedTurns: chatState.lastQueuedTurns || [],
@@ -2415,24 +2431,13 @@ export async function switchConversation(context, conversationID = '') {
       resetConversationSnapshotState(context);
     }
   }
-  let existing;
-  try {
-    existing = await fetchConversation(targetID);
-  } catch (err) {
-    if (
-      isCurrentRequest()
-      && String(chatState.switchingConversationID || '').trim() === targetID
-    ) {
-      chatState.switchingConversationID = '';
-    }
-    throw err;
-  }
+  // Start metadata concurrently, but render the lightweight transcript first.
+  // The detail endpoint may expand linked children and must not gate chat.
+  const existingPromise = fetchConversation(targetID)
+    .then((value) => ({ value, error: null }))
+    .catch((error) => ({ value: null, error }));
+  const placeholder = { id: targetID };
   if (!isCurrentRequest()) return;
-  if (!existing) {
-    chatState.switchingConversationID = '';
-    await createNewConversation(context);
-    return;
-  }
   const staleConversationState = String(chatState.lastConversationID || '').trim() !== targetID;
   if (currentID === targetID) {
     chatState.switchingConversationID = '';
@@ -2442,24 +2447,43 @@ export async function switchConversation(context, conversationID = '') {
       resetConversationSnapshotState(context);
     }
     conversationsDS.setFormData?.({
-      values: applyConversationFormSnapshot(form, existing)
+      values: applyConversationFormSnapshot(form, placeholder)
     });
-    const conversationLiveish = isConversationLiveish(existing);
-    const initialTransportActive = syncConversationTransport(context, targetID);
     const snapshot = await dsTick(context, {
       conversationID: targetID,
+      allowLiveHydration: true,
       transcript: {
-        includeExecutionDetails: true,
+        // History navigation renders durable chat first. Execution/model/tool
+        // payloads are loaded by ExecutionWorkspace when the user expands
+        // details instead of blocking the conversation switch.
+        includeExecutionDetails: false,
       },
-      reason: conversationLiveish ? 'late-join' : 'poll',
+      restoreWorkspace: false,
+      reason: 'history-switch',
     });
     if (!isCurrentRequest()) return;
-    if ((snapshot?.hasRunning || conversationLiveish) && !initialTransportActive) {
+    let existing;
+    try {
+      const outcome = await existingPromise;
+      if (outcome.error) throw outcome.error;
+      existing = outcome.value;
+    } catch (err) {
+      if (isCurrentRequest()) chatState.switchingConversationID = '';
+      throw err;
+    }
+    if (!isCurrentRequest()) return;
+    if (!existing) {
+      chatState.switchingConversationID = '';
+      await createNewConversation(context);
+      return;
+    }
+    conversationsDS.setFormData?.({
+      values: applyConversationFormSnapshot(conversationsDS.peekFormData?.() || form, existing)
+    });
+    if (snapshot?.hasRunning || ((snapshot?.projection || []).length === 0 && isConversationLiveish(existing))) {
       syncConversationTransport(context, targetID);
     } else {
-      if (!initialTransportActive) {
-        disconnectStream(context);
-      }
+      disconnectStream(context);
     }
     publishActiveConversation(targetID, context);
     void refreshGoalFeed(targetID);
@@ -2467,25 +2491,41 @@ export async function switchConversation(context, conversationID = '') {
   }
 
   conversationsDS.setFormData?.({
-    values: applyConversationFormSnapshot(form, existing)
+    values: applyConversationFormSnapshot(form, placeholder)
   });
-  chatState.switchingConversationID = '';
-  const conversationLiveish = isConversationLiveish(existing);
-  const initialTransportActive = syncConversationTransport(context, targetID);
   const snapshot = await dsTick(context, {
     conversationID: targetID,
+    allowLiveHydration: true,
     transcript: {
-      includeExecutionDetails: true,
+      includeExecutionDetails: false,
     },
-    reason: conversationLiveish ? 'late-join' : 'poll',
+    restoreWorkspace: false,
+    reason: 'history-switch',
   });
   if (!isCurrentRequest()) return;
-  if ((snapshot?.hasRunning || conversationLiveish) && !initialTransportActive) {
+  let existing;
+  try {
+    const outcome = await existingPromise;
+    if (outcome.error) throw outcome.error;
+    existing = outcome.value;
+  } catch (err) {
+    if (isCurrentRequest()) chatState.switchingConversationID = '';
+    throw err;
+  }
+  if (!isCurrentRequest()) return;
+  chatState.switchingConversationID = '';
+  if (!existing) {
+    chatState.switchingConversationID = '';
+    await createNewConversation(context);
+    return;
+  }
+  conversationsDS.setFormData?.({
+    values: applyConversationFormSnapshot(conversationsDS.peekFormData?.() || form, existing)
+  });
+  if (snapshot?.hasRunning || ((snapshot?.projection || []).length === 0 && isConversationLiveish(existing))) {
     syncConversationTransport(context, targetID);
   } else {
-    if (!initialTransportActive) {
-      disconnectStream(context);
-    }
+    disconnectStream(context);
   }
   publishActiveConversation(targetID, context);
   void refreshGoalFeed(targetID);
@@ -2735,7 +2775,10 @@ export function startPolling(context) {
     if (shouldDeferTranscriptToLiveStream(context, getCurrentConversationID(context))) return;
     const pendingTerminalHydrationConversationID = String(chatState.pendingTerminalHydrationConversationID || '').trim();
     if (pendingTerminalHydrationConversationID && pendingTerminalHydrationConversationID === currentID) return;
-    const hasFinishedSnapshot = (_chatStoreRef()?.getProjection?.(currentID) || []).length > 0 && !chatState.lastHasRunning;
+    const hasFinishedSnapshot = (
+      (_chatStoreRef()?.getProjection?.(currentID) || []).length > 0
+      || (Array.isArray(chatState.transcriptRows) && chatState.transcriptRows.length > 0)
+    ) && !chatState.lastHasRunning;
     if (hasFinishedSnapshot) return;
     void dsTick(context);
   }, 4000);

@@ -241,11 +241,13 @@ func Serve(options ServeOptions) error {
 		return fmt.Errorf("failed to create api handler: %w", err)
 	}
 	metaRoot := "embed://localhost/"
-	metaHandler := ui.NewEmbeddedHandler(metaRoot, &coremeta.FS)
+	rawMetaHandler := ui.NewEmbeddedHandler(metaRoot, &coremeta.FS)
 	// Forge metadata is routed separately from the main SDK mux. Apply the
 	// same auth runtime explicitly so applyPermission receives the current
 	// principal and MCP token instead of running as an anonymous request.
-	metaHandler = svcauthctx.WithAuthProtection(metaHandler, authRuntime)
+	// Plain metadata discovery remains anonymous/cacheable; authorization is
+	// invoked lazily only for an explicit applyPermission operation.
+	metaHandler := withLazyForgeMetadataAuth(rawMetaHandler, authRuntime)
 	uiBundle := servedUIBundle{Name: "v1", FS: deployui.FS, Index: deployui.Index}
 
 	h := newRouter(apiHandler, metaHandler, speechHandler, uiDist, uiBundle)
@@ -318,6 +320,29 @@ func Serve(options ServeOptions) error {
 	log.Printf("agently serve listening on %s (workspace=%s ui=%s)", addr, workspace.Root(), uiBundle.Name)
 	serveErr := srv.ListenAndServe()
 	return finalizeServeResult(cancel, &shutdownWG, serveErr, mcpSrv)
+}
+
+func withLazyForgeMetadataAuth(next http.Handler, authRuntime *svcauthctx.Runtime) http.Handler {
+	protected := svcauthctx.WithAuthProtection(next, authRuntime)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Ordinary metadata discovery is static and does not apply resource
+		// permissions. The UI requests applyPermission explicitly only after it
+		// has a concrete protected resource/window instance; authenticate there.
+		if !forgeMetadataRequiresAuth(r) {
+			w.Header().Set("Cache-Control", "private, max-age=60")
+			next.ServeHTTP(w, r)
+			return
+		}
+		protected.ServeHTTP(w, r)
+	})
+}
+
+func forgeMetadataRequiresAuth(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	value := strings.TrimSpace(r.URL.Query().Get("applyPermission"))
+	return strings.EqualFold(value, "true") || value == "1"
 }
 
 func applyScratchpadRootURI(value string) {
