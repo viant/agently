@@ -131,9 +131,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         handleIncomingOAuthCallback(intent)
         setContent {
-            AgentlyTheme {
+            val themeStore = remember { AppSettingsStore(applicationContext) }
+            val themeRuntime = remember { WorkspaceThemeRuntime(themeStore.themeStorage()) }
+            WorkspaceThemeHost(themeRuntime) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    AgentlyApp(oauthCallbackUri)
+                    AgentlyApp(oauthCallbackUri, themeRuntime)
                 }
             }
         }
@@ -157,7 +159,7 @@ private const val AUTH_LOG_TAG = "AgentlyAuth"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
+private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntime: WorkspaceThemeRuntime) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
@@ -266,6 +268,9 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
             scope = scope,
             targetContext = forgeTargetContext
         ).also { runtime ->
+            runtime.registerExternalURLHandler { href ->
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(href)))
+            }
             runtime.registerWindowMetadataRequestLoader(
                 makeForgeAgentlyWindowMetadataLoader(client, forgeTargetContext)
             )
@@ -479,12 +484,14 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         user: AuthUser?,
         state: AuthState
     ) {
+        if (state == AuthState.Required) themeRuntime.clear(forgetAccount = true)
         authProviders = providers
         authUser = user
         authState = state
     }
 
     fun setAuthState(state: AuthState) {
+        if (state == AuthState.Required) themeRuntime.clear(forgetAccount = true)
         authState = state
     }
 
@@ -717,6 +724,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     }
 
     fun resetWorkspaceForBaseUrl(baseUrl: String) {
+        themeRuntime.clear()
         val resetState = buildWorkspaceSessionReset()
         authSessionId = null
         sessionCookieJar.clear()
@@ -873,6 +881,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
     }
 
     fun clearAuthSecrets() {
+        themeRuntime.clear(forgetAccount = true)
         authSessionId = null
         sessionCookieJar.clear()
         clearSavedAuthSecrets(
@@ -1790,6 +1799,21 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>) {
         onMCPAuthDismiss = ::dismissMCPAuth,
         onMCPAuthReturned = ::handleMCPAuthReturned
     )
+
+    LaunchedEffect(appApiBaseUrl) { themeRuntime.restore(appApiBaseUrl) }
+    LaunchedEffect(metadata, authUser, authState, client) {
+        if (authState == AuthState.Required) {
+            themeRuntime.clear(forgetAccount = true)
+        } else if (authState == AuthState.Ready) {
+            val currentMetadata = metadata
+            if (currentMetadata != null) {
+                val subject = authUser?.subject ?: authUser?.email ?: authUser?.username ?: ""
+                val account = if (subject.isEmpty()) "" else kotlinx.serialization.json.JsonArray(listOf(
+                    JsonPrimitive(authUser?.provider.orEmpty()), JsonPrimitive(subject))).toString()
+                themeRuntime.refresh(currentMetadata, appApiBaseUrl, account) { client.getWorkspaceThemeCatalog(it) }
+            }
+        }
+    }
 
     AppBody(
         authState = authState,

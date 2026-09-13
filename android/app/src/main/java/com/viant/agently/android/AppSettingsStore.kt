@@ -11,6 +11,15 @@ data class AppSettings(
 class AppSettingsStore(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    internal fun themeStorage(): WorkspaceThemeStorage = object : WorkspaceThemeStorage {
+        override fun read(key: String) = prefs.getString("theme.v1.$key", null)
+        override fun write(key: String, value: String?) {
+            val editor = prefs.edit()
+            if (value == null) editor.remove("theme.v1.$key") else editor.putString("theme.v1.$key", value)
+            editor.apply()
+        }
+    }
+
     fun load(): AppSettings = AppSettings(
         baseUrlOverride = prefs.getString(KEY_BASE_URL_OVERRIDE, "").orEmpty(),
         preferredAgentId = prefs.getString(KEY_PREFERRED_AGENT_ID, "").orEmpty(),

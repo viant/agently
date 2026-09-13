@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 let developerMode = false;
 
 vi.mock('@blueprintjs/core', () => ({
+  Icon: ({ icon, ...props }) => <span {...props} data-icon={icon} />,
   Button: ({ text = '', icon = '', minimal: _minimal, ...props }) => <button {...props} data-icon={icon}>{text}</button>,
   Switch: ({ checked, ...props }) => <input {...props} type="checkbox" checked={checked} readOnly />,
 }));

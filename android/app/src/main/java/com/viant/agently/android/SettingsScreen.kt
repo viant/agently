@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.viant.forgeandroid.ui.LocalForgeThemeAppearance
 import com.viant.agentlysdk.WorkspaceMetadata
 
 @Composable
@@ -56,6 +57,8 @@ internal fun SettingsScreen(
     onResetAppOverrides: () -> Unit,
     onClearAuthSecrets: () -> Unit
 ) {
+    val appearance = LocalForgeThemeAppearance.current
+    val secondaryText = if (appearance == null) Color(0xFF667085) else MaterialTheme.colorScheme.onSurfaceVariant
     val developerAuthEnabled = BuildConfig.DEBUG
     var endpointDraft by remember(currentAppApiBaseUrl) { mutableStateOf(currentAppApiBaseUrl) }
     var preferredAgentDraft by remember(currentPreferredAgentId) { mutableStateOf(currentPreferredAgentId) }
@@ -82,8 +85,8 @@ internal fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Surface(
-            color = Color(0xFFF8FAFD),
-            border = BorderStroke(1.dp, Color(0xFFDDE4F1)),
+            color = appearance?.surface ?: Color(0xFFF8FAFD),
+            border = BorderStroke(1.dp, appearance?.controlBorder ?: Color(0xFFDDE4F1)),
             shape = MaterialTheme.shapes.large,
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -157,6 +160,8 @@ internal fun SettingsScreen(
             }
         }
 
+        WorkspaceThemeSettings(onRefresh = onRefreshWorkspace)
+
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier.padding(16.dp),
@@ -187,7 +192,7 @@ internal fun SettingsScreen(
                 Text(
                     normalizeApiBaseUrl(endpointDraft).ifBlank { configuredAppApiBaseUrl },
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF667085)
+                    color = secondaryText
                 )
                 if (developerAuthEnabled) {
                     OutlinedTextField(
@@ -207,7 +212,7 @@ internal fun SettingsScreen(
                     Text(
                         "Build default: $configuredAppApiBaseUrl",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF667085)
+                        color = secondaryText
                     )
                 }
             }
@@ -222,12 +227,12 @@ internal fun SettingsScreen(
                 Text(
                     metadata?.workspaceRoot ?: "Workspace not discovered yet.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF667085),
+                    color = secondaryText,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis
                 )
                 metadata?.version?.takeIf { it.isNotBlank() }?.let {
-                    Text("Version $it", style = MaterialTheme.typography.labelSmall, color = Color(0xFF667085))
+                    Text("Version $it", style = MaterialTheme.typography.labelSmall, color = secondaryText)
                 }
                 Text(
                     "Workspace default agent: ${metadata?.defaultAgent ?: metadata?.defaults?.agent ?: "n/a"}",
@@ -241,7 +246,7 @@ internal fun SettingsScreen(
                     Text(
                         "No agent list published yet. The app will fall back to the workspace default agent.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF667085)
+                        color = secondaryText
                     )
                 } else {
                     Row(
@@ -275,7 +280,7 @@ internal fun SettingsScreen(
                     Text(
                         "Optional OOB reference for developer verification builds.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF667085)
+                        color = secondaryText
                     )
                     authSessionId?.takeIf { it.isNotBlank() }?.let {
                         Text(

@@ -27,6 +27,7 @@
         </provider>
         <activity
             android:name=".MainActivity"
+            android:configChanges="uiMode"
             android:launchMode="singleTop"
             android:windowSoftInputMode="adjustNothing"
             android:exported="true">

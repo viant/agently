@@ -712,13 +712,13 @@ export default function Root() {
     isWorkspaceCollapsed,
   });
 
-  const setWorkspacePresentationMode = (mode) => {
+  const setWorkspacePresentationMode = React.useCallback((mode) => {
     const next = String(mode || '').trim().toLowerCase() === 'full' ? 'full' : 'split';
     setWorkspacePresentationModeState(next);
     if (mainConversationId) {
       setScopedWorkspacePresentationMode(mainConversationId, next);
     }
-  };
+  }, [mainConversationId]);
 
   const setActiveSurface = React.useCallback((surface) => {
     const next = String(surface || '').trim().toLowerCase() === 'workspace' ? 'workspace' : 'conversation';
@@ -730,8 +730,9 @@ export default function Root() {
     if (!activeWorkspaceWindow?.windowId) return;
     selectedWindowId.value = activeWorkspaceWindow.windowId;
     selectedTabId.value = activeWorkspaceWindow.windowId;
+    setWorkspacePresentationMode('full');
     setActiveSurface('workspace');
-  }, [activeWorkspaceWindow?.windowId, setActiveSurface]);
+  }, [activeWorkspaceWindow?.windowId, setActiveSurface, setWorkspacePresentationMode]);
 
   const activateWorkspaceAttachment = React.useCallback((requested) => {
     const targetId = requested?.windowId || activeWorkspaceWindow?.windowId;
@@ -743,8 +744,9 @@ export default function Root() {
     if (!restored) return;
     selectedWindowId.value = restored.windowId;
     selectedTabId.value = restored.windowId;
+    setWorkspacePresentationMode('full');
     setActiveSurface('workspace');
-  }, [activeWorkspaceWindow?.windowId, mainConversationId, setActiveSurface]);
+  }, [activeWorkspaceWindow?.windowId, mainConversationId, setActiveSurface, setWorkspacePresentationMode]);
 
   const returnToConversationSurface = React.useCallback(() => {
     const chatWindowId = String(effectiveMainChatWindow?.windowId || MAIN_CHAT_WINDOW_ID).trim() || MAIN_CHAT_WINDOW_ID;
@@ -773,6 +775,7 @@ export default function Root() {
     if (!target) return;
     selectedWindowId.value = target.windowId;
     selectedTabId.value = target.windowId;
+    if (activeSurface !== 'workspace') setWorkspacePresentationMode('full');
     setActiveSurface('workspace');
     if (mainConversationId) {
       setScopedWorkspaceSelection(mainConversationId, target.windowId);

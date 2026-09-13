@@ -13,6 +13,15 @@ public final class AppSettingsStore {
         self.defaults = defaults
     }
 
+    func loadWorkspaceThemeData(_ key: String) -> Data? {
+        defaults.data(forKey: "agently.ios.theme.v1." + key)
+    }
+
+    func saveWorkspaceThemeData(_ data: Data?, key: String) {
+        let name = "agently.ios.theme.v1." + key
+        if let data { defaults.set(data, forKey: name) } else { defaults.removeObject(forKey: name) }
+    }
+
     public func loadAPIBaseURL() -> String {
         defaults.string(forKey: apiBaseURLKey) ?? ""
     }

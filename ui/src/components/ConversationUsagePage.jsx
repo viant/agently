@@ -186,9 +186,8 @@ export default function ConversationUsagePage() {
       {!loading && !error ? (
         <div className="conversation-usage-content">
           <section className="conversation-usage-hero">
-            <span className="conversation-usage-eyebrow"><Icon icon="dashboard" /> Conversation usage</span>
-            <h1 title={summary.title}>{summary.title}</h1>
-            <p>A complete token and cost summary for this conversation.</p>
+            <h1>Conversation usage</h1>
+            <p className="conversation-usage-title" title={summary.title}>{summary.title}</p>
             {summary.updatedAt ? <time>Updated {new Date(summary.updatedAt).toLocaleString()}</time> : null}
           </section>
 
@@ -196,7 +195,7 @@ export default function ConversationUsagePage() {
             <MetricCard icon="chart" label="Total tokens" value={formatTokenCount(summary.totalTokens)} detail={`${summary.models.length || 1} model role${summary.models.length === 1 ? '' : 's'}`} tone="total" />
             <MetricCard icon="log-in" label="Input" value={formatTokenCount(summary.inputTokens)} detail={summary.cachedInputTokens > 0 ? `${cachedPct}% cached` : 'Prompt and context'} tone="input" />
             <MetricCard icon="log-out" label="Output" value={formatTokenCount(summary.outputTokens)} detail={summary.reasoningTokens > 0 ? `${formatTokenCount(summary.reasoningTokens)} reasoning` : 'Generated response'} tone="output" />
-            <MetricCard icon="dollar" label="Estimated cost" value={formatUsageCost(summary.cost)} detail={summary.costEstimated ? 'Computed from model pricing' : 'Conversation total'} tone="cost" />
+            <MetricCard icon="dollar" label="Estimated cost" value={formatUsageCost(summary.cost)} detail={summary.cost == null ? 'Pricing unavailable' : summary.costEstimated ? 'Computed from model pricing' : 'Conversation total'} tone="cost" />
           </section>
 
           <section className="conversation-usage-panel">

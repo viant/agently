@@ -1,3 +1,6 @@
+import './skillHints.css';
+import {client as skillClient} from '../../services/agentlyClient';
+import {skillHintQuery, matchingSkills, insertSkillPrefix} from './skillHints.js';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Popover,
@@ -259,6 +262,7 @@ function syncEditorContent(root, segments, options = {}) {
       });
       button.addEventListener('click', (event) => {
         event.preventDefault();
+        event.stopPropagation();
         onChipEditLookup?.();
       });
 
@@ -444,10 +448,14 @@ export default function NamedLookupInput({
   context,
   contextKind = 'chat-composer',
   contextID = 'default',
+  skillsEnabled = false,
+  skillAgentID = '',
+  skillConversationID = '',
   multiline = false,
   placeholder,
   disabled,
   debounceMs = 150,
+  requestTrigger = 'blur',
   autoResolveAuthored = true,
   onRegistryLoaded,
   style,
@@ -460,6 +468,34 @@ export default function NamedLookupInput({
 }) {
   const [registry, setRegistry] = useState([]);
   const [activeTrigger, setActiveTrigger] = useState(null);
+  const skillMenuID = React.useId();
+  const dismissedSkillValue = useRef(null);
+  const [skills, setSkills] = useState([]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+  const [skillsError, setSkillsError] = useState('');
+  const [skillIndex, setSkillIndex] = useState(0);
+  const [skillRetry, setSkillRetry] = useState(0);
+  const skillOpen = skillsEnabled && activeTrigger?.phase === 'skillPicker';
+  const skillItems = useMemo(() => matchingSkills(skills, activeTrigger?.query || ''), [skills, activeTrigger?.query]);
+  useEffect(() => {setSkillIndex(0);}, [activeTrigger?.query, skills]);
+  useEffect(() => {
+    setSkills([]);
+    setActiveTrigger(current => current?.phase === 'skillPicker' ? null : current);
+  }, [skillAgentID, skillConversationID]);
+  useEffect(() => {
+    if (!skillOpen) return;
+    let canceled = false;
+    setSkillsLoading(true); setSkillsError(''); setSkills([]);
+    const agentId = ['auto', 'default'].includes(skillAgentID) ? '' : skillAgentID;
+    if (!agentId && !skillConversationID) {
+      setSkillsLoading(false); setSkillsError('Choose an agent to see its skills.'); return;
+    }
+    skillClient.listSkills({agentId, conversationId: skillConversationID || undefined})
+      .then(result => {if (!canceled) setSkills(result.items || []);})
+      .catch(() => {if (!canceled) setSkillsError('Could not load skills. Retry');})
+      .finally(() => {if (!canceled) setSkillsLoading(false);});
+    return () => {canceled = true;};
+  }, [skillOpen, skillAgentID, skillConversationID, skillRetry]);
   const [rows, setRows] = useState([]);
   const [rowsLoading, setRowsLoading] = useState(false);
   const [retainInlineEditor, setRetainInlineEditor] = useState(false);
@@ -575,10 +611,11 @@ export default function NamedLookupInput({
   }, [hasInlineChips]);
 
   useEffect(() => {
-    if (!activeTrigger) return;
+    if (!activeTrigger || activeTrigger.chipRaw) return;
     const display = multiline && editorRef.current
       ? String(editorRef.current.innerText || '')
       : String(value || '');
+    if (activeTrigger.phase === 'skillPicker' && skillHintQuery(display.slice(0, activeTrigger.caret)) !== null) return;
     const slash = findLookupTriggerStart(display, DEFAULT_TRIGGER);
     if (slash >= 0 && !/\s/.test(display.slice(slash + 1))) return;
     setRows([]);
@@ -651,13 +688,39 @@ export default function NamedLookupInput({
     [debounceMs]
   );
 
+  const pickSkill = useCallback(entry => {
+    const root = editorRef.current;
+    const stored = root ? serializeEditor(root) : String(value || '');
+    const replacement = insertSkillPrefix(stored, entry.name);
+    if (!replacement) return;
+    let next = replacement.value;
+    if (root) {
+      const range = document.createRange();
+      const start = locatePoint(root, 0), end = locatePoint(root, replacement.end);
+      range.setStart(start.node, start.offset); range.setEnd(end.node, end.offset);
+      range.deleteContents();
+      const node = document.createTextNode(replacement.prefix);
+      range.insertNode(node); range.setStartAfter(node); range.collapse(true);
+      root.focus(); const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+      next = serializeEditor(root);
+    }
+    lastSyncedValueRef.current = next;
+    onChange(next); setActiveTrigger(null);
+    if (!root) requestAnimationFrame(() => {inputRef.current?.focus(); inputRef.current?.setSelectionRange(replacement.caret,replacement.caret);});
+  }, [value, onChange]);
+
   const handleTextChange = useCallback(
     (nextValue, caret) => {
+      dismissedSkillValue.current = null;
       onChange(nextValue);
       const display = textBeforeCaret(
         editorRef.current ? editorRef.current.innerText || '' : String(nextValue || ''),
         caret
       );
+      const skillQuery = skillsEnabled ? skillHintQuery(display) : null;
+      if (skillQuery !== null) {
+        setActiveTrigger({phase: 'skillPicker', start: 0, caret, query: skillQuery}); return;
+      }
       const slash = findLookupTriggerStart(display, DEFAULT_TRIGGER);
       if (slash === -1) {
         setActiveTrigger(null);
@@ -678,10 +741,17 @@ export default function NamedLookupInput({
       }
       const rowQuery = query.replace(`${activeTrigger.entry?.name || ''}`, '').trimStart();
       setActiveTrigger({ ...activeTrigger, caret, query: rowQuery });
-      scheduleFetch(activeTrigger.entry, rowQuery);
+      if (requestTrigger === 'change') scheduleFetch(activeTrigger.entry, rowQuery);
     },
-    [activeTrigger, onChange, scheduleFetch]
+    [activeTrigger, onChange, scheduleFetch, requestTrigger, skillsEnabled]
   );
+
+  const handleLookupBlur = (event) => {
+    if (requestTrigger !== 'change' && activeTrigger?.phase === 'rowPicker' && !activeTrigger.chipRaw) {
+      scheduleFetch(activeTrigger.entry, activeTrigger.query || '');
+    }
+    onBlur?.(event);
+  };
 
   const handleEditableInput = useCallback(
     (event) => {
@@ -704,6 +774,15 @@ export default function NamedLookupInput({
   );
 
   const handleLookupKeyDown = useCallback((event) => {
+    if (skillOpen && event.key === 'Tab' && (!skillItems.length || skillsLoading)) { dismissedSkillValue.current = value; setActiveTrigger(null); return; }
+    if (skillOpen && ['ArrowDown','ArrowUp','Enter','Tab','Escape'].includes(event.key)) {
+      event.preventDefault(); event.stopPropagation();
+      if (event.key === 'Escape') { dismissedSkillValue.current = value; setActiveTrigger(null); }
+      else if (event.key === 'ArrowDown') setSkillIndex(index => skillItems.length ? (index + 1) % skillItems.length : 0);
+      else if (event.key === 'ArrowUp') setSkillIndex(index => skillItems.length ? (index - 1 + skillItems.length) % skillItems.length : 0);
+      else if (!skillsLoading && skillItems[skillIndex]) pickSkill(skillItems[skillIndex]);
+      return;
+    }
     const currentValue = multiline && editorRef.current
       ? serializeEditor(editorRef.current)
       : String(value || '');
@@ -736,7 +815,7 @@ export default function NamedLookupInput({
       return;
     }
     onKeyDown?.(event);
-  }, [activeTrigger, multiline, onChange, onKeyDown, value]);
+  }, [activeTrigger, multiline, onChange, onKeyDown, value, skillOpen, skillItems, skillIndex, skillsLoading, pickSkill]);
 
   const pickName = useCallback(
     (entry) => {
@@ -981,8 +1060,11 @@ export default function NamedLookupInput({
     });
     if (opened) {
       setEditingChip(null);
+    } else if (entry && !entry.dialogId && !entry.windowId) {
+      setActiveTrigger({ phase: 'rowPicker', chipRaw: current.raw, entry, query: '' });
+      scheduleFetch(entry, '');
     }
-  }, [editingChip, editingChipEntry, openLookupSurface]);
+  }, [editingChip, editingChipEntry, openLookupSurface, scheduleFetch]);
 
   useEffect(() => {
     if (!useInlineEditor || !editorRef.current) return;
@@ -1093,7 +1175,13 @@ export default function NamedLookupInput({
   }, [disabled, editingChip, openEditingChipLookup, resolveEditingChip, segments, useInlineEditor, value]);
 
   const popoverContent = (
-    <Menu>
+    <Menu id={skillMenuID} className={skillOpen ? 'agently-skill-hints' : undefined} aria-label={skillOpen ? 'Available skills' : 'Lookups'}>
+      {skillOpen && skillsLoading ? <MenuItem disabled text="Loading skills…" /> : null}
+      {skillOpen && skillsError ? <MenuItem text={skillsError} onClick={() => setSkillRetry(n => n + 1)} /> : null}
+      {skillOpen && !skillsLoading && !skillsError && !skillItems.length ? <MenuItem disabled text="No matching skills" /> : null}
+      {skillOpen && !skillsLoading && !skillsError ? skillItems.map((entry,index) => <MenuItem
+        key={entry.name} id={`${skillMenuID}-${index}`} text={`$${entry.name}`} label={entry.description || ''} title={entry.description || entry.name}
+        active={index === skillIndex} onMouseEnter={() => setSkillIndex(index)} onClick={() => pickSkill(entry)} />) : null}
       {activeTrigger?.phase === 'namePicker' && nameMenuItems.length === 0 ? (
         <MenuItem disabled text="No matching lookups" />
       ) : null}
@@ -1162,8 +1250,8 @@ export default function NamedLookupInput({
     lineHeight: 1.5,
     whiteSpace: 'pre-wrap',
     outline: 'none',
-    background: disabled ? '#f5f8fa' : '#fff',
-    color: '#182026',
+    background: disabled ? 'var(--forge-disabled-bg, #f5f8fa)' : 'var(--forge-control-bg, #fff)',
+    color: 'var(--forge-control-text, #182026)',
     ...style,
   };
 
@@ -1177,6 +1265,10 @@ export default function NamedLookupInput({
           role="textbox"
           aria-multiline="true"
           data-testid={dataTestId || 'chat-composer-input'}
+          aria-autocomplete={skillsEnabled ? 'list' : undefined}
+          aria-expanded={skillOpen || undefined}
+          aria-controls={skillOpen ? skillMenuID : undefined}
+          aria-activedescendant={skillOpen && skillItems[skillIndex] ? `${skillMenuID}-${skillIndex}` : undefined}
           className={className}
           onInput={handleEditableInput}
           onClick={(event) => {
@@ -1186,6 +1278,8 @@ export default function NamedLookupInput({
             const caret = caretOffsetWithin(editorRef.current);
             const text = editorRef.current?.innerText || '';
             const display = textBeforeCaret(text, caret);
+            const skillQuery = skillsEnabled ? skillHintQuery(display) : null;
+            if (skillQuery !== null && dismissedSkillValue.current !== value) { setActiveTrigger({phase:'skillPicker',start:0,caret,query:skillQuery}); return; }
             const slash = findLookupTriggerStart(display, DEFAULT_TRIGGER);
             if (slash >= 0 && !/\s/.test(display.slice(slash + 1))) {
               setActiveTrigger({ phase: 'namePicker', start: slash, caret, query: display.slice(slash + 1) });
@@ -1199,7 +1293,7 @@ export default function NamedLookupInput({
             if (!hasInlineChips) {
               setRetainInlineEditor(false);
             }
-            onBlur?.(event);
+            handleLookupBlur(event);
           }}
           onKeyDown={handleLookupKeyDown}
           style={editorStyle}
@@ -1213,16 +1307,22 @@ export default function NamedLookupInput({
             disabled={disabled}
             onChange={handlePlainInput}
             onFocus={onFocus}
-            onBlur={onBlur}
+            onBlur={handleLookupBlur}
             onSelect={(event) => {
               const pos = event.target.selectionStart || 0;
               const display = textBeforeCaret(String(event.target.value || ''), pos);
+              const skillQuery = skillsEnabled ? skillHintQuery(display) : null;
+              if (skillQuery !== null && dismissedSkillValue.current !== value) { setActiveTrigger({phase:'skillPicker',start:0,caret:pos,query:skillQuery}); return; }
               const slash = findLookupTriggerStart(display, DEFAULT_TRIGGER);
               if (slash >= 0 && !/\s/.test(display.slice(slash + 1))) {
                 setActiveTrigger({ phase: 'namePicker', start: slash, caret: pos, query: display.slice(slash + 1) });
               }
             }}
             data-testid={dataTestId || 'chat-composer-input'}
+          aria-autocomplete={skillsEnabled ? 'list' : undefined}
+          aria-expanded={skillOpen || undefined}
+          aria-controls={skillOpen ? skillMenuID : undefined}
+          aria-activedescendant={skillOpen && skillItems[skillIndex] ? `${skillMenuID}-${skillIndex}` : undefined}
             className={className}
             style={editorStyle}
             onKeyDown={handleLookupKeyDown}
@@ -1341,6 +1441,10 @@ export default function NamedLookupInput({
               }}
               fill
               data-testid={dataTestId || 'chat-composer-input'}
+          aria-autocomplete={skillsEnabled ? 'list' : undefined}
+          aria-expanded={skillOpen || undefined}
+          aria-controls={skillOpen ? skillMenuID : undefined}
+          aria-activedescendant={skillOpen && skillItems[skillIndex] ? `${skillMenuID}-${skillIndex}` : undefined}
               className={className}
               onKeyDown={handleLookupKeyDown}
             />
@@ -1352,10 +1456,10 @@ export default function NamedLookupInput({
 
   return (
     <div className="named-lookup-input" style={{ width: '100%' }}>
-      {!!activeTrigger ? (
-        <Popover
-          isOpen
-          onClose={() => setActiveTrigger(null)}
+      <Popover
+          isOpen={!!activeTrigger}
+          disabled={!activeTrigger}
+          onClose={() => { if (skillOpen) dismissedSkillValue.current = value; setActiveTrigger(null); }}
           content={popoverContent}
           placement="top-start"
           minimal
@@ -1363,8 +1467,7 @@ export default function NamedLookupInput({
           enforceFocus={false}
         >
           {inputShell}
-        </Popover>
-      ) : inputShell}
+      </Popover>
       {namedLookupDebugEnabled() && debugEvents.length > 0 ? (
         <div
           data-testid="named-lookup-debug-events"

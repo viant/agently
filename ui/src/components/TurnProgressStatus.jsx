@@ -64,9 +64,9 @@ export function toolProgressText(progress) {
   return parts.join(' · ');
 }
 
-function statusLabel(value = '') {
+export function statusLabel(value = '') {
   const text = String(value || 'unknown').trim().replace(/_/g, ' ');
-  return /error|failed|failure/i.test(text) ? 'Finished' : text;
+  return /error|failed|failure/i.test(text) ? 'Failed' : text;
 }
 
 function ToolDetails({ progress }) {

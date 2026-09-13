@@ -12,6 +12,7 @@ import (
 
 func main() {
 	root := flag.String("root", "preview/window/examples/projects", "preview workspace")
+	workspaceRoot := flag.String("workspace-root", "", "workspace containing extension/forge/styles; defaults to --root")
 	metadataRoot := flag.String("metadata-root", "", "optional Forge metadata root; defaults to --root")
 	mcpURL := flag.String("mcp-url", "", "optional stable loopback MCP URL override")
 	mcpBaseURL := flag.String("mcp-base-url", "", "deprecated alias for --mcp-url")
@@ -31,7 +32,7 @@ func main() {
 	if *mcpURL == "" {
 		*mcpURL = *mcpBaseURL
 	}
-	if e := windowpreview.Serve(ctx, windowpreview.Config{Root: *root, MetadataRoot: *metadataRoot, MCPURL: *mcpURL, PlatformMCPURL: *platformMCPURL, StewardMCPURL: *stewardMCPURL, DisableAuthorization: *disableAuthorization, ReadOnly: *readOnly, Addr: *addr, Assets: *assets}, os.Stdout); e != nil {
+	if e := windowpreview.Serve(ctx, windowpreview.Config{Root: *root, WorkspaceRoot: *workspaceRoot, MetadataRoot: *metadataRoot, MCPURL: *mcpURL, PlatformMCPURL: *platformMCPURL, StewardMCPURL: *stewardMCPURL, DisableAuthorization: *disableAuthorization, ReadOnly: *readOnly, Addr: *addr, Assets: *assets}, os.Stdout); e != nil {
 		fmt.Fprintln(os.Stderr, e)
 		os.Exit(1)
 	}

@@ -61,6 +61,17 @@ describe('conversation usage', () => {
     expect(summary.costEstimated).toBe(true);
   });
 
+  it('keeps unpriced usage unknown and preserves explicitly free usage', () => {
+    const model = { Provider: 'unknown', Model: 'unpriced', PromptTokens: 100, CompletionTokens: 20, Cost: null };
+    const unknown = summarizeConversationUsage({ Usage: { Cost: null, Model: [model] } });
+    expect(unknown.cost).toBeNull();
+    expect(unknown.models[0].cost).toBeNull();
+    expect(formatUsageCost(unknown.cost)).toBe('Not reported');
+    const free = summarizeConversationUsage({ Usage: { Cost: 0, Model: [{ ...model, Cost: 0 }] } });
+    expect(free.cost).toBe(0);
+    expect(formatUsageCost(free.cost)).toBe('$0.00');
+  });
+
   it('builds only persisted conversation links', () => {
     expect(conversationUsageHref('')).toBe('');
     expect(conversationUsageHref('c/1')).toBe('/conversation/c%2F1/usage');

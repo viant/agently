@@ -46,7 +46,7 @@ public final class AppState: ObservableObject {
             surface: "app",
             capabilities: buildAppleTargetCapabilities()
         )
-        self.forgeRuntime = forgeRuntime ?? ForgeRuntime(
+        let resolvedForgeRuntime = forgeRuntime ?? ForgeRuntime(
             targetContext: ForgeTargetContext(
                 platform: "ios",
                 formFactor: formFactor,
@@ -54,6 +54,14 @@ public final class AppState: ObservableObject {
                 capabilities: buildAppleTargetCapabilities()
             )
         )
+        self.forgeRuntime = resolvedForgeRuntime
+        #if canImport(UIKit)
+        Task {
+            await resolvedForgeRuntime.registerExternalURLHandler { url in
+                await MainActor.run { UIApplication.shared.open(url) }
+            }
+        }
+        #endif
     }
 }
 

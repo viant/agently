@@ -14,11 +14,13 @@ public final class AppRuntime: ObservableObject {
     @Published public var queryRuntime: QueryRuntime
     @Published public var approvalRuntime: ApprovalRuntime
     @Published public var elicitationRuntime: ElicitationRuntime
+    @Published public var themeRuntime: WorkspaceThemeRuntime
     @Published public var settingsRuntime: SettingsRuntime
 
     private let settingsStore: AppSettingsStore
     private let clientFactory: @Sendable (String) -> AgentlyClient
     private let uiBridge: AppleUIBridgeController
+    private var themeRefreshTask: Task<Void, Never>?
     private var streamTask: Task<Void, Never>?
     private var postTurnRefreshTask: Task<Void, Never>?
     private var bootstrapTimeoutTask: Task<Void, Never>?
@@ -37,6 +39,7 @@ public final class AppRuntime: ObservableObject {
         self.settingsStore = settingsStore
         self.clientFactory = clientFactory
         self.settingsRuntime = SettingsRuntime(store: settingsStore)
+        self.themeRuntime = WorkspaceThemeRuntime(store: settingsStore)
         self.authRuntime = AuthRuntime(client: client)
         self.queryRuntime = queryRuntime
         self.approvalRuntime = ApprovalRuntime(client: client)
@@ -120,6 +123,8 @@ public final class AppRuntime: ObservableObject {
     }
 
     private func bindChildObjectChanges() {
+        authRuntime.onSessionCleared = { [weak self] in self?.themeRefreshTask?.cancel(); self?.themeRuntime.clear(forgetAccount: true) }
+        themeRuntime.onRefresh = { [weak self] in await self?.reloadWorkspaceAppearance() }
         observationCancellables.removeAll()
 
         let publishers: [ObservableObjectPublisher] = [
@@ -130,7 +135,8 @@ public final class AppRuntime: ObservableObject {
             queryRuntime.objectWillChange,
             approvalRuntime.objectWillChange,
             elicitationRuntime.objectWillChange,
-            settingsRuntime.objectWillChange
+            settingsRuntime.objectWillChange,
+            themeRuntime.objectWillChange
         ]
 
         for publisher in publishers {
@@ -153,6 +159,7 @@ public final class AppRuntime: ObservableObject {
     private func bootstrap(allowAutoOOB: Bool, selectInitialConversation: Bool) async {
         logger.info("Bootstrap started for base URL: \(self.displayBaseURL, privacy: .public)")
         bootstrapTimeoutTask?.cancel()
+        themeRuntime.restore(server: state.bootstrapBaseURL)
         state.authState = .checking
         state.bootstrapErrorMessage = nil
         state.isRefreshingConversations = true
@@ -176,6 +183,8 @@ public final class AppRuntime: ObservableObject {
             state.authState = .signedIn
             uiBridge.start()
             await authRuntime.refreshConnectionContext(expectSignedIn: true)
+            themeRefreshTask?.cancel()
+            themeRefreshTask = Task { [weak self] in await self?.refreshWorkspaceAppearance() }
             let restoredConversationID = resolvedBootstrapActiveConversationID(
                 storedValue: settingsStore.loadActiveConversationID(),
                 environmentValue: ProcessInfo.processInfo.environment["AGENTLY_IOS_ACTIVE_CONVERSATION_ID"],
@@ -218,6 +227,7 @@ public final class AppRuntime: ObservableObject {
             settingsStore.saveActiveConversationID(nil)
             state.bootstrapErrorMessage = bootstrapErrorMessage(for: error)
             let authRequired = isAuthenticationError(error)
+            if authRequired { themeRefreshTask?.cancel(); themeRuntime.clear(forgetAccount: true) }
             if authRequired,
                allowAutoOOB,
                resolvedBootstrapAutoOOBSignIn(
@@ -292,6 +302,8 @@ public final class AppRuntime: ObservableObject {
         selectInitialConversation: Bool = true
     ) async {
         logger.info("Applying settings and rebuilding runtime client")
+        themeRefreshTask?.cancel()
+        themeRuntime.clear()
         settingsRuntime.save()
         uiBridge.stop()
         rebuildClient()
@@ -1015,6 +1027,29 @@ public final class AppRuntime: ObservableObject {
         settingsRuntime.save()
     }
 
+    private func refreshWorkspaceAppearance() async {
+        guard let metadata = state.workspaceMetadata else { return }
+        let client = state.client
+        let user = authRuntime.currentUser
+        let subject = user?.id ?? user?.subject ?? user?.email ?? user?.username ?? ""
+        let account = subject.isEmpty ? "" : ((try? JSONEncoder().encode([user?.provider ?? "", subject]).base64EncodedString()) ?? "")
+        await themeRuntime.refresh(metadata: metadata, server: state.bootstrapBaseURL, account: account) { asset in
+            try await client.getWorkspaceThemeCatalog(asset)
+        }
+    }
+
+    public func reloadWorkspaceAppearance() async {
+        let client = state.client
+        do {
+            let metadata = try await client.getWorkspaceMetadata(state.metadataTargetContext)
+            guard client === state.client else { return }
+            state.workspaceMetadata = metadata
+            await refreshWorkspaceAppearance()
+        } catch {
+            themeRuntime.reportRefreshFailure(error)
+        }
+    }
+
     private func rebuildClient() {
         let configuredBaseURL = settingsRuntime.apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         logger.info("Rebuilding runtime client for base URL: \(configuredBaseURL, privacy: .public)")
@@ -1044,6 +1079,7 @@ public final class AppRuntime: ObservableObject {
         queryRuntime = QueryRuntime(client: client)
         approvalRuntime = ApprovalRuntime(client: client)
         elicitationRuntime = ElicitationRuntime(client: client)
+        bindChildObjectChanges()
     }
 
     private func configureReportRuntimeExportHandler(client: AgentlyClient) async {

@@ -120,6 +120,15 @@ to clear runtime metadata. Restart the host after changing `preview.yaml` or add
 fixture tool filenames. Relative local YAML imports are preflighted before loading;
 remote imports and paths escaping the workspace are rejected.
 
+Workspace visual overrides use the standard optional
+`extension/forge/styles/manifest.yaml` contract. Only CSS files explicitly listed
+by that manifest are compiled and served; paths outside the workspace, remote
+stylesheets, and unlisted files are rejected. The preview attaches the versioned
+workspace stylesheet after Forge's base styles and checks for a new revision once
+per second, so a valid CSS edit is visible without rebuilding Agently or copying
+workspace content into this repository. A broken edit retains the last valid style
+snapshot and is reported in `/api/workspace` under `uiStyleDiagnostics`.
+
 ## Query controls
 
 The side panel selects a window and variant and accepts parameter/query JSON.
@@ -174,3 +183,17 @@ The demo contains two linked business-neutral windows and default, empty, error,
 and large fixtures. Backend tests cover catalog references, native link metadata,
 MCP filtering/paging, empty/error variants, import boundaries, and connection
 failure without fallback. Route tests verify typed parameters and URL preservation.
+
+### Local role and feature simulation
+
+The preview shell's Roles and Features dropdowns are checkbox multi-selects.
+Options are discovered from the served window metadata and its initial
+`authorizationSnapshot`. Selections update the in-memory metadata snapshot's
+principal for mounted preview windows, so Forge's conditional tabs/controls
+react immediately. Reload restores the server-provided initial snapshot.
+
+This is local presentation testing, not an authentication or permission grant.
+The resource/account snapshot and resource capabilities are preserved; the
+read-only preview bridge remains responsible for rejecting mutations. Removing
+a role or feature does not rewrite capability grants. No production account,
+server authorization policy, or workspace file is changed by the selectors.

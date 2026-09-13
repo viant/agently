@@ -651,3 +651,9 @@ describe('openResourceFeedPath', () => {
     }));
   });
 });
+
+ it('returns normalized metadata synchronously for datasource replacement', () => {
+  const result = onFetchMeta({context: {}, collection: [{agents: ['chatter'], models: ['model']}]});
+  expect(Array.isArray(result)).toBe(true);
+  expect(result[0].agentOptions.length).toBeGreaterThan(0);
+ });

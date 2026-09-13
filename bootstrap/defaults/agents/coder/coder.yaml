@@ -115,3 +115,6 @@ resources:
     system: true
     allowSemanticMatch: true
     allowGrep: true
+
+skills:
+  - forge-report-authoring

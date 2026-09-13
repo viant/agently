@@ -122,7 +122,7 @@ export default function MCPUIForgeWindowPage() {
     return <div style={{ padding: 20, color: '#b42318', fontFamily: 'ui-sans-serif, system-ui, sans-serif' }}>{state.error}</div>;
   }
   return (
-    <div style={{ minHeight: '100vh', background: '#f8fafc' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: '#f8fafc' }}>
       {windowKey === MCPUI_VERIFIER_ROUTE_WINDOW_KEY ? <MCPUIVerifierRouteDebug /> : null}
       <WindowContent window={state.window} isInTab />
     </div>

@@ -1415,6 +1415,7 @@ export function resolveIterationStatusDetail(data = {}) {
 
 export function resolveTerminalFailureMessage(errorMessage = '') {
   const text = String(errorMessage || '').trim();
+  if (/api key is required/i.test(text)) return 'The selected model has no API key configured. Choose a configured model or add its provider API key, then try again.';
   if (resolveMCPLinkRequired(text)) {
     return 'A required connection needs authorization before this request can continue.';
   }
@@ -1791,7 +1792,6 @@ export function resolveCanonicalDetailStep(canonicalRow = null, step = {}) {
 export default function IterationBlock({ message, canonicalRow = null, context, showToolFeedDetail = true, suppressBubble = false, retryPrompt = '', attachment = null }) {
   const { showDetail } = useContext(DetailContext);
   const { developerMode = false, showIntakeDetails = false, toolFeedDock = 'inline' } = useContext(ConversationViewContext);
-  const showExecutionDetails = developerMode;
   const data = buildIterationDataFromCanonicalRow(canonicalRow, message);
   const iterationConversationId = String(canonicalRow?.conversationId || data?.conversationId || message?.conversationId || '').trim() || currentConversationId();
   const [activeFeeds, setActiveFeeds] = useState(getActiveFeeds);
@@ -2668,7 +2668,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
               : (mcpConnectionReady ? 'Connection is ready. Retry this request to continue.' : terminalFailureMessage)}</div>
           </div>
           <div className="app-turn-terminal-actions">
-            <span className="app-turn-terminal-category">{mcpConnectionReady ? 'Connected' : terminalCategory}</span>
+            {mcpConnectionReady ? <span className="app-turn-terminal-category">Connected</span> : null}
             {mcpLinkRequired && !mcpConnectionReady ? (
               <Button
                 intent="primary"
@@ -2679,7 +2679,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
                 onClick={connectRequiredMCP}
               />
             ) : null}
-            {terminalDetailStep ? (
+            {developerMode && terminalDetailStep ? (
               <Button
                 minimal
                 small
@@ -2693,7 +2693,13 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
           {mcpConnectError ? <div className="app-turn-terminal-message">{mcpConnectError}</div> : null}
         </section>
       ) : null}
-      {showExecutionDetails ? (
+      {!developerMode && hasPendingExecutionElicitation ? (
+        <Button text="Review request" icon="help" onClick={() => {
+          const step = visibleGroups.flatMap(group => group.toolSteps || []).find(step => String(step?.kind || '').toLowerCase() === 'elicitation' && isPendingElicitationStatus(step?.status));
+          if (step) openElicitationReview(step);
+        }} />
+      ) : null}
+      {developerMode ? (
         <section className={`app-iteration-card tone-${statusTone(iterationDisplayStatus)}`}>
           <button type="button" className="app-iteration-head" onClick={() => setCollapsed((value) => !value)}>
             <span className="app-iteration-head-main">
@@ -2705,7 +2711,7 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
                   {` (${displayGroupEntries.length})`}
                 </span>
               </span>
-              {iterationStatusDetail ? (
+              {developerMode && iterationStatusDetail ? (
                 <span className="app-iteration-status-detail" title={iterationStatusDetail}>{iterationStatusDetail}</span>
               ) : null}
             </span>
@@ -2805,10 +2811,10 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
           ) : null}
         </section>
       ) : null}
-      {showToolFeedDetail ? (
+      {showToolFeedDetail && (developerMode || !isActiveIteration) ? (
         <ToolFeedDetail context={context} conversationId={iterationConversationId} turnId={String(data?.turnId || canonicalRow?.turnId || '').trim()} placement="inline" includeAuto={toolFeedDock !== 'right'} />
       ) : null}
-      {!showTerminalNotice && !suppressBubble && !hasPendingVisibleElicitation && !hasPendingExecutionElicitation && shouldShowNarrationBubble(visibleGroups, displayContinuousRenderedText, stripSuppressedForgeReports(data?.response?.content, suppressedReportIds)) ? (
+      {(developerMode || !isActiveIteration) && !showTerminalNotice && !suppressBubble && !hasPendingVisibleElicitation && !hasPendingExecutionElicitation && shouldShowNarrationBubble(visibleGroups, displayContinuousRenderedText, stripSuppressedForgeReports(data?.response?.content, suppressedReportIds)) ? (
         <BubbleMessage
           conversationId={iterationConversationId}
           attachment={attachment}

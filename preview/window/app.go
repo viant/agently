@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/viant/afs"
+	uistyle "github.com/viant/agently-core/service/ui/style"
+	"github.com/viant/agently-core/service/ui/tablepreference"
 	"github.com/viant/agently/preview/datasource"
 	"github.com/viant/agently/preview/mcp/mock"
 	"github.com/viant/forge/backend/service/meta"
@@ -27,6 +29,7 @@ import (
 
 type Config struct {
 	Root, Assets, Addr, MetadataRoot string
+	WorkspaceRoot                    string
 	MCPURL                           string
 	PlatformMCPURL                   string
 	StewardMCPURL                    string
@@ -41,9 +44,11 @@ type Workspace struct {
 	DataSources   map[string]Source              `yaml:"dataSources" json:"-"`
 }
 type Window struct {
-	Title       string   `yaml:"title" json:"title"`
-	File        string   `yaml:"file" json:"-"`
-	DataSources []string `yaml:"dataSources" json:"-"`
+	Title                 string                 `yaml:"title" json:"title"`
+	File                  string                 `yaml:"file" json:"-"`
+	DataSources           []string               `yaml:"dataSources" json:"-"`
+	AuthorizationSnapshot map[string]interface{} `yaml:"authorizationSnapshot" json:"-"`
+	WindowFormDefaults    map[string]string      `yaml:"windowFormDefaults" json:"-"`
 }
 
 // Backend follows agently-core's mcp_tool datasource declaration.
@@ -61,6 +66,7 @@ type Source struct {
 	FilterFields     map[string]string `yaml:"filterFields"`
 }
 type App struct {
+	styles    *uistyle.Service
 	config    Config
 	workspace Workspace
 	root      string
@@ -82,6 +88,18 @@ func New(config Config) (*App, error) {
 		return nil, err
 	}
 	a := &App{config: config, root: root, fetches: map[string]int{}, routes: map[string]string{}}
+	styleRoot := root
+	if strings.TrimSpace(config.WorkspaceRoot) != "" {
+		styleRoot, err = filepath.Abs(config.WorkspaceRoot)
+		if err != nil {
+			return nil, err
+		}
+		styleRoot, err = filepath.EvalSymlinks(styleRoot)
+		if err != nil {
+			return nil, err
+		}
+	}
+	a.styles = uistyle.New(func() string { return styleRoot })
 	a.config.MetadataRoot = root
 	if strings.TrimSpace(config.MetadataRoot) != "" {
 		metadataRoot, e := filepath.Abs(config.MetadataRoot)
@@ -187,6 +205,23 @@ func (a *App) hydrateWorkspaceDataSources() error {
 		if override.AutoFetch != nil {
 			source.AutoFetch = override.AutoFetch
 		}
+		// Preview fixtures may explicitly declare client-side filtering/paging
+		// because their complete synthetic collection is available locally.
+		if override.FilterMode != "" {
+			source.FilterMode = override.FilterMode
+		}
+		if override.PaginationMode != "" {
+			source.PaginationMode = override.PaginationMode
+		}
+		if override.Paging != nil {
+			source.Paging = override.Paging
+		}
+		if len(override.FilterSet) > 0 {
+			source.FilterSet = override.FilterSet
+		}
+		if override.QuickFilterSet != nil {
+			source.QuickFilterSet = override.QuickFilterSet
+		}
 		a.workspace.DataSources[id] = source
 	}
 	return nil
@@ -237,20 +272,34 @@ func (a *App) read(relative string) ([]byte, error) {
 	return b, e
 }
 func (a *App) LoadWindow(ctx context.Context, id string) (*types.Window, error) {
+	return a.LoadWindowWithTarget(ctx, id, &meta.TargetContext{Platform: "web", FormFactor: "desktop", Surface: "app"})
+}
+
+// LoadWindowWithTarget resolves the same folderized window branch used by
+// production before injecting the preview's synthetic datasources.
+func (a *App) LoadWindowWithTarget(ctx context.Context, id string, target *meta.TargetContext) (*types.Window, error) {
 	item, ok := a.workspace.Windows[id]
 	if !ok {
 		return nil, fmt.Errorf("unknown window %q", id)
 	}
-	if _, e := a.readMetadata(item.File); e != nil {
+	windowFile := item.File
+	loader := meta.New(afs.New(), "")
+	base := filepath.Join(a.config.MetadataRoot, strings.TrimSuffix(item.File, filepath.Ext(item.File)), "main")
+	if resolved, e := loader.ResolveWindowBase(ctx, base, target); e == nil {
+		resolvedFile := resolved + ".yaml"
+		if relative, relErr := filepath.Rel(a.config.MetadataRoot, resolvedFile); relErr == nil {
+			windowFile = relative
+		}
+	}
+	if _, e := a.readMetadata(windowFile); e != nil {
 		return nil, e
 	}
 	// Preflight import paths before using the standard Forge metadata loader.
-	if e := a.checkImports(item.File, map[string]bool{}); e != nil {
+	if e := a.checkImports(windowFile, map[string]bool{}); e != nil {
 		return nil, e
 	}
-	loader := meta.New(afs.New(), "")
 	w := &types.Window{}
-	if e := loader.LoadWithURLAndTarget(ctx, filepath.Join(a.config.MetadataRoot, item.File), w, &meta.TargetContext{Platform: "web", FormFactor: "desktop", Surface: "app"}); e != nil {
+	if e := loader.LoadWithURLAndTarget(ctx, filepath.Join(a.config.MetadataRoot, windowFile), w, target); e != nil {
 		return nil, e
 	}
 	if e := a.mergeActionRefs(w); e != nil {
@@ -306,39 +355,23 @@ func (a *App) LoadWindow(ctx context.Context, id string) (*types.Window, error) 
 		w.Authorization = nil
 	}
 	if a.config.ReadOnly {
-		// Workspace action modules are hosted by Agently, not the standalone
-		// preview. Suppress mutations and action hooks while retaining the
-		// production window structure and datasource contracts.
+		// Suppress window mutations while retaining datasource lifecycle hooks:
+		// these also resolve labels and prepare presentation data. Datasource
+		// requests remain on the local synthetic MCP bridge.
 		w.On = nil
 		w.Dialogs = nil
 		w.Schemas = nil
 		w.ResourceModels = nil
-		w.AuthorizationSnapshot = map[string]interface{}{
-			"principal": map[string]interface{}{"roles": []string{}, "features": []string{}},
-			"account":   map[string]interface{}{"id": 880001},
-			"resource": map[string]interface{}{
-				"id":   700001,
-				"type": "advertiser",
-				"capabilities": map[string]bool{
-					"read":                       true,
-					"write":                      false,
-					"writeCampaign":              false,
-					"manageDefaults":             true,
-					"managePermissions":          true,
-					"viewAdvancedRates":          true,
-					"viewHistory":                true,
-					"viewCreativeExchangeStatus": true,
-				},
-			},
+		if item.AuthorizationSnapshot != nil {
+			w.AuthorizationSnapshot = item.AuthorizationSnapshot
 		}
 		// Hosted chat regions are rendered by Agently's conversation shell. The
 		// standalone preview has only a tab manager, so render this same window
 		// in a regular tab without changing the authored workspace metadata.
 		w.Presentation = ""
 		w.Region = ""
-		seedAdvertiserPreviewDates(w)
+		seedPreviewWindowForm(w, item.WindowFormDefaults)
 		for ref, source := range w.DataSource {
-			source.On = nil
 			source.ResourceModelRef = ""
 			w.DataSource[ref] = source
 		}
@@ -350,7 +383,7 @@ func (a *App) LoadWindow(ctx context.Context, id string) (*types.Window, error) 
 	return w, nil
 }
 
-func seedAdvertiserPreviewDates(window *types.Window) {
+func seedPreviewWindowForm(window *types.Window, defaults map[string]string) {
 	if window == nil || window.Window == nil {
 		return
 	}
@@ -362,11 +395,8 @@ func seedAdvertiserPreviewDates(window *types.Window) {
 			if parameter == nil || parameter.In != "const" || parameter.Location != "" {
 				continue
 			}
-			switch parameter.Name {
-			case "creativeDateStart":
-				parameter.Location = "2026-01-01"
-			case "creativeDateEnd":
-				parameter.Location = "2026-12-31"
+			if value, ok := defaults[parameter.Name]; ok {
+				parameter.Location = value
 			}
 		}
 	}
@@ -474,8 +504,35 @@ func (a *App) checkImports(file string, seen map[string]bool) error {
 }
 func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
+	a.styles.Register(mux)
 	mux.Handle("/mcp", a.mock.HTTPHandler())
-	mux.HandleFunc("/api/workspace", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, a.workspace) })
+	mux.HandleFunc("/api/workspace", func(w http.ResponseWriter, r *http.Request) {
+		publication := a.styles.Current(r.Context())
+		root := a.config.WorkspaceRoot
+		if root == "" {
+			root = a.root
+		}
+		preferences, err := tablepreference.LoadConfig(root)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, struct {
+			Workspace
+			TablePreferences   tablepreference.AdapterConfig `json:"tablePreferences"`
+			WorkspaceID        string                        `json:"workspaceId,omitempty"`
+			UIStyles           *uistyle.Descriptor           `json:"uiStyles,omitempty"`
+			UIThemes           *uistyle.Descriptor           `json:"uiThemes,omitempty"`
+			UIStyleDiagnostics []string                      `json:"uiStyleDiagnostics,omitempty"`
+		}{
+			Workspace:          a.workspace,
+			TablePreferences:   preferences.TablePreferences,
+			WorkspaceID:        publication.WorkspaceID,
+			UIStyles:           publication.Styles,
+			UIThemes:           publication.Themes,
+			UIStyleDiagnostics: publication.Diagnostics,
+		})
+	})
 	mux.HandleFunc("/api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		fetches := make(map[string]int, len(a.fetches))
@@ -491,7 +548,17 @@ func (a *App) Handler() http.Handler {
 	})
 	mux.HandleFunc("/api/windows/", func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(r.URL.Path, "/api/windows/")
-		win, e := a.LoadWindow(r.Context(), id)
+		query := r.URL.Query()
+		target := &meta.TargetContext{
+			Platform:     strings.TrimSpace(query.Get("platform")),
+			FormFactor:   strings.TrimSpace(query.Get("formFactor")),
+			Surface:      strings.TrimSpace(query.Get("surface")),
+			Capabilities: query["capabilities"],
+		}
+		if target.Platform == "" && target.FormFactor == "" && target.Surface == "" && len(target.Capabilities) == 0 {
+			target = &meta.TargetContext{Platform: "web", FormFactor: "desktop", Surface: "app"}
+		}
+		win, e := a.LoadWindowWithTarget(r.Context(), id, target)
 		if e != nil {
 			writeError(w, e)
 			return

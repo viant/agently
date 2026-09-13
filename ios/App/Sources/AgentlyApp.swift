@@ -8,19 +8,33 @@ struct AgentlyApp: App {
 
     var body: some Scene {
         WindowGroup {
-            AppContent(runtime: runtime)
-                .task {
-                    guard runtime.settingsRuntime.hasWorkspaceEndpointSelection else { return }
-                    await runtime.bootstrap()
+            Group {
+                #if DEBUG
+                if let preview = NativeWorkspacePreviewConfiguration.fromLaunchArguments() {
+                    NativeWorkspacePreviewScreen(configuration: preview)
+                } else {
+                    appContent
                 }
-                .onOpenURL { url in
-                    Task {
-                        if await runtime.authRuntime.handleOAuthCallback(url) {
-                            await runtime.bootstrap()
-                        }
+                #else
+                appContent
+                #endif
+            }
+        }
+    }
+
+    private var appContent: some View {
+        AppContent(runtime: runtime)
+            .task {
+                guard runtime.settingsRuntime.hasWorkspaceEndpointSelection else { return }
+                await runtime.bootstrap()
+            }
+            .onOpenURL { url in
+                Task {
+                    if await runtime.authRuntime.handleOAuthCallback(url) {
+                        await runtime.bootstrap()
                     }
                 }
-        }
+            }
     }
 }
 

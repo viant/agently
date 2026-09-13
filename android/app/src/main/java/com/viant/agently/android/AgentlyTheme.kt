@@ -1,5 +1,6 @@
 package com.viant.agently.android
 
+import com.viant.forgeandroid.ui.ForgeThemeAppearance
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -124,11 +125,21 @@ private val AgentlyShapes = Shapes(
 @Composable
 internal fun AgentlyTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    appearance: ForgeThemeAppearance? = null,
     content: @Composable () -> Unit
 ) {
+    val baseColors = if (darkTheme) AgentlyDarkColors else AgentlyLightColors
+    val colors = appearance?.let { baseColors.copy(primary = it.buttonBackground, onPrimary = it.buttonForeground,
+        background = it.surface, onBackground = it.text, surface = it.surface, onSurface = it.text,
+        outline = it.controlBorder, error = it.validationBorder) } ?: baseColors
+    val typography = appearance?.let { theme -> AgentlyTypography.copy(
+        bodyMedium = AgentlyTypography.bodyMedium.copy(fontSize = theme.fontSize.sp),
+        bodyLarge = AgentlyTypography.bodyLarge.copy(fontSize = theme.fontSize.sp),
+        labelLarge = AgentlyTypography.labelLarge.copy(fontSize = theme.fontSize.sp),
+    ) } ?: AgentlyTypography
     MaterialTheme(
-        colorScheme = if (darkTheme) AgentlyDarkColors else AgentlyLightColors,
-        typography = AgentlyTypography,
+        colorScheme = colors,
+        typography = typography,
         shapes = AgentlyShapes,
         content = content
     )

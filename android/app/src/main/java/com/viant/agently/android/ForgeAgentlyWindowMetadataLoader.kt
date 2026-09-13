@@ -18,12 +18,12 @@ import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 internal fun makeForgeAgentlyWindowMetadataLoader(
     client: AgentlyClient,
     targetContext: ForgeTargetContext
 ): suspend (ForgeRuntime.WindowMetadataRequest) -> WindowMetadata? {
-    val json = Json { ignoreUnknownKeys = true }
     val sdkTarget = MetadataTargetContext(
         platform = targetContext.platform,
         formFactor = targetContext.formFactor,
@@ -50,12 +50,18 @@ internal fun makeForgeAgentlyWindowMetadataLoader(
         } else {
             complete
         }
-        val normalized = normalizeWindowMetadataJson(normalizeWindowMetadataCollections(raw))
-        val metadata = json.decodeFromJsonElement<WindowMetadata>(normalized)
-        val metadataJson = json.encodeToJsonElement(metadata)
-        val resolved = MetadataResolver.resolve(metadataJson, targetContext) ?: metadataJson
-        json.decodeFromJsonElement<WindowMetadata>(normalizeWindowMetadataJson(resolved))
+        decodeForgeWindowMetadata(raw, targetContext)
     }
+}
+
+/** Shared production and debug-preview normalization and target resolution. */
+internal fun decodeForgeWindowMetadata(raw: JsonElement, targetContext: ForgeTargetContext): WindowMetadata {
+    val json = Json { ignoreUnknownKeys = true }
+    val normalized = normalizeWindowMetadataJson(normalizeWindowMetadataCollections(raw))
+    val metadata = json.decodeFromJsonElement<WindowMetadata>(normalized)
+    val metadataJson = json.encodeToJsonElement(metadata)
+    val resolved = MetadataResolver.resolve(metadataJson, targetContext) ?: metadataJson
+    return json.decodeFromJsonElement<WindowMetadata>(normalizeWindowMetadataJson(resolved))
 }
 
 private fun normalizeWindowMetadataCollections(element: JsonElement): JsonElement {
@@ -103,6 +109,11 @@ private fun normalizeWindowMetadataCollections(element: JsonElement): JsonElemen
             )
             for ((key, value) in element) {
                 val replacement = when (key) {
+                    // Forge metadata accepts unitless numeric spacing. Compose treats it as dp,
+                    // while the Android model stores CSS-compatible spacing as text.
+                    "gap", "rowGap" ->
+                        if (value is JsonPrimitive && !value.isString) JsonPrimitive(value.content)
+                        else normalizeWindowMetadataCollections(value)
                     in listKeys ->
                         if (value is JsonNull) JsonArray(emptyList()) else normalizeWindowMetadataCollections(value)
                     in mapKeys ->

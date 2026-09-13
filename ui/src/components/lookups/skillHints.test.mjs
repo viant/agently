@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {skillHintQuery,matchingSkills,insertSkillPrefix} from './skillHints.js';
+assert.equal(skillHintQuery('$'),'');
+assert.equal(skillHintQuery('$forge'),'forge');
+assert.equal(skillHintQuery('hello $forge'),null);
+assert.equal(skillHintQuery(' $forge'),null);
+assert.equal(skillHintQuery('$forge use data'),null);
+assert.equal(skillHintQuery('$forge use data',4),'for');
+const skills=[{name:'report',description:'Build charts'},{name:'forge-report-authoring',description:'Report writing'}];
+assert.deepEqual(matchingSkills(skills,'forge').map(s=>s.name),['forge-report-authoring']);
+assert.equal(matchingSkills(skills,'charts')[0].name,'report');
+assert.deepEqual(insertSkillPrefix('$for rest of prompt','forge-report-authoring'),{value:'$forge-report-authoring rest of prompt',prefix:'$forge-report-authoring ',end:5,caret:24});
+assert.equal(insertSkillPrefix('hello $for','report'),null);
+assert.equal(insertSkillPrefix('$for @{order:1 "Order"}','report').value,'$report @{order:1 "Order"}');
+console.log('Skill hint trigger, filtering, replacement, and trailing lookup preservation pass.');

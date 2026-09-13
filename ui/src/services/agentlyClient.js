@@ -18,6 +18,7 @@ let authMeCacheValue = null;
 let unauthorizedLatched = false;
 const workspaceMetadataInFlight = new Map();
 const workspaceMetadataCache = new Map();
+let workspaceMetadataGeneration = 0;
 const AUTH_REQUEST_TIMEOUT_MS = 4500;
 
 function workspaceMetadataCacheKey(targetContext = null) {
@@ -45,6 +46,9 @@ function requireLoginOnce() {
 }
 
 function clearAuthMeCache() {
+  workspaceMetadataGeneration++;
+  workspaceMetadataCache.clear();
+  workspaceMetadataInFlight.clear();
   authMeInFlight = null;
   authMeCacheReady = false;
   authMeCacheValue = null;
@@ -222,14 +226,38 @@ client.getWorkspaceMetadata = async function getWorkspaceMetadataCached(targetCo
   if (workspaceMetadataInFlight.has(key)) {
     return workspaceMetadataInFlight.get(key);
   }
+  const generation = workspaceMetadataGeneration;
   const request = rawGetWorkspaceMetadata(targetContext)
     .then((payload) => {
+      if (generation !== workspaceMetadataGeneration) throw new Error("Workspace metadata request superseded");
       workspaceMetadataCache.set(key, payload);
       return payload;
     })
     .finally(() => {
-      workspaceMetadataInFlight.delete(key);
+      if (workspaceMetadataInFlight.get(key) === request) workspaceMetadataInFlight.delete(key);
     });
   workspaceMetadataInFlight.set(key, request);
   return request;
+};
+
+
+/** Bypass metadata memoization for appearance reloads and standalone routes. */
+export async function refreshWorkspaceMetadata(targetContext) {
+  const generation = workspaceMetadataGeneration;
+  const payload = await rawGetWorkspaceMetadata(targetContext);
+  if (generation !== workspaceMetadataGeneration) throw new Error('Workspace metadata request superseded');
+  workspaceMetadataCache.set(workspaceMetadataCacheKey(targetContext), payload);
+  return payload;
+}
+
+export async function fetchWorkspaceStyleAsset(href) {
+  const text = await client.getWorkspaceStyleAsset(href);
+  return {ok: true, status: 200, text: async () => text};
+}
+
+const rawLogout = client.logout.bind(client);
+client.logout = async function logoutAndClearWorkspace() {
+  clearAuthMeCache();
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('agently:logout'));
+  return rawLogout();
 };
