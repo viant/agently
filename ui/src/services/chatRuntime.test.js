@@ -1799,8 +1799,8 @@ describe('switchConversation', () => {
     expect(client.getTranscript).toHaveBeenCalledWith(
       expect.objectContaining({
         conversationId: 'conv-live-target',
-        includeModelCalls: false,
-        includeToolCalls: false,
+        includeModelCalls: true,
+        includeToolCalls: true,
       }),
       undefined,
     );

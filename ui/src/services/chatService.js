@@ -526,10 +526,9 @@ export async function onInit({ context }) {
           conversationID,
           allowLiveHydration: true,
           transcript: {
-            // A route-mounted historical conversation must not eagerly load
-            // model/tool payload graphs. The execution-details surface owns
-            // that heavier, explicitly requested read.
-            includeExecutionDetails: false,
+            // Preserve internal-role filtering and durable Forge workspace
+            // attachments while metadata authorization remains lazy.
+            includeExecutionDetails: true,
           },
           restoreWorkspace: false,
         });

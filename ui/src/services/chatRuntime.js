@@ -2453,10 +2453,9 @@ export async function switchConversation(context, conversationID = '') {
       conversationID: targetID,
       allowLiveHydration: true,
       transcript: {
-        // History navigation renders durable chat first. Execution/model/tool
-        // payloads are loaded by ExecutionWorkspace when the user expands
-        // details instead of blocking the conversation switch.
-        includeExecutionDetails: false,
+        // Canonical execution pages carry internal-role visibility and the
+        // ui/view:open result used to restore report workspace attachments.
+        includeExecutionDetails: true,
       },
       restoreWorkspace: false,
       reason: 'history-switch',
@@ -2497,7 +2496,7 @@ export async function switchConversation(context, conversationID = '') {
     conversationID: targetID,
     allowLiveHydration: true,
     transcript: {
-      includeExecutionDetails: false,
+      includeExecutionDetails: true,
     },
     restoreWorkspace: false,
     reason: 'history-switch',
