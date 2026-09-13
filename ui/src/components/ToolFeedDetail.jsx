@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CompactFeedList, Container, Terminal } from 'forge/components';
 import { getFeedData, fetchFeedDataNow, onFeedDataChange, getActiveFeeds, onFeedChange, splitFeedKey } from '../services/toolFeedBus';
 import { openResourceFeedPath } from '../services/chatService';
@@ -21,6 +21,8 @@ import { normalizeFeedPayload } from '../services/toolFeedBus';
 import { normalizeToolFeedTarget, toolFeedTargetsPlacement } from '../services/toolFeedTarget';
 import { buildFeedExportTitle, exportFeedReportPDF } from '../services/feedReportExport';
 import { markFeedDataSourcesDirty, restorePendingFeedDraft, savePendingFeedDraft } from '../services/feedDraftState';
+
+const useFeedLayoutEffect = typeof document === 'undefined' ? useEffect : useLayoutEffect;
 
 function dedupeFeeds(feeds = []) {
   const seen = new Map();
@@ -240,6 +242,7 @@ function FeedPanel({ feedId, context, variant = 'inline', fullHeight = false }) 
   if (hasForgeFeedUI(data?.ui, data?.renderMode)) {
     return (
       <ForgeFeedRenderer
+        key={`${scopedConversationId}:${rawFeedId || feedId}`}
         data={data}
         feedId={rawFeedId || feedId}
         conversationId={scopedConversationId}
@@ -376,19 +379,15 @@ function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = '
   const isServerRender = typeof document === 'undefined';
   if (isServerRender && requiresSignalWiring) wireFeedSignals(execution, context.identity.windowId);
   const [signalsReady, setSignalsReady] = useState(isServerRender || !requiresSignalWiring);
-  useEffect(() => {
-    if (isServerRender || !requiresSignalWiring) {
-      setSignalsReady(true);
-      return undefined;
-    }
-    setSignalsReady(false);
-    const timer = window.setTimeout(() => {
+  useFeedLayoutEffect(() => {
+    if (!isServerRender && requiresSignalWiring) {
+      // Keep an initialized feed mounted through streamed/final payload updates.
+      // Rewire before paint instead of replacing it with a loading placeholder.
       wireFeedSignals(execution, context.identity.windowId);
       restorePendingFeedDraft(feedId, conversationId, payloadSignature, context);
       markFeedDataSourcesDirty(context, normalized?._dirtyDataSourceRefs || []);
-      setSignalsReady(true);
-    }, 0);
-    return () => window.clearTimeout(timer);
+    }
+    setSignalsReady(true);
   }, [context, conversationId, execution, feedId, isServerRender, payloadSignature, requiresSignalWiring]);
 
   if (!container) return null;

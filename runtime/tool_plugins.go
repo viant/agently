@@ -30,7 +30,7 @@ import (
 	svca2a "github.com/viant/agently-core/service/a2a"
 	svcauth "github.com/viant/agently-core/service/auth"
 	wscfg "github.com/viant/agently-core/workspace/config"
-	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	templaterepo "github.com/viant/agently-core/workspace/repository/template"
 	templatebundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
 	platformsvc "github.com/viant/agently/tools/system/platform"
@@ -179,7 +179,7 @@ func internalServiceFactory(rt *executor.Runtime, workspaceRoot, name string) sv
 		if rt.Agent == nil {
 			return nil
 		}
-		pRepo := promptrepo.NewWithStore(rt.Store)
+		pRepo := intakerepo.NewWithStore(rt.Store)
 		opts := []llmagents.Option{
 			llmagents.WithConversationClient(rt.Conversation),
 			llmagents.WithDirectoryProvider(agentDirectoryProvider(rt, workspaceRoot)),
@@ -239,7 +239,7 @@ func internalServiceFactory(rt *executor.Runtime, workspaceRoot, name string) sv
 			templatesvc.WithAgentFinder(finder),
 		)
 	case "prompt":
-		pRepo := promptrepo.NewWithStore(rt.Store)
+		pRepo := intakerepo.NewWithStore(rt.Store)
 		var finder agentmdl.Finder
 		if rt.Agent != nil {
 			finder = rt.Agent.Finder()

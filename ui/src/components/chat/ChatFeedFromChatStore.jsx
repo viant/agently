@@ -219,13 +219,14 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
 
   return (
     <div className="app-chat-feed" data-source="chatStore">
-      {rows.map((row, index) => {
+      {rows.flatMap((row, index) => {
         const turnId = String(row?.turnId || '').trim();
         const isFinalTurnRepresentation = !!turnId
           && (row?.kind === 'iteration' || row?.kind === 'assistant')
           && (lastIndexByTurn.get(turnId) ?? index) === index;
         const inlineFeed = isFinalTurnRepresentation ? (
           <ToolFeedDetail
+            key={`inline-feed:${conversationId}:${turnId}`}
             context={context}
             conversationId={conversationId}
             turnId={turnId}
@@ -240,16 +241,13 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
             conversationId,
             workspaceAttachmentFor(index)
           );
-          if (!inlineFeed) return rendered;
-          return (
-            <React.Fragment key={row.renderKey}>
-              {rendered}
-              {inlineFeed}
-            </React.Fragment>
-          );
+          return [
+            <React.Fragment key={row.renderKey}>{rendered}</React.Fragment>,
+            inlineFeed,
+          ];
         }
         const suppressBubble = !!turnId && (lastIndexByTurn.get(turnId) ?? index) > index;
-        return (
+        return [
           <React.Fragment key={row.renderKey}>
             <IterationRowBlock
               iterationRow={row}
@@ -259,9 +257,9 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
               retryPrompt={retryPromptByTurn.get(turnId) || ''}
               attachment={workspaceAttachmentFor(index)}
             />
-            {inlineFeed}
-          </React.Fragment>
-        );
+          </React.Fragment>,
+          inlineFeed,
+        ];
       })}
     </div>
   );
