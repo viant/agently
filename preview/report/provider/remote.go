@@ -307,25 +307,41 @@ func remoteLabel(value string) string {
 }
 
 func remoteParameters(catalog Object) ([]any, []Binding, error) {
-	parameters, err := catalogParameters(catalog["options"])
+	parameters := []any{}
+	bindings := []Binding{}
+	seen := map[string]bool{}
+	for _, declared := range objects(catalog["parameters"]) {
+		name, kind := strings.TrimSpace(text(declared["name"])), strings.TrimSpace(text(declared["type"]))
+		if name == "" || kind == "" || seen[name] {
+			continue
+		}
+		parameter := Object{"name": name, "type": kind}
+		for _, key := range []string{"multiple", "default", "values"} {
+			if declared[key] != nil {
+				parameter[key] = clone(declared[key])
+			}
+		}
+		parameters = append(parameters, parameter)
+		path := strings.TrimSpace(text(declared["path"]))
+		if path == "" {
+			path = name
+		}
+		bindings = append(bindings, Binding{Parameter: name, Field: path, Operator: "eq"})
+		seen[name] = true
+	}
+	options, err := catalogParameters(catalog["options"])
 	if err != nil {
 		return nil, nil, err
 	}
-	bindings := []Binding{}
-	seen := map[string]bool{}
-	for _, value := range parameters {
+	for _, value := range options {
 		param, _ := value.(map[string]any)
 		name := text(param["name"])
+		if seen[name] {
+			continue
+		}
+		parameters = append(parameters, param)
 		seen[name] = true
 		bindings = append(bindings, Binding{Parameter: name, Field: "options." + name, Operator: "eq"})
-	}
-	for _, scope := range []Object{{"name": "advertiserId", "type": "integer"}, {"name": "suiteId", "type": "integer"}, {"name": "trial", "type": "boolean", "default": false}} {
-		name := text(scope["name"])
-		if !seen[name] {
-			parameters = append(parameters, scope)
-			bindings = append(bindings, Binding{Parameter: name, Field: name, Operator: "eq"})
-			seen[name] = true
-		}
 	}
 	for _, name := range stringsOf(catalog["allowedFilters"]) {
 		if seen[name] {
