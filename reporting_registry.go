@@ -33,6 +33,7 @@ func configureWorkspaceReporting(ctx context.Context, workspaceRoot string, conf
 	if err != nil {
 		return nil, fmt.Errorf("load workspace reporting registry: %w", err)
 	}
+	logReportingRegistryWarnings(discovered)
 	log.Printf(
 		"agently-app: workspace reporting registry loaded: root=%s builders=%d presets=%d fragments=%d groups=%d",
 		discovered.Root,
@@ -52,6 +53,7 @@ func configureWorkspaceReporting(ctx context.Context, workspaceRoot string, conf
 				log.Printf("agently-app: workspace reporting registry reload rejected; retaining last valid registry: %v", reloadErr)
 				return
 			}
+			logReportingRegistryWarnings(current)
 			log.Printf(
 				"agently-app: workspace reporting registry reloaded: root=%s builders=%d presets=%d fragments=%d groups=%d",
 				current.Root,
@@ -67,6 +69,17 @@ func configureWorkspaceReporting(ctx context.Context, workspaceRoot string, conf
 		log.Printf("agently-app: watching workspace reporting assets under %s", discovered.Root)
 	}
 	return runtime, nil
+}
+
+func logReportingRegistryWarnings(discovered *reportregistry.Registry) {
+	if discovered == nil || len(discovered.Warnings) == 0 {
+		return
+	}
+	log.Printf(
+		"agently-app: workspace reporting registry loaded with %d warnings; first: %s",
+		len(discovered.Warnings),
+		discovered.Warnings[0].Error(),
+	)
 }
 
 func (r *workspaceReportingRuntime) Close() {

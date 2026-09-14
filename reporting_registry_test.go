@@ -18,7 +18,7 @@ import (
 
 func TestWorkspaceReportingEnricherResolvesBuilderAndReadOnlyPresets(t *testing.T) {
 	workspace := t.TempDir()
-	writeReportingTestAsset(t, workspace, "extension/forge/reporting/performance/profiles/core.json", `{"kind":"forge.reporting.presentationProfileCatalog","schemaVersion":1,"familyId":"core","views":[{"viewId":1294,"visualProfile":"performance_overview","revision":"1","tabs":[{"id":"overview","title":"Overview","blockIds":["context"]}],"blocks":[{"id":"context","kind":"markdownBlock"}]}]}`)
+	writeReportingTestAsset(t, workspace, "extension/forge/reporting/performance/profiles/core.json", `{"kind":"forge.reporting.presentationProfileCatalog","schemaVersion":1,"familyId":"core","views":[{"reportId":"1294","viewId":1294,"visualProfile":"performance_overview","revision":"1","tabs":[{"id":"overview","title":"Overview","blockIds":["context"]}],"blocks":[{"id":"context","kind":"markdownBlock"}]}]}`)
 	writeReportingTestAsset(t, workspace, "extension/forge/reporting/performance/builder.yaml", `
 kind: forge.reporting.builder
 id: performance
@@ -271,6 +271,30 @@ reportBuilder: {}
 	defer runtime.Close()
 	if runtime.watcher == nil {
 		t.Fatalf("development registry did not start its filesystem watcher")
+	}
+}
+
+func TestConfigureWorkspaceReportingStartsWithIncompleteOptionalProfile(t *testing.T) {
+	workspace := t.TempDir()
+	writeReportingTestAsset(t, workspace, "extension/forge/reporting/performance/profiles/legacy.json", `{"kind":"forge.reporting.presentationProfileCatalog","schemaVersion":1,"familyId":"legacy","views":[{"viewId":1294,"visualProfile":"performance_overview"}]}`)
+	writeReportingTestAsset(t, workspace, "extension/forge/reporting/performance/builder.yaml", `
+kind: forge.reporting.builder
+id: performance
+reportBuilder:
+  presentationProfileRefs: [./profiles/legacy.json]
+`)
+
+	runtime, err := configureWorkspaceReporting(context.Background(), workspace, nil, false)
+	if err != nil {
+		t.Fatalf("optional presentation profile warning must not prevent startup: %v", err)
+	}
+	defer runtime.Close()
+	current := runtime.loader.Current()
+	if current == nil || current.Builder("performance") == nil {
+		t.Fatalf("expected reporting builder to remain available: %#v", current)
+	}
+	if len(current.Warnings) != 1 || current.Warnings[0].Code != "presentationProfileViewInvalid" {
+		t.Fatalf("expected retained presentation profile warning, got %#v", current.Warnings)
 	}
 }
 
