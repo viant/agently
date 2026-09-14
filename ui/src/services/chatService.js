@@ -80,6 +80,12 @@ const DEFAULT_REASONING_OPTIONS = [
   { value: 'high', label: 'High' },
 ];
 
+// Forge may replace a window Context while an earlier asynchronous init is
+// still resolving. Fence completion by stable window identity so an obsolete
+// transcript/detail request cannot write into the replacement Context's
+// shared datasource signals.
+const chatInitializationOwnersByWindowId = new Map();
+
 function isFileLike(value) {
   if (!value || typeof value !== 'object') return false;
   if (typeof File !== 'undefined' && value instanceof File) return true;
@@ -470,6 +476,27 @@ export async function clearGoalFeed({ context }) {
 }
 
 export async function onInit({ context }) {
+  const initializationWindowId = String(context?.identity?.windowId || '').trim();
+  const initializationWindowKey = initializationWindowId || context;
+  const initializationToken = Symbol(initializationWindowId || 'anonymous-chat-context');
+  chatInitializationOwnersByWindowId.set(initializationWindowKey, { context, token: initializationToken });
+  let initializedConversationID = '';
+  let initializationResources = null;
+  let initializationSelectionGeneration = 0;
+  const isCurrentInitialization = () => {
+    const owner = chatInitializationOwnersByWindowId.get(initializationWindowKey);
+    return owner?.context === context && owner?.token === initializationToken;
+  };
+  const isCurrentConversation = (conversationID = initializedConversationID) => {
+    if (!isCurrentInitialization()) return false;
+    if (
+      initializationResources
+      && Number(initializationResources.conversationSelectionGeneration || 0) !== initializationSelectionGeneration
+    ) return false;
+    const expectedID = String(conversationID || '').trim();
+    const currentID = String(context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.()?.id || '').trim();
+    return currentID === expectedID;
+  };
   logExecutorDebug('chat-service-init', {
     windowId: String(context?.identity?.windowId || '').trim(),
     conversationId: String(context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.()?.id || '').trim()
@@ -477,6 +504,8 @@ export async function onInit({ context }) {
   setStage({ phase: 'waiting', text: 'Initializing…' });
   try {
     const resources = ensureContextResources(context);
+    initializationResources = resources;
+    initializationSelectionGeneration = Number(resources.conversationSelectionGeneration || 0);
     if (!resources.forgeUIActionUnsub) {
       resources.forgeUIActionUnsub = connectForgeUIActionsToCallbacksOrChat(submitMessage, () => context);
     }
@@ -491,6 +520,7 @@ export async function onInit({ context }) {
     const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
     const messagesDS = context?.Context?.('messages')?.handlers?.dataSource;
     const conversationID = String(conversationsDS?.peekFormData?.()?.id || '').trim();
+    initializedConversationID = conversationID;
     if (conversationID) {
       if (hasPendingConversationBootstrap(conversationID)) {
         const currentForm = conversationsDS?.peekFormData?.() || {};
@@ -512,8 +542,10 @@ export async function onInit({ context }) {
         hasCachedSnapshot: !!cachedSnapshot,
         cachedTurnCount: Array.isArray(cachedSnapshot?.turns) ? cachedSnapshot.turns.length : 0
       });
+      if (!isCurrentConversation(conversationID)) return;
       if (cachedSnapshot && hydrateConversationFromBootstrapSnapshot(context, cachedSnapshot)) {
         await refreshGoalFeed(conversationID);
+        if (!isCurrentConversation(conversationID)) return;
         publishActiveConversation(conversationID, context);
         renderMergedRowsForContext(context);
         return;
@@ -532,7 +564,12 @@ export async function onInit({ context }) {
           },
           restoreWorkspace: false,
         });
+        if (!isCurrentConversation(conversationID)) {
+          void existingPromise.catch(() => {});
+          return;
+        }
         const existing = await existingPromise;
+        if (!isCurrentConversation(conversationID)) return;
         if (!existing) {
           const metaDefaults = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.()?.defaults || {};
           conversationsDS?.setFormData?.({
@@ -564,18 +601,22 @@ export async function onInit({ context }) {
           disconnectStream(context);
         }
         await refreshGoalFeed(conversationID);
+        if (!isCurrentConversation(conversationID)) return;
         publishActiveConversation(conversationID, context);
       }
     }
     renderMergedRowsForContext(context);
   } catch (err) {
+    if (!isCurrentInitialization()) return;
     setStage({ phase: 'error', text: String(err?.message || err || 'Initialization failed') });
     context?.Context?.('messages')?.handlers?.dataSource?.setError?.(String(err?.message || err));
   } finally {
     // Cached and pending-bootstrap branches return early above. Recovery
     // polling must still be installed for those branches so a missed terminal
     // SSE event or a later route change cannot leave the chat runtime inert.
-    startPolling(context);
+    if (isCurrentInitialization()) {
+      startPolling(context);
+    }
   }
 }
 
@@ -585,6 +626,11 @@ export function onDestroy({ context }) {
     conversationId: String(context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.()?.id || '').trim()
   });
   const resources = ensureContextResources(context);
+  const initializationWindowId = String(context?.identity?.windowId || '').trim();
+  const initializationWindowKey = initializationWindowId || context;
+  if (chatInitializationOwnersByWindowId.get(initializationWindowKey)?.context === context) {
+    chatInitializationOwnersByWindowId.delete(initializationWindowKey);
+  }
   try { resources.forgeUIActionUnsub?.(); } catch (_) {}
   resources.forgeUIActionUnsub = null;
   stopPolling(context);
