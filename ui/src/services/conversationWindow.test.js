@@ -145,6 +145,46 @@ describe('conversationWindow', () => {
     expect(activeWindows.value[0]?.conversationInstanceVersion).toBe(3);
   });
 
+  it('does not publish a new active-windows snapshot for a repeated route bootstrap', () => {
+    const entry = {
+      windowId: MAIN_CHAT_WINDOW_ID,
+      windowKey: CHAT_WINDOW_KEY,
+      conversationInstanceVersion: 3,
+      parameters: {
+        conversations: { form: { id: 'conv-direct' } },
+        messages: { input: { parameters: { convID: 'conv-direct' } } }
+      }
+    };
+    activeWindows.value = [entry];
+    const snapshot = activeWindows.value;
+    selectedTabId.value = MAIN_CHAT_WINDOW_ID;
+    selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
+
+    openConversationInMainWindow('conv-direct');
+
+    expect(activeWindows.value).toBe(snapshot);
+    expect(activeWindows.value[0]).toBe(entry);
+  });
+
+  it('repairs a mismatched message binding even when the conversation form already matches', () => {
+    activeWindows.value = [{
+      windowId: MAIN_CHAT_WINDOW_ID,
+      windowKey: CHAT_WINDOW_KEY,
+      conversationInstanceVersion: 3,
+      parameters: {
+        conversations: { form: { id: 'conv-direct' } },
+        messages: { input: { parameters: { convID: 'conv-stale' } } }
+      }
+    }];
+    const snapshot = activeWindows.value;
+
+    openConversationInMainWindow('conv-direct');
+
+    expect(activeWindows.value).not.toBe(snapshot);
+    expect(activeWindows.value[0]?.parameters?.messages?.input?.parameters?.convID).toBe('conv-direct');
+    expect(activeWindows.value[0]?.conversationInstanceVersion).toBe(3);
+  });
+
   it('remounts when history navigation replaces an already-mounted conversation', () => {
     activeWindows.value = [{
       windowId: MAIN_CHAT_WINDOW_ID,

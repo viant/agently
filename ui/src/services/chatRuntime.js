@@ -17,6 +17,11 @@ function _chatStoreRef() {
   return _chatStoreModule;
 }
 
+function advanceConversationSelectionGeneration(chatState = {}) {
+  chatState.conversationSelectionGeneration = Math.max(0, Number(chatState.conversationSelectionGeneration || 0)) + 1;
+  return chatState.conversationSelectionGeneration;
+}
+
 /**
  * Install a chatStore-compatible target for tests. Passing null restores the
  * production canonical store instead of disabling projection updates.
@@ -40,6 +45,7 @@ import {
   getScopedConversationSelection,
   isMainChatWindowId,
   publishConversationSelection,
+  resolveConversationSelection,
   syncHydratedWorkspaceStateFromTranscriptTurns
 } from './conversationWindow';
 import { setStage } from './stageBus';
@@ -2364,6 +2370,7 @@ export async function switchConversation(context, conversationID = '') {
   const targetID = String(conversationID || '').trim();
   if (!targetID) return;
   const chatState = ensureContextResources(context);
+  advanceConversationSelectionGeneration(chatState);
   chatState.requestedConversationID = targetID;
   const isCurrentRequest = () => String(chatState.requestedConversationID || '').trim() === targetID;
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
@@ -2638,6 +2645,7 @@ export function unbindConversationWindowEvents(context) {
 
 export async function createNewConversation(context) {
   const chatState = ensureContextResources(context);
+  advanceConversationSelectionGeneration(chatState);
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
   if (!conversationsDS) return false;
@@ -2729,6 +2737,11 @@ export async function createNewConversation(context) {
   return true;
 }
 
+export function resolvePollingConversationSelection(windowId = '') {
+  if (typeof window === 'undefined') return '';
+  return resolveConversationSelection(windowId);
+}
+
 export function startPolling(context) {
   const chatState = ensureContextResources(context);
   const windowId = getContextWindowId(context);
@@ -2746,12 +2759,7 @@ export function startPolling(context) {
     chatState.timer = null;
   }
   chatState.timer = setInterval(() => {
-    const desiredID = typeof window !== 'undefined'
-      ? (
-        getScopedConversationSelection(windowId)
-        || (isMainChatWindowId(windowId) ? conversationIDFromPath(window.location.pathname) : '')
-      )
-      : '';
+    const desiredID = resolvePollingConversationSelection(windowId);
     const currentID = getCurrentConversationID(context);
     const switchingID = String(chatState.switchingConversationID || '').trim();
     // Don't enqueue another switch while one is already in flight; otherwise a

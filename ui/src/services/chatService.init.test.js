@@ -246,4 +246,124 @@ describe('onInit', () => {
       running: false,
     });
   });
+
+  it('does not let an obsolete init overwrite a newer conversation selection', async () => {
+    const convForm = { id: 'conv-old', title: 'Old conversation' };
+    const conversationsDS = {
+      peekFormData: () => convForm,
+      setFormData: vi.fn(({ values }) => Object.assign(convForm, values)),
+    };
+    const messagesDS = {
+      setCollection: vi.fn(),
+      setError: vi.fn(),
+    };
+    const context = {
+      identity: { windowId: 'chat/new' },
+      Context(name) {
+        if (name === 'conversations') return { handlers: { dataSource: conversationsDS } };
+        if (name === 'messages') return { handlers: { dataSource: messagesDS } };
+        if (name === 'meta') return { handlers: { dataSource: { peekFormData: () => ({ defaults: {} }) } } };
+        return null;
+      },
+    };
+    let resolveConversation;
+    fetchConversationMock.mockReturnValue(new Promise((resolve) => {
+      resolveConversation = resolve;
+    }));
+    dsTickMock.mockResolvedValue({ conversationID: 'conv-old', hasRunning: false });
+
+    const initialization = onInit({ context });
+    await vi.waitFor(() => expect(fetchConversationMock).toHaveBeenCalledWith('conv-old'));
+    convForm.id = 'conv-new';
+    resolveConversation({ id: 'conv-old', title: 'Stale title', status: 'succeeded' });
+    await initialization;
+
+    expect(convForm).toMatchObject({ id: 'conv-new', title: 'Old conversation' });
+    expect(conversationsDS.setFormData).not.toHaveBeenCalled();
+    expect(publishConversationMetaUpdatedMock).not.toHaveBeenCalled();
+    expect(publishActiveConversationMock).not.toHaveBeenCalledWith('conv-old', context);
+    expect(startPollingMock).toHaveBeenCalledWith(context);
+  });
+
+  it('fences an older Context when a replacement Context initializes the same window', async () => {
+    const convForm = { id: 'conv-old', title: 'Old conversation' };
+    const conversationsDS = {
+      peekFormData: () => convForm,
+      setFormData: vi.fn(({ values }) => Object.assign(convForm, values)),
+    };
+    const makeContext = () => ({
+      identity: { windowId: 'chat/new' },
+      Context(name) {
+        if (name === 'conversations') return { handlers: { dataSource: conversationsDS } };
+        if (name === 'messages') return { handlers: { dataSource: { setCollection: vi.fn(), setError: vi.fn() } } };
+        if (name === 'meta') return { handlers: { dataSource: { peekFormData: () => ({ defaults: {} }) } } };
+        return null;
+      },
+    });
+    const oldContext = makeContext();
+    const newContext = makeContext();
+    let resolveOldConversation;
+    fetchConversationMock.mockImplementation((conversationID) => {
+      if (conversationID === 'conv-old') {
+        return new Promise((resolve) => { resolveOldConversation = resolve; });
+      }
+      return Promise.resolve({ id: 'conv-new', title: 'New conversation', status: 'succeeded' });
+    });
+    dsTickMock.mockImplementation((_context, options) => Promise.resolve({
+      conversationID: options?.conversationID,
+      hasRunning: false,
+    }));
+
+    const oldInitialization = onInit({ context: oldContext });
+    await vi.waitFor(() => expect(fetchConversationMock).toHaveBeenCalledWith('conv-old'));
+    convForm.id = 'conv-new';
+    const newInitialization = onInit({ context: newContext });
+    await newInitialization;
+    resolveOldConversation({ id: 'conv-old', title: 'Stale title', status: 'succeeded' });
+    await oldInitialization;
+
+    expect(convForm).toMatchObject({ id: 'conv-new', title: 'New conversation' });
+    expect(publishConversationMetaUpdatedMock).not.toHaveBeenCalledWith(
+      'conv-old',
+      expect.anything(),
+    );
+    expect(startPollingMock).toHaveBeenCalledWith(newContext);
+    expect(startPollingMock).not.toHaveBeenCalledWith(oldContext);
+  });
+
+  it('rejects a pre-switch result after an A-to-B-to-A selection round trip', async () => {
+    const resources = { conversationSelectionGeneration: 0 };
+    ensureContextResourcesMock.mockReturnValue(resources);
+    const convForm = { id: 'conv-a', title: 'Current A title' };
+    const conversationsDS = {
+      peekFormData: () => convForm,
+      setFormData: vi.fn(({ values }) => Object.assign(convForm, values)),
+    };
+    const context = {
+      identity: { windowId: 'chat/new' },
+      Context(name) {
+        if (name === 'conversations') return { handlers: { dataSource: conversationsDS } };
+        if (name === 'messages') return { handlers: { dataSource: { setCollection: vi.fn(), setError: vi.fn() } } };
+        if (name === 'meta') return { handlers: { dataSource: { peekFormData: () => ({ defaults: {} }) } } };
+        return null;
+      },
+    };
+    let resolveConversation;
+    fetchConversationMock.mockReturnValue(new Promise((resolve) => {
+      resolveConversation = resolve;
+    }));
+    dsTickMock.mockResolvedValue({ conversationID: 'conv-a', hasRunning: false });
+
+    const initialization = onInit({ context });
+    await vi.waitFor(() => expect(fetchConversationMock).toHaveBeenCalledWith('conv-a'));
+    convForm.id = 'conv-b';
+    resources.conversationSelectionGeneration += 1;
+    convForm.id = 'conv-a';
+    resources.conversationSelectionGeneration += 1;
+    resolveConversation({ id: 'conv-a', title: 'Pre-switch stale title', status: 'succeeded' });
+    await initialization;
+
+    expect(convForm).toMatchObject({ id: 'conv-a', title: 'Current A title' });
+    expect(conversationsDS.setFormData).not.toHaveBeenCalled();
+  });
 });

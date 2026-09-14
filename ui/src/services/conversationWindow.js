@@ -837,6 +837,11 @@ function updateMainChatWindowParameters(conversationId = '', { resetInstance = f
   let changed = false;
   const next = windows.map((entry) => {
     if (String(entry?.windowId || '').trim() !== MAIN_CHAT_WINDOW_ID) return entry;
+    const mountedConversationID = String(entry?.parameters?.conversations?.form?.id || '').trim();
+    const messageConversationID = String(entry?.parameters?.messages?.input?.parameters?.convID || '').trim();
+    if (!resetInstance && mountedConversationID === targetID && messageConversationID === targetID) {
+      return entry;
+    }
     changed = true;
     const parameters = {
       ...(entry?.parameters || {}),
