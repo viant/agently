@@ -888,7 +888,18 @@ export function openConversationInMainWindow(conversationId = '') {
   removeWindowsForConversationChange(targetID);
   const mainWindow = ensureMainChatWindow();
   focusWindow(mainWindow);
-  updateMainChatWindowParameters(targetID, { resetInstance: conversationSurface });
+  const mountedConversationID = String(
+    mainWindow?.parameters?.conversations?.form?.id
+    || mainWindow?.parameters?.messages?.input?.parameters?.convID
+    || ''
+  ).trim();
+  // Remount only when replacing an already-mounted conversation. Direct-route
+  // bootstrap starts with an empty binding; remounting it on every replay
+  // cancels transcript hydration indefinitely.
+  const resetInstance = conversationSurface
+    && mountedConversationID !== ''
+    && mountedConversationID !== targetID;
+  updateMainChatWindowParameters(targetID, { resetInstance });
   publishConversationSelection(mainWindow?.windowId || MAIN_CHAT_WINDOW_ID, targetID, {
     syncPath: true,
     eventType: 'agently:conversation-select'
