@@ -39,6 +39,28 @@ func TestReadOnlyPreservesPresentationDataHooks(t *testing.T) {
 	}
 }
 
+func TestCatalogAuthorizationSnapshotAppliesWithoutReadOnly(t *testing.T) {
+	a := example(t)
+	definition := a.workspace.Windows["projects"]
+	definition.AuthorizationSnapshot = map[string]interface{}{
+		"principal": map[string]interface{}{"roles": []string{"PROJECT_REVIEWER"}},
+		"resource":  map[string]interface{}{"capabilities": map[string]interface{}{"read": true, "write": false}},
+	}
+	a.workspace.Windows["projects"] = definition
+	w, err := a.LoadWindow(context.Background(), "projects")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.AuthorizationSnapshot == nil {
+		t.Fatal("ordinary preview did not retain its configured authorization snapshot")
+	}
+	resource := w.AuthorizationSnapshot["resource"].(map[string]interface{})
+	capabilities := resource["capabilities"].(map[string]interface{})
+	if capabilities["read"] != true || capabilities["write"] != false {
+		t.Fatalf("unexpected preview capabilities: %#v", capabilities)
+	}
+}
+
 func example(t *testing.T) *App {
 	t.Helper()
 	a, e := New(Config{Root: "examples/projects"})
