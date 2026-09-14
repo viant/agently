@@ -1352,9 +1352,10 @@ export function syncMessagesSnapshot(context, turns, reason = 'poll', pendingEli
   if (currentConversationID && !hasRunning) {
     Promise.resolve(syncHydratedWorkspaceStateFromTranscriptTurns(currentConversationID, normalizedTurns, {
       reopen: false,
-      // History selection must not wake a hosted workspace. It is restored
-      // lazily when the user explicitly selects/opens that workspace.
-      announce: options.restoreWorkspace !== false,
+      // Announce the dormant descriptor so chat can render its Show/Open
+      // attachment. Root gates actual workspace mounting on activeSurface,
+      // so this does not invoke metadata authorization or datasource fetches.
+      announce: true,
     })).catch(() => {});
   }
   if (hasRunning) {

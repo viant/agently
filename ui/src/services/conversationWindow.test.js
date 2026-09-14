@@ -130,6 +130,37 @@ describe('conversationWindow', () => {
     expect(activeWindows.value[0]?.parameters?.messages?.input?.parameters?.convID).toBe('conv-123');
   });
 
+  it('does not remount repeated direct-route bootstrap for the same conversation', () => {
+    activeWindows.value = [{
+      windowId: MAIN_CHAT_WINDOW_ID,
+      windowKey: CHAT_WINDOW_KEY,
+      conversationInstanceVersion: 3,
+      parameters: { conversations: { form: { id: 'conv-direct' } } }
+    }];
+    selectedTabId.value = MAIN_CHAT_WINDOW_ID;
+    selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
+
+    openConversationInMainWindow('conv-direct');
+
+    expect(activeWindows.value[0]?.conversationInstanceVersion).toBe(3);
+  });
+
+  it('remounts when history navigation replaces an already-mounted conversation', () => {
+    activeWindows.value = [{
+      windowId: MAIN_CHAT_WINDOW_ID,
+      windowKey: CHAT_WINDOW_KEY,
+      conversationInstanceVersion: 3,
+      parameters: { conversations: { form: { id: 'conv-old' } } }
+    }];
+    selectedTabId.value = MAIN_CHAT_WINDOW_ID;
+    selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
+
+    openConversationInMainWindow('conv-new');
+
+    expect(activeWindows.value[0]?.conversationInstanceVersion).toBe(4);
+    expect(activeWindows.value[0]?.parameters?.conversations?.form?.id).toBe('conv-new');
+  });
+
   it('restores a mapped workspace window when reopening a conversation in the main window', () => {
     activeWindows.value = [
       {
