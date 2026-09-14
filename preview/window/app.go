@@ -351,6 +351,18 @@ func (a *App) LoadWindowWithTarget(ctx context.Context, id string, target *meta.
 		}
 		w.DataSource[local] = ds
 	}
+	// An explicitly authored preview snapshot is presentation input for every
+	// preview mode. Without it, ordinary (non-read-only) previews incorrectly
+	// attempt the production permission service even though the catalog already
+	// supplies a deterministic local principal/resource grant.
+	if item.AuthorizationSnapshot != nil {
+		w.AuthorizationSnapshot = item.AuthorizationSnapshot
+	}
+	// The standalone preview has only a tab manager, not Agently's hosted chat
+	// regions. Render the same authored window in a regular preview tab in every
+	// mode; this changes only host placement, not the window metadata contract.
+	w.Presentation = ""
+	w.Region = ""
 	if a.config.DisableAuthorization {
 		w.Authorization = nil
 	}
@@ -362,14 +374,6 @@ func (a *App) LoadWindowWithTarget(ctx context.Context, id string, target *meta.
 		w.Dialogs = nil
 		w.Schemas = nil
 		w.ResourceModels = nil
-		if item.AuthorizationSnapshot != nil {
-			w.AuthorizationSnapshot = item.AuthorizationSnapshot
-		}
-		// Hosted chat regions are rendered by Agently's conversation shell. The
-		// standalone preview has only a tab manager, so render this same window
-		// in a regular tab without changing the authored workspace metadata.
-		w.Presentation = ""
-		w.Region = ""
 		seedPreviewWindowForm(w, item.WindowFormDefaults)
 		for ref, source := range w.DataSource {
 			source.ResourceModelRef = ""

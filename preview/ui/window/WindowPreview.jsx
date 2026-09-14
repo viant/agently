@@ -42,7 +42,9 @@ export default function WindowPreview() {
       setAccess({
         roles: selectionRef.current?.roles || snapshot?.principal?.roles || [],
         features: selectionRef.current?.features || snapshot?.principal?.features || [],
-        capabilities: snapshot?.resource?.capabilities || {},
+        capabilities: snapshot?.resource?.capabilities
+          || Object.values(snapshot?.resources || {})[0]?.capabilities
+          || {},
       });
     }
     await runUICommand({
@@ -175,6 +177,12 @@ export default function WindowPreview() {
   );
   const services = useMemo(
     () => ({
+      async applyPermission({completeMetadata}) {
+        if (!completeMetadata?.authorizationSnapshot) {
+          throw Object.assign(new Error('Preview authorization snapshot is unavailable'), {status: 503});
+        }
+        return completeMetadata;
+      },
       prepareDataConnectorRequest(request) {
         if (!request.url.includes("/datasources/")) return request;
         const body = {
