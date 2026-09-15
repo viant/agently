@@ -32,6 +32,9 @@ export function resolveWorkspaceNavigation(windowEntry = null) {
   return {
     label,
     chipName: String(navigation?.chipName || '').trim() || label,
+    chipIcon: ICONS.has(String(navigation?.chipIcon || '').trim().toLowerCase())
+      ? String(navigation.chipIcon).trim().toLowerCase()
+      : '',
     icon: ICONS.has(candidateIcon) ? candidateIcon : 'application',
     subtitle: String(navigation?.subtitle || '').trim(),
     supportingText: String(navigation?.supportingText || '').trim(),
@@ -47,7 +50,7 @@ export function resolveWorkspaceBreadcrumbs(windowEntry = null) {
     .map((entry, index) => {
       const navigation = resolveWorkspaceNavigation(entry);
       const windowId = String(entry?.windowId || '').trim();
-      return windowId ? { index, windowId, label: navigation.chipName, current: false } : null;
+      return windowId ? { index, windowId, label: navigation.chipName, icon: navigation.chipIcon, current: false } : null;
     })
     .filter(Boolean);
   const currentNavigation = resolveWorkspaceNavigation(windowEntry);
@@ -57,6 +60,7 @@ export function resolveWorkspaceBreadcrumbs(windowEntry = null) {
       index: trail.length,
       windowId: String(windowEntry?.windowId || '').trim(),
       label: currentNavigation.chipName,
+      icon: currentNavigation.chipIcon,
       current: true,
     },
   ];
@@ -153,27 +157,29 @@ export default function ConversationWorkspaceSurface({
                   minimal
                   small
                   icon="chat"
-                  text={unreadCount > 0 ? `Chat · ${unreadCount}` : 'Chat'}
-                  className="app-summary-workspace-chat-action app-workspace-breadcrumb-chip"
+                  className="app-summary-workspace-chat-action app-workspace-breadcrumb-chip is-icon-only"
                   aria-label="Return to chat"
-                  title="Return to chat"
+                  title={unreadCount > 0 ? `Chat · ${unreadCount} new` : 'Chat'}
                   onClick={onBackToConversation}
                 />
                 {breadcrumbs.map((breadcrumb) => (
                   <React.Fragment key={`${breadcrumb.windowId}:${breadcrumb.index}`}>
                     <span className="app-workspace-breadcrumb-separator" aria-hidden="true">›</span>
                     {breadcrumb.current ? (
-                      <span className="app-workspace-breadcrumb-chip is-current" aria-current="page" title={breadcrumb.label}>
-                        {breadcrumb.label}
+                      <span className={`app-workspace-breadcrumb-chip is-current${breadcrumb.icon ? ' is-icon-only' : ''}`} aria-current="page" aria-label={breadcrumb.label} title={breadcrumb.label}>
+                        {breadcrumb.icon ? <Icon icon={breadcrumb.icon} size={12} /> : null}
+                        {!breadcrumb.icon ? breadcrumb.label : null}
                       </span>
                     ) : (
                       <button
                         type="button"
-                        className="app-workspace-breadcrumb-chip"
-                        title={`Return to ${breadcrumb.label}`}
+                        className={`app-workspace-breadcrumb-chip${breadcrumb.icon ? ' is-icon-only' : ''}`}
+                        aria-label={breadcrumb.label}
+                        title={breadcrumb.label}
                         onClick={() => onNavigateWorkspaceBreadcrumb?.(breadcrumb.index)}
                       >
-                        {breadcrumb.label}
+                        {breadcrumb.icon ? <Icon icon={breadcrumb.icon} size={12} /> : null}
+                        {!breadcrumb.icon ? breadcrumb.label : null}
                       </button>
                     )}
                   </React.Fragment>
