@@ -3331,6 +3331,9 @@ td[data-col="enabled"] {
 }
 
 .app-workspace-breadcrumb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   flex: 0 1 auto;
   min-width: 0;
   max-width: 180px;
@@ -3356,6 +3359,12 @@ button.app-workspace-breadcrumb-chip { cursor: pointer; }
 button.app-workspace-breadcrumb-chip:hover { background: #fff; border-color: rgba(46, 93, 168, 0.34); }
 button.app-workspace-breadcrumb-chip:focus-visible { outline: 2px solid #2f6fc2; outline-offset: 2px; }
 span.app-workspace-breadcrumb-chip.is-current { background: rgba(222, 234, 253, 0.82); color: #173d72; }
+.app-workspace-breadcrumb-chip.is-icon-only {
+  flex: 0 0 34px;
+  width: 34px;
+  justify-content: center;
+  padding-inline: 0;
+}
 
 .app-summary-workspace-chat-action.bp6-button,
 .app-summary-workspace-chat-action.bp5-button {
@@ -5160,6 +5169,7 @@ span.app-workspace-breadcrumb-chip.is-current { background: rgba(222, 234, 253, 
 
 /* The same conversation-owned shell is used in regular and developer modes. */
 .app-summary-workspace-header-actions .app-summary-workspace-chat-action { width: auto; min-width: 72px; }
+.app-summary-workspace-header-actions .app-summary-workspace-chat-action.is-icon-only { width: 34px; min-width: 34px; padding-inline: 0; }
 .app-summary-workspace-context { display: flex; gap: 8px; align-items: center; }
 .app-summary-surface-shell.is-split .app-summary-workspace { flex: 1 1 55%; min-height: 220px; }
 .app-summary-surface-shell.is-split .app-summary-conversation { flex: 1 1 45%; min-height: 180px; }

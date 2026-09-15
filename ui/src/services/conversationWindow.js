@@ -721,6 +721,7 @@ function normalizeWorkspaceStateSnapshot(raw = null, { preferLiveSignals = true 
     navigation: raw.navigation && typeof raw.navigation === 'object' ? {
       label: String(raw.navigation.label || '').trim(),
       chipName: String(raw.navigation.chipName || '').trim(),
+      chipIcon: String(raw.navigation.chipIcon || '').trim(),
       icon: String(raw.navigation.icon || '').trim(),
       subtitle: String(raw.navigation.subtitle || '').trim(),
       supportingText: String(raw.navigation.supportingText || '').trim(),

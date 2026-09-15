@@ -44,17 +44,17 @@ describe('ConversationWorkspaceSurface', () => {
       windowId: 'advertiser-101705',
       windowKey: 'advertiser',
       windowTitle: 'A_TEST',
-      navigation: { chipName: 'Advertiser' },
+      navigation: { chipName: 'Advertiser', chipIcon: 'application' },
       navigationTrail: [{
         windowId: 'advertiser-list',
         windowKey: 'advertiserList',
         windowTitle: 'Advertisers',
-        navigation: { chipName: 'List' },
+        navigation: { chipName: 'List', chipIcon: 'grid-view' },
       }],
     });
     expect(breadcrumbs).toEqual([
-      { index: 0, windowId: 'advertiser-list', label: 'List', current: false },
-      { index: 1, windowId: 'advertiser-101705', label: 'Advertiser', current: true },
+      { index: 0, windowId: 'advertiser-list', label: 'List', icon: 'grid-view', current: false },
+      { index: 1, windowId: 'advertiser-101705', label: 'Advertiser', icon: 'application', current: true },
     ]);
   });
 
@@ -66,19 +66,22 @@ describe('ConversationWorkspaceSurface', () => {
         windowId: 'advertiser-101705',
         windowKey: 'advertiser',
         windowTitle: 'A_TEST',
-        navigation: { chipName: 'Advertiser' },
+        navigation: { chipName: 'Advertiser', chipIcon: 'application' },
         navigationTrail: [{
           windowId: 'advertiser-list',
           windowKey: 'advertiserList',
           windowTitle: 'Advertisers',
-          navigation: { chipName: 'List' },
+          navigation: { chipName: 'List', chipIcon: 'grid-view' },
         }],
       }}
     />);
     expect(html).toContain('aria-label="Workspace navigation"');
-    expect(html).toContain('title="Return to List"');
+    expect(html).toContain('title="List"');
+    expect(html).toContain('aria-label="Advertiser"');
+    expect(html).toContain('data-icon="grid-view"');
+    expect(html).toContain('data-icon="application"');
     expect(html).toContain('aria-current="page"');
-    expect(html).toContain('>Advertiser</span>');
+    expect(html).not.toContain('>Advertiser</span>');
   });
 
   it('shows a workspace link from Conversation while keeping workspace mounted and hidden', () => {
@@ -103,7 +106,8 @@ describe('ConversationWorkspaceSurface', () => {
     expect(html).toContain('aria-label="Return to chat"');
     expect(html).toContain('app-summary-workspace-chat-action');
     expect(html).toContain('app-summary-workspace-identity');
-    expect(html).toContain('>Chat</button>');
+    expect(html).toContain('title="Chat"');
+    expect(html).not.toContain('>Chat</button>');
     expect(html).not.toContain('app-summary-workspace-eyebrow');
     expect(html).not.toContain('>Workspace<');
     expect(html).toContain('data-window-id="report"');
