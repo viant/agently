@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { activeWindows, getFormSignal, selectedTabId, selectedWindowId } from 'forge/core';
+import { activeWindows, getFormSignal, getInputSignal, selectedTabId, selectedWindowId } from 'forge/core';
 import { resolveHostedExecuteOnOpenHostAction } from '../../../../forge/src/components/dashboard/reportBuilderHooks.js';
 
 import {
@@ -21,6 +21,7 @@ import {
   openLinkedConversationWindow,
   publishConversationSelection,
   requestNewConversationInMainWindow,
+  restoreWorkspaceNavigationTrailEntry,
   setScopedWorkspaceState,
   setScopedWorkspaceSelection,
   setScopedActiveSurface,
@@ -228,6 +229,46 @@ describe('conversationWindow', () => {
     expect(selected?.windowId).toBe('orderPerformance_1');
     expect(selectedWindowId.value).toBe('orderPerformance_1');
     expect(selectedTabId.value).toBe('orderPerformance_1');
+  });
+
+  it('restores an ancestor workspace and truncates breadcrumb ancestry', () => {
+    const current = {
+      windowId: 'advertiser_101705__conv-123',
+      windowKey: 'advertiser',
+      windowTitle: 'A_TEST',
+      parentKey: MAIN_CHAT_WINDOW_ID,
+      conversationId: 'conv-123',
+      presentation: 'hosted',
+      region: 'chat.top',
+      inTab: true,
+      parameters: { AdvertiserId: [101705] },
+      navigation: { chipName: 'Advertiser' },
+      navigationTrail: [{
+        windowId: 'advertiserList__conv-123',
+        windowKey: 'advertiserList',
+        windowTitle: 'Advertisers',
+        parentKey: MAIN_CHAT_WINDOW_ID,
+        conversationId: 'conv-123',
+        presentation: 'hosted',
+        region: 'chat.top',
+        inTab: true,
+        parameters: {},
+        navigation: { chipName: 'List' },
+        windowForm: { advertiserQuery: 'A_TEST' },
+        viewState: { activeTabId: 'all' },
+        dataSourceState: { advertisers: { input: { filter: { name: 'A_TEST' } } } },
+      }],
+    };
+    activeWindows.value = [current];
+
+    const restored = restoreWorkspaceNavigationTrailEntry('conv-123', current, 0);
+
+    expect(restored?.windowKey).toBe('advertiserList');
+    expect(restored?.navigationTrail).toEqual([]);
+    expect(getFormSignal(`${restored.windowId}:windowForm`).value).toEqual({ advertiserQuery: 'A_TEST' });
+    expect(getInputSignal(`${restored.windowId}DSadvertisers`).value).toMatchObject({ filter: { name: 'A_TEST' } });
+    expect(selectedWindowId.value).toBe(restored.windowId);
+    expect(selectedTabId.value).toBe(restored.windowId);
   });
 
   it('removes top-level non-chat windows when returning to the main chat conversation', () => {

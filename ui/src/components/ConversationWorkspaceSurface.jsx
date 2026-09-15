@@ -31,12 +31,35 @@ export function resolveWorkspaceNavigation(windowEntry = null) {
   const candidateIcon = String(navigation?.icon || '').trim().toLowerCase();
   return {
     label,
+    chipName: String(navigation?.chipName || '').trim() || label,
     icon: ICONS.has(candidateIcon) ? candidateIcon : 'application',
     subtitle: String(navigation?.subtitle || '').trim(),
     supportingText: String(navigation?.supportingText || '').trim(),
     tooltip: String(navigation?.tooltip || '').trim(),
     accent: String(navigation?.accent || '').trim(),
   };
+}
+
+export function resolveWorkspaceBreadcrumbs(windowEntry = null) {
+  if (!windowEntry) return [];
+  const trail = Array.isArray(windowEntry?.navigationTrail) ? windowEntry.navigationTrail : [];
+  const ancestors = trail
+    .map((entry, index) => {
+      const navigation = resolveWorkspaceNavigation(entry);
+      const windowId = String(entry?.windowId || '').trim();
+      return windowId ? { index, windowId, label: navigation.chipName, current: false } : null;
+    })
+    .filter(Boolean);
+  const currentNavigation = resolveWorkspaceNavigation(windowEntry);
+  return [
+    ...ancestors,
+    {
+      index: trail.length,
+      windowId: String(windowEntry?.windowId || '').trim(),
+      label: currentNavigation.chipName,
+      current: true,
+    },
+  ];
 }
 
 export function resolveChatWindowRenderKey(chatWindow = null) {
@@ -67,6 +90,7 @@ export default function ConversationWorkspaceSurface({
   suppressConversationWorkspaceLink = false,
   onOpenWorkspace,
   onBackToConversation,
+  onNavigateWorkspaceBreadcrumb,
   onCloseWorkspace,
   onSelectWorkspaceTab,
 }) {
@@ -84,6 +108,7 @@ export default function ConversationWorkspaceSurface({
   const capabilities = workspaceWindow?.workspaceObject?.capabilities || {};
   const effectiveMode = compact || capabilities.split === false ? 'focus' : workspaceMode;
   const navigation = resolveWorkspaceNavigation(workspaceWindow);
+  const breadcrumbs = resolveWorkspaceBreadcrumbs(workspaceWindow);
   const headingRef = useRef(null);
   const keyboardNavigationRef = useRef(false);
   const invokingRef = useRef(null);
@@ -123,16 +148,37 @@ export default function ConversationWorkspaceSurface({
         <section className={`app-summary-workspace${workspaceActive ? '' : ' is-surface-hidden'}`} aria-label={`${navigation.label} workspace`} data-workspace-window-id={workspaceWindow?.windowId || ''} aria-hidden={!workspaceActive} inert={!workspaceActive ? '' : undefined}>
           <header className="app-summary-workspace-header">
             <div className="app-summary-workspace-header-actions">
-              <Button
-                minimal
-                small
-                icon="chat"
-                text={unreadCount > 0 ? `Chat · ${unreadCount}` : 'Chat'}
-                className="app-summary-workspace-chat-action"
-                aria-label="Return to chat"
-                title="Return to chat"
-                onClick={onBackToConversation}
-              />
+              <nav className="app-workspace-breadcrumbs" aria-label="Workspace navigation">
+                <Button
+                  minimal
+                  small
+                  icon="chat"
+                  text={unreadCount > 0 ? `Chat · ${unreadCount}` : 'Chat'}
+                  className="app-summary-workspace-chat-action app-workspace-breadcrumb-chip"
+                  aria-label="Return to chat"
+                  title="Return to chat"
+                  onClick={onBackToConversation}
+                />
+                {breadcrumbs.map((breadcrumb) => (
+                  <React.Fragment key={`${breadcrumb.windowId}:${breadcrumb.index}`}>
+                    <span className="app-workspace-breadcrumb-separator" aria-hidden="true">›</span>
+                    {breadcrumb.current ? (
+                      <span className="app-workspace-breadcrumb-chip is-current" aria-current="page" title={breadcrumb.label}>
+                        {breadcrumb.label}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="app-workspace-breadcrumb-chip"
+                        title={`Return to ${breadcrumb.label}`}
+                        onClick={() => onNavigateWorkspaceBreadcrumb?.(breadcrumb.index)}
+                      >
+                        {breadcrumb.label}
+                      </button>
+                    )}
+                  </React.Fragment>
+                ))}
+              </nav>
             </div>
             <div className="app-summary-workspace-identity">
               <span className="app-summary-workspace-title-copy">

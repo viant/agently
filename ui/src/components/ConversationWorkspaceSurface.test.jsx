@@ -13,7 +13,7 @@ vi.mock('./mcpApps/AppRenderer.jsx', () => ({
   default: ({ uri, hosted }) => React.createElement('div', { 'data-mcp-uri': uri, 'data-hosted': hosted ? 'true' : 'false' }),
 }));
 
-import ConversationWorkspaceSurface, { resolveChatWindowRenderKey, resolveWorkspaceNavigation, shouldShowWorkspaceTabs } from './ConversationWorkspaceSurface';
+import ConversationWorkspaceSurface, { resolveChatWindowRenderKey, resolveWorkspaceBreadcrumbs, resolveWorkspaceNavigation, shouldShowWorkspaceTabs } from './ConversationWorkspaceSurface';
 
 expect(resolveChatWindowRenderKey({windowId: 'chat/new'})).toBe('chat/new:0');
 expect(resolveChatWindowRenderKey({windowId: 'chat/new', conversationInstanceVersion: 2})).toBe('chat/new:2');
@@ -37,6 +37,48 @@ describe('ConversationWorkspaceSurface', () => {
       label: 'Order',
       icon: 'application',
     });
+  });
+
+  it('builds compact Chat-to-window breadcrumb ancestry', () => {
+    const breadcrumbs = resolveWorkspaceBreadcrumbs({
+      windowId: 'advertiser-101705',
+      windowKey: 'advertiser',
+      windowTitle: 'A_TEST',
+      navigation: { chipName: 'Advertiser' },
+      navigationTrail: [{
+        windowId: 'advertiser-list',
+        windowKey: 'advertiserList',
+        windowTitle: 'Advertisers',
+        navigation: { chipName: 'List' },
+      }],
+    });
+    expect(breadcrumbs).toEqual([
+      { index: 0, windowId: 'advertiser-list', label: 'List', current: false },
+      { index: 1, windowId: 'advertiser-101705', label: 'Advertiser', current: true },
+    ]);
+  });
+
+  it('renders ancestor chips as actions and the current workspace as the terminal chip', () => {
+    const html = renderToStaticMarkup(<ConversationWorkspaceSurface
+      activeSurface="workspace"
+      chatWindow={{ windowId: 'chat' }}
+      workspaceWindow={{
+        windowId: 'advertiser-101705',
+        windowKey: 'advertiser',
+        windowTitle: 'A_TEST',
+        navigation: { chipName: 'Advertiser' },
+        navigationTrail: [{
+          windowId: 'advertiser-list',
+          windowKey: 'advertiserList',
+          windowTitle: 'Advertisers',
+          navigation: { chipName: 'List' },
+        }],
+      }}
+    />);
+    expect(html).toContain('aria-label="Workspace navigation"');
+    expect(html).toContain('title="Return to List"');
+    expect(html).toContain('aria-current="page"');
+    expect(html).toContain('>Advertiser</span>');
   });
 
   it('shows a workspace link from Conversation while keeping workspace mounted and hidden', () => {

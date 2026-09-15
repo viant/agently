@@ -25,7 +25,7 @@ import Sidebar from './Sidebar';
 import ScheduleConversationHistory from './ScheduleConversationHistory';
 import ElicitationOverlay from './ElicitationOverlay';
 import { useApprovalQueue } from '../hooks/useApprovalQueue';
-import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, dismissWorkspaceWindowForConversation, ensureWorkspaceWindowForConversation, getScopedActiveSurface, getScopedConversationSelection, getScopedWorkspacePresentationMode, getScopedWorkspaceSelection, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
+import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, dismissWorkspaceWindowForConversation, ensureWorkspaceWindowForConversation, getScopedActiveSurface, getScopedConversationSelection, getScopedWorkspacePresentationMode, getScopedWorkspaceSelection, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, restoreWorkspaceNavigationTrailEntry, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
 import { conversationIDFromPath, publishActiveConversation } from '../services/chatRuntime';
 import { beginLogin, getAuthMeSilently, getAuthProvidersSilently } from '../services/agentlyClient';
@@ -757,6 +757,13 @@ export default function Root() {
     setActiveSurface('conversation');
   }, [effectiveMainChatWindow?.windowId, setActiveSurface]);
 
+  const navigateWorkspaceBreadcrumb = React.useCallback((targetIndex) => {
+    const restored = restoreWorkspaceNavigationTrailEntry(mainConversationId, activeWorkspaceWindow, targetIndex);
+    if (!restored) return;
+    setWorkspacePresentationMode('full');
+    setActiveSurface('workspace');
+  }, [activeWorkspaceWindow, mainConversationId, setActiveSurface, setWorkspacePresentationMode]);
+
   useWorkspaceAdapters({mainConversationId, workspaceWindows, setActiveSurface, setWorkspacePresentationMode});
 
   const setActiveWorkspaceCollapsed = (collapsed) => {
@@ -1448,6 +1455,7 @@ export default function Root() {
                   suppressConversationWorkspaceLink={hasAssistantWorkspaceLink}
                   onOpenWorkspace={openWorkspaceSurface}
                   onBackToConversation={returnToConversationSurface}
+                  onNavigateWorkspaceBreadcrumb={navigateWorkspaceBreadcrumb}
                   onCloseWorkspace={closeActiveWorkspaceWindow}
                   onSelectWorkspaceTab={focusWorkspaceWindow}
                 />
