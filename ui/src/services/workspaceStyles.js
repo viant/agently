@@ -5,6 +5,29 @@ const colors = ['surface', 'text', 'control.background', 'control.foreground', '
 const dimensions = {'typography.size': [8, 72], 'control.minHeight': [16, 128], 'control.radius': [0, 64], 'control.paddingInline': [0, 64]};
 const tokenNames = new Set([...colors, ...Object.keys(dimensions), 'typography.family']);
 const identifier = /^[a-z][a-z0-9-]{0,63}$/;
+export const APPLICATION_THEME_CLASS = 'agently-application';
+const APPLICATION_THEME_ATTRIBUTE = 'data-agently-theme';
+const APPLICATION_MODE_ATTRIBUTE = 'data-agently-color-mode';
+
+export function applyApplicationThemeBoundary(element, state = {}) {
+  if (!element) return;
+  element.classList?.add(APPLICATION_THEME_CLASS);
+  const themeId = String(state.themeId || '').trim();
+  if (!themeId) {
+    element.removeAttribute?.(APPLICATION_THEME_ATTRIBUTE);
+    element.removeAttribute?.(APPLICATION_MODE_ATTRIBUTE);
+    return;
+  }
+  element.setAttribute?.(APPLICATION_THEME_ATTRIBUTE, themeId);
+  element.setAttribute?.(APPLICATION_MODE_ATTRIBUTE, state.mode === 'dark' ? 'dark' : 'light');
+}
+
+export function clearApplicationThemeBoundary(element) {
+  if (!element) return;
+  element.classList?.remove(APPLICATION_THEME_CLASS);
+  element.removeAttribute?.(APPLICATION_THEME_ATTRIBUTE);
+  element.removeAttribute?.(APPLICATION_MODE_ATTRIBUTE);
+}
 
 export function validateThemeCatalog(catalog) {
   if (!catalog || catalog.version !== 1 || catalog.paletteVersion !== 1 ||
