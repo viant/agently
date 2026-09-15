@@ -96,6 +96,10 @@ func Serve(options ServeOptions) error {
 	debugEnabled := options.Debug ||
 		strings.EqualFold(strings.TrimSpace(os.Getenv("AGENTLY_DEBUG")), "1") ||
 		strings.EqualFold(strings.TrimSpace(os.Getenv("AGENTLY_DEBUG")), "true")
+	cleanupOptions, err := agentlyrt.ConversationCleanupOptionsFromEnv()
+	if err != nil {
+		return fmt.Errorf("invalid conversation cleanup configuration: %w", err)
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -225,6 +229,7 @@ func Serve(options ServeOptions) error {
 			log.Printf("conversation status reconcile error: %v", err)
 		}
 	}()
+	startConversationCleanup(ctx, rt.Data, cleanupOptions)
 	schedulerOpts := agentlyrt.SchedulerOptionsFromEnv()
 	apiHandler, err := appserver.NewAPIHandler(ctx, appserver.APIOptions{
 		Version:          firstNonEmpty(strings.TrimSpace(Version), "agently-v1"),
