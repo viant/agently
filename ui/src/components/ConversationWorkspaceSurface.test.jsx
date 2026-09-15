@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 vi.mock('@blueprintjs/core', () => ({
   Button: ({ text = '', icon = '', minimal: _minimal, small: _small, ...props }) => React.createElement('button', { ...props, 'data-icon': icon }, text),
   Icon: ({ icon = '', size = 16 }) => React.createElement('span', { 'data-icon': icon, 'data-size': size }),
+  Tooltip: ({ content = '', children }) => React.createElement('span', { 'data-tooltip': content }, children),
 }));
 vi.mock('forge/components', () => ({
   WindowContent: ({ window }) => React.createElement('div', { 'data-window-id': window?.windowId || '' }),
@@ -106,6 +107,8 @@ describe('ConversationWorkspaceSurface', () => {
     expect(html).toContain('aria-label="Return to chat"');
     expect(html).toContain('app-summary-workspace-chat-action');
     expect(html).toContain('app-summary-workspace-identity');
+    expect(html.indexOf('app-summary-workspace-identity')).toBeGreaterThan(html.indexOf('app-workspace-breadcrumbs'));
+    expect(html.indexOf('app-summary-workspace-identity')).toBeLessThan(html.indexOf('app-summary-workspace-context'));
     expect(html).toContain('title="Chat"');
     expect(html).not.toContain('>Chat</button>');
     expect(html).not.toContain('app-summary-workspace-eyebrow');

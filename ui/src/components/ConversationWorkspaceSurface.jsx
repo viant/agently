@@ -2,7 +2,7 @@ import {useWorkspaceScroll} from '../services/useWorkspaceScroll.js';
 import { WorkspacePresentationProvider } from 'forge/core';
 import ToolFeedDetail from './ToolFeedDetail.jsx';
 import React, { useState, useEffect, useRef } from 'react';
-import { Button, Icon } from '@blueprintjs/core';
+import { Button, Icon, Tooltip } from '@blueprintjs/core';
 import { WindowContent } from 'forge/components';
 import AppRenderer from './mcpApps/AppRenderer.jsx';
 
@@ -153,34 +153,40 @@ export default function ConversationWorkspaceSurface({
           <header className="app-summary-workspace-header">
             <div className="app-summary-workspace-header-actions">
               <nav className="app-workspace-breadcrumbs" aria-label="Workspace navigation">
-                <Button
-                  minimal
-                  small
-                  icon="chat"
-                  className="app-summary-workspace-chat-action app-workspace-breadcrumb-chip is-icon-only"
-                  aria-label="Return to chat"
-                  title={unreadCount > 0 ? `Chat · ${unreadCount} new` : 'Chat'}
-                  onClick={onBackToConversation}
-                />
+                <Tooltip content={unreadCount > 0 ? `Chat · ${unreadCount} new` : 'Chat'} placement="bottom" hoverOpenDelay={200}>
+                  <Button
+                    minimal
+                    small
+                    icon="chat"
+                    className="app-summary-workspace-chat-action app-workspace-breadcrumb-chip is-icon-only"
+                    aria-label="Return to chat"
+                    title={unreadCount > 0 ? `Chat · ${unreadCount} new` : 'Chat'}
+                    onClick={onBackToConversation}
+                  />
+                </Tooltip>
                 {breadcrumbs.map((breadcrumb) => (
                   <React.Fragment key={`${breadcrumb.windowId}:${breadcrumb.index}`}>
                     <span className="app-workspace-breadcrumb-separator" aria-hidden="true">›</span>
                     {breadcrumb.current ? (
-                      <span className={`app-workspace-breadcrumb-chip is-current${breadcrumb.icon ? ' is-icon-only' : ''}`} aria-current="page" aria-label={breadcrumb.label} title={breadcrumb.label}>
-                        {breadcrumb.icon ? <Icon icon={breadcrumb.icon} size={12} /> : null}
-                        {!breadcrumb.icon ? breadcrumb.label : null}
-                      </span>
+                      <Tooltip content={breadcrumb.label} placement="bottom" hoverOpenDelay={200}>
+                        <span className={`app-workspace-breadcrumb-chip is-current${breadcrumb.icon ? ' is-icon-only' : ''}`} aria-current="page" aria-label={breadcrumb.label} title={breadcrumb.label}>
+                          {breadcrumb.icon ? <Icon icon={breadcrumb.icon} size={12} /> : null}
+                          {!breadcrumb.icon ? breadcrumb.label : null}
+                        </span>
+                      </Tooltip>
                     ) : (
-                      <button
-                        type="button"
-                        className={`app-workspace-breadcrumb-chip${breadcrumb.icon ? ' is-icon-only' : ''}`}
-                        aria-label={breadcrumb.label}
-                        title={breadcrumb.label}
-                        onClick={() => onNavigateWorkspaceBreadcrumb?.(breadcrumb.index)}
-                      >
-                        {breadcrumb.icon ? <Icon icon={breadcrumb.icon} size={12} /> : null}
-                        {!breadcrumb.icon ? breadcrumb.label : null}
-                      </button>
+                      <Tooltip content={breadcrumb.label} placement="bottom" hoverOpenDelay={200}>
+                        <button
+                          type="button"
+                          className={`app-workspace-breadcrumb-chip${breadcrumb.icon ? ' is-icon-only' : ''}`}
+                          aria-label={breadcrumb.label}
+                          title={breadcrumb.label}
+                          onClick={() => onNavigateWorkspaceBreadcrumb?.(breadcrumb.index)}
+                        >
+                          {breadcrumb.icon ? <Icon icon={breadcrumb.icon} size={12} /> : null}
+                          {!breadcrumb.icon ? breadcrumb.label : null}
+                        </button>
+                      </Tooltip>
                     )}
                   </React.Fragment>
                 ))}

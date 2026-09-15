@@ -256,7 +256,11 @@ describe('conversationWindow', () => {
         navigation: { chipName: 'List' },
         windowForm: { advertiserQuery: 'A_TEST' },
         viewState: { activeTabId: 'all' },
-        dataSourceState: { advertisers: { input: { filter: { name: 'A_TEST' } } } },
+        dataSourceState: {
+          advertisers: {
+            input: { filter: { Id: '101705' }, page: 3, pageSize: 25 },
+          },
+        },
       }],
     };
     activeWindows.value = [current];
@@ -266,7 +270,11 @@ describe('conversationWindow', () => {
     expect(restored?.windowKey).toBe('advertiserList');
     expect(restored?.navigationTrail).toEqual([]);
     expect(getFormSignal(`${restored.windowId}:windowForm`).value).toEqual({ advertiserQuery: 'A_TEST' });
-    expect(getInputSignal(`${restored.windowId}DSadvertisers`).value).toMatchObject({ filter: { name: 'A_TEST' } });
+    expect(getInputSignal(`${restored.windowId}DSadvertisers`).value).toMatchObject({
+      filter: { Id: '101705' },
+      page: 3,
+      pageSize: 25,
+    });
     expect(selectedWindowId.value).toBe(restored.windowId);
     expect(selectedTabId.value).toBe(restored.windowId);
   });
