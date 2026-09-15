@@ -463,9 +463,20 @@ function hydrateLiveWorkspaceWindowFromSavedState(conversationId = '', win = nul
   const saved = resolveSavedWorkspaceSnapshot(savedWindows, win, windowId);
   if (!saved) return win;
   const mergedParameters = mergeWorkspaceSnapshotValue(saved.parameters || {}, win?.parameters || {});
+  const mergedNavigation = mergeWorkspaceSnapshotValue(saved.navigation || {}, win?.navigation || {});
+  const restoredNavigationTrail = Array.isArray(saved.navigationTrail) ? saved.navigationTrail : [];
   let hydratedWindow = win;
-  if (JSON.stringify(mergedParameters) !== JSON.stringify(win?.parameters || {})) {
-    hydratedWindow = {...win, parameters: mergedParameters};
+  if (
+    JSON.stringify(mergedParameters) !== JSON.stringify(win?.parameters || {})
+    || JSON.stringify(mergedNavigation) !== JSON.stringify(win?.navigation || {})
+    || JSON.stringify(restoredNavigationTrail) !== JSON.stringify(win?.navigationTrail || [])
+  ) {
+    hydratedWindow = {
+      ...win,
+      parameters: mergedParameters,
+      navigation: mergedNavigation,
+      navigationTrail: restoredNavigationTrail,
+    };
     activeWindows.value = (Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : []).map((entry) => (
       String(entry?.windowId || '').trim() === windowId ? hydratedWindow : entry
     ));
@@ -521,6 +532,7 @@ function restoreWorkspaceWindowForConversation(conversationId = '', { focus = tr
         workspaceCollapsed: saved.workspaceCollapsed === true,
         workspaceObject: saved.workspaceObject,
         navigation: saved.navigation && typeof saved.navigation === 'object' ? saved.navigation : undefined,
+        navigationTrail: Array.isArray(saved.navigationTrail) ? saved.navigationTrail : undefined,
         mcpUI: saved.mcpUI && typeof saved.mcpUI === 'object' ? saved.mcpUI : undefined,
         hostOpenState: 'historical_replay',
       }
@@ -553,6 +565,72 @@ export function reopenWorkspaceForConversation(conversationId = '') {
 
 export function ensureWorkspaceWindowForConversation(conversationId = '') {
   return restoreWorkspaceWindowForConversation(conversationId, { focus: false });
+}
+
+export function restoreWorkspaceNavigationTrailEntry(conversationId = '', currentWindow = null, targetIndex = -1) {
+  const convID = String(conversationId || '').trim();
+  const trail = Array.isArray(currentWindow?.navigationTrail) ? currentWindow.navigationTrail : [];
+  const index = Number(targetIndex);
+  const saved = Number.isInteger(index) && index >= 0 && index < trail.length ? trail[index] : null;
+  const windowKey = String(saved?.windowKey || '').trim();
+  if (!convID || !saved || !windowKey || windowKey === CHAT_WINDOW_KEY) return null;
+  const descendantWindowIds = new Set([
+    ...trail.slice(index + 1).map((entry) => String(entry?.windowId || '').trim()),
+    String(currentWindow?.windowId || '').trim(),
+  ].filter(Boolean));
+  const liveWindows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
+  for (const entry of liveWindows) {
+    const entryID = String(entry?.windowId || '').trim();
+    if (descendantWindowIds.has(entryID) && String(entry?.conversationId || '').trim() === convID) {
+      removeWindow(entryID);
+    }
+  }
+  const live = getWindowById(String(saved.windowId || '').trim());
+  if (
+    live
+    && String(live.windowKey || '').trim() === windowKey
+    && String(live.conversationId || '').trim() === convID
+  ) {
+    setScopedWorkspaceSelection(convID, live.windowId);
+    setScopedWorkspaceState(convID, resolveWorkspaceWindowsForConversation(convID));
+    return focusWindow(live);
+  }
+  const restored = addWindow(
+    String(saved.windowTitle || windowKey).trim() || windowKey,
+    saved.parentKey || MAIN_CHAT_WINDOW_ID,
+    windowKey,
+    saved.windowData || null,
+    saved.inTab !== false,
+    saved.parameters || {},
+    {
+      autoIndexTitle: false,
+      windowId: String(saved.windowId || '').trim() || undefined,
+      conversationId: convID,
+      presentation: String(saved.presentation || 'hosted').trim() || 'hosted',
+      region: String(saved.region || 'chat.top').trim() || 'chat.top',
+      replaceHostedRegion: true,
+      workspaceSharePct: saved.workspaceSharePct ?? currentWindow?.workspaceSharePct,
+      workspaceMinHeight: saved.workspaceMinHeight ?? undefined,
+      workspaceCollapsed: saved.workspaceCollapsed === true,
+      workspaceObject: saved.workspaceObject,
+      navigation: saved.navigation && typeof saved.navigation === 'object' ? saved.navigation : undefined,
+      navigationTrail: trail.slice(0, index),
+      mcpUI: saved.mcpUI && typeof saved.mcpUI === 'object' ? saved.mcpUI : undefined,
+      hostOpenState: 'historical_replay',
+    },
+  );
+  if (!restored?.windowId) return null;
+  if (saved.windowForm && typeof saved.windowForm === 'object') {
+    getFormSignal(`${restored.windowId}:windowForm`).value = saved.windowForm;
+  }
+  restoreWorkspaceDataSourceState(restored.windowId, saved.dataSourceState);
+  if (saved.viewState && typeof saved.viewState === 'object') {
+    getViewSignal(restored.windowId).value = saved.viewState;
+  }
+  setScopedWorkspaceSelection(convID, restored.windowId);
+  setScopedWorkspaceState(convID, [restored]);
+  void publishUIBridgeSnapshotNow();
+  return focusWindow(restored);
 }
 
 function isPlainObject(value) {
@@ -642,12 +720,16 @@ function normalizeWorkspaceStateSnapshot(raw = null, { preferLiveSignals = true 
     sourceTurnId: String(raw.workspaceObject?.origin?.turnId || raw.sourceTurnId || raw.turnId || ""),
     navigation: raw.navigation && typeof raw.navigation === 'object' ? {
       label: String(raw.navigation.label || '').trim(),
+      chipName: String(raw.navigation.chipName || '').trim(),
       icon: String(raw.navigation.icon || '').trim(),
       subtitle: String(raw.navigation.subtitle || '').trim(),
       supportingText: String(raw.navigation.supportingText || '').trim(),
       tooltip: String(raw.navigation.tooltip || '').trim(),
       accent: String(raw.navigation.accent || '').trim(),
     } : null,
+    navigationTrail: Array.isArray(raw.navigationTrail)
+      ? raw.navigationTrail.filter((entry) => entry && typeof entry === 'object').map((entry) => ({ ...entry }))
+      : [],
     mcpUI: raw.mcpUI && typeof raw.mcpUI === 'object' ? { ...raw.mcpUI } : null,
     dataSourceState,
     windowForm: resolvedWindowForm,
