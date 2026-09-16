@@ -1,6 +1,6 @@
 import {describe, it, expect} from 'vitest';
 import fs from 'node:fs';
-import {WorkspaceStyleManager, resolveThemeSelection, validateThemeCatalog} from './workspaceStyles';
+import {applyApplicationThemeBoundary, clearApplicationThemeBoundary, WorkspaceStyleManager, resolveThemeSelection, validateThemeCatalog} from './workspaceStyles';
 const catalog = JSON.parse(fs.readFileSync(new URL('../../../../agently-core/protocol/ui/theme/testdata/baseline.json', import.meta.url)));
 const revision = 'a'.repeat(64);
 const metadata = (rev = revision, id = 'workspace') => ({workspaceId: id,
@@ -30,6 +30,26 @@ describe('portable theme catalog', () => {
   it('rejects malformed portable tokens', () => {
     const invalid = structuredClone(catalog); invalid.themes[0].modes.light['control.radius'] = '8px';
     expect(() => validateThemeCatalog(invalid)).toThrow();
+  });
+});
+describe('application theme boundary', () => {
+  it('exposes the active workspace selection to the full application and cleans it up', () => {
+    const classes = new Set();
+    const attributes = new Map();
+    const element = {
+      classList: {add: value => classes.add(value), remove: value => classes.delete(value)},
+      setAttribute: (key, value) => attributes.set(key, value),
+      removeAttribute: key => attributes.delete(key),
+    };
+    applyApplicationThemeBoundary(element, {themeId: 'baseline', mode: 'dark'});
+    expect(classes.has('agently-application')).toBe(true);
+    expect(attributes.get('data-agently-theme')).toBe('baseline');
+    expect(attributes.get('data-agently-color-mode')).toBe('dark');
+    applyApplicationThemeBoundary(element, {themeId: '', mode: 'light'});
+    expect(classes.has('agently-application')).toBe(true);
+    expect(attributes.size).toBe(0);
+    clearApplicationThemeBoundary(element);
+    expect(classes.size).toBe(0);
   });
 });
 describe('workspace style lifecycle', () => {

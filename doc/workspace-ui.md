@@ -27,6 +27,38 @@ The web application's equivalent environment setting is `VITE_WORKSPACE_TABS`.
 `always` shows an object tab even for one object. `never` hides the tab row and
 uses a compact selector when multiple objects are open, so they remain reachable.
 
+## Application theme scope
+
+The host exposes the active workspace appearance on the document root with the
+stable `.agently-application` class. A named theme also sets
+`data-agently-theme` and `data-agently-color-mode`. Forge continues to use its
+own `.agently-workspace` boundary and `data-forge-*` attributes.
+
+The generated theme CSS publishes the portable manifest tokens twice: as
+`--agently-theme-*` variables on the application boundary and as the existing
+`--forge-*` variables on Forge boundaries. This does not restyle the shared
+shell by default. A workspace opts in by mapping the portable values to the
+public `--app-*` shell roles in a scoped CSS file, for example:
+
+```css
+.agently-application[data-agently-theme="branded"] {
+  --app-bg: var(--agently-theme-surface);
+  --app-surface: var(--agently-theme-control-background);
+  --app-border: var(--agently-theme-control-border);
+  --app-text: var(--agently-theme-text);
+  --app-muted: var(--agently-theme-disabled-foreground);
+  --app-accent: var(--agently-theme-button-background);
+  --app-font-family: var(--agently-theme-font-family);
+  --app-font-size: var(--agently-theme-font-size);
+}
+```
+
+Keeping activation in workspace CSS preserves the incumbent appearance for
+existing workspaces while allowing one selected theme to reach navigation,
+conversation history, chat, the composer, dialogs, approvals, and Forge
+content. Workspace rules must remain scoped; product-specific selectors and
+business behavior do not belong in the shared host.
+
 ## Placements and layouts
 
 - `inline`: content owned by an assistant turn.
