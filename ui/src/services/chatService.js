@@ -771,8 +771,14 @@ export async function submitMessage({ context, message, model, agent }) {
     model: effectiveModel || selectedModel,
     immediateSubmit: true
   });
+  const chatState = ensureContextResources(context);
   const clientRequestId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-  rememberSeedTitle(conversationID, query);
+  // Seed titles belong only to a conversation's first message. Running this
+  // path for an existing conversation lets a browser with empty local storage
+  // overwrite its durable title with an ordinary follow-up prompt.
+  if (String(chatState.pendingInitialSubmitConversationID || '').trim() === conversationID) {
+    rememberSeedTitle(conversationID, query);
+  }
   convDS?.setFormData?.({
     values: {
       ...convForm,
@@ -827,7 +833,6 @@ export async function submitMessage({ context, message, model, agent }) {
     payload.userId = resolvedUserID;
   }
 
-  const chatState = ensureContextResources(context);
   clearSettledConversationBootstrapSnapshot(conversationID);
   const activeTurnID = String(chatState?.runningTurnId || chatState?.activeStreamTurnId || '').trim();
   const steeringDuringActiveTurn = !!activeTurnID;
