@@ -163,6 +163,7 @@ func conversationCleanupPolicies(dataSvc conversationCleanupData, options agentl
 	}
 	if options.ScheduledMode.Enabled() {
 		result = append(result, newScheduledRunCleanupPolicy(dataSvc, options.ScheduledRetention, options.ScheduledMode.Executes()))
+		result = append(result, newScheduledConversationFallbackPolicy(dataSvc, options.ScheduledRetention, options.ScheduledMode.Executes()))
 		result = append(result, newTechnicalCleanupPolicy(dataSvc, coredata.TechnicalMaintenanceScheduled, options.ScheduledRetention, options.ScheduledMode.Executes()))
 	}
 	if options.OrphanMode.Enabled() {
