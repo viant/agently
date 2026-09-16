@@ -149,6 +149,19 @@ export function terminalConversationMetaPatch(type = '') {
   return null;
 }
 
+export function conversationActivityMetaPatch(detail = {}, now = Date.now()) {
+  const type = String(detail?.type || '').trim().toLowerCase();
+  const lifecyclePatch = type === 'turn_started'
+    ? { status: String(detail?.status || '').trim() || 'running', stage: 'executing', running: true }
+    : terminalConversationMetaPatch(type);
+  if (!lifecyclePatch) return null;
+  const providedActivity = detail?.lastActivity || detail?.updatedAt || detail?.timestamp;
+  return {
+    ...lifecyclePatch,
+    lastActivity: providedActivity || new Date(now).toISOString()
+  };
+}
+
 export function conversationStatusTone(row = {}) {
   const status = String(row?.Status || row?.status || '').trim().toLowerCase();
   const stage = String(row?.Stage || row?.stage || '').trim().toLowerCase();
@@ -341,7 +354,6 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
   const queryRef = React.useRef('');
   const prevCursorRef = React.useRef('');
   const nextCursorRef = React.useRef('');
-  const activityReloadTimerRef = React.useRef(null);
   const queryReloadTimerRef = React.useRef(null);
   const initialReloadRetryTimerRef = React.useRef(null);
   const inFlightReloadRef = React.useRef({ key: '', promise: null });
@@ -521,7 +533,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const content = useMemo(() => {
-    if (loading) return <div className="app-sidebar-loading"><Spinner size={18} /></div>;
+    if (loading && rows.length === 0) return <div className="app-sidebar-loading"><Spinner size={18} /></div>;
     if (error) return <div className="app-sidebar-error">{error}</div>;
     if (rows.length === 0) return <div className="app-sidebar-empty">No conversations</div>;
 
@@ -620,17 +632,9 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
     };
     const onConversationActivity = (event) => {
       const id = String(event?.detail?.id || '').trim();
-      const terminalPatch = terminalConversationMetaPatch(event?.detail?.type);
-      if (id && terminalPatch) {
-        setRows((current) => applyConversationMetaPatchToRows(current, id, terminalPatch));
-      }
-      if (activityReloadTimerRef.current) {
-        clearTimeout(activityReloadTimerRef.current);
-      }
-      activityReloadTimerRef.current = setTimeout(() => {
-        activityReloadTimerRef.current = null;
-        void reload('latest', '');
-      }, 150);
+      const patch = conversationActivityMetaPatch(event?.detail || {});
+      if (!id || !patch) return;
+      setRows((current) => applyConversationMetaPatchToRows(current, id, patch));
     };
     const onConversationMetaUpdated = (event) => {
       const id = String(event?.detail?.id || '').trim();
@@ -650,10 +654,6 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
       if (queryReloadTimerRef.current) {
         clearTimeout(queryReloadTimerRef.current);
         queryReloadTimerRef.current = null;
-      }
-      if (activityReloadTimerRef.current) {
-        clearTimeout(activityReloadTimerRef.current);
-        activityReloadTimerRef.current = null;
       }
       window.removeEventListener('forge:conversation-active', onActive);
       window.removeEventListener('agently:conversation-select', onActive);

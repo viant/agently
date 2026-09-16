@@ -130,6 +130,7 @@ describe('submitMessage', () => {
       activeStreamPrompt: '',
       activeStreamTurnId: '',
       activeStreamStartedAt: 0,
+      pendingInitialSubmitConversationID: 'conv-1',
     });
     dsTick.mockResolvedValue({
       conversationID: 'conv-1',
@@ -288,6 +289,7 @@ describe('submitMessage', () => {
       tools: ['llm/agents:list', 'steward-RecommendationPatch'],
       toolBundles: ['analyst-sitelist-tools'],
     }));
+    expect(rememberSeedTitle).not.toHaveBeenCalled();
   });
 
   it('submits only canonical message attachments and ignores legacy message files', async () => {
