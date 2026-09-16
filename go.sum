@@ -1203,6 +1203,8 @@ github.com/viant/agently-core v0.1.45 h1:rSeCRQKa1fMArWnwK5vjGPCpjlKu2PcuCObP1OC
 github.com/viant/agently-core v0.1.45/go.mod h1:zCDqyjB5RAGWVSa182id4R7d5i6TqqQSkJPvBNcPPVE=
 github.com/viant/agently-core v0.1.46-0.20260916201817-efaa21f98e5b h1:Bh5PJyVDCCpOowwQReNHkjKWNyzx/U+DMx7PIG58o/E=
 github.com/viant/agently-core v0.1.46-0.20260916201817-efaa21f98e5b/go.mod h1:zCDqyjB5RAGWVSa182id4R7d5i6TqqQSkJPvBNcPPVE=
+github.com/viant/agently-core v0.1.46 h1:5Gqj8fPc46uilfJEOYUJJMKZNngHugi9W6VuC8yCalQ=
+github.com/viant/agently-core v0.1.46/go.mod h1:zCDqyjB5RAGWVSa182id4R7d5i6TqqQSkJPvBNcPPVE=
 github.com/viant/assertly v0.4.8/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.0/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.1-0.20220620174148-bab013f93a60 h1:VFJvCOHKXv4IqX8rJwn1otpHWQGgMDv2bXtAPgEzndM=
