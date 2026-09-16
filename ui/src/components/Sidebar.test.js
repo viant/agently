@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   applyConversationMetaPatchToRows,
+  conversationActivityMetaPatch,
   conversationMetaPatchFromSnapshot,
   conversationDeleteButtonDisabled,
   conversationDeletionBlocked,
@@ -92,6 +93,29 @@ describe('sidebar status reconciliation', () => {
       stage: 'error',
       running: false
     });
+  });
+
+  it('patches conversation activity locally instead of requiring a history reload', () => {
+    const occurredAt = '2026-09-16T18:30:00.000Z';
+
+    expect(conversationActivityMetaPatch({
+      type: 'turn_started',
+      lastActivity: occurredAt
+    })).toEqual({
+      status: 'running',
+      stage: 'executing',
+      running: true,
+      lastActivity: occurredAt
+    });
+    expect(conversationActivityMetaPatch({
+      type: 'turn_completed'
+    }, Date.parse(occurredAt))).toEqual({
+      status: 'succeeded',
+      stage: 'done',
+      running: false,
+      lastActivity: occurredAt
+    });
+    expect(conversationActivityMetaPatch({ type: 'turn_refreshed' })).toBeNull();
   });
 });
 
