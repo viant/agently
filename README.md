@@ -176,7 +176,22 @@ auth:
 | `AGENTLY_SCHEDULER_API` | `true` | Mount scheduler HTTP endpoints |
 | `AGENTLY_SCHEDULER_RUN_NOW` | `true` | Enable run-now endpoint |
 | `AGENTLY_SCHEDULER_MAX_CONCURRENT_RUNS` | `0` | Cap on in-flight scheduler runs; `0` = unbounded |
+| `AGENTLY_CLEANUP_ENABLED` | `false` | Enable the periodic database cleanup worker |
+| `AGENTLY_CLEANUP_INTERVAL` | `1h` | Positive Go duration between cleanup passes |
+| `AGENTLY_CLEANUP_BATCH_SIZE` | `50` | Maximum eligible candidates processed by each policy in one pass |
+| `AGENTLY_CLEANUP_TIMEOUT` | `5m` | Timeout applied separately to each cleanup policy |
+| `AGENTLY_CLEANUP_RUN_ON_START` | `false` | Start the first cleanup pass asynchronously when the server starts |
+| `AGENTLY_CLEANUP_DEBUG` | `false` | Log individual candidates and lease activity |
+| `AGENTLY_CLEANUP_INTERACTIVE_MODE` | `off` | Interactive conversation policy: `off`, `dry-run`, or `execute` |
+| `AGENTLY_CLEANUP_INTERACTIVE_RETENTION_DAYS` | `30` | Retention period for interactive conversations and related technical rows |
+| `AGENTLY_CLEANUP_SCHEDULED_MODE` | `off` | Scheduled retention: persisted runs plus old scheduled conversation graphs that no longer have run rows; `off`, `dry-run`, or `execute` |
+| `AGENTLY_CLEANUP_SCHEDULED_RETENTION_DAYS` | `30` | Retention period for scheduled runs and related technical rows |
+| `AGENTLY_CLEANUP_ORPHAN_MODE` | `off` | Orphan policy: `off`, `dry-run`, or `execute` |
+| `AGENTLY_CLEANUP_ORPHAN_MIN_AGE_DAYS` | `14` | Minimum age of an orphan candidate |
 | `AGENTLY_CHATGPT_CALLBACK_PORT` | `1455` | Local OAuth callback port for `agently chatgpt-login`. Integer or `auto` (OS-picked). Must match the OAuth redirect allowlist for OpenAI; `auto` only works with issuers accepting arbitrary localhost ports. Overridden by `--port`. |
+
+See [Database cleanup](doc/database-cleanup.md) for policy scope, protected
+data, rollout guidance, multi-instance coordination, and example settings.
 
 ## Authentication
 

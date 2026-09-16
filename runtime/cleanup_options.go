@@ -38,9 +38,8 @@ func (m ConversationCleanupMode) Executes() bool {
 }
 
 // ConversationCleanupOptions controls the maintenance worker and its policies.
-// Until a distributed lease is added, cleanup must be enabled on only one
-// application instance in a cluster. The local worker prevents only in-process
-// overlap.
+// Cleanup passes are coordinated across application instances by a database
+// maintenance lease. A local guard additionally prevents in-process overlap.
 type ConversationCleanupOptions struct {
 	Enabled              bool
 	Interval             time.Duration
