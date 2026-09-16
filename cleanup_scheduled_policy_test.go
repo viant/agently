@@ -17,7 +17,7 @@ func TestConversationCleanupPoliciesRegistersScheduledRetentionInSelectedMode(t 
 	policies := conversationCleanupPolicies(data, agentlyrt.ConversationCleanupOptions{
 		ScheduledMode: agentlyrt.ConversationCleanupModeExecute,
 	})
-	if len(policies) != 2 || policies[0].Name() != scheduledRunCleanupDeletePolicyName || policies[1].Name() != "technical_retention_scheduled_delete" {
+	if len(policies) != 3 || policies[0].Name() != scheduledRunCleanupDeletePolicyName || policies[1].Name() != scheduledConversationFallbackDeletePolicyName || policies[2].Name() != "technical_retention_scheduled_delete" {
 		t.Fatalf("scheduled delete policies = %#v", policies)
 	}
 	deletePolicy, ok := policies[0].(*scheduledRunCleanupPolicy)
@@ -29,7 +29,7 @@ func TestConversationCleanupPoliciesRegistersScheduledRetentionInSelectedMode(t 
 		ScheduledMode:      agentlyrt.ConversationCleanupModeDryRun,
 		ScheduledRetention: 45 * 24 * time.Hour,
 	})
-	if len(policies) != 2 || policies[0].Name() != scheduledRunCleanupDryRunPolicyName || policies[1].Name() != "technical_retention_scheduled_dry_run" {
+	if len(policies) != 3 || policies[0].Name() != scheduledRunCleanupDryRunPolicyName || policies[1].Name() != scheduledConversationFallbackDryRunPolicyName || policies[2].Name() != "technical_retention_scheduled_dry_run" {
 		t.Fatalf("scheduled policies = %#v", policies)
 	}
 	policy, ok := policies[0].(*scheduledRunCleanupPolicy)
@@ -45,14 +45,74 @@ func TestConversationCleanupPoliciesRegistersScheduledRetentionInSelectedMode(t 
 		OrphanMode:           agentlyrt.ConversationCleanupModeDryRun,
 		OrphanMinAge:         24 * time.Hour,
 	})
-	if len(policies) != 6 ||
+	if len(policies) != 7 ||
 		policies[0].Name() != interactiveConversationCleanupDryRunPolicyName ||
 		policies[1].Name() != "technical_retention_interactive_dry_run" ||
 		policies[2].Name() != scheduledRunCleanupDryRunPolicyName ||
-		policies[3].Name() != "technical_retention_scheduled_dry_run" ||
-		policies[4].Name() != "technical_retention_unclassified_dry_run" ||
-		policies[5].Name() != orphanReportPolicyName {
+		policies[3].Name() != scheduledConversationFallbackDryRunPolicyName ||
+		policies[4].Name() != "technical_retention_scheduled_dry_run" ||
+		policies[5].Name() != "technical_retention_unclassified_dry_run" ||
+		policies[6].Name() != orphanReportPolicyName {
 		t.Fatalf("combined policies = %#v", policies)
+	}
+}
+
+func TestScheduledConversationFallbackPolicyUsesScheduledRetentionAndFencedMode(t *testing.T) {
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	activityAt := now.Add(-60 * 24 * time.Hour)
+	data := &recordingConversationCleanupData{
+		candidatePages: [][]coredata.ConversationMaintenanceCandidate{{
+			{RootID: "scheduled-shell", ActivityAt: activityAt},
+		}},
+		maintenanceResults: map[string]*coredata.ConversationMaintenanceResult{
+			"scheduled-shell": {
+				RootID:   "scheduled-shell",
+				Kind:     coredata.ConversationMaintenanceScheduledFallback,
+				Mode:     coredata.ConversationMaintenanceDelete,
+				Eligible: true,
+				Deleted:  true,
+				Reason:   coredata.ConversationMaintenanceDeleted,
+			},
+		},
+	}
+	policy := newScheduledConversationFallbackPolicy(data, 45*24*time.Hour, true)
+	policy.now = func() time.Time { return now }
+
+	candidates, err := policy.SelectCandidates(context.Background(), conversationCleanupCursor{}, 7)
+	if err != nil {
+		t.Fatalf("SelectCandidates() error: %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].RootID != "scheduled-shell" || !candidates[0].ActivityAt.Equal(activityAt) {
+		t.Fatalf("candidates = %#v", candidates)
+	}
+	if len(data.candidateRequests) != 1 {
+		t.Fatalf("candidate requests = %#v", data.candidateRequests)
+	}
+	wantCutoff := now.Add(-45 * 24 * time.Hour)
+	candidateRequest := data.candidateRequests[0]
+	if candidateRequest.Kind != coredata.ConversationMaintenanceScheduledFallback ||
+		!candidateRequest.InactiveBefore.Equal(wantCutoff) || candidateRequest.Limit != 7 {
+		t.Fatalf("candidate request = %#v", candidateRequest)
+	}
+
+	lease := coredata.MaintenanceLease{Key: "conversation_cleanup", OwnerID: "worker", Token: "token"}
+	ctx := context.WithValue(context.Background(), conversationCleanupLeaseContextKey{}, lease)
+	outcome, err := policy.ProcessCandidate(ctx, candidates[0])
+	if err != nil {
+		t.Fatalf("ProcessCandidate() error: %v", err)
+	}
+	if !outcome.Eligible || !outcome.Deleted || outcome.Reason != string(coredata.ConversationMaintenanceDeleted) {
+		t.Fatalf("outcome = %#v", outcome)
+	}
+	if len(data.maintenanceRequests) != 1 {
+		t.Fatalf("maintenance requests = %#v", data.maintenanceRequests)
+	}
+	request := data.maintenanceRequests[0]
+	if request.RootID != "scheduled-shell" || request.ExpectedOwnerID != "" ||
+		request.Kind != coredata.ConversationMaintenanceScheduledFallback ||
+		request.Mode != coredata.ConversationMaintenanceDelete ||
+		!request.InactiveBefore.Equal(wantCutoff) || request.Lease != lease {
+		t.Fatalf("maintenance request = %#v", request)
 	}
 }
 
