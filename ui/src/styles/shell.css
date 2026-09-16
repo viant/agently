@@ -1,4 +1,6 @@
 :root {
+  /* Stable application-shell tokens. Workspace CSS may override these only
+     inside the .agently-application boundary. */
   --app-bg: #f5f6f8;
   --app-surface: #ffffff;
   --app-surface-soft: #f1f3f7;
@@ -9,6 +11,11 @@
   --app-accent-strong: #2459bb;
   --app-shadow: 0 20px 40px rgba(20, 36, 66, 0.12);
   --app-radius: 14px;
+  --app-font-family: 'Avenir Next', 'SF Pro Display', 'Segoe UI', sans-serif;
+  --app-font-size: 14px;
+  --app-topbar-bg: rgba(255, 255, 255, 0.92);
+  --app-sidebar-bg: linear-gradient(180deg, #f8f9fc 0%, #f1f4fa 100%);
+  --app-composer-bg: linear-gradient(to top, rgba(245, 246, 248, 0.98) 70%, rgba(245, 246, 248, 0));
   --app-sidebar-width: 320px;
   --app-chat-max-width: 1440px;
   --app-composer-bottom-gap: 0px;
@@ -23,7 +30,8 @@ body {
     radial-gradient(circle at 100% 0%, #f3efe8 0%, rgba(243, 239, 232, 0) 36%),
     var(--app-bg);
   color: var(--app-text);
-  font-family: 'Avenir Next', 'SF Pro Display', 'Segoe UI', sans-serif;
+  font-family: var(--app-font-family);
+  font-size: var(--app-font-size);
 }
 
 .app-shell {
@@ -35,7 +43,7 @@ body {
 .app-topbar {
   min-height: 50px;
   border-bottom: 1px solid var(--app-border);
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--app-topbar-bg);
   backdrop-filter: blur(8px) saturate(120%);
   display: flex;
   align-items: center;
@@ -464,7 +472,7 @@ body {
   width: var(--app-sidebar-width);
   flex: 0 0 var(--app-sidebar-width);
   border-right: 1px solid var(--app-border);
-  background: linear-gradient(180deg, #f8f9fc 0%, #f1f4fa 100%);
+  background: var(--app-sidebar-bg);
   padding: 14px 12px;
   display: flex;
   flex-direction: column;
@@ -4253,7 +4261,7 @@ span.app-workspace-breadcrumb-chip.is-current { background: rgba(222, 234, 253, 
   margin: 0 auto;
   width: min(var(--app-chat-max-width), calc(100% - 8px));
   padding: 0 0 2px;
-  background: linear-gradient(to top, rgba(245, 246, 248, 0.98) 70%, rgba(245, 246, 248, 0));
+  background: var(--app-composer-bg);
   flex: 0 0 auto;
   align-self: center;
 }

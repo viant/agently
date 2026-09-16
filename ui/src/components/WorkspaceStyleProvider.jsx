@@ -1,9 +1,10 @@
-import React, {createContext, useContext, useEffect, useRef, useSyncExternalStore} from 'react';
+import React, {createContext, useContext, useEffect, useLayoutEffect, useRef, useSyncExternalStore} from 'react';
 import {ForgeThemeProvider} from 'forge/components';
-import {getWorkspaceStyleManager} from '../services/workspaceStyles';
+import {applyApplicationThemeBoundary, clearApplicationThemeBoundary, getWorkspaceStyleManager} from '../services/workspaceStyles';
 
 const WorkspaceStyleContext = createContext(null);
 export const useWorkspaceStyle = () => useContext(WorkspaceStyleContext);
+const useClientLayoutEffect = typeof document === 'undefined' ? useEffect : useLayoutEffect;
 
 export default function WorkspaceStyleProvider({metadata, accountKey = '', workspaceKey = '', fetchAsset, onRefresh, nonce, children}) {
   const resolvedNonce = nonce ?? (typeof document === 'undefined' ? '' :
@@ -18,6 +19,11 @@ export default function WorkspaceStyleProvider({metadata, accountKey = '', works
     manager.nonce = resolvedNonce;
     manager.refresh(metadata, {accountKey, workspaceKey});
   }, [manager, metadata, accountKey, workspaceKey, fetchAsset, resolvedNonce]);
+  useClientLayoutEffect(() => {
+    const root = typeof document === 'undefined' ? null : document.documentElement;
+    applyApplicationThemeBoundary(root, state);
+    return () => clearApplicationThemeBoundary(root);
+  }, [state.themeId, state.mode]);
   return <WorkspaceStyleContext.Provider value={{state, manager, refresh: onRefresh}}><ForgeThemeProvider themeId={state.themeId} mode={state.mode}>
     {typeof children === 'function' ? children(state, manager) : children}
   </ForgeThemeProvider></WorkspaceStyleContext.Provider>;
