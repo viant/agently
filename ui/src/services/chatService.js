@@ -98,6 +98,10 @@ function isCanonicalFileAttachment(attachment = null) {
   return uri.startsWith('/v1/files/') || uri.includes('/v1/files/');
 }
 
+function isScratchpadArtifactAttachment(attachment = null) {
+  return String(attachment?.uri || '').trim().startsWith('scratchpad://artifact/');
+}
+
 function stripAttachmentRuntimeFields(attachment = null) {
   if (!attachment || typeof attachment !== 'object') return attachment;
   const {
@@ -153,21 +157,28 @@ async function promoteAttachmentToConversation(conversationID, attachment) {
   if (isCanonicalFileAttachment(attachment)) {
     return stripAttachmentRuntimeFields(attachment);
   }
+
   const file = attachment.file;
-  if (!isFileLike(file)) {
-    throw new Error(`Attachment ${attachment.name || attachment.uri || 'file'} is no longer available; attach it again before sending.`);
+  let output;
+  if (isScratchpadArtifactAttachment(attachment)) {
+    output = await client.attachArtifact(conversationID, attachment.uri);
+  } else {
+    if (!isFileLike(file)) {
+      throw new Error(`Attachment ${attachment.name || attachment.uri || 'file'} is no longer available; attach it again before sending.`);
+    }
+    output = await client.uploadFile(
+      conversationID,
+      file,
+      attachment.name || file.name || 'upload.bin'
+    );
   }
-  const output = await client.uploadFile(
-    conversationID,
-    file,
-    attachment.name || file.name || 'upload.bin'
-  );
+
   return {
     id: output?.id || output?.ID || attachment.id || undefined,
-    name: output?.name || output?.Name || attachment.name || file.name || undefined,
+    name: output?.name || output?.Name || attachment.name || file?.name || undefined,
     uri: output?.uri || output?.URI || undefined,
-    size: Number(output?.size || output?.Size || attachment.size || file.size || 0) || undefined,
-    mime: output?.mime || output?.mimeType || output?.contentType || output?.ContentType || attachment.mime || file.type || undefined,
+    size: Number(output?.size || output?.Size || attachment.size || file?.size || 0) || undefined,
+    mime: output?.mime || output?.mimeType || output?.contentType || output?.ContentType || attachment.mime || file?.type || undefined,
     stagingFolder: undefined,
     content: undefined,
     data: undefined,
@@ -798,11 +809,11 @@ export async function submitMessage({ context, message, model, agent }) {
 
   let queryAttachments = messageAttachments;
   if (messageAttachments.length > 0) {
-    setStage({ phase: 'executing', text: 'Uploading attachments…', startedAt: Date.now(), completedAt: 0 });
+    setStage({ phase: 'executing', text: 'Attaching files…', startedAt: Date.now(), completedAt: 0 });
     try {
       queryAttachments = await promoteAttachmentsToConversation(conversationID, messageAttachments);
     } catch (err) {
-      showToast(String(err?.message || err || 'Failed to upload attachments.'), { intent: 'danger' });
+      showToast(String(err?.message || err || 'Failed to attach files.'), { intent: 'danger' });
       setStage({ phase: 'ready', text: 'Ready' });
       return;
     }
