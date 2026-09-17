@@ -6,6 +6,7 @@ import (
 	"fmt"
 	iofs "io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -223,7 +224,6 @@ func Serve(options ServeOptions) error {
 		}
 	}
 	agentWatchdog := agentsvc.NewWatchdog(rt.Data, rt.Agent, agentsvc.WithWatchdogTokenProvider(rt.TokenProvider))
-	go agentWatchdog.Start(ctx)
 	go func() {
 		if err := rt.Agent.ReconcileRunningConversationStatuses(ctx, 500); err != nil {
 			log.Printf("conversation status reconcile error: %v", err)
@@ -320,8 +320,15 @@ func Serve(options ServeOptions) error {
 		wg.Wait()
 	}()
 
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return finalizeServeResult(cancel, &shutdownWG, err, mcpSrv)
+	}
+	// Recovery may perform Datly reads immediately. Start it only after the
+	// primary listener is bound so recovery can never delay API availability.
+	go agentWatchdog.Start(ctx)
 	log.Printf("agently serve listening on %s (workspace=%s ui=%s)", addr, workspace.Root(), uiBundle.Name)
-	serveErr := srv.ListenAndServe()
+	serveErr := srv.Serve(listener)
 	return finalizeServeResult(cancel, &shutdownWG, serveErr, mcpSrv)
 }
 

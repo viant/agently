@@ -338,7 +338,6 @@ function scheduleStreamReconnect(context, conversationID = '', reason = '') {
   chatState.pendingStreamReconnect = scheduleTimeout(() => {
     chatState.pendingStreamReconnect = null;
     if (!shouldUseLiveStream(context, targetID)) return;
-    queueTranscriptRefresh(context, { delay: 0, force: true });
     connectStream(context, targetID);
   }, 1000);
   logStreamDebug(chatState, 'stream-reconnect-scheduled', {
@@ -2758,6 +2757,14 @@ export function startPolling(context) {
     clearInterval(chatState.timer);
     chatState.timer = null;
   }
+  const mountedConversationID = getCurrentConversationID(context);
+  if (!chatState.stream && shouldDeferTranscriptToLiveStream(context, mountedConversationID)) {
+    // React/chat remounts replace the prior context and intentionally close
+    // its subscription. If canonical hydration already established an active
+    // turn, attach the replacement context immediately so no SSE events are
+    // lost between mount and the first polling tick.
+    syncConversationTransport(context, mountedConversationID);
+  }
   chatState.timer = setInterval(() => {
     const desiredID = resolvePollingConversationSelection(windowId);
     const currentID = getCurrentConversationID(context);
@@ -2780,7 +2787,13 @@ export function startPolling(context) {
     const streamIsHot = !!chatState.stream
       && (Date.now() - Number(chatState.lastStreamEventAt || 0) < 6000);
     if (streamIsHot) return;
-    if (shouldDeferTranscriptToLiveStream(context, getCurrentConversationID(context))) return;
+    if (shouldDeferTranscriptToLiveStream(context, currentID)) {
+      // A chat remount/conversation switch can transfer canonical ownership
+      // after the previous context closes its subscription. Reattach the new
+      // context to SSE; never hydrate transcript from this live-owned branch.
+      if (!chatState.stream) syncConversationTransport(context, currentID);
+      return;
+    }
     const pendingTerminalHydrationConversationID = String(chatState.pendingTerminalHydrationConversationID || '').trim();
     if (pendingTerminalHydrationConversationID && pendingTerminalHydrationConversationID === currentID) return;
     const hasFinishedSnapshot = (
