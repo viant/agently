@@ -14,6 +14,7 @@ vi.mock('./agentlyClient', () => ({
   client: {
     getTranscript: vi.fn(),
     query: vi.fn(),
+    attachArtifact: vi.fn(),
     uploadFile: vi.fn(),
   },
 }));
@@ -451,6 +452,7 @@ describe('submitMessage', () => {
     });
 
     expect(client.uploadFile).toHaveBeenCalledWith('conv-staged', file, 'cat.jpg');
+    expect(client.attachArtifact).not.toHaveBeenCalled();
     expect(client.query).toHaveBeenCalledWith(expect.objectContaining({
       conversationId: 'conv-staged',
       query: "what's in this picture?",
@@ -466,6 +468,117 @@ describe('submitMessage', () => {
       }],
     }));
     expect(client.uploadFile.mock.invocationCallOrder[0]).toBeLessThan(client.query.mock.invocationCallOrder[0]);
+  });
+
+  it('attaches scratchpad artifacts without uploading their bytes again', async () => {
+    client.query.mockResolvedValue({});
+    client.attachArtifact.mockResolvedValue({
+      id: 'file-linked',
+      name: 'cat.jpg',
+      uri: '/v1/files/file-linked?conversationId=conv-scratchpad',
+      size: 5,
+      mimeType: 'image/jpeg',
+    });
+    ensureConversation.mockResolvedValue('conv-scratchpad');
+    resolveUserID.mockReturnValue('');
+    ensureContextResources.mockReturnValue({
+      runningTurnId: '',
+      lastHasRunning: false,
+      activeConversationID: '',
+      liveOwnedConversationID: '',
+      activeStreamPrompt: '',
+      activeStreamTurnId: '',
+      activeStreamStartedAt: 0,
+    });
+
+    const convForm = {};
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => convForm,
+                setFormData: vi.fn(({ values }) => Object.assign(convForm, values)),
+              },
+            },
+          };
+        }
+        if (name === 'meta') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ defaults: { model: 'openai_gpt-5_4' } }),
+              },
+            },
+          };
+        }
+        return null;
+      },
+    };
+    const resourceURI = 'scratchpad://artifact/artifact-1';
+
+    await submitMessage({
+      context,
+      message: {
+        content: "what's in this picture?",
+        attachments: [{
+          id: 'artifact-1',
+          name: 'cat.jpg',
+          uri: resourceURI,
+          mime: 'image/jpeg',
+          size: 5,
+        }],
+      },
+      model: 'openai_gpt-5_4',
+      agent: 'chatter',
+    });
+
+    expect(client.attachArtifact).toHaveBeenCalledWith('conv-scratchpad', resourceURI);
+    expect(client.uploadFile).not.toHaveBeenCalled();
+    expect(client.query).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-scratchpad',
+      attachments: [{
+        id: 'file-linked',
+        name: 'cat.jpg',
+        uri: '/v1/files/file-linked?conversationId=conv-scratchpad',
+        size: 5,
+        mime: 'image/jpeg',
+        stagingFolder: undefined,
+        content: undefined,
+        data: undefined,
+      }],
+    }));
+    expect(client.attachArtifact.mock.invocationCallOrder[0]).toBeLessThan(client.query.mock.invocationCallOrder[0]);
+  });
+
+  it('does not start the query when attaching a scratchpad artifact fails', async () => {
+    client.attachArtifact.mockRejectedValue(new Error('artifact unavailable'));
+    ensureConversation.mockResolvedValue('conv-scratchpad');
+    resolveUserID.mockReturnValue('');
+    ensureContextResources.mockReturnValue({});
+    const context = {
+      Context(name) {
+        if (name === 'conversations') {
+          return { handlers: { dataSource: { peekFormData: () => ({}), setFormData: vi.fn() } } };
+        }
+        if (name === 'meta') {
+          return { handlers: { dataSource: { peekFormData: () => ({ defaults: {} }) } } };
+        }
+        return null;
+      },
+    };
+
+    await submitMessage({
+      context,
+      message: {
+        content: 'inspect',
+        attachments: [{ uri: 'scratchpad://artifact/artifact-1', name: 'cat.jpg' }],
+      },
+      agent: 'chatter',
+    });
+
+    expect(client.query).not.toHaveBeenCalled();
   });
 
   it('resets canonical chatStore state before transcript hydration on a fast completed query', async () => {
@@ -816,6 +929,8 @@ describe('submitMessage', () => {
         mime: 'image/jpeg',
       }],
     }));
+    expect(client.attachArtifact).not.toHaveBeenCalled();
+    expect(client.uploadFile).not.toHaveBeenCalled();
   });
 
   it('submits unresolved required starter lookups by preserving the /name token for the model', async () => {
