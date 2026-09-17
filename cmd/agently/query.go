@@ -110,8 +110,14 @@ func (c *ChatCmd) Execute(_ []string) error {
 		c.AgentID = strings.TrimSpace(defaultAgent)
 	}
 	modelOverride := pickModel(defaultModel, models)
+	modelSource := ""
 	if explicitModel := strings.TrimSpace(c.Model); explicitModel != "" {
 		modelOverride = explicitModel
+		modelSource = "caller"
+	} else if strings.TrimSpace(modelOverride) != "" {
+		// The CLI displays and forwards the workspace's inherited default for
+		// compatibility. Mark it so turn-scoped intent profiles can override it.
+		modelSource = "agent.model"
 	}
 
 	if strings.TrimSpace(workspaceRoot) != "" {
@@ -146,6 +152,7 @@ func (c *ChatCmd) Execute(_ []string) error {
 			Query:          query,
 			UserId:         strings.TrimSpace(c.User),
 			ModelOverride:  modelOverride,
+			ModelSource:    modelSource,
 			Context:        buildQueryContext(contextData, defaultElicitationPayload, lastElicitationPayload),
 		}
 		if !sentAttachments && len(attachments) > 0 {
