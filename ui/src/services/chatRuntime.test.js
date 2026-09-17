@@ -2498,6 +2498,56 @@ describe('startPolling', () => {
     }
   });
 
+  it('reattaches SSE after an active conversation remount without fetching transcript', async () => {
+    vi.useFakeTimers();
+    const replacementStream = { close: vi.fn() };
+    client.streamEvents = vi.fn(() => replacementStream);
+    client.getTranscript.mockClear();
+    const sessionStorage = createStorage();
+    sessionStorage.setItem('agently.selectedConversationId:chat/new', 'conv-remount');
+    global.window = {
+      ...(global.window || {}),
+      location: { pathname: '/conversation/conv-remount' },
+      sessionStorage,
+    };
+    const context = {
+      identity: { windowId: 'chat/new' },
+      resources: {
+        chat: {
+          stream: null,
+          activeConversationID: 'conv-remount',
+          liveOwnedConversationID: 'conv-remount',
+          liveOwnedTurnIds: ['turn-1'],
+          runningTurnId: 'turn-1',
+          activeStreamTurnId: 'turn-1',
+          lastHasRunning: true,
+        }
+      },
+      Context(name) {
+        if (name === 'conversations') {
+          return {
+            handlers: {
+              dataSource: {
+                peekFormData: () => ({ id: 'conv-remount', running: true }),
+                setFormData: vi.fn(),
+              }
+            }
+          };
+        }
+        return null;
+      }
+    };
+
+    try {
+      startPolling(context);
+      expect(client.streamEvents).toHaveBeenCalledWith('conv-remount', expect.any(Object));
+      expect(client.getTranscript).not.toHaveBeenCalled();
+    } finally {
+      stopPolling(context);
+      vi.useRealTimers();
+    }
+  });
+
   it('does not poll finished conversations once transcript is already loaded', async () => {
     vi.useFakeTimers();
     const sessionStorage = createStorage();
@@ -3206,6 +3256,7 @@ describe('iframe-mounted SSE reconnect stability', () => {
 
     const closeSpy = vi.fn();
     let capturedOnError = null;
+    client.getTranscript.mockClear();
     client.streamEvents = vi.fn((_id, handlers) => {
       capturedOnError = handlers?.onError || null;
       return { close: closeSpy };
@@ -3228,6 +3279,7 @@ describe('iframe-mounted SSE reconnect stability', () => {
       expect(closeSpy).toHaveBeenCalledTimes(1);
       expect(client.streamEvents).toHaveBeenCalledTimes(2);
       expect(client.streamEvents).toHaveBeenLastCalledWith(CONV, expect.any(Object));
+      expect(client.getTranscript).not.toHaveBeenCalled();
 
       // Active-turn state is NOT corrupted across reconnect.
       expect(context.resources.chat.liveOwnedConversationID).toBe(CONV);
