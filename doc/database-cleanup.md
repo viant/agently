@@ -54,11 +54,13 @@ individual conversation-tree deletion. It does not control worker logging.
 The worker starts from an old root conversation and evaluates its complete
 graph, including parent/child, parent-turn, and linked-conversation edges. The
 latest activity of every conversation in the graph must be at or before the
-retention cutoff. Ownership must be present and consistent across the graph.
+retention cutoff. Historical ownership is diagnostic metadata, not an
+authorization boundary for system retention, so ownerless and mixed-owner
+legacy graphs can be cleaned. Manual user deletion remains owner-authorized.
 
 A candidate is skipped if it has recent activity, a live run or schedule,
-an active report export, an external graph reference, an ownership mismatch,
-or cannot be classified safely. A live run is determined from its current
+an active report export, an external graph reference, or cannot be classified
+safely. A live run is determined from its current
 lease and heartbeat, not from stale conversation or tool-call status alone.
 
 ### Scheduled retention
@@ -118,10 +120,12 @@ Orphan rules have one of three fixed actions:
 - `safe-detach`: preserve the row and set the broken optional reference to NULL;
 - `report-only`: report a suspicious relationship without changing it.
 
-Examples include deleting unused `call_payload` rows, detaching an
-`investigation` from a missing conversation, and reporting a report export job
-whose optional report reference cannot be resolved. Execute mode rechecks every
-candidate under the maintenance lease before applying its fixed action.
+Examples include deleting unused `call_payload` rows, deleting an old
+`investigation` whose conversation reference is empty or no longer resolves,
+and reporting a report export job whose optional report reference cannot be
+resolved. Investigation age is read from `investigation.created` and uses
+`AGENTLY_CLEANUP_ORPHAN_MIN_AGE_DAYS`. Execute mode rechecks every candidate
+under the maintenance lease before applying its fixed action.
 
 ## Protected and external data
 
@@ -133,8 +137,9 @@ The cleanup worker observes these boundaries:
   a foreign key to another shared artifact. The former
   `report_shared_artifact.missing_source` rule is disabled and must never become
   an automatic delete rule.
-- `investigation` rows are retained; a missing conversation reference is
-  detached.
+- `investigation` rows attached to a deleted conversation graph are deleted in
+  the same transaction; old orphan investigations are handled by orphan
+  maintenance.
 - database metadata for report exports may be removed, but physical files and
   object-store artifacts are outside this worker. Their lifecycle is managed by
   the owning storage system, for example through TTL.
