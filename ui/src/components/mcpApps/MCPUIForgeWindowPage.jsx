@@ -116,10 +116,10 @@ export default function MCPUIForgeWindowPage() {
   }, [windowKey, windowParams, targetContext, targetKey]);
 
   if (state.loading) {
-    return <div style={{ padding: 20, color: '#475467', fontFamily: 'ui-sans-serif, system-ui, sans-serif' }}>Loading workspace window...</div>;
+    return <div style={{ padding: 20, color: '#475467', fontFamily: 'var(--app-font-family, ui-sans-serif, system-ui, sans-serif)' }}>Loading workspace window...</div>;
   }
   if (state.error) {
-    return <div style={{ padding: 20, color: '#b42318', fontFamily: 'ui-sans-serif, system-ui, sans-serif' }}>{state.error}</div>;
+    return <div style={{ padding: 20, color: '#b42318', fontFamily: 'var(--app-font-family, ui-sans-serif, system-ui, sans-serif)' }}>{state.error}</div>;
   }
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: '#f8fafc' }}>
