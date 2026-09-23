@@ -24,12 +24,15 @@ describe('conversation-owned workspace session', () => {
     expect(merged.windows).toHaveLength(1);
     expect(merged.windows[0].workspaceObject.revision).toBe(4);
   });
-  it('migrates legacy layout and window state into a single record', () => {
+  it('ignores browser-persisted workspace state and writes only to memory', () => {
     const local = storage();
     local.setItem('agently.workspaceState:conversation-1', JSON.stringify(entry('one')));
     local.setItem('agently.workspacePresentationMode:conversation-1', 'full');
     const migrated = updateWorkspaceSession(local, 'conversation-1', (state) => ({ ...state, activeSurface: 'workspace' }));
-    expect(migrated.workspaceMode).toBe('focus');
+    expect(migrated.workspaceMode).toBe('split');
+    expect(migrated.windows).toEqual([]);
+    expect(local.getItem('agently.workspaceSession:conversation-1')).toBeUndefined();
+    expect(readWorkspaceSession(storage(), 'conversation-1').windows).toEqual([]);
     expect(readWorkspaceSession(local, 'conversation-1')).toEqual(migrated);
   });
 });

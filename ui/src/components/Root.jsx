@@ -305,7 +305,7 @@ export function shouldPromoteFreshWorkspaceSurface({
   selectedWindowId = '',
   conversationRows = [],
 } = {}) {
-  // A live explicit open is eligible only after the renderer acknowledges readiness.
+  // The navigation command selects the shell while protected content loads.
   const originTurnId = activeWorkspaceWindow?.workspaceObject?.lastActivatedBy?.turnId || activeWorkspaceWindow?.workspaceObject?.origin?.turnId;
   const confirmationCommitted = conversationRows.some((row) => row.turnId === originTurnId && (
     (row.kind === 'assistant' && !!String(row.content || '').trim() && !['running', 'streaming', 'pending'].includes(row.status))
@@ -315,7 +315,7 @@ export function shouldPromoteFreshWorkspaceSurface({
     && !!mainConversationId
     && activeWorkspaceWindow?.conversationId === mainConversationId
     && activeWorkspaceWindow?.hostOpenState === 'fresh'
-    && activeWorkspaceWindow?.workspaceObject?.lifecycle?.state === 'ready'
+    && ['opening', 'ready'].includes(activeWorkspaceWindow?.workspaceObject?.lifecycle?.state)
     && !!originTurnId
     && activeWorkspaceWindow?.windowId === selectedWindowId;
 

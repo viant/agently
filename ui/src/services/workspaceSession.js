@@ -1,26 +1,24 @@
-// One conversation-scoped presentation record. Resource authorization stays with
-// the server/renderer; this cache never grants access or executes restored actions.
-const key = (id) => `agently.workspaceSession:${id}`;
-const parse = (storage, name, fallback) => {
-  try { return JSON.parse(storage?.getItem(name) || 'null') ?? fallback; } catch { return fallback; }
-};
+// Temporary render state only. Durable workspace descriptors are restored from
+// the server conversation transcript; browser storage is never authoritative.
+const sessionsByClient = new WeakMap();
+const fallbackClient = {};
+function sessions(client) {
+  const owner = client && typeof client === 'object' ? client : fallbackClient;
+  if (!sessionsByClient.has(owner)) sessionsByClient.set(owner, new Map());
+  return sessionsByClient.get(owner);
+}
 export function readWorkspaceSession(storage, conversationId) {
-  const saved = parse(storage, key(conversationId), null);
-  if (saved?.version === 1 && saved.conversationId === conversationId) return saved;
-  const legacy = parse(storage, `agently.workspaceState:${conversationId}`, null);
-  const windows = legacy ? (Array.isArray(legacy.windows) ? legacy.windows : [legacy]) : [];
+  const saved = sessions(storage).get(conversationId);
+  if (saved) return saved;
   return {
-    version: 1, conversationId, windows,
-    activeWindowId: storage?.getItem(`agently.selectedWorkspaceWindowId:${conversationId}`) || '',
-    activeSurface: storage?.getItem(`agently.activeSurface:${conversationId}`) === 'workspace' ? 'workspace' : 'conversation',
-    workspaceMode: storage?.getItem(`agently.workspacePresentationMode:${conversationId}`) === 'full' ? 'focus' : 'split',
-    closedWindowIds: parse(storage, `agently.dismissedWorkspaceWindowIds:${conversationId}`, []),
+    version: 1, conversationId, windows: [], activeWindowId: '',
+    activeSurface: 'conversation', workspaceMode: 'split', closedWindowIds: [],
   };
 }
 export function updateWorkspaceSession(storage, conversationId, change) {
   const previous = readWorkspaceSession(storage, conversationId);
   const next = change(previous);
-  try { storage?.setItem(key(conversationId), JSON.stringify(next)); } catch { /* Session storage may be unavailable. */ }
+  sessions(storage).set(conversationId, next);
   return next;
 }
 function mergeViewState(previous, incoming) {
