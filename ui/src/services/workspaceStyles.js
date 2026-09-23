@@ -1,9 +1,18 @@
 // Shared by the application and standalone window preview. Selection is local;
 // CSS/catalog bytes are immutable server-owned snapshots.
-const colors = ['surface', 'text', 'control.background', 'control.foreground', 'control.border',
+const requiredColors = ['surface', 'text', 'control.background', 'control.foreground', 'control.border',
   'focus.color', 'button.background', 'button.foreground', 'disabled.background', 'disabled.foreground', 'validation.border'];
+const optionalColors = ['canvas', 'surface.subtle', 'surface.raised', 'text.secondary', 'text.muted', 'text.inverse',
+  'border', 'border.strong', 'interaction.foreground', 'interaction.hover', 'interaction.active',
+  'interaction.selectedBackground', 'status.info.background', 'status.info.foreground', 'status.info.border',
+  'status.success.background', 'status.success.foreground', 'status.success.border',
+  'status.warning.background', 'status.warning.foreground', 'status.warning.border',
+  'status.danger.background', 'status.danger.foreground', 'status.danger.border',
+  ...Array.from({length: 6}, (_, index) => `data.categorical.${index + 1}`),
+  ...Array.from({length: 5}, (_, index) => `data.sequential.${index + 1}`)];
 const dimensions = {'typography.size': [8, 72], 'control.minHeight': [16, 128], 'control.radius': [0, 64], 'control.paddingInline': [0, 64]};
-const tokenNames = new Set([...colors, ...Object.keys(dimensions), 'typography.family']);
+const requiredTokenNames = new Set([...requiredColors, ...Object.keys(dimensions), 'typography.family']);
+const tokenNames = new Set([...requiredTokenNames, ...optionalColors]);
 const fontFamilies = new Set(['system', 'workspace-primary']);
 const identifier = /^[a-z][a-z0-9-]{0,63}$/;
 export const APPLICATION_THEME_CLASS = 'agently-application';
@@ -41,7 +50,9 @@ export function validateThemeCatalog(catalog) {
         !theme.modes || !Object.hasOwn(theme.modes, theme.fallbackMode)) throw new Error('Invalid theme definition');
     ids.add(theme.id);
     for (const [mode, tokens] of Object.entries(theme.modes)) {
-      if (!['light', 'dark'].includes(mode) || !tokens || Object.keys(tokens).length !== tokenNames.size) throw new Error('Invalid theme mode');
+      if (!['light', 'dark'].includes(mode) || !tokens) throw new Error('Invalid theme mode');
+      const keys = Object.keys(tokens);
+      if (![...requiredTokenNames].every(key => Object.hasOwn(tokens, key)) || keys.some(key => !tokenNames.has(key))) throw new Error('Invalid theme mode');
       for (const [key, value] of Object.entries(tokens)) {
         if (!tokenNames.has(key)) throw new Error(`Unknown theme token: ${key}`);
         if (key === 'typography.family') { if (!fontFamilies.has(value)) throw new Error('Invalid theme font'); }

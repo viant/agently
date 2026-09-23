@@ -27,4 +27,16 @@ class WorkspaceThemeTest {
             assertThrows(IllegalArgumentException::class.java) { WorkspaceThemeCatalog.load(it) }
         }
     }
+    @Test fun acceptsValidatedOptionalSemanticColors() {
+        val source = fixture()
+        val extended = source.replace(
+            "\"text\": \"#171b26\"",
+            "\"text\": \"#171b26\", \"text.secondary\": \"#3a4460\", \"interaction.foreground\": \"#1a3a8f\", \"status.danger.foreground\": \"#ae0020\", \"data.categorical.1\": \"#1a3a8f\"",
+        )
+        val catalog = WorkspaceThemeCatalog.load(extended)
+        assertEquals("\"#1a3a8f\"", catalog.themes.single().modes.getValue("light").getValue("interaction.foreground").toString())
+        assertThrows(IllegalArgumentException::class.java) {
+            WorkspaceThemeCatalog.load(extended.replace("#ae0020", "red"))
+        }
+    }
 }
