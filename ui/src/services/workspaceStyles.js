@@ -4,7 +4,7 @@ const colors = ['surface', 'text', 'control.background', 'control.foreground', '
   'focus.color', 'button.background', 'button.foreground', 'disabled.background', 'disabled.foreground', 'validation.border'];
 const dimensions = {'typography.size': [8, 72], 'control.minHeight': [16, 128], 'control.radius': [0, 64], 'control.paddingInline': [0, 64]};
 const tokenNames = new Set([...colors, ...Object.keys(dimensions), 'typography.family']);
-const fontFamilies = new Set(['system', 'product-primary']);
+const fontFamilies = new Set(['system', 'workspace-primary']);
 const identifier = /^[a-z][a-z0-9-]{0,63}$/;
 export const APPLICATION_THEME_CLASS = 'agently-application';
 const APPLICATION_THEME_ATTRIBUTE = 'data-agently-theme';

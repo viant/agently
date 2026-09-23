@@ -6,9 +6,11 @@ import {chromium} from 'playwright';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const dependencies = realpathSync(fileURLToPath(new URL('../node_modules', import.meta.url)));
+const cacheDir = fileURLToPath(new URL('../.vite/typography-proof', import.meta.url));
 const server = await createServer({
   configFile: false,
   root,
+  cacheDir,
   optimizeDeps: {entries: ['typography-proof.html']},
   server: {host: '127.0.0.1', port: 0, fs: {allow: [root, dependencies]}},
 });
@@ -17,7 +19,6 @@ let browser;
 async function auditViewport(baseURL, viewport) {
   const page = await browser.newPage({viewport});
   await page.goto(`${baseURL}/typography-proof.html`);
-  await page.waitForFunction(() => document.fonts.check('14px "IBM Plex Sans Variable"'));
   const result = await page.evaluate(() => {
     const visible = (element) => {
       const rect = element.getBoundingClientRect();
@@ -30,7 +31,7 @@ async function auditViewport(baseURL, viewport) {
   });
   for (const item of result) {
     if (item.tag === 'code') assert.match(item.family, /mono/i, `${item.tag} must retain an approved monospace family`);
-    else assert.match(item.family, /IBM Plex Sans/i, `${item.tag} must use the registered product-primary family`);
+    else assert.match(item.family, /Georgia/i, `${item.tag} must use the registered workspace-primary family`);
   }
   await page.close();
 }

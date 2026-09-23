@@ -27,12 +27,12 @@ describe('portable theme catalog', () => {
     const single = structuredClone(catalog); delete single.themes[0].modes.dark;
     expect(resolveThemeSelection(single, null, 'dark').mode).toBe('light');
   });
-  it('accepts the semantic primary product family without exposing a vendor font', () => {
-    const product = structuredClone(catalog);
-    product.themes[0].modes.light['typography.family'] = 'product-primary';
-    expect(validateThemeCatalog(product)).toBe(product);
-    product.themes[0].modes.light['typography.family'] = 'ibm-plex-sans';
-    expect(() => validateThemeCatalog(product)).toThrow('Invalid theme font');
+  it('accepts a workspace-owned primary family without exposing a vendor font', () => {
+    const workspace = structuredClone(catalog);
+    workspace.themes[0].modes.light['typography.family'] = 'workspace-primary';
+    expect(validateThemeCatalog(workspace)).toBe(workspace);
+    workspace.themes[0].modes.light['typography.family'] = 'ibm-plex-sans';
+    expect(() => validateThemeCatalog(workspace)).toThrow('Invalid theme font');
   });
   it('rejects malformed portable tokens', () => {
     const invalid = structuredClone(catalog); invalid.themes[0].modes.light['control.radius'] = '8px';
