@@ -4,6 +4,7 @@ const colors = ['surface', 'text', 'control.background', 'control.foreground', '
   'focus.color', 'button.background', 'button.foreground', 'disabled.background', 'disabled.foreground', 'validation.border'];
 const dimensions = {'typography.size': [8, 72], 'control.minHeight': [16, 128], 'control.radius': [0, 64], 'control.paddingInline': [0, 64]};
 const tokenNames = new Set([...colors, ...Object.keys(dimensions), 'typography.family']);
+const fontFamilies = new Set(['system', 'workspace-primary']);
 const identifier = /^[a-z][a-z0-9-]{0,63}$/;
 export const APPLICATION_THEME_CLASS = 'agently-application';
 const APPLICATION_THEME_ATTRIBUTE = 'data-agently-theme';
@@ -43,7 +44,7 @@ export function validateThemeCatalog(catalog) {
       if (!['light', 'dark'].includes(mode) || !tokens || Object.keys(tokens).length !== tokenNames.size) throw new Error('Invalid theme mode');
       for (const [key, value] of Object.entries(tokens)) {
         if (!tokenNames.has(key)) throw new Error(`Unknown theme token: ${key}`);
-        if (key === 'typography.family') { if (value !== 'system') throw new Error('Invalid theme font'); }
+        if (key === 'typography.family') { if (!fontFamilies.has(value)) throw new Error('Invalid theme font'); }
         else if (dimensions[key]) {
           const [min, max] = dimensions[key];
           if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) throw new Error(`Invalid theme dimension: ${key}`);
