@@ -788,7 +788,7 @@ function workspacePayloadTargets(turns = []) {
       const steps = Array.isArray(page?.toolSteps) ? page.toolSteps : [];
       steps.forEach((step, stepIndex) => {
         const toolName = workspaceToolName(step);
-        if (!['ui/view/open', 'ui/window/open', 'ui/window/list', 'ui/window/show', 'ui/window/close', 'ui/window/setformdata'].includes(toolName)) return;
+        if (!['ui/view/open', 'ui/window/open', 'ui/window/list', 'ui/window/get', 'ui/window/show', 'ui/window/close', 'ui/window/setformdata'].includes(toolName)) return;
         ['requestPayload', 'responsePayload'].forEach((field) => {
           const payloadId = workspaceToolPayloadReference(step, field);
           if (payloadId) targets.push({ turnIndex, pageIndex, stepIndex, field, payloadId });
@@ -830,7 +830,7 @@ export async function hydrateWorkspaceTranscriptTurns(turns = [], payloadLoader 
   });
   const loaded = await Promise.all(targets.map(async (target) => ({
     ...target,
-    payload: await payloadLoader(target.payloadId),
+    payload: await payloadLoader(target.payloadId).catch(() => null),
   })));
   loaded.forEach(({ turnIndex, pageIndex, stepIndex, field, payload }) => {
     if (!payload || typeof payload !== 'object') return;
@@ -847,6 +847,7 @@ export function syncScopedWorkspaceStateFromTranscriptTurns(
     reopen = false,
     announce = true,
     allowRunning = false,
+    autoRestore = false,
   } = {}
 ) {
   const convID = String(conversationId || '').trim();
@@ -873,6 +874,12 @@ export function syncScopedWorkspaceStateFromTranscriptTurns(
   const visibleDerived = {...derived, windows, selectedWindowId};
   setScopedWorkspaceState(convID, windows);
   setScopedWorkspaceSelection(convID, selectedWindowId);
+  if (autoRestore && windows.some((entry) => ['opening', 'ready'].includes(entry.workspaceObject?.lifecycle?.state))
+    && typeof window !== 'undefined'
+    && currentConversationIdFromPath(window.location?.pathname) === convID) {
+    const restored = reopenWorkspaceForConversation(convID);
+    if (restored) setScopedActiveSurface(convID, 'workspace');
+  }
   if (!announce || typeof window === 'undefined') {
     return visibleDerived;
   }

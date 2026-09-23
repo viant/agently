@@ -6,7 +6,7 @@ export default function WorkspaceAttachmentCard({ workspaceWindow = null, onOpen
   if (!workspaceWindow) return null;
   const navigation = resolveWorkspaceNavigation(workspaceWindow);
   const lifecycle = workspaceWindow.workspaceObject?.lifecycle?.state || 'ready';
-  const action = lifecycle === 'opening' ? 'Opening…' : lifecycle === 'closed' || lifecycle === 'stale' ? 'Reopen' : lifecycle === 'failed' ? 'Retry' : 'Show';
+  const action = lifecycle === 'closed' || lifecycle === 'stale' ? 'Reopen' : lifecycle === 'failed' ? 'Retry' : 'Show';
   return (
     <button
       type="button"
@@ -16,7 +16,6 @@ export default function WorkspaceAttachmentCard({ workspaceWindow = null, onOpen
       data-workspace-object-id={workspaceWindow?.workspaceObject?.objectId || ''}
       aria-label={`${action} ${navigation.label}`}
       title={navigation.tooltip || `Open ${navigation.label}`}
-      disabled={lifecycle === 'opening'}
       onClick={onOpen}
     >
       <span className="app-workspace-attachment-icon" aria-hidden="true">
