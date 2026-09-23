@@ -123,7 +123,7 @@ export function setScopedActiveSurface(conversationId = '', surface = 'conversat
   const id = String(conversationId || '').trim();
   if (!storage || !id) return;
   const next = String(surface || '').trim().toLowerCase() === 'workspace' ? 'workspace' : 'conversation';
-  updateWorkspaceSession(storage, id, (state) => ({ ...state, activeSurface: next }));
+  updateWorkspaceSession(storage, id, (state) => ({ ...state, activeSurface: next, hasSurfaceSelection: true }));
 }
 
 const RUNNING_TRANSCRIPT_STATUSES = new Set(['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress']);
@@ -327,13 +327,13 @@ export function getScopedWorkspaceWindowsState(conversationId = '') {
 
 export function getScopedWorkspacePresentationMode(conversationId = '') {
   const storage = uiStateStorage();
-  if (!storage) return 'split';
+  if (!storage) return 'full';
   const id = String(conversationId || '').trim();
-  if (!id) return 'split';
+  if (!id) return 'full';
   return readWorkspaceSession(storage, id).workspaceMode === 'focus' ? 'full' : 'split';
 }
 
-export function setScopedWorkspacePresentationMode(conversationId = '', mode = 'split') {
+export function setScopedWorkspacePresentationMode(conversationId = '', mode = 'full') {
   const storage = uiStateStorage();
   if (!storage) return;
   const id = String(conversationId || '').trim();
@@ -868,13 +868,15 @@ export function syncScopedWorkspaceStateFromTranscriptTurns(
     setScopedWorkspaceSelection(convID, '');
     return null;
   }
-  const selectedWindowId = windows.some((entry) => String(entry?.windowId || '').trim() === String(derived.selectedWindowId || '').trim())
-    ? String(derived.selectedWindowId || '').trim()
+  const preferredWindowId = getScopedWorkspaceSelection(convID) || derived.selectedWindowId;
+  const selectedWindowId = windows.some((entry) => String(entry?.windowId || '').trim() === String(preferredWindowId || '').trim())
+    ? String(preferredWindowId || '').trim()
     : String(windows[0]?.windowId || '').trim();
   const visibleDerived = {...derived, windows, selectedWindowId};
   setScopedWorkspaceState(convID, windows);
   setScopedWorkspaceSelection(convID, selectedWindowId);
-  if (autoRestore && windows.some((entry) => ['opening', 'ready'].includes(entry.workspaceObject?.lifecycle?.state))
+  const presentation = readWorkspaceSession(uiStateStorage(), convID);
+  if (autoRestore && (!presentation.hasSurfaceSelection || presentation.activeSurface === 'workspace') && windows.some((entry) => ['opening', 'ready'].includes(entry.workspaceObject?.lifecycle?.state))
     && typeof window !== 'undefined'
     && currentConversationIdFromPath(window.location?.pathname) === convID) {
     const restored = reopenWorkspaceForConversation(convID);

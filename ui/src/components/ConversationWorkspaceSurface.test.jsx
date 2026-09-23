@@ -117,7 +117,7 @@ describe('ConversationWorkspaceSurface', () => {
     expect(html).toContain('data-window-id="chat"');
     expect(html).toContain('is-composer-only');
     expect(html).toContain('app-workspace-composer-toggle');
-    expect(html).toContain('aria-label="Expand composer options"');
+    expect(html).toContain('aria-label="Show composer"');
     expect(html).toContain('aria-label="Close Reports"');
     expect(html).toContain('app-workspace-window-control is-close');
     expect(html).toContain('app-workspace-window-control is-layout');

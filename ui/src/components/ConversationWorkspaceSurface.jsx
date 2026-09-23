@@ -132,6 +132,9 @@ export default function ConversationWorkspaceSurface({
     wasActiveRef.current = workspaceActive;
   }, [workspaceActive, workspaceWindow?.windowId]);
   const [composerExpanded, setComposerExpanded] = useState(false);
+  useEffect(() => {
+    if (workspaceActive && effectiveMode === 'focus') setComposerExpanded(false);
+  }, [workspaceActive, effectiveMode, workspaceWindow?.windowId]);
 
   return (
     <div className={`app-summary-surface-shell${workspaceActive ? ` is-workspace${effectiveMode === 'split' ? ' is-split' : ''}` : ' is-conversation'}`} data-active-surface={workspaceActive ? 'workspace' : 'conversation'}>
@@ -272,14 +275,15 @@ export default function ConversationWorkspaceSurface({
       ) : null}
 
       <section className={`app-summary-conversation${workspaceActive && effectiveMode !== 'split' ? ` is-composer-only${composerExpanded ? ' is-composer-expanded' : ''}` : ''}`} aria-label="Conversation">
-        {workspaceActive ? (
+        {workspaceActive && effectiveMode === 'focus' ? (
           <Button
             minimal
             small
             icon={composerExpanded ? 'chevron-down' : 'chevron-up'}
             className="app-workspace-composer-toggle"
-            aria-label={composerExpanded ? 'Collapse composer options' : 'Expand composer options'}
-            title={composerExpanded ? 'Collapse composer options' : 'Expand composer options'}
+            aria-expanded={composerExpanded}
+            aria-label={composerExpanded ? 'Hide composer' : 'Show composer'}
+            title={composerExpanded ? 'Hide composer' : 'Show composer'}
             onClick={() => setComposerExpanded((expanded) => !expanded)}
           />
         ) : null}
