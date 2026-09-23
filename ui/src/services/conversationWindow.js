@@ -874,7 +874,7 @@ export function syncScopedWorkspaceStateFromTranscriptTurns(
   const visibleDerived = {...derived, windows, selectedWindowId};
   setScopedWorkspaceState(convID, windows);
   setScopedWorkspaceSelection(convID, selectedWindowId);
-  if (autoRestore && windows.some((entry) => entry.workspaceObject?.lifecycle?.state === 'ready')
+  if (autoRestore && windows.some((entry) => ['opening', 'ready'].includes(entry.workspaceObject?.lifecycle?.state))
     && typeof window !== 'undefined'
     && currentConversationIdFromPath(window.location?.pathname) === convID) {
     const restored = reopenWorkspaceForConversation(convID);

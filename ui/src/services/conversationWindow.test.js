@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { activeWindows, getFormSignal, getInputSignal, selectedTabId, selectedWindowId } from 'forge/core';
 import { resolveHostedExecuteOnOpenHostAction } from '../../../../forge/src/components/dashboard/reportBuilderHooks.js';
+import { updateWorkspaceSession } from './workspaceSession.js';
 
 import {
   CHAT_WINDOW_KEY,
@@ -825,7 +826,7 @@ describe('conversationWindow', () => {
       }
     };
 
-    window.sessionStorage.setItem('agently.workspaceState:conv-defaults', JSON.stringify({
+    updateWorkspaceSession(window.sessionStorage, 'conv-defaults', (state) => ({ ...state, windows: [{
       windowId: 'metricReportBuilder__conv-defaults',
       windowKey: 'metricReportBuilder',
       windowTitle: 'Performance Metrics',
@@ -854,7 +855,7 @@ describe('conversationWindow', () => {
           }
         }
       }
-    }));
+    }] }));
 
     ensureWorkspaceWindowForConversation('conv-defaults');
 

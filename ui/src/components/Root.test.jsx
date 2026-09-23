@@ -182,7 +182,7 @@ describe('Root window selection helpers', () => {
     expect(resolveAcknowledgedWorkspaceWindow({...input, rows: [{kind: 'assistant', turnId: 'new-turn', content: 'Opened.'}]})).toBe(candidate);
   });
 
-  it('activates only a ready, explicitly opened object in the current conversation', () => {
+  it('activates an acknowledged navigation while its content is still opening', () => {
     const input = { activeSurface: 'conversation', mainConversationId: 'conv-1', selectedWindowId: 'resource-1',
       conversationRows: [{kind: 'assistant', turnId: 'turn-1', content: 'The workspace is open.', status: 'completed'}],
       activeWorkspaceWindow: { windowId: 'resource-1', conversationId: 'conv-1', hostOpenState: 'fresh',
@@ -194,7 +194,9 @@ describe('Root window selection helpers', () => {
     expect(shouldPromoteFreshWorkspaceSurface({...input, conversationRows: [{...input.conversationRows[0], status: 'streaming'}]})).toBe(false);
     expect(shouldPromoteFreshWorkspaceSurface({ ...input, mainConversationId: 'other' })).toBe(false);
     expect(shouldPromoteFreshWorkspaceSurface({ ...input, activeWorkspaceWindow: { ...input.activeWorkspaceWindow, hostOpenState: 'historical_replay' } })).toBe(false);
-    for (const state of ['opening', 'failed', 'closed']) {
+    expect(shouldPromoteFreshWorkspaceSurface({ ...input, activeWorkspaceWindow: { ...input.activeWorkspaceWindow,
+      workspaceObject: { origin: { turnId: 'turn-1' }, lifecycle: { state: 'opening' } } } })).toBe(true);
+    for (const state of ['failed', 'closed']) {
       expect(shouldPromoteFreshWorkspaceSurface({ ...input, activeWorkspaceWindow: { ...input.activeWorkspaceWindow,
         workspaceObject: { origin: { turnId: 'turn-1' }, lifecycle: { state } } } })).toBe(false);
     }
