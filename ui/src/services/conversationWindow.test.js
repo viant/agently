@@ -1896,4 +1896,51 @@ describe('conversationWindow', () => {
       },
     });
   });
+
+  it('hydrates a compressed window/get response before restoring a ready hosted window', async () => {
+    const turns = [{
+      turnId: 'turn-window-get',
+      execution: { pages: [{ toolSteps: [
+        {
+          toolName: 'ui/window/list',
+          status: 'completed',
+          responsePayload: { items: [{
+            windowId: 'advertiserList__conv-1',
+            windowKey: 'advertiserList',
+            conversationId: 'conv-1',
+            parentKey: MAIN_CHAT_WINDOW_ID,
+            presentation: 'hosted',
+            region: 'chat.top',
+            workspaceObject: { version: 1, objectId: 'workspace:advertiserList__conv-1', lifecycle: { state: 'opening' } },
+          }] },
+        },
+        {
+          toolName: 'ui/window/get',
+          status: 'completed',
+          responsePayloadId: 'payload-ready-window',
+          responsePayload: { Id: 'payload-ready-window', Compression: 'gzip', InlineBody: '\u001f�compressed' },
+        },
+      ] }] },
+    }];
+
+    expect(deriveWorkspaceStateFromTranscriptTurns(turns)?.windows?.[0]?.workspaceObject?.lifecycle?.state).toBe('opening');
+
+    const hydrated = await hydrateWorkspaceTranscriptTurns(turns, async (payloadId) => {
+      expect(payloadId).toBe('payload-ready-window');
+      return { window: {
+        windowId: 'advertiserList__conv-1',
+        windowKey: 'advertiserList',
+        conversationId: 'conv-1',
+        parentKey: MAIN_CHAT_WINDOW_ID,
+        presentation: 'hosted',
+        region: 'chat.top',
+        workspaceObject: { version: 1, objectId: 'workspace:advertiserList__conv-1', lifecycle: { state: 'ready' } },
+        windowForm: { advertiserListMode: 'starred' },
+      } };
+    });
+
+    const restored = deriveWorkspaceStateFromTranscriptTurns(hydrated);
+    expect(restored?.windows?.[0]?.workspaceObject?.lifecycle?.state).toBe('ready');
+    expect(restored?.windows?.[0]?.windowForm).toEqual({ advertiserListMode: 'starred' });
+  });
 });
