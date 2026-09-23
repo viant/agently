@@ -4410,7 +4410,7 @@ span.app-workspace-breadcrumb-chip.is-current { background: rgba(222, 234, 253, 
 [data-testid="chat-composer"] textarea {
   font-size: 14px !important;
   line-height: 1.5;
-  font-family: 'Avenir Next', 'SF Pro Text', 'Segoe UI', sans-serif !important;
+  font-family: var(--app-font-family) !important;
   letter-spacing: 0.01em;
 }
 

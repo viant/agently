@@ -1,0 +1,13 @@
+body {
+  font-family: var(--app-font-family);
+}
+
+main {
+  display: grid;
+  gap: 12px;
+  max-width: 640px;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
