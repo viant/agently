@@ -1,2 +1,0 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/forge-reporting-CNEp3svh.js","assets/forge-reporting-DAOrMBRD.css"])))=>i.map(i=>d[i]);
-import{_ as n}from"./forge-reporting-CNEp3svh.js";const _=async(t,a)=>{const{getIconPaths:o}=await n(async()=>{const{getIconPaths:r}=await import("./forge-reporting-CNEp3svh.js").then(e=>e.d2);return{getIconPaths:r}},__vite__mapDeps([0,1]));return o(t,a)};export{_ as allPathsLoader};
