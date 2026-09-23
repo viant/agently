@@ -1,7 +1,3 @@
-:root {
-  --agently-font-product-primary: "IBM Plex Sans Variable", "IBM Plex Sans", system-ui, sans-serif;
-}
-
 /* Native form controls do not reliably inherit the document font. The
    application boundary is attached to the document root, so this also covers
    Blueprint and Forge portals mounted outside the React root. */
