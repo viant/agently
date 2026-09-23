@@ -6,7 +6,6 @@ import { client } from '../services/agentlyClient';
 import { openConfirmDialog } from '../utils/dialogBus';
 import {
   getWindowById,
-  setScopedActiveSurface,
   getScopedConversationSelection,
   MAIN_CHAT_WINDOW_ID,
   isLinkedChildWindow,
@@ -562,7 +561,6 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
                   aria-label={hoverText}
                   onClick={() => {
                     setSelectedID(id);
-                    setScopedActiveSurface(id, 'conversation');
                     openConversationInMainWindow(id);
                     navigate();
                   }}

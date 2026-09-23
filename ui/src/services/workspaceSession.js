@@ -1,5 +1,18 @@
-// Temporary render state only. Durable workspace descriptors are restored from
-// the server conversation transcript; browser storage is never authoritative.
+// Workspace descriptors remain in memory and are restored from the server.
+// Persist only presentation preferences; never trust browser-stored content.
+const preferenceKey = (id) => `agently.workspacePreferences:${id}`;
+function readPreferences(storage, id) {
+  try {
+    const value = JSON.parse(storage?.getItem(preferenceKey(id)) || 'null');
+    if (!value || value.version !== 1) return {};
+    return {
+      ...(typeof value.activeWindowId === 'string' ? {activeWindowId: value.activeWindowId} : {}),
+      workspaceMode: value.workspaceMode === 'split' ? 'split' : 'focus',
+      ...(['conversation', 'workspace'].includes(value.activeSurface)
+        ? {activeSurface: value.activeSurface, hasSurfaceSelection: true} : {}),
+    };
+  } catch (_) { return {}; }
+}
 const sessionsByClient = new WeakMap();
 const fallbackClient = {};
 function sessions(client) {
@@ -12,13 +25,20 @@ export function readWorkspaceSession(storage, conversationId) {
   if (saved) return saved;
   return {
     version: 1, conversationId, windows: [], activeWindowId: '',
-    activeSurface: 'conversation', workspaceMode: 'split', closedWindowIds: [],
+    activeSurface: 'conversation', workspaceMode: 'focus', closedWindowIds: [],
+    hasSurfaceSelection: false, ...readPreferences(storage, conversationId),
   };
 }
 export function updateWorkspaceSession(storage, conversationId, change) {
   const previous = readWorkspaceSession(storage, conversationId);
   const next = change(previous);
   sessions(storage).set(conversationId, next);
+  try {
+    storage?.setItem(preferenceKey(conversationId), JSON.stringify({
+      version: 1, activeWindowId: next.activeWindowId, workspaceMode: next.workspaceMode,
+      ...(next.hasSurfaceSelection ? {activeSurface: next.activeSurface} : {}),
+    }));
+  } catch (_) { /* Storage may be unavailable; retain the in-memory preference. */ }
   return next;
 }
 function mergeViewState(previous, incoming) {

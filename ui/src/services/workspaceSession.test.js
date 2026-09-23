@@ -24,15 +24,39 @@ describe('conversation-owned workspace session', () => {
     expect(merged.windows).toHaveLength(1);
     expect(merged.windows[0].workspaceObject.revision).toBe(4);
   });
-  it('ignores browser-persisted workspace state and writes only to memory', () => {
+  it('ignores browser-persisted workspace content', () => {
     const local = storage();
     local.setItem('agently.workspaceState:conversation-1', JSON.stringify(entry('one')));
     local.setItem('agently.workspacePresentationMode:conversation-1', 'full');
     const migrated = updateWorkspaceSession(local, 'conversation-1', (state) => ({ ...state, activeSurface: 'workspace' }));
-    expect(migrated.workspaceMode).toBe('split');
+    expect(migrated.workspaceMode).toBe('focus');
     expect(migrated.windows).toEqual([]);
     expect(local.getItem('agently.workspaceSession:conversation-1')).toBeUndefined();
     expect(readWorkspaceSession(storage(), 'conversation-1').windows).toEqual([]);
     expect(readWorkspaceSession(local, 'conversation-1')).toEqual(migrated);
   });
+});
+
+for (const surface of ['conversation', 'workspace']) {
+  it(`restores ${surface} preference after reload without restoring browser content`, () => {
+    const local = storage();
+    updateWorkspaceSession(local, 'conversation-1', (state) => ({...state,
+      activeSurface: surface, hasSurfaceSelection: true, activeWindowId: 'one',
+      windows: [entry('one')],
+    }));
+    const reloaded = readWorkspaceSession({...local}, 'conversation-1');
+    expect(reloaded).toMatchObject({activeSurface: surface, hasSurfaceSelection: true,
+      workspaceMode: 'focus', activeWindowId: 'one', windows: []});
+    expect(readWorkspaceSession({...local}, 'another')).toMatchObject({
+      activeSurface: 'conversation', hasSurfaceSelection: false, workspaceMode: 'focus'});
+  });
+}
+it('handles corrupt and unavailable preference storage', () => {
+  const local = storage();
+  local.setItem('agently.workspacePreferences:conversation-1', '{broken');
+  expect(readWorkspaceSession(local, 'conversation-1').workspaceMode).toBe('focus');
+  const blocked = {getItem() {throw Error('blocked');}, setItem() {throw Error('blocked');}};
+  expect(() => updateWorkspaceSession(blocked, 'conversation-1', state => ({...state,
+    activeSurface: 'workspace', hasSurfaceSelection: true}))).not.toThrow();
+  expect(readWorkspaceSession(blocked, 'conversation-1').activeSurface).toBe('workspace');
 });

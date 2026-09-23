@@ -3273,6 +3273,20 @@ td[data-col="enabled"] {
   flex-direction: column;
 }
 
+/* Focus mode owns the browser viewport, including the space normally used
+   by the application header, conversation sidebar, and status bar. */
+.app-summary-surface-shell.is-workspace:not(.is-split) {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--app-bg, #f6f8fc);
+}
+.app-summary-surface-shell.is-workspace:not(.is-split) .app-summary-workspace {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
 .app-summary-surface-navigation {
   display: flex;
   justify-content: flex-end;
@@ -3469,7 +3483,7 @@ span.app-workspace-breadcrumb-chip.is-current { background: rgba(222, 234, 253, 
   text-align: center;
   font-weight: 700;
 }
-.app-summary-workspace-content { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.app-summary-workspace-content { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; }
 .app-summary-workspace.is-surface-hidden { display: none; }
 .app-summary-conversation { flex: 1 1 auto; min-height: 0; overflow: hidden; }
 .app-summary-surface-shell.is-workspace .app-summary-conversation { flex: 0 0 auto; }
@@ -3494,6 +3508,9 @@ span.app-workspace-breadcrumb-chip.is-current { background: rgba(222, 234, 253, 
 .app-summary-conversation.is-composer-only > :not(.app-workspace-composer-toggle) {
   grid-column: 2;
   min-width: 0;
+}
+.app-summary-conversation.is-composer-only:not(.is-composer-expanded) > :not(.app-workspace-composer-toggle) {
+  display: none !important;
 }
 .app-summary-conversation.is-composer-only [data-testid="chat-toolbar"],
 .app-summary-conversation.is-composer-only [data-testid="chat-feed-stage"] { display: none !important; }
@@ -5200,8 +5217,18 @@ span.app-workspace-breadcrumb-chip.is-current { background: rgba(222, 234, 253, 
   .app-summary-workspace-title { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 
-.app-workspace-renderer { height: 100%; min-height: 0; }
+.app-workspace-renderer { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; min-height: 0; overflow: auto; }
 .app-workspace-renderer[hidden] { display: none; }
+/* Only hosted workspace tables relinquish fixed-row minimum sizing. Ordinary
+   Forge tables and content-sized tables retain their natural dimensions. */
+.app-workspace-renderer .basic-table-wrapper[data-forge-sizing-mode="fill"] {
+  flex: 1 1 0 !important;
+  min-height: 0;
+}
+.app-workspace-renderer .basic-table-wrapper[data-forge-sizing-mode="fill"] > .basic-table-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .app-workspace-object-chip { display: inline-flex; align-items: center; gap: 2px; }
 .app-workspace-object-chip > button:last-child { border: 0; background: transparent; padding: 6px; cursor: pointer; }
 @media (max-width: 600px) { .app-workspace-layout-action { display: none !important; } }

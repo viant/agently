@@ -581,7 +581,7 @@ export default function Root() {
   const [oauthProviderLabel, setOAuthProviderLabel] = useState('');
   const developerMode = useDeveloperMode();
   const [goalDraftState, setGoalDraftState] = useState({ isOpen: false, conversationId: '', initialDraft: '' });
-  const [workspacePresentationMode, setWorkspacePresentationModeState] = useState('split');
+  const [workspacePresentationMode, setWorkspacePresentationModeState] = useState('full');
   const [workspaceComposerExpanded, setWorkspaceComposerExpanded] = useState(false);
   const [activeSurface, setActiveSurfaceState] = useState('conversation');
   const [workspaceHeight, setWorkspaceHeight] = useState(WORKSPACE_DEFAULT_HEIGHT);
@@ -1164,6 +1164,7 @@ export default function Root() {
           const routeID = conversationIDFromPath(window.location.pathname);
           if (routeID && routeID === String(event?.detail?.conversationId || '').trim()) {
             setActiveSurfaceState(getScopedActiveSurface(routeID));
+            setWorkspacePresentationModeState(getScopedWorkspacePresentationMode(routeID));
           }
         }
         setConversationSelectionEpoch((value) => value + 1);
@@ -1252,7 +1253,7 @@ export default function Root() {
   useEffect(() => {
     const conversationId = String(mainConversationId || '').trim();
     if (!conversationId) {
-      setWorkspacePresentationModeState('split');
+      setWorkspacePresentationModeState('full');
       return;
     }
     setWorkspacePresentationModeState(getScopedWorkspacePresentationMode(conversationId));
@@ -1319,11 +1320,8 @@ export default function Root() {
     };
   }, [activeSurface, effectiveWorkspaceFull, mainConversationId, returnToConversationSurface]);
 
-  useEffect(() => {
-    if (showWorkspacePane) return;
-    if (activeSurface !== 'workspace') return;
-    setActiveSurface('conversation');
-  }, [activeSurface, setActiveSurface, showWorkspacePane]);
+  // A workspace may be absent while its transcript is still hydrating. The
+  // surface renders chat as a fallback without overwriting the saved selection.
 
   useEffect(() => {
     const conversationId = String(mainConversationId || '').trim();

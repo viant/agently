@@ -1965,6 +1965,13 @@ describe('conversationWindow', () => {
       expect.objectContaining({ windowId: 'advertiserList__conv-auto-restore', hostOpenState: 'historical_replay' }),
     ]);
     expect(selectedWindowId.value).toBe('advertiserList__conv-auto-restore');
+    // Hydration must not undo a subsequent explicit return to chat.
+    setScopedActiveSurface('conv-auto-restore', 'conversation');
+    selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
+    syncScopedWorkspaceStateFromTranscriptTurns('conv-auto-restore', turns, {autoRestore: true});
+    expect(getScopedActiveSurface('conv-auto-restore')).toBe('conversation');
+    expect(selectedWindowId.value).toBe(MAIN_CHAT_WINDOW_ID);
+
   });
 
 
