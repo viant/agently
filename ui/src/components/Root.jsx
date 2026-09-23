@@ -25,7 +25,7 @@ import Sidebar from './Sidebar';
 import ScheduleConversationHistory from './ScheduleConversationHistory';
 import ElicitationOverlay from './ElicitationOverlay';
 import { useApprovalQueue } from '../hooks/useApprovalQueue';
-import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, dismissWorkspaceWindowForConversation, ensureWorkspaceWindowForConversation, getScopedActiveSurface, getScopedConversationSelection, getScopedWorkspacePresentationMode, getScopedWorkspaceSelection, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, restoreWorkspaceNavigationTrailEntry, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
+import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, dismissWorkspaceWindowForConversation, ensureWorkspaceWindowForConversation, getScopedActiveSurface, getScopedConversationSelection, getScopedWorkspacePresentationMode, getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, restoreWorkspaceNavigationTrailEntry, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
 import { conversationIDFromPath, publishActiveConversation } from '../services/chatRuntime';
 import { beginLogin, getAuthMeSilently, getAuthProvidersSilently } from '../services/agentlyClient';
@@ -46,6 +46,17 @@ const WORKSPACE_MIN_HEIGHT = 240;
 const WORKSPACE_MAX_HEIGHT = 960;
 const TERMINAL_TURN_ACTIVITY_TYPES = new Set(['turn_completed', 'turn_failed', 'turn_canceled']);
 const CONVERSATION_RESTORE_ACTIVITY_TYPES = new Set(['turn_started', 'turn_queued', 'turn_submitted']);
+
+export function resolveConversationWorkspaceAttachmentWindows(history = [], restored = [], live = []) {
+  const byWindowId = new Map();
+  for (const entries of [history, restored, live]) {
+    for (const entry of Array.isArray(entries) ? entries : []) {
+      const windowId = String(entry?.windowId || '').trim();
+      if (windowId) byWindowId.set(windowId, entry);
+    }
+  }
+  return [...byWindowId.values()];
+}
 
 export function shouldRestoreConversationForActivity({
   eventConversationId = '',
@@ -1146,9 +1157,15 @@ export default function Root() {
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
     let active = true;
-    const bump = () => {
+    const bump = (event) => {
       queueMicrotask(() => {
         if (!active) return;
+        if (event?.type === 'agently:workspace-state') {
+          const routeID = conversationIDFromPath(window.location.pathname);
+          if (routeID && routeID === String(event?.detail?.conversationId || '').trim()) {
+            setActiveSurfaceState(getScopedActiveSurface(routeID));
+          }
+        }
         setConversationSelectionEpoch((value) => value + 1);
       });
     };
@@ -1355,11 +1372,11 @@ export default function Root() {
         showIntakeDetails: false,
         toolFeedDock: showChatChrome ? 'right' : 'inline',
         workspaceWindow: showWorkspacePane ? activeWorkspaceWindow : null,
-        workspaceWindows: (() => {
-          const history = new Map(getWorkspaceHistory(mainConversationId).map((entry) => [entry.windowId, entry]));
-          workspaceWindows.forEach((entry) => history.set(entry.windowId, entry));
-          return [...history.values()];
-        })(),
+        workspaceWindows: resolveConversationWorkspaceAttachmentWindows(
+          getWorkspaceHistory(mainConversationId),
+          getScopedWorkspaceWindowsState(mainConversationId),
+          workspaceWindows,
+        ),
         workspaceVisible: developerMode
           ? (showWorkspacePane && !effectiveWorkspaceCollapsed)
           : (showWorkspacePane && activeSurface === 'workspace'),

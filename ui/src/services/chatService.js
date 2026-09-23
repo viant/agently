@@ -574,6 +574,7 @@ export async function onInit({ context }) {
             includeExecutionDetails: true,
           },
           restoreWorkspace: false,
+          autoRestoreWorkspace: true,
         });
         if (!isCurrentConversation(conversationID)) {
           void existingPromise.catch(() => {});

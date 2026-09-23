@@ -830,7 +830,7 @@ export async function hydrateWorkspaceTranscriptTurns(turns = [], payloadLoader 
   });
   const loaded = await Promise.all(targets.map(async (target) => ({
     ...target,
-    payload: await payloadLoader(target.payloadId),
+    payload: await payloadLoader(target.payloadId).catch(() => null),
   })));
   loaded.forEach(({ turnIndex, pageIndex, stepIndex, field, payload }) => {
     if (!payload || typeof payload !== 'object') return;
@@ -847,6 +847,7 @@ export function syncScopedWorkspaceStateFromTranscriptTurns(
     reopen = false,
     announce = true,
     allowRunning = false,
+    autoRestore = false,
   } = {}
 ) {
   const convID = String(conversationId || '').trim();
@@ -873,6 +874,12 @@ export function syncScopedWorkspaceStateFromTranscriptTurns(
   const visibleDerived = {...derived, windows, selectedWindowId};
   setScopedWorkspaceState(convID, windows);
   setScopedWorkspaceSelection(convID, selectedWindowId);
+  if (autoRestore && windows.some((entry) => entry.workspaceObject?.lifecycle?.state === 'ready')
+    && typeof window !== 'undefined'
+    && currentConversationIdFromPath(window.location?.pathname) === convID) {
+    const restored = reopenWorkspaceForConversation(convID);
+    if (restored) setScopedActiveSurface(convID, 'workspace');
+  }
   if (!announce || typeof window === 'undefined') {
     return visibleDerived;
   }

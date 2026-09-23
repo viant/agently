@@ -6,6 +6,7 @@ import {
   isConversationHostedWorkspaceChild,
   isHostedWorkspaceChildOfMainChat,
   resolveActiveConversationId,
+  resolveConversationWorkspaceAttachmentWindows,
   resolveChatChromeWindow,
   resolveEffectiveWorkspaceCollapsed,
   resolveHostedWorkspaceTabLabel,
@@ -38,6 +39,22 @@ import {
 } from './Root.jsx';
 
 describe('Root window selection helpers', () => {
+  it('shows transcript-restored workspace references when the original open did not acknowledge', () => {
+    const restored = {
+      windowId: 'advertiserList__conv-1',
+      windowKey: 'advertiserList',
+      conversationId: 'conv-1',
+      workspaceObject: {
+        objectId: 'workspace:advertiserList__conv-1',
+        origin: { turnId: 'turn-open' },
+        lifecycle: { state: 'ready' },
+      },
+    };
+    expect(resolveConversationWorkspaceAttachmentWindows([], [restored], [])).toEqual([restored]);
+    const live = { ...restored, windowTitle: 'Advertisers', windowForm: { advertiserListMode: 'starred' } };
+    expect(resolveConversationWorkspaceAttachmentWindows([], [restored], [live])).toEqual([live]);
+  });
+
   it('scrolls only for a terminal event on the focused conversation surface', () => {
     expect(shouldScrollConversationAfterTurn({
       eventConversationId: 'conv-1', activeConversationId: 'conv-1',

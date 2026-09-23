@@ -1943,4 +1943,46 @@ describe('conversationWindow', () => {
     expect(restored?.windows?.[0]?.workspaceObject?.lifecycle?.state).toBe('ready');
     expect(restored?.windows?.[0]?.windowForm).toEqual({ advertiserListMode: 'starred' });
   });
+
+  it('mounts the last ready workspace when reopening its past conversation', () => {
+    window.location.pathname = '/conversation/conv-auto-restore';
+    activeWindows.value = [{ windowId: MAIN_CHAT_WINDOW_ID, windowKey: CHAT_WINDOW_KEY, parameters: {} }];
+    const turns = [{ turnId: 'turn-open', execution: { pages: [{ toolSteps: [{
+      toolName: 'ui/window/get', status: 'completed', responsePayload: { window: {
+        windowId: 'advertiserList__conv-auto-restore', windowKey: 'advertiserList',
+        conversationId: 'conv-auto-restore', parentKey: MAIN_CHAT_WINDOW_ID,
+        presentation: 'hosted', region: 'chat.top',
+        workspaceObject: { version: 1, objectId: 'workspace:advertiserList__conv-auto-restore',
+          origin: { turnId: 'turn-open' }, lifecycle: { state: 'ready' } },
+      } },
+    }] }] } }];
+
+    const result = syncScopedWorkspaceStateFromTranscriptTurns('conv-auto-restore', turns, { autoRestore: true });
+    expect(result?.windows).toHaveLength(1);
+    expect(getScopedActiveSurface('conv-auto-restore')).toBe('workspace');
+    expect(resolveWorkspaceWindowsForConversation('conv-auto-restore')).toEqual([
+      expect.objectContaining({ windowId: 'advertiserList__conv-auto-restore', hostOpenState: 'historical_replay' }),
+    ]);
+    expect(selectedWindowId.value).toBe('advertiserList__conv-auto-restore');
+  });
+
+
+  it('restores a ready window even when an earlier payload cannot be fetched', async () => {
+    const compressed = (id) => ({ Id: id, Compression: 'gzip', InlineBody: '\u001f�compressed' });
+    const turns = [{ turnId: 'turn-window-get', execution: { pages: [{ toolSteps: [
+      { toolName: 'ui/window/list', status: 'completed', responsePayloadId: 'missing-list', responsePayload: compressed('missing-list') },
+      { toolName: 'ui/window/get', status: 'completed', responsePayloadId: 'ready-window', responsePayload: compressed('ready-window') },
+    ] }] } }];
+    const hydrated = await hydrateWorkspaceTranscriptTurns(turns, async (id) => {
+      if (id === 'missing-list') throw new Error('payload unavailable');
+      return { window: {
+        windowId: 'advertiserList__conv-1', windowKey: 'advertiserList', conversationId: 'conv-1',
+        parentKey: MAIN_CHAT_WINDOW_ID, presentation: 'hosted', region: 'chat.top',
+        workspaceObject: { version: 1, objectId: 'workspace:advertiserList__conv-1',
+          origin: { turnId: 'turn-open' }, lifecycle: { state: 'ready' } },
+      } };
+    });
+
+    expect(deriveWorkspaceStateFromTranscriptTurns(hydrated)?.windows?.[0]?.workspaceObject?.lifecycle?.state).toBe('ready');
+  });
 });
