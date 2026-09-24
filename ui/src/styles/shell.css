@@ -4578,9 +4578,12 @@ span.app-workspace-breadcrumb-chip.is-current { background: rgba(222, 234, 253, 
 }
 
 .app-bubble-user {
-  background: var(--app-selected-background);
-  border-color: var(--app-border);
-  color: var(--app-text);
+  /* User messages are a conversational surface, not a selected state. Keep
+     the legacy Forge fallbacks so workspaces without the optional application
+     alias retain their incumbent appearance. */
+  background: var(--app-user-message-background, var(--forge-table-header-surface, #eef4ff));
+  border-color: var(--app-user-message-border, var(--forge-control-border, #c8d8fb));
+  color: var(--app-user-message-text, var(--forge-text, var(--app-text)));
 }
 
 .app-bubble-assistant {
