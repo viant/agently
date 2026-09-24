@@ -44,6 +44,15 @@ describe('portable theme catalog', () => {
     workspace.themes[0].modes.light['status.danger.foreground'] = 'red';
     expect(() => validateThemeCatalog(workspace)).toThrow('Invalid theme color');
   });
+  it('accepts optional semantic typography roles without requiring them', () => {
+    const workspace = structuredClone(catalog);
+    workspace.themes[0].modes.light['typography.caption.size'] = 11;
+    workspace.themes[0].modes.light['typography.caption.lineHeight'] = 16;
+    workspace.themes[0].modes.light['typography.metric.size'] = 28;
+    expect(validateThemeCatalog(workspace)).toBe(workspace);
+    workspace.themes[0].modes.light['typography.caption.lineHeight'] = 120;
+    expect(() => validateThemeCatalog(workspace)).toThrow('Invalid theme dimension');
+  });
   it('rejects malformed portable tokens', () => {
     const invalid = structuredClone(catalog); invalid.themes[0].modes.light['control.radius'] = '8px';
     expect(() => validateThemeCatalog(invalid)).toThrow();

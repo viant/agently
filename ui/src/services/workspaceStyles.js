@@ -10,9 +10,15 @@ const optionalColors = ['canvas', 'surface.subtle', 'surface.raised', 'text.seco
   'status.danger.background', 'status.danger.foreground', 'status.danger.border',
   ...Array.from({length: 6}, (_, index) => `data.categorical.${index + 1}`),
   ...Array.from({length: 5}, (_, index) => `data.sequential.${index + 1}`)];
-const dimensions = {'typography.size': [8, 72], 'control.minHeight': [16, 128], 'control.radius': [0, 64], 'control.paddingInline': [0, 64]};
-const requiredTokenNames = new Set([...requiredColors, ...Object.keys(dimensions), 'typography.family']);
-const tokenNames = new Set([...requiredTokenNames, ...optionalColors]);
+const requiredDimensions = {'typography.size': [8, 72], 'control.minHeight': [16, 128], 'control.radius': [0, 64], 'control.paddingInline': [0, 64]};
+const typographyRoles = ['caption', 'small', 'body', 'section', 'heading', 'title', 'metric', 'display', 'code'];
+const optionalDimensions = Object.fromEntries(typographyRoles.flatMap(role => [
+  [`typography.${role}.size`, [8, 72]],
+  [`typography.${role}.lineHeight`, [8, 96]],
+]));
+const dimensions = {...requiredDimensions, ...optionalDimensions};
+const requiredTokenNames = new Set([...requiredColors, ...Object.keys(requiredDimensions), 'typography.family']);
+const tokenNames = new Set([...requiredTokenNames, ...optionalColors, ...Object.keys(optionalDimensions)]);
 const fontFamilies = new Set(['system', 'workspace-primary']);
 const identifier = /^[a-z][a-z0-9-]{0,63}$/;
 export const APPLICATION_THEME_CLASS = 'agently-application';
