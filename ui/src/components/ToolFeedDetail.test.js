@@ -54,6 +54,11 @@ vi.mock('../services/chatService', () => ({
 }));
 
 vi.mock('forge/components', () => ({
+  ForgeThemeBoundary: ({ children, windowKey }) => React.createElement(
+    'div',
+    { 'data-testid': 'forge-theme-boundary', 'data-window-key': windowKey },
+    children
+  ),
   CompactFeedList: ({ data }) => React.createElement(
     'div',
     { 'data-testid': 'compact-feed-list' },
@@ -72,6 +77,17 @@ vi.mock('forge/components', () => ({
 }));
 
 describe('ToolFeedDetail', () => {
+  it('places every Forge-backed feed inside the shared theme boundary', async () => {
+    const source = fs.readFileSync(path.join(repoRoot, 'ui/src/components/ToolFeedDetail.jsx'), 'utf8');
+    const shellCSS = fs.readFileSync(path.join(repoRoot, 'ui/src/styles/shell.css'), 'utf8');
+    expect(source).toContain('<ForgeThemeBoundary windowKey={`tool-feed-${feedId}`}>');
+    expect(source).toContain('data-tool-feed-id={feedId}');
+    expect(shellCSS).toContain('--app-workspace-section-header-background');
+    expect(shellCSS).toContain('--app-workspace-card-background');
+    expect(shellCSS).toMatch(/\.app-tool-feed-detached\s*{[^}]*var\(--app-bg/s);
+    expect(shellCSS).toMatch(/\.app-tool-feed-promote\s*{[^}]*var\(--app-selected-background/s);
+  });
+
   it('renders the plan feed as a visible detail panel', async () => {
     const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
     getActiveFeedsMock.mockReturnValueOnce([
