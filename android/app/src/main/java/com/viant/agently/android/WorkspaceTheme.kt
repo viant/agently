@@ -30,6 +30,19 @@ internal data class WorkspaceThemeCatalog(
         private val colors = setOf("surface", "text", "control.background", "control.foreground",
             "control.border", "focus.color", "button.background", "button.foreground",
             "disabled.background", "disabled.foreground", "validation.border")
+        private val optionalColors = setOf(
+            "canvas", "surface.subtle", "surface.raised", "text.secondary", "text.muted", "text.inverse",
+            "border", "border.strong", "interaction.foreground", "interaction.hover",
+            "interaction.active", "interaction.selectedBackground",
+            "status.info.background", "status.info.foreground", "status.info.border",
+            "status.success.background", "status.success.foreground", "status.success.border",
+            "status.warning.background", "status.warning.foreground", "status.warning.border",
+            "status.danger.background", "status.danger.foreground", "status.danger.border",
+            "data.categorical.1", "data.categorical.2", "data.categorical.3",
+            "data.categorical.4", "data.categorical.5", "data.categorical.6",
+            "data.sequential.1", "data.sequential.2", "data.sequential.3",
+            "data.sequential.4", "data.sequential.5",
+        )
 
         fun load(source: String): WorkspaceThemeCatalog {
             require(source.toByteArray(Charsets.UTF_8).size <= 512 * 1024)
@@ -49,7 +62,8 @@ internal data class WorkspaceThemeCatalog(
                 val modes = obj.getValue("modes").jsonObject.mapValues { it.value.jsonObject }
                 require(modes.isNotEmpty() && modes.keys.all { it == "light" || it == "dark" } && fallback in modes)
                 modes.values.forEach { tokens ->
-                    require(tokens.keys == colors + dimensions.keys + "typography.family")
+                    val required = colors + dimensions.keys + "typography.family"
+                    require(tokens.keys.containsAll(required) && (tokens.keys - required).all { it in optionalColors })
                     tokens.forEach { (key, value) ->
                         val primitive = value.jsonPrimitive
                         when {

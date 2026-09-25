@@ -76,7 +76,7 @@ export default function BubbleMessage({ message, messageIndex = 0, conversationI
   const rowClass = isUser ? 'app-bubble-row app-bubble-row-user' : 'app-bubble-row app-bubble-row-assistant';
   const avatarClass = isUser ? 'app-bubble-avatar app-bubble-avatar-user' : 'app-bubble-avatar app-bubble-avatar-assistant';
   const avatarIcon = isUser ? 'User' : 'SealCheck';
-  const avatarColor = isUser ? '#2855b7' : '#58657a';
+  const avatarColor = isUser ? 'var(--app-accent)' : 'var(--app-muted)';
   const avatarWeight = isUser ? 'fill' : 'regular';
 
   return (

@@ -13,6 +13,13 @@ its same-origin WOFF2 faces; Agently applies the resulting family to the shell,
 native form controls, Forge boundaries, and portals. Workspaces without a
 registered and selected family retain Agently's existing system/default stack.
 
+The catalog may also include optional semantic color roles for layered
+surfaces, secondary, muted, and inverse text, borders, interaction states,
+status treatments, and data visualization. Existing required tokens remain
+required. Optional roles are validated on web, iOS, and Android but retain each
+client's incumbent fallback when absent, allowing workspaces to adopt the color
+contract without changing every surface at once.
+
 Focused tests (from `agently/ui`):
 
 ```sh
