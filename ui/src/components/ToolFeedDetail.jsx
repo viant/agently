@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { CompactFeedList, Container, Terminal } from 'forge/components';
+import { CompactFeedList, Container, ForgeThemeBoundary, Terminal } from 'forge/components';
 import { getFeedData, fetchFeedDataNow, onFeedDataChange, getActiveFeeds, onFeedChange, splitFeedKey } from '../services/toolFeedBus';
 import { openResourceFeedPath } from '../services/chatService';
 import {
@@ -396,9 +396,11 @@ function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = '
     ? { height: '100%', minHeight: 0, overflowY: 'auto' }
     : { maxHeight: 'min(18vh, 220px)', overflowY: 'auto' };
   return (
-    <div className="app-tool-feed-detail-forge" style={railStyle}>
-      <Container context={context} container={container} isActive suppressTitle={!container?.title} />
-    </div>
+    <ForgeThemeBoundary windowKey={`tool-feed-${feedId}`}>
+      <div className="app-tool-feed-detail-forge" data-tool-feed-id={feedId} style={railStyle}>
+        <Container context={context} container={container} isActive suppressTitle={!container?.title} />
+      </div>
+    </ForgeThemeBoundary>
   );
 }
 
