@@ -7,6 +7,8 @@ replace github.com/viant/mcp => ../mcp
 
 replace github.com/viant/mcp-protocol => ../mcp-protocol
 
+replace github.com/viant/forge => ../forge
+
 go 1.25.5
 
 exclude google.golang.org/grpc/stats/opentelemetry v0.0.0-20240907200651-3ffb98b2c93a
@@ -23,7 +25,7 @@ require (
 	github.com/viant/agently-core v0.1.51
 	github.com/viant/datly v0.37.1-0.20260409194131-e40dcc4467ab
 	github.com/viant/embedius v0.5.6 // indirect
-	github.com/viant/forge v0.3.40-0.20260915174121-de35a7a94dd0
+	github.com/viant/forge v0.3.40-0.20260918225638-e53002b12147
 	github.com/viant/jsonrpc v0.24.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
 	github.com/viant/mcp v0.24.0
