@@ -16,10 +16,13 @@ import (
 // RunCLI supports both `serve folder --variant empty` and flags before folder.
 func RunCLI(ctx context.Context, args []string, out, errOut io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: report-preview <list|serve|validate|describe|query|compile|export> [fixture-folder] [--report-root folder --group-id id --report-id id] [--mcp-url url] [--variant name] [--datasource id] [--request file] [--parameters file] [--out file] [--addr 127.0.0.1:8095]")
+		return fmt.Errorf("usage: report-preview <activate|list|serve|validate|describe|query|compile|export> [fixture-folder] [--report-root folder --group-id id --report-id id] [--mcp-url url] [--variant name] [--datasource id] [--request file] [--parameters file] [--out file] [--addr 127.0.0.1:8095]")
 	}
 	command := args[0]
 	args = args[1:]
+	if command == "activate" {
+		return runActivateCLI(ctx, args, out, errOut, callActivatedMCP)
+	}
 	folder := ""
 	if len(args) > 0 && len(args[0]) > 0 && args[0][0] != '-' {
 		folder = args[0]
