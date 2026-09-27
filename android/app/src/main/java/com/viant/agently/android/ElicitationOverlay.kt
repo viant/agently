@@ -1,5 +1,6 @@
 package com.viant.agently.android
 
+import com.viant.forgeandroid.ui.MarkdownRenderer
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
@@ -174,10 +175,7 @@ internal fun ElicitationOverlay(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 elicitation.message?.takeIf { it.isNotBlank() }?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                    MarkdownRenderer(markdown = it)
                 }
                 approvalMeta?.toolName?.takeIf { it.isNotBlank() }?.let { toolName ->
                     Text(

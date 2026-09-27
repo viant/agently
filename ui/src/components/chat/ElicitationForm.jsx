@@ -1,3 +1,4 @@
+import ElicitationMessage from '../ElicitationMessage';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Button, Dialog, Classes, Spinner } from '@blueprintjs/core';
 import SchemaBasedForm from 'forge/widgets/SchemaBasedForm.jsx';
@@ -100,7 +101,7 @@ export default function ElicitationForm({ message, context, onResolved = null })
       style={{ width: '100%', maxWidth: 520 }}
     >
       <div className={Classes.DIALOG_BODY}>
-        {prompt ? <p style={{ marginBottom: 12 }}>{prompt}</p> : null}
+        <ElicitationMessage message={prompt} />
         {approvalMeta?.toolName ? <p style={{ marginBottom: 12 }}><strong>Tool:</strong> {approvalMeta.toolName}</p> : null}
         {
           <div id={formWrapperId.current}>

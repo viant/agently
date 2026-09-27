@@ -160,6 +160,25 @@ describe('MenuBar window reuse', () => {
     expect(selectedTabId.value).toBe('schedule');
     expect(selectedWindowId.value).toBe('schedule');
   });
+
+  it('opens a distinct instance for different action parameters or conversation scope', async () => {
+    activeWindows.value = [{ windowId: 'record-1', windowKey: 'record', parameters: { id: 1 }, conversationId: 'conv-a' }];
+    addWindow.mockImplementation((_title, parentKey, windowKey, _data, _tab, parameters, options) => {
+      const win = { windowId: options.windowId, windowKey, parentKey, parameters, conversationId: options.conversationId };
+      activeWindows.value = [...activeWindows.value, win];
+      return win;
+    });
+    const { openWindow } = await import('./MenuBar.jsx');
+    openWindow('record', 'Record', [], { conversationId: 'conv-a', parameters: { id: 2 } });
+    expect(addWindow).toHaveBeenCalledTimes(1);
+    expect(activeWindows.value).toHaveLength(2);
+    expect(activeWindows.value[1].parameters).toEqual({ id: 2 });
+    openWindow('record', 'Record', [], { conversationId: 'conv-b', parameters: { id: 2 } });
+    expect(addWindow).toHaveBeenCalledTimes(2);
+    openWindow('record', 'Record', [], { conversationId: 'conv-a', parameters: { id: 2 } });
+    expect(addWindow).toHaveBeenCalledTimes(2);
+    expect(selectedTabId.value).toBe(activeWindows.value[1].windowId);
+  });
 });
 
 describe('MenuBar auth startup selection', () => {

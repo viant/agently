@@ -21,7 +21,7 @@ import UsageBar from './UsageBar';
 import TurnProgressStatus from './TurnProgressStatus';
 import ConversationWorkspaceSurface from './ConversationWorkspaceSurface';
 import StatusBar from './StatusBar';
-import Sidebar from './Sidebar';
+import WorkspaceSidebar from './WorkspaceSidebar';
 import ScheduleConversationHistory from './ScheduleConversationHistory';
 import ElicitationOverlay from './ElicitationOverlay';
 import { useApprovalQueue } from '../hooks/useApprovalQueue';
@@ -35,7 +35,6 @@ import { useChatProjection, useChatIsRunning } from '../services/chatStore.js';
 import { resolveWorkspaceAttachmentOwnerIndex } from '../services/workspaceAttachment.js';
 import { currentPendingMCPAuth, resumePendingMCPAuth } from '../services/mcpAuth';
 
-const SIDEBAR_WIDTH_KEY = 'agently.sidebarWidth';
 const SIDEBAR_DEFAULT_WIDTH = 320;
 const SIDEBAR_MIN_WIDTH = 220;
 const SIDEBAR_MAX_WIDTH = 520;
@@ -99,10 +98,10 @@ export function scrollConversationFeedToEnd(root = null) {
   return true;
 }
 
-function clampSidebarWidth(value) {
+function clampSidebarWidth(value, min = SIDEBAR_MIN_WIDTH, max = SIDEBAR_MAX_WIDTH) {
   const next = Number(value || 0);
   if (!Number.isFinite(next)) return SIDEBAR_DEFAULT_WIDTH;
-  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(next)));
+  return Math.min(max, Math.max(min, Math.round(next)));
 }
 
 export function isCompactShellViewport(width) {
@@ -566,14 +565,14 @@ export default function Root() {
     if (typeof window === 'undefined') return true;
     return !isCompactShellViewport(window.innerWidth);
   });
+  const [layoutTopbarActions, setLayoutTopbarActions] = useState([]);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
-    if (typeof window === 'undefined') return SIDEBAR_DEFAULT_WIDTH;
-    try {
-      return clampSidebarWidth(window.localStorage?.getItem(SIDEBAR_WIDTH_KEY));
-    } catch (_) {
-      return SIDEBAR_DEFAULT_WIDTH;
-    }
+    return SIDEBAR_DEFAULT_WIDTH;
   });
+  const [sidebarPreferenceKey, setSidebarPreferenceKey] = useState('');
+  const [sidebarPreferenceFormat, setSidebarPreferenceFormat] = useState('object');
+  const [sidebarPreferencesReady, setSidebarPreferencesReady] = useState(false);
+  const sidebarBoundsRef = useRef({ min: SIDEBAR_MIN_WIDTH, max: SIDEBAR_MAX_WIDTH });
   // Render the shell optimistically. Protected endpoints still emit the
   // authoritative unauthorized event; auth discovery must not gate chat.
   const [authState, setAuthState] = useState('ready');
@@ -941,11 +940,32 @@ export default function Root() {
   }), []);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || !sidebarPreferencesReady) return;
     try {
-      window.localStorage?.setItem(SIDEBAR_WIDTH_KEY, String(clampSidebarWidth(sidebarWidth)));
+      if (sidebarPreferenceKey && sidebarPreferenceFormat === 'number') {
+        window.localStorage?.setItem(sidebarPreferenceKey, String(clampSidebarWidth(sidebarWidth, sidebarBoundsRef.current.min, sidebarBoundsRef.current.max)));
+      } else if (sidebarPreferenceKey) {
+        const current = JSON.parse(window.localStorage?.getItem(sidebarPreferenceKey) || '{}');
+        window.localStorage?.setItem(sidebarPreferenceKey, JSON.stringify({ ...current, width: clampSidebarWidth(sidebarWidth, sidebarBoundsRef.current.min, sidebarBoundsRef.current.max) }));
+      }
     } catch (_) {}
-  }, [sidebarWidth]);
+  }, [sidebarWidth, sidebarPreferenceKey, sidebarPreferenceFormat, sidebarPreferencesReady]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return () => {};
+    const applyLayoutWidth = (event) => {
+      const width = Number(event?.detail?.width);
+      const min = Number(event?.detail?.min);
+      const max = Number(event?.detail?.max);
+      sidebarBoundsRef.current = Number.isFinite(min) && Number.isFinite(max) && max >= min ? { min, max } : { min: SIDEBAR_MIN_WIDTH, max: SIDEBAR_MAX_WIDTH };
+      if (Number.isFinite(width) && width > 0) setSidebarWidth(clampSidebarWidth(width, sidebarBoundsRef.current.min, sidebarBoundsRef.current.max));
+      setSidebarPreferenceKey(String(event?.detail?.preferenceKey || ''));
+      setSidebarPreferenceFormat(event?.detail?.preferenceFormat === 'number' ? 'number' : 'object');
+      setSidebarPreferencesReady(true);
+    };
+    window.addEventListener('agently:layout-width', applyLayoutWidth);
+    return () => window.removeEventListener('agently:layout-width', applyLayoutWidth);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
@@ -984,7 +1004,7 @@ export default function Root() {
       const sidebarState = resizeStateRef.current;
       if (sidebarState) {
         const delta = Number(event.clientX || 0) - sidebarState.startX;
-        setSidebarWidth(clampSidebarWidth(sidebarState.startWidth + delta));
+        setSidebarWidth(clampSidebarWidth(sidebarState.startWidth + delta, sidebarBoundsRef.current.min, sidebarBoundsRef.current.max));
         return;
       }
       const workspaceState = workspaceResizeStateRef.current;
@@ -1383,11 +1403,12 @@ export default function Root() {
         <div
           className={`app-shell${isCompactShell ? ' is-compact-shell' : ''}`}
           style={{
-            '--app-sidebar-width': `${isCompactShell ? 0 : (isSidebarOpen ? clampSidebarWidth(sidebarWidth) : 64)}px`
+            '--app-sidebar-width': `${isCompactShell ? 0 : (isSidebarOpen ? clampSidebarWidth(sidebarWidth, sidebarBoundsRef.current.min, sidebarBoundsRef.current.max) : 64)}px`
           }}
         >
           <MenuBar
             approvals={approvals}
+            topbarActions={layoutTopbarActions}
             onToggleSidebar={() => setIsSidebarOpen((open) => !open)}
             conversationId={conversationIDFromPath(typeof window !== 'undefined' ? window.location.pathname : '')}
           />
@@ -1402,8 +1423,10 @@ export default function Root() {
             />
           ) : null}
           {(!isCompactShell || isSidebarOpen) ? (
-            <Sidebar
+            <WorkspaceSidebar
               collapsed={!isCompactShell && !isSidebarOpen}
+              onExpand={() => setIsSidebarOpen(true)}
+              onTopbarActionsChange={setLayoutTopbarActions}
               onNavigate={isCompactShell ? () => setIsSidebarOpen(false) : undefined}
             />
           ) : null}
@@ -1416,7 +1439,7 @@ export default function Root() {
               onPointerDown={(event) => {
                 resizeStateRef.current = {
                   startX: Number(event.clientX || 0),
-                  startWidth: clampSidebarWidth(sidebarWidth)
+                  startWidth: clampSidebarWidth(sidebarWidth, sidebarBoundsRef.current.min, sidebarBoundsRef.current.max)
                 };
                 try { document.body.style.cursor = 'col-resize'; } catch (_) {}
                 try { document.body.style.userSelect = 'none'; } catch (_) {}

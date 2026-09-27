@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, InputGroup, Spinner } from '@blueprintjs/core';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { resolveConversationSummary, resolveConversationTitle } from '../services/conversationTitle';
 import { isConnectivityError } from '../services/networkError';
 import { client } from '../services/agentlyClient';
@@ -335,7 +336,16 @@ async function fetchPage({ query = '', direction = 'latest', cursor = '' }) {
   return normalizeSidebarPage(page, direction, cursor);
 }
 
-export default function Sidebar({ collapsed = false, onNavigate = null }) {
+export default function Sidebar({ collapsed = false, onNavigate = null, onExpand = null, showNewConversation = true, history = {} }) {
+  const search = history.search || {};
+  const list = history.list || {};
+  const pagination = history.pagination || {};
+  const virtualized = list.virtualized !== false;
+  const paginationMode = pagination.mode || 'continuous';
+  const searchDebounceMs = Number.isFinite(Number(search.debounceMs)) ? Number(search.debounceMs) : 250;
+  const showSearchClear = search.showClear !== false;
+  const enterToSearch = search.enterToSearch !== false;
+  const autoLoadOlder = pagination.autoLoad !== false;
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState([]);
   const [seedVersion, setSeedVersion] = useState(0);
@@ -358,6 +368,14 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
   const inFlightReloadRef = React.useRef({ key: '', promise: null });
   const reloadSeqRef = React.useRef(0);
   const lastResolvedReloadKeyRef = React.useRef('');
+  const historyScrollRef = React.useRef(null);
+  const lastAutoCursorRef = React.useRef('');
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => historyScrollRef.current,
+    estimateSize: () => 64,
+    overscan: 6,
+  });
 
   const pageStatusLabel = useMemo(() => {
     return sidebarPageStatusLabel({ loading, prevCursor, nextCursor });
@@ -455,7 +473,16 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
         const page = await fetchPage({ query: activeQuery, direction: pageRequest.direction, cursor: pageRequest.cursor });
         if (reloadSeqRef.current !== requestSeq) return page;
         lastResolvedReloadKeyRef.current = requestKey;
-        setRows(Array.isArray(page.rows) ? page.rows : []);
+        setRows((current) => {
+          if (!options?.append) return Array.isArray(page.rows) ? page.rows : [];
+          const seen = new Set(current.map((row) => String(row?.Id || row?.id || '')));
+          return [...current, ...(page.rows || []).filter((row) => {
+            const id = String(row?.Id || row?.id || '');
+            if (!id || seen.has(id)) return false;
+            seen.add(id);
+            return true;
+          })];
+        });
         setPrevCursor(page.prevCursor);
         setNextCursor(page.nextCursor);
         setError('');
@@ -503,14 +530,14 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
     }
     queryReloadTimerRef.current = setTimeout(() => {
       void reload('latest', '');
-    }, 200);
+    }, searchDebounceMs);
     return () => {
       if (queryReloadTimerRef.current) {
         clearTimeout(queryReloadTimerRef.current);
         queryReloadTimerRef.current = null;
       }
     };
-  }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, searchDebounceMs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     // A freshly restarted local server can render the shell before its authenticated
@@ -533,14 +560,15 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
 
   const content = useMemo(() => {
     if (loading && rows.length === 0) return <div className="app-sidebar-loading"><Spinner size={18} /></div>;
-    if (error) return <div className="app-sidebar-error">{error}</div>;
-    if (rows.length === 0) return <div className="app-sidebar-empty">No conversations</div>;
+    if (rows.length === 0 && error) return <div className="app-sidebar-error">{error}</div>;
+    if (rows.length === 0) return <div className="app-sidebar-empty">{query.trim() ? (list.noMatchesText || 'No conversations match your search') : (list.emptyText || 'No conversations yet')}</div>;
 
     return (
       <>
         {deleteError ? <div className="app-sidebar-error">{deleteError}</div> : null}
-        <div className="app-conversation-list">
-          {rows.map((row) => {
+        <div className="app-conversation-list" style={virtualized ? { display: 'block', position: 'relative', height: rowVirtualizer.getTotalSize() } : undefined}>
+          {(virtualized ? rowVirtualizer.getVirtualItems() : rows.map((_, index) => ({ index }))).map((virtualRow) => {
+            const row = rows[virtualRow.index];
             const id = String(row?.Id || row?.id || '').trim();
             const title = resolveConversationTitle(row);
             const summary = resolveConversationSummary(row);
@@ -553,6 +581,9 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
               <div
                 key={id}
                 className={`app-conversation-row ${isSelected ? 'is-selected' : ''}`}
+                data-index={virtualized ? virtualRow.index : undefined}
+                ref={virtualized ? rowVirtualizer.measureElement : undefined}
+                style={virtualized ? { position: 'absolute', width: '100%', top: 0, left: 0, transform: `translateY(${virtualRow.start}px)` } : undefined}
               >
                 <span className={`app-conversation-status-dot tone-${tone}`} title={tone} />
                 <button
@@ -589,7 +620,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
         </div>
       </>
     );
-  }, [rows, loading, error, deleteError, selectedID, seedVersion, deletingID, navigate]);
+  }, [rows, loading, error, deleteError, selectedID, seedVersion, deletingID, navigate, query, rowVirtualizer, virtualized, list.emptyText, list.noMatchesText]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
@@ -670,19 +701,22 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
 
   return (
     <aside className={`app-sidebar ${collapsed ? 'is-collapsed' : ''}`}>
-      <Button minimal icon="plus" alignText="left" onClick={() => {
+      {showNewConversation ? <Button minimal icon="plus" alignText="left" onClick={() => {
         requestNewConversationInMainWindow();
         navigate();
       }}>
         {collapsed ? '' : 'New Conversation'}
-      </Button>
+      </Button> : null}
 
       {!collapsed ? (
         <InputGroup
           leftIcon="search"
-          placeholder="Filter conversations"
+          placeholder={search.placeholder || 'Search conversations'}
+          aria-label={search.placeholder || 'Search conversations'}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={enterToSearch ? (event) => { if (event.key === 'Enter') { if (queryReloadTimerRef.current) clearTimeout(queryReloadTimerRef.current); void reload('latest', '', { force: true }); } } : undefined}
+          rightElement={showSearchClear && query ? <Button minimal small icon="cross" aria-label="Clear search" onClick={() => setQuery('')} /> : undefined}
           small
         />
       ) : null}
@@ -695,43 +729,38 @@ export default function Sidebar({ collapsed = false, onNavigate = null }) {
               Refresh
             </Button>
           </div>
-          <div className="app-sidebar-scroll">{content}</div>
+          <div className="app-sidebar-scroll" ref={historyScrollRef} onScroll={(event) => {
+            const element = event.currentTarget;
+            if (!autoLoadOlder || !nextCursor || loading || lastAutoCursorRef.current === nextCursor) return;
+            if (element.scrollHeight - element.scrollTop - element.clientHeight > 120) return;
+            lastAutoCursorRef.current = nextCursor;
+            void reload('before', nextCursor, { append: true }).catch(() => {});
+          }}>{content}</div>
           {showPagination ? (
             <div className="app-sidebar-pagination">
-              <Button
-                small
-                minimal
-                icon="chevron-left"
-                className="app-sidebar-pagination-btn"
-                disabled={!prevCursor}
-                aria-label="Load newer conversations"
-                title="Load newer conversations"
-                onClick={() => {
-                  const request = sidebarPaginationRequest('newer', prevCursor);
-                  void reload(request.direction, request.cursor);
-                }}
-              />
-              <div className="app-sidebar-pagination-status">{pageStatusLabel}</div>
-              <Button
-                small
-                minimal
-                icon="chevron-right"
-                className="app-sidebar-pagination-btn"
-                disabled={!nextCursor}
-                aria-label="Load older conversations"
-                title="Load older conversations"
-                onClick={() => {
-                  const request = sidebarPaginationRequest('older', nextCursor);
-                  void reload(request.direction, request.cursor);
-                }}
-              />
+              {paginationMode === 'pages' ? <>
+                <Button small minimal icon="chevron-left" className="app-sidebar-pagination-btn" disabled={!prevCursor}
+                  aria-label="Load newer conversations" title="Load newer conversations"
+                  onClick={() => { const request = sidebarPaginationRequest('newer', prevCursor); void reload(request.direction, request.cursor); }} />
+                <div className="app-sidebar-pagination-status">{pageStatusLabel}</div>
+                <Button small minimal icon="chevron-right" className="app-sidebar-pagination-btn" disabled={!nextCursor}
+                  aria-label="Load older conversations" title="Load older conversations"
+                  onClick={() => { const request = sidebarPaginationRequest('older', nextCursor); void reload(request.direction, request.cursor); }} />
+              </> : <>
+              {prevCursor ? <Button small minimal icon="arrow-up" onClick={() => {
+                void reload('latest', '').then(() => { if (historyScrollRef.current) historyScrollRef.current.scrollTop = 0; });
+              }}>Back to latest</Button> : null}
+              {nextCursor ? <Button small minimal icon="arrow-down" disabled={loading} onClick={() => {
+                void reload('before', nextCursor, { append: true }).catch(() => {});
+              }}>{loading ? 'Loading…' : error ? 'Retry loading older' : 'Load older conversations'}</Button> : <span>End of conversations</span>}
+              </>}
             </div>
           ) : null}
         </>
       ) : (
         <div className="app-sidebar-collapsed-tools">
-          <Button minimal small icon="search" />
-          <Button minimal small icon="history" onClick={() => void reload('latest', '')} />
+          <Button minimal small icon="search" aria-label="Expand and search conversations" onClick={() => onExpand?.()} />
+          <Button minimal small icon="history" aria-label="Expand conversation history" onClick={() => onExpand?.()} />
         </div>
       )}
     </aside>
