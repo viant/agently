@@ -1,0 +1,23 @@
+version: 1
+id: main
+topbar:
+  actions:
+    - id: automation
+      title: Automation
+      icon: time
+      className: is-automation
+      action:
+        type: window
+        windowKey: schedule
+        refreshDataSources: [schedules]
+left:
+  width: {default: 220, min: 220, max: 520, preferenceScope: global, preferenceKey: agently.sidebarWidth}
+  navigation: {enabled: false}
+  history:
+    enabled: true
+    newConversation: true
+    search: {placeholder: Filter conversations, debounceMs: 200, showClear: false, enterToSearch: false}
+    list: {virtualized: false, emptyText: No conversations, noMatchesText: No conversations}
+    pagination: {mode: pages, autoLoad: false}
+right: {mode: existing}
+applications: []

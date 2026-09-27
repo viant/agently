@@ -231,8 +231,13 @@ func Serve(options ServeOptions) error {
 	}()
 	startConversationCleanup(ctx, rt.Data, cleanupOptions)
 	schedulerOpts := agentlyrt.SchedulerOptionsFromEnv()
+	layoutDefault, err := coremeta.FS.ReadFile("workspace-layout.yaml")
+	if err != nil {
+		return fmt.Errorf("read embedded workspace layout: %w", err)
+	}
 	apiHandler, err := appserver.NewAPIHandler(ctx, appserver.APIOptions{
 		Version:          firstNonEmpty(strings.TrimSpace(Version), "agently-v1"),
+		LayoutDefault:    layoutDefault,
 		Runtime:          rt,
 		Client:           client,
 		AgentFinder:      agentFndr,

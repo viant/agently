@@ -1,3 +1,4 @@
+fullWidth: true
 columns:
   - id: name
     name: Tool

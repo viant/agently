@@ -70,6 +70,17 @@ export function refreshWindowDataSources(windowId, dataSourceRefs = []) {
   });
 }
 
+export function canonicalWindowParameters(value = {}) {
+  const normalize = (entry) => {
+    if (Array.isArray(entry)) return entry.map(normalize);
+    if (entry && typeof entry === 'object') {
+      return Object.fromEntries(Object.keys(entry).sort().map((key) => [key, normalize(entry[key])]));
+    }
+    return entry;
+  };
+  return JSON.stringify(normalize(value || {}));
+}
+
 export function openWindow(windowKey, windowTitle, refreshDataSources = [], options = {}) {
   const windows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
   const replaceTabbedWindows = options?.replaceTabbedWindows === true;
@@ -78,7 +89,15 @@ export function openWindow(windowKey, windowTitle, refreshDataSources = [], opti
   const desiredParentKey = options?.parentKey ?? null;
   const desiredPresentation = String(options?.presentation || '').trim() || null;
   const desiredRegion = String(options?.region || '').trim() || null;
-  let existing = windows.find((entry) => entry?.windowKey === windowKey);
+  const desiredParameters = options?.parameters && typeof options.parameters === 'object' && !Array.isArray(options.parameters) ? options.parameters : {};
+  const desiredParameterIdentity = canonicalWindowParameters(desiredParameters);
+  const matchesDestination = (entry) => entry?.windowKey === windowKey
+    && (String(entry?.conversationId || '').trim() || null) === desiredConversationId
+    && (entry?.parentKey ?? null) === desiredParentKey
+    && (String(entry?.presentation || '').trim() || null) === desiredPresentation
+    && (String(entry?.region || '').trim() || null) === desiredRegion
+    && canonicalWindowParameters(entry?.parameters || {}) === desiredParameterIdentity;
+  let existing = windows.find(matchesDestination);
   if (replaceMainChatTree) {
     const subtreeIds = windows
       .filter((entry) => {
@@ -105,7 +124,7 @@ export function openWindow(windowKey, windowTitle, refreshDataSources = [], opti
     });
   }
   const currentWindows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
-  existing = currentWindows.find((entry) => entry?.windowKey === windowKey);
+  existing = currentWindows.find(matchesDestination);
   if (existing) {
     const currentParentKey = existing?.parentKey ?? null;
     const currentConversationId = String(existing?.conversationId || '').trim() || null;
@@ -126,8 +145,10 @@ export function openWindow(windowKey, windowTitle, refreshDataSources = [], opti
     }
   }
   if (!existing) {
-    existing = addWindow(windowTitle, desiredParentKey, windowKey, null, true, {}, {
+    const uniqueWindowId = `layout-${String(windowKey).replace(/[^a-zA-Z0-9_-]/g, '-')}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+    existing = addWindow(windowTitle, desiredParentKey, windowKey, null, true, desiredParameters, {
       autoIndexTitle: false,
+      windowId: uniqueWindowId,
       conversationId: desiredConversationId || undefined,
       presentation: desiredPresentation || undefined,
       region: desiredRegion || undefined,
@@ -320,6 +341,7 @@ export default function MenuBar({
   approvals,
   onToggleSidebar,
   conversationId = '',
+  topbarActions = [],
 }) {
   const {
     items = [],
@@ -585,16 +607,19 @@ export default function MenuBar({
           <Tooltip content="Toggle conversations" placement="bottom">
             <Button minimal icon="menu" aria-label="Toggle conversations" className="app-topbar-icon-btn is-conversations" data-testid="sidebar-toggle" onClick={onToggleSidebar} />
           </Tooltip>
-          <Tooltip content="Automation" placement="bottom">
-            <Button
-              minimal
-              icon="time"
-              aria-label="Automation"
-              className="app-topbar-icon-btn is-automation"
-              data-testid="automation-nav"
-              onClick={() => openWindow('schedule', 'Automation', ['schedules'])}
-            />
-          </Tooltip>
+          {topbarActions.map((entry) => (
+            <Tooltip key={entry.id} content={entry.title} placement="bottom">
+              <Button minimal icon={entry.icon || 'application'} aria-label={entry.title} disabled={entry.disabled}
+                className={`app-topbar-icon-btn${entry.className ? ` ${entry.className}` : ''}`} data-testid={`topbar-${entry.id}`}
+                onClick={() => {
+                  const action = entry.action;
+                  if (action?.type !== 'window') return;
+                  const key = action.provider && action.provider !== 'workspace'
+                    ? `provider:${action.provider}:${action.windowKey}` : action.windowKey;
+                  openWindow(key, entry.title, action.refreshDataSources || [], { parameters: action.parameters || {} });
+                }} />
+            </Tooltip>
+          ))}
           <Tooltip content={pendingCount > 0 ? `${pendingCount} pending approvals` : 'Approvals'} placement="bottom">
             <Button
               minimal
