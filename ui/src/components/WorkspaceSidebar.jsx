@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Button } from '@blueprintjs/core';
+import { Button, Icon } from '@blueprintjs/core';
 import { sdkBaseURL } from '../endpoint';
 import { getAuthMeSilently } from '../services/agentlyClient';
 import Sidebar from './Sidebar';
@@ -108,12 +108,12 @@ export default function WorkspaceSidebar({ collapsed = false, onNavigate, onExpa
 
   const renderMenu = (menu) => {
     if (Array.isArray(menu.children) && menu.children.length) {
-      return <div className="app-layout-menu-group" key={menu.id}>
+      return <div className={`app-layout-menu-group ${menu.className || ''}`} key={menu.id}>
         <span className="app-layout-menu-group-title">{menu.title}</span>
         {menu.children.map(renderMenu)}
       </div>;
     }
-    return <Button key={menu.id} minimal fill alignText="left" icon={menu.icon || undefined} disabled={menu.disabled || active?.disabled}
+    return <Button key={menu.id} minimal fill alignText="left" className={`app-layout-menu ${menu.className || ''}`} icon={menu.icon || undefined} disabled={menu.disabled || active?.disabled}
       onClick={() => {
         const action = menu.action;
         if (action?.type === 'window') {
@@ -136,17 +136,17 @@ export default function WorkspaceSidebar({ collapsed = false, onNavigate, onExpa
 
   return <div className={`app-layout-sidebar${collapsed ? ' is-collapsed' : ''}${shortSidebar ? ' is-short' : ''}`} ref={shellRef}>
     {collapsed && navigationEnabled && applications.length > 0 ? <div className="app-layout-rail" aria-label="Applications">
-      {applications.map((app) => <Button key={app.id} minimal small disabled={app.disabled}
+      {applications.map((app) => <Button key={app.id} minimal small disabled={app.disabled} icon={app.icon || undefined} className={app.className || undefined}
         aria-label={`Open ${app.title} application menu`} title={app.title}
-        onClick={() => { setActiveApp(app.id); onExpand?.(); }}>{String(app.title || '?').slice(0, 1)}</Button>)}
+        onClick={() => { setActiveApp(app.id); onExpand?.(); }}>{app.icon ? null : Array.from(String(app.title || '?'))[0]}</Button>)}
     </div> : null}
     {!collapsed && navigationEnabled && applications.length > 0 ? <>
-      <section className="app-layout-navigation" style={canSplit ? { flexBasis: `${clampFraction(fraction) * 100}%`, minHeight } : undefined} aria-label="Applications">
+      <section className={`app-layout-navigation ${active?.className || ''}`} style={canSplit ? { '--app-navigation-basis': `calc((100% - 8px) * ${clampFraction(fraction)})`, '--app-navigation-min-height': `${minHeight}px` } : undefined} aria-label="Applications">
         {applications.length > 1 ? <div className="app-layout-tabs" role="tablist" aria-label="Applications">
-          {applications.map((app) => <Button key={app.id} minimal small role="tab" aria-selected={app.id === active?.id}
+          {applications.map((app) => <Button key={app.id} minimal small role="tab" aria-selected={app.id === active?.id} icon={app.icon || undefined} className={app.className || undefined}
             active={app.id === active?.id} disabled={app.disabled} onClick={() => setActiveApp(app.id)}>{app.title}</Button>)}
           <Button minimal small icon="refresh" aria-label="Reload navigation" title="Reload navigation" onClick={() => setReloadVersion((value) => value + 1)} />
-        </div> : <div className="app-layout-heading">{active?.title}<Button minimal small icon="refresh" aria-label="Reload navigation" title="Reload navigation" onClick={() => setReloadVersion((value) => value + 1)} /></div>}
+        </div> : <div className="app-layout-heading"><span>{active?.icon ? <Icon icon={active.icon} /> : null}{active?.title}</span><Button minimal small icon="refresh" aria-label="Reload navigation" title="Reload navigation" onClick={() => setReloadVersion((value) => value + 1)} /></div>}
         <div className="app-layout-menus">{active?.menus?.map(renderMenu)}</div>
       </section>
       {canSplit && layout?.left?.split?.resizable !== false ? <div className="app-layout-divider" role="separator" aria-orientation="horizontal" aria-label="Resize navigation and conversations"
