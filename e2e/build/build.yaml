@@ -5,10 +5,11 @@ pipeline:
   buildUI:
     action: exec:run
     TimeoutMs: 120000
-    description: build and embed UI (optional - uses pre-built if fails)
+    description: build and embed UI
+    checkError: true
     commands:
       - cd $repoPath
-      - ./e2e/build-ui-embed.sh || echo "[build-ui-embed] skipped - using pre-built UI assets"
+      - ./e2e/build-ui-embed.sh
 
   buildAgently:
     action: exec:run
