@@ -517,13 +517,23 @@ body {
   max-width: none;
   box-shadow: none;
 }
-.app-layout-navigation { min-height: 120px; display: flex; flex-direction: column; overflow: hidden; padding: 12px; }
+.app-layout-navigation { flex-basis: var(--app-navigation-basis, auto); min-height: var(--app-navigation-min-height, 120px); display: flex; flex-direction: column; overflow: hidden; padding: 12px; }
 .app-layout-tabs { display: flex; overflow-x: auto; gap: 4px; flex: 0 0 auto; }
 .app-layout-heading, .app-layout-menu-group-title { font-weight: 600; padding: 6px; }
+.app-layout-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.app-layout-heading > span { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.app-layout-menu { min-height: 40px; }
+.app-layout-menu:focus-visible { outline: 2px solid var(--app-accent); outline-offset: -2px; }
 .app-layout-menus { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; }
 .app-layout-menu-group { display: flex; flex-direction: column; }
-.app-layout-divider { height: 8px; flex: 0 0 8px; cursor: row-resize; background: var(--app-border); }
-.app-layout-divider:focus-visible { outline: 2px solid #2d6cdf; }
+.app-layout-divider { height: 8px; flex: 0 0 8px; cursor: row-resize; background: var(--app-border); touch-action: none; }
+.app-layout-divider:focus-visible { outline: 2px solid var(--app-accent); }
+.app-main.is-compact-shell .app-layout-sidebar { overflow-y: auto; }
+.app-main.is-compact-shell .app-layout-navigation { flex: 0 0 auto !important; min-height: auto !important; overflow: visible; }
+.app-main.is-compact-shell .app-layout-menus { overflow: visible; }
+.app-main.is-compact-shell .app-layout-divider { display: none; }
+.app-main.is-compact-shell .app-layout-menu { min-height: 44px; }
+.app-main.is-compact-shell .app-layout-history { flex: 1 0 240px; }
 .app-layout-sidebar.is-short { overflow-y: auto; }
 .app-layout-sidebar.is-short .app-layout-navigation { flex: 0 0 auto; max-height: none; overflow: visible; }
 .app-layout-sidebar.is-short .app-layout-menus { overflow: visible; }
