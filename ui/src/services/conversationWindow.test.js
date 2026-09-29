@@ -6,6 +6,7 @@ import { updateWorkspaceSession } from './workspaceSession.js';
 
 import {
   CHAT_WINDOW_KEY,
+  bindLandingWorkspaceWindows,
   deriveWorkspaceStateFromTranscriptTurns,
   hydrateWorkspaceTranscriptTurns,
   ensureWorkspaceWindowForConversation,
@@ -29,6 +30,23 @@ import {
   syncScopedWorkspaceStateFromTranscriptTurns,
   returnToParentConversation
 } from './conversationWindow';
+
+describe('landing workspace conversation binding', () => {
+  it('preserves the landing window and parameters when the first conversation starts', () => {
+    const home = {windowId:'menu-advertisers',windowKey:'advertiserList',parentKey:MAIN_CHAT_WINDOW_ID,
+      presentation:'hosted',region:'chat.top',parameters:{name:'Whoop'}};
+    const owned = {...home,windowId:'other-chat',conversationId:'private'};
+    const bottom = {...home,windowId:'bottom',region:'chat.bottom'};
+    const windows = [home,owned,bottom];
+    const bound = bindLandingWorkspaceWindows(windows,'new-chat');
+    expect(bound[0]).toEqual({...home,conversationId:'new-chat'});
+    expect(home.conversationId).toBeUndefined();
+    expect(bound[0].parameters).toBe(home.parameters);
+    expect(bound[1]).toBe(owned);
+    expect(bound[2]).toBe(bottom);
+    expect(bindLandingWorkspaceWindows(bound,'next-chat')).toBe(bound);
+  });
+});
 
 function createStorage() {
   const store = new Map();

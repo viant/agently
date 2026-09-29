@@ -287,7 +287,7 @@ export default function ConversationWorkspaceSurface({
             onClick={() => setComposerExpanded((expanded) => !expanded)}
           />
         ) : null}
-        {renderConversation ? renderConversation() : <WindowContent key={resolveChatWindowRenderKey(chatWindow)} window={chatWindow} isInTab />}
+        {renderConversation ? renderConversation() : (chatWindow ? <WindowContent key={resolveChatWindowRenderKey(chatWindow)} window={chatWindow} isInTab /> : null)}
       </section>
     </div>
   );

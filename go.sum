@@ -1215,6 +1215,8 @@ github.com/viant/assertly v0.4.8/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49u
 github.com/viant/assertly v0.9.0/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.1-0.20220620174148-bab013f93a60 h1:VFJvCOHKXv4IqX8rJwn1otpHWQGgMDv2bXtAPgEzndM=
 github.com/viant/assertly v0.9.1-0.20220620174148-bab013f93a60/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
+github.com/viant/authz v0.0.0-20260928224026-ae44aa9ad366 h1:5qojXDsQP0XSvLiGGHmXaxwHlh5fqc9VlWckdP9XB4c=
+github.com/viant/authz v0.0.0-20260928224026-ae44aa9ad366/go.mod h1:iazfsC9LZkGsbZY2o/9Aq3p8eHaD09tWudyRN5vQ9eI=
 github.com/viant/bigquery v0.5.2 h1:+15zWB9YAxZwFTzD79t9pLsNHnIAp1BNFGRzdP72G3c=
 github.com/viant/bigquery v0.5.2/go.mod h1:PhOIGjSfKgjizeufRc/4nCmTFv0BI9Z7cfPqhuyGCvg=
 github.com/viant/bintly v0.2.0 h1:vmsDUh/+V2a1zDc2YL4SpwoUG9m/7zYKxB8Yw10D2Sk=
@@ -1247,6 +1249,8 @@ github.com/viant/forge v0.3.43 h1:KjTsD7Sx/svai9JdnhSaOVOry/5AkH/uYXGI562Hodk=
 github.com/viant/forge v0.3.43/go.mod h1:Q2cbakSthK9Qyke1HiFFm2UG9cFbIvwxLiTL6yFbs7U=
 github.com/viant/forge v0.3.44-0.20260929011527-274a61e3eb9e h1:bJLqORFesCtfv0ohGUSmZTLecnUyBRuT79YzHyJwjeE=
 github.com/viant/forge v0.3.44-0.20260929011527-274a61e3eb9e/go.mod h1:Q2cbakSthK9Qyke1HiFFm2UG9cFbIvwxLiTL6yFbs7U=
+github.com/viant/forge v0.3.44-0.20260929155409-17ef2bfc0c4a h1:BOBx6W7cHmhGDnPESbvvzlmqeuCuarbDnzzC+kixGr4=
+github.com/viant/forge v0.3.44-0.20260929155409-17ef2bfc0c4a/go.mod h1:Q2cbakSthK9Qyke1HiFFm2UG9cFbIvwxLiTL6yFbs7U=
 github.com/viant/gds v0.6.0 h1:HdjogZeJrs5X0aR8yNCep7TxlhkhrH/lrSFW02RZzOI=
 github.com/viant/gds v0.6.0/go.mod h1:oLW99/zRR67jOhDj4qnVoquDMtQd1z2mWxVc9KRvOs4=
 github.com/viant/gmetric v0.3.2 h1:zTdW9QrPk2P0i/do9fokxtHesFQCvYqIc5Yktzmyxtg=

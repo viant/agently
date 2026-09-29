@@ -12,6 +12,7 @@ import {
   resolveHostedWorkspaceTabLabel,
   resolveHostedWorkspaceTabs,
   resolveHostedBottomWindow,
+  resolveShellWorkspaceWindows,
   hasRenderedChatContent,
   resolveSplitChatClassName,
   resolveRouteBootstrapAction,
@@ -37,6 +38,22 @@ import {
   shouldScrollConversationAfterTurn,
   shouldUseConversationWorkspaceFallback
 } from './Root.jsx';
+
+describe('landing-page workspace ownership', () => {
+  it('renders menu windows without a conversation and isolates conversation-owned windows', () => {
+    const windows = [
+      ...['advertisers', 'campaigns', 'spo'].map((windowKey) => ({windowId: windowKey, windowKey,
+        parentKey: 'chat/new', presentation: 'hosted', region: 'chat.top'})),
+      {windowId: 'private', conversationId: 'conv-1', parentKey: 'chat/new', presentation: 'hosted', region: 'chat.top'},
+      {windowId: 'bottom', presentation: 'hosted', region: 'chat.bottom'},
+    ];
+    expect(resolveShellWorkspaceWindows(windows).map((entry) => entry.windowId)).toEqual(['advertisers', 'campaigns', 'spo']);
+    expect(resolveShellWorkspaceWindows(windows, 'conv-1').map((entry) => entry.windowId)).toEqual(['private']);
+    expect(isConversationHostedWorkspaceChild(windows[0], '')).toBe(false);
+    expect(isConversationHostedWorkspaceChild(windows[0], 'conv-1')).toBe(false);
+    expect(resolveHostedBottomWindow(null,null,[windows[4]],'')).toBeNull();
+  });
+});
 
 describe('Root window selection helpers', () => {
   it('shows transcript-restored workspace references when the original open did not acknowledge', () => {

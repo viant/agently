@@ -27,6 +27,7 @@ import ElicitationOverlay from './ElicitationOverlay';
 import { useApprovalQueue } from '../hooks/useApprovalQueue';
 import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, dismissWorkspaceWindowForConversation, ensureWorkspaceWindowForConversation, getScopedActiveSurface, getScopedConversationSelection, getScopedWorkspacePresentationMode, getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, restoreWorkspaceNavigationTrailEntry, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
+import { bindLandingWorkspaceWindows } from '../services/conversationWindow';
 import { conversationIDFromPath, publishActiveConversation } from '../services/chatRuntime';
 import { beginLogin, getAuthMeSilently, getAuthProvidersSilently } from '../services/agentlyClient';
 import { onGoalDraftOpen } from '../services/goalDraftBus';
@@ -360,8 +361,15 @@ function isChatBottomRegionWindow(windowEntry = null) {
 
 function windowBelongsToConversation(windowEntry = null, conversationId = '') {
   const targetId = String(conversationId || '').trim();
-  if (!targetId) return false;
+  if (!targetId || !windowEntry) return false;
   return String(windowEntry?.conversationId || '').trim() === targetId;
+}
+
+export function resolveShellWorkspaceWindows(windows = [], conversationId = '') {
+  return windows.filter((entry) => isHostedWorkspaceChildOfMainChat(entry)
+    && (String(conversationId || '').trim()
+      ? windowBelongsToConversation(entry, conversationId)
+      : !String(entry?.conversationId || '').trim()));
 }
 
 export function resolveHostedBottomWindow(selectedWindow = null, mainChatWindow = null, windows = [], conversationId = '') {
@@ -625,6 +633,11 @@ export default function Root() {
     || ''
   ).trim();
   const projectedConversationRows = useChatProjection(mainConversationId);
+  useEffect(() => {
+    const windows = activeWindows.peek();
+    const bound = bindLandingWorkspaceWindows(windows,mainConversationId);
+    if (bound !== windows) activeWindows.value = bound;
+  }, [mainConversationId]);
   const chatRunning = useChatIsRunning(mainConversationId);
   const [readChatRows, setReadChatRows] = useState({conversationId: '', keys: []});
   const assistantRows = projectedConversationRows.filter((row) => row.kind === 'assistant' || row.kind === 'iteration');
@@ -644,7 +657,9 @@ export default function Root() {
     [mainConversationId, activeWindows.value]
   );
   const workspaceWindows = useMemo(
-    () => resolveWorkspaceWindowsForConversation(mainConversationId).map((entry) => attachResolvedMetrics(entry)),
+    () => (mainConversationId
+      ? resolveWorkspaceWindowsForConversation(mainConversationId)
+      : resolveShellWorkspaceWindows(activeWindows.value || [])).map((entry) => attachResolvedMetrics(entry)),
     [mainConversationId, activeWindows.value, selectedWindowId.value, selectedTabId.value]
   );
   const workspaceStatePersistenceSignature = workspaceWindows.map((entry) => {
@@ -663,7 +678,8 @@ export default function Root() {
         selectedWindow
         && (
           (selectedWindow?.inTab !== false
-            && windowBelongsToConversation(selectedWindow, mainConversationId)
+            && (windowBelongsToConversation(selectedWindow, mainConversationId)
+              || (!mainConversationId && resolveShellWorkspaceWindows([selectedWindow]).length > 0))
             && isWorkspaceRegionWindow(selectedWindow))
           || isConversationHostedWorkspaceChild(selectedWindow, mainConversationId)
         )
@@ -687,7 +703,7 @@ export default function Root() {
   const hostedBottomWindow = resolveHostedBottomWindow(selectedWindow, effectiveMainChatWindow, activeWindows.value, mainConversationId);
   const selectedWindowShowsChatChrome = shouldShowChatChrome(selectedWindow);
   const shouldRenderSplitShell = !!(
-    effectiveMainChatWindow
+    (effectiveMainChatWindow || activeWorkspaceWindow)
     && (
       !selectedWindow
       ||
@@ -1425,6 +1441,10 @@ export default function Root() {
           {(!isCompactShell || isSidebarOpen) ? (
             <WorkspaceSidebar
               conversationId={mainConversationId}
+              onOpenWorkspace={() => {
+                setWorkspacePresentationMode('full');
+                setActiveSurface('workspace');
+              }}
               collapsed={!isCompactShell && !isSidebarOpen}
               onExpand={() => setIsSidebarOpen(true)}
               onTopbarActionsChange={setLayoutTopbarActions}

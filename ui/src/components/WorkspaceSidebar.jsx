@@ -14,7 +14,13 @@ export function resolveLayoutWindowKey(action = {}) {
     ? `provider:${action.provider}:${action.windowKey}` : action.windowKey;
 }
 
-export default function WorkspaceSidebar({ conversationId = '', collapsed = false, onNavigate, onExpand, onTopbarActionsChange }) {
+export function resolveLayoutWindowOptions(action = {}, conversationId = '') {
+  const id = String(conversationId || '').trim();
+  const parameters = action.parameters || {};
+  return { parameters, conversationId: id || undefined, parentKey: MAIN_CHAT_WINDOW_ID, presentation: 'hosted', region: 'chat.top' };
+}
+
+export default function WorkspaceSidebar({ conversationId = '', collapsed = false, onNavigate, onExpand, onOpenWorkspace, onTopbarActionsChange }) {
   const [layout, setLayout] = useState(null);
   const [activeApp, setActiveApp] = useState('');
   const [fraction, setFraction] = useState(DEFAULT_SPLIT);
@@ -119,7 +125,8 @@ export default function WorkspaceSidebar({ conversationId = '', collapsed = fals
         const action = menu.action;
         if (action?.type === 'window') {
           const windowKey = resolveLayoutWindowKey(action);
-          openWindow(windowKey, menu.title, action.refreshDataSources || [], { parameters: action.parameters || {}, conversationId, parentKey: MAIN_CHAT_WINDOW_ID, presentation: 'hosted', region: 'chat.top' });
+          openWindow(windowKey, menu.title, action.refreshDataSources || [], resolveLayoutWindowOptions(action, conversationId));
+          onOpenWorkspace?.();
           onNavigate?.();
         }
       }}>{menu.title}</Button>;
