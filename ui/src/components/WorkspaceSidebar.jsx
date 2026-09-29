@@ -4,6 +4,7 @@ import { sdkBaseURL } from '../endpoint';
 import { getAuthMeSilently } from '../services/agentlyClient';
 import Sidebar from './Sidebar';
 import { openWindow } from './MenuBar';
+import { MAIN_CHAT_WINDOW_ID } from '../services/conversationWindow';
 
 const DEFAULT_SPLIT = 0.5;
 
@@ -13,7 +14,7 @@ export function resolveLayoutWindowKey(action = {}) {
     ? `provider:${action.provider}:${action.windowKey}` : action.windowKey;
 }
 
-export default function WorkspaceSidebar({ collapsed = false, onNavigate, onExpand, onTopbarActionsChange }) {
+export default function WorkspaceSidebar({ conversationId = '', collapsed = false, onNavigate, onExpand, onTopbarActionsChange }) {
   const [layout, setLayout] = useState(null);
   const [activeApp, setActiveApp] = useState('');
   const [fraction, setFraction] = useState(DEFAULT_SPLIT);
@@ -113,12 +114,12 @@ export default function WorkspaceSidebar({ collapsed = false, onNavigate, onExpa
         {menu.children.map(renderMenu)}
       </div>;
     }
-    return <Button key={menu.id} minimal fill alignText="left" className={`app-layout-menu ${menu.className || ''}`} icon={menu.icon || undefined} disabled={menu.disabled || active?.disabled}
+    return <Button key={menu.id} minimal fill alignText="left" className={`app-layout-menu ${menu.className || ''}`} icon={menu.icon ? <Icon icon={menu.icon} className="app-layout-menu-icon" /> : undefined} disabled={menu.disabled || active?.disabled}
       onClick={() => {
         const action = menu.action;
         if (action?.type === 'window') {
           const windowKey = resolveLayoutWindowKey(action);
-          openWindow(windowKey, menu.title, action.refreshDataSources || [], { parameters: action.parameters || {} });
+          openWindow(windowKey, menu.title, action.refreshDataSources || [], { parameters: action.parameters || {}, conversationId, parentKey: MAIN_CHAT_WINDOW_ID, presentation: 'hosted', region: 'chat.top' });
           onNavigate?.();
         }
       }}>{menu.title}</Button>;

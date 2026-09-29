@@ -156,14 +156,15 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
   if (!String(conversationId || '').trim()) return null;
   if (!row || !String(row?.turnId || '').trim()) {
     const pendingConversationId = String(connectionResumePending?.conversationId || '').trim();
-    if (developerMode || !pendingConversationId || pendingConversationId !== String(conversationId || '').trim()) return null;
+    const submitting = !!row && ['pending', 'running'].includes(row.lifecycle);
+    if (!submitting && (!pendingConversationId || pendingConversationId !== String(conversationId || '').trim())) return null;
     return (
       <section className="app-turn-progress" data-testid="turn-progress-status" aria-live="polite">
         <div className="app-turn-progress-spinner" aria-hidden="true"><Spinner size={18} /></div>
         <div className="app-turn-progress-content">
           <div className="app-turn-progress-title">Working on your request</div>
           <div className="app-turn-progress-chips">
-            <span className="app-turn-progress-chip is-activity">Completing connection</span>
+            <span className="app-turn-progress-chip is-activity">{submitting ? 'Submitting request' : 'Completing connection'}</span>
           </div>
         </div>
       </section>
