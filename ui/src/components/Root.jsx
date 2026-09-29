@@ -304,6 +304,7 @@ export function shouldPromoteFreshWorkspaceSurface({
   activeWorkspaceWindow = null,
   selectedWindowId = '',
   conversationRows = [],
+  turnRunning = false,
 } = {}) {
   // The navigation command selects the shell while protected content loads.
   const originTurnId = activeWorkspaceWindow?.workspaceObject?.lastActivatedBy?.turnId || activeWorkspaceWindow?.workspaceObject?.origin?.turnId;
@@ -311,7 +312,7 @@ export function shouldPromoteFreshWorkspaceSurface({
     (row.kind === 'assistant' && !!String(row.content || '').trim() && !['running', 'streaming', 'pending'].includes(row.status))
     || (row.kind === 'iteration' && row.lifecycle === 'completed' && row.rounds?.some((round) => round.finalResponse && !!String(round.content || '').trim()))
   ));
-  return confirmationCommitted && activeSurface !== 'workspace'
+  return !turnRunning && confirmationCommitted && activeSurface !== 'workspace'
     && !!mainConversationId
     && activeWorkspaceWindow?.conversationId === mainConversationId
     && activeWorkspaceWindow?.hostOpenState === 'fresh'
@@ -1308,6 +1309,7 @@ export default function Root() {
       activeWorkspaceWindow,
       selectedWindowId: selectedWindow?.windowId,
       conversationRows: projectedConversationRows,
+      turnRunning: chatRunning,
     })) return;
     const descriptor = activeWorkspaceWindow.workspaceObject;
     const key = JSON.stringify([mainConversationId, activeWorkspaceWindow.windowId, descriptor.lastActivatedBy?.turnId || descriptor.origin?.turnId]);
@@ -1315,7 +1317,7 @@ export default function Root() {
     activatedWorkspaceIntents.current.add(key);
     setWorkspacePresentationMode('full');
     setActiveSurface('workspace');
-  }, [activeSurface, activeWorkspaceWindow, developerMode, mainConversationId, selectedWindow?.windowId, setActiveSurface, projectedConversationRows]);
+  }, [activeSurface, activeWorkspaceWindow, developerMode, mainConversationId, selectedWindow?.windowId, setActiveSurface, projectedConversationRows, chatRunning]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};

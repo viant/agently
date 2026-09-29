@@ -180,7 +180,8 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
       if (attachment.kind !== 'workspaceObject' || projectedObjectIds.has(attachment.objectId)) continue;
       const known = workspaceEntries.find((entry) => entry.workspaceObject?.objectId === attachment.objectId);
       const descriptor = attachment.workspaceObject;
-      if (descriptor?.origin?.turnId && descriptor.origin.turnId !== row.turnId) continue;
+      const attachmentTurnId = descriptor?.lastActivatedBy?.turnId || descriptor?.origin?.turnId;
+      if (attachmentTurnId && attachmentTurnId !== row.turnId) continue;
       const entry = known || (descriptor?.content?.windowId && descriptor?.content?.windowKey ? {
         windowId: descriptor.content.windowId, windowKey: descriptor.content.windowKey,
         conversationId: descriptor.conversationId || conversationId, presentation: 'hosted', region: 'chat.top',
