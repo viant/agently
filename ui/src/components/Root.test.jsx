@@ -205,6 +205,7 @@ describe('Root window selection helpers', () => {
       activeWorkspaceWindow: { windowId: 'resource-1', conversationId: 'conv-1', hostOpenState: 'fresh',
         workspaceObject: { origin: { turnId: 'turn-1' }, lifecycle: { state: 'ready' } } } };
     expect(shouldPromoteFreshWorkspaceSurface(input)).toBe(true);
+    expect(shouldPromoteFreshWorkspaceSurface({...input,turnRunning:true})).toBe(false);
     expect(shouldPromoteFreshWorkspaceSurface({...input, activeWorkspaceWindow: {...input.activeWorkspaceWindow,
       workspaceObject: {...input.activeWorkspaceWindow.workspaceObject, lastActivatedBy: {turnId: 'latest-turn'}}}})).toBe(false);
     expect(shouldPromoteFreshWorkspaceSurface({...input, conversationRows: []})).toBe(false);
