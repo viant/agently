@@ -1424,6 +1424,7 @@ export default function Root() {
           ) : null}
           {(!isCompactShell || isSidebarOpen) ? (
             <WorkspaceSidebar
+              conversationId={mainConversationId}
               collapsed={!isCompactShell && !isSidebarOpen}
               onExpand={() => setIsSidebarOpen(true)}
               onTopbarActionsChange={setLayoutTopbarActions}
@@ -1475,7 +1476,7 @@ export default function Root() {
                   <div className="app-main-window-header-title">{linkedChildWindow ? 'Linked conversation' : activeWindowTitle}</div>
                 </div>
               ) : null}
-              {showChatChrome ? <TurnProgressStatus conversationId={activeConversationId} developerMode={developerMode} connectionResumePending={mcpResumePending} /> : null}
+              {mainConversationId ? <TurnProgressStatus conversationId={mainConversationId} developerMode={developerMode} connectionResumePending={mcpResumePending} /> : null}
               {shouldRenderSplitShell ? (
                 <ConversationWorkspaceSurface
                   activeSurface={activeSurface}

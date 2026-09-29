@@ -102,6 +102,20 @@ describe('TurnProgressStatus helpers', () => {
     expect(renderToStaticMarkup(React.createElement(TurnProgressStatus, { conversationId: 'conversation-1' }))).toBe('');
   });
 
+  it('hides progress for completed, failed and cancelled turns', () => {
+    for (const lifecycle of ['completed', 'failed', 'cancelled']) {
+      projectedRows = [{kind: 'iteration', lifecycle, turnId: 'finished'}];
+      expect(renderToStaticMarkup(React.createElement(TurnProgressStatus, {conversationId: 'c'}))).toBe('');
+    }
+  });
+
+  it('shows pending submission before the server assigns a turn id', () => {
+    projectedRows = [{kind: 'iteration', lifecycle: 'pending', turnId: ''}];
+    const html = renderToStaticMarkup(React.createElement(TurnProgressStatus, {conversationId: 'c'}));
+    expect(html).toContain('Submitting request');
+    expect(html).not.toContain('Stop current request');
+  });
+
   it('bridges the OAuth callback hydration gap with persisted blocking state', () => {
     const html = renderToStaticMarkup(React.createElement(TurnProgressStatus, {
       conversationId: 'conversation-1',

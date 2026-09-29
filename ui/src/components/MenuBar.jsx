@@ -155,6 +155,7 @@ export function openWindow(windowKey, windowTitle, refreshDataSources = [], opti
     });
   }
   if (existing?.windowId) {
+    if (desiredPresentation === 'hosted') activeWindows.value = activeWindows.peek().map(entry => entry.windowId === existing.windowId ? {...entry, workspaceCollapsed: false} : entry);
     selectedTabId.value = existing.windowId;
     selectedWindowId.value = existing.windowId;
     refreshWindowDataSources(existing.windowId, refreshDataSources);
