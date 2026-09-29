@@ -232,6 +232,20 @@ function removeWindowsForConversationChange(nextConversationId = '') {
   }
 }
 
+export function bindLandingWorkspaceWindows(windows = [], conversationId = '') {
+  const id = String(conversationId || '').trim();
+  if (!id) return windows;
+  let changed = false;
+  const next = windows.map(entry => {
+    if (String(entry?.conversationId || '').trim()
+      || entry?.parentKey !== MAIN_CHAT_WINDOW_ID || entry?.inTab === false
+      || entry?.presentation !== 'hosted' || entry?.region !== 'chat.top') return entry;
+    changed = true;
+    return {...entry, conversationId: id};
+  });
+  return changed ? next : windows;
+}
+
 export function clearWorkspaceWindowsForNewConversation() {
   removeWindowsForConversationChange('');
 }
@@ -981,6 +995,9 @@ export function publishConversationSelection(windowId = '', conversationId = '',
 
 export function openConversationInMainWindow(conversationId = '') {
   const targetID = String(conversationId || '').trim();
+  const windows = activeWindows.peek();
+  const bound = bindLandingWorkspaceWindows(windows, targetID);
+  if (bound !== windows) activeWindows.value = bound;
   const conversationSurface = getScopedActiveSurface(targetID) !== 'workspace';
   removeWindowsForConversationChange(targetID);
   const mainWindow = ensureMainChatWindow();

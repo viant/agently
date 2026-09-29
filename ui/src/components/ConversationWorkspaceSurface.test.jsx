@@ -20,6 +20,12 @@ expect(resolveChatWindowRenderKey({windowId: 'chat/new'})).toBe('chat/new:0');
 expect(resolveChatWindowRenderKey({windowId: 'chat/new', conversationInstanceVersion: 2})).toBe('chat/new:2');
 
 describe('ConversationWorkspaceSurface', () => {
+  it('renders a landing workspace without trying to mount a null chat window',()=>{
+    const html=renderToStaticMarkup(<ConversationWorkspaceSurface activeSurface="workspace"
+      workspaceWindow={{windowId:'menu-advertisers',windowKey:'advertiserList',windowTitle:'Advertisers'}} chatWindow={null} />);
+    expect(html).toContain('data-window-id="menu-advertisers"');
+    expect(html).not.toContain('data-window-id=""');
+  });
   it('uses no tabs for one object and one tab per object for multiple objects by default', () => {
     expect(shouldShowWorkspaceTabs(0)).toBe(false);
     expect(shouldShowWorkspaceTabs(1)).toBe(false);

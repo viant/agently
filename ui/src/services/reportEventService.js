@@ -8,7 +8,9 @@ export async function emitReportUIEvent({ kind = '', detail = {}, windowId = '',
   }
   const normalizedConversationId = String(conversationId || '').trim();
   if (!normalizedConversationId) {
-    throw new Error('report UI event conversationId is required');
+    // UI events annotate chat history; export/run persistence is handled by
+    // its own services. A standalone report has no history to annotate.
+    return { recorded: false };
   }
   const normalizedWindowId = String(windowId || '').trim();
   const normalizedWindowKey = String(windowKey || '').trim();
