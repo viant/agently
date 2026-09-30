@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { applyResolvedChipToken, createEditingChipState, shouldSkipEditorSync } from './chipEditing.js';
+import { applyResolvedChipToken, createEditingChipState, shouldSkipEditorSync, unwrapLookupSelection, draftWithEditedChip } from './chipEditing.js';
 
 const resolvedChip = createEditingChipState({
   raw: '@{order:7 "Order 7"}',
@@ -47,9 +47,9 @@ const fallback = applyResolvedChipToken(
   '@{order:missing "Missing"}',
   '@{order:42 "Northwind - Retargeting"}'
 );
-assert.equal(fallback.ok, true);
-assert.equal(fallback.nextStored, '@{order:42 "Northwind - Retargeting"}');
-console.log('applyResolvedChipToken ✓ falls back to fresh token when raw token is missing');
+assert.equal(fallback.ok, false);
+assert.equal(fallback.nextStored, undefined);
+console.log('applyResolvedChipToken ✓ preserves draft when raw token is missing');
 
 assert.equal(
   shouldSkipEditorSync({
@@ -108,3 +108,16 @@ assert.equal(
 console.log('shouldSkipEditorSync ✓ forces resync when chip editor DOM is still present');
 
 console.log('\nCHIP EDITING TESTS PASSED');
+
+assert.equal(createEditingChipState({raw: '@{order:2686303 "2686303"}', name: "order"}).value, "2686303");
+
+assert.equal(shouldSkipEditorSync({currentStored: '@{order:7 "Seven"}', lastSyncedValue: '@{order:7 "Seven"}', nextValue: '@{order:7 "Seven"}', chipCountMatches: false}), false);
+
+assert.equal(unwrapLookupSelection({status: "canceled", canceled: true}), null);
+assert.equal(unwrapLookupSelection({status: "busy", canceled: true}), null);
+assert.deepEqual(unwrapLookupSelection([{selected: {adOrderId: 7}}]), {adOrderId: 7});
+
+const before = 'Before @{order:7 "Seven"} after.';
+assert.equal(draftWithEditedChip(before, {raw: '@{order:7 "Seven"}', name: 'order'}, '7'), before);
+assert.equal(draftWithEditedChip(before, {raw: '@{order:7 "Seven"}', name: 'order'}, '42'), 'Before @{order:42 "42"} after.');
+assert.equal(draftWithEditedChip(before, {raw: '@{order:missing "Missing"}', name: 'order'}, '42'), before);

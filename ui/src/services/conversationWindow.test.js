@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { activeWindows, getFormSignal, getInputSignal, selectedTabId, selectedWindowId } from 'forge/core';
 import { resolveHostedExecuteOnOpenHostAction } from '../../../../forge/src/components/dashboard/reportBuilderHooks.js';
+import { updateWorkspaceSession } from './workspaceSession.js';
 
 import {
   CHAT_WINDOW_KEY,
+  bindLandingWorkspaceWindows,
   deriveWorkspaceStateFromTranscriptTurns,
   hydrateWorkspaceTranscriptTurns,
   ensureWorkspaceWindowForConversation,
@@ -28,6 +30,23 @@ import {
   syncScopedWorkspaceStateFromTranscriptTurns,
   returnToParentConversation
 } from './conversationWindow';
+
+describe('landing workspace conversation binding', () => {
+  it('preserves the landing window and parameters when the first conversation starts', () => {
+    const home = {windowId:'menu-advertisers',windowKey:'advertiserList',parentKey:MAIN_CHAT_WINDOW_ID,
+      presentation:'hosted',region:'chat.top',parameters:{name:'Whoop'}};
+    const owned = {...home,windowId:'other-chat',conversationId:'private'};
+    const bottom = {...home,windowId:'bottom',region:'chat.bottom'};
+    const windows = [home,owned,bottom];
+    const bound = bindLandingWorkspaceWindows(windows,'new-chat');
+    expect(bound[0]).toEqual({...home,conversationId:'new-chat'});
+    expect(home.conversationId).toBeUndefined();
+    expect(bound[0].parameters).toBe(home.parameters);
+    expect(bound[1]).toBe(owned);
+    expect(bound[2]).toBe(bottom);
+    expect(bindLandingWorkspaceWindows(bound,'next-chat')).toBe(bound);
+  });
+});
 
 function createStorage() {
   const store = new Map();
@@ -825,7 +844,7 @@ describe('conversationWindow', () => {
       }
     };
 
-    window.sessionStorage.setItem('agently.workspaceState:conv-defaults', JSON.stringify({
+    updateWorkspaceSession(window.sessionStorage, 'conv-defaults', (state) => ({ ...state, windows: [{
       windowId: 'metricReportBuilder__conv-defaults',
       windowKey: 'metricReportBuilder',
       windowTitle: 'Performance Metrics',
@@ -854,7 +873,7 @@ describe('conversationWindow', () => {
           }
         }
       }
-    }));
+    }] }));
 
     ensureWorkspaceWindowForConversation('conv-defaults');
 
@@ -1895,5 +1914,101 @@ describe('conversationWindow', () => {
         reportDocumentBlocks: [{ id: 'overview' }, { id: 'bid-funnel' }],
       },
     });
+  });
+
+  it('hydrates a compressed window/get response before restoring a ready hosted window', async () => {
+    const turns = [{
+      turnId: 'turn-window-get',
+      execution: { pages: [{ toolSteps: [
+        {
+          toolName: 'ui/window/list',
+          status: 'completed',
+          responsePayload: { items: [{
+            windowId: 'advertiserList__conv-1',
+            windowKey: 'advertiserList',
+            conversationId: 'conv-1',
+            parentKey: MAIN_CHAT_WINDOW_ID,
+            presentation: 'hosted',
+            region: 'chat.top',
+            workspaceObject: { version: 1, objectId: 'workspace:advertiserList__conv-1', lifecycle: { state: 'opening' } },
+          }] },
+        },
+        {
+          toolName: 'ui/window/get',
+          status: 'completed',
+          responsePayloadId: 'payload-ready-window',
+          responsePayload: { Id: 'payload-ready-window', Compression: 'gzip', InlineBody: '\u001f�compressed' },
+        },
+      ] }] },
+    }];
+
+    expect(deriveWorkspaceStateFromTranscriptTurns(turns)?.windows?.[0]?.workspaceObject?.lifecycle?.state).toBe('opening');
+
+    const hydrated = await hydrateWorkspaceTranscriptTurns(turns, async (payloadId) => {
+      expect(payloadId).toBe('payload-ready-window');
+      return { window: {
+        windowId: 'advertiserList__conv-1',
+        windowKey: 'advertiserList',
+        conversationId: 'conv-1',
+        parentKey: MAIN_CHAT_WINDOW_ID,
+        presentation: 'hosted',
+        region: 'chat.top',
+        workspaceObject: { version: 1, objectId: 'workspace:advertiserList__conv-1', lifecycle: { state: 'ready' } },
+        windowForm: { advertiserListMode: 'starred' },
+      } };
+    });
+
+    const restored = deriveWorkspaceStateFromTranscriptTurns(hydrated);
+    expect(restored?.windows?.[0]?.workspaceObject?.lifecycle?.state).toBe('ready');
+    expect(restored?.windows?.[0]?.windowForm).toEqual({ advertiserListMode: 'starred' });
+  });
+
+  it('mounts the last ready workspace when reopening its past conversation', () => {
+    window.location.pathname = '/conversation/conv-auto-restore';
+    activeWindows.value = [{ windowId: MAIN_CHAT_WINDOW_ID, windowKey: CHAT_WINDOW_KEY, parameters: {} }];
+    const turns = [{ turnId: 'turn-open', execution: { pages: [{ toolSteps: [{
+      toolName: 'ui/window/get', status: 'completed', responsePayload: { window: {
+        windowId: 'advertiserList__conv-auto-restore', windowKey: 'advertiserList',
+        conversationId: 'conv-auto-restore', parentKey: MAIN_CHAT_WINDOW_ID,
+        presentation: 'hosted', region: 'chat.top',
+        workspaceObject: { version: 1, objectId: 'workspace:advertiserList__conv-auto-restore',
+          origin: { turnId: 'turn-open' }, lifecycle: { state: 'ready' } },
+      } },
+    }] }] } }];
+
+    const result = syncScopedWorkspaceStateFromTranscriptTurns('conv-auto-restore', turns, { autoRestore: true });
+    expect(result?.windows).toHaveLength(1);
+    expect(getScopedActiveSurface('conv-auto-restore')).toBe('workspace');
+    expect(resolveWorkspaceWindowsForConversation('conv-auto-restore')).toEqual([
+      expect.objectContaining({ windowId: 'advertiserList__conv-auto-restore', hostOpenState: 'historical_replay' }),
+    ]);
+    expect(selectedWindowId.value).toBe('advertiserList__conv-auto-restore');
+    // Hydration must not undo a subsequent explicit return to chat.
+    setScopedActiveSurface('conv-auto-restore', 'conversation');
+    selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
+    syncScopedWorkspaceStateFromTranscriptTurns('conv-auto-restore', turns, {autoRestore: true});
+    expect(getScopedActiveSurface('conv-auto-restore')).toBe('conversation');
+    expect(selectedWindowId.value).toBe(MAIN_CHAT_WINDOW_ID);
+
+  });
+
+
+  it('restores a ready window even when an earlier payload cannot be fetched', async () => {
+    const compressed = (id) => ({ Id: id, Compression: 'gzip', InlineBody: '\u001f�compressed' });
+    const turns = [{ turnId: 'turn-window-get', execution: { pages: [{ toolSteps: [
+      { toolName: 'ui/window/list', status: 'completed', responsePayloadId: 'missing-list', responsePayload: compressed('missing-list') },
+      { toolName: 'ui/window/get', status: 'completed', responsePayloadId: 'ready-window', responsePayload: compressed('ready-window') },
+    ] }] } }];
+    const hydrated = await hydrateWorkspaceTranscriptTurns(turns, async (id) => {
+      if (id === 'missing-list') throw new Error('payload unavailable');
+      return { window: {
+        windowId: 'advertiserList__conv-1', windowKey: 'advertiserList', conversationId: 'conv-1',
+        parentKey: MAIN_CHAT_WINDOW_ID, presentation: 'hosted', region: 'chat.top',
+        workspaceObject: { version: 1, objectId: 'workspace:advertiserList__conv-1',
+          origin: { turnId: 'turn-open' }, lifecycle: { state: 'ready' } },
+      } };
+    });
+
+    expect(deriveWorkspaceStateFromTranscriptTurns(hydrated)?.windows?.[0]?.workspaceObject?.lifecycle?.state).toBe('ready');
   });
 });

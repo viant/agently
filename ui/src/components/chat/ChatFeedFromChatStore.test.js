@@ -144,6 +144,29 @@ describe('ChatFeedFromChatStore', () => {
     expect(html.indexOf('workspace-attachment-card')).toBeLessThan(html.indexOf('data-render-key="rk_later"'));
   });
 
+  it('shows a ready transcript-restored window after an unacknowledged open', () => {
+    const rows = [
+      { kind: 'iteration', renderKey: 'open-details', turnId: 'turn-open', lifecycle: 'completed',
+        rounds: [{ toolCalls: [{ toolName: 'ui/view:open', status: 'failed' }] }] },
+      { kind: 'assistant', renderKey: 'open-answer', turnId: 'turn-open', content: 'I could not confirm the open.' },
+      { kind: 'assistant', renderKey: 'later-answer', turnId: 'turn-later', content: 'A later answer.' },
+    ];
+    const restored = {
+      windowId: 'advertiserList__conv-1', windowKey: 'advertiserList', conversationId: 'conv-1',
+      presentation: 'hosted', region: 'chat.top',
+      workspaceObject: { objectId: 'workspace:advertiserList__conv-1',
+        origin: { turnId: 'turn-open' }, lifecycle: { state: 'ready' } },
+    };
+    const html = renderToStaticMarkup(
+      h(ConversationViewContext.Provider, {
+        value: { workspaceWindows: [restored], workspaceVisible: false, onOpenWorkspace: vi.fn() },
+      }, h(ChatFeedFromChatStore, { conversationId: 'conv-1', rowsOverride: rows })),
+    );
+    expect(html).toContain('data-workspace-window-id="advertiserList__conv-1"');
+    expect(html).toContain('Show');
+    expect(html.indexOf('workspace-attachment-card')).toBeLessThan(html.indexOf('data-render-key="later-answer"'));
+  });
+
   it('does not attach the workspace card while that workspace is visible', () => {
     const rows = [{
       kind: 'iteration', renderKey: 'rk_iter', turnId: 'turn-report', lifecycle: 'completed',

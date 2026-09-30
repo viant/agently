@@ -105,7 +105,7 @@ export default function LookupChipPreview() {
         background: 'linear-gradient(180deg, #f6f8fc 0%, #eef2f8 100%)',
         padding: '48px 24px',
         boxSizing: 'border-box',
-        fontFamily: 'Inter, system-ui, sans-serif',
+        fontFamily: 'var(--app-font-family)',
       }}
     >
       <div style={{ maxWidth: 960, margin: '0 auto' }}>

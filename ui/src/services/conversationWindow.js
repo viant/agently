@@ -123,7 +123,7 @@ export function setScopedActiveSurface(conversationId = '', surface = 'conversat
   const id = String(conversationId || '').trim();
   if (!storage || !id) return;
   const next = String(surface || '').trim().toLowerCase() === 'workspace' ? 'workspace' : 'conversation';
-  updateWorkspaceSession(storage, id, (state) => ({ ...state, activeSurface: next }));
+  updateWorkspaceSession(storage, id, (state) => ({ ...state, activeSurface: next, hasSurfaceSelection: true }));
 }
 
 const RUNNING_TRANSCRIPT_STATUSES = new Set(['running', 'thinking', 'processing', 'waiting_for_user', 'in_progress']);
@@ -232,6 +232,20 @@ function removeWindowsForConversationChange(nextConversationId = '') {
   }
 }
 
+export function bindLandingWorkspaceWindows(windows = [], conversationId = '') {
+  const id = String(conversationId || '').trim();
+  if (!id) return windows;
+  let changed = false;
+  const next = windows.map(entry => {
+    if (String(entry?.conversationId || '').trim()
+      || entry?.parentKey !== MAIN_CHAT_WINDOW_ID || entry?.inTab === false
+      || entry?.presentation !== 'hosted' || entry?.region !== 'chat.top') return entry;
+    changed = true;
+    return {...entry, conversationId: id};
+  });
+  return changed ? next : windows;
+}
+
 export function clearWorkspaceWindowsForNewConversation() {
   removeWindowsForConversationChange('');
 }
@@ -327,13 +341,13 @@ export function getScopedWorkspaceWindowsState(conversationId = '') {
 
 export function getScopedWorkspacePresentationMode(conversationId = '') {
   const storage = uiStateStorage();
-  if (!storage) return 'split';
+  if (!storage) return 'full';
   const id = String(conversationId || '').trim();
-  if (!id) return 'split';
+  if (!id) return 'full';
   return readWorkspaceSession(storage, id).workspaceMode === 'focus' ? 'full' : 'split';
 }
 
-export function setScopedWorkspacePresentationMode(conversationId = '', mode = 'split') {
+export function setScopedWorkspacePresentationMode(conversationId = '', mode = 'full') {
   const storage = uiStateStorage();
   if (!storage) return;
   const id = String(conversationId || '').trim();
@@ -788,7 +802,7 @@ function workspacePayloadTargets(turns = []) {
       const steps = Array.isArray(page?.toolSteps) ? page.toolSteps : [];
       steps.forEach((step, stepIndex) => {
         const toolName = workspaceToolName(step);
-        if (!['ui/view/open', 'ui/window/open', 'ui/window/list', 'ui/window/show', 'ui/window/close', 'ui/window/setformdata'].includes(toolName)) return;
+        if (!['ui/view/open', 'ui/window/open', 'ui/window/list', 'ui/window/get', 'ui/window/show', 'ui/window/close', 'ui/window/setformdata'].includes(toolName)) return;
         ['requestPayload', 'responsePayload'].forEach((field) => {
           const payloadId = workspaceToolPayloadReference(step, field);
           if (payloadId) targets.push({ turnIndex, pageIndex, stepIndex, field, payloadId });
@@ -830,7 +844,7 @@ export async function hydrateWorkspaceTranscriptTurns(turns = [], payloadLoader 
   });
   const loaded = await Promise.all(targets.map(async (target) => ({
     ...target,
-    payload: await payloadLoader(target.payloadId),
+    payload: await payloadLoader(target.payloadId).catch(() => null),
   })));
   loaded.forEach(({ turnIndex, pageIndex, stepIndex, field, payload }) => {
     if (!payload || typeof payload !== 'object') return;
@@ -847,6 +861,7 @@ export function syncScopedWorkspaceStateFromTranscriptTurns(
     reopen = false,
     announce = true,
     allowRunning = false,
+    autoRestore = false,
   } = {}
 ) {
   const convID = String(conversationId || '').trim();
@@ -867,12 +882,20 @@ export function syncScopedWorkspaceStateFromTranscriptTurns(
     setScopedWorkspaceSelection(convID, '');
     return null;
   }
-  const selectedWindowId = windows.some((entry) => String(entry?.windowId || '').trim() === String(derived.selectedWindowId || '').trim())
-    ? String(derived.selectedWindowId || '').trim()
+  const preferredWindowId = getScopedWorkspaceSelection(convID) || derived.selectedWindowId;
+  const selectedWindowId = windows.some((entry) => String(entry?.windowId || '').trim() === String(preferredWindowId || '').trim())
+    ? String(preferredWindowId || '').trim()
     : String(windows[0]?.windowId || '').trim();
   const visibleDerived = {...derived, windows, selectedWindowId};
   setScopedWorkspaceState(convID, windows);
   setScopedWorkspaceSelection(convID, selectedWindowId);
+  const presentation = readWorkspaceSession(uiStateStorage(), convID);
+  if (autoRestore && (!presentation.hasSurfaceSelection || presentation.activeSurface === 'workspace') && windows.some((entry) => ['opening', 'ready'].includes(entry.workspaceObject?.lifecycle?.state))
+    && typeof window !== 'undefined'
+    && currentConversationIdFromPath(window.location?.pathname) === convID) {
+    const restored = reopenWorkspaceForConversation(convID);
+    if (restored) setScopedActiveSurface(convID, 'workspace');
+  }
   if (!announce || typeof window === 'undefined') {
     return visibleDerived;
   }
@@ -972,6 +995,9 @@ export function publishConversationSelection(windowId = '', conversationId = '',
 
 export function openConversationInMainWindow(conversationId = '') {
   const targetID = String(conversationId || '').trim();
+  const windows = activeWindows.peek();
+  const bound = bindLandingWorkspaceWindows(windows, targetID);
+  if (bound !== windows) activeWindows.value = bound;
   const conversationSurface = getScopedActiveSurface(targetID) !== 'workspace';
   removeWindowsForConversationChange(targetID);
   const mainWindow = ensureMainChatWindow();

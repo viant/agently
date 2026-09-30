@@ -46,4 +46,25 @@ final class WorkspaceThemeTests: XCTestCase {
         catalog["themes"] = themes
         XCTAssertThrowsError(try WorkspaceThemeCatalog.load(JSONSerialization.data(withJSONObject: catalog)))
     }
+
+    func testOptionalSemanticColorsRemainValidated() throws {
+        var catalog = try XCTUnwrap(JSONSerialization.jsonObject(with: fixture()) as? [String: Any])
+        var themes = try XCTUnwrap(catalog["themes"] as? [[String: Any]])
+        var theme = themes[0]
+        var modes = try XCTUnwrap(theme["modes"] as? [String: [String: Any]])
+        modes["light"]?["text.secondary"] = "#3a4460"
+        modes["light"]?["interaction.foreground"] = "#1a3a8f"
+        modes["light"]?["status.danger.foreground"] = "#ae0020"
+        modes["light"]?["data.categorical.1"] = "#1a3a8f"
+        theme["modes"] = modes
+        themes[0] = theme
+        catalog["themes"] = themes
+        let valid = try WorkspaceThemeCatalog.load(JSONSerialization.data(withJSONObject: catalog))
+        XCTAssertEqual(valid.themes[0].modes["light"]?["interaction.foreground"], .text("#1a3a8f"))
+        modes["light"]?["status.danger.foreground"] = "red"
+        theme["modes"] = modes
+        themes[0] = theme
+        catalog["themes"] = themes
+        XCTAssertThrowsError(try WorkspaceThemeCatalog.load(JSONSerialization.data(withJSONObject: catalog)))
+    }
 }

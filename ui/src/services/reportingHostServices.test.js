@@ -55,6 +55,13 @@ describe('reportingHostServices report-builder preview adapter', () => {
     expect(fetchDatasource).not.toHaveBeenCalled();
   });
 
+  it('forwards cancellation through the authenticated report datasource API', async () => {
+    const controller = new AbortController();
+    fetchDatasource.mockResolvedValue({rows:[]});
+    await fetchReportBuilderPreviewByRef({dataSourceRef:'report',parameters:{limit:1},signal:controller.signal});
+    expect(fetchDatasource).toHaveBeenCalledWith('report',{limit:1},{signal:controller.signal});
+  });
+
   it('projects the initial request and deduplicated tool history without interpreting it', () => {
     expect(buildReportProvenanceFromRows([
       { kind: 'user', content: 'Build a delivery report.' },

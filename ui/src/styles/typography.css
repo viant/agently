@@ -1,0 +1,6 @@
+/* Native form controls do not reliably inherit the document font. The
+   application boundary is attached to the document root, so this also covers
+   Blueprint and Forge portals mounted outside the React root. */
+.agently-application :where(button, input, textarea, select, optgroup, option) {
+  font-family: inherit;
+}

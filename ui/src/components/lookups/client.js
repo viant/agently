@@ -57,29 +57,33 @@ export async function fetchDatasource(id, inputs, options) {
     if (options.writeThrough) body.cache.writeThrough = true;
   }
   const timeoutMs = Math.max(0, Number(options?.timeoutMs || 0));
-  const controller = timeoutMs > 0 && typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
-  let res;
+  const externalSignal = options?.signal;
+  const controller = (timeoutMs > 0 || externalSignal) && typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const abort = () => controller?.abort(externalSignal?.reason);
+  if (externalSignal?.aborted) abort();
+  else externalSignal?.addEventListener('abort',abort,{once:true});
+  const timer = controller && timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
-    res = await fetch(`${baseURL()}/v1/api/datasources/${encodeURIComponent(id)}/fetch`, {
+    const res = await fetch(`${baseURL()}/v1/api/datasources/${encodeURIComponent(id)}/fetch`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: controller?.signal,
     });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null);
+      const detail = String(payload?.error || payload?.message || '').trim();
+      throw new Error(detail || `Lookup could not be loaded (${res.status} ${res.statusText}).`);
+    }
+    return await res.json();
   } catch (error) {
-    if (error?.name === 'AbortError') throw new Error('Lookup timed out. Narrow the search and try again.');
+    if (error?.name === 'AbortError' && !externalSignal?.aborted) throw new Error('Lookup timed out. Narrow the search and try again.');
     throw error;
   } finally {
     if (timer) clearTimeout(timer);
+    externalSignal?.removeEventListener('abort',abort);
   }
-  if (!res.ok) {
-    const payload = await res.json().catch(() => null);
-    const detail = String(payload?.error || payload?.message || '').trim();
-    throw new Error(detail || `Lookup could not be loaded (${res.status} ${res.statusText}).`);
-  }
-  return res.json();
 }
 
 /**

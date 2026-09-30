@@ -9,6 +9,7 @@ view:
       orientation: horizontal
       columns: 2
       divider:
+        visible: true
         sizes: [30,68]
 
     containers:

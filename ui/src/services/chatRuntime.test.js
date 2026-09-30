@@ -1168,6 +1168,48 @@ describe('handleStreamEvent', () => {
 });
 
 describe('dsTick', () => {
+  it('restores a past conversation workspace from the route while the main chat form is empty', async () => {
+    const previousWindow = global.window;
+    global.window = {
+      location: { pathname: '/conversation/conv-route-restore' },
+      sessionStorage: createStorage(),
+      dispatchEvent: vi.fn(),
+    };
+    client.getTranscript.mockReset();
+    client.getTranscript.mockResolvedValueOnce({ conversation: {
+      conversationId: 'conv-route-restore',
+      turns: [{
+        turnId: 'turn-open', status: 'succeeded', execution: { pages: [{ toolSteps: [{
+          toolName: 'ui/window/get', status: 'completed', responsePayload: { window: {
+            windowId: 'advertiserList__conv-route-restore', windowKey: 'advertiserList',
+            conversationId: 'conv-route-restore', parentKey: MAIN_CHAT_WINDOW_ID,
+            presentation: 'hosted', region: 'chat.top',
+            workspaceObject: { version: 1, objectId: 'workspace:advertiserList__conv-route-restore',
+              origin: { turnId: 'turn-open' }, lifecycle: { state: 'ready' } },
+          } },
+        }] }] },
+      }],
+    } });
+    const context = {
+      identity: { windowId: MAIN_CHAT_WINDOW_ID }, resources: { chat: {} },
+      Context(name) {
+        if (name === 'conversations') return { handlers: { dataSource: {
+          peekFormData: () => ({ id: '' }), setFormData: vi.fn(),
+        } } };
+        return null;
+      },
+    };
+    try {
+      await dsTick(context, { conversationID: 'conv-route-restore', allowLiveHydration: true });
+      expect(getScopedWorkspaceWindowsState('conv-route-restore')).toEqual([
+        expect.objectContaining({ windowId: 'advertiserList__conv-route-restore',
+          workspaceObject: expect.objectContaining({ lifecycle: expect.objectContaining({ state: 'ready' }) }) }),
+      ]);
+    } finally {
+      global.window = previousWindow;
+    }
+  });
+
   it('does not fetch transcript for the active live-owned conversation', async () => {
     client.getTranscript.mockReset();
     const context = {

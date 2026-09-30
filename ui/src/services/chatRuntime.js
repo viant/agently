@@ -939,6 +939,14 @@ function getCurrentConversationID(context) {
   return '';
 }
 
+function matchesSelectedConversationOrRouteBootstrap(context, conversationID = '') {
+  const selected = String(getCurrentConversationID(context) || '').trim();
+  if (selected) return selected === conversationID;
+  return !!conversationID && typeof window !== 'undefined'
+    && isMainChatWindowId(getContextWindowId(context))
+    && conversationIDFromPath(window.location?.pathname) === conversationID;
+}
+
 function resolveFeedResetConversationId(chatState = {}, explicitConversationId = '') {
   const direct = String(explicitConversationId || '').trim();
   if (direct) return direct;
@@ -1238,7 +1246,9 @@ export function hydrateConversationFromBootstrapSnapshot(context, snapshot = nul
   publishUsage(conversationID, conversation);
   const chatState = ensureContextResources(context);
   chatState.generatedFiles = Array.isArray(snapshot.generatedFiles) ? snapshot.generatedFiles : [];
-  syncMessagesSnapshot(context, Array.isArray(snapshot.turns) ? snapshot.turns : [], 'bootstrap-cache', Array.isArray(snapshot.pendingElicitations) ? snapshot.pendingElicitations : []);
+  syncMessagesSnapshot(context, Array.isArray(snapshot.turns) ? snapshot.turns : [], 'bootstrap-cache', Array.isArray(snapshot.pendingElicitations) ? snapshot.pendingElicitations : [], {
+    autoRestoreWorkspace: true,
+  });
   renderMergedRowsForContext(context);
   return true;
 }
@@ -1304,7 +1314,10 @@ export async function hydrateMeta(context) {
 
 export function syncMessagesSnapshot(context, turns, reason = 'poll', pendingElicitations = [], options = {}) {
   const chatState = ensureContextResources(context);
-  const currentConversationID = String(getCurrentConversationID(context) || '').trim();
+  const selectedConversationID = String(getCurrentConversationID(context) || '').trim();
+  const bootstrapConversationID = String(options?.routeBootstrapConversationID || '').trim();
+  const currentConversationID = selectedConversationID
+    || (matchesSelectedConversationOrRouteBootstrap(context, bootstrapConversationID) ? bootstrapConversationID : '');
   const normalizedTurns = Array.isArray(turns) ? turns : [];
   const mapped = mapTranscriptToRows(normalizedTurns, { pendingElicitations });
   const runningTurnId = String(
@@ -1357,9 +1370,7 @@ export function syncMessagesSnapshot(context, turns, reason = 'poll', pendingEli
   if (currentConversationID && !hasRunning) {
     Promise.resolve(syncHydratedWorkspaceStateFromTranscriptTurns(currentConversationID, normalizedTurns, {
       reopen: false,
-      // Announce the dormant descriptor so chat can render its Show/Open
-      // attachment. Root gates actual workspace mounting on activeSurface,
-      // so this does not invoke metadata authorization or datasource fetches.
+      autoRestore: options?.autoRestoreWorkspace === true,
       announce: true,
     })).catch(() => {});
   }
@@ -1454,10 +1465,10 @@ export async function dsTick(context, options = {}) {
   let turns = Array.isArray(options?.prefetchedTranscriptTurns)
     ? options.prefetchedTranscriptTurns
     : await fetchTranscript(conversationID, since, transcriptOptions);
-  if (String(getCurrentConversationID(context) || '').trim() !== conversationID) return;
+  if (!matchesSelectedConversationOrRouteBootstrap(context, conversationID)) return;
   if (since && turns.length === 0 && (chatState.lastHasRunning || (_chatStoreRef()?.getProjection?.(conversationID) || []).length > 0)) {
     turns = await fetchTranscript(conversationID, '', transcriptOptions);
-    if (String(getCurrentConversationID(context) || '').trim() !== conversationID) return;
+    if (!matchesSelectedConversationOrRouteBootstrap(context, conversationID)) return;
   }
   if (turns.length > 0) chatState.lastSinceCursor = resolveLastTranscriptCursor(turns);
   const pendingElicitations = Array.isArray(options?.prefetchedPendingElicitations)
@@ -1465,6 +1476,8 @@ export async function dsTick(context, options = {}) {
     : await fetchPendingElicitations(conversationID);
   syncMessagesSnapshot(context, turns, String(options?.reason || 'poll').trim() || 'poll', pendingElicitations, {
     restoreWorkspace: options?.restoreWorkspace,
+    routeBootstrapConversationID: conversationID,
+    autoRestoreWorkspace: options?.autoRestoreWorkspace,
   });
   const result = {
     projection: _chatStoreRef()?.getProjection?.(conversationID) || [],
@@ -2465,6 +2478,7 @@ export async function switchConversation(context, conversationID = '') {
         includeExecutionDetails: true,
       },
       restoreWorkspace: false,
+      autoRestoreWorkspace: true,
       reason: 'history-switch',
     });
     if (!isCurrentRequest()) return;
@@ -2506,6 +2520,7 @@ export async function switchConversation(context, conversationID = '') {
       includeExecutionDetails: true,
     },
     restoreWorkspace: false,
+    autoRestoreWorkspace: true,
     reason: 'history-switch',
   });
   if (!isCurrentRequest()) return;

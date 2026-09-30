@@ -47,8 +47,7 @@ public struct ElicitationOverlay: View {
     public var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
-                Text(pending?.message ?? "Input Required")
-                    .font(.headline)
+                ElicitationMessageView(message: pending?.message ?? "Input Required")
                 if let url = pending?.url, !url.isEmpty, !isMCPAuth {
                     Text(url)
                         .font(.footnote)
@@ -2426,4 +2425,28 @@ enum JSONContainerKind {
             return false
         }
     }
+}
+
+
+private struct ElicitationMessageView: View {
+    let message: String
+    @State private var contentHeight: CGFloat = 28
+    var body: some View {
+        ScrollView {
+            MarkdownRenderer(markdown: message)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(GeometryReader { geometry in Color.clear.preference(key: ElicitationMessageHeight.self, value: geometry.size.height) })
+        }
+        .frame(height: min(240, max(28, contentHeight)))
+        .onPreferenceChange(ElicitationMessageHeight.self) { contentHeight = $0 }
+        .accessibilityIdentifier("elicitation-message-markdown")
+        .environment(\.openURL, OpenURLAction { url in
+            ["http", "https", "mailto", "tel"].contains(url.scheme?.lowercased() ?? "") ? .systemAction : .discarded
+        })
+    }
+}
+
+private struct ElicitationMessageHeight: PreferenceKey {
+    static var defaultValue: CGFloat = 28
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
