@@ -96,6 +96,7 @@ export function subscribeReportBuildProvenance({ conversationId = '' } = {}, lis
 export async function fetchReportBuilderPreviewByRef({
   dataSourceRef = '',
   parameters = {},
+  signal = null,
 } = {}) {
   const normalizedDataSourceRef = String(dataSourceRef || '').trim();
   if (!normalizedDataSourceRef) {
@@ -106,6 +107,7 @@ export async function fetchReportBuilderPreviewByRef({
     parameters && typeof parameters === 'object' && !Array.isArray(parameters)
       ? parameters
       : {},
+    ...(signal ? [{signal}] : []),
   );
 }
 

@@ -19,7 +19,7 @@ import {
   serializeManualToken,
 } from './tokens.js';
 import { listLookupRegistry, fetchDatasource } from './client.js';
-import { applyResolvedChipToken, createEditingChipState, shouldSkipEditorSync } from './chipEditing.js';
+import { applyResolvedChipToken, createEditingChipState, shouldSkipEditorSync, unwrapLookupSelection as unwrapSelection, draftWithEditedChip } from './chipEditing.js';
 import { DEFAULT_LOOKUP_TRIGGER, filterLookupRegistry, findLookupTriggerStart, shouldClearSoleLookupTrigger } from './lookupTrigger.js';
 
 const DEFAULT_TRIGGER = DEFAULT_LOOKUP_TRIGGER;
@@ -212,9 +212,11 @@ function syncEditorContent(root, segments, options = {}) {
       input.addEventListener('keydown', (event) => {
         if (event.key === 'Enter') {
           event.preventDefault();
+          event.stopPropagation();
           onChipEditCommit?.(input.value, segment);
         } else if (event.key === 'Escape') {
           event.preventDefault();
+          event.stopPropagation();
           onChipEditCancel?.();
         } else {
           emitNamedLookupDebug('chip.input.keydown', {
@@ -225,13 +227,14 @@ function syncEditorContent(root, segments, options = {}) {
           });
         }
       });
-      input.addEventListener('blur', () => {
+      input.addEventListener('blur', (event) => {
+        if (event.relatedTarget && wrap.contains(event.relatedTarget)) return;
         emitNamedLookupDebug('chip.input.blur', {
           raw: segment.raw,
           name: segment.name,
           value: input.value,
         });
-        onChipEditCommit?.(input.value, segment);
+        // Focus changes may be opening a picker; Enter commits explicitly.
       });
 
       const button = document.createElement('button');
@@ -257,6 +260,9 @@ function syncEditorContent(root, segments, options = {}) {
       button.style.display = 'inline-flex';
       button.style.alignItems = 'center';
       button.style.justifyContent = 'center';
+      button.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+      });
       button.addEventListener('mousedown', (event) => {
         event.preventDefault();
       });
@@ -292,6 +298,12 @@ function syncEditorContent(root, segments, options = {}) {
     chip.addEventListener('mousedown', (event) => {
       event.preventDefault();
       event.stopPropagation();
+    });
+    chip.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      event.stopPropagation();
+      onChipActivate?.(segment);
     });
     chip.addEventListener('click', (event) => {
       event.preventDefault();
@@ -401,21 +413,6 @@ function resolveLookupRowIdentifier(row = null) {
   );
 }
 
-function unwrapSelection(record) {
-  if (Array.isArray(record)) {
-    if (record.length === 0) return null;
-    const first = record[0];
-    return first?.selected || first;
-  }
-  if (!record || typeof record !== 'object') return record;
-  if (record.selected) return record.selected;
-  if (Array.isArray(record.selection) && record.selection.length > 0) {
-    const first = record.selection[0];
-    return first?.selected || first;
-  }
-  return record;
-}
-
 function normalizeLookupInputs(inputs = []) {
   return (Array.isArray(inputs) ? inputs : []).map((p) => ({
     ...p,
@@ -509,16 +506,17 @@ export default function NamedLookupInput({
   const previousInlineModeRef = useRef(null);
   const skipChipBlurRef = useRef(false);
   const editingChipRef = useRef(editingChip);
+  const currentValueRef = useRef(value);
+  currentValueRef.current = value;
   const registryRef = useRef(registry);
   const chipEditFocusedRef = useRef(false);
 
   useEffect(() => {
     if (typeof onValueResolver !== 'function') return;
     onValueResolver(() => {
-      if (multiline && editorRef.current) {
-        return serializeEditor(editorRef.current);
-      }
-      return value;
+      const draft = multiline && editorRef.current ? serializeEditor(editorRef.current) : currentValueRef.current;
+      const chip = editingChipRef.current;
+      return draftWithEditedChip(draft, chip, chipEditInputRef.current?.value ?? chip?.value);
     });
   }, [multiline, onValueResolver, value]);
 
@@ -877,11 +875,14 @@ export default function NamedLookupInput({
         if (!selected) return true;
 
         const token = serializeToken(entry, selected);
+        const parsedSelection = parseTokens(token)[0];
+        if (!parsedSelection?.id || parsedSelection.id === '?' || !String(parsedSelection.label || '').replace(/\|/g, '').trim()) return false;
         const label = tokenLabel(token, unresolvedChipLabel(entry.name));
         let nextStored = '';
         if (chipRaw) {
-          const resolved = applyResolvedChipToken(value, chipRaw, token);
-          nextStored = resolved.ok ? resolved.nextStored : token;
+          const resolved = applyResolvedChipToken(currentValueRef.current, chipRaw, token);
+          if (!resolved.ok) { setEditingChip(prev => prev ? {...prev, error: resolved.error} : prev); return false; }
+          nextStored = resolved.nextStored;
         } else if (multiline && editorRef.current) {
           nextStored = replaceDisplayRangeWithChip(
             editorRef.current,
@@ -961,7 +962,9 @@ export default function NamedLookupInput({
         nextStored = replaceChipToken(editorRef.current, activeTrigger.chipRaw, token, label);
       }
       if (!nextStored) {
-        nextStored = token;
+        const resolved = applyResolvedChipToken(currentValueRef.current, activeTrigger?.chipRaw, token);
+        if (!resolved.ok) return;
+        nextStored = resolved.nextStored;
       }
       onChange(nextStored);
       lastSyncedValueRef.current = nextStored;
@@ -1079,6 +1082,7 @@ export default function NamedLookupInput({
       nextValue: value,
       hasChipEditor,
       activeChipRaw,
+      chipCountMatches: editorRef.current.querySelectorAll('[data-token]').length === segments.filter(segment => segment.kind === 'chip').length,
     })) {
       emitNamedLookupDebug('chip.sync.skipped', {
         raw: editingChip?.raw,
@@ -1100,6 +1104,7 @@ export default function NamedLookupInput({
         handleChipClick({
           raw: segment.raw,
           name: segment.name,
+          id: parsed?.id,
           label: parsed?.label || unresolvedChipLabel(segment.name),
           unresolved: parsed?.id === '?',
         });

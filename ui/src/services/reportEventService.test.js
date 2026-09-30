@@ -8,6 +8,16 @@ import { emitReportUIEvent } from './reportEventService';
 describe('reportEventService', () => {
   beforeEach(() => executeTool.mockReset());
 
+  it('does not publish conversation telemetry for a standalone menu report', async () => {
+    await expect(emitReportUIEvent({kind: 'report.context_updated', windowId: 'menu-spo'})).resolves.toEqual({recorded: false});
+    expect(executeTool).not.toHaveBeenCalled();
+  });
+
+  it('omits other report telemetry when the window has no conversation', async () => {
+    await expect(emitReportUIEvent({kind: 'report.export_complete'})).resolves.toEqual({recorded: false});
+    expect(executeTool).not.toHaveBeenCalled();
+  });
+
   it('records a scoped report UI event', async () => {
     executeTool.mockResolvedValue({ recorded: true });
     await emitReportUIEvent({

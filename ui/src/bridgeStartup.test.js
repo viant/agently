@@ -75,6 +75,7 @@ describe('bridge startup readiness', () => {
     stop();
 
     expect(calls.slice(0, 4)).toEqual(['ui.hello', 'ui.snapshot.get', 'ui.snapshot', 'ui.poll']);
-    expect(storedClientId.length).toBeGreaterThan(0);
+    expect(storedClientId).toBe('');
+    expect(window.__forgeUIBridgeClientId.length).toBeGreaterThan(0);
   });
 });

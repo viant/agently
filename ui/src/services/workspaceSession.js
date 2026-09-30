@@ -1,26 +1,44 @@
-// One conversation-scoped presentation record. Resource authorization stays with
-// the server/renderer; this cache never grants access or executes restored actions.
-const key = (id) => `agently.workspaceSession:${id}`;
-const parse = (storage, name, fallback) => {
-  try { return JSON.parse(storage?.getItem(name) || 'null') ?? fallback; } catch { return fallback; }
-};
+// Workspace descriptors remain in memory and are restored from the server.
+// Persist only presentation preferences; never trust browser-stored content.
+const preferenceKey = (id) => `agently.workspacePreferences:${id}`;
+function readPreferences(storage, id) {
+  try {
+    const value = JSON.parse(storage?.getItem(preferenceKey(id)) || 'null');
+    if (!value || value.version !== 1) return {};
+    return {
+      ...(typeof value.activeWindowId === 'string' ? {activeWindowId: value.activeWindowId} : {}),
+      workspaceMode: value.workspaceMode === 'split' ? 'split' : 'focus',
+      ...(['conversation', 'workspace'].includes(value.activeSurface)
+        ? {activeSurface: value.activeSurface, hasSurfaceSelection: true} : {}),
+    };
+  } catch (_) { return {}; }
+}
+const sessionsByClient = new WeakMap();
+const fallbackClient = {};
+function sessions(client) {
+  const owner = client && typeof client === 'object' ? client : fallbackClient;
+  if (!sessionsByClient.has(owner)) sessionsByClient.set(owner, new Map());
+  return sessionsByClient.get(owner);
+}
 export function readWorkspaceSession(storage, conversationId) {
-  const saved = parse(storage, key(conversationId), null);
-  if (saved?.version === 1 && saved.conversationId === conversationId) return saved;
-  const legacy = parse(storage, `agently.workspaceState:${conversationId}`, null);
-  const windows = legacy ? (Array.isArray(legacy.windows) ? legacy.windows : [legacy]) : [];
+  const saved = sessions(storage).get(conversationId);
+  if (saved) return saved;
   return {
-    version: 1, conversationId, windows,
-    activeWindowId: storage?.getItem(`agently.selectedWorkspaceWindowId:${conversationId}`) || '',
-    activeSurface: storage?.getItem(`agently.activeSurface:${conversationId}`) === 'workspace' ? 'workspace' : 'conversation',
-    workspaceMode: storage?.getItem(`agently.workspacePresentationMode:${conversationId}`) === 'full' ? 'focus' : 'split',
-    closedWindowIds: parse(storage, `agently.dismissedWorkspaceWindowIds:${conversationId}`, []),
+    version: 1, conversationId, windows: [], activeWindowId: '',
+    activeSurface: 'conversation', workspaceMode: 'focus', closedWindowIds: [],
+    hasSurfaceSelection: false, ...readPreferences(storage, conversationId),
   };
 }
 export function updateWorkspaceSession(storage, conversationId, change) {
   const previous = readWorkspaceSession(storage, conversationId);
   const next = change(previous);
-  try { storage?.setItem(key(conversationId), JSON.stringify(next)); } catch { /* Session storage may be unavailable. */ }
+  sessions(storage).set(conversationId, next);
+  try {
+    storage?.setItem(preferenceKey(conversationId), JSON.stringify({
+      version: 1, activeWindowId: next.activeWindowId, workspaceMode: next.workspaceMode,
+      ...(next.hasSurfaceSelection ? {activeSurface: next.activeSurface} : {}),
+    }));
+  } catch (_) { /* Storage may be unavailable; retain the in-memory preference. */ }
   return next;
 }
 function mergeViewState(previous, incoming) {

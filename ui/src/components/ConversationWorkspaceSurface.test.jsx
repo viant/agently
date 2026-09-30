@@ -20,6 +20,12 @@ expect(resolveChatWindowRenderKey({windowId: 'chat/new'})).toBe('chat/new:0');
 expect(resolveChatWindowRenderKey({windowId: 'chat/new', conversationInstanceVersion: 2})).toBe('chat/new:2');
 
 describe('ConversationWorkspaceSurface', () => {
+  it('renders a landing workspace without trying to mount a null chat window',()=>{
+    const html=renderToStaticMarkup(<ConversationWorkspaceSurface activeSurface="workspace"
+      workspaceWindow={{windowId:'menu-advertisers',windowKey:'advertiserList',windowTitle:'Advertisers'}} chatWindow={null} />);
+    expect(html).toContain('data-window-id="menu-advertisers"');
+    expect(html).not.toContain('data-window-id=""');
+  });
   it('uses no tabs for one object and one tab per object for multiple objects by default', () => {
     expect(shouldShowWorkspaceTabs(0)).toBe(false);
     expect(shouldShowWorkspaceTabs(1)).toBe(false);
@@ -117,7 +123,7 @@ describe('ConversationWorkspaceSurface', () => {
     expect(html).toContain('data-window-id="chat"');
     expect(html).toContain('is-composer-only');
     expect(html).toContain('app-workspace-composer-toggle');
-    expect(html).toContain('aria-label="Expand composer options"');
+    expect(html).toContain('aria-label="Show composer"');
     expect(html).toContain('aria-label="Close Reports"');
     expect(html).toContain('app-workspace-window-control is-close');
     expect(html).toContain('app-workspace-window-control is-layout');

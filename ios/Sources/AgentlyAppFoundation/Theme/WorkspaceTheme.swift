@@ -58,6 +58,17 @@ public struct WorkspaceTheme: Decodable, Sendable {
     ]
     private static let optionalColors: Set<String> = [
         "lookup.background", "lookup.border", "required.background", "required.border",
+        "canvas", "surface.subtle", "surface.raised", "text.secondary", "text.muted", "text.inverse",
+        "border", "border.strong", "interaction.foreground", "interaction.hover",
+        "interaction.active", "interaction.selectedBackground",
+        "status.info.background", "status.info.foreground", "status.info.border",
+        "status.success.background", "status.success.foreground", "status.success.border",
+        "status.warning.background", "status.warning.foreground", "status.warning.border",
+        "status.danger.background", "status.danger.foreground", "status.danger.border",
+        "data.categorical.1", "data.categorical.2", "data.categorical.3",
+        "data.categorical.4", "data.categorical.5", "data.categorical.6",
+        "data.sequential.1", "data.sequential.2", "data.sequential.3",
+        "data.sequential.4", "data.sequential.5",
     ]
 
     fileprivate func validate() throws {

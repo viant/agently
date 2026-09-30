@@ -38,7 +38,7 @@
 
 .app-execution-toolbar h2 {
   margin: 0;
-  font-family: "Iowan Old Style", "Palatino Linotype", serif;
+  font-family: var(--app-font-family);
   font-size: 1.9rem;
   font-weight: 700;
   letter-spacing: -0.03em;

@@ -6,11 +6,13 @@ import {
   isConversationHostedWorkspaceChild,
   isHostedWorkspaceChildOfMainChat,
   resolveActiveConversationId,
+  resolveConversationWorkspaceAttachmentWindows,
   resolveChatChromeWindow,
   resolveEffectiveWorkspaceCollapsed,
   resolveHostedWorkspaceTabLabel,
   resolveHostedWorkspaceTabs,
   resolveHostedBottomWindow,
+  resolveShellWorkspaceWindows,
   hasRenderedChatContent,
   resolveSplitChatClassName,
   resolveRouteBootstrapAction,
@@ -37,7 +39,39 @@ import {
   shouldUseConversationWorkspaceFallback
 } from './Root.jsx';
 
+describe('landing-page workspace ownership', () => {
+  it('renders menu windows without a conversation and isolates conversation-owned windows', () => {
+    const windows = [
+      ...['advertisers', 'campaigns', 'spo'].map((windowKey) => ({windowId: windowKey, windowKey,
+        parentKey: 'chat/new', presentation: 'hosted', region: 'chat.top'})),
+      {windowId: 'private', conversationId: 'conv-1', parentKey: 'chat/new', presentation: 'hosted', region: 'chat.top'},
+      {windowId: 'bottom', presentation: 'hosted', region: 'chat.bottom'},
+    ];
+    expect(resolveShellWorkspaceWindows(windows).map((entry) => entry.windowId)).toEqual(['advertisers', 'campaigns', 'spo']);
+    expect(resolveShellWorkspaceWindows(windows, 'conv-1').map((entry) => entry.windowId)).toEqual(['private']);
+    expect(isConversationHostedWorkspaceChild(windows[0], '')).toBe(false);
+    expect(isConversationHostedWorkspaceChild(windows[0], 'conv-1')).toBe(false);
+    expect(resolveHostedBottomWindow(null,null,[windows[4]],'')).toBeNull();
+  });
+});
+
 describe('Root window selection helpers', () => {
+  it('shows transcript-restored workspace references when the original open did not acknowledge', () => {
+    const restored = {
+      windowId: 'advertiserList__conv-1',
+      windowKey: 'advertiserList',
+      conversationId: 'conv-1',
+      workspaceObject: {
+        objectId: 'workspace:advertiserList__conv-1',
+        origin: { turnId: 'turn-open' },
+        lifecycle: { state: 'ready' },
+      },
+    };
+    expect(resolveConversationWorkspaceAttachmentWindows([], [restored], [])).toEqual([restored]);
+    const live = { ...restored, windowTitle: 'Advertisers', windowForm: { advertiserListMode: 'starred' } };
+    expect(resolveConversationWorkspaceAttachmentWindows([], [restored], [live])).toEqual([live]);
+  });
+
   it('scrolls only for a terminal event on the focused conversation surface', () => {
     expect(shouldScrollConversationAfterTurn({
       eventConversationId: 'conv-1', activeConversationId: 'conv-1',
@@ -165,19 +199,22 @@ describe('Root window selection helpers', () => {
     expect(resolveAcknowledgedWorkspaceWindow({...input, rows: [{kind: 'assistant', turnId: 'new-turn', content: 'Opened.'}]})).toBe(candidate);
   });
 
-  it('activates only a ready, explicitly opened object in the current conversation', () => {
+  it('activates an acknowledged navigation while its content is still opening', () => {
     const input = { activeSurface: 'conversation', mainConversationId: 'conv-1', selectedWindowId: 'resource-1',
       conversationRows: [{kind: 'assistant', turnId: 'turn-1', content: 'The workspace is open.', status: 'completed'}],
       activeWorkspaceWindow: { windowId: 'resource-1', conversationId: 'conv-1', hostOpenState: 'fresh',
         workspaceObject: { origin: { turnId: 'turn-1' }, lifecycle: { state: 'ready' } } } };
     expect(shouldPromoteFreshWorkspaceSurface(input)).toBe(true);
+    expect(shouldPromoteFreshWorkspaceSurface({...input,turnRunning:true})).toBe(false);
     expect(shouldPromoteFreshWorkspaceSurface({...input, activeWorkspaceWindow: {...input.activeWorkspaceWindow,
       workspaceObject: {...input.activeWorkspaceWindow.workspaceObject, lastActivatedBy: {turnId: 'latest-turn'}}}})).toBe(false);
     expect(shouldPromoteFreshWorkspaceSurface({...input, conversationRows: []})).toBe(false);
     expect(shouldPromoteFreshWorkspaceSurface({...input, conversationRows: [{...input.conversationRows[0], status: 'streaming'}]})).toBe(false);
     expect(shouldPromoteFreshWorkspaceSurface({ ...input, mainConversationId: 'other' })).toBe(false);
     expect(shouldPromoteFreshWorkspaceSurface({ ...input, activeWorkspaceWindow: { ...input.activeWorkspaceWindow, hostOpenState: 'historical_replay' } })).toBe(false);
-    for (const state of ['opening', 'failed', 'closed']) {
+    expect(shouldPromoteFreshWorkspaceSurface({ ...input, activeWorkspaceWindow: { ...input.activeWorkspaceWindow,
+      workspaceObject: { origin: { turnId: 'turn-1' }, lifecycle: { state: 'opening' } } } })).toBe(true);
+    for (const state of ['failed', 'closed']) {
       expect(shouldPromoteFreshWorkspaceSurface({ ...input, activeWorkspaceWindow: { ...input.activeWorkspaceWindow,
         workspaceObject: { origin: { turnId: 'turn-1' }, lifecycle: { state } } } })).toBe(false);
     }

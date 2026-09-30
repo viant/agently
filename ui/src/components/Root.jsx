@@ -21,12 +21,13 @@ import UsageBar from './UsageBar';
 import TurnProgressStatus from './TurnProgressStatus';
 import ConversationWorkspaceSurface from './ConversationWorkspaceSurface';
 import StatusBar from './StatusBar';
-import Sidebar from './Sidebar';
+import WorkspaceSidebar from './WorkspaceSidebar';
 import ScheduleConversationHistory from './ScheduleConversationHistory';
 import ElicitationOverlay from './ElicitationOverlay';
 import { useApprovalQueue } from '../hooks/useApprovalQueue';
-import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, dismissWorkspaceWindowForConversation, ensureWorkspaceWindowForConversation, getScopedActiveSurface, getScopedConversationSelection, getScopedWorkspacePresentationMode, getScopedWorkspaceSelection, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, restoreWorkspaceNavigationTrailEntry, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
+import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, dismissWorkspaceWindowForConversation, ensureWorkspaceWindowForConversation, getScopedActiveSurface, getScopedConversationSelection, getScopedWorkspacePresentationMode, getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, restoreWorkspaceNavigationTrailEntry, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
+import { bindLandingWorkspaceWindows } from '../services/conversationWindow';
 import { conversationIDFromPath, publishActiveConversation } from '../services/chatRuntime';
 import { beginLogin, getAuthMeSilently, getAuthProvidersSilently } from '../services/agentlyClient';
 import { onGoalDraftOpen } from '../services/goalDraftBus';
@@ -35,7 +36,6 @@ import { useChatProjection, useChatIsRunning } from '../services/chatStore.js';
 import { resolveWorkspaceAttachmentOwnerIndex } from '../services/workspaceAttachment.js';
 import { currentPendingMCPAuth, resumePendingMCPAuth } from '../services/mcpAuth';
 
-const SIDEBAR_WIDTH_KEY = 'agently.sidebarWidth';
 const SIDEBAR_DEFAULT_WIDTH = 320;
 const SIDEBAR_MIN_WIDTH = 220;
 const SIDEBAR_MAX_WIDTH = 520;
@@ -46,6 +46,17 @@ const WORKSPACE_MIN_HEIGHT = 240;
 const WORKSPACE_MAX_HEIGHT = 960;
 const TERMINAL_TURN_ACTIVITY_TYPES = new Set(['turn_completed', 'turn_failed', 'turn_canceled']);
 const CONVERSATION_RESTORE_ACTIVITY_TYPES = new Set(['turn_started', 'turn_queued', 'turn_submitted']);
+
+export function resolveConversationWorkspaceAttachmentWindows(history = [], restored = [], live = []) {
+  const byWindowId = new Map();
+  for (const entries of [history, restored, live]) {
+    for (const entry of Array.isArray(entries) ? entries : []) {
+      const windowId = String(entry?.windowId || '').trim();
+      if (windowId) byWindowId.set(windowId, entry);
+    }
+  }
+  return [...byWindowId.values()];
+}
 
 export function shouldRestoreConversationForActivity({
   eventConversationId = '',
@@ -88,10 +99,10 @@ export function scrollConversationFeedToEnd(root = null) {
   return true;
 }
 
-function clampSidebarWidth(value) {
+function clampSidebarWidth(value, min = SIDEBAR_MIN_WIDTH, max = SIDEBAR_MAX_WIDTH) {
   const next = Number(value || 0);
   if (!Number.isFinite(next)) return SIDEBAR_DEFAULT_WIDTH;
-  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(next)));
+  return Math.min(max, Math.max(min, Math.round(next)));
 }
 
 export function isCompactShellViewport(width) {
@@ -293,18 +304,19 @@ export function shouldPromoteFreshWorkspaceSurface({
   activeWorkspaceWindow = null,
   selectedWindowId = '',
   conversationRows = [],
+  turnRunning = false,
 } = {}) {
-  // A live explicit open is eligible only after the renderer acknowledges readiness.
+  // The navigation command selects the shell while protected content loads.
   const originTurnId = activeWorkspaceWindow?.workspaceObject?.lastActivatedBy?.turnId || activeWorkspaceWindow?.workspaceObject?.origin?.turnId;
   const confirmationCommitted = conversationRows.some((row) => row.turnId === originTurnId && (
     (row.kind === 'assistant' && !!String(row.content || '').trim() && !['running', 'streaming', 'pending'].includes(row.status))
     || (row.kind === 'iteration' && row.lifecycle === 'completed' && row.rounds?.some((round) => round.finalResponse && !!String(round.content || '').trim()))
   ));
-  return confirmationCommitted && activeSurface !== 'workspace'
+  return !turnRunning && confirmationCommitted && activeSurface !== 'workspace'
     && !!mainConversationId
     && activeWorkspaceWindow?.conversationId === mainConversationId
     && activeWorkspaceWindow?.hostOpenState === 'fresh'
-    && activeWorkspaceWindow?.workspaceObject?.lifecycle?.state === 'ready'
+    && ['opening', 'ready'].includes(activeWorkspaceWindow?.workspaceObject?.lifecycle?.state)
     && !!originTurnId
     && activeWorkspaceWindow?.windowId === selectedWindowId;
 
@@ -350,8 +362,15 @@ function isChatBottomRegionWindow(windowEntry = null) {
 
 function windowBelongsToConversation(windowEntry = null, conversationId = '') {
   const targetId = String(conversationId || '').trim();
-  if (!targetId) return false;
+  if (!targetId || !windowEntry) return false;
   return String(windowEntry?.conversationId || '').trim() === targetId;
+}
+
+export function resolveShellWorkspaceWindows(windows = [], conversationId = '') {
+  return windows.filter((entry) => isHostedWorkspaceChildOfMainChat(entry)
+    && (String(conversationId || '').trim()
+      ? windowBelongsToConversation(entry, conversationId)
+      : !String(entry?.conversationId || '').trim()));
 }
 
 export function resolveHostedBottomWindow(selectedWindow = null, mainChatWindow = null, windows = [], conversationId = '') {
@@ -555,14 +574,14 @@ export default function Root() {
     if (typeof window === 'undefined') return true;
     return !isCompactShellViewport(window.innerWidth);
   });
+  const [layoutTopbarActions, setLayoutTopbarActions] = useState([]);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
-    if (typeof window === 'undefined') return SIDEBAR_DEFAULT_WIDTH;
-    try {
-      return clampSidebarWidth(window.localStorage?.getItem(SIDEBAR_WIDTH_KEY));
-    } catch (_) {
-      return SIDEBAR_DEFAULT_WIDTH;
-    }
+    return SIDEBAR_DEFAULT_WIDTH;
   });
+  const [sidebarPreferenceKey, setSidebarPreferenceKey] = useState('');
+  const [sidebarPreferenceFormat, setSidebarPreferenceFormat] = useState('object');
+  const [sidebarPreferencesReady, setSidebarPreferencesReady] = useState(false);
+  const sidebarBoundsRef = useRef({ min: SIDEBAR_MIN_WIDTH, max: SIDEBAR_MAX_WIDTH });
   // Render the shell optimistically. Protected endpoints still emit the
   // authoritative unauthorized event; auth discovery must not gate chat.
   const [authState, setAuthState] = useState('ready');
@@ -570,7 +589,7 @@ export default function Root() {
   const [oauthProviderLabel, setOAuthProviderLabel] = useState('');
   const developerMode = useDeveloperMode();
   const [goalDraftState, setGoalDraftState] = useState({ isOpen: false, conversationId: '', initialDraft: '' });
-  const [workspacePresentationMode, setWorkspacePresentationModeState] = useState('split');
+  const [workspacePresentationMode, setWorkspacePresentationModeState] = useState('full');
   const [workspaceComposerExpanded, setWorkspaceComposerExpanded] = useState(false);
   const [activeSurface, setActiveSurfaceState] = useState('conversation');
   const [workspaceHeight, setWorkspaceHeight] = useState(WORKSPACE_DEFAULT_HEIGHT);
@@ -615,6 +634,11 @@ export default function Root() {
     || ''
   ).trim();
   const projectedConversationRows = useChatProjection(mainConversationId);
+  useEffect(() => {
+    const windows = activeWindows.peek();
+    const bound = bindLandingWorkspaceWindows(windows,mainConversationId);
+    if (bound !== windows) activeWindows.value = bound;
+  }, [mainConversationId]);
   const chatRunning = useChatIsRunning(mainConversationId);
   const [readChatRows, setReadChatRows] = useState({conversationId: '', keys: []});
   const assistantRows = projectedConversationRows.filter((row) => row.kind === 'assistant' || row.kind === 'iteration');
@@ -634,7 +658,9 @@ export default function Root() {
     [mainConversationId, activeWindows.value]
   );
   const workspaceWindows = useMemo(
-    () => resolveWorkspaceWindowsForConversation(mainConversationId).map((entry) => attachResolvedMetrics(entry)),
+    () => (mainConversationId
+      ? resolveWorkspaceWindowsForConversation(mainConversationId)
+      : resolveShellWorkspaceWindows(activeWindows.value || [])).map((entry) => attachResolvedMetrics(entry)),
     [mainConversationId, activeWindows.value, selectedWindowId.value, selectedTabId.value]
   );
   const workspaceStatePersistenceSignature = workspaceWindows.map((entry) => {
@@ -653,7 +679,8 @@ export default function Root() {
         selectedWindow
         && (
           (selectedWindow?.inTab !== false
-            && windowBelongsToConversation(selectedWindow, mainConversationId)
+            && (windowBelongsToConversation(selectedWindow, mainConversationId)
+              || (!mainConversationId && resolveShellWorkspaceWindows([selectedWindow]).length > 0))
             && isWorkspaceRegionWindow(selectedWindow))
           || isConversationHostedWorkspaceChild(selectedWindow, mainConversationId)
         )
@@ -677,7 +704,7 @@ export default function Root() {
   const hostedBottomWindow = resolveHostedBottomWindow(selectedWindow, effectiveMainChatWindow, activeWindows.value, mainConversationId);
   const selectedWindowShowsChatChrome = shouldShowChatChrome(selectedWindow);
   const shouldRenderSplitShell = !!(
-    effectiveMainChatWindow
+    (effectiveMainChatWindow || activeWorkspaceWindow)
     && (
       !selectedWindow
       ||
@@ -930,11 +957,32 @@ export default function Root() {
   }), []);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || !sidebarPreferencesReady) return;
     try {
-      window.localStorage?.setItem(SIDEBAR_WIDTH_KEY, String(clampSidebarWidth(sidebarWidth)));
+      if (sidebarPreferenceKey && sidebarPreferenceFormat === 'number') {
+        window.localStorage?.setItem(sidebarPreferenceKey, String(clampSidebarWidth(sidebarWidth, sidebarBoundsRef.current.min, sidebarBoundsRef.current.max)));
+      } else if (sidebarPreferenceKey) {
+        const current = JSON.parse(window.localStorage?.getItem(sidebarPreferenceKey) || '{}');
+        window.localStorage?.setItem(sidebarPreferenceKey, JSON.stringify({ ...current, width: clampSidebarWidth(sidebarWidth, sidebarBoundsRef.current.min, sidebarBoundsRef.current.max) }));
+      }
     } catch (_) {}
-  }, [sidebarWidth]);
+  }, [sidebarWidth, sidebarPreferenceKey, sidebarPreferenceFormat, sidebarPreferencesReady]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return () => {};
+    const applyLayoutWidth = (event) => {
+      const width = Number(event?.detail?.width);
+      const min = Number(event?.detail?.min);
+      const max = Number(event?.detail?.max);
+      sidebarBoundsRef.current = Number.isFinite(min) && Number.isFinite(max) && max >= min ? { min, max } : { min: SIDEBAR_MIN_WIDTH, max: SIDEBAR_MAX_WIDTH };
+      if (Number.isFinite(width) && width > 0) setSidebarWidth(clampSidebarWidth(width, sidebarBoundsRef.current.min, sidebarBoundsRef.current.max));
+      setSidebarPreferenceKey(String(event?.detail?.preferenceKey || ''));
+      setSidebarPreferenceFormat(event?.detail?.preferenceFormat === 'number' ? 'number' : 'object');
+      setSidebarPreferencesReady(true);
+    };
+    window.addEventListener('agently:layout-width', applyLayoutWidth);
+    return () => window.removeEventListener('agently:layout-width', applyLayoutWidth);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
@@ -973,7 +1021,7 @@ export default function Root() {
       const sidebarState = resizeStateRef.current;
       if (sidebarState) {
         const delta = Number(event.clientX || 0) - sidebarState.startX;
-        setSidebarWidth(clampSidebarWidth(sidebarState.startWidth + delta));
+        setSidebarWidth(clampSidebarWidth(sidebarState.startWidth + delta, sidebarBoundsRef.current.min, sidebarBoundsRef.current.max));
         return;
       }
       const workspaceState = workspaceResizeStateRef.current;
@@ -1146,9 +1194,16 @@ export default function Root() {
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
     let active = true;
-    const bump = () => {
+    const bump = (event) => {
       queueMicrotask(() => {
         if (!active) return;
+        if (event?.type === 'agently:workspace-state') {
+          const routeID = conversationIDFromPath(window.location.pathname);
+          if (routeID && routeID === String(event?.detail?.conversationId || '').trim()) {
+            setActiveSurfaceState(getScopedActiveSurface(routeID));
+            setWorkspacePresentationModeState(getScopedWorkspacePresentationMode(routeID));
+          }
+        }
         setConversationSelectionEpoch((value) => value + 1);
       });
     };
@@ -1235,7 +1290,7 @@ export default function Root() {
   useEffect(() => {
     const conversationId = String(mainConversationId || '').trim();
     if (!conversationId) {
-      setWorkspacePresentationModeState('split');
+      setWorkspacePresentationModeState('full');
       return;
     }
     setWorkspacePresentationModeState(getScopedWorkspacePresentationMode(conversationId));
@@ -1254,6 +1309,7 @@ export default function Root() {
       activeWorkspaceWindow,
       selectedWindowId: selectedWindow?.windowId,
       conversationRows: projectedConversationRows,
+      turnRunning: chatRunning,
     })) return;
     const descriptor = activeWorkspaceWindow.workspaceObject;
     const key = JSON.stringify([mainConversationId, activeWorkspaceWindow.windowId, descriptor.lastActivatedBy?.turnId || descriptor.origin?.turnId]);
@@ -1261,7 +1317,7 @@ export default function Root() {
     activatedWorkspaceIntents.current.add(key);
     setWorkspacePresentationMode('full');
     setActiveSurface('workspace');
-  }, [activeSurface, activeWorkspaceWindow, developerMode, mainConversationId, selectedWindow?.windowId, setActiveSurface, projectedConversationRows]);
+  }, [activeSurface, activeWorkspaceWindow, developerMode, mainConversationId, selectedWindow?.windowId, setActiveSurface, projectedConversationRows, chatRunning]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
@@ -1302,11 +1358,8 @@ export default function Root() {
     };
   }, [activeSurface, effectiveWorkspaceFull, mainConversationId, returnToConversationSurface]);
 
-  useEffect(() => {
-    if (showWorkspacePane) return;
-    if (activeSurface !== 'workspace') return;
-    setActiveSurface('conversation');
-  }, [activeSurface, setActiveSurface, showWorkspacePane]);
+  // A workspace may be absent while its transcript is still hydrating. The
+  // surface renders chat as a fallback without overwriting the saved selection.
 
   useEffect(() => {
     const conversationId = String(mainConversationId || '').trim();
@@ -1355,11 +1408,11 @@ export default function Root() {
         showIntakeDetails: false,
         toolFeedDock: showChatChrome ? 'right' : 'inline',
         workspaceWindow: showWorkspacePane ? activeWorkspaceWindow : null,
-        workspaceWindows: (() => {
-          const history = new Map(getWorkspaceHistory(mainConversationId).map((entry) => [entry.windowId, entry]));
-          workspaceWindows.forEach((entry) => history.set(entry.windowId, entry));
-          return [...history.values()];
-        })(),
+        workspaceWindows: resolveConversationWorkspaceAttachmentWindows(
+          getWorkspaceHistory(mainConversationId),
+          getScopedWorkspaceWindowsState(mainConversationId),
+          workspaceWindows,
+        ),
         workspaceVisible: developerMode
           ? (showWorkspacePane && !effectiveWorkspaceCollapsed)
           : (showWorkspacePane && activeSurface === 'workspace'),
@@ -1368,11 +1421,12 @@ export default function Root() {
         <div
           className={`app-shell${isCompactShell ? ' is-compact-shell' : ''}`}
           style={{
-            '--app-sidebar-width': `${isCompactShell ? 0 : (isSidebarOpen ? clampSidebarWidth(sidebarWidth) : 64)}px`
+            '--app-sidebar-width': `${isCompactShell ? 0 : (isSidebarOpen ? clampSidebarWidth(sidebarWidth, sidebarBoundsRef.current.min, sidebarBoundsRef.current.max) : 64)}px`
           }}
         >
           <MenuBar
             approvals={approvals}
+            topbarActions={layoutTopbarActions}
             onToggleSidebar={() => setIsSidebarOpen((open) => !open)}
             conversationId={conversationIDFromPath(typeof window !== 'undefined' ? window.location.pathname : '')}
           />
@@ -1387,8 +1441,15 @@ export default function Root() {
             />
           ) : null}
           {(!isCompactShell || isSidebarOpen) ? (
-            <Sidebar
+            <WorkspaceSidebar
+              conversationId={mainConversationId}
+              onOpenWorkspace={() => {
+                setWorkspacePresentationMode('full');
+                setActiveSurface('workspace');
+              }}
               collapsed={!isCompactShell && !isSidebarOpen}
+              onExpand={() => setIsSidebarOpen(true)}
+              onTopbarActionsChange={setLayoutTopbarActions}
               onNavigate={isCompactShell ? () => setIsSidebarOpen(false) : undefined}
             />
           ) : null}
@@ -1401,7 +1462,7 @@ export default function Root() {
               onPointerDown={(event) => {
                 resizeStateRef.current = {
                   startX: Number(event.clientX || 0),
-                  startWidth: clampSidebarWidth(sidebarWidth)
+                  startWidth: clampSidebarWidth(sidebarWidth, sidebarBoundsRef.current.min, sidebarBoundsRef.current.max)
                 };
                 try { document.body.style.cursor = 'col-resize'; } catch (_) {}
                 try { document.body.style.userSelect = 'none'; } catch (_) {}
@@ -1437,7 +1498,7 @@ export default function Root() {
                   <div className="app-main-window-header-title">{linkedChildWindow ? 'Linked conversation' : activeWindowTitle}</div>
                 </div>
               ) : null}
-              {showChatChrome ? <TurnProgressStatus conversationId={activeConversationId} developerMode={developerMode} connectionResumePending={mcpResumePending} /> : null}
+              {mainConversationId ? <TurnProgressStatus conversationId={mainConversationId} developerMode={developerMode} connectionResumePending={mcpResumePending} /> : null}
               {shouldRenderSplitShell ? (
                 <ConversationWorkspaceSurface
                   activeSurface={activeSurface}
