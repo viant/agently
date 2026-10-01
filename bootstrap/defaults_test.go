@@ -204,3 +204,28 @@ func hasBundle(bundles []string, bundle string) bool {
 	}
 	return false
 }
+
+func TestDefaultCoderDiscoversInstalledToolsAndSkills(t *testing.T) {
+	data, err := DefaultsFS.ReadFile("defaults/agents/coder/coder.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Tool struct {
+			Items []struct {
+				Pattern string `yaml:"pattern"`
+			} `yaml:"items"`
+		} `yaml:"tool"`
+		Skills []string `yaml:"skills"`
+	}
+	if err = yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	allTools := false
+	for _, item := range cfg.Tool.Items {
+		allTools = allTools || item.Pattern == "*"
+	}
+	if !allTools || len(cfg.Skills) != 1 || cfg.Skills[0] != "*" {
+		t.Fatalf("coder must discover installed tools and skills: %+v", cfg)
+	}
+}
