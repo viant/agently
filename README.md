@@ -375,7 +375,7 @@ agently/
     build.yaml        # Endly build pipeline
   cmd/agently/        # CLI commands: serve, query, list-tools, chatgpt-login
   main.go             # Serve() and server orchestration (package agently)
-  server/             # HTTP auth, OAuth endpoints, speech, JWT keygen
+  server/             # HTTP auth, OAuth endpoints, speech
   runtime/            # Model/embedder finders, tool plugins, scheduler options
   bootstrap/          # Workspace default seeding and config loading
     defaults/         # Default agent, model, embedder YAML files
