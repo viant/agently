@@ -1192,6 +1192,8 @@ github.com/viant/datly v1.1.1-0.20261001192040-3157d3d5a84e h1:km0tAHM52MKTwbNYW
 github.com/viant/datly v1.1.1-0.20261001192040-3157d3d5a84e/go.mod h1:B9xPKZ97+tHQtFuH2Ab2ZCEFDZ6yVyVZiXpV78dYCYY=
 github.com/viant/datly v1.1.1-0.20261001193927-74db143346f9 h1:kv44G69Q44q13Ol0ttAfbK65K5OerwPwnaIyZXZzbX4=
 github.com/viant/datly v1.1.1-0.20261001193927-74db143346f9/go.mod h1:B9xPKZ97+tHQtFuH2Ab2ZCEFDZ6yVyVZiXpV78dYCYY=
+github.com/viant/datly v1.1.1-0.20261001205010-5425a1af1f86 h1:9eQElAvd5Qn7EcXWqOGn9idoxHbf5A7aE+aE/DskNCw=
+github.com/viant/datly v1.1.1-0.20261001205010-5425a1af1f86/go.mod h1:B9xPKZ97+tHQtFuH2Ab2ZCEFDZ6yVyVZiXpV78dYCYY=
 github.com/viant/embedius v0.5.6 h1:CLpwc/tztpQArGyea5D+xiYSlHjwTv01ytUJRfs1k1k=
 github.com/viant/embedius v0.5.6/go.mod h1:klyTcRglmMvW/EzFCS4S3RmgCDwaXqC9FWu7RZOtBkc=
 github.com/viant/gds v0.6.0 h1:HdjogZeJrs5X0aR8yNCep7TxlhkhrH/lrSFW02RZzOI=
