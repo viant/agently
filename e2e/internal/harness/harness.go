@@ -39,6 +39,9 @@ func CopyWorkspaceTemplate(t *testing.T, templatePath string) string {
 	return target
 }
 
+// PrepareServer builds the cached test binary before measuring server startup.
+func PrepareServer(t *testing.T) { t.Helper(); _ = agentlyBinary(t) }
+
 func StartServer(t *testing.T, workspacePath string) string {
 	t.Helper()
 	addr := freeAddr(t)

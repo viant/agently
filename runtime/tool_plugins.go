@@ -29,6 +29,7 @@ import (
 	templatesvc "github.com/viant/agently-core/protocol/tool/service/template"
 	svca2a "github.com/viant/agently-core/service/a2a"
 	svcauth "github.com/viant/agently-core/service/auth"
+	goalsys "github.com/viant/agently-core/service/goal"
 	wscfg "github.com/viant/agently-core/workspace/config"
 	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	templaterepo "github.com/viant/agently-core/workspace/repository/template"
@@ -75,13 +76,9 @@ func ConfigureRegistry(ctx context.Context, rt *executor.Runtime, workspaceRoot 
 		}
 		log.Printf("agently-app: registered internal MCP service %q as %q", name, service.Name())
 	}
-	go func() {
-		warmupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
-		defer cancel()
-		log.Printf("agently-app: starting async registry warmup")
-		rt.Registry.Initialize(warmupCtx)
-		log.Printf("agently-app: registry warmup finished")
-	}()
+	log.Printf("agently-app: starting async registry warmup")
+	done := rt.InitializeRegistryAsync(ctx, 15*time.Second)
+	go func() { <-done; log.Printf("agently-app: registry warmup finished") }()
 }
 
 func debugEnabled() bool {
@@ -167,10 +164,16 @@ func internalServiceFactory(rt *executor.Runtime, workspaceRoot, name string) sv
 	case "system/os":
 		return toolos.New()
 	case "system/goal":
-		if rt.Data == nil {
+		if rt.GoalStore != nil {
+			if repository, ok := rt.GoalStore.(goalsys.Repository); ok {
+				return goalsvc.New(repository)
+			}
 			return nil
 		}
-		return goalsvc.New(rt.Data)
+		if rt.Native == nil {
+			return nil
+		}
+		return goalsvc.New(goalsys.NewStore(rt.Native))
 	case "system/patch":
 		return toolpatch.New()
 	case "orchestration/plan":

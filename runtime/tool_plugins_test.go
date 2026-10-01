@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -20,6 +21,7 @@ import (
 	"github.com/viant/agently-core/service/agent"
 	"github.com/viant/agently-core/service/augmenter"
 	core2 "github.com/viant/agently-core/service/core"
+	goalsys "github.com/viant/agently-core/service/goal"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
 )
 
@@ -165,17 +167,23 @@ func TestInternalServiceFactoryTemplateUsesRuntimeStore(t *testing.T) {
 
 func TestInternalServiceFactorySystemGoalExecutesAgainstConversationScopedStore(t *testing.T) {
 	ctx := context.Background()
-	dataSvc, err := data.NewThinServiceInMemory(ctx)
+	server, err := data.NewRuntimeInMemory(ctx)
 	if err != nil {
-		t.Fatalf("NewThinServiceInMemory: %v", err)
+		t.Fatalf("NewRuntimeInMemory: %v", err)
 	}
+	t.Cleanup(func() {
+		if err := server.Shutdown(context.Background()); err != nil {
+			t.Errorf("native runtime shutdown: %v", err)
+		}
+	})
+	dataSvc := data.NewService(server)
 	if _, err := dataSvc.PatchConversations(ctx, []*convw.Conversation{
 		convw.NewMutableConversationView(convw.WithConversationID("conv-goal")),
 	}); err != nil {
 		t.Fatalf("seed conversation: %v", err)
 	}
 
-	runtime := &executor.Runtime{Data: dataSvc}
+	runtime := &executor.Runtime{Data: dataSvc, Native: server}
 	service := internalServiceFactory(runtime, t.TempDir(), "system/goal")
 	if service == nil {
 		t.Fatalf("expected system/goal service")
@@ -223,3 +231,69 @@ func TestInternalServiceFactorySystemGoalExecutesAgainstConversationScopedStore(
 type staticModelFinder struct{}
 
 func (staticModelFinder) Find(_ context.Context, _ string) (llm.Model, error) { return nil, nil }
+
+type injectedGoalRepository struct {
+	goalsys.Repository
+	calls          int
+	conversationID string
+}
+
+func (r *injectedGoalRepository) Get(_ context.Context, conversationID string) (*goalsys.Record, error) {
+	r.calls++
+	r.conversationID = conversationID
+	return &goalsys.Record{ID: "injected-goal", ConversationID: conversationID, Objective: "injected repository", Status: "active"}, nil
+}
+func TestInternalServiceFactoryPrefersInjectedGoalRepository(t *testing.T) {
+	ctx := context.Background()
+	server, err := data.NewRuntimeInMemory(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := server.Shutdown(ctx); err != nil {
+			t.Error(err)
+		}
+	})
+	for _, withNative := range []bool{false, true} {
+		t.Run(fmt.Sprintf("native=%v", withNative), func(t *testing.T) {
+			repository := &injectedGoalRepository{}
+			rt := &executor.Runtime{GoalStore: repository}
+			if withNative {
+				rt.Native = server
+			}
+			service := internalServiceFactory(rt, t.TempDir(), "system/goal")
+			if service == nil {
+				t.Fatal("injected repository did not provide system/goal")
+			}
+			method, err := service.Method("get")
+			if err != nil {
+				t.Fatal(err)
+			}
+			output := &goalsvc.GetOutput{}
+			if err := method(runtimerequestctx.WithConversationID(ctx, "injected-conversation"), &goalsvc.GetInput{}, output); err != nil {
+				t.Fatal(err)
+			}
+			if repository.calls != 1 || repository.conversationID != "injected-conversation" || output.Goal == nil || output.Goal.Objective != "injected repository" {
+				t.Fatalf("injected repository was not used: %+v", output.Goal)
+			}
+		})
+	}
+}
+
+type injectedReadOnlyGoalStore struct{ goalsys.Store }
+
+func TestInternalServiceFactoryDoesNotOverrideReadOnlyGoalStore(t *testing.T) {
+	server, err := data.NewRuntimeInMemory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := server.Shutdown(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+	rt := &executor.Runtime{Native: server, GoalStore: &injectedReadOnlyGoalStore{}}
+	if service := internalServiceFactory(rt, t.TempDir(), "system/goal"); service != nil {
+		t.Fatal("read-only injected goal store was replaced by native CRUD storage")
+	}
+}
