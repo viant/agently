@@ -1,8 +1,5 @@
 module github.com/viant/agently
 
-// Exercise the local MCP skills bridge and its protocol corrections.
-replace github.com/viant/agently-core => ../agently-core-v1
-
 replace github.com/viant/mcp => ../mcp
 
 replace github.com/viant/mcp-protocol => ../mcp-protocol
@@ -22,8 +19,8 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
-	github.com/viant/agently-core v0.1.57-0.20260929173446-79ee52a824dc
-	github.com/viant/datly v1.1.1-0.20261001182651-fedaf20d2a5e
+	github.com/viant/agently-core v0.1.57-0.20261001190808-ecdd19624d32
+	github.com/viant/datly v1.1.1-0.20261001193927-74db143346f9
 	github.com/viant/embedius v0.5.6 // indirect
 	github.com/viant/forge v0.3.44
 	github.com/viant/jsonrpc v0.25.0

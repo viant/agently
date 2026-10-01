@@ -1168,6 +1168,8 @@ github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861 h1:GAqu0cnUFqBOjwMhh+
 github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861/go.mod h1:rScbFd9LJPGTM8HOI8Kjwee0AZ+MZMupAvFpPg+Qdj4=
 github.com/viant/afsc v1.18.0 h1:9GxdDyMlhNhFc+Sdciclymn8/gV+PI8VPER/zEZUdno=
 github.com/viant/afsc v1.18.0/go.mod h1:BJr1JBeM6bYfBwSBEfy4bCx3mgZJqxTScKBA9seuShM=
+github.com/viant/agently-core v0.1.57-0.20261001190808-ecdd19624d32 h1:ynXxGTuMxXZ4iXVED7+qL1kH/UYJ5gxH5gJ2TYEl+l8=
+github.com/viant/agently-core v0.1.57-0.20261001190808-ecdd19624d32/go.mod h1:nsQSzPtlzAJ6Ikpfv6G3BVAeC4sRu6j8fmeUyRf1NH8=
 github.com/viant/assertly v0.4.8/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.0/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.1-0.20220620174148-bab013f93a60 h1:VFJvCOHKXv4IqX8rJwn1otpHWQGgMDv2bXtAPgEzndM=
@@ -1184,6 +1186,10 @@ github.com/viant/datly v1.1.1-0.20260930202444-a59b17988b72 h1:R1hSbeNucrOsztr0C
 github.com/viant/datly v1.1.1-0.20260930202444-a59b17988b72/go.mod h1:t7B99BroqLbbRE+QSywXEpMrE95nN4M+a+pnpoUexJQ=
 github.com/viant/datly v1.1.1-0.20261001182651-fedaf20d2a5e h1:IBJCrITuOyppjbxvIK96piKkk37gnMdQy3Uo3t4DvVM=
 github.com/viant/datly v1.1.1-0.20261001182651-fedaf20d2a5e/go.mod h1:B9xPKZ97+tHQtFuH2Ab2ZCEFDZ6yVyVZiXpV78dYCYY=
+github.com/viant/datly v1.1.1-0.20261001192040-3157d3d5a84e h1:km0tAHM52MKTwbNYWl4EswUqrfD2Dot/JfDTIUIijqo=
+github.com/viant/datly v1.1.1-0.20261001192040-3157d3d5a84e/go.mod h1:B9xPKZ97+tHQtFuH2Ab2ZCEFDZ6yVyVZiXpV78dYCYY=
+github.com/viant/datly v1.1.1-0.20261001193927-74db143346f9 h1:kv44G69Q44q13Ol0ttAfbK65K5OerwPwnaIyZXZzbX4=
+github.com/viant/datly v1.1.1-0.20261001193927-74db143346f9/go.mod h1:B9xPKZ97+tHQtFuH2Ab2ZCEFDZ6yVyVZiXpV78dYCYY=
 github.com/viant/embedius v0.5.6 h1:CLpwc/tztpQArGyea5D+xiYSlHjwTv01ytUJRfs1k1k=
 github.com/viant/embedius v0.5.6/go.mod h1:klyTcRglmMvW/EzFCS4S3RmgCDwaXqC9FWu7RZOtBkc=
 github.com/viant/gds v0.6.0 h1:HdjogZeJrs5X0aR8yNCep7TxlhkhrH/lrSFW02RZzOI=
