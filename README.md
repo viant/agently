@@ -911,3 +911,73 @@ The [preview applications](preview/README.md) provide report rendering/export,
 native Forge window previews, and a shared filesystem-backed MCP mock server.
 Their hosts, frontend, fixtures, guides, and standalone launchers live under
 `preview/`, with Forge used as a rendering library.
+
+## Datly authoring tools and skills
+
+The default Coder agent discovers all installed tools and skills. Configure the
+Datly developer server in the workspace to expose its seven authoring tools and
+three native skills (reader, writer, and custom component). This uses the existing
+MCP client and leaves workspace approval policies unchanged.
+
+Build `./cmd/datly-developer` from the matching Datly checkout, then create an
+operator-owned JSON configuration with explicit project targets. For example:
+
+```json
+{
+  "Targets": {
+    "reader": {
+      "BaseDir": "/absolute/path/to/project",
+      "Include": ["your.go.module/dql/records/read"],
+      "Connector": "main"
+    }
+  },
+  "Authoring": {
+    "reader": {
+      "Destination": "/absolute/path/to/project",
+      "Source": {
+        "Name": "reader",
+        "Scope": "your.go.module/dql/records/read",
+        "Path": "/absolute/path/to/project/dql/records/read/reader.dql",
+        "Connector": "main"
+      },
+      "Generation": {"Operation": "get", "Language": "go"}
+    }
+  }
+}
+```
+
+Use the project's actual Go module and package paths. Source names must agree with
+the DQL filename. Configure a separate `patch`, `post`, or `put` target for writers;
+tool callers select a configured target and supply DQL, not arbitrary output paths.
+Static validation does not prove schema or runtime behavior. Application run
+support requires a separately configured application target and a host linked to
+its generated component holders through `standalone.Options.Holders`. Set
+`RequireLinked: true` for that host. The generic developer executable can author
+and inspect source, but JSON configuration alone cannot link newly generated Go.
+
+Add `mcp/datly.yaml` under the Agently workspace, using existing absolute paths:
+
+```yaml
+name: datly
+protocol: "2026-07-28"
+transport:
+  type: stdio
+  command: /absolute/path/to/datly-developer
+  arguments: ["-config", "/absolute/path/to/developer.json"]
+skillDiscovery:
+  enabled: true
+toolsListVisibility: public
+toolTimeoutSec: 180
+```
+
+Restart the workspace server, inspect the connected tool catalog, and ask Coder to
+list and activate the relevant Datly skill. The server embeds complete skill
+references and serves native `skills/list`, `skills/get`, and resource discovery;
+no copied source skill folders or tool-name bridge is required. The seven tools
+are `datly.validate`, `datly.transcribe`, `datly.components`, `datly.inspect`,
+`datly.reverseDQL`, `datly.run`, and `datly.stop`. Unconfigured authoring or
+application targets return an explicit error.
+
+When migrating, preserve the existing database schema and MySQL native
+auto-increment with SQLX's default transient allocation. Do not add a sequence
+ledger or counter table to replace existing allocation.
