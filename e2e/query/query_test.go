@@ -148,8 +148,10 @@ auth:
   backendForFrontend: true
   useIdToken: true
 `
+	require.NoError(t, os.MkdirAll(filepath.Join(workspace, "mcp"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(workspace, "mcp", "steward.yaml"), []byte(remoteMCP), 0o644))
 
+	harness.PrepareServer(t)
 	startedAt := time.Now()
 	baseURL := harness.StartServer(t, workspace)
 	require.NotEmpty(t, baseURL)

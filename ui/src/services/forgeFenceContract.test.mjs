@@ -14,7 +14,7 @@ import {
 } from './forgeFenceContract.js';
 
 test('shared progressive report fixtures match the web reducer', async () => {
-  const fixtureURL = new URL('../../../../agently-core/sdk/testdata/report_inline_cases.json', import.meta.url);
+  const fixtureURL = new URL('../../../../agently-core-v1/sdk/testdata/report_inline_cases.json', import.meta.url);
   const fixture = JSON.parse(await readFile(fixtureURL, 'utf8'));
   for (const scenario of fixture.cases) {
     const events = [];
