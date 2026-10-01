@@ -23,7 +23,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	coresdk "github.com/viant/agently-core/sdk"
 	"github.com/viant/agently/e2e/internal/harness"
 	"github.com/viant/scy"
@@ -532,7 +532,7 @@ func TestTerminalQueryCoderRepoAnalysisLiveTranscript(t *testing.T) {
 	assert.Contains(t, lower, "notable directories:")
 }
 
-func assertLiveRepoTranscriptSane(t *testing.T, toolCalls []*agconv.ToolCallView, modelCalls []*agconv.ModelCallView, iterations map[int]struct{}, output string) {
+func assertLiveRepoTranscriptSane(t *testing.T, toolCalls []*conversationmodel.ToolCallView, modelCalls []*conversationmodel.ModelCallView, iterations map[int]struct{}, output string) {
 	t.Helper()
 	assert.Greater(t, len(toolCalls), 0, output)
 	assert.LessOrEqual(t, len(toolCalls), 2, output)
@@ -652,9 +652,9 @@ func extractConversationID(t *testing.T, output string) string {
 	return ""
 }
 
-func transcriptStats(transcript *coresdk.ConversationStateResponse) ([]*agconv.ToolCallView, []*agconv.ModelCallView, map[int]struct{}) {
-	var toolCalls []*agconv.ToolCallView
-	var modelCalls []*agconv.ModelCallView
+func transcriptStats(transcript *coresdk.ConversationStateResponse) ([]*conversationmodel.ToolCallView, []*conversationmodel.ModelCallView, map[int]struct{}) {
+	var toolCalls []*conversationmodel.ToolCallView
+	var modelCalls []*conversationmodel.ModelCallView
 	iterations := map[int]struct{}{}
 	if transcript == nil || transcript.Conversation == nil {
 		return toolCalls, modelCalls, iterations
@@ -672,13 +672,13 @@ func transcriptStats(transcript *coresdk.ConversationStateResponse) ([]*agconv.T
 				if ms == nil {
 					continue
 				}
-				modelCalls = append(modelCalls, &agconv.ModelCallView{})
+				modelCalls = append(modelCalls, &conversationmodel.ModelCallView{})
 			}
 			for _, ts := range page.ToolSteps {
 				if ts == nil {
 					continue
 				}
-				toolCalls = append(toolCalls, &agconv.ToolCallView{Status: ts.Status})
+				toolCalls = append(toolCalls, &conversationmodel.ToolCallView{Status: ts.Status})
 			}
 		}
 	}

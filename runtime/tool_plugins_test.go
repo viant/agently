@@ -13,7 +13,7 @@ import (
 	"github.com/viant/agently-core/app/executor/config"
 	"github.com/viant/agently-core/app/store/data"
 	"github.com/viant/agently-core/genai/llm"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	resourcesvc "github.com/viant/agently-core/protocol/tool/service/resources"
 	goalsvc "github.com/viant/agently-core/protocol/tool/service/system/goal"
 	templatesvc "github.com/viant/agently-core/protocol/tool/service/template"
@@ -177,8 +177,8 @@ func TestInternalServiceFactorySystemGoalExecutesAgainstConversationScopedStore(
 		}
 	})
 	dataSvc := data.NewService(server)
-	if _, err := dataSvc.PatchConversations(ctx, []*convw.Conversation{
-		convw.NewMutableConversationView(convw.WithConversationID("conv-goal")),
+	if _, err := dataSvc.PatchConversations(ctx, []*conversationmodel.Conversation{
+		conversationmodel.NewMutableConversationView(conversationmodel.WithConversationID("conv-goal")),
 	}); err != nil {
 		t.Fatalf("seed conversation: %v", err)
 	}

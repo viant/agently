@@ -23,7 +23,7 @@ require (
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
 	github.com/viant/agently-core v0.1.57-0.20260929173446-79ee52a824dc
-	github.com/viant/datly v1.1.1-0.20260930202444-a59b17988b72
+	github.com/viant/datly v1.1.1-0.20261001182651-fedaf20d2a5e
 	github.com/viant/embedius v0.5.6 // indirect
 	github.com/viant/forge v0.3.44
 	github.com/viant/jsonrpc v0.25.0
@@ -152,12 +152,12 @@ require (
 	github.com/viant/parsly v0.3.3 // indirect
 	github.com/viant/sqlite-vec v0.3.1-0.20260220164201-136574510a3f // indirect
 	github.com/viant/sqlparser v0.13.1-0.20260921232033-929f6f50ccce // indirect
-	github.com/viant/sqlx v0.26.1-0.20260929151803-0df7f08c4926 // indirect
+	github.com/viant/sqlx v0.26.1-0.20261001153633-c707e294db3b // indirect
 	github.com/viant/structql v0.5.4 // indirect
 	github.com/viant/tagly v0.3.1-0.20260914020630-eadee36c3630 // indirect
 	github.com/viant/toolbox v0.39.0 // indirect
 	github.com/viant/vec v0.2.4-0.20250819200643-7e16b6ea443c // indirect
-	github.com/viant/xdatly v1.0.1-0.20260927175016-ff38d5bca9b6 // indirect
+	github.com/viant/xdatly v1.0.1-0.20261001162605-e2b68d4babd9 // indirect
 	github.com/viant/xlsy v0.3.1 // indirect
 	github.com/viant/xmlify v0.1.2-0.20260914155716-e525a8788fd0 // indirect
 	github.com/viant/xreflect v0.7.5-0.20260314170600-13f09f37d46e // indirect
