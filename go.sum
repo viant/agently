@@ -1178,6 +1178,8 @@ github.com/viant/agently-core v0.1.57-0.20261002165245-9b4f58b07f92 h1:IqENySdHd
 github.com/viant/agently-core v0.1.57-0.20261002165245-9b4f58b07f92/go.mod h1:RsrrEHNPIlHKvuQR/qKfUYmRhp8fmaVrz58CHSLpBSM=
 github.com/viant/agently-core v0.1.57-0.20261002170128-b59b34c4947b h1:iKU5MySGIAW/dYhi2Ws6hBNGDTOYRJHcb+GJIMS3P9E=
 github.com/viant/agently-core v0.1.57-0.20261002170128-b59b34c4947b/go.mod h1:RsrrEHNPIlHKvuQR/qKfUYmRhp8fmaVrz58CHSLpBSM=
+github.com/viant/agently-core v0.1.57-0.20261002182818-043e548ba890 h1:Bsh62DC8kXj+wQ9ytaJOaKX4TL29EnODH8N+f6NQH/E=
+github.com/viant/agently-core v0.1.57-0.20261002182818-043e548ba890/go.mod h1:MHvBxnpt/KEgK6aWK2KAN3KFTrtHc7oIDhPYuTcowDA=
 github.com/viant/assertly v0.4.8/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.0/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.1-0.20220620174148-bab013f93a60 h1:VFJvCOHKXv4IqX8rJwn1otpHWQGgMDv2bXtAPgEzndM=
@@ -1202,6 +1204,10 @@ github.com/viant/datly v1.1.1-0.20261001205010-5425a1af1f86 h1:9eQElAvd5Qn7EcXWq
 github.com/viant/datly v1.1.1-0.20261001205010-5425a1af1f86/go.mod h1:B9xPKZ97+tHQtFuH2Ab2ZCEFDZ6yVyVZiXpV78dYCYY=
 github.com/viant/datly v1.1.1-0.20261002040859-26c14e55af80 h1:2nm6bfRI5Ge32M4EJVbBJAT0LS3rEI3jdN6ioBHH6LA=
 github.com/viant/datly v1.1.1-0.20261002040859-26c14e55af80/go.mod h1:/PvFw5/aqv/3yT1xCuKaecvtZumSPLxKgzKNj70Wxgo=
+github.com/viant/datly v1.1.1-0.20261002153835-b0f5647362b4 h1:6I6OjWxFwfVz6De99tA4Ppv+Xv46Ato3dMjmxgmRrK4=
+github.com/viant/datly v1.1.1-0.20261002153835-b0f5647362b4/go.mod h1:/PvFw5/aqv/3yT1xCuKaecvtZumSPLxKgzKNj70Wxgo=
+github.com/viant/datly v1.1.1-0.20261002181801-e0634731ef99 h1:nLO7Nuk3RM7qUGn3fKWPkr4TQTFxkWxi6lkM342IUMs=
+github.com/viant/datly v1.1.1-0.20261002181801-e0634731ef99/go.mod h1:/PvFw5/aqv/3yT1xCuKaecvtZumSPLxKgzKNj70Wxgo=
 github.com/viant/embedius v0.5.6 h1:CLpwc/tztpQArGyea5D+xiYSlHjwTv01ytUJRfs1k1k=
 github.com/viant/embedius v0.5.6/go.mod h1:klyTcRglmMvW/EzFCS4S3RmgCDwaXqC9FWu7RZOtBkc=
 github.com/viant/gds v0.6.0 h1:HdjogZeJrs5X0aR8yNCep7TxlhkhrH/lrSFW02RZzOI=

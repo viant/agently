@@ -268,6 +268,26 @@ describe('RichContent fence parsing', () => {
     expect(html).not.toContain('Run the report');
   });
 
+  it('hides a leaked analytics dashboard template descriptor before the report', () => {
+    const content = [
+      JSON.stringify({
+        name: 'analytics_dashboard',
+        format: 'forge_report_data',
+        description: 'Canonical analytical report contract',
+        instructions: 'Return a progressively assembled report.',
+      }),
+      '```forge-report',
+      '{"version":1,"id":"delivery","sequence":1,"mode":"start","grammar":"dashboard-v1","title":"Delivery","blocks":[{"id":"delivery_summary","kind":"dashboard.report","title":"Delivery summary","sections":[{"id":"overview","body":["Delivery report is ready."]}]}]}',
+      '```',
+    ].join('\n');
+
+    const html = renderToStaticMarkup(React.createElement(RichContent, { content, messageId: 'message-template-leak' }));
+
+    expect(html).not.toContain('analytics_dashboard');
+    expect(html).not.toContain('Canonical analytical report contract');
+    expect(html).toContain('data-forge-report-id="delivery"');
+  });
+
   it('blocks malformed collection presentation before export instead of rendering Item placeholders', () => {
     const renderedContent = {
       schemaVersion: '1',
