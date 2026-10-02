@@ -1172,6 +1172,8 @@ github.com/viant/agently-core v0.1.57-0.20261001190808-ecdd19624d32 h1:ynXxGTuMx
 github.com/viant/agently-core v0.1.57-0.20261001190808-ecdd19624d32/go.mod h1:nsQSzPtlzAJ6Ikpfv6G3BVAeC4sRu6j8fmeUyRf1NH8=
 github.com/viant/agently-core v0.1.57-0.20261001194542-a17ba36f8985 h1:V1wzBiCeyLG6T1yab+isPqbMvdta2TLAqJ3Upbu1/kM=
 github.com/viant/agently-core v0.1.57-0.20261001194542-a17ba36f8985/go.mod h1:ZHq5zVxV2OxuCOilPe2oOpoQW+zypMG7Cb5+c1zpZQM=
+github.com/viant/agently-core v0.1.57-0.20261002153051-e95c4ab5019a h1:qx3sm62RED2f6dXt2CtwdEp/0b503v3C9chWyj/2vhU=
+github.com/viant/agently-core v0.1.57-0.20261002153051-e95c4ab5019a/go.mod h1:RsrrEHNPIlHKvuQR/qKfUYmRhp8fmaVrz58CHSLpBSM=
 github.com/viant/assertly v0.4.8/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.0/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.1-0.20220620174148-bab013f93a60 h1:VFJvCOHKXv4IqX8rJwn1otpHWQGgMDv2bXtAPgEzndM=
@@ -1194,6 +1196,8 @@ github.com/viant/datly v1.1.1-0.20261001193927-74db143346f9 h1:kv44G69Q44q13Ol0t
 github.com/viant/datly v1.1.1-0.20261001193927-74db143346f9/go.mod h1:B9xPKZ97+tHQtFuH2Ab2ZCEFDZ6yVyVZiXpV78dYCYY=
 github.com/viant/datly v1.1.1-0.20261001205010-5425a1af1f86 h1:9eQElAvd5Qn7EcXWqOGn9idoxHbf5A7aE+aE/DskNCw=
 github.com/viant/datly v1.1.1-0.20261001205010-5425a1af1f86/go.mod h1:B9xPKZ97+tHQtFuH2Ab2ZCEFDZ6yVyVZiXpV78dYCYY=
+github.com/viant/datly v1.1.1-0.20261002040859-26c14e55af80 h1:2nm6bfRI5Ge32M4EJVbBJAT0LS3rEI3jdN6ioBHH6LA=
+github.com/viant/datly v1.1.1-0.20261002040859-26c14e55af80/go.mod h1:/PvFw5/aqv/3yT1xCuKaecvtZumSPLxKgzKNj70Wxgo=
 github.com/viant/embedius v0.5.6 h1:CLpwc/tztpQArGyea5D+xiYSlHjwTv01ytUJRfs1k1k=
 github.com/viant/embedius v0.5.6/go.mod h1:klyTcRglmMvW/EzFCS4S3RmgCDwaXqC9FWu7RZOtBkc=
 github.com/viant/gds v0.6.0 h1:HdjogZeJrs5X0aR8yNCep7TxlhkhrH/lrSFW02RZzOI=
@@ -1222,6 +1226,8 @@ github.com/viant/sqlite-vec v0.3.1-0.20260220164201-136574510a3f h1:ecnOZzylVpX0
 github.com/viant/sqlite-vec v0.3.1-0.20260220164201-136574510a3f/go.mod h1:SA89LGdU/cxpc/gsvat2MYtJYrv3bg9mtW/uHMs2nBs=
 github.com/viant/sqlparser v0.13.1-0.20260921232033-929f6f50ccce h1:f85ObNhCa7ou16fQiEKw7nIF7vp8saRUJk/hY5D6F8Y=
 github.com/viant/sqlparser v0.13.1-0.20260921232033-929f6f50ccce/go.mod h1:2QRGiGZYk2/pjhORGG1zLVQ9JO+bXFhqIVi31mkCRPg=
+github.com/viant/sqlparser v0.13.1-0.20261001210110-82d5588e4251 h1:p33ObUXtbTFJOZN03Vz267EdKMpe6CTokh1W88eMP7A=
+github.com/viant/sqlparser v0.13.1-0.20261001210110-82d5588e4251/go.mod h1:2QRGiGZYk2/pjhORGG1zLVQ9JO+bXFhqIVi31mkCRPg=
 github.com/viant/sqlx v0.26.1-0.20260929151803-0df7f08c4926 h1:XjxEfMblt3mppQpf1JeWWyo/faAljWb0Qvf7JLigeQo=
 github.com/viant/sqlx v0.26.1-0.20260929151803-0df7f08c4926/go.mod h1:PF2N+v9OR8EIAkYy2brhAjFX8GJDelZoqzrs5KTTY3k=
 github.com/viant/sqlx v0.26.1-0.20261001153633-c707e294db3b h1:9G0ElRgayyZ5300vfVlbv7AudvETT31A8QXe/7C0J/g=
