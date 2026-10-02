@@ -94,7 +94,7 @@ final class TurnPresentationFixtureTests: XCTestCase {
     private func loadFixture() throws -> TurnPresentationFixture {
         var viantRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         for _ in 0..<4 { viantRoot.deleteLastPathComponent() }
-        let url = viantRoot.appendingPathComponent("agently-core/sdk/fixtures/turn_presentation.json")
+        let url = viantRoot.appendingPathComponent("agently-core-v1/sdk/fixtures/turn_presentation.json")
         return try JSONDecoder().decode(TurnPresentationFixture.self, from: Data(contentsOf: url))
     }
 

@@ -1669,6 +1669,9 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
         data-forge-report-status={assembly?.status || ''}
         style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
       >
+        {compiled.reportDocument?.title || assembly?.source?.title ? (
+          <h3 className="app-rich-inline-report__title" style={{ margin: 0 }}>{compiled.reportDocument?.title || assembly?.source?.title}</h3>
+        ) : null}
         {reportDiagnostics.length > 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '8px 10px', border: '1px solid #d8e1ee', borderRadius: 10, background: '#f7faff', fontSize: 12, color: '#48607a' }}>
             <strong>Report assembled with diagnostics</strong>

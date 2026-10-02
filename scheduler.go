@@ -77,6 +77,7 @@ func RunScheduler(options SchedulerRunOptions) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
 	}
+	defer rt.Close(context.Background())
 	authCfg, err := svcauth.LoadWorkspaceConfig(workspace.Root())
 	if err != nil {
 		return fmt.Errorf("failed to load workspace auth config: %w", err)
@@ -91,10 +92,10 @@ func RunScheduler(options SchedulerRunOptions) error {
 	}
 	tokenProvider := rt.TokenProvider
 	if tokenProvider == nil {
-		tokenProvider = svcauth.NewCreatedByUserTokenProvider(authCfg, rt.DAO)
+		tokenProvider = svcauth.NewCreatedByUserTokenProvider(authCfg, rt.Native)
 	}
 
-	scheduleStore, err := svcscheduler.NewDatlyStore(ctx, rt.DAO, rt.Data)
+	scheduleStore, err := svcscheduler.NewDatlyStore(ctx, rt.Native, rt.Data)
 	if err != nil {
 		return fmt.Errorf("failed to initialize scheduler store: %w", err)
 	}
@@ -104,7 +105,7 @@ func RunScheduler(options SchedulerRunOptions) error {
 		svcscheduler.WithConversationClient(rt.Conversation),
 		svcscheduler.WithAuthConfig(authCfg),
 		svcscheduler.WithTokenProvider(tokenProvider),
-		svcscheduler.WithUserService(svcauth.NewDatlyUserService(rt.DAO)),
+		svcscheduler.WithUserService(svcauth.NewDatlyUserService(rt.Native)),
 		svcscheduler.WithUserCredAuthConfig(userCredAuthCfg),
 		svcscheduler.WithInterval(interval),
 	)
