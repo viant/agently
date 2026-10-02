@@ -29,7 +29,7 @@ val forgeSdkDirectory = if (useSiblingSources) {
     file("deps/forge/android/sdk")
 }
 val agentlyCoreSdkDirectory = if (useSiblingSources) {
-    file("../../agently-core-v1/sdk/android")
+    file("../../agently-core/sdk/android")
 } else {
     file("deps/agently-core/sdk/android")
 }

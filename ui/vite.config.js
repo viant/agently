@@ -99,7 +99,7 @@ export default defineConfig(({ mode, command }) => {
         '@codemirror/language'
       ],
       alias: {
-        'agently-core-ui-sdk': resolve(__dirname, '../../agently-core-v1/sdk/ts/src'),
+        'agently-core-ui-sdk': resolve(__dirname, '../../agently-core/sdk/ts/src'),
         forge: resolve(forgeRoot, 'src'),
         react: resolve(appNodeModules, 'react'),
         'react-dom': resolve(appNodeModules, 'react-dom'),

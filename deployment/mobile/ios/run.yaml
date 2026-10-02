@@ -40,9 +40,9 @@ pipeline:
         fi
         if [ "${AGENTLY_IOS_USE_SIBLING_SOURCES:-false}" = "true" ]; then
           echo "Using sibling Forge and Agently Core iOS working trees."
-          CORE_IOS="${repoPath}/../agently-core-v1/sdk/ios"
+          CORE_IOS="${repoPath}/../agently-core/sdk/ios"
           FORGE_IOS="${repoPath}/../forge/ios"
-          ln -sfn ../../../agently-core-v1/sdk/ios ${repoPath}/ios/Packages/AgentlySDKPackage
+          ln -sfn ../../../agently-core/sdk/ios ${repoPath}/ios/Packages/AgentlySDKPackage
           ln -sfn ../../../forge/ios ${repoPath}/ios/Packages/ForgeIOSPackage
         else
           git -C ${repoPath} submodule update --init --recursive
@@ -77,7 +77,7 @@ pipeline:
         fi
         if [ "${AGENTLY_IOS_USE_SIBLING_SOURCES:-false}" = "true" ]; then
           echo "Using sibling Forge and Agently Core iOS working trees."
-          ln -sfn ../../../agently-core-v1/sdk/ios ${repoPath}/ios/Packages/AgentlySDKPackage
+          ln -sfn ../../../agently-core/sdk/ios ${repoPath}/ios/Packages/AgentlySDKPackage
           ln -sfn ../../../forge/ios ${repoPath}/ios/Packages/ForgeIOSPackage
         else
           git -C ${repoPath} submodule update --init --recursive
