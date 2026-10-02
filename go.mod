@@ -19,8 +19,8 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
-	github.com/viant/agently-core v0.1.57-0.20261001194542-a17ba36f8985
-	github.com/viant/datly v1.1.1-0.20261001205010-5425a1af1f86
+	github.com/viant/agently-core v0.1.57-0.20261002153051-e95c4ab5019a
+	github.com/viant/datly v1.1.1-0.20261002040859-26c14e55af80
 	github.com/viant/embedius v0.5.6 // indirect
 	github.com/viant/forge v0.3.44
 	github.com/viant/jsonrpc v0.25.0
@@ -148,7 +148,7 @@ require (
 	github.com/viant/igo v0.2.0 // indirect
 	github.com/viant/parsly v0.3.3 // indirect
 	github.com/viant/sqlite-vec v0.3.1-0.20260220164201-136574510a3f // indirect
-	github.com/viant/sqlparser v0.13.1-0.20260921232033-929f6f50ccce // indirect
+	github.com/viant/sqlparser v0.13.1-0.20261001210110-82d5588e4251 // indirect
 	github.com/viant/sqlx v0.26.1-0.20261001153633-c707e294db3b // indirect
 	github.com/viant/structql v0.5.4 // indirect
 	github.com/viant/tagly v0.3.1-0.20260914020630-eadee36c3630 // indirect
