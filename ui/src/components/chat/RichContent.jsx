@@ -2326,12 +2326,59 @@ export function normalizeLegacyForgeDescriptors(descriptors = []) {
   return normalized;
 }
 
+function stripLeadingTemplateDescriptor(content = '') {
+  const source = String(content || '');
+  const trimmed = source.trimStart();
+  if (!trimmed.startsWith('{')) return source;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let end = -1;
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const character = trimmed[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      continue;
+    }
+    if (character === '{') depth += 1;
+    if (character === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        end = index + 1;
+        break;
+      }
+    }
+  }
+  if (end < 0) return source;
+
+  try {
+    const descriptor = JSON.parse(trimmed.slice(0, end));
+    if (
+      !String(descriptor?.name || '').trim()
+      || String(descriptor?.format || '').trim().toLowerCase() !== 'forge_report_data'
+      || !String(descriptor?.instructions || '').trim()
+    ) {
+      return source;
+    }
+    return trimmed.slice(end).trimStart();
+  } catch (_) {
+    return source;
+  }
+}
+
 // ── Main component ──
 
 function RichContent({ content = '', renderedContent = null, generatedFiles = [], messageId = '', conversationId = '' }) {
   const entityAliasVersion = React.useSyncExternalStore(subscribeFeedEntityAliases, getFeedEntityAliasVersion, getFeedEntityAliasVersion);
   const textNorm = React.useMemo(() => normalizeBrokenMarkdownLayout(
-    normalizeLegacyForgeFenceBlocks(rewriteFeedEntityAliases(String(content || ''), conversationId))
+    normalizeLegacyForgeFenceBlocks(stripLeadingTemplateDescriptor(rewriteFeedEntityAliases(String(content || ''), conversationId)))
   ), [content, conversationId, entityAliasVersion]);
   const descriptors = React.useMemo(
     () => normalizeLegacyForgeDescriptors(describeContent(textNorm)),
