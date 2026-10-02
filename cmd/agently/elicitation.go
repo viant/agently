@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -64,7 +65,15 @@ func awaitFormElicitation(ctx context.Context, w io.Writer, r io.Reader, req *co
 	}
 
 	payload := map[string]any{}
-	for name, prop := range req.RequestedSchema.Properties {
+	// Schema properties are a map; stable prompts keep input values associated
+	// with the same fields when no display order is supplied.
+	propertyNames := make([]string, 0, len(req.RequestedSchema.Properties))
+	for name := range req.RequestedSchema.Properties {
+		propertyNames = append(propertyNames, name)
+	}
+	sort.Strings(propertyNames)
+	for _, name := range propertyNames {
+		prop := req.RequestedSchema.Properties[name]
 		desc := name
 		if pm, ok := prop.(map[string]any); ok {
 			if d, ok := pm["description"].(string); ok && d != "" {

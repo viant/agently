@@ -2,12 +2,12 @@ package server
 
 import (
 	svcauth "github.com/viant/agently-core/service/auth"
-	"github.com/viant/datly"
+	dexec "github.com/viant/datly/exec"
 )
 
-func NewSessionStoreAdapter(dao *datly.Service) svcauth.SessionStore {
-	if dao == nil {
+func NewSessionStoreAdapter(invoker dexec.ComponentInvoker) svcauth.SessionStore {
+	if invoker == nil {
 		return nil
 	}
-	return svcauth.NewSessionStoreDAO(dao)
+	return svcauth.NewSessionStoreNative(invoker)
 }

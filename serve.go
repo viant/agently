@@ -139,8 +139,9 @@ func Serve(options ServeOptions) error {
 	orchestrationEnabled := defaults.Reporting.OrchestrationEnabled()
 
 	rt, client, agentFndr, err := appserver.BuildWorkspaceRuntime(ctx, appserver.RuntimeOptions{
-		WorkspaceRoot: workspace.Root(),
-		Defaults:      defaults,
+		WorkspaceRoot:          workspace.Root(),
+		SkipRegistryInitialize: true,
+		Defaults:               defaults,
 		ConfigureRuntime: func(ctx context.Context, rt *executor.Runtime, workspaceRoot string) {
 			agentlyrt.ConfigureRegistry(ctx, rt, workspaceRoot)
 		},
@@ -148,6 +149,7 @@ func Serve(options ServeOptions) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
 	}
+	defer rt.Close(context.Background())
 	if orchestrationEnabled {
 		switch {
 		case rt.Registry == nil:
@@ -159,13 +161,13 @@ func Serve(options ServeOptions) error {
 		}
 	}
 
-	authRuntime, err := svcauthctx.NewRuntime(ctx, workspace.Root(), rt.DAO)
+	authRuntime, err := svcauthctx.NewRuntime(ctx, workspace.Root(), rt.Native)
 	if err != nil {
 		return fmt.Errorf("failed to initialize auth runtime: %w", err)
 	}
 	speechHandler := server.NewSpeechHandler()
 
-	scheduleStore, err := svcscheduler.NewDatlyStore(ctx, rt.DAO, rt.Data)
+	scheduleStore, err := svcscheduler.NewDatlyStore(ctx, rt.Native, rt.Data)
 	if err != nil {
 		return fmt.Errorf("failed to initialize scheduler store: %w", err)
 	}
@@ -173,7 +175,7 @@ func Serve(options ServeOptions) error {
 		svcscheduler.WithConversationClient(rt.Conversation),
 		svcscheduler.WithAuthConfig(rt.AuthConfig),
 		svcscheduler.WithTokenProvider(rt.TokenProvider),
-		svcscheduler.WithUserService(svcauthctx.NewDatlyUserService(rt.DAO)),
+		svcscheduler.WithUserService(svcauthctx.NewDatlyUserService(rt.Native)),
 	}
 	if cap := agentlyrt.SchedulerMaxConcurrentRunsFromEnv(); cap > 0 {
 		schedulerSvcOpts = append(schedulerSvcOpts, svcscheduler.WithMaxConcurrentRuns(cap))

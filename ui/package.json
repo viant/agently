@@ -65,7 +65,7 @@
     "@preact/signals-react": "^2.3.0",
     "@tanstack/react-virtual": "^3.14.13",
     "@uiw/react-codemirror": "^4.23.8",
-    "agently-core-ui-sdk": "file:../../agently-core/sdk/ts",
+    "agently-core-ui-sdk": "file:../../agently-core-v1/sdk/ts",
     "forge": "file:../../forge",
     "lodash": "^4.17.21",
     "mermaid": "^11.12.3",

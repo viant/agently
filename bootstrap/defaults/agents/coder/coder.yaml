@@ -75,6 +75,8 @@ tool:
     - llm/agents
   items:
     - name: message:add
+    - pattern: "*"
+      type: function
 
 #systemKnowledge:
 #  - url: system_knowledge/
@@ -117,4 +119,4 @@ resources:
     allowGrep: true
 
 skills:
-  - forge-report-authoring
+  - "*"
