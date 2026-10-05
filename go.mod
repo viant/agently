@@ -199,4 +199,4 @@ require (
 
 replace github.com/viant/agently-core => ../agently-core-ag-ui
 
-replace github.com/viant/mcp-protocol => ../mcp-protocol-ag-ui
+replace github.com/viant/forge => ../forge-ag-ui
