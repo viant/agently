@@ -107,7 +107,6 @@ public final class AppRuntime: ObservableObject {
                 if let restoreState = bridgeHostedWorkspaceRestoreState(from: result) {
                     await MainActor.run {
                         state.activeHostedWorkspace = restoreState
-                        if state.client.interactionProtocol == .legacy { queryRuntime.markAccepted() }
                     }
                 }
                 return result
@@ -601,7 +600,7 @@ public final class AppRuntime: ObservableObject {
         state.isStoppingTurn = true
         state.streamErrorMessage = nil
         do {
-            if state.client.interactionProtocol == .agUI, let conversationID = state.activeConversationID {
+            if let conversationID = state.activeConversationID {
                 try await state.client.agUiConversations.cancel(conversationID: conversationID, nativeTurnID: activeTurnID)
             } else { try await state.client.cancelTurn(id: activeTurnID) }
             logger.info("Cancelled active turn \(activeTurnID, privacy: .public)")
@@ -943,14 +942,7 @@ public final class AppRuntime: ObservableObject {
                             chatRuntime.commitAssistantTurn(from: previousSnapshot, turnID: completedTurnID)
                         }
                     }
-                    let hasAcceptedActivity =
-                        (currentTurnID?.isEmpty == false) ||
-                        !snapshot.bufferedMessages.isEmpty ||
-                        !snapshot.liveExecutionGroupsByID.isEmpty ||
-                        snapshot.pendingElicitation != nil
-                    if hasAcceptedActivity && state.client.interactionProtocol == .legacy {
-                        queryRuntime.markAccepted()
-                    }
+
                     state.activeTurnID = snapshot.activeTurnID
                     state.activeStreamSnapshot = snapshot
                     if let currentTurnID,
@@ -1136,7 +1128,7 @@ public final class AppRuntime: ObservableObject {
         let configuredBaseURL = settingsRuntime.apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         logger.info("Rebuilding runtime client for base URL: \(configuredBaseURL, privacy: .public)")
         accountGeneration += 1
-        if state.client.interactionProtocol == .agUI { state.client.agUiConversations.invalidate() }
+        state.client.agUiConversations.invalidate()
         let client = clientFactory(configuredBaseURL)
         state.client = client
         state.bootstrapBaseURL = configuredBaseURL

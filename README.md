@@ -175,10 +175,12 @@ an authenticated aguiThreadId reference lets the SDK reopen the original wire
 thread while UI, history and application hints use native identity. Account
 changes invalidate previous transport state and bindings.
 
-Explicit compatibility options are interactionProtocol: "legacy" in TypeScript,
-interactionProtocol: .legacy in Swift, and
-conversationTransportMode = ConversationTransportMode.LEGACY in Kotlin.
-A failed AG-UI request does not silently fall back to a second legacy query.
+Conversation SDKs provide only the AG-UI interaction path. There is no legacy
+mode, query resubmission or unscoped conversation-stream fallback. Supporting
+BFF APIs remain available, including dedicated readConversationHistory and
+readApplicationState helpers for authorized native/read-only history.
+A shared reader denied access to an owner's private journal does not acquire
+that journal or initiate execution.
 
 See the core [SDK guide](../agently-core-ag-ui/doc/sdk.md),
 [TypeScript](../agently-core-ag-ui/sdk/ts/AG-UI.md),
