@@ -186,4 +186,4 @@ Useful commands:
 - `swift build`
 - `xcodebuild -project AgentlyApp.xcodeproj -scheme AgentlyApp -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build`
 
-The isolated AG-UI app selects `.agUI` when constructing `AgentlyClient`. Its tracked `Packages/AgentlySDKPackage` link targets `agently-core-ag-ui/sdk/ios`; the unique package path avoids colliding with the app package's `ios` identity. The supporting workspace, themes, report, lookup and UI bridge APIs use the same BFF session. Simulator builds and foundation/SDK tests are readiness checks; real Steward starter flows must pass separately.
+The isolated app uses the SDK’s AG-UI-only conversation transport. Its tracked `Packages/AgentlySDKPackage` link targets `agently-core-ag-ui/sdk/ios`; the unique package path avoids colliding with the app package's `ios` identity. The supporting workspace, themes, report, lookup and UI bridge APIs use the same BFF session. Simulator builds and foundation/SDK tests are readiness checks; real Steward starter flows must pass separately.
