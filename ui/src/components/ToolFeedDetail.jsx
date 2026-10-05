@@ -1,6 +1,6 @@
 import { normalizeQueueEditorBinding } from '../services/queueFeedSpec';
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { CompactFeedList, Container, ForgeThemeBoundary, Terminal } from 'forge/components';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { CompactFeedList, Container, ForgeThemeBoundary, LookupPickerDialog, Terminal } from 'forge/components';
 import { getFeedData, fetchFeedDataNow, onFeedDataChange, getActiveFeeds, onFeedChange, splitFeedKey } from '../services/toolFeedBus';
 import { openResourceFeedPath } from '../services/chatService';
 import {
@@ -22,6 +22,7 @@ import { normalizeFeedPayload } from '../services/toolFeedBus';
 import { normalizeToolFeedTarget, toolFeedTargetsPlacement } from '../services/toolFeedTarget';
 import { buildFeedExportTitle, exportFeedReportPDF } from '../services/feedReportExport';
 import { markFeedDataSourcesDirty, restorePendingFeedDraft, savePendingFeedDraft } from '../services/feedDraftState';
+import { createFeedLookupController } from '../services/feedLookupController';
 
 const useFeedLayoutEffect = typeof document === 'undefined' ? useEffect : useLayoutEffect;
 
@@ -337,6 +338,27 @@ function buildForgeFeedContainer(feedId = '', payload = {}, dataMap = {}) {
   return resolved;
 }
 
+export function FeedLookupPicker({ lookupDialog, onSelect, onCancel }) {
+  if (!lookupDialog) return null;
+  return (
+    <LookupPickerDialog
+      key={lookupDialog.id}
+      isOpen
+      title={lookupDialog.title}
+      initialQuery={lookupDialog.initialQuery}
+      searchPlaceholder={lookupDialog.searchPlaceholder}
+      disabled={lookupDialog.disabled}
+      columns={lookupDialog.columns}
+      getRowKey={lookupDialog.getRowKey}
+      getRowLabel={lookupDialog.getRowLabel}
+      getRowDescription={lookupDialog.getRowDescription}
+      loadRows={lookupDialog.loadRows}
+      onSelect={onSelect}
+      onCancel={onCancel}
+    />
+  );
+}
+
 function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = 'inline', fullHeight = false }) {
   const payloadSignature = JSON.stringify(data || {});
   const normalized = useMemo(() => normalizeFeedPayload(data), [payloadSignature]);
@@ -362,8 +384,22 @@ function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = '
     title: normalized?.ui?.title || normalized?.title || feedId,
     entityLabel: selectPath(normalized?.ui?.entity?.labelPath, normalized?.data),
   }), [feedId, normalized]);
+  const [lookupRequest, setLookupRequest] = useState(null);
+  const lookupControllerRef = useRef(null);
+  if (!lookupControllerRef.current) {
+    lookupControllerRef.current = createFeedLookupController(setLookupRequest);
+  }
+  useEffect(() => {
+    lookupControllerRef.current?.activate();
+    return () => lookupControllerRef.current?.dispose();
+  }, []);
+  const openLookup = useCallback(
+    (request) => lookupControllerRef.current?.open(request) || Promise.resolve(null),
+    []
+  );
   const context = useMemo(
     () => createFeedContext(feedId, dataSources, conversationId, {
+      openLookup,
       onDraftSubmit: (snapshot) => savePendingFeedDraft(feedId, conversationId, {
         ...snapshot,
         sourceSignature: payloadSignature,
@@ -377,8 +413,58 @@ function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = '
         dataMap,
       }),
     }),
-    [container, conversationId, dataMap, dataSources, exportTitle, feedId, normalized]
+    [container, conversationId, dataMap, dataSources, exportTitle, feedId, normalized, openLookup]
   );
+  const lookupDialog = useMemo(() => {
+    if (!lookupRequest?.request) return null;
+    const request = lookupRequest.request;
+    const lookup = request?.lookup && typeof request.lookup === 'object' ? request.lookup : {};
+    const item = request?.item && typeof request.item === 'object' ? request.item : {};
+    const dataSourceRef = String(lookup?.dataSourceRef || lookup?.dataSource || request?.dataSourceRef || '').trim();
+    const valueField = String(lookup?.valueField || '').trim();
+    const labelField = String(lookup?.labelField || '').trim();
+    const descriptionField = String(lookup?.descriptionField || '').trim();
+    const readFirst = (row, fields = []) => {
+      if (!row || typeof row !== 'object') return '';
+      for (const field of fields) {
+        const key = String(field || '').trim();
+        if (key && row?.[key] != null && String(row[key]).trim()) return row[key];
+      }
+      return '';
+    };
+    return {
+      id: lookupRequest.id,
+      title: String(lookup?.title || item?.title || item?.label || 'Select an option').trim(),
+      initialQuery: String(lookup?.initialQuery || request?.query || ''),
+      searchPlaceholder: String(lookup?.searchPlaceholder || lookup?.placeholder || 'Search options').trim(),
+      disabled: !!(request?.disabled || lookup?.disabled || item?.disabled),
+      columns: Array.isArray(lookup?.columns) ? lookup.columns : undefined,
+      getRowKey: (row, index) => readFirst(row, [valueField, 'value', 'id', labelField, 'label', 'name']) || String(index),
+      getRowLabel: (row) => String(readFirst(row, [labelField, 'label', 'name', 'title', 'display', valueField, 'value', 'id']) || ''),
+      getRowDescription: descriptionField
+        ? (row) => String(readFirst(row, [descriptionField]) || '')
+        : undefined,
+      loadRows: ({ query = '', signal } = {}) => context.handlers.lookup.search({
+        dataSourceRef,
+        query,
+        queryInput: lookup?.queryInput,
+        inputs: {
+          ...(lookup?.searchInputs && typeof lookup.searchInputs === 'object' && !Array.isArray(lookup.searchInputs)
+            ? lookup.searchInputs
+            : {}),
+          ...(lookup?.inputs && typeof lookup.inputs === 'object' && !Array.isArray(lookup.inputs)
+            ? lookup.inputs
+            : {}),
+          ...(request?.inputs && typeof request.inputs === 'object' && !Array.isArray(request.inputs)
+            ? request.inputs
+            : {}),
+        },
+        inputBindings: lookup?.inputBindings,
+        timeoutMs: lookup?.timeoutMs,
+        signal,
+      }),
+    };
+  }, [context, lookupRequest]);
   const requiresSignalWiring = useMemo(() => {
     const hasProvidedFileRows = (node) => {
       if (!node || typeof node !== 'object') return false;
@@ -416,6 +502,11 @@ function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = '
       <div className="app-tool-feed-detail-forge" data-tool-feed-id={feedId} style={railStyle}>
         <Container context={context} container={container} isActive suppressTitle={!container?.title} />
       </div>
+      <FeedLookupPicker
+        lookupDialog={lookupDialog}
+        onSelect={(row) => lookupControllerRef.current?.select(row)}
+        onCancel={() => lookupControllerRef.current?.cancel()}
+      />
     </ForgeThemeBoundary>
   );
 }

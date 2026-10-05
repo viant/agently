@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 const dispatchForgeUIActionMock = vi.hoisted(() => vi.fn());
+const fetchDatasourceMock = vi.hoisted(() => vi.fn());
 vi.mock('./forgeUIActions', () => ({ dispatchForgeUIAction: dispatchForgeUIActionMock }));
+vi.mock('../components/lookups/client', () => ({ fetchDatasource: fetchDatasourceMock }));
 
 vi.mock('./reportExportService', () => ({
   submitReportExportRequest: vi.fn(async ({ request, source }) => ({
@@ -58,6 +60,53 @@ describe('createFeedContext', () => {
       read.mockRestore();
     }
   });
+
+  it('exposes the host lookup opener on root and sub-contexts', async () => {
+    const row = { id: 8, label: 'Record eight' };
+    const openLookup = vi.fn(async () => row);
+    const context = createFeedContext('lookup-feed', {
+      form: {},
+      supporting: {},
+    }, 'conv-lookup', { openLookup });
+    const request = { lookup: { dataSourceRef: 'records' } };
+
+    await expect(context.handlers.lookup.open(request)).resolves.toBe(row);
+    await expect(context.Context('supporting').handlers.lookup.open(request)).resolves.toBe(row);
+    expect(openLookup).toHaveBeenNthCalledWith(1, request);
+    expect(openLookup).toHaveBeenNthCalledWith(2, request);
+  });
+
+  it('rejects lookup opening when the host picker is unavailable', async () => {
+    const context = createFeedContext('lookup-feed', { form: {} }, 'conv-lookup');
+
+    await expect(context.handlers.lookup.open({
+      lookup: { dataSourceRef: 'records' },
+    })).rejects.toThrow('Lookup picker is unavailable in this Tool Feed host.');
+  });
+
+  it('forwards the search abort signal to the datasource client', async () => {
+    fetchDatasourceMock.mockResolvedValueOnce({ rows: [{ id: 1 }] });
+    const controller = new AbortController();
+    const context = createFeedContext('lookup-feed', { form: {} }, 'conv-lookup');
+
+    await expect(context.handlers.lookup.search({
+      dataSourceRef: 'records',
+      query: 'acme',
+      queryInput: 'search.name',
+      inputs: { status: 'active' },
+      timeoutMs: 2500,
+      signal: controller.signal,
+    })).resolves.toEqual([{ id: 1 }]);
+
+    expect(fetchDatasourceMock).toHaveBeenCalledWith('records', {
+      status: 'active',
+      search: { name: 'acme' },
+    }, {
+      timeoutMs: 2500,
+      signal: controller.signal,
+    });
+  });
+
   it('invokes the configured backend PDF exporter through feed.print', async () => {
     const exportPDF = vi.fn(async () => ({ ok: true }));
     const context = createFeedContext('printable', { result: {} }, 'conv-print', { exportPDF });
@@ -91,6 +140,22 @@ describe('createFeedContext', () => {
     expect(detailContext.handlers.dataSource.getCollection()).toEqual([]);
     expect(typeof detailContext.handlers.dataSource.setFilter).toBe('function');
     expect(typeof detailContext.handlers.dataSource.setPage).toBe('function');
+  });
+
+  it('distinguishes form initialization from a committed form edit', () => {
+    const context = createFeedContext('editable-feed', { draft: {} }, 'conv-1');
+    const draft = context.Context('draft');
+
+    draft.handlers.dataSource.setFormData({ values: { selectionId: 1 } });
+    expect(draft.handlers.dataSource.getFormData()).toEqual({ selectionId: 1 });
+    expect(draft.signals.formStatus.value?.dirty).not.toBe(true);
+
+    expect(draft.handlers.dataSource.setEditedFormData({ values: { selectionId: 2 } })).toBe(true);
+    expect(draft.handlers.dataSource.getFormData()).toEqual({ selectionId: 2 });
+    expect(draft.signals.formStatus.value.dirty).toBe(true);
+
+    draft.handlers.dataSource.setEditedFormData({ values: { selectionId: 1 } });
+    expect(draft.signals.formStatus.value.dirty).toBe(false);
   });
 
   it('paginates feed collections 3 items at a time', () => {
@@ -238,7 +303,7 @@ describe('createFeedContext', () => {
         selection: { field: 'selected', feedbackDataSourceRef: 'selectionStatus' },
       },
       selectionStatus: {},
-    }, 'conv-1');
+    }, 'conv-replace-initial');
     const options = context.Context('options');
     const rows = [
       { Channel: 'CTV' },
@@ -254,6 +319,119 @@ describe('createFeedContext', () => {
       message: 'Selection updated; 5 selected.',
       selectedCount: 5,
     });
+  });
+
+  it('keeps value edits separate from membership feedback and clears dirty after a revert', () => {
+    dispatchForgeUIActionMock.mockClear();
+    const context = createFeedContext('selection-editor', {
+      options: {
+        selectionMode: 'multi',
+        uniqueKey: [{ field: 'Channel' }],
+        selection: {
+          field: 'selected',
+          feedbackDataSourceRef: 'selectionStatus',
+          callback: { type: 'local', eventName: 'channel_membership_changed' },
+        },
+      },
+      selectionStatus: {},
+    }, 'conv-value-edits');
+    const options = context.Context('options');
+    const rows = [
+      { Channel: 'CTV', MixPct: 30 },
+      { Channel: 'Video', MixPct: 25 },
+    ];
+    options.handlers.dataSource.setCollection(rows);
+    options.handlers.dataSource.setSelection({ selected: rows });
+
+    options.handlers.dataSource.replaceCollection({
+      rows: [{ ...rows[0], MixPct: 31 }, rows[1]],
+      selectAll: true,
+    });
+
+    expect(options.signals.formStatus.value.dirty).toBe(true);
+    expect(context.Context('selectionStatus').handlers.dataSource.getFormData()).toEqual({});
+    expect(dispatchForgeUIActionMock).not.toHaveBeenCalled();
+
+    options.handlers.dataSource.replaceCollection({ rows, selectAll: true });
+    expect(options.signals.formStatus.value.dirty).toBe(false);
+
+    options.handlers.dataSource.replaceCollection({ rows: [rows[0]], selectAll: true });
+    expect(context.Context('selectionStatus').handlers.dataSource.getFormData()).toMatchObject({
+      message: 'Selection updated; 1 selected.',
+      selectedCount: 1,
+    });
+    expect(dispatchForgeUIActionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps unkeyed value edits quiet but reports a real membership removal', () => {
+    dispatchForgeUIActionMock.mockClear();
+    const context = createFeedContext('unkeyed-selection-editor', {
+      options: {
+        selectionMode: 'multi',
+        selection: {
+          field: 'selected',
+          feedbackDataSourceRef: 'selectionStatus',
+          callback: { type: 'local', eventName: 'membership_changed' },
+        },
+      },
+      selectionStatus: {},
+    }, 'conv-unkeyed-value-edits');
+    const options = context.Context('options');
+    const rows = [
+      { Channel: 'CTV', MixPct: 30 },
+      { Channel: 'Video', MixPct: 25 },
+    ];
+    options.handlers.dataSource.setCollection(rows);
+    options.handlers.dataSource.setSelection({ selected: rows });
+
+    const editedRows = [{ ...rows[0], MixPct: 31 }, rows[1]];
+    options.handlers.dataSource.replaceCollection({ rows: editedRows, selectAll: true });
+    expect(options.signals.formStatus.value.dirty).toBe(true);
+    expect(context.Context('selectionStatus').handlers.dataSource.getFormData()).toEqual({});
+    expect(dispatchForgeUIActionMock).not.toHaveBeenCalled();
+
+    const revertedRows = rows.map((row) => ({ ...row }));
+    options.handlers.dataSource.replaceCollection({ rows: revertedRows, selectAll: true });
+    expect(options.signals.formStatus.value.dirty).toBe(false);
+    expect(context.Context('selectionStatus').handlers.dataSource.getFormData()).toEqual({});
+    expect(dispatchForgeUIActionMock).not.toHaveBeenCalled();
+
+    options.handlers.dataSource.replaceCollection({ rows: [revertedRows[0]], selectAll: true });
+    expect(context.Context('selectionStatus').handlers.dataSource.getFormData()).toMatchObject({
+      message: 'Selection updated; 1 selected.',
+      selectedCount: 1,
+    });
+    expect(dispatchForgeUIActionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears selection dirty after restoring membership and preserves externally staged dirty state', () => {
+    const context = createFeedContext('selection-editor', {
+      options: {
+        selectionMode: 'multi',
+        uniqueKey: [{ field: 'id' }],
+      },
+    }, 'conv-selection-revert');
+    const options = context.Context('options');
+    const rows = [{ id: 'a' }, { id: 'b' }];
+    options.handlers.dataSource.setCollection(rows);
+    options.handlers.dataSource.setSelection({ selected: rows });
+
+    options.handlers.dataSource.toggleSelection({ row: rows[0], rowIndex: 0 });
+    expect(options.signals.formStatus.value.dirty).toBe(true);
+    options.handlers.dataSource.toggleSelection({ row: rows[0], rowIndex: 0 });
+    expect(options.signals.formStatus.value.dirty).toBe(false);
+
+    const restored = createFeedContext('restored-editor', {
+      options: {
+        selectionMode: 'multi',
+        uniqueKey: [{ field: 'id' }],
+      },
+    }, 'conv-1').Context('options');
+    restored.handlers.dataSource.setCollection(rows);
+    restored.handlers.dataSource.setSelection({ selected: rows });
+    restored.signals.formStatus.value = { dirty: true };
+    restored.handlers.dataSource.replaceCollection({ rows: [{ id: 'a' }, { id: 'b' }], selectAll: true });
+    expect(restored.signals.formStatus.value.dirty).toBe(true);
   });
 
   it('submits feed-local instructions as a structured llm event', () => {
