@@ -7,7 +7,7 @@ const uiRoot=resolve(here,'../../ui');
 const require=createRequire(resolve(uiRoot,'package.json'));
 const reactModule=require('@vitejs/plugin-react');
 const react=reactModule.default||reactModule;
-const forgeRoot=resolve(here,'../../../forge');
+const forgeRoot=resolve(here,'../../../forge-ag-ui');
 export default {
  root:here,
  plugins:[react()],
