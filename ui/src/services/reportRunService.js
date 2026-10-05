@@ -133,6 +133,13 @@ export function activateReportRun(input = {}) {
   );
 }
 
+export function getCompletedReportRun(input = {}) {
+  const reportRunId = normalizeId(input.reportRunId);
+  const conversationId = normalizeId(input.conversationId);
+  if (!reportRunId || !conversationId) throw new Error('reportRunId and conversationId are required');
+  return request(`/${encodeURIComponent(reportRunId)}?conversationId=${encodeURIComponent(conversationId)}`, {}, {method: 'GET'});
+}
+
 export function getReportRunContext(input = {}) {
   const conversationId = normalizeId(input.conversationId);
   if (!conversationId) throw new Error('conversationId is required');

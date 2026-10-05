@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.CircularProgressIndicator
+import com.viant.forgeandroid.ui.LocalForgeThemeAppearance
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -185,7 +186,7 @@ private fun TranscriptInlineReportBlock(
     )
 
     Surface(
-        color = Color(0xFFF8FAFD),
+        color = (LocalForgeThemeAppearance.current?.surface ?: Color(0xFFF8FAFD)),
         shape = MaterialTheme.shapes.large,
         modifier = Modifier
             .fillMaxWidth()
@@ -197,7 +198,7 @@ private fun TranscriptInlineReportBlock(
         ) {
             Text(previewTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             previewSubtitle?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFF667085))
+                Text(it, style = MaterialTheme.typography.bodySmall, color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085)))
             }
             if (reportPending) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -205,7 +206,7 @@ private fun TranscriptInlineReportBlock(
                     Text(
                         inlineReportBuildStatus(report),
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF667085)
+                        color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085))
                     )
                 }
             } else {
@@ -541,7 +542,7 @@ private fun TranscriptForgeUiBlock(
     }
 
     Surface(
-        color = Color(0xFFF8FAFD),
+        color = (LocalForgeThemeAppearance.current?.surface ?: Color(0xFFF8FAFD)),
         shape = MaterialTheme.shapes.large,
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -564,7 +565,7 @@ private fun TranscriptForgeFallback(
     body: String
 ) {
     Surface(
-        color = Color(0xFFF8FAFD),
+        color = (LocalForgeThemeAppearance.current?.surface ?: Color(0xFFF8FAFD)),
         shape = MaterialTheme.shapes.large,
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -580,7 +581,7 @@ private fun TranscriptForgeFallback(
             Text(
                 text = body,
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF667085)
+                color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085))
             )
         }
     }

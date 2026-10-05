@@ -1,4 +1,6 @@
 import {readComposerDefaults} from "./composerDefaults";
+import { projectChatConversation } from './chatConversationProjection';
+import { feedActivationEventType, mergeFeedSnapshotActivation } from './feedActivation';
 import { conversationLifecyclePatchForStreamPhase, isLiveConversationState } from 'agently-core-ui-sdk';
 import * as canonicalChatStore from './chatStore';
 
@@ -49,6 +51,7 @@ import {
   syncHydratedWorkspaceStateFromTranscriptTurns
 } from './conversationWindow';
 import { setStage } from './stageBus';
+import { replaceAgUiHostActivities } from './aguiHostActivities';
 import { client } from './agentlyClient';
 import {
   displayLabel,
@@ -879,7 +882,9 @@ export function renderMergedRowsForContext(context) {
   const projection = conversationID ? (_chatStoreRef()?.getProjection?.(conversationID) || []) : [];
   const messagesDS = context?.Context?.('messages')?.handlers?.dataSource;
   messagesDS?.setCollection?.(projection);
-  const queuedTurns = Array.isArray(chatState.lastQueuedTurns) ? chatState.lastQueuedTurns : [];
+  const canonicalQueue = client.observesNativeWork?.() ? _chatStoreRef()?.getQueuedTurns?.(conversationID) : undefined;
+  const queuedTurns = Array.isArray(canonicalQueue) ? canonicalQueue : (Array.isArray(chatState.lastQueuedTurns) ? chatState.lastQueuedTurns : []);
+  chatState.lastQueuedTurns = queuedTurns;
   const normalizedConversationID = conversationID;
   if (normalizedConversationID) {
     if (queuedTurns.length > 0) {
@@ -963,7 +968,16 @@ function updateTranscriptFeedCache(chatState = {}, payload = {}, fallbackConvers
   if (!conversationID || !feedId) return;
   const current = chatState.lastTranscriptFeedsByConversation || {};
   const existing = Array.isArray(current[conversationID]) ? current[conversationID] : [];
-  if (String(payload?.type || '').toLowerCase() === 'tool_feed_inactive') {
+  const type = String(payload?.type || '').trim().toLowerCase();
+  if (type === 'tool_feed_unknown') {
+    const previous = existing.find(feed => feed.feedId === feedId) || { feedId };
+    chatState.lastTranscriptFeedsByConversation = { ...current, [conversationID]: [
+      ...existing.filter(feed => feed.feedId !== feedId),
+      { ...previous, active: null, activationKnown: false },
+    ] };
+    return;
+  }
+  if (type === 'tool_feed_inactive') {
     const next = existing.filter((feed) => String(feed?.feedId || '').trim() !== feedId);
     chatState.lastTranscriptFeedsByConversation = {
       ...current,
@@ -971,7 +985,7 @@ function updateTranscriptFeedCache(chatState = {}, payload = {}, fallbackConvers
     };
     return;
   }
-  if (String(payload?.type || '').toLowerCase() !== 'tool_feed_active') return;
+  if (type !== 'tool_feed_active') return;
   const nextFeed = {
     feedId,
     title: payload?.feedTitle || feedId,
@@ -1136,7 +1150,7 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     : await client.getTranscript(transcriptInput, transcriptOptions);
   const data = payload || {};
   const canonicalConversation = data?.conversation && typeof data.conversation === 'object'
-    ? data.conversation
+    ? projectChatConversation(data.conversation)
     : null;
   const canonicalTurns = Array.isArray(canonicalConversation?.turns) ? canonicalConversation.turns : null;
   const canonicalHasRunning = Array.isArray(canonicalTurns)
@@ -1169,13 +1183,13 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     const current = activeChatState.lastTranscriptFeedsByConversation || {};
     activeChatState.lastTranscriptFeedsByConversation = {
       ...current,
-      [normalizedConversationID]: Array.isArray(resolvedFeeds) ? resolvedFeeds : []
+      [normalizedConversationID]: mergeFeedSnapshotActivation(resolvedFeeds, current[normalizedConversationID] || [])
     };
   }
   if (Array.isArray(canonicalTurns) && canonicalTurns.length > 0 && isCanonicalTranscriptTurn(canonicalTurns[0])) {
     return canonicalTurns;
   }
-  return Array.isArray(data?.conversation?.turns) ? data.conversation.turns : [];
+  return Array.isArray(canonicalTurns) ? canonicalTurns : [];
 }
 
 export async function fetchPendingElicitations(conversationID = '') {
@@ -1198,38 +1212,29 @@ export async function fetchConversation(conversationID = '') {
   return null;
 }
 
+const goalFeedRefreshes = new Map();
+let goalFeedGeneration = 0;
 export async function refreshGoalFeed(conversationID = '') {
-  const id = String(conversationID || '').trim();
+  const id=String(conversationID || '').trim();
   if (!id) return;
-  try {
-    const goal = await client.getGoal(id);
-    if (!goal || typeof goal !== 'object') {
-      applyFeedEvent({
-        type: 'tool_feed_inactive',
-        feedId: 'goal',
-        conversationId: id,
-      });
-      return;
+  if (goalFeedRefreshes.has(id)) return goalFeedRefreshes.get(id);
+  const generation=goalFeedGeneration;
+  const operation=(async()=>{
+    try {
+      const goal=await client.getGoal(id);
+      if (generation!==goalFeedGeneration) return;
+      if (!goal || typeof goal!=='object') {
+        applyFeedEvent({type:'tool_feed_inactive',feedId:'goal',conversationId:id});return;
+      }
+      // The spec is loaded separately. Repeated reads retain raw datasource
+      // shape instead of nesting another UI/data envelope inside cached data.
+      applyFeedEvent({type:'tool_feed_active',feedId:'goal',feedTitle:'Goal',feedItemCount:1,conversationId:id,feedData:{goal},localOnly:true});
+    } catch (_) {
+      if (generation===goalFeedGeneration) applyFeedEvent({type:'tool_feed_inactive',feedId:'goal',conversationId:id});
     }
-    applyFeedEvent({
-      type: 'tool_feed_active',
-      feedId: 'goal',
-      feedTitle: 'Goal',
-      feedItemCount: 1,
-      conversationId: id,
-      feedData: {
-        ui: { title: 'Goal' },
-        data: { goal },
-      },
-      localOnly: true,
-    });
-  } catch (_) {
-    applyFeedEvent({
-      type: 'tool_feed_inactive',
-      feedId: 'goal',
-      conversationId: id,
-    });
-  }
+  })().finally(()=>{if(goalFeedRefreshes.get(id)===operation)goalFeedRefreshes.delete(id);});
+  goalFeedRefreshes.set(id,operation);
+  return operation;
 }
 
 export function hydrateConversationFromBootstrapSnapshot(context, snapshot = null) {
@@ -1243,6 +1248,7 @@ export function hydrateConversationFromBootstrapSnapshot(context, snapshot = nul
   conversationsDS.setFormData?.({
     values: applyConversationFormSnapshot(currentForm, conversation)
   });
+  syncConversationComposerSelection(context);
   publishUsage(conversationID, conversation);
   const chatState = ensureContextResources(context);
   chatState.generatedFiles = Array.isArray(snapshot.generatedFiles) ? snapshot.generatedFiles : [];
@@ -1276,6 +1282,69 @@ function applyConversationFormSnapshot(base = {}, conversation = null) {
   return next;
 }
 
+const conversationComposerSelections = new Map();
+let conversationComposerGeneration=0;
+if (typeof window !== 'undefined') window.addEventListener?.('agently:session-reset', () => {conversationComposerSelections.clear();conversationComposerGeneration++;goalFeedGeneration++;goalFeedRefreshes.clear();});
+/** Keep the composer metadata and the conversation selection in sync. Metadata
+ * defaults describe a fresh draft; they must not replace an owned selection. */
+function composerConversationID(context,form={}) {
+  const windowId=getContextWindowId(context);
+  const scoped=getScopedConversationSelection(windowId);
+  const route=typeof window!=='undefined' && isMainChatWindowId(windowId) ? conversationIDFromPath(window.location?.pathname || '') : '';
+  return String(form.id || scoped || route || context?.resources?.chat?.activeConversationID || '').trim();
+}
+export function syncConversationComposerSelection(context, metadata = null) {
+  const convDS = context?.Context?.('conversations')?.handlers?.dataSource;
+  const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
+  if (!metaDS) return metadata;
+  let form = convDS?.peekFormData?.() || {};
+  const conversationID=composerConversationID(context,form);
+  const savedSelection=conversationComposerSelections.get(conversationID);
+  const ownedSelection=(metadata || savedSelection?.explicit || savedSelection?.confirmed) ? savedSelection : null;
+  if (ownedSelection) { form={...form,id:conversationID || form.id,agent:ownedSelection.agent,model:ownedSelection.model};convDS?.setFormData?.({values:form}); }
+  const meta = metadata || metaDS.peekFormData?.() || {};
+  const catalogReady=(Array.isArray(meta.agentInfos)&&meta.agentInfos.length>0)||(Array.isArray(meta.agentOptions)&&meta.agentOptions.length>0);
+  const agent = ownedSelection ? sanitizeAutoSelection(ownedSelection.agent) : (!catalogReady && form.id && form.agent ? sanitizeAutoSelection(form.agent) : resolveVisibleSelectedAgent(meta,form.agent,meta.agent,meta.defaults?.agent));
+  const model = ownedSelection?.explicit && ownedSelection.model==='' ? '' : sanitizeAutoSelection(form.model || meta.model || meta.defaults?.model || '');
+  const next = {...meta,agent,model,
+    starterTasks:resolveStarterTasks({agentInfos:meta.agentInfos || [],selectedAgent:agent}),
+    starterTaskCategories:resolveStarterTaskCategories({agentInfos:meta.agentInfos || [],selectedAgent:agent})};
+  metaDS.setFormData?.({values:next});
+  const id=composerConversationID(context,form);
+  if(id && !metadata) conversationComposerSelections.set(id,{agent,model,...(savedSelection?.explicit?{explicit:true}:{}),...(savedSelection?.confirmed?{confirmed:true}:{})});
+  return next;
+}
+
+/** Explicit chooser input fences a pending header read and survives remount. */
+export function recordConversationComposerSelection(context,selection={}) {
+  const resources=ensureContextResources(context);
+  resources.composerSelectionGeneration=Number(resources.composerSelectionGeneration || 0)+1;
+  const form=context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
+  const meta=context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
+  const id=String(form.id || '').trim();
+  if(id)conversationComposerSelections.set(id,{agent:String(selection.agent ?? form.agent ?? meta.agent ?? '').trim(),model:String(selection.model ?? form.model ?? meta.model ?? '').trim(),explicit:true});
+}
+
+/** Conversation headers are an authenticated supporting application read;
+ * canonical AG-UI messages do not carry the persisted composer defaults. */
+export async function hydrateConversationComposerSelection(context,conversationID='') {
+  const id=String(conversationID || '').trim();if(!id)return;
+  const generation=conversationComposerGeneration;
+  const resources=ensureContextResources(context), selectionGeneration=Number(resources.conversationSelectionGeneration || 0), composerGeneration=Number(resources.composerSelectionGeneration || 0);
+  try {
+    const conversation=await client.getConversation(id);
+    const ds=context?.Context?.('conversations')?.handlers?.dataSource;
+    const current=ds?.peekFormData?.() || {};
+    if(generation!==conversationComposerGeneration || Number(resources.conversationSelectionGeneration || 0)!==selectionGeneration || Number(resources.composerSelectionGeneration || 0)!==composerGeneration || composerConversationID(context,current)!==id || !conversation)return;
+    const selected=conversationComposerSelections.get(id);
+    const next=applyConversationFormSnapshot(current,conversation);
+    if(selected){next.agent=selected.agent;next.model=selected.model;}
+    ds?.setFormData?.({values:next});
+    if(!selected)conversationComposerSelections.set(id,{agent:next.agent || '',model:next.model || '',confirmed:true});
+    syncConversationComposerSelection(context);
+  } catch (_) { /* The ordinary auth policy handles protected read failures. */ }
+}
+
 export async function hydrateMeta(context) {
   const metaContext = context?.Context?.('meta');
   const metaDS = metaContext?.handlers?.dataSource;
@@ -1291,14 +1360,14 @@ export async function hydrateMeta(context) {
   try {
     const raw = await client.getWorkspaceMetadata();
     const payload = normalizeMetaResponse(raw);
-    metaDS.setFormData?.({ values: payload });
+    syncConversationComposerSelection(context,payload);
     const convDS = context?.Context?.('conversations')?.handlers?.dataSource;
     if (convDS) {
       const form = convDS.peekFormData?.() || {};
       const next = { ...form };
       if (!String(next.id || '').trim()) {
-        next.agent = payload?.defaults?.agent || '';
-        next.model = payload?.defaults?.model || '';
+        next.agent = next.agent || current.agent || payload?.defaults?.agent || '';
+        next.model = next.model || current.model || payload?.defaults?.model || '';
         next.embedder = payload?.defaults?.embedder || '';
       } else {
         if (!next.agent && payload?.defaults?.agent) next.agent = payload.defaults.agent;
@@ -1352,9 +1421,11 @@ export function syncMessagesSnapshot(context, turns, reason = 'poll', pendingEli
     : [];
   for (const feed of transcriptFeeds) {
     const feedId = String(feed?.feedId || '').trim();
-    if (!feedId || isFeedInactive(feedId, currentConversationID)) continue;
+    if (!feedId) continue;
+    const type = feedActivationEventType(feed);
+    if (isFeedInactive(feedId, currentConversationID) && type === 'tool_feed_active' && feed.active !== true) continue;
     applyFeedEvent({
-      type: 'tool_feed_active',
+      type,
       feedId,
       turnId: String(feed?.turnId || '').trim(),
       feedTitle: feed.title || feedId,
@@ -1395,6 +1466,7 @@ function shouldDeferTranscriptToLiveStream(context, conversationID = '') {
     hasPendingLiveTurnBootstrap
     || 
     canonicalActiveTurnId(chatState, targetID)
+    || _chatStoreRef()?.getActiveTurn?.(targetID)
     || String(chatState.runningTurnId || '').trim()
     || String(chatState.activeStreamTurnId || '').trim()
     || chatState.lastHasRunning
@@ -1589,57 +1661,101 @@ export function connectStream(context, conversationID) {
     && String(chatState.activeStreamSubscriptionID || '') === subscriptionID
     && chatState.stream === subscription
   );
-  subscription = client.streamEvents(conversationID, {
-    onEvent: (payload) => {
-      const content = String(payload?.content || '');
-      if (!isCurrentSubscription()) {
-        logStreamDebug(chatState, 'stream-event-ignored-stale-subscription', {
+  // The transport may deliver cached snapshots synchronously on subscribe.
+  // Publish ownership before registering callbacks so those snapshots pass
+  // the same fence as later events.
+  streamSubscriptionOwners.set(targetConversationID, owner);
+  chatState.activeConversationID = targetConversationID;
+  chatState.stream = null;
+  try {
+    subscription = client.streamEvents(conversationID, {
+      onHostActivities: (activities) => {
+        if (!isCurrentSubscription()) return;
+        replaceAgUiHostActivities(conversationID, activities, 'agently');
+      },
+      onOutcome: (outcome) => {
+        if (!isCurrentSubscription() || outcome?.phase !== 'interrupt') return;
+        const interrupts = Array.isArray(outcome.interrupts) ? outcome.interrupts : [];
+        const approval = interrupts.some((item) => item?.reason === 'approval');
+        chatState.lastStreamEventAt = Date.now();
+        applyStreamConversationState(context, 'eliciting', { turnId: outcome.logicalTurnId });
+        setStage({ phase: 'waiting', text: approval ? 'Waiting for approval…' : 'Waiting for input…' });
+        renderMergedRowsForContext(context);
+      },
+      onSnapshot: (snapshot) => {
+        if (!isCurrentSubscription()) return;
+        const canonical = projectChatConversation(snapshot?.conversation);
+        if (!canonical || String(canonical.conversationId || '') !== String(conversationID)) return;
+        if (!hasPendingConversationBootstrap(conversationID)) {
+          _chatStoreRef()?.onTranscript?.(conversationID, canonical);
+        }
+        const feeds = Array.isArray(snapshot?.feeds) ? snapshot.feeds : (Array.isArray(canonical.feeds) ? canonical.feeds : []);
+        chatState.lastTranscriptFeedsByConversation = {
+          ...(chatState.lastTranscriptFeedsByConversation || {}),
+          [conversationID]: mergeFeedSnapshotActivation(feeds, chatState.lastTranscriptFeedsByConversation?.[conversationID] || []),
+        };
+        renderMergedRowsForContext(context);
+      },
+      onEvent: (payload) => {
+        const content = String(payload?.content || '');
+        if (!isCurrentSubscription()) {
+          logStreamDebug(chatState, 'stream-event-ignored-stale-subscription', {
+            subscriptionID,
+            generation,
+            type: String(payload?.type || '').trim(),
+            contentLength: content.length,
+            contentHash: streamDebugHash(content)
+          });
+          return;
+        }
+        const payloadType = String(payload?.type || '').trim().toLowerCase();
+        if (payloadType === 'turn_completed' || payloadType === 'turn_failed' || payloadType === 'turn_canceled') {
+          owner.liveTurn = false;
+        } else if (payloadType === 'turn_started') {
+          owner.liveTurn = true;
+        }
+        chatState.streamSubscriptionEventSeq = Number(chatState.streamSubscriptionEventSeq || 0) + 1;
+        logStreamDebug(chatState, 'stream-js-event', {
           subscriptionID,
           generation,
+          subscriptionEventSeq: chatState.streamSubscriptionEventSeq,
           type: String(payload?.type || '').trim(),
+          eventSeq: Number(payload?.eventSeq || 0) || 0,
+          messageID: String(payload?.messageId || payload?.assistantMessageId || payload?.id || '').trim(),
           contentLength: content.length,
           contentHash: streamDebugHash(content)
         });
-        return;
-      }
-      const payloadType = String(payload?.type || '').trim().toLowerCase();
-      if (payloadType === 'turn_completed' || payloadType === 'turn_failed' || payloadType === 'turn_canceled') {
-        owner.liveTurn = false;
-      } else if (payloadType === 'turn_started') {
-        owner.liveTurn = true;
-      }
-      chatState.streamSubscriptionEventSeq = Number(chatState.streamSubscriptionEventSeq || 0) + 1;
-      logStreamDebug(chatState, 'stream-js-event', {
-        subscriptionID,
-        generation,
-        subscriptionEventSeq: chatState.streamSubscriptionEventSeq,
-        type: String(payload?.type || '').trim(),
-        eventSeq: Number(payload?.eventSeq || 0) || 0,
-        messageID: String(payload?.messageId || payload?.assistantMessageId || payload?.id || '').trim(),
-        contentLength: content.length,
-        contentHash: streamDebugHash(content)
-      });
-      handleStreamEvent(chatState, context, conversationID, payload);
-    },
-    onError: (error) => {
-      if (!isCurrentSubscription()) {
-        logStreamDebug(chatState, 'stream-error-ignored-stale-subscription', {
-          subscriptionID,
-          generation,
+        handleStreamEvent(chatState, context, conversationID, payload);
+      },
+      onError: (error) => {
+        if (!isCurrentSubscription()) {
+          logStreamDebug(chatState, 'stream-error-ignored-stale-subscription', {
+            subscriptionID,
+            generation,
+            error: String(error || '').trim()
+          });
+          return;
+        }
+        logStreamDebug(chatState, 'stream-error', {
+          conversationId: String(conversationID || '').trim(),
           error: String(error || '').trim()
         });
-        return;
-      }
-      logStreamDebug(chatState, 'stream-error', {
-        conversationId: String(conversationID || '').trim(),
-        error: String(error || '').trim()
-      });
-      if (String(error || '').trim().includes('unauthorized')) return;
-      scheduleStreamReconnect(context, conversationID, error);
-    },
-  });
+        if (String(error || '').trim().includes('unauthorized')) return;
+        scheduleStreamReconnect(context, conversationID, error);
+      },
+    });
+  } catch (error) {
+    if (streamSubscriptionOwners.get(targetConversationID) === owner) {
+      owner.active = false;
+      streamSubscriptionOwners.delete(targetConversationID);
+    }
+    throw error;
+  }
+  if (!owner.active || streamSubscriptionOwners.get(targetConversationID) !== owner) {
+    subscription?.close?.();
+    return;
+  }
   owner.subscription = subscription;
-  streamSubscriptionOwners.set(targetConversationID, owner);
   chatState.stream = subscription;
   chatState.activeConversationID = String(conversationID || '').trim();
   chatState.streamOpenedAt = Date.now();
@@ -2093,6 +2209,11 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       return;
     }
 
+    if (type === 'turn_queued') {
+      renderMergedRowsForContext(context);
+      return;
+    }
+
     if (type === 'turn_started') {
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
@@ -2207,7 +2328,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       return;
     }
 
-    if (type === 'tool_feed_active' || type === 'tool_feed_inactive') {
+    if (type === 'tool_feed_active' || type === 'tool_feed_inactive' || type === 'tool_feed_unknown') {
       chatState.lastStreamEventAt = Date.now();
       updateTranscriptFeedCache(chatState, payload, conversationID);
       applyFeedEvent(payload);
@@ -2258,11 +2379,15 @@ export function shouldUseLiveStream(context, conversationID = '') {
   const targetID = String(conversationID || '').trim();
   if (!targetID) return false;
   const currentConversationID = String(getCurrentConversationID(context) || '').trim();
+  if (currentConversationID === targetID && client.observesNativeWork?.()) return true;
   const ownedConversationID = String(chatState.liveOwnedConversationID || '').trim();
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const currentConversationForm = conversationsDS?.peekFormData?.() || {};
   const formRunning = !!currentConversationForm?.running || isConversationLiveish(currentConversationForm);
-  const trackerRunning = !!canonicalActiveTurnId(chatState, targetID);
+  // A local submission has a canonical pending turn before the server assigns
+  // its native turn ID. Keep observing it across context replacement.
+  const trackerRunning = !!canonicalActiveTurnId(chatState, targetID)
+    || !!_chatStoreRef()?.getActiveTurn?.(targetID);
   const localRunning = !!String(chatState.runningTurnId || chatState.activeStreamTurnId || '').trim();
   const conversationLiveish = formRunning || trackerRunning || localRunning;
   if (currentConversationID && currentConversationID === targetID) {
@@ -2356,6 +2481,8 @@ export async function ensureConversation(context, options = {}) {
         model: preferredModel || form.model || ''
       }
     });
+    conversationComposerSelections.set(id,{agent:agentID,model:preferredModel || form.model || '',confirmed:true});
+    syncConversationComposerSelection(context);
     publishActiveConversation(id, context);
     chatState.activeConversationID = id;
     if (immediateSubmit) {
@@ -2500,6 +2627,7 @@ export async function switchConversation(context, conversationID = '') {
     conversationsDS.setFormData?.({
       values: applyConversationFormSnapshot(conversationsDS.peekFormData?.() || form, existing)
     });
+    syncConversationComposerSelection(context);
     if (snapshot?.hasRunning || ((snapshot?.projection || []).length === 0 && isConversationLiveish(existing))) {
       syncConversationTransport(context, targetID);
     } else {
@@ -2543,6 +2671,7 @@ export async function switchConversation(context, conversationID = '') {
   conversationsDS.setFormData?.({
     values: applyConversationFormSnapshot(conversationsDS.peekFormData?.() || form, existing)
   });
+  syncConversationComposerSelection(context);
   if (snapshot?.hasRunning || ((snapshot?.projection || []).length === 0 && isConversationLiveish(existing))) {
     syncConversationTransport(context, targetID);
   } else {
@@ -2605,7 +2734,8 @@ export function bootstrapConversationSelection(context) {
   if (!bootstrapID) return;
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const current = conversationsDS?.peekFormData?.() || {};
-  conversationsDS?.setFormData?.({ values: { ...current, id: bootstrapID } });
+  conversationsDS?.setFormData?.({ values: { ...current, ...conversationComposerSelections.get(bootstrapID), id: bootstrapID } });
+  if (conversationComposerSelections.has(bootstrapID)) syncConversationComposerSelection(context);
 }
 
 export function bindConversationWindowEvents(context) {
@@ -2773,7 +2903,10 @@ export function startPolling(context) {
     chatState.timer = null;
   }
   const mountedConversationID = getCurrentConversationID(context);
-  if (!chatState.stream && shouldDeferTranscriptToLiveStream(context, mountedConversationID)) {
+  if (!chatState.stream && (
+    shouldDeferTranscriptToLiveStream(context, mountedConversationID)
+    || (mountedConversationID && client.observesNativeWork?.())
+  )) {
     // React/chat remounts replace the prior context and intentionally close
     // its subscription. If canonical hydration already established an active
     // turn, attach the replacement context immediately so no SSE events are

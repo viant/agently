@@ -115,6 +115,7 @@ android {
         targetSdk = 35
         versionCode = agentlyGitVersionCode
         versionName = agentlyGitVersion
+        buildConfigField("boolean", "REPORT_REQUEST_INSPECTION_ONLY", "false")
         buildConfigField("String", "GIT_REVISION", "\"$agentlyGitRevision\"")
         buildConfigField("String", "GIT_VERSION", "\"$agentlyGitVersion\"")
         buildConfigField("String", "APP_API_BASE_URL", "\"$agentlyAndroidBaseUrl\"")
@@ -131,6 +132,12 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    buildTypes {
+        getByName("debug") {
+            buildConfigField("boolean", "REPORT_REQUEST_INSPECTION_ONLY", providers.gradleProperty("agently.android.reportRequestInspectionOnly").orElse("false").get().toBoolean().toString())
+        }
     }
 
     composeOptions {

@@ -113,6 +113,7 @@ export default function StarterTasks({ message, context }) {
     if (typeof document === 'undefined') return null;
     const candidates = Array.from(document.querySelectorAll('[data-testid="chat-composer-input"]'));
     const visible = candidates.filter((node) => {
+      if (node.closest?.('[data-connection-profile="standard"]')) return false;
       try {
         const rect = node.getBoundingClientRect?.();
         return !!rect && rect.width > 0 && rect.height > 0;

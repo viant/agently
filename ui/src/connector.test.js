@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('forge/core', () => ({
-  buildUISnapshot: () => ({
+  buildUISnapshot: vi.fn(() => ({
     selected: { windowId: 'chat/new', tabId: 'chat/new' },
     windows: [
       {
@@ -16,11 +16,12 @@ vi.mock('forge/core', () => ({
         }
       }
     ]
-  }),
+  })),
   ensureUIBridgeClientId: () => 'bridge-client-123'
 }));
 
 import { connectorConfig, snapshotConversationId } from './connector';
+import { buildUISnapshot } from 'forge/core';
 
 describe('snapshotConversationId', () => {
   it('keeps hidden workspace polling responsive without a tight request loop', () => {
@@ -102,6 +103,8 @@ describe('snapshotConversationId', () => {
       const snapshot = connectorConfig.uiBridge.snapshotBuilder();
       expect(snapshot.clientId).toBe('bridge-client-123');
       expect(snapshot.conversationId).toBe('conv-snapshot');
+      expect(buildUISnapshot).toHaveBeenLastCalledWith(expect.objectContaining({ includeFullWindowForm: true }));
+      expect(connectorConfig.uiBridge.snapshotOptions.includeFullWindowForm).toBe(true);
     } finally {
       global.window = previousWindow;
     }

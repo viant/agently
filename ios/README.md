@@ -162,7 +162,7 @@ Current scope:
 - the composer action strip now adapts more gracefully on narrow and rotated
   layouts by collapsing into a vertically stacked variant when needed
 - the shared iOS foundations that are already buildable live in:
-  - `../../agently-core/sdk/ios`
+  - `../../agently-core-ag-ui/sdk/ios`
   - `../../forge/ios`
 - this package is a bridge to the real destination, which is still an Xcode
   iOS app target under `agently`
@@ -185,3 +185,5 @@ Useful commands:
 - `xcodegen generate`
 - `swift build`
 - `xcodebuild -project AgentlyApp.xcodeproj -scheme AgentlyApp -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build`
+
+The isolated AG-UI app selects `.agUI` when constructing `AgentlyClient`. Its tracked `Packages/AgentlySDKPackage` link targets `agently-core-ag-ui/sdk/ios`; the unique package path avoids colliding with the app package's `ios` identity. The supporting workspace, themes, report, lookup and UI bridge APIs use the same BFF session. Simulator builds and foundation/SDK tests are readiness checks; real Steward starter flows must pass separately.

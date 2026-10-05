@@ -1,983 +1,376 @@
 # Agently
 
-Agently is a full-featured AI agent platform built on [agently-core](https://github.com/viant/agently-core).
-It provides an HTTP server, embedded web UI, CLI, and workspace management for
-creating and interacting with AI agents powered by LLMs.
+Agently is an agentic application framework and ready-to-run server built on
+[Agently Core](https://github.com/viant/agently-core). It combines durable agent
+execution with a CLI, embedded web application, native mobile shells and
+workspace-driven configuration.
 
-## Why Agently
+Use it to build assistants that work with your tools and data, retain useful
+conversation history, request approvals, coordinate linked agents and render
+interactive results. Provider integrations and application metadata are
+configurable; the framework is not tied to one business domain.
 
-- **Secure MCP hosting** — authority matching, HTTPS-only header reuse, and origin/audience allowlists prevent credential leakage while supporting bearer-first and BFF cookie reuse.
-- **Conversation-scoped orchestration** — MCP clients, elicitation, and tool calls are associated to a conversation, preserving auth/session boundaries across multi-step flows.
-- **Workspace-driven operations** — agents, models, MCP clients, and policies live in the workspace; reproducible, reviewable, and environment-overridable.
-- **OAuth / JWT authentication** — BFF, SPA, bearer, mixed, and local auth modes; RSA/HMAC JWT; distributed token refresh across pods.
-- **A2A protocol** — agent-to-agent communication via `/.well-known/agent.json` and `/v1/api/a2a/*`.
-- **MCP tool exposure** — optionally expose workspace tools as an MCP HTTP server for external agents.
-- **Parallel tool calls** — enabled by default; agents invoke multiple tools concurrently within a single reasoning step.
-- **Embedded web UI** — Forge-based React UI served directly from the binary.
+## How the pieces fit
 
-## Features
+| Layer | Responsibility |
+| --- | --- |
+| Agently Core | Model/tool execution, persistence, recovery, authentication, goals, scheduling and SDK contracts |
+| Workspace | Agents, models, MCP clients, tools/policies, intents, templates, feeds and application metadata |
+| Agently server | Assembled HTTP/BFF service, CLI, application integrations and embedded assets |
+| Forge | Generic metadata-driven controls, windows, layouts, charts, tables and inline content |
+| Web/iOS/Android shells | Navigation, conversation coordination, hosted workspaces, native interaction and presentation |
 
-- Multi-LLM support: OpenAI, Vertex AI (Gemini + Claude), Bedrock Claude, Grok, InceptionLabs, Ollama
-- MCP integration with per-user BFF auth round-tripper
-- Conversation management with SQLite (default) or MySQL
-- Scheduler: cron/interval/adhoc with distributed lease coordination
-- JWT (RSA/HMAC) and OAuth BFF/SPA/bearer authentication
-- CLI: `query`, `list-tools`, `chatgpt-login`, `serve`
-- Embedded Forge web UI with navigation and window metadata
+The server supports OpenAI, Vertex AI Gemini/Claude, Bedrock Converse/Claude,
+Grok, InceptionLabs and Ollama through the configured core adapters. Actual
+models, credentials, streaming and multimodal capabilities depend on the
+selected provider. Optional MCP exposure and A2A endpoints let other clients
+interoperate with the application.
 
-## Installation
+## Build and start
 
-```bash
-# Prerequisites: Go 1.25+, Node.js (for UI builds)
+Requires Go 1.25.8 or newer. Web builds also require Node.js/npm. For this
+AG-UI branch, first arrange the compatible sibling dependencies described in
+[local development](#local-development).
 
-git clone https://github.com/viant/agently.git
-cd agently/agently
+~~~bash
+# From the repository root
+go build -o ./bin/agently ./agently
 
-export OPENAI_API_KEY=your_key
+# Serve the workspace, API and embedded application
+./bin/agently serve -a :8080 -w /path/to/workspace
 
-go build -o agently .
-```
+# Submit a prompt or use the interactive CLI
+./bin/agently query -q "Summarize the project documentation"
+./bin/agently query
+./bin/agently list-tools
+~~~
 
-## Quick Start
+Configure the workspace's selected model and its provider credentials before
+making a model request. A web build embeds application assets into the server;
+use the safe [UI build workflow](#web-application-development) after editing them.
 
-```bash
-# Start the server (default :8080)
-./agently serve
+Useful server options:
 
-# Start on a custom port
-./agently serve -a :9595
+| Option | Purpose |
+| --- | --- |
+| -a / --addr | Listen address; default :8080 |
+| -w / --workspace | Workspace path |
+| -p / --policy | Coarse tool policy: auto, ask or deny |
+| --expose-mcp | Optional MCP tool exposure, with configured port/patterns |
+| --ui-dist | Explicit local UI asset override |
+| -d / --debug | Debug diagnostics |
 
-# Start with a specific workspace
-./agently serve -w /path/to/workspace
+The CLI can connect to a remote server with --api and its supported bearer,
+session or OOB authentication options. See the command's help before selecting
+a deployment-specific credential method.
 
-# Query an agent (auto-detects local server)
-./agently query
+## Configure a workspace
 
-# Query with a prompt
-./agently query -q "How many tables in my database?"
+Agently's application workspace defaults to ~/.agently; AGENTLY_WORKSPACE or
+the server's --workspace option selects another location.
 
-# List available tools
-./agently list-tools
+~~~text
+workspace/
+  config.yaml
+  agents/
+  models/
+  embedders/
+  mcp/
+  tools/bundles/
+  intents/
+  templates/
+  workflows/
+  feeds/
+~~~
 
-# Login to ChatGPT OAuth
-./agently chatgpt-login --clientURL "scy://..."
-```
+A basic application configuration selects resources by their workspace IDs:
 
-## Server Options
-
-```
-./agently serve [flags]
-
-  -a, --addr         Listen address (default :8080)
-  -w, --workspace    Workspace root path (overrides AGENTLY_WORKSPACE)
-  -p, --policy       Tool policy: auto|ask|deny (default: auto)
-      --expose-mcp   Expose tools as MCP HTTP server
-      --ui-dist      Optional local UI dist directory
-  -d, --debug        Enable debug logging
-```
-
-## Tool Policy
-
-Agently has two layers of tool control:
-
-1. coarse runtime tool policy
-2. per-bundle approval rules
-
-The coarse runtime policy is set by `--policy` on `agently serve`.
-
-Available modes:
-
-- `auto` — normal operation; tools run when allowed by the selected bundle and agent
-- `ask` — interactive approval-oriented mode for risky operations
-- `deny` — deny tool execution
-
-Approval rules are separate from the coarse runtime policy and live on tool
-bundle match rules.
-
-Supported approval modes:
-
-- `none` — no approval
-- `prompt` — block the active turn and ask inline
-- `queue` — create a queued approval item for the user
-
-Approval is configured at the bundle-rule level, not on agent tool items.
-
-```yaml
-match:
-  - name: "system/os:*"
-    approval:
-      mode: queue
-```
-
-Execution order:
-
-1. coarse runtime policy is checked first
-2. matching bundle approval config is resolved
-3. approval mode is applied (`none`, `prompt`, or `queue`)
-
-That means:
-
-- `deny` still denies before approval is considered
-- approval only applies after the tool is otherwise allowed
-- queue/prompt approval is a finer-grained control than the top-level policy
-
-## Configuration
-
-Agently uses a workspace directory (`$AGENTLY_WORKSPACE`, default `~/.agently`) with YAML files:
-
-```
-~/.agently/
-  config.yaml           # defaults, auth, internalMCP
-  agents/               # agent definitions (*.yaml)
-  models/               # LLM/embedder configs (*.yaml)
-  embedders/            # embedder configs (*.yaml)
-  mcp/                  # MCP client definitions (*.yaml)
-  tools/
-    bundles/            # tool bundle definitions
-```
-
-### config.yaml defaults
-
-```yaml
+~~~yaml
 default:
-  agent: chatter
-  model: openai_gpt-5.4
-  embedder: openai_text
+  agent: assistant
+  model: configured-model
 
 auth:
   enabled: true
   cookieName: agently_session
-  defaultUsername: devuser    # auto-login for local dev; remove for production
-  ipHashKey: your-hmac-salt
   local:
     enabled: true
-  # OAuth IDP (BFF mode — uncomment to enable SSO)
-  # oauth:
-  #   mode: bff
-  #   name: my-idp
-  #   label: My IDP
-  #   client:
-  #     configURL: ""          # scy resource URL for OAuth client config
-  #     redirectURI: ""        # https://your-host/v1/api/auth/oauth/callback
-  #     scopes: [openid, profile, email]
-```
+~~~
 
-### Environment Variables
+Define an agent under agents/:
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `AGENTLY_WORKSPACE` | `~/.agently` | Workspace root |
-| `AGENTLY_ADDR` | `:8080` | Listen address |
-| `AGENTLY_DB_DRIVER` | `sqlite` | Database driver |
-| `AGENTLY_DB_DSN` | (workspace SQLite) | Database connection string |
-| `AGENTLY_UI_DIST` | (embedded) | Optional local UI dist path |
-| `AGENTLY_DEBUG` | `false` | Enable verbose logging |
-| `AGENTLY_SCHEDULER_RUNNER` | `false` | Enable scheduler watchdog in-process (scheduled runs only) |
-| `AGENTLY_SCHEDULER_API` | `true` | Mount scheduler HTTP endpoints |
-| `AGENTLY_SCHEDULER_RUN_NOW` | `true` | Enable run-now endpoint |
-| `AGENTLY_SCHEDULER_MAX_CONCURRENT_RUNS` | `0` | Cap on in-flight scheduler runs; `0` = unbounded |
-| `AGENTLY_CLEANUP_ENABLED` | `false` | Enable the periodic database cleanup worker |
-| `AGENTLY_CLEANUP_INTERVAL` | `1h` | Positive Go duration between cleanup passes |
-| `AGENTLY_CLEANUP_BATCH_SIZE` | `50` | Maximum eligible candidates processed by each policy in one pass |
-| `AGENTLY_CLEANUP_TIMEOUT` | `5m` | Timeout applied separately to each cleanup policy |
-| `AGENTLY_CLEANUP_RUN_ON_START` | `false` | Start the first cleanup pass asynchronously when the server starts |
-| `AGENTLY_CLEANUP_DEBUG` | `false` | Log individual candidates and lease activity |
-| `AGENTLY_CLEANUP_INTERACTIVE_MODE` | `off` | Interactive conversation policy: `off`, `dry-run`, or `execute` |
-| `AGENTLY_CLEANUP_INTERACTIVE_RETENTION_DAYS` | `30` | Retention period for interactive conversations and related technical rows |
-| `AGENTLY_CLEANUP_SCHEDULED_MODE` | `off` | Scheduled retention: persisted runs plus old scheduled conversation graphs that no longer have run rows; `off`, `dry-run`, or `execute` |
-| `AGENTLY_CLEANUP_SCHEDULED_RETENTION_DAYS` | `30` | Retention period for scheduled runs and related technical rows |
-| `AGENTLY_CLEANUP_ORPHAN_MODE` | `off` | Orphan policy: `off`, `dry-run`, or `execute` |
-| `AGENTLY_CLEANUP_ORPHAN_MIN_AGE_DAYS` | `14` | Minimum age of an orphan candidate |
-| `AGENTLY_CHATGPT_CALLBACK_PORT` | `1455` | Local OAuth callback port for `agently chatgpt-login`. Integer or `auto` (OS-picked). Must match the OAuth redirect allowlist for OpenAI; `auto` only works with issuers accepting arbitrary localhost ports. Overridden by `--port`. |
-
-See [Database cleanup](doc/database-cleanup.md) for policy scope, protected
-data, rollout guidance, multi-instance coordination, and example settings.
-
-## Authentication
-
-### Local (development)
-
-Default `config.yaml` enables local auth with a dev user. Remove `defaultUsername` and set `local.enabled: false` for production.
-
-### JWT
-
-Add to `config.yaml`:
-
-```yaml
-auth:
-  enabled: true
-  ipHashKey: your-hmac-salt
-  cookieName: agently_session
-  jwt:
-    enabled: true
-    rsa:
-      - /path/to/public.pem
-    rsaPrivateKey: /path/to/private.pem
-```
-
-### OAuth BFF
-
-```yaml
-auth:
-  enabled: true
-  ipHashKey: your-hmac-salt
-  cookieName: agently_session
-  oauth:
-    mode: bff
-    label: My IDP
-    client:
-      configURL: "scy://..."  # encrypted OAuth client config
-      redirectURI: "https://your-host/v1/api/auth/oauth/callback"
-      scopes: [openid, profile, email]
-```
-
-### Token Refresh
-
-Tokens are proactively refreshed before expiry (default: 15 min lead time). Configurable:
-
-```yaml
-auth:
-  tokenRefreshLeadMinutes: 15   # refresh tokens this many minutes before expiry
-```
-
-## Agent Configuration
-
-Agents are YAML files under `$AGENTLY_WORKSPACE/agents/`:
-
-```yaml
-# my-agent.yaml
-id: my-agent
-name: My Agent
-modelRef: openai_gpt-5.4
+~~~yaml
+id: assistant
+name: Project Assistant
 temperature: 0
-parallelToolCalls: true        # enable parallel tool calls (default when omitted)
-tool:
-  - pattern: system/exec       # internal tools
-  - pattern: sqlkit            # MCP tool patterns
-knowledge:
-  - url: knowledge/
-profile:
-  enabled: true
-  name: My Agent
-  description: "What this agent does"
-  tags: [code, data]
-```
-
-## MCP Server Setup
-
-```yaml
-# $AGENTLY_WORKSPACE/mcp/sqlkit.yaml
-name: sqlkit
-transport:
-  type: sse
-  url: http://localhost:5000
-```
-
-```bash
-# Start an MCP server (example: mcp-sqlkit)
-git clone https://github.com/viant/mcp-sqlkit
-cd mcp-sqlkit && go run ./cmd/mcp-sqlkit -a :5000
-```
-
-## MCP Tool Exposure
-
-Expose workspace tools as an MCP HTTP server for external agents:
-
-```bash
-./agently serve --expose-mcp
-```
-
-Configure in `config.yaml`:
-
-```yaml
-mcpServer:
-  port: 9090
-  toolItems:
-    - "system/*"
-    - "resources"
-```
-
-## CLI Reference
-
-### `agently serve`
-
-Start the HTTP server.
-
-```bash
-./agently serve -a :8080 -w /path/to/workspace
-```
-
-### `agently query`
-
-Query an agent interactively or one-shot. Auto-detects a running local server.
-
-```bash
-./agently query
-./agently query -q "What is the schema of my database?"
-./agently query --api http://server:8080 --token $TOKEN
-./agently query --oob "/path/to/user_cred.enc|blowfish://default"
-```
-
-Flags:
-- `-q, --query` — prompt text
-- `-a, --agent-id` — agent identifier
-- `-c, --conv` — conversation ID to continue
-- `--api` — server URL (skip auto-detect)
-- `--token` / `AGENTLY_TOKEN` — Bearer token
-- `--oob` / `AGENTLY_OOB_SECRETS` — OOB credentials for BFF auth
-
-### `agently list-tools`
-
-List available tools from the running server.
-
-```bash
-./agently list-tools
-./agently list-tools --api http://server:8080
-./agently list-tools -s system/os
-./agently list-tools -n system/exec.execute --json
-```
-
-### `agently mcp list`
-
-List tools in an MCP-oriented format.
-
-```bash
-./agently mcp list --api http://server:8080 --token $TOKEN
-./agently mcp list --api http://server:8080 --session $SESSION_ID
-./agently mcp list -s forecasting --api http://server:8080 --token $TOKEN
-./agently mcp list -n forecasting/Total --example --schema --json
-```
-
-### `agently mcp run`
-
-Run a tool by exact name with JSON arguments.
-
-```bash
-./agently mcp run -n forecasting/Total -a '{"viewId":"TOTAL"}' --api http://server:8080 --token $TOKEN
-./agently mcp run -n forecasting/Total -a '{"viewId":"TOTAL"}' --api http://server:8080 --session $SESSION_ID
-./agently mcp run -n resources/read -a @args.json --api http://server:8080 --token $TOKEN --json
-```
-
-### `agently chatgpt-login`
-
-Login via ChatGPT/OpenAI OAuth and persist tokens.
-
-```bash
-./agently chatgpt-login --clientURL "scy://..."
-```
-
-## Project Structure
-
-```
-agently/
-  agently/            # Binary entry point (package main)
-    main.go           # Imports cmd/agently, wires cloud storage
-    build.yaml        # Endly build pipeline
-  cmd/agently/        # CLI commands: serve, query, list-tools, chatgpt-login
-  main.go             # Serve() and server orchestration (package agently)
-  server/             # HTTP auth, OAuth endpoints, speech
-  runtime/            # Model/embedder finders, tool plugins, scheduler options
-  bootstrap/          # Workspace default seeding and config loading
-    defaults/         # Default agent, model, embedder YAML files
-  metadata/           # Forge UI navigation/window metadata (embed)
-  deployment/ui/      # Built UI bundle (embed)
-  ui/                 # React/Vite UI source
-  e2e/                # End-to-end tests (endly + Go)
-  e2e/build-ui-embed.sh  # UI build script
-```
-
-## Multi-Platform Architecture
-
-Agently is a multi-platform app:
-
-- `web` — embedded Forge/React UI served by the `agently` binary
-- `ios` — SwiftUI app using local `AgentlySDK` and `ForgeIOSPackage`
-- `android` — Compose app using Git-pinned `agently-core-sdk` and `forge-sdk`
-
-Use the canonical [Android Endly build and deployment workflow](doc/android.md)
-for remote-workspace deployment, local Agently proxying, and device verification.
-Do not create a separate Android deployment workflow under `e2e`.
-
-Use the canonical [iOS Endly physical-device workflow](doc/ios.md) for signed
-builds, USB installation, launch, and verification through Xcode/CoreDevice.
-
-Android builds default to Git-pinned SDK sources under `android/deps`. Initialize
-them with `git submodule update --init --recursive`. Set
-`AGENTLY_ANDROID_USE_SIBLING_SOURCES=true` only when intentionally testing
-uncommitted sibling `forge` and `agently-core` changes.
-
-### Shared Target Context
-
-Platform targeting should use one shared shape across metadata requests, query
-context, and runtime resolution:
-
-```json
-{
-  "platform": "web|android|ios",
-  "formFactor": "desktop|tablet|phone",
-  "surface": "browser|app",
-  "capabilities": ["markdown", "chart", "upload", "code", "diff"]
-}
-```
-
-Rules:
-
-- Forge should own the canonical target-context contract for metadata-driven UI
-  targeting
-- Agently should reuse that same shape for metadata calls and `context.client`
-  instead of inventing an app-specific variant
-- server-side metadata resolution should consume the same shape
-- client-side fallback resolution should consume the same shape
-
-### Metadata Branching
-
-Metadata should be separated by explicit platform and form-factor branches
-instead of letting mobile changes mutate shared web windows.
-
-Recommended structure:
-
-```text
-metadata/window/<window-key>/
-  shared/
-  web/
-  android/
-    phone/
-    tablet/
-  ios/
-    phone/
-    tablet/
-```
-
-Resolution order should be:
-
-1. exact platform + form factor
-2. platform
-3. shared
-4. legacy fallback only during migration
-
-### Important Constraint
-
-Mobile work must not remove metadata that web still depends on.
-
-### Local Multi-Repo Development
-
-This repo expects local multi-repo refactors to use the workspace file one level
-above the sibling repositories:
-
-```text
-../go.work
-```
-
-That workspace ties together:
-
-- `agently`
-- `agently-core`
-- `forge`
-
-Use `go.work` for local cross-repo development instead of committing module-level
-`replace` directives in `go.mod`.
-
-### Request-Scoped SDK Debug Logging
-
-Agently reuses the `agently-core` request-scoped SDK debug contract. For HTTP
-SDK sessions, callers can enable debug logging without turning on global process
-debug:
-
-- Go HTTP SDK: `sdk.WithSessionDebug("trace", "conversation", "reactor")`
-- TypeScript SDK: `sessionDebug: { level: "trace", components: ["conversation", "reactor"] }`
-- iOS SDK: `SessionDebugOptions(level: "trace", components: ["conversation", "reactor"])`
-- Android SDK: `SessionDebugOptions(level = "trace", components = listOf("conversation", "reactor"))`
-
-These emit:
-
-- `X-Agently-Debug`
-- `X-Agently-Debug-Level`
-- `X-Agently-Debug-Components`
-
-If a surface needs mobile-specific behavior:
-
-- create `android/phone`, `android/tablet`, `ios/phone`, or `ios/tablet`
-  branches
-- keep `web/` as a first-class target
-- keep `shared/` minimal and stable
-
-This is especially important for top-level Forge windows such as:
-
-- `chat/new`
-- `chat/conversations`
-- `schedule`
-- `schedule/history`
-- `agent`
-- `model`
-- `oauth`
-- `mcp`
-- `preferences`
-- `tool`
-- `workflow`
-
-### Current Migration Direction
-
-The current migration work is tracked in:
-
-- [multi-platform.md](multi-platform.md)
-
-That document tracks:
-
-- Forge backend loader work for server-side target-aware metadata selection
-- target-aware `$import(...)` resolution
-- explicit web / iOS / Android metadata branch migration
-- final three-platform verification
-
-## UI Development
-
-```bash
-# Build the embedded UI bundle safely
-cd ui && npm run build:embed
-
-# Alternative wrapper (also safe)
-./e2e/build-ui-embed.sh
-
-# Rebuild binary with updated UI
-cd agently && go build -o agently .
-
-# Dev mode (proxies to local server at localhost:9393)
-cd ui && npm run dev
-```
-
-Notes:
-- Do not copy `ui/dist` into `deployment/ui` with a raw `rsync --delete` unless you preserve `deployment/ui/init.go`.
-- `npm run build:embed` and `./e2e/build-ui-embed.sh` already handle the safe sync path for the embedded bundle.
-
-## Approval Editors And Callbacks
-
-Tool approvals can now expose generic, selector-driven editors. The same selector
-is used both to extract editable data from the original tool request and to
-write the user-edited value back into that request before the tool executes.
-
-Supported built-in editor kinds:
-
-- `checkbox_list` — keep/remove items from a collection
-- `radio_list` — choose exactly one record from a collection
-
-These editors are supported in:
-
-- prompt approval in the web UI
-- prompt approval in the CLI
-- queue approval in the web UI
-
-### Workspace Bundle Example
-
-The example below turns `system/os:getEnv` approval into a checkbox list. The
-editor reads from `input.names` and writes the filtered list back to the same
-path.
-
-```yaml
-# $AGENTLY_WORKSPACE/tools/bundles/system_os.yaml
-id: system/os
-title: System OS
-description: OS helpers (e.g. environment variables)
-iconRef: builtin:system-os
-priority: 60
+parallelToolCalls: true
+prompt:
+  text: "{{.Task.Prompt}}"
+  engine: go
+~~~
+
+Configure the selected model/provider in models/, then choose tool bundles,
+knowledge/resources and intent profiles for the agent. Imported YAML fragments
+support shared, keyed and scoped parameterized configuration. Exact parameters
+retain their YAML types; overrides stay within their intended scope.
+
+Workspace resources are editable through the application's APIs or as authored
+files. For the configuration contracts, start with the core
+[workspace guide](../agently-core-ag-ui/doc/workspace-system.md),
+[agents and prompts](../agently-core-ag-ui/doc/prompts.md),
+[providers](../agently-core-ag-ui/doc/llm-providers.md),
+[tools](../agently-core-ag-ui/doc/tool-system.md) and
+[templates](../agently-core-ag-ui/doc/templates.md).
+
+## Authentication and tool policy
+
+The framework supports local sessions, JWT RSA/HMAC and OAuth BFF, SPA, bearer
+and mixed modes. The BFF keeps the configured session/current cookies and
+headers in use across chat, metadata, fonts, uploads, reporting and MCP calls.
+Credential reuse for MCP is scoped by user, origin and audience rather than
+copied into arbitrary tool requests. Distributed token refresh supports
+multi-instance deployments.
+
+Local development may use a default development user. Remove development
+auto-login and select the deployment's identity provider for a protected service.
+See the core [authentication](../agently-core-ag-ui/doc/auth-system.md) and
+[MCP integration](../agently-core-ag-ui/doc/mcp-integration.md) guides.
+
+Tool policy has two layers: --policy supplies coarse auto/ask/deny behavior;
+bundle match rules supply none/prompt/queue approval. Denial happens before
+approval. An approval is not permission to bypass the underlying tool policy.
+
+~~~yaml
 match:
-  - name: "system/os:*"
+  - name: "project:*"
     approval:
       mode: queue
-      prompt:
-        acceptLabel: "Allow"
-        rejectLabel: "Deny"
-        cancelLabel: "Cancel"
-      ui:
-        editable:
-          - name: names
-            selector: input.names
-            kind: checkbox_list
-            label: Environment variables
-            description: Choose which environment variables this tool may access.
-        forge:
-          windowRef: chat/new
-          containerRef: approvalEnvPicker
-          dataSource: approvalEditor
-```
-
-### Record Collection Example
-
-For record collections, use relative selectors for item fields. These selectors
-are evaluated against each collection item.
-
-```yaml
-approval:
-  mode: queue
-  ui:
-    editable:
-      - name: records
-        selector: input.records
-        kind: radio_list
-        label: Records
-        itemValueSelector: id
-        itemLabelSelector: label
-        itemDescriptionSelector: description
-```
-
-In this example:
-
-- `selector: input.records` extracts the collection from the tool request
-- `itemValueSelector: id` resolves `record.id`
-- `itemLabelSelector: label` resolves `record.label`
-- the selected record is written back to `records`
-
-### Approval Callback Payload
-
-Approval callbacks are optional. They run inside the active Forge window
-context, using the same `lookupHandler(...)` mechanism as other Forge actions.
-
-Callback input shape:
-
-```ts
-type ApprovalCallbackPayload = {
-  approval?: {
-    type?: string
-    toolName?: string
-    title?: string
-    message?: string
-    acceptLabel?: string
-    rejectLabel?: string
-    cancelLabel?: string
-    editors?: Array<{
-      name: string
-      kind: string
-      path?: string
-      label?: string
-      description?: string
-      options?: Array<{
-        id: string
-        label: string
-        description?: string
-        selected: boolean
-      }>
-    }>
-  }
-  editedFields?: Record<string, unknown>
-  originalArgs?: Record<string, unknown>
-  event?: string
-}
-```
-
-Callback return shape:
-
-```ts
-type ApprovalCallbackResult = {
-  editedFields?: Record<string, unknown>
-  action?: string
-}
-```
-
-Callback lifecycle:
-
-1. callbacks run in the order declared under `approval.ui.forge.callbacks`
-2. a callback runs only for its matching event, or for all events when `event` is omitted
-3. `editedFields` are shallow-merged; later callbacks win on conflicts
-4. `action` overrides are also last-wins
-5. missing handlers are skipped by the SDK; handler resolution is supplied by the host UI
-
-### Example Forge Handler
-
-The example below keeps callback logic generic and deterministic: it receives
-the current edited selection and original request, and returns the normalized
-edited field payload that will be written back into the tool request.
-
-```js
-// Example Forge action handler
-export async function filterEnvNames({ editedFields = {}, originalArgs = {} }) {
-  const requested = Array.isArray(originalArgs.names) ? originalArgs.names : [];
-  const selected = new Set(
-    Array.isArray(editedFields.names) ? editedFields.names : requested
-  );
-
-  return {
-    editedFields: {
-      names: requested.filter((name) => selected.has(name))
-    }
-  };
-}
-```
-
-To use that handler end to end:
-
-1. register it in the active Forge window context so `lookupHandler(...)` resolves your handler name
-2. reference it from `approval.ui.forge.callbacks`
-3. the built-in approval UI renders the editor
-4. the callback can normalize or rewrite `editedFields`
-5. Agently writes the final edited value back to the same selector path before tool execution
-
-### Current Behavior
-
-What works today:
-
-- built-in approval dialogs render `checkbox_list` and `radio_list`
-- queue approvals and prompt approvals both support `editedFields`
-- the same selector path is used for extract and write-back
-- Forge callbacks can post-process `editedFields` before the approval decision is submitted
-
-What is not implemented yet:
-
-- mounting a fully custom Forge approval container from `windowRef` / `containerRef` / `dataSource`
-
-The current runtime uses the built-in approval editor UI and optional Forge
-callbacks together.
-
-### Custom Forge Approval Container
-
-When you need a fully custom approval experience, you can point approval UI at
-an existing Forge window/container/data source.
-
-```yaml
-approval:
-  mode: queue
-  ui:
-    editable:
-      - name: names
-        selector: input.names
-        kind: checkbox_list
-    forge:
-      windowRef: chat/new
-      containerRef: approvalEnvPicker
-      dataSource: approvalEditor
-      callbacks:
-        - event: approve
-          handler: myApproval.normalizeSelection
-```
-
-Canonical metadata example included in this repo:
-
-- [approval_editor.yaml](metadata/window/chat/new/dialog/approval_editor.yaml)
-- [approval_editor.yaml](metadata/window/chat/new/dialog/panel/approval_editor.yaml)
-- [approval_editor.yaml](metadata/window/chat/new/datasource/approval_editor.yaml)
-
-Expected Forge data source shape:
-
-```json
-{
-  "approval": {
-    "type": "tool_approval",
-    "toolName": "system/os/getEnv",
-    "title": "OS Env Access",
-    "message": "The agent wants access to your HOME, SHELL, and PATH environment variables.",
-    "editors": [
-      {
-        "name": "names",
-        "kind": "checkbox_list",
-        "path": "names",
-        "options": [
-          { "id": "HOME", "label": "HOME", "selected": true },
-          { "id": "SHELL", "label": "SHELL", "selected": true },
-          { "id": "PATH", "label": "PATH", "selected": true }
-        ]
-      }
-    ]
-  },
-  "editedFields": {
-    "names": ["HOME", "PATH"]
-  },
-  "originalArgs": {
-    "names": ["HOME", "SHELL", "PATH"]
-  }
-}
-```
-
-The approval container is expected to edit `editedFields`. On approve, Agently:
-
-1. reads the current Forge data source form values
-2. takes `editedFields`
-3. runs any configured approval callbacks
-4. writes the final edited value back to the original tool request using the
-   same selector path
-5. executes the tool with the rewritten request
-
-Example Forge handler:
-
-```js
-export async function normalizeSelection({ editedFields = {}, originalArgs = {} }) {
-  const requested = Array.isArray(originalArgs.names) ? originalArgs.names : [];
-  const selected = new Set(
-    Array.isArray(editedFields.names) ? editedFields.names : requested
-  );
-  return {
-    editedFields: {
-      names: requested.filter((name) => selected.has(name))
-    }
-  };
-}
-```
-
-### Strict Behavior
-
-If `approval.ui.forge.containerRef` is configured, Agently treats that as an
-explicit instruction to use the Forge approval renderer.
-
-There is no silent fallback to the built-in approval editor.
-
-If the Forge window/context/container/data source cannot be resolved:
-
-- the approval dialog shows an explicit Forge error
-- approve is disabled
-- the user must fix the Forge configuration before continuing
-
-### Example Outcome
-
-For a request like:
-
-```text
-What are my HOME, SHELL, and PATH environment variables?
-```
-
-if the user deselects `SHELL` in the approval editor, Agently rewrites the tool
-request before execution so the final result contains only `HOME` and `PATH`.
-
-## E2E Testing
-
-```bash
-cd e2e
-
-# Build binary
-endly -t=build
-
-# Run full regression suite (requires MySQL)
-endly
-
-# Run just the server regression
-endly -t=test
-```
-
-## Knowledge / RAG
-
-```yaml
-# agent yaml
-knowledge:
-  - url: knowledge/        # local files
-  - embedius:
-      config: ~/embedius/config.yaml
-      role: user
-```
-
-## Resources Tools
-
-The `resources` internal tool provides filesystem and MCP resource discovery:
-
-- `resources:roots` — discover configured roots
-- `resources:list` — list files under given locations
-- `resources:match` — semantic search via embedder
-
-Configure in workspace `config.yaml`:
-
-```yaml
-default:
-  resources:
-    locations:
-      - /path/to/docs
-    indexPath: "${runtimeRoot}/index/${user}"
-    snapshotPath: "${runtimeRoot}/snapshots"
-```
-
-## Scheduler
-
-Run scheduled agent tasks on cron, interval, or ad-hoc basis.
-
-**Serverless** (no scheduler):
-```bash
-AGENTLY_SCHEDULER_API=false ./agently serve
-```
-
-**Dedicated scheduler pod**:
-```bash
-AGENTLY_SCHEDULER_RUNNER=true AGENTLY_SCHEDULER_API=false ./agently serve
-```
-
-## Related Projects
-
-- [agently-core](https://github.com/viant/agently-core) — Embeddable Go runtime (this project's backbone)
-- [mcp-sqlkit](https://github.com/viant/mcp-sqlkit) — MCP server for database operations
-- [forge](https://github.com/viant/forge) — React UI framework for the web interface
-- [datly](https://github.com/viant/datly) — Data access layer for persistence
-
-## License
-
-Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
-
-This product includes software developed at Viant (http://viantinc.com/).
-
-### Report and window previews
-
-The [preview applications](preview/README.md) provide report rendering/export,
-native Forge window previews, and a shared filesystem-backed MCP mock server.
-Their hosts, frontend, fixtures, guides, and standalone launchers live under
-`preview/`, with Forge used as a rendering library.
-
-## Datly authoring tools and skills
-
-The default Coder agent discovers all installed tools and skills. Configure the
-Datly developer server in the workspace to expose its seven authoring tools and
-three native skills (reader, writer, and custom component). This uses the existing
-MCP client and leaves workspace approval policies unchanged.
-
-Build `./cmd/datly-developer` from the matching Datly checkout, then create an
-operator-owned JSON configuration with explicit project targets. For example:
-
-```json
-{
-  "Targets": {
-    "reader": {
-      "BaseDir": "/absolute/path/to/project",
-      "Include": ["your.go.module/dql/records/read"],
-      "Connector": "main"
-    }
-  },
-  "Authoring": {
-    "reader": {
-      "Destination": "/absolute/path/to/project",
-      "Source": {
-        "Name": "reader",
-        "Scope": "your.go.module/dql/records/read",
-        "Path": "/absolute/path/to/project/dql/records/read/reader.dql",
-        "Connector": "main"
-      },
-      "Generation": {"Operation": "get", "Language": "go"}
-    }
-  }
-}
-```
-
-Use the project's actual Go module and package paths. Source names must agree with
-the DQL filename. Configure a separate `patch`, `post`, or `put` target for writers;
-tool callers select a configured target and supply DQL, not arbitrary output paths.
-Static validation does not prove schema or runtime behavior. Application run
-support requires a separately configured application target and a host linked to
-its generated component holders through `standalone.Options.Holders`. Set
-`RequireLinked: true` for that host. The generic developer executable can author
-and inspect source, but JSON configuration alone cannot link newly generated Go.
-
-Add `mcp/datly.yaml` under the Agently workspace, using existing absolute paths:
-
-```yaml
-name: datly
-protocol: "2026-07-28"
-transport:
-  type: stdio
-  command: /absolute/path/to/datly-developer
-  arguments: ["-config", "/absolute/path/to/developer.json"]
-skillDiscovery:
-  enabled: true
-toolsListVisibility: public
-toolTimeoutSec: 180
-```
-
-Restart the workspace server, inspect the connected tool catalog, and ask Coder to
-list and activate the relevant Datly skill. The server embeds complete skill
-references and serves native `skills/list`, `skills/get`, and resource discovery;
-no copied source skill folders or tool-name bridge is required. The seven tools
-are `datly.validate`, `datly.transcribe`, `datly.components`, `datly.inspect`,
-`datly.reverseDQL`, `datly.run`, and `datly.stop`. Unconfigured authoring or
-application targets return an explicit error.
-
-When migrating, preserve the existing database schema and MySQL native
-auto-increment with SQLX's default transient allocation. Do not add a sequence
-ledger or counter table to replace existing allocation.
+~~~
+
+Approval editors can use selectors to extract and write back editable data.
+Built-in checkbox_list and radio_list editors support collection selection.
+Their configured callback and receipt remain associated with the original
+native tool operation; changing views or replaying the outcome does not create
+a second tool invocation.
+
+## Conversations, AG-UI and SDKs
+
+The outward TypeScript, Swift and Kotlin SDKs default to **AG-UI**. Submission,
+canonical bootstrap, observation, attachment, cancellation and continuation use
+the configured BFF client. Supporting native application APIs remain available.
+Embedded Go Client.Query and internal executor calls remain native and do not
+loop through the public AG-UI endpoint.
+
+Standard POST /v1/ag-ui/run requests and SSE events carry runs, messages,
+frontend tools/results, state, interrupts, resumes and subagent attribution.
+Versioned **Agently extensions** carry native presentation, goals, approvals,
+queued-turn control, workspace/datasource commands, feeds and MCP Apps.
+Applications integrating a generic AG-UI client should keep that distinction
+explicit.
+
+The coordinator owns submitted work independently of a mounted view. Reopening
+History or a pane attaches to its durable journal rather than sending another
+prompt. Native conversation IDs and opaque wire thread IDs remain separate;
+an authenticated aguiThreadId reference lets the SDK reopen the original wire
+thread while UI, history and application hints use native identity. Account
+changes invalidate previous transport state and bindings.
+
+Explicit compatibility options are interactionProtocol: "legacy" in TypeScript,
+interactionProtocol: .legacy in Swift, and
+conversationTransportMode = ConversationTransportMode.LEGACY in Kotlin.
+A failed AG-UI request does not silently fall back to a second legacy query.
+
+See the core [SDK guide](../agently-core-ag-ui/doc/sdk.md),
+[TypeScript](../agently-core-ag-ui/sdk/ts/AG-UI.md),
+[Swift](../agently-core-ag-ui/sdk/ios/AG-UI.md),
+[Kotlin](../agently-core-ag-ui/sdk/android/AG-UI.md) and
+[operation matrix](../agently-core-ag-ui/doc/ag-ui-operation-matrix.md).
+Passing SDK/source checks is not a claim of universal protocol or product-shell
+parity.
+
+## Workspaces and visual results
+
+The application distinguishes navigation, conversation-owned hosted workspaces
+and message/turn-owned inline content. Metadata defines controls, dialogs,
+window placement, chart/table content and actions. Mobile targeting has explicit
+platform/form-factor branches so a mobile change does not remove web metadata.
+
+Named theme manifests, scoped application/workspace CSS and authenticated
+native font assets support shared appearance across shell and hosted content.
+Layouts and authoring data remain owned by the workspace. Tool feeds retain
+their actual persisted operation identity and can appear inline or detached.
+Developer execution detail and user-facing progress are separate surfaces.
+
+Reports capture the authored document and exact scoped dataset requests before
+execution. Begin, compile, complete and activate are distinct phases; saved
+completion is distinct from active context. Verified frozen results can restore
+a completed report without an implicit dataset rerun. Export/publication are
+explicit actions. Application-specific forecast evidence binding remains
+disabled at startup while its evidence gates are pending.
+
+Read [workspace ownership/appearance](doc/workspace-ui.md),
+[platform architecture](multi-platform.md),
+[core UI scopes](../agently-core-ag-ui/doc/ui-ownership-model.md),
+[feeds](../agently-core-ag-ui/doc/feed-system.md) and
+[MCP UI](../agently-core-ag-ui/doc/mcp-ui.md).
+
+## Goals, scheduling and recovery
+
+Goals retain objectives, budgets/accounting, pause/resume and scheduler wakeups.
+Cron, interval and adhoc schedules use distributed leases. Queued turns,
+elicitation, approvals and continuation retain native ownership and admitted
+tool identity. Management commands use existing domain services rather than
+requiring a model round trip.
+
+Async start/status/cancel tools and linked agents retain parent/child invocation
+attribution. Disconnecting an observer is distinct from canceling the native
+execution. Durable receipts and canonical history let recovery reconcile what
+actually happened, rather than assume success or blindly repeat a tool.
+
+Use AGENTLY_SCHEDULER_API and AGENTLY_SCHEDULER_RUNNER to separate API and runner
+deployments. See [scheduler](../agently-core-ag-ui/doc/scheduler.md),
+[async operations](../agently-core-ag-ui/doc/async.md),
+[goals](../agently-core-ag-ui/doc/autonomous.md) and
+[approval coordination](../agently-core-ag-ui/doc/ag-ui-approval-coordination.md).
+
+## Optional proactive context compaction
+
+Proactive compaction is off until an agent explicitly sets:
+
+~~~yaml
+contextCompactionPercent: 80
+~~~
+
+The selected model must separately declare its actual positive
+options.contextWindow capacity. At the percentage threshold, the runtime
+compacts eligible completed history, rebuilds/recounts the request and resumes.
+Latest-user, pending-operation and completed-tool identity protections remain.
+Durable full-history barriers cover failures/restarts. The threshold is a
+trigger, not a hard context cap.
+
+Exact prepared-input counting is implemented for OpenAI Responses API models
+through their normal authenticated HTTP client. Chat Completions, the ChatGPT
+backend and unsupported counters do not silently become character estimates.
+Omitting the setting adds no proactive count/compaction calls; ordinary reactive
+provider-limit recovery remains available.
+
+See [configuration and verification](../agently-core-ag-ui/doc/proactive-context-compaction.md).
+Live provider tests require explicit setup; ordinary unit/HTTP failure fixtures
+do not make provider business calls.
+
+## Persistence and deployment
+
+SQLite is the workspace default; MySQL is available through the configured
+connection. Apply the versioned MySQL schema for deployment. AG-UI reuses
+existing conversation, run and call_payload tables: protocol projection,
+admission/lease and ordered journal payloads are isolated from native execution
+rows and ordinary payload classes. Native APIs cannot overwrite protocol
+identity/state. Cleanup follows owned references in the existing transaction.
+
+| Environment setting | Purpose |
+| --- | --- |
+| AGENTLY_WORKSPACE | Workspace root |
+| AGENTLY_ADDR | Listen address |
+| AGENTLY_DB_DRIVER / AGENTLY_DB_DSN | Persistence driver/connection |
+| AGENTLY_UI_DIST | Explicit UI asset directory |
+| AGENTLY_DEBUG | Global diagnostics |
+| AGENTLY_SCHEDULER_API / AGENTLY_SCHEDULER_RUNNER | Scheduler deployment roles |
+| AGENTLY_CLEANUP_ENABLED | Enable periodic cleanup |
+| AGENTLY_CLEANUP_INTERACTIVE_MODE / SCHEDULED_MODE / ORPHAN_MODE | off, dry-run or execute policies |
+
+Keep credentials in the configured provider/identity resources, provision
+schema and assets, and select API/runner roles for the deployment. Request-scoped
+SDK SessionDebug settings and X-Agently-Debug headers allow diagnostics without
+turning on global debug. See [cleanup policies](doc/database-cleanup.md) and the
+core [storage/schema guide](../agently-core-ag-ui/doc/ag-ui-storage-reuse.md).
+
+Persistence readers/writers are authored in the core's dql/ and adjacent SQL.
+The stock Endly task in its e2e/datly directory runs endly -t=transcribe and
+overwrites generated component artifacts. Application lifecycle hooks remain
+authored. There is no separate regeneration workflow; see the
+[transcription task](../agently-core-ag-ui/e2e/datly/transcribe.yaml).
+
+## Local development
+
+This branch's Go module intentionally selects compatible sibling checkouts:
+
+~~~text
+agently-ag-ui/
+agently-core-ag-ui/
+forge-ag-ui/
+mcp-ag-ui/
+mcp-protocol-ag-ui/
+~~~
+
+Read go.mod for their replacements and the pinned Datly dependency graph.
+An optional parent go.work may support experiments, but it should not silently
+select incompatible revisions.
+
+Web dependencies are declared separately in ui/package.json: the core TypeScript
+SDK points to the AG-UI core fork, while the current Forge npm source points to
+the sibling forge checkout. A Go replacement does not change that npm source.
+iOS package links select the core SDK/Forge forks; AGENTLY_IOS_SDK_PACKAGE_PATH
+provides an explicit SDK override. Android normally uses pinned android/deps;
+local AG-UI changes require the explicit sibling-source flag.
+
+~~~bash
+# From this repository root
+go build -o ./bin/agently ./agently
+(cd ui && npm ci && npm test && npm run build)
+swift test --package-path ios
+(cd android && ./gradlew -Pagently.android.useSiblingSources=true   :app:testDebugUnitTest :app:assembleDebug)
+~~~
+
+Android requires JDK 17 and the configured Android SDK. Device signing,
+installation and service-connected acceptance are separate:
+[Android workflow](doc/android.md), [iOS workflow](doc/ios.md).
+
+### Web application development
+
+~~~bash
+# Safe build and sync to the embedded deployment bundle
+(cd ui && npm run build:embed)
+# Or use the repository wrapper
+./e2e/build-ui-embed.sh
+
+# Include the updated assets in the server
+go build -o ./bin/agently ./agently
+
+# Vite development server
+(cd ui && npm run dev)
+~~~
+
+The safe sync workflow preserves deployment/ui/init.go. Avoid replacing that
+directory with a raw destructive copy of ui/dist.
+
+### CLI tools and extension points
+
+~~~bash
+./bin/agently query --api https://agent.example -q "Summarize the README"
+./bin/agently list-tools --api https://agent.example
+./bin/agently mcp list --api https://agent.example
+./bin/agently mcp run -n project/read -a @args.json --api https://agent.example
+./bin/agently chatgpt-login --clientURL "scy://configured-client"
+~~~
+
+Select authenticated CLI options appropriate for the deployment. Optional
+MCP tool exposure uses --expose-mcp plus configured tool patterns; A2A services
+publish /.well-known/agent.json and /v1/api/a2a endpoints. Custom applications can
+reuse the core runtime and SDKs, add their own tools and metadata, or compose a
+different shell without replacing the execution/persistence contracts.
+
+## Repository map and further reading
+
+| Path | Contents |
+| --- | --- |
+| agently/ | Binary entry point |
+| cmd/agently/ | CLI commands |
+| serve.go, runtime/, bootstrap/ | Server assembly and workspace configuration |
+| metadata/, deployment/ui/, ui/ | Authored UI metadata, embedded assets and web source |
+| ios/, android/ | Native application shells and their dependency selection |
+| doc/, e2e/, preview/ | Guides, acceptance workflows and development previews |
+
+Start with the [core documentation index](../agently-core-ag-ui/doc/README.md)
+for framework internals. Keep application-specific acceptance and integration
+evidence in their dedicated guides rather than treating it as a generic
+framework guarantee.

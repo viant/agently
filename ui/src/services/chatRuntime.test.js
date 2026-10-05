@@ -18,9 +18,9 @@ vi.mock('./elicitationBus', () => ({
   replacePendingElicitationsForConversation: replacePendingElicitationsForConversationMock,
 }));
 
-import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, clearPendingConversationBootstrap, connectStream, createNewConversation, dsTick, enqueueConversationSwitch, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, getSettledConversationBootstrapSnapshot, handleStreamEvent, hasPendingConversationBootstrap, hydrateMeta, installChatStoreMirror, isConversationLiveish, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolvePollingConversationSelection, resolveStarterTaskCategories, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
+import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, clearPendingConversationBootstrap, connectStream, createNewConversation, dsTick, enqueueConversationSwitch, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, getSettledConversationBootstrapSnapshot, handleStreamEvent, hasPendingConversationBootstrap, hydrateMeta, hydrateConversationComposerSelection, recordConversationComposerSelection, refreshGoalFeed, syncConversationComposerSelection, hydrateConversationFromBootstrapSnapshot, installChatStoreMirror, isConversationLiveish, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolvePollingConversationSelection, resolveStarterTaskCategories, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
 import { client } from './agentlyClient';
-import { applyFeedEvent, clearFeedState, getFeedData } from './toolFeedBus';
+import { applyFeedEvent, clearFeedState, getFeedData, getActiveFeeds } from './toolFeedBus';
 
 vi.mock('./agentlyClient', () => ({
   client: {
@@ -322,6 +322,26 @@ describe('resolveStarterTaskCategories', () => {
 });
 
 describe('handleStreamEvent', () => {
+  it('does not reactivate an unknown feed when the cached transcript is restored', () => {
+    clearFeedState();
+    const previousWindow = global.window;
+    global.window = { ...previousWindow, location: { ...previousWindow?.location, pathname: '/conversation/conv-unknown' } };
+    const form = { id: 'conv-unknown' };
+    const context = { resources: {}, identity: { windowId: 'unknown-feed-test' }, Context(name) {
+      if (name === 'conversations') return { handlers: { dataSource: { peekFormData: () => form, setFormData: ({ values }) => Object.assign(form, values) } } };
+      if (name === 'messages') return { handlers: { dataSource: { setCollection: vi.fn(), setError: vi.fn() } } };
+      return null;
+    } };
+    const chatState = ensureContextResources(context);
+    try {
+      handleStreamEvent(chatState, context, form.id, { type: 'tool_feed_active', conversationId: form.id, feedId: 'retained', feedData: { rows: [1] } });
+      handleStreamEvent(chatState, context, form.id, { type: 'tool_feed_unknown', conversationId: form.id, feedId: 'retained' });
+      syncMessagesSnapshot(context, [], 'test');
+      expect(chatState.lastTranscriptFeedsByConversation[form.id][0]).toMatchObject({ active: null, activationKnown: false });
+      expect(getActiveFeeds().find(feed => feed.conversationId === form.id && feed.feedId.endsWith('::retained'))).toMatchObject({ active: null, activationKnown: false });
+      expect(getFeedData('retained', form.id).data.rows).toEqual([1]);
+    } finally { clearFeedState(); global.window = previousWindow; }
+  });
   it('removes only the resolved elicitation from the overlay bus', () => {
     removePendingElicitationMock.mockReset();
     const chatState = ensureContextResources({ resources: {} });
@@ -2590,6 +2610,106 @@ describe('startPolling', () => {
     }
   });
 
+  it('reattaches a pending submission before native turn identity exists', () => {
+    vi.useFakeTimers();
+    const stream = { close: vi.fn() };
+    client.streamEvents = vi.fn(() => stream);
+    const getActiveTurn = vi.fn(() => ({ lifecycle: 'pending', turnId: '' }));
+    installChatStoreMirror({ getActiveTurn, getActiveTurnId: () => '', getProjection: () => [] });
+    const context = {
+      identity: { windowId: 'chat/pending-remount' },
+      resources: { chat: {} },
+      Context: name => name === 'conversations' ? { handlers: { dataSource: {
+        peekFormData: () => ({ id: 'conv-pending-remount', running: false }),
+      } } } : null,
+    };
+    try {
+      startPolling(context);
+      expect(client.streamEvents).toHaveBeenCalledWith('conv-pending-remount', expect.any(Object));
+      expect(context.resources.chat.stream).toBe(stream);
+    } finally {
+      stopPolling(context);
+      installChatStoreMirror(null);
+      vi.useRealTimers();
+    }
+  });
+
+  it('accepts synchronous cached snapshots during subscription registration', () => {
+    const onTranscript = vi.fn();
+    installChatStoreMirror({ onTranscript, getProjection: () => [], getActiveTurnId: () => '' });
+    const canonical = { conversationId: 'conv-cached-subscribe', turns: [] };
+    const stream = { close: vi.fn() };
+    client.streamEvents = vi.fn((_id, handlers) => {
+      handlers.onSnapshot({ conversation: canonical });
+      return stream;
+    });
+    const context = {
+      identity: { windowId: 'chat/cached-subscribe' },
+      resources: { chat: {} },
+      Context: name => name === 'conversations' ? { handlers: { dataSource: {
+        peekFormData: () => ({ id: canonical.conversationId }),
+      } } } : null,
+    };
+    try {
+      connectStream(context, canonical.conversationId);
+      expect(onTranscript).toHaveBeenCalledWith(canonical.conversationId, canonical);
+      expect(context.resources.chat.stream).toBe(stream);
+    } finally {
+      stopPolling(context);
+      installChatStoreMirror(null);
+    }
+  });
+
+  it('keeps visible idle conversations observed for work started by another client', () => {
+    vi.useFakeTimers();
+    client.observesNativeWork = vi.fn(() => true);
+    client.streamEvents = vi.fn(() => ({ close: vi.fn() }));
+    const context = {
+      identity: { windowId: 'chat/background' },
+      resources: { chat: { lastHasRunning: false } },
+      Context: name => name === 'conversations' ? { handlers: { dataSource: {
+        peekFormData: () => ({ id: 'conv-background', running: false, status: 'succeeded' }),
+      } } } : null,
+    };
+    try {
+      expect(shouldUseLiveStream(context, 'conv-background')).toBe(true);
+      expect(shouldUseLiveStream(context, 'another-conversation')).toBe(false);
+      startPolling(context);
+      expect(client.streamEvents).toHaveBeenCalledWith('conv-background', expect.any(Object));
+      expect(context.resources.chat.lastHasRunning).toBe(false);
+    } finally {
+      stopPolling(context);
+      delete client.observesNativeWork;
+      vi.useRealTimers();
+    }
+  });
+
+  it('marks an AG-UI approval interrupt as waiting without completing the native turn', () => {
+    const form = { id: 'conv-interrupt', running: true, stage: 'executing' };
+    const setFormData = vi.fn(({ values }) => Object.assign(form, values));
+    let handlers;
+    client.streamEvents = vi.fn((_id, value) => { handlers = value; return { close: vi.fn() }; });
+    const context = {
+      identity: { windowId: 'chat/interrupt' },
+      resources: { chat: { activeStreamTurnId: 'native-turn' } },
+      Context: name => name === 'conversations' ? { handlers: { dataSource: {
+        peekFormData: () => form, setFormData,
+      } } } : null,
+    };
+    try {
+      connectStream(context, form.id);
+      handlers.onOutcome({ phase: 'interrupt', logicalTurnId: 'native-turn', interrupts: [{ id: 'approval', reason: 'approval' }] });
+      expect(form).toMatchObject({ running: true, stage: 'eliciting', status: 'pending' });
+      expect(context.resources.chat.activeStreamTurnId).toBe('native-turn');
+      stopPolling(context);
+      setFormData.mockClear();
+      handlers.onOutcome({ phase: 'interrupt', logicalTurnId: 'native-turn', interrupts: [] });
+      expect(setFormData).not.toHaveBeenCalled();
+    } finally {
+      stopPolling(context);
+    }
+  });
+
   it('does not poll finished conversations once transcript is already loaded', async () => {
     vi.useFakeTimers();
     const sessionStorage = createStorage();
@@ -3471,4 +3591,109 @@ describe('resolveLastTranscriptCursor', () => {
 
     expect(resolveLastTranscriptCursor(turns)).toBe('m1');
   });
+});
+
+describe('conversation composer selection hydration',()=>{
+  function selectionContext(form={id:'selection-fixture',agent:'tool_fixture',model:'selected_model'}){
+    const conversation={values:form,peekFormData(){return this.values;},setFormData({values}){this.values=values;}};
+    const meta={values:normalizeMetaResponse({agents:['simple','tool_fixture','mcp_app_fixture'],models:['default_model','selected_model'],defaults:{agent:'simple',model:'default_model'}}),peekFormData(){return this.values;},setFormData({values}){this.values=values;}};
+    const context={identity:{windowId:MAIN_CHAT_WINDOW_ID},Context:name=>name==='conversations'?{handlers:{dataSource:conversation}}:name==='meta'?{handlers:{dataSource:meta}}:name==='messages'?{handlers:{dataSource:{setCollection:vi.fn(),setError:vi.fn()}}}:null};
+    return {context,conversation,meta};
+  }
+  it('mirrors authoritative agent/model into composer metadata without replacing them with catalog defaults',()=>{
+    const {context,meta}=selectionContext();
+    syncConversationComposerSelection(context,meta.values);
+    expect(meta.values.agent).toBe('tool_fixture');expect(meta.values.model).toBe('selected_model');
+  });
+  it('hydrates canonical conversation agent/model into the composer after reload',()=>{
+    const {context,conversation,meta}=selectionContext({id:'canonical-selection',agent:'simple',model:'default_model'});
+    hydrateConversationFromBootstrapSnapshot(context,{conversation:{id:'canonical-selection',agentId:'tool_fixture',defaultModel:'selected_model'},turns:[]});
+    expect(conversation.values.agent).toBe('tool_fixture');expect(meta.values.agent).toBe('tool_fixture');expect(meta.values.model).toBe('selected_model');
+  });
+  it('restores the owned selection during pending-first-submit route remount',()=>{
+    const first=selectionContext({id:'composer-route-remount',agent:'mcp_app_fixture',model:'selected_model'});
+    syncConversationComposerSelection(first.context);
+    const remount=selectionContext({agent:'simple',model:'default_model'});
+    global.window={location:{pathname:'/conversation/composer-route-remount'},localStorage:createStorage()};
+    bootstrapConversationSelection(remount.context);
+    expect(remount.conversation.values.agent).toBe('mcp_app_fixture');expect(remount.meta.values.agent).toBe('mcp_app_fixture');expect(remount.meta.values.model).toBe('selected_model');
+  });
+});
+
+describe('AG-UI canonical Queue feed binding',()=>{
+  it('uses committed canonical queue projection instead of a stale legacy snapshot cache',()=>{
+    const queued=[{id:'turn-queue-exact',conversationId:'queue-binding',status:'queued',queueSeq:'9007199254740993',preview:'Queued prompt',content:'Queued prompt'}];
+    const context={resources:{chat:{lastQueuedTurns:[{id:'stale-legacy'}]}},Context:name=>name==='conversations'?{handlers:{dataSource:{peekFormData:()=>({id:'queue-binding'})}}}:name==='messages'?{handlers:{dataSource:{setCollection:vi.fn()}}}:null};
+    client.observesNativeWork=vi.fn(()=>true);
+    installChatStoreMirror({getProjection:()=>[],getQueuedTurns:()=>queued});
+    try{renderMergedRowsForContext(context);expect(ensureContextResources(context).lastQueuedTurns).toEqual(queued);}
+    finally{delete client.observesNativeWork;installChatStoreMirror(null);}
+  });
+});
+
+describe('native local Goal feed hydration',()=>{
+  it('retains raw goal datasource shape across repeated refreshes and a null-data spec response',async()=>{
+    client.getGoal=vi.fn().mockResolvedValue({id:'goal-fixture',status:'paused',objective:'Synthetic goal'});
+    client.getFeedData.mockResolvedValue({feedId:'goal',data:null,dataSources:{goalState:{source:'goal'}},ui:{title:'Goal',renderMode:'forge'}});
+    try{
+      await refreshGoalFeed('goal-local-hydration');await Promise.resolve();
+      await refreshGoalFeed('goal-local-hydration');await Promise.resolve();
+      const value=getFeedData('goal','goal-local-hydration');
+      expect(value.data).toEqual({goal:{id:'goal-fixture',status:'paused',objective:'Synthetic goal'}});
+      expect(value.ui.renderMode).toBe('forge');
+    }finally{delete client.getGoal;client.getFeedData.mockResolvedValue(null);}
+  });
+});
+
+describe('metadata-before-route composer remount',()=>{
+  it('does not let fresh datasource defaults overwrite the owned selection before bootstrap',()=>{
+    const id='selection-before-bootstrap';
+    const metadata=normalizeMetaResponse({agents:['simple','presentation_fixture'],models:['default','chosen'],defaults:{agent:'simple',model:'default'}});
+    const contextFor=(values)=>{const conv={values,peekFormData(){return this.values},setFormData({values}){this.values=values}};const meta={values:metadata,peekFormData(){return this.values},setFormData({values}){this.values=values}};return {conv,meta,context:{Context:name=>name==='conversations'?{handlers:{dataSource:conv}}:name==='meta'?{handlers:{dataSource:meta}}:null}};};
+    const original=contextFor({id,agent:'presentation_fixture',model:'chosen'});syncConversationComposerSelection(original.context);
+    const remount=contextFor({id,agent:'simple',model:'default'});syncConversationComposerSelection(remount.context,metadata);
+    expect(remount.conv.values.agent).toBe('presentation_fixture');expect(remount.meta.values.agent).toBe('presentation_fixture');expect(remount.meta.values.model).toBe('chosen');
+  });
+});
+
+describe('native AG-UI conversation header selection',()=>{
+  it('hydrates persisted agent/model on cold reload without requiring a legacy chat transport',async()=>{
+    const conv={values:{id:'header-selection-cold',agent:'simple',model:'default'},peekFormData(){return this.values},setFormData({values}){this.values=values}};
+    const meta={values:normalizeMetaResponse({agents:['simple','presentation_fixture'],models:['default','chosen'],defaults:{agent:'simple',model:'default'}}),peekFormData(){return this.values},setFormData({values}){this.values=values}};
+    const context={Context:name=>name==='conversations'?{handlers:{dataSource:conv}}:name==='meta'?{handlers:{dataSource:meta}}:null};
+    client.getConversation.mockResolvedValue({id:'header-selection-cold',agentId:'presentation_fixture',defaultModel:'chosen'});
+    await hydrateConversationComposerSelection(context,'header-selection-cold');
+    expect(conv.values.agent).toBe('presentation_fixture');expect(meta.values.agent).toBe('presentation_fixture');expect(meta.values.model).toBe('chosen');
+  });
+});
+
+it('keeps explicit chooser changes when an older native header read finishes',async()=>{
+  let finish;client.getConversation.mockImplementation(()=>new Promise(resolve=>{finish=resolve}));
+  const conv={values:{id:'late-header-selection',agent:'simple',model:'default'},peekFormData(){return this.values},setFormData({values}){this.values=values}};
+  const meta={values:normalizeMetaResponse({agents:['simple','presentation_fixture'],models:['default','chosen'],defaults:{agent:'simple',model:'default'}}),peekFormData(){return this.values},setFormData({values}){this.values=values}};
+  const context={Context:name=>name==='conversations'?{handlers:{dataSource:conv}}:name==='meta'?{handlers:{dataSource:meta}}:null};
+  const pending=hydrateConversationComposerSelection(context,'late-header-selection');
+  conv.values={...conv.values,agent:'presentation_fixture',model:'chosen'};recordConversationComposerSelection(context);syncConversationComposerSelection(context);
+  finish({id:'late-header-selection',agentId:'simple',defaultModel:'default'});await pending;
+  expect(meta.values.agent).toBe('presentation_fixture');expect(meta.values.model).toBe('chosen');
+});
+
+it('retains an authorized header selection when catalog metadata arrives later',async()=>{
+  const conv={values:{id:'header-before-catalog',agent:'simple',model:'default'},peekFormData(){return this.values},setFormData({values}){this.values=values}};
+  const meta={values:{defaults:{agent:'simple',model:'default'}},peekFormData(){return this.values},setFormData({values}){this.values=values}};
+  const context={Context:name=>name==='conversations'?{handlers:{dataSource:conv}}:name==='meta'?{handlers:{dataSource:meta}}:null};
+  client.getConversation.mockResolvedValue({id:'header-before-catalog',agentId:'presentation_fixture',defaultModel:'chosen'});
+  await hydrateConversationComposerSelection(context,'header-before-catalog');
+  syncConversationComposerSelection(context,normalizeMetaResponse({agents:['simple','presentation_fixture'],models:['default','chosen'],defaults:{agent:'simple',model:'default'}}));
+  expect(meta.values.agent).toBe('presentation_fixture');expect(meta.values.model).toBe('chosen');
+});
+
+it('hydrates owned header when a datasource refresh clears its form id but the active conversation is unchanged',async()=>{
+  let finish;client.getConversation.mockImplementation(()=>new Promise(resolve=>{finish=resolve}));
+  const conv={values:{id:'temporarily-cleared-id',agent:'simple'},peekFormData(){return this.values},setFormData({values}){this.values=values}};
+  const meta={values:normalizeMetaResponse({agents:['simple','presentation_fixture'],models:['default'],defaults:{agent:'simple',model:'default'}}),peekFormData(){return this.values},setFormData({values}){this.values=values}};
+  const context={identity:{windowId:'header-transient-id-child'},resources:{chat:{activeConversationID:'temporarily-cleared-id'}},Context:name=>name==='conversations'?{handlers:{dataSource:conv}}:name==='meta'?{handlers:{dataSource:meta}}:null};
+  const pending=hydrateConversationComposerSelection(context,'temporarily-cleared-id');conv.values={agent:'simple'};
+  finish({id:'temporarily-cleared-id',agentId:'presentation_fixture',defaultModel:'default'});await pending;
+  expect(conv.values.id).toBe('temporarily-cleared-id');expect(meta.values.agent).toBe('presentation_fixture');
 });

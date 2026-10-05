@@ -20,6 +20,7 @@ struct AppleUIBridgeWindow: Codable, Sendable {
     let metadata: [String: BridgeJSONValue]
     let inTab: Bool
     let isModal: Bool
+    var dataSources: [String: BridgeJSONValue]? = nil
 
     enum CodingKeys: String, CodingKey {
         case windowID = "windowId"
@@ -36,6 +37,7 @@ struct AppleUIBridgeWindow: Codable, Sendable {
         case metadata
         case inTab
         case isModal
+        case dataSources
     }
 }
 
@@ -331,8 +333,9 @@ func buildAppleUIBridgeSnapshot(
         if !conversationID.isEmpty, !windowConversationID.isEmpty, windowConversationID != conversationID {
             continue
         }
-        windows.append(
-            AppleUIBridgeWindow(
+        let form = await forgeRuntime.windowFormJSONValue(windowID: window.id)
+        let metadata = await forgeRuntime.windowMetadata(id: window.id)
+        var bridgeWindow = AppleUIBridgeWindow(
                 windowID: window.id,
                 windowKey: window.key,
                 windowTitle: window.title,
@@ -343,12 +346,23 @@ func buildAppleUIBridgeSnapshot(
                 workspaceSharePct: window.workspaceSharePct,
                 workspaceMinHeight: window.workspaceMinHeight,
                 parameters: window.parameters.mapValues(\.appValue),
-                windowForm: await forgeRuntime.windowFormJSONValue(windowID: window.id).mapValues(\.appValue),
-                metadata: appleUIBridgeMetadata(await forgeRuntime.windowMetadata(id: window.id)),
+                windowForm: form.mapValues(\.appValue),
+                metadata: appleUIBridgeMetadata(metadata, form: form),
                 inTab: window.inTab,
                 isModal: window.isModal
             )
-        )
+        let candidate = await forgeRuntime.nativeReportLifecycle.admission(windowID: window.id)
+        let admission: NativeReportAdmission?
+        if let candidate, await forgeRuntime.nativeReportAdmissionIsCurrent(candidate) { admission = candidate }
+        else { admission = nil }
+        let live = await registeredReportDataSourceSnapshots(runtime: forgeRuntime, windowID: window.id, physicalRefs: Array(metadata?.dataSources.keys ?? Dictionary<String, DataSourceDef>().keys), admission: admission)
+        let completed = await forgeRuntime.completedNativeReportDatasets(windowID: window.id)
+        var snapshots = live
+        for (ref, snapshot) in completedReportDataSourceSnapshots(completed) where metadata?.dataSources[ref] == nil {
+            snapshots[ref] = snapshot
+        }
+        bridgeWindow.dataSources = snapshots
+        windows.append(bridgeWindow)
     }
     return AppleUIBridgeSnapshot(
         conversationID: conversationID.isEmpty ? nil : conversationID,
@@ -357,14 +371,17 @@ func buildAppleUIBridgeSnapshot(
 }
 
 private func appleUIBridgeMetadata(
-    _ metadata: WindowMetadata?
+    _ metadata: WindowMetadata?, form: [String: ForgeIOSRuntime.JSONValue]
 ) -> [String: BridgeJSONValue] {
     guard let metadata,
           let data = try? JSONEncoder().encode(metadata),
           let value = try? JSONDecoder.agently().decode(BridgeJSONValue.self, from: data) else {
         return [:]
     }
-    return value.objectValue ?? [:]
+    var result = value.objectValue ?? [:]
+    let raw = metadata.runtimeAuthoring ?? value.forgeValue
+    if let summary = nativeReportBuilderMetadataSummary(metadata: raw, form: form) { result["reportBuilder"] = summary.appValue }
+    return result
 }
 
 func hostedWorkspaceRestoreState(
@@ -515,7 +532,15 @@ func handleAppleUIBridgeCommand(
             throw AppleUIBridgeReportError.missingWindowID
         }
         let form = await forgeRuntime.windowFormJSONValue(windowID: windowID)
-        return appleReportCurrentResult(windowID: windowID, form: form)
+        do {
+            let prepared = try await forgeRuntime.preparedReportRequest(windowID: windowID)
+            return appleReportCurrentResult(windowID: windowID, form: form, preparationStatus: prepared.status, preparationError: prepared.error)
+        } catch let error as ReportPreparationError {
+            let status = ["pending", "stale-preparation"].contains(error.reason) ? "pending" : "error"
+            return appleReportCurrentResult(windowID: windowID, form: form, preparationStatus: status, preparationError: error.reason)
+        } catch {
+            return appleReportCurrentResult(windowID: windowID, form: form, preparationStatus: "error", preparationError: error.localizedDescription)
+        }
 
     case "ui.report.run":
         let windowID = params["windowId"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -525,7 +550,9 @@ func handleAppleUIBridgeCommand(
         guard await forgeRuntime.windowState(id: windowID) != nil else {
             throw AppleUIBridgeReportError.windowNotFound(windowID)
         }
+        _ = try await forgeRuntime.waitPreparedReportRequest(windowID: windowID)
         let requestID = "native-\(UUID().uuidString)"
+        let handle = try await forgeRuntime.beginNativeReportRun(windowID: windowID, requestID: requestID, origin: "ui.report.run")
         await forgeRuntime.setWindowFormValue(
             windowID: windowID,
             values: [
@@ -541,7 +568,7 @@ func handleAppleUIBridgeCommand(
             "windowId": .string(windowID),
             "accepted": .bool(true),
             "materialized": .bool(false),
-            "materializationId": .string(requestID),
+            "materializationId": .string(handle.reportRunID),
             "status": .string("running")
         ]
 
@@ -550,9 +577,27 @@ func handleAppleUIBridgeCommand(
         guard !windowID.isEmpty else {
             throw AgentlySDKError.invalidResponse
         }
+        let requestedRef = params["dataSourceRef"]?.stringValue?.nonEmpty
+        let activeRefs = requestedRef == nil ? try await forgeRuntime.activeViewDataSourceRefs(windowID: windowID) : []
+        let targets = requestedRef.map { [$0] } ?? activeRefs
+        var reportRefs: [String] = []
+        for ref in targets where await forgeRuntime.isReportDataSource(windowID: windowID, dataSourceRef: ref) { reportRefs.append(ref) }
         let metadata = await forgeRuntime.windowMetadata(id: windowID)
-        let refs = params["dataSourceRef"]?.stringValue?.nonEmpty.map { [$0] } ?? metadata.defaultDataSourceRefs
+        var registryRefs = Array(metadata?.dataSources.keys ?? Dictionary<String, DataSourceDef>().keys)
+        var preparedRefs: [String] = []
+        if !reportRefs.isEmpty {
+            let prepared = try await forgeRuntime.waitPreparedReportRequest(windowID: windowID)
+            preparedRefs = [prepared.dataSourceRef] + prepared.config.dataSources.map(\.id)
+            registryRefs += prepared.config.dataSources.map(\.id)
+        }
+        let plan = ReportDataFetchPlan.resolve(requestedRef: requestedRef, activeRefs: activeRefs, registryRefs: registryRefs, reportRefs: reportRefs, preparedRefs: preparedRefs)
+        guard plan.status == "ready" else { throw ReportPreparationError(reason: plan.status == "pending" ? "pending" : "unknown-datasource") }
+        let refs = plan.targets
         for ref in refs {
+            if await forgeRuntime.isReportDataSource(windowID: windowID, dataSourceRef: ref) {
+                try await forgeRuntime.fetchPreparedReportDataSource(windowID: windowID, dataSourceRef: ref)
+                continue
+            }
             await forgeRuntime.refreshDataSourceCollection(
                 windowID: windowID,
                 dataSourceRef: ref,
@@ -683,14 +728,16 @@ private enum AppleUIBridgeReportError: LocalizedError {
 
 private func appleReportCurrentResult(
     windowID: String,
-    form: [String: ForgeIOSRuntime.JSONValue]
+    form: [String: ForgeIOSRuntime.JSONValue],
+    preparationStatus: String,
+    preparationError: String?
 ) -> [String: BridgeJSONValue] {
     let definition = form["reportDefinition"]?.objectValue
     let document = definition?["documentPatch"]?.objectValue
         ?? definition?["reportDocument"]?.objectValue
         ?? form["documentPatch"]?.objectValue
         ?? form["reportDocument"]?.objectValue
-    let canRun = !(document?["blocks"]?.arrayValue ?? []).isEmpty
+    let canRun = preparationStatus == "ready" && !(document?["blocks"]?.arrayValue ?? []).isEmpty
     let materialization = form["reportMaterialization"]?.objectValue
     let status = materialization?["status"]?.stringValue?.lowercased() ?? ""
     return [
@@ -699,6 +746,8 @@ private func appleReportCurrentResult(
         "reportId": definition?["id"]?.appValue ?? .null,
         "reportName": document?["title"]?.appValue ?? .null,
         "canRun": .bool(canRun),
+        "preparationStatus": .string(preparationStatus),
+        "preparationError": preparationError.map(BridgeJSONValue.string) ?? .null,
         "canSave": .bool(false),
         "hasCompletedRun": .bool(status == "completed"),
         "materialization": materialization.map { .object($0.mapValues(\.appValue)) } ?? .null
@@ -775,7 +824,6 @@ private extension WindowMetadata? {
                 refs.append(ref)
             }
         }
-        refs.append(contentsOf: self.dataSources.keys)
         return Array(Set(refs)).sorted()
     }
 }

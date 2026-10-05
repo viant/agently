@@ -243,6 +243,7 @@ internal fun TabletWorkspacePane(
                             if (hasHostedWorkspace && workspacePanelMode != WorkspacePanelMode.Hidden) {
                                 HostedWorkspaceSection(
                                     restoreState = hostedWorkspaceState,
+                    client = client,
                                     forgeRuntime = forgeRuntime,
                                     maxBodyHeight = if (workspacePanelMode == WorkspacePanelMode.Expanded) 1100.dp else workspaceBodyHeight.dp,
                                     showTitle = true,

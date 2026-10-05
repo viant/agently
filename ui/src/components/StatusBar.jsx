@@ -23,7 +23,7 @@ function formatElapsed(ms = 0) {
   return `${Math.round(sec)}s`;
 }
 
-export default function StatusBar({ backendUnavailable = false, approvals = null, developerMode = false }) {
+export default function StatusBar({ backendUnavailable = false, approvals = null, developerMode = false, hidden = false }) {
   const stage = useStage();
   const [now, setNow] = React.useState(Date.now());
   const {phase, text} = progressStatusPresentation(stage, developerMode, backendUnavailable);
@@ -42,7 +42,7 @@ export default function StatusBar({ backendUnavailable = false, approvals = null
   }, [isElapsedActive, phase, stage?.updatedAt]);
 
   return (
-    <footer className={`app-statusbar phase-${phase}`} role="status" aria-live="polite">
+    <footer className={`app-statusbar phase-${phase}`} style={hidden ? { display: 'none' } : undefined} role="status" aria-live="polite">
       <div className="app-statusbar-main">
         <span className="app-statusbar-icon">{PHASE_ICON[phase] || '●'}</span>
         <span className="app-statusbar-text">

@@ -1,14 +1,19 @@
 import Foundation
 import Combine
 import AgentlySDK
+import CoreText
 
 @MainActor
 public final class WorkspaceThemeRuntime: ObservableObject {
+    @Published public private(set) var nativeFontName: String?
     @Published public private(set) var catalog: WorkspaceThemeCatalog?
     @Published public private(set) var themeID = ""
     @Published public private(set) var modePreference = "system"
     @Published public private(set) var diagnostic: String?
     @Published public private(set) var revision = ""
+
+    private struct OwnedFont { let hash: String; let font: CGFont }
+    private static var ownedFonts: [String: OwnedFont] = [:]
 
     public var onRefresh: (() async -> Void)?
 
@@ -122,6 +127,51 @@ public final class WorkspaceThemeRuntime: ObservableObject {
             reportRefreshFailure(error)
         }
     }
+    public func loadNativeFonts(client: AgentlyClient) async {
+        guard let family = catalog?.fonts?.first(where: { $0.role == "workspace-primary" }) else { nativeFontName = nil; return }
+        let requestGeneration = generation
+        nativeFontName = nil
+        var registered = Set<String>()
+        var totalBytes = 0
+        for face in family.faces.prefix(32) where face.style == "normal" {
+            guard let asset = face.native, registered.insert(asset.sha256).inserted else { continue }
+            guard asset.sizeBytes > 0, asset.sizeBytes <= 1024 * 1024, totalBytes + asset.sizeBytes <= 8 * 1024 * 1024 else {
+                diagnostic = "Workspace font catalog exceeds the supported size. Using the system font."
+                break
+            }
+            totalBytes += asset.sizeBytes
+            do {
+                let data = try await client.getWorkspaceNativeFont(href: asset.href, sha256: asset.sha256, sizeBytes: asset.sizeBytes, format: asset.format)
+                guard generation == requestGeneration else { return }
+                guard let provider = CGDataProvider(data: data as CFData), let font = CGFont(provider), let name = font.postScriptName else { continue }
+                let postScriptName = name as String
+                if let owned = Self.ownedFonts[postScriptName] {
+                    if owned.hash == asset.sha256 { nativeFontName = postScriptName; continue }
+                    var removalError: Unmanaged<CFError>?
+                    guard CTFontManagerUnregisterGraphicsFont(owned.font, &removalError) else {
+                        nativeFontName = nil
+                        diagnostic = "Workspace font could not be updated. Using the system font."
+                        continue
+                    }
+                    Self.ownedFonts.removeValue(forKey: postScriptName)
+                }
+                var registrationError: Unmanaged<CFError>?
+                if CTFontManagerRegisterGraphicsFont(font, &registrationError) {
+                    Self.ownedFonts[postScriptName] = OwnedFont(hash: asset.sha256, font: font)
+                    nativeFontName = postScriptName
+                } else {
+                    // A process-global name owned by another component does not
+                    // prove that its bytes match this authorized font asset.
+                    nativeFontName = nil
+                    diagnostic = "Workspace font could not be registered. Using the system font."
+                }
+            } catch {
+                guard generation == requestGeneration else { return }
+                diagnostic = "Workspace font is unavailable. Using the system font."
+            }
+        }
+    }
+
     public func reportRefreshFailure(_ error: Error) {
         if case AgentlySDKError.httpStatus(let status, _) = error, status == 401 || status == 403 {
             clear(forgetAccount: true)
@@ -132,6 +182,6 @@ public final class WorkspaceThemeRuntime: ObservableObject {
         generation += 1
         if forgetAccount, let scope { store.saveWorkspaceThemeData(nil, key: serverKey(scope.server)) }
         memoryPreference = nil
-        scope = nil; catalog = nil; themeID = ""; modePreference = "system"; revision = ""; diagnostic = nil
+        nativeFontName = nil; scope = nil; catalog = nil; themeID = ""; modePreference = "system"; revision = ""; diagnostic = nil
     }
 }

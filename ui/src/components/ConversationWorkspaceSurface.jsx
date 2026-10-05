@@ -263,6 +263,7 @@ export default function ConversationWorkspaceSurface({
               const visible = workspaceActive && entry.windowId === workspaceWindow?.windowId;
               return <WorkspacePresentationProvider key={entry.windowId} value={{label: resolveWorkspaceNavigation(entry).label, kind: entry.workspaceObject?.kind || 'resource'}}><div data-workspace-renderer-id={entry.windowId} hidden={!visible} inert={!visible ? '' : undefined} className="app-workspace-renderer">
                 {entry.workspaceObject?.content?.renderer === 'toolFeed' ? <ToolFeedDetail
+                  variant="rail" placement="workspace"
                   hostedFeedId={entry.workspaceObject.content.feedId} conversationId={entry.conversationId}
                   onLifecycle={(state) => onWorkspaceLifecycle?.(entry.windowId, state)} />
                   : entry.mcpUI?.uri ? <AppRenderer uri={entry.mcpUI.uri} title={entry.mcpUI.title || navigation.label}

@@ -26,7 +26,7 @@ final class ResourceQueryTests: XCTestCase {
         let client = AgentlyClient(endpoints: ["appAPI": EndpointConfig(baseURL: URL(string: "http://query.test")!)],
                                    session: URLSession(configuration: configuration))
         let runtime = QueryRuntime(client: client)
-        let output = await runtime.send(conversationID: "conv", agentID: "agent", query: "Read uploads",
+        let output = await runtime.send(conversationID: "conv", messageID: "stable-client-request", agentID: "agent", query: "Read uploads",
             attachments: [QueryAttachment(name: "old.csv", uri: "/v1/files/old")],
             resourceURIs: ["scratchpad://artifact/new"])
         XCTAssertEqual(output?.content, "done")
@@ -42,6 +42,7 @@ final class ResourceQueryTests: XCTestCase {
             }
         }
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(json["messageId"] as? String, "stable-client-request")
         XCTAssertEqual(json["resourceURIs"] as? [String], ["scratchpad://artifact/new"])
         XCTAssertEqual((json["attachments"] as? [[String: Any]])?.first?["uri"] as? String, "/v1/files/old")
     }

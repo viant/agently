@@ -32,7 +32,7 @@ export function isStackedToolFeedViewport(width) {
   return Number.isFinite(value) && value > 0 && value <= 1100;
 }
 
-export default function ToolFeedWorkspace({ conversationId = '', developerMode = false, initialDismissed = false, stackedOverride = null }) {
+export default function ToolFeedWorkspace({ conversationId = '', developerMode = false, initialDismissed = false, stackedOverride = null, active = true }) {
   const [feeds, setFeeds] = useState(getActiveFeeds);
   const [selectedFeedId, setSelectedFeedId] = useState(() => getSelectedFeedId(conversationId));
   const [collapsed, setCollapsed] = useState(false);
@@ -107,7 +107,7 @@ export default function ToolFeedWorkspace({ conversationId = '', developerMode =
     setDismissed(false);
   }, [conversationId, feedSignature]);
 
-  if (visibleFeeds.length === 0) {
+  if (!active || visibleFeeds.length === 0) {
     return null;
   }
 
@@ -118,8 +118,8 @@ export default function ToolFeedWorkspace({ conversationId = '', developerMode =
           <button
             type="button"
             className="app-tool-workspace-reopen"
-            aria-label={`Reopen Tool feeds (${visibleFeeds.length} active)`}
-            title={`Reopen Tool feeds · ${visibleFeeds.length} active`}
+            aria-label={`Reopen Tool feeds (${visibleFeeds.length} ${visibleFeeds.some(feed => feed.activationKnown === false) ? 'available' : 'active'})`}
+            title={`Reopen Tool feeds · ${visibleFeeds.length} ${visibleFeeds.some(feed => feed.activationKnown === false) ? 'available' : 'active'}`}
             onClick={() => setDismissed(false)}
           >
             <span className="app-tool-workspace-reopen-icon" aria-hidden="true">↗</span>

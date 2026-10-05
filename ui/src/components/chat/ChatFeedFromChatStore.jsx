@@ -22,6 +22,8 @@ import IterationRowBlock from './IterationRowBlock.jsx';
 import ToolFeedDetail from '../ToolFeedDetail.jsx';
 import BubbleMessage from './BubbleMessage.jsx';
 import MCPUIBubble from './MCPUIBubble.jsx';
+import StandardAppRenderer from '../mcpApps/StandardAppRenderer.jsx';
+import { useAgUiHostActivities } from '../../services/aguiHostActivities.js';
 import StarterTasks from './StarterTasks.jsx';
 import WorkspaceAttachmentCard from './WorkspaceAttachmentCard.jsx';
 import { ConversationViewContext } from '../../context/ConversationViewContext.js';
@@ -56,6 +58,8 @@ function UserBubble({ row, conversationId = '' }) {
         message={{
           id: row.renderKey,
           role: 'user',
+          connectionProfile: row.connectionProfile,
+          hostEffectsAllowed: row.hostEffectsAllowed,
           content: row.content,
           createdAt: row.createdAt || '',
           turnId: row.turnId || '',
@@ -77,6 +81,8 @@ function AssistantBubble({ row, conversationId = '', attachment = null }) {
         message={{
           id: row.messageId || row.renderKey,
           role: 'assistant',
+          connectionProfile: row.connectionProfile,
+          hostEffectsAllowed: row.hostEffectsAllowed,
           content: row.content,
           createdAt: row.createdAt || '',
           turnId: row.turnId || '',
@@ -96,6 +102,7 @@ function renderRow(row, context, conversationId = '', attachment = null) {
     case 'assistant':
       return <AssistantBubble key={row.renderKey} row={row} conversationId={conversationId} attachment={attachment} />;
     case 'mcpui':
+      if (row.hostEffectsAllowed === false || row.connectionProfile === 'standard') return <div key={row.renderKey}>{String(row.toolName || 'Tool result')}</div>;
       return <MCPUIBubble key={row.renderKey} row={row} conversationId={conversationId} />;
     case 'iteration':
       return <IterationRowBlock key={row.renderKey} iterationRow={row} context={context} />;
@@ -123,6 +130,7 @@ function latestTurnRowIndex(rows = []) {
  *                    `useChatProjection(conversationId)`.
  */
 export default function ChatFeedFromChatStore({ conversationId, rowsOverride, context }) {
+  const hostActivities = useAgUiHostActivities(conversationId);
   const viewContext = useContext(ConversationViewContext);
   const [workspaceMetadata, setWorkspaceMetadata] = React.useState(() => getWorkspaceMetadataSnapshot() || {});
   React.useEffect(() => subscribeWorkspaceMetadata((snapshot) => {
@@ -210,6 +218,8 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
         onOpen={() => viewContext.onOpenWorkspace?.(entry)} />)}
     </div>;
   };
+  let conversationFeedOwnerIndex = -1;
+  rows.forEach((row,index)=>{ if ((row.kind==='assistant'||row.kind==='iteration') && row.turnId && row.hostEffectsAllowed!==false && row.connectionProfile!=='standard') conversationFeedOwnerIndex=index; });
   const retryPromptByTurn = new Map();
   rows.forEach((row) => {
     const turnId = String(row?.turnId || '').trim();
@@ -222,7 +232,8 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
     <div className="app-chat-feed" data-source="chatStore">
       {rows.flatMap((row, index) => {
         const turnId = String(row?.turnId || '').trim();
-        const isFinalTurnRepresentation = !!turnId
+        const allowHostEffects = row.hostEffectsAllowed !== false && row.connectionProfile !== 'standard';
+        const isFinalTurnRepresentation = allowHostEffects && !!turnId
           && (row?.kind === 'iteration' || row?.kind === 'assistant')
           && (lastIndexByTurn.get(turnId) ?? index) === index;
         const inlineFeed = isFinalTurnRepresentation ? (
@@ -233,18 +244,23 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
             turnId={turnId}
             placement="inline"
             includeAuto={viewContext?.toolFeedDock !== 'right'}
+            includeConversationFeeds={index === conversationFeedOwnerIndex}
           />
         ) : null;
+        const appRows = isFinalTurnRepresentation ? hostActivities
+          .filter(activity => activity.content._agentlyApp.nativeTurnId === turnId)
+          .map(activity => <StandardAppRenderer key={activity.mountKey} activity={activity} />) : [];
         if (row?.kind !== 'iteration') {
           const rendered = renderRow(
             row,
             context,
             conversationId,
-            workspaceAttachmentFor(index)
+            allowHostEffects ? workspaceAttachmentFor(index) : null
           );
           return [
             <React.Fragment key={row.renderKey}>{rendered}</React.Fragment>,
             inlineFeed,
+            ...appRows,
           ];
         }
         const suppressBubble = !!turnId && (lastIndexByTurn.get(turnId) ?? index) > index;
@@ -256,10 +272,11 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
               showToolFeedDetail={false}
               suppressBubble={suppressBubble}
               retryPrompt={retryPromptByTurn.get(turnId) || ''}
-              attachment={workspaceAttachmentFor(index)}
+              attachment={allowHostEffects ? workspaceAttachmentFor(index) : null}
             />
           </React.Fragment>,
           inlineFeed,
+          ...appRows,
         ];
       })}
     </div>

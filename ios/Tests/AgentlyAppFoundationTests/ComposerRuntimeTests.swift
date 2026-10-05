@@ -4,6 +4,39 @@ import AgentlySDK
 
 final class ComposerRuntimeTests: XCTestCase {
     @MainActor
+    func testSendCommitPreservesSelectedLookupInResolvedModelPrompt() async throws {
+        let runtime = ComposerRuntime()
+        try await configureLookupRuntime(runtime)
+        runtime.query = "Build me a report for /order from ${7 days ago} through ${now}"
+        let occurrence = try XCTUnwrap(runtime.lookupOccurrences.first)
+        runtime.setLookupSelection(for: occurrence, row: ["id": .number(2659534), "name": .string("Chinese Speaker")])
+        let projection = ComposerEditorProjection(source: runtime.query, occurrences: runtime.lookupOccurrences)
+        XCTAssertFalse(projection.display.contains("/order"))
+        let committed = projection.commit(displayText: projection.display, displaySelection: (projection.display as NSString).length)
+        runtime.query = committed.source
+        XCTAssertNotNil(runtime.selectionForLookup(occurrence))
+        XCTAssertEqual(try runtime.resolvedQuery(), "Build me a report for order 2659534 from ${7 days ago} through ${now}")
+        XCTAssertEqual(committed.selection, (runtime.query as NSString).length)
+    }
+
+    @MainActor
+    func testSendCommitStillRequiresAnUnselectedLookup() async throws {
+        let runtime = ComposerRuntime()
+        try await configureLookupRuntime(runtime)
+        runtime.query = "Build report for /order"
+        let projection = ComposerEditorProjection(source: runtime.query, occurrences: runtime.lookupOccurrences)
+        runtime.query = projection.commit(displayText: projection.display, displaySelection: 0).source
+        XCTAssertThrowsError(try runtime.resolvedQuery())
+    }
+
+    func testSendCommitFlushesOrdinaryUIKitTyping() {
+        let projection = ComposerEditorProjection(source: "old", occurrences: [])
+        let committed = projection.commit(displayText: "new typed text", displaySelection: 14)
+        XCTAssertEqual(committed.source, "new typed text")
+        XCTAssertEqual(committed.selection, 14)
+    }
+
+    @MainActor
     func testRequestFocusAdvancesFocusRequestID() {
         let runtime = ComposerRuntime()
 

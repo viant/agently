@@ -31,6 +31,7 @@ vi.mock('./reportExportService', () => ({
 
 import { createFeedContext } from './feedForgeContext';
 import { chatService } from './chatService';
+import { client } from './agentlyClient';
 import {
   getReportExportArtifact,
   getReportExportStatus,
@@ -40,6 +41,23 @@ import {
 } from './reportExportService';
 
 describe('createFeedContext', () => {
+  it('routes real goal toolbar handlers through the owning conversation identity', async () => {
+    const update = vi.spyOn(client, 'updateGoal').mockResolvedValue({});
+    const read = vi.spyOn(client, 'getGoal').mockResolvedValue(null);
+    try {
+      const root = createFeedContext('conv-with-dashes::goal', { goalState: { source: 'goal' } }, 'conv-with-dashes');
+      const context = root.Context('goalState');
+      expect(root.identity.conversationId).toBe('conv-with-dashes');
+      await context.lookupHandler('chat.resumeGoalFeed')({ context });
+      expect(update).toHaveBeenLastCalledWith('conv-with-dashes', { status: 'active' });
+      await context.lookupHandler('chat.pauseGoalFeed')({ context });
+      expect(update).toHaveBeenLastCalledWith('conv-with-dashes', { status: 'paused' });
+      expect(read).toHaveBeenCalledWith('conv-with-dashes');
+    } finally {
+      update.mockRestore();
+      read.mockRestore();
+    }
+  });
   it('invokes the configured backend PDF exporter through feed.print', async () => {
     const exportPDF = vi.fn(async () => ({ ok: true }));
     const context = createFeedContext('printable', { result: {} }, 'conv-print', { exportPDF });

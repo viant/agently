@@ -17,6 +17,21 @@ final class WorkspaceThemeTests: XCTestCase {
         XCTAssertEqual(theme.effectiveMode(preference: "light", systemMode: "dark"), "light")
         XCTAssertEqual(theme.effectiveMode(preference: "unknown", systemMode: "dark"), "light")
     }
+    func testWorkspaceFontRoleAndTypographyScaleRemainValidated() throws {
+        var value = try XCTUnwrap(JSONSerialization.jsonObject(with: fixture()) as? [String: Any])
+        var themes = try XCTUnwrap(value["themes"] as? [[String: Any]])
+        var modes = try XCTUnwrap(themes[0]["modes"] as? [String: [String: Any]])
+        modes["light"]?["typography.family"] = "workspace-primary"
+        modes["light"]?["typography.heading.size"] = 18
+        modes["light"]?["typography.heading.lineHeight"] = 24
+        themes[0]["modes"] = modes; value["themes"] = themes
+        let catalog = try WorkspaceThemeCatalog.load(JSONSerialization.data(withJSONObject: value))
+        XCTAssertEqual(catalog.themes[0].modes["light"]?["typography.heading.size"], .number(18))
+        modes["light"]?["typography.heading.size"] = 1000
+        themes[0]["modes"] = modes; value["themes"] = themes
+        XCTAssertThrowsError(try WorkspaceThemeCatalog.load(JSONSerialization.data(withJSONObject: value)))
+    }
+
     func testRejectsInvalidCatalog() throws {
         let source = String(decoding: try fixture(), as: UTF8.self)
         for changed in [source.replacingOccurrences(of: "\"version\": 1", with: "\"version\": 2"),

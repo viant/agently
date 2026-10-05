@@ -382,6 +382,13 @@ private struct HostedWorkspaceWindowView: View {
             replace: true,
             bumpPrefillRevision: false
         )
+        // The host removes embedded metadata before installation. Capture the
+        // baseline from the installed authored form, after that normalization.
+        let installed = await forgeRuntime.windowFormJSONValue(windowID: selectedWindow.windowId)
+        if var proof = installed["reportValidatedRestore"]?.objectValue {
+            proof["authorInputs"] = .string(nativeReportLocalDigest(.object(reportPreparationAuthorInputs(installed))))
+            await forgeRuntime.setWindowFormValue(windowID: selectedWindow.windowId, values: ["reportValidatedRestore": .object(proof)], replace: false, bumpPrefillRevision: false)
+        }
     }
 
 }
@@ -463,7 +470,9 @@ private func mergeHostedWorkspaceMetadata(
     guard let mergedData = try? JSONEncoder().encode(ForgeIOSRuntime.JSONValue.object(liveObject)) else {
         return nil
     }
-    return try? JSONDecoder().decode(WindowMetadata.self, from: mergedData)
+    guard var merged = try? JSONDecoder().decode(WindowMetadata.self, from: mergedData) else { return nil }
+    merged.runtimeAuthoring = live.runtimeAuthoring
+    return merged
 }
 
 private func normalizedHostedField(_ value: String?) -> String {

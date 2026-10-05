@@ -33,6 +33,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import com.viant.forgeandroid.ui.LocalForgeThemeAppearance
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -120,6 +121,9 @@ internal fun PhoneWorkspacePane(
         streamSnapshot,
         localWorkspaceSnapshot
     )
+    var persistedToolsExpanded by remember(activeConversationId) { mutableStateOf(false) }
+    val executionTurns = remember(conversationState) { persistedToolExecutionTurns(conversationState) }
+    val persistedToolCount = executionTurns.sumOf { turn -> turn.execution?.pages.orEmpty().sumOf { it.toolSteps.size } }
     val displayTranscript = transcriptWithActiveAssistant(transcript, streamSnapshot)
     val hostedWorkspaceMinHeight = remember(hostedWorkspaceState) {
         hostedWorkspaceState?.windows
@@ -175,7 +179,7 @@ internal fun PhoneWorkspacePane(
                     Text(
                         headerTitle,
                         style = MaterialTheme.typography.titleSmall,
-                        color = Color(0xFF182230),
+                        color = (LocalForgeThemeAppearance.current?.text ?: Color(0xFF182230)),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -184,16 +188,16 @@ internal fun PhoneWorkspacePane(
                             if (!activeConversationId.isNullOrBlank()) "Continuing your latest chat"
                             else "Ready for a new conversation",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF667085),
+                            color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085)),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
                 Surface(
-                    color = Color(0xFFF4F7FB),
+                    color = (LocalForgeThemeAppearance.current?.controlBackground ?: Color(0xFFF4F7FB)),
                     shape = MaterialTheme.shapes.extraLarge,
-                    border = BorderStroke(1.dp, Color(0xFFE4EAF2))
+                    border = BorderStroke(1.dp, (LocalForgeThemeAppearance.current?.controlBorder ?: Color(0xFFE4EAF2)))
                 ) {
                     Row(
                         modifier = Modifier.padding(4.dp),
@@ -333,6 +337,7 @@ internal fun PhoneWorkspacePane(
             hasWorkspaceSurface && selectedMode == PhoneWorkspaceContentMode.Workspace -> {
                 HostedWorkspaceSection(
                     restoreState = hostedWorkspaceState,
+                    client = client,
                     forgeRuntime = forgeRuntime,
                     modifier = Modifier.weight(1f),
                     maxBodyHeight = hostedWorkspaceMinHeight.dp,
@@ -389,6 +394,14 @@ internal fun PhoneWorkspacePane(
                     placement = AndroidFeedPlacement.Detached,
                     sectionTitle = "Feed apps"
                 )
+                if (persistedToolCount > 0) {
+                    androidx.compose.material3.OutlinedButton(onClick = { persistedToolsExpanded = !persistedToolsExpanded }) {
+                        Text(if (persistedToolsExpanded) "Hide tools ($persistedToolCount)" else "Tools ($persistedToolCount)")
+                    }
+                    if (persistedToolsExpanded) executionTurns.forEach { turn ->
+                        ExecutionInspectorSection(conversationState, client, turn.turnId)
+                    }
+                }
                 RenderTranscript(
                     items = displayTranscript,
                     conversationId = activeConversationId,
@@ -468,7 +481,7 @@ internal fun TurnProgressStatus(
                 ) {
                     StatusChip(activityLabel, Color(0xFF1A73F0))
                     presentation.toolProgress?.let { StatusChip(it, Color(0xFF7D52D9)) { toolDetailsOpen = true } }
-                    presentation.tokenUsage?.let { StatusChip(it, Color(0xFF667085)) { tokenDetailsOpen = true } }
+                    presentation.tokenUsage?.let { StatusChip(it, (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085))) { tokenDetailsOpen = true } }
                 }
             }
             if (presentation.canStop && onStop != null) {
@@ -561,7 +574,7 @@ private fun TokenDetailRow(label: String, value: Int?) {
         Text(
             value?.let { "%,d".format(it) } ?: "Not reported",
             fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-            color = if (value == null) Color(0xFF667085) else Color.Unspecified
+            color = if (value == null) (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085)) else Color.Unspecified
         )
     }
 }
@@ -629,8 +642,8 @@ internal fun PhoneToolbarAction(
 @Composable
 private fun WorkspaceModePlaceholder() {
     Surface(
-        color = Color(0xFFF8FAFD),
-        border = BorderStroke(1.dp, Color(0xFFDDE4F1)),
+        color = (LocalForgeThemeAppearance.current?.surface ?: Color(0xFFF8FAFD)),
+        border = BorderStroke(1.dp, (LocalForgeThemeAppearance.current?.controlBorder ?: Color(0xFFDDE4F1))),
         shape = MaterialTheme.shapes.large,
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -643,13 +656,16 @@ private fun WorkspaceModePlaceholder() {
             Text(
                 "Workspace ready",
                 style = MaterialTheme.typography.titleSmall,
-                color = Color(0xFF182230)
+                color = (LocalForgeThemeAppearance.current?.text ?: Color(0xFF182230))
             )
             Text(
                 "Hosted workspace views, approvals, and generated outputs appear here when the conversation opens them.",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF667085)
+                color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085))
             )
         }
     }
 }
+
+internal fun persistedToolExecutionTurns(state: ConversationStateResponse?): List<com.viant.agentlysdk.TurnState> =
+    state?.conversation?.turns.orEmpty().filter { turn -> turn.execution?.pages.orEmpty().any { it.toolSteps.isNotEmpty() } }

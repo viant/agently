@@ -40,6 +40,15 @@ vi.mock('./ToolFeedDetail.jsx', () => ({
 
 import ToolFeedWorkspace, { filterWorkspaceFeeds, isStackedToolFeedViewport, sortWorkspaceFeeds } from './ToolFeedWorkspace.jsx';
 
+it('hides native feed surfaces while another backend is selected', () => {
+  getActiveFeedsMock.mockReturnValue([{ feedId: 'conv::feed', conversationId: 'conv', presentation: { target: 'rail' } }]);
+  try {
+    expect(renderToStaticMarkup(<ToolFeedWorkspace conversationId="conv" stackedOverride active={false} />)).toBe('');
+  } finally {
+    getActiveFeedsMock.mockReturnValue([]);
+  }
+});
+
 describe('sortWorkspaceFeeds', () => {
   it('preserves incoming feed order instead of applying hardcoded priorities', () => {
     const result = sortWorkspaceFeeds([
