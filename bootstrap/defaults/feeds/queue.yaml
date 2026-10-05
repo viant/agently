@@ -11,6 +11,7 @@ dataSource:
 
 ui:
   title: Queue
+  renderMode: forge
   containers:
     - id: queueTable
       type: table
@@ -97,6 +98,6 @@ ui:
         schema:
           type: object
           properties:
-            preview:
+            content:
               type: string
               title: Queued request

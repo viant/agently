@@ -60,6 +60,8 @@ export default function BubbleMessage({ message, messageIndex = 0, conversationI
           <span className="app-narration-bubble-indicator" />
           <div className="app-narration-bubble-content">
             <RichContent
+              allowHostEffects={message?.hostEffectsAllowed !== false && message?.connectionProfile !== 'standard'}
+              connectionProfile={message?.connectionProfile}
               content={String(message?.content || '').trim()}
               renderedContent={message?.renderedContent || null}
               generatedFiles={Array.isArray(message?.generatedFiles) ? message.generatedFiles : []}
@@ -87,6 +89,8 @@ export default function BubbleMessage({ message, messageIndex = 0, conversationI
       <div className={bubbleClass}>
         <div className="app-bubble-content">
           <RichContent
+              allowHostEffects={message?.hostEffectsAllowed !== false && message?.connectionProfile !== 'standard'}
+              connectionProfile={message?.connectionProfile}
             content={String(message?.content || '').trim()}
             renderedContent={message?.renderedContent || null}
             generatedFiles={Array.isArray(message?.generatedFiles) ? message.generatedFiles : []}
@@ -94,7 +98,7 @@ export default function BubbleMessage({ message, messageIndex = 0, conversationI
             conversationId={String(conversationId || message?.conversationId || '').trim()}
           />
           {isStreaming ? <span className="app-stream-caret" aria-label="streaming">▍</span> : null}
-          {!isUser && !isStreaming && attachment ? attachment : null}
+          {!isUser && !isStreaming && message?.hostEffectsAllowed !== false && message?.connectionProfile !== 'standard' && attachment ? attachment : null}
         </div>
       </div>
     </div>

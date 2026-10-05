@@ -21,12 +21,19 @@ public struct WorkspaceThemePresentation: ViewModifier {
         return runtime.effectiveMode(systemMode: systemScheme == .dark ? "dark" : "light") == "dark" ? .dark : .light
     }
     public func body(content: Content) -> some View {
-        let appearance = forgeThemeAppearance(runtime.tokens(systemMode: systemScheme == .dark ? "dark" : "light"))
+        let tokens = runtime.tokens(systemMode: systemScheme == .dark ? "dark" : "light")
+        let fontName = tokens?["typography.family"] == .text("workspace-primary") ? runtime.nativeFontName : nil
+        let appearance: ForgeThemeAppearance? = {
+            var value = forgeThemeAppearance(tokens)
+            value?.fontFamily = fontName
+            return value
+        }()
         content
             .environment(\.workspaceThemeRuntime, runtime)
             .environment(\.forgeThemeAppearance, appearance)
             .preferredColorScheme(preferredScheme)
             .tint(appearance?.focus)
+            .font(fontName.map { Font.custom($0, size: appearance?.fontSize ?? 14, relativeTo: .body) })
     }
 }
 
@@ -63,6 +70,7 @@ struct WorkspaceThemeSettingsSection: View {
     @State private var refreshing = false
     var body: some View {
         Section("Workspace Appearance") {
+            if let fontName = runtime.nativeFontName { Text("Typeface: \(fontName)").font(.footnote).foregroundStyle(.secondary) }
             if let catalog = runtime.catalog {
                 Picker("Theme", selection: Binding(get: { runtime.themeID }, set: { runtime.select(themeID: $0, mode: runtime.modePreference) })) {
                     Text("Default").tag("")

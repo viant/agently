@@ -30,7 +30,8 @@ internal fun forgeThemeAppearance(tokens: JsonObject?): ForgeThemeAppearance? {
     return ForgeThemeAppearance(color("surface"), color("text"), color("control.background"), color("control.foreground"),
         color("control.border"), color("focus.color"), color("button.background"), color("button.foreground"),
         color("disabled.background"), color("disabled.foreground"), color("validation.border"),
-        dimension("typography.size"), dimension("control.minHeight"), dimension("control.radius"), dimension("control.paddingInline"))
+        dimension("typography.size"), dimension("control.minHeight"), dimension("control.radius"), dimension("control.paddingInline"),
+        categoricalPalette = (1..8).mapNotNull { index -> tokens["data.categorical.$index"]?.let { color("data.categorical.$index") } })
 }
 @Composable
 internal fun WorkspaceThemeHost(runtime: WorkspaceThemeRuntime, content: @Composable () -> Unit) {
@@ -47,7 +48,7 @@ internal fun WorkspaceThemeHost(runtime: WorkspaceThemeRuntime, content: @Compos
         }
     }
     val appearance = remember(state, systemMode) { forgeThemeAppearance(state.tokens(systemMode)) }
-    AgentlyTheme(darkTheme = dark, appearance = appearance) {
+    AgentlyTheme(darkTheme = dark, appearance = appearance, tokens = state.tokens(systemMode), workspaceFont = state.fontFamily) {
         CompositionLocalProvider(LocalWorkspaceThemeRuntime provides runtime, LocalForgeThemeAppearance provides appearance, content = content)
     }
 }
@@ -76,6 +77,7 @@ internal fun WorkspaceThemeSettings(onRefresh: () -> Unit) {
                     }
                 }
                 Text("Currently ${state.effectiveMode(systemMode)}", style = MaterialTheme.typography.bodySmall)
+                Text("Font: ${state.fontName ?: "System"}", style = MaterialTheme.typography.bodySmall)
             } else Text("No workspace theme is loaded.")
             if (state.catalog != null) ForgeThemePreview()
             state.diagnostic?.let { Text(it, style = MaterialTheme.typography.bodySmall) }

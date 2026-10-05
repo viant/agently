@@ -19,6 +19,7 @@ internal data class WorkspaceThemeCatalog(
     val defaultTheme: String,
     val defaultMode: String,
     val themes: List<WorkspaceTheme>,
+    val fonts: List<com.viant.agentlysdk.WorkspaceFontFamily> = emptyList(),
 ) {
     companion object {
         private val dimensions = mapOf(
@@ -27,6 +28,8 @@ internal data class WorkspaceThemeCatalog(
             "control.radius" to 0.0..64.0,
             "control.paddingInline" to 0.0..64.0,
         )
+        private val roleDimensions = listOf("caption", "small", "body", "section", "heading", "title", "metric", "display", "code")
+            .flatMap { role -> listOf("typography.$role.size" to 8.0..96.0, "typography.$role.lineHeight" to 8.0..144.0) }.toMap()
         private val colors = setOf("surface", "text", "control.background", "control.foreground",
             "control.border", "focus.color", "button.background", "button.foreground",
             "disabled.background", "disabled.foreground", "validation.border")
@@ -39,7 +42,7 @@ internal data class WorkspaceThemeCatalog(
             "status.warning.background", "status.warning.foreground", "status.warning.border",
             "status.danger.background", "status.danger.foreground", "status.danger.border",
             "data.categorical.1", "data.categorical.2", "data.categorical.3",
-            "data.categorical.4", "data.categorical.5", "data.categorical.6",
+            "data.categorical.4", "data.categorical.5", "data.categorical.6", "data.categorical.7", "data.categorical.8",
             "data.sequential.1", "data.sequential.2", "data.sequential.3",
             "data.sequential.4", "data.sequential.5",
         )
@@ -63,16 +66,16 @@ internal data class WorkspaceThemeCatalog(
                 require(modes.isNotEmpty() && modes.keys.all { it == "light" || it == "dark" } && fallback in modes)
                 modes.values.forEach { tokens ->
                     val required = colors + dimensions.keys + "typography.family"
-                    require(tokens.keys.containsAll(required) && (tokens.keys - required).all { it in optionalColors })
+                    require(tokens.keys.containsAll(required) && (tokens.keys - required).all { it in optionalColors || it in roleDimensions })
                     tokens.forEach { (key, value) ->
                         val primitive = value.jsonPrimitive
                         when {
-                            key in dimensions -> {
+                            key in dimensions || key in roleDimensions -> {
                                 require(!primitive.isString)
                                 val number = primitive.double
-                                require(number.isFinite() && number in dimensions.getValue(key))
+                                require(number.isFinite() && number in (dimensions[key] ?: roleDimensions.getValue(key)))
                             }
-                            key == "typography.family" -> require(primitive.isString && primitive.content == "system")
+                            key == "typography.family" -> require(primitive.isString && primitive.content in setOf("system", "workspace-primary"))
                             else -> require(primitive.isString && primitive.content.matches(Regex("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$")))
                         }
                     }
@@ -81,7 +84,9 @@ internal data class WorkspaceThemeCatalog(
             }
             require(themes.size <= 32 && themes.map { it.id }.distinct().size == themes.size)
             require(themes.any { it.id == defaultTheme })
-            return WorkspaceThemeCatalog(defaultTheme, defaultMode, themes)
+            val fonts = root["fonts"]?.let { Json { ignoreUnknownKeys = true }.decodeFromJsonElement<List<com.viant.agentlysdk.WorkspaceFontFamily>>(it) }.orEmpty()
+            require(fonts.size <= 8 && fonts.sumOf { it.faces.size } <= 64)
+            return WorkspaceThemeCatalog(defaultTheme, defaultMode, themes, fonts)
         }
     }
 }

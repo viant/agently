@@ -17,6 +17,7 @@ public final class QueryRuntime: ObservableObject {
 
     public func send(
         conversationID: String?,
+        messageID: String? = nil,
         agentID: String?,
         query: String,
         attachments: [QueryAttachment] = [],
@@ -35,6 +36,7 @@ public final class QueryRuntime: ObservableObject {
             return try await client.query(
                 QueryInput(
                     conversationID: conversationID,
+                    messageID: messageID,
                     agentID: agentID,
                     query: query,
                     attachments: attachments,
@@ -55,7 +57,7 @@ public final class QueryRuntime: ObservableObject {
     }
 
     public func markAccepted() {
-        guard isSending else { return }
+        guard client.interactionProtocol == .legacy, isSending else { return }
         acceptedWhileSending = true
         isSending = false
         lastError = nil

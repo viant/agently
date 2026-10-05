@@ -156,6 +156,7 @@ export function createFeedContext(feedId, dataSources = {}, conversationId = '',
   };
 
   const identity = {
+    conversationId: String(conversationId || '').trim(),
     windowId,
     dataSourceRef: firstDS,
     getDataSourceId,

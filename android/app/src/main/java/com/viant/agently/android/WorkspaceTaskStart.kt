@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.FilterChip
+import com.viant.forgeandroid.ui.LocalForgeThemeAppearance
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -149,8 +150,8 @@ internal fun WorkspaceTaskStartSection(
     }
 
     Surface(
-        color = Color(0xFFF8FAFD),
-        border = BorderStroke(1.dp, Color(0xFFDDE4F1)),
+        color = (LocalForgeThemeAppearance.current?.surface ?: Color(0xFFF8FAFD)),
+        border = BorderStroke(1.dp, (LocalForgeThemeAppearance.current?.controlBorder ?: Color(0xFFDDE4F1))),
         shape = MaterialTheme.shapes.large,
         modifier = modifier.fillMaxWidth()
     ) {
@@ -166,7 +167,7 @@ internal fun WorkspaceTaskStartSection(
                         "Starter tasks"
                     },
                     style = MaterialTheme.typography.titleMedium,
-                    color = Color(0xFF101828)
+                    color = (LocalForgeThemeAppearance.current?.text ?: Color(0xFF101828))
                 )
                 if (starterTaskCategories.isEmpty()) {
                     Text(
@@ -176,7 +177,7 @@ internal fun WorkspaceTaskStartSection(
                         "Start with one of the published workspace tasks."
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF667085)
+                    color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085))
                 )
                 }
             }
@@ -205,7 +206,7 @@ internal fun WorkspaceTaskStartSection(
                 Text(
                     text = "This agent has no published starter tasks yet. You can still begin with your own prompt below.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF667085)
+                    color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085))
                 )
             } else {
                 if (starterTaskCategories.isNotEmpty()) {
@@ -226,7 +227,7 @@ internal fun WorkspaceTaskStartSection(
                                         modifier = Modifier
                                             .background(
                                                 Brush.verticalGradient(
-                                                    listOf(Color.White, accent.copy(alpha = 0.10f))
+                                                    listOf(LocalForgeThemeAppearance.current?.surface ?: Color.White, accent.copy(alpha = 0.10f))
                                                 )
                                             )
                                             .padding(horizontal = 14.dp, vertical = 13.dp),
@@ -241,13 +242,13 @@ internal fun WorkspaceTaskStartSection(
                                             Text(
                                                 text = category.title?.trim().orEmpty(),
                                                 style = MaterialTheme.typography.titleSmall,
-                                                color = Color(0xFF101828)
+                                                color = (LocalForgeThemeAppearance.current?.text ?: Color(0xFF101828))
                                             )
                                             category.description?.trim()?.takeIf { it.isNotBlank() }?.let { description ->
                                                 Text(
                                                     text = description,
                                                     style = MaterialTheme.typography.bodySmall,
-                                                    color = Color(0xFF667085),
+                                                    color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085)),
                                                     maxLines = 2,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
@@ -265,7 +266,7 @@ internal fun WorkspaceTaskStartSection(
                             Text(
                                 text = description,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFF667085)
+                                color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085))
                             )
                         }
                     }
@@ -322,7 +323,7 @@ private fun StarterTaskCard(
     val vertical = layout == StarterTaskLayout.VerticalList
     Surface(
         color = Color.Transparent,
-        border = BorderStroke(1.dp, Color(0xFFDDE4F1)),
+        border = BorderStroke(1.dp, (LocalForgeThemeAppearance.current?.controlBorder ?: Color(0xFFDDE4F1))),
         shape = MaterialTheme.shapes.large,
         modifier = Modifier
             .then(if (vertical) Modifier.fillMaxWidth().heightIn(min = 96.dp) else Modifier.widthIn(min = 220.dp, max = 280.dp))
@@ -341,14 +342,14 @@ private fun StarterTaskCard(
             Text(
                 text = task.title?.trim().orEmpty(),
                 style = MaterialTheme.typography.titleSmall,
-                color = Color(0xFF101828),
+                color = (LocalForgeThemeAppearance.current?.text ?: Color(0xFF101828)),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = task.description?.trim().takeUnless { it.isNullOrBlank() } ?: fallbackDescription,
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF667085),
+                color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085)),
                 maxLines = if (vertical) 4 else 3,
                 overflow = TextOverflow.Ellipsis
             )

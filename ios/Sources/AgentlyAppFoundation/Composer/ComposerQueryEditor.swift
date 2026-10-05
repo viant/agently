@@ -76,6 +76,15 @@ internal struct ComposerEditorProjection: Equatable {
     func sourceOffset(forDisplayOffset offset: Int) -> Int {
         displayToSourceOffsets[min(max(0, offset), displayToSourceOffsets.count - 1)]
     }
+
+    func commit(displayText: String, displaySelection: Int) -> (source: String, selection: Int) {
+        if source != display {
+            // Lookup-bearing edits already update the source through the range
+            // mapping. UIKit only holds the projection, with tokens removed.
+            return (source, sourceOffset(forDisplayOffset: displaySelection))
+        }
+        return (displayText, min(max(0, displaySelection), (displayText as NSString).length))
+    }
 }
 
 private func expandedHiddenLookupRange(_ range: NSRange, source: NSString) -> NSRange {
@@ -178,9 +187,13 @@ internal struct ComposerQueryEditor: UIViewRepresentable {
                 object: nil,
                 queue: .main
             ) { [weak self, weak textView] _ in
-                guard let self, let textView else { return }
-                self.parent.text = textView.text ?? ""
-                self.parent.selectionUTF16Offset = textView.selectedRange.location
+                guard let self, let textView, textView.isFirstResponder else { return }
+                // Only the active UIKit editor can hold uncommitted typing;
+                // other mounted composers must not overwrite the shared draft.
+                let current = ComposerEditorProjection(source: self.parent.text, occurrences: self.parent.occurrences)
+                let committed = current.commit(displayText: textView.text ?? "", displaySelection: textView.selectedRange.location)
+                self.parent.text = committed.source
+                self.parent.selectionUTF16Offset = committed.selection
             }
             dismissalObserver = NotificationCenter.default.addObserver(
                 forName: .agentlyKeyboardDismissalRequested,

@@ -16,6 +16,7 @@ let authMeInFlight = null;
 let authMeCacheReady = false;
 let authMeCacheValue = null;
 let unauthorizedLatched = false;
+let protocolSessionOwner = '';
 const workspaceMetadataInFlight = new Map();
 const workspaceMetadataCache = new Map();
 let workspaceMetadataGeneration = 0;
@@ -52,6 +53,14 @@ function clearAuthMeCache() {
   authMeInFlight = null;
   authMeCacheReady = false;
   authMeCacheValue = null;
+}
+
+function resetProtocolSession() {
+  client.resetAgUiInteractions?.();
+  protocolSessionOwner = '';
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+    window.dispatchEvent(new CustomEvent('agently:session-reset'));
+  }
 }
 
 async function fetchAuthEndpoint(path = '', { timeoutMs = AUTH_REQUEST_TIMEOUT_MS } = {}) {
@@ -107,6 +116,9 @@ export async function getAuthMeSilently() {
     if (response.status === 200) {
       try {
         authMeCacheValue = await response.json();
+        const owner = `${authMeCacheValue?.provider || ''}:${authMeCacheValue?.subject || authMeCacheValue?.email || authMeCacheValue?.username || ''}`;
+        if (protocolSessionOwner && protocolSessionOwner !== owner) resetProtocolSession();
+        protocolSessionOwner = owner;
       } catch (_) {
         authMeCacheValue = null;
       }
@@ -166,6 +178,7 @@ async function getOAuthConfigCached() {
 export async function beginLogin() {
   if (typeof window === 'undefined') return false;
   clearAuthMeCache();
+  resetProtocolSession();
   const oauthConfig = await getOAuthConfigCached();
   if (oauthConfig?.usePopupLogin === true) {
     return client.loginWithPopup({
@@ -190,12 +203,15 @@ function apiErrorMessage(err) {
 
 export const client = new AgentlyClient({
   baseURL: sdkBaseURL,
+  interactionProtocol: 'ag-ui',
+  observeNativeWork: true,
   useCookies: true,
   retries: 2,
   retryDelayMs: 250,
   retryStatuses: [408, 425, 429, 500, 502, 503, 504],
   timeoutMs: 0, // No timeout — agent queries can take minutes (tool elicitations, long chains)
   onUnauthorized: () => {
+    resetProtocolSession();
     clearAuthMeCache();
     // A protected endpoint is authoritative. Probing auth/me here can report a
     // cookie-backed session as healthy even when its token is unusable, which
@@ -258,6 +274,7 @@ export async function fetchWorkspaceStyleAsset(href) {
 
 const rawLogout = client.logout.bind(client);
 client.logout = async function logoutAndClearWorkspace() {
+  resetProtocolSession();
   clearAuthMeCache();
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('agently:logout'));
   return rawLogout();

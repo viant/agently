@@ -81,6 +81,7 @@ enum AppBootstrap {
             endpoints: [
                 "appAPI": EndpointConfig(baseURL: baseURL)
             ],
+            interactionProtocol: .agUI,
             session: URLSession(configuration: configuration),
             sessionCookieStore: AgentlyPersistentSessionCookieStore(
                 namespace: sessionCookieNamespace(for: baseURL)

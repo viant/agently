@@ -4,6 +4,29 @@ import ForgeIOSRuntime
 @testable import AgentlyAppFoundation
 
 final class ToolFeedsSectionTests: XCTestCase {
+    func testNativeFeedPreservesDeclaredLookupDialogsAndNamespace() throws {
+        let ui = try JSONDecoder().decode(AgentlySDK.JSONValue.self, from: Data(#"{"namespace":"steward","containers":[{"id":"form","dataSourceRef":"details"}],"dialogs":[{"id":"advertisers","title":"Choose advertiser"}],"target":{"formFactor":"phone"}}"#.utf8))
+        let payload = FeedDataResponse(feedID: "media", ui: ui)
+        let content = try XCTUnwrap(decodedToolFeedContent(ui))
+        let metadata = nativeToolFeedMetadata(payload: payload, content: content)
+        XCTAssertEqual(metadata.namespace, "steward")
+        XCTAssertEqual(metadata.dialogs.first?.id, "advertisers")
+        XCTAssertEqual(metadata.dialogs.first?.title, "Choose advertiser")
+        XCTAssertEqual(metadata.view?.content?.containers.first?.id, "form")
+        XCTAssertEqual(metadata.target?.objectValue?["formFactor"]?.stringValue, "phone")
+    }
+
+    func testFeedHydratesOnlyReferencedSharedDialogAndDependencies() throws {
+        let ui = try JSONDecoder().decode(AgentlySDK.JSONValue.self, from: Data(#"{"containers":[{"id":"form","lookup":{"dialogId":"picker"}}]}"#.utf8))
+        let metadata = nativeToolFeedMetadata(payload: FeedDataResponse(feedID: "media", ui: ui), content: try XCTUnwrap(decodedToolFeedContent(ui)))
+        let shared = try JSONDecoder().decode(WindowMetadata.self, from: Data(#"{"namespace":"Chat","dialogs":[{"id":"picker","dataSourceRef":"lookup"},{"id":"unrelated","dataSourceRef":"other"}],"dataSource":{"lookup":{"autoFetch":false},"other":{"autoFetch":true}}}"#.utf8))
+        let hydrated = try hydrateReferencedFeedDialogs(metadata, ui: ui, shared: shared)
+        XCTAssertEqual(hydrated.dialogs.compactMap(\.id), ["picker"])
+        XCTAssertEqual(Set(hydrated.dataSources.keys), ["lookup"])
+        XCTAssertEqual(hydrated.namespace, "Chat")
+        XCTAssertEqual(hydrated.view?.content?.containers.first?.id, "form")
+    }
+
     func testToolFeedSynthesizesRemoteLookupDependenciesFromSharedUI() throws {
         let content = try JSONDecoder().decode(ContentDef.self, from: Data("""
         {"containers":[{"kind":"dashboard.lookupChips","lookup":{"dataSourceRef":"targeting_tree_lookup","drill":{"dataSourceRef":"deal_children"}}}]}

@@ -7,6 +7,7 @@ import {
   completeReportRun,
   failReportRun,
   getReportRunContext,
+  getCompletedReportRun,
 } from './reportRunService';
 
 afterEach(() => {
@@ -22,6 +23,19 @@ function response(status, body) {
 }
 
 describe('reportRunService', () => {
+  it('reads a materialization using credentials and exact conversation scope without a mutation', async () => {
+    const fetcher = vi.fn(async () => response(200, {reportRunId: 'run/1', conversationId: 'conv/1', status: 'completed'}));
+    vi.stubGlobal('fetch', fetcher);
+    await expect(getCompletedReportRun({reportRunId: 'run/1', conversationId: 'conv/1'})).resolves.toMatchObject({status: 'completed'});
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const [url, init] = fetcher.mock.calls[0];
+    expect(url).toContain('/api/report-runs/run%2F1?conversationId=conv%2F1');
+    expect(init.method).toBe('GET');
+    expect(init.credentials).toBe('include');
+    expect(init.body).toBeUndefined();
+    expect(() => getCompletedReportRun({reportRunId: 'run/1'})).toThrow('conversationId');
+  });
+
   it('treats only an absent default-closed route as legacy feature off', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: false,

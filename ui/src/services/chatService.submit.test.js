@@ -24,6 +24,7 @@ vi.mock('./chatStore', () => ({
   reset: vi.fn(),
   submit: vi.fn(),
   steer: vi.fn(),
+  onSSE: vi.fn(),
 }));
 
 vi.mock('./chatRuntime', () => ({
@@ -42,6 +43,9 @@ vi.mock('./chatRuntime', () => ({
   getSettledConversationBootstrapSnapshot: vi.fn(() => null),
   hasPendingConversationBootstrap: vi.fn(() => false),
   hydrateMeta: vi.fn(),
+  refreshGoalFeed: vi.fn(),
+  syncConversationComposerSelection: vi.fn(),
+  hydrateConversationComposerSelection: vi.fn(),
   hydrateConversationFromBootstrapSnapshot: vi.fn(() => false),
   isConversationLiveish: vi.fn(),
   logExecutorDebug: vi.fn(),
@@ -88,7 +92,8 @@ vi.mock('../utils/dialogBus', () => ({
 }));
 
 import { client } from './agentlyClient';
-import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore } from './chatStore';
+import { setStage } from './stageBus';
+import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore, onSSE as applyEventToChatStore } from './chatStore';
 import { onInit, prepareUpload, submitMessage } from './chatService';
 import { listLookupRegistry } from '../components/lookups/client.js';
 import {
@@ -186,6 +191,65 @@ describe('submitMessage', () => {
 
     deferred.resolve({});
     await submitPromise;
+  });
+
+  it('clears a rejected fresh submission without deleting history or closing another run', async () => {
+    const deferred = queryDeferred();
+    client.query.mockReturnValue(deferred.promise);
+    ensureConversation.mockResolvedValue('conv-failed');
+    resolveUserID.mockReturnValue('');
+    const chatState = { runningTurnId: '', lastHasRunning: false };
+    ensureContextResources.mockReturnValue(chatState);
+    const form = { id: 'conv-failed' };
+    const setError = vi.fn();
+    const context = {
+      Context(name) {
+        if (name === 'conversations') return { handlers: { dataSource: {
+          peekFormData: () => form,
+          setFormData: ({ values }) => Object.assign(form, values),
+        } } };
+        if (name === 'messages') return { handlers: { dataSource: { setError } } };
+        return null;
+      },
+    };
+    const result = submitMessage({ context, message: 'Hello', agent: 'steward' });
+    const rejected = expect(result).rejects.toThrow('Forbidden');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(form.running).toBe(true);
+    deferred.reject(new Error('Forbidden'));
+    await rejected;
+    const request = submitToChatStore.mock.calls[0][0];
+    expect(applyEventToChatStore).toHaveBeenCalledWith('conv-failed', expect.objectContaining({
+      type: 'turn_failed', clientRequestId: request.clientRequestId, error: 'Forbidden',
+    }));
+    expect(form.running).toBe(false);
+    expect(chatState.liveOwnedConversationID).toBe('');
+    expect(clearPendingConversationBootstrap).toHaveBeenCalledWith('conv-failed');
+    expect(setError).toHaveBeenCalledWith('Forbidden');
+    expect(setStage).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'error', text: 'Forbidden' }));
+    expect(resetChatStoreConversation).not.toHaveBeenCalled();
+    expect(dsTick).not.toHaveBeenCalled();
+    expect(disconnectStream).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports rejected queued requests without clearing the active execution', async () => {
+    client.query.mockRejectedValue(new Error('Queue rejected'));
+    ensureConversation.mockResolvedValue('conv-queue-rejected');
+    resolveUserID.mockReturnValue('');
+    const chatState = { runningTurnId: '', activeStreamTurnId: '', lastHasRunning: true };
+    ensureContextResources.mockReturnValue(chatState);
+    const form = { id: 'conv-queue-rejected', running: true };
+    const context = { Context: name => name === 'conversations' ? { handlers: { dataSource: {
+      peekFormData: () => form, setFormData: ({ values }) => Object.assign(form, values),
+    } } } : null };
+    await expect(submitMessage({ context, message: 'Follow-up', agent: 'steward' })).rejects.toThrow('Queue rejected');
+    expect(applyEventToChatStore).toHaveBeenCalledWith(form.id, expect.objectContaining({
+      type: 'turn_failed', clientRequestId: expect.any(String), error: 'Queue rejected',
+    }));
+    expect(form.running).toBe(true);
+    expect(chatState.lastHasRunning).toBe(true);
+    expect(disconnectStream).not.toHaveBeenCalled();
+    expect(clearPendingConversationBootstrap).not.toHaveBeenCalled();
   });
 
   it('persists displayQuery to transcript while sending structured planner context to the agent', async () => {
@@ -793,7 +857,7 @@ describe('submitMessage', () => {
 
   it('steers into the active running turn instead of queueing a follow-up turn', async () => {
     client.query.mockResolvedValue({});
-    client.steerTurn = vi.fn().mockResolvedValue({ status: 'accepted', turnId: 'turn-1' });
+    client.steerTurn = vi.fn().mockResolvedValue({ status: 'accepted', turnId: 'turn-1', messageId:'native-steering-user' });
     ensureConversation.mockResolvedValue('conv-steer');
     resolveUserID.mockReturnValue('');
     ensureContextResources.mockReturnValue({
@@ -853,7 +917,10 @@ describe('submitMessage', () => {
     expect(client.steerTurn).toHaveBeenCalledWith('conv-steer', 'turn-1', {
       content: 'Focus only on bid and floor evidence.',
       role: 'user',
+      clientRequestId: expect.any(String),
     });
+    const requestId=client.steerTurn.mock.calls[0][2].clientRequestId;
+    expect(applyEventToChatStore).toHaveBeenCalledWith('conv-steer',expect.objectContaining({messageId:'native-steering-user',clientRequestId:requestId,turnId:'turn-1',patch:{role:'user'}}));
     expect(client.query).not.toHaveBeenCalled();
     expect(submitToChatStore).not.toHaveBeenCalled();
   });

@@ -412,6 +412,27 @@ class FeedRuntimeTest {
     }
 
     @Test
+    fun `declared feed lookups import only their authored shared dialogs and sources`() {
+        val payload = com.viant.agentlysdk.FeedDataResponse(
+            feedId = "plan",
+            dataSources = json.parseToJsonElement("""{"editDraft":{"source":"output.plan"}}""") as JsonObject,
+            ui = json.parseToJsonElement("""{"containers":[{"schemaBasedForm":{"schema":{"properties":{"advertiserId":{"type":"number","x-ui-widget":"lookup","lookup":{"dialogId":"advertiserPicker"}}}}}}]}""") as JsonObject
+        )
+        val shared = WindowMetadata(
+            dataSources = mapOf("advertiser_lookup" to DataSourceDef(), "unrelated_private" to DataSourceDef()),
+            dialogs = listOf(
+                com.viant.forgeandroid.runtime.DialogDef(id = "advertiserPicker", dataSourceRef = "advertiser_lookup"),
+                com.viant.forgeandroid.runtime.DialogDef(id = "unrelatedDialog", dataSourceRef = "unrelated_private")
+            )
+        )
+        val metadata = buildFeedWindowMetadata(payload, shared)
+        assertEquals(setOf("advertiserPicker"), referencedFeedLookupDialogs(payload.ui))
+        assertEquals(listOf("advertiserPicker"), metadata.dialogs.map { it.id })
+        assertNotNull(metadata.dataSources["advertiser_lookup"])
+        assertNull(metadata.dataSources["unrelated_private"])
+    }
+
+    @Test
     fun `buildFeedWindowMetadata adds remote contexts for governed lookup dependencies`() {
         val payload = com.viant.agentlysdk.FeedDataResponse(
             feedId = "plan",

@@ -26,6 +26,7 @@ import {
     chatStoreApplyTranscript as applyTranscript,
     chatStoreNewConversationState as newConversationState,
     chatStoreProjectConversation as projectConversation,
+    chatStoreProjectQueuedTurns as projectQueuedTurns,
 } from 'agently-core-ui-sdk';
 
 // ─── Per-conversation state ───────────────────────────────────────────────────
@@ -170,6 +171,10 @@ export function __resetAll() {
     }
 }
 
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('agently:session-reset', __resetAll);
+}
+
 // ─── Derived selectors ────────────────────────────────────────────────────────
 
 /**
@@ -263,3 +268,6 @@ if (typeof window !== 'undefined') {
         });
     } catch (_) { /* ignore */ }
 }
+
+/** Queue controls consume committed canonical admission state. */
+export function getQueuedTurns(conversationId) { return conversationId ? projectQueuedTurns(entry(conversationId).state) : []; }

@@ -16,6 +16,7 @@ vi.mock('./workspaceMetadata', async () => {
 })
 
 vi.mock('./toolFeedBus', () => ({
+  applyFeedEvent: vi.fn(),
   getFeedData: vi.fn(() => ({
     data: {
       output: {
@@ -657,3 +658,11 @@ describe('openResourceFeedPath', () => {
   expect(Array.isArray(result)).toBe(true);
   expect(result[0].agentOptions.length).toBeGreaterThan(0);
  });
+
+it('onFetchMeta preserves selected agent/model for an existing conversation composer',()=>{
+  const conv={state:{id:'native-remount-selection',agent:'tool_fixture',model:'selected_model'},peekFormData(){return this.state;},setFormData({values}){this.state=values;}};
+  const meta={state:{},peekFormData(){return this.state;},setFormData({values}){this.state=values;}};
+  const context={Context:name=>name==='conversations'?{handlers:{dataSource:conv}}:name==='meta'?{handlers:{dataSource:meta}}:name==='messages'?{handlers:{dataSource:{setCollection:vi.fn(),setError:vi.fn()}}}:null};
+  onFetchMeta({context,payload:{agents:['simple','tool_fixture'],models:['default_model','selected_model'],defaults:{agent:'simple',model:'default_model'}}});
+  expect(meta.state.agent).toBe('tool_fixture');expect(meta.state.model).toBe('selected_model');expect(conv.state.agent).toBe('tool_fixture');expect(conv.state.model).toBe('selected_model');
+});

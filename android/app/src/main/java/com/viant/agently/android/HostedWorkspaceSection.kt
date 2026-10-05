@@ -56,6 +56,7 @@ internal data class HostedWorkspaceWindowUiState(
 internal fun HostedWorkspaceSection(
     restoreState: HostedWorkspaceRestoreState?,
     forgeRuntime: ForgeRuntime,
+    client: com.viant.agentlysdk.AgentlyClient? = null,
     modifier: Modifier = Modifier,
     maxBodyHeight: androidx.compose.ui.unit.Dp = 420.dp,
     fillAvailableHeight: Boolean = false,
@@ -75,7 +76,8 @@ internal fun HostedWorkspaceSection(
     val windowState = rememberHostedWorkspaceWindowUiState(
         windows = resolvedRestoreState.windows,
         selectedWindow = selectedWindow,
-        forgeRuntime
+        forgeRuntime,
+        client
     )
     val minBodyHeight = minOf(
         (
@@ -176,7 +178,8 @@ internal fun HostedWorkspaceSection(
 internal fun rememberHostedWorkspaceWindowUiState(
     windows: List<WorkspaceWindowSnapshot>,
     selectedWindow: WorkspaceWindowSnapshot?,
-    forgeRuntime: ForgeRuntime
+    forgeRuntime: ForgeRuntime,
+    client: com.viant.agentlysdk.AgentlyClient? = null
 ): HostedWorkspaceWindowUiState {
     val selected = selectedWindow
     if (selected == null) {
@@ -202,10 +205,11 @@ internal fun rememberHostedWorkspaceWindowUiState(
     var runtimeWindowId by remember(selectedWindowLoadKey) { mutableStateOf<String?>(null) }
     var loadError by remember(selectedWindowLoadKey) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(selectedWindowLoadKey) {
+    LaunchedEffect(selectedWindowLoadKey, client, forgeRuntime) {
         try {
-            val state = openHostedWorkspaceWindow(forgeRuntime, selected)
-            selected.windowForm?.let(::jsonObjectToParameterMap)?.takeIf { it.isNotEmpty() }?.let { windowForm ->
+            val hydrated = hydrateCompletedReportWindow(client, forgeRuntime, selected)
+            val state = openHostedWorkspaceWindow(forgeRuntime, hydrated)
+            hydrated.windowForm?.let(::jsonObjectToParameterMap)?.takeIf { it.isNotEmpty() }?.let { windowForm ->
                 forgeRuntime.setWindowFormValues(
                     windowId = state.windowId,
                     values = windowForm,

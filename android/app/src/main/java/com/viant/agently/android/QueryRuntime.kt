@@ -290,7 +290,8 @@ internal suspend fun executeQueryTurn(
     attachments: List<ComposerAttachmentDraft>,
     queryContext: Map<String, JsonElement>,
     targetContext: MetadataTargetContext,
-    onConversationReady: suspend (String) -> Unit = {}
+    onConversationReady: suspend (String) -> Unit = {},
+    clientMessageId: String? = null
 ): QueryExecutionResult {
     val workspaceMetadata = metadata ?: client.getWorkspaceMetadata(targetContext)
     val conversationId = activeConversationId ?: client.createConversation(
@@ -311,6 +312,7 @@ internal suspend fun executeQueryTurn(
             agentId = effectiveAgentId,
             model = workspaceMetadata.defaultModel ?: workspaceMetadata.defaults?.model,
             query = prompt,
+            messageId = clientMessageId,
             attachments = uploadedAttachments.attachments,
             resourceURIs = uploadedAttachments.resourceURIs,
             context = queryContext

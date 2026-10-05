@@ -77,6 +77,38 @@ vi.mock('forge/components', () => ({
 }));
 
 describe('ToolFeedDetail', () => {
+  it('preserves authored non-stretch layout and theme styles without clipping the inline editor', async () => {
+    const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
+    const feed = { feedId: 'conv-1::plan', conversationId: 'conv-1', presentation: { target: 'inline' } };
+    const payload = { data: { output: { title: 'Draft' } }, ui: {
+      renderMode: 'forge', layout: { kind: 'grid', columns: 1, itemStretch: false },
+      style: { background: 'var(--forge-canvas)', color: 'var(--forge-text)' },
+      containers: [{ id: 'details', items: [{ id: 'title', type: 'label', dataField: 'title' }] }],
+      dataSources: { plan: { source: 'output' } },
+    } };
+    getFeedDataMock.mockImplementation(() => payload);
+    getActiveFeedsMock.mockReturnValueOnce([feed]);
+    const inline = renderToStaticMarkup(React.createElement(ToolFeedDetail, { conversationId: 'conv-1' }));
+    expect(inline).toContain('height:auto;max-height:none');
+    expect(inline).toContain('var(--forge-canvas)');
+    expect(inline).toContain('var(--forge-text)');
+    expect(inline).toContain('forge-theme-boundary');
+    getActiveFeedsMock.mockReturnValueOnce([feed]);
+    const rail = renderToStaticMarkup(React.createElement(ToolFeedDetail, { conversationId: 'conv-1', variant: 'rail' }));
+    expect(rail).toContain('height:100%;min-height:0;overflow-y:auto');
+    payload.ui.layout = { orientation: 'vertical' };
+    getActiveFeedsMock.mockReturnValueOnce([feed]);
+    const compact = renderToStaticMarkup(React.createElement(ToolFeedDetail, { conversationId: 'conv-1' }));
+    expect(compact).toContain('height:min(18vh, 220px)');
+  });
+  it('labels retained content whose activation is unknown', async () => {
+    const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
+    getActiveFeedsMock.mockReturnValueOnce([{ feedId: 'conv-1::plan', conversationId: 'conv-1', title: 'Plan', activationKnown: false }]);
+    getFeedDataMock.mockImplementation(() => ({ data: { value: 'Last known content' } }));
+    const html = renderToStaticMarkup(React.createElement(ToolFeedDetail));
+    expect(html).toContain('Status unknown');
+    expect(html).toContain('showing last known content');
+  });
   it('places every Forge-backed feed inside the shared theme boundary', async () => {
     const source = fs.readFileSync(path.join(repoRoot, 'ui/src/components/ToolFeedDetail.jsx'), 'utf8');
     const shellCSS = fs.readFileSync(path.join(repoRoot, 'ui/src/styles/shell.css'), 'utf8');
@@ -307,7 +339,7 @@ describe('ToolFeedDetail', () => {
     expect(html).not.toContain('data-testid="compact-feed-list"');
   });
 
-  it('renders nothing when feeds exist but none are expanded', async () => {
+  it('keeps unexpanded rail feeds hidden', async () => {
     const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
     const toolFeedBus = await import('../services/toolFeedBus');
     const toolFeedBar = await import('../services/toolFeedSelection');
@@ -330,7 +362,7 @@ describe('ToolFeedDetail', () => {
     toolFeedBar.getExpandedFeedIds.mockImplementation(() => new Set());
     toolFeedBar.getSelectedFeedId.mockImplementation(() => '');
 
-    const html = renderToStaticMarkup(React.createElement(ToolFeedDetail));
+    const html = renderToStaticMarkup(React.createElement(ToolFeedDetail,{variant:'rail',placement:'sidebar'}));
     expect(html).toBe('');
   });
 
@@ -467,7 +499,7 @@ describe('ToolFeedDetail', () => {
     expect(html).toContain('Loading feed content…');
   });
 
-  it('renders the queue feed detail when queue feed is expanded', async () => {
+  it('renders existing authored Queue controls by default', async () => {
     const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
     const toolFeedBus = await import('../services/toolFeedBus');
     const toolFeedBar = await import('../services/toolFeedSelection');
@@ -542,9 +574,10 @@ describe('ToolFeedDetail', () => {
       },
     }));
 
-    expect(html).toContain('data-testid="compact-feed-list"');
-    expect(html).toContain('queued follow-up one');
-    expect(html).toContain('queued follow-up two');
+    expect(html).toContain('data-testid="forge-container"');
+    expect(html).toContain('Save edit');
+    expect(html).toContain('queueTurns');
+    expect(html).toContain('preview');
   });
 
   it('uses an already-scoped feed id without double-scoping generic feed lookups', async () => {
@@ -767,5 +800,16 @@ describe('ToolFeedDetail', () => {
     expect(changesYaml).toContain('borderRadius: 10px');
     expect(explorerYaml).toContain('height: min(20vh, 220px)');
     expect(explorerYaml).toContain('borderRadius: 10px');
+  });
+});
+
+describe('native Queue render compatibility',()=>{
+  it('restores authored Queue controls but respects explicit compact and other feed defaults',async()=>{
+    const {resolveFeedRenderMode}=await import('./ToolFeedDetail.jsx');
+    expect(resolveFeedRenderMode('queue',{ui:{containers:[]}})).toBe('forge');
+    expect(resolveFeedRenderMode('queue',{ui:{renderMode:'compact'}})).toBe('compact');
+    expect(resolveFeedRenderMode('queue',{renderMode:'compact',ui:{}})).toBe('compact');
+    expect(resolveFeedRenderMode('queue',{ui:{renderMode:''}})).toBe('');
+    expect(resolveFeedRenderMode('other',{ui:{containers:[]}})).toBe('');
   });
 });

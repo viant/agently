@@ -39,6 +39,9 @@ import {
   getSettledConversationBootstrapSnapshot,
   hasPendingConversationBootstrap,
   hydrateMeta,
+  syncConversationComposerSelection,
+  hydrateConversationComposerSelection,
+  recordConversationComposerSelection,
   hydrateConversationFromBootstrapSnapshot,
   isConversationLiveish,
   logExecutorDebug,
@@ -69,7 +72,7 @@ import { connectForgeUIActionsToCallbacksOrChat } from './forgeUIActions';
 import { openCodeDiffDialog, openFileViewDialog, updateCodeDiffDialog, updateFileViewDialog } from '../utils/dialogBus';
 import { derivePreviousTextFromUnifiedDiff } from 'forge/utils/unifiedDiff';
 import ChatFeedFromChatStore from '../components/chat/ChatFeedFromChatStore.jsx';
-import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore } from './chatStore.js';
+import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore, onSSE as applyEventToChatStore } from './chatStore.js';
 import { conversationIDFromPath } from './chatRuntime';
 import { getScopedConversationSelection, MAIN_CHAT_WINDOW_ID, openConversationInMainWindow, syncHydratedWorkspaceStateFromTranscriptTurns } from './conversationWindow';
 
@@ -533,6 +536,8 @@ export async function onInit({ context }) {
     const conversationID = String(conversationsDS?.peekFormData?.()?.id || '').trim();
     initializedConversationID = conversationID;
     if (conversationID) {
+      void Promise.resolve(refreshGoalFeed(conversationID)).catch(() => {});
+      if (client.observesNativeWork?.()) void hydrateConversationComposerSelection(context,conversationID);
       if (hasPendingConversationBootstrap(conversationID)) {
         const currentForm = conversationsDS?.peekFormData?.() || {};
         conversationsDS?.setFormData?.({
@@ -601,6 +606,7 @@ export async function onInit({ context }) {
         }
         const mergedConversation = mergeConversationSnapshot(conversationsDS?.peekFormData?.() || {}, existing);
         conversationsDS?.setFormData?.({ values: mergedConversation });
+        syncConversationComposerSelection(context);
         publishConversationMetaUpdated(conversationID, {
           title: String(mergedConversation?.title || mergedConversation?.Title || '').trim(),
           stage: String(mergedConversation?.stage || mergedConversation?.Stage || '').trim(),
@@ -658,19 +664,19 @@ export function onFetchMeta({ context, data, result, payload, collection }) {
       ? collection[0]
       : null;
   const source = payload ?? result ?? data ?? singletonCollectionPayload ?? collection ?? {};
-  const normalized = normalizeMetaResponse(source);
+  let normalized = normalizeMetaResponse(source);
   publishWorkspaceMetadataSnapshot(normalized);
   const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
   if (metaDS) {
-    metaDS.setFormData?.({ values: normalized });
+    normalized = syncConversationComposerSelection(context,normalized) || normalized;
   }
   const convDS = context?.Context?.('conversations')?.handlers?.dataSource;
   if (convDS) {
     const form = convDS.peekFormData?.() || {};
     const next = { ...form };
     if (!String(next.id || '').trim()) {
-      next.agent = normalized?.defaults?.agent || '';
-      next.model = normalized?.defaults?.model || '';
+      next.agent = next.agent || normalized?.defaults?.agent || '';
+      next.model = next.model || normalized?.defaults?.model || '';
       next.embedder = normalized?.defaults?.embedder || '';
     } else {
       if (!next.agent && normalized?.defaults?.agent) next.agent = normalized.defaults.agent;
@@ -751,6 +757,7 @@ export async function submitMessage({ context, message, model, agent }) {
   if (!query && messageAttachments.length === 0) return;
   setStage({ phase: 'thinking', text: 'Assistant thinking…' });
   const convDS = context?.Context?.('conversations')?.handlers?.dataSource;
+  const messagesDS = context?.Context?.('messages')?.handlers?.dataSource;
   const selectedModel = sanitizeAutoSelection(model || '');
   const defaultModel = sanitizeAutoSelection(metaForm?.defaults?.model || metaForm?.defaultModel || '');
   const preferredAgentModel = (() => {
@@ -871,7 +878,10 @@ export async function submitMessage({ context, message, model, agent }) {
       attachments: queryAttachments.length > 0 ? queryAttachments : undefined,
     });
     setStage({ phase: 'executing', text: 'Steering…', startedAt: submittedAt, completedAt: 0 });
-    await client.steerTurn(conversationID, activeTurnID, { content: query, role: 'user' });
+    const steering = await client.steerTurn(conversationID, activeTurnID, { content: query, role: 'user', clientRequestId });
+    if (steering?.messageId) {
+      applyEventToChatStore(conversationID, { type:'message_appended', conversationId:conversationID, turnId:activeTurnID, messageId:steering.messageId, userMessageId:steering.messageId, clientRequestId, content:query, contentMode:'snapshot', patch:{role:'user'} });
+    }
   } else if (!queueingDuringActiveTurn) {
     submitToChatStore({
       conversationId: conversationID,
@@ -905,6 +915,34 @@ export async function submitMessage({ context, message, model, agent }) {
   let queryResult = {};
   try {
     queryResult = steeringDuringActiveTurn ? {} : await client.query(payload);
+  } catch (err) {
+    const error = String(err?.message || err || 'Submission failed');
+    if (!steeringDuringActiveTurn) {
+      // Fail only the optimistic submission identified by this request; a
+      // concurrent native turn must retain its own execution state.
+      applyEventToChatStore(conversationID, {
+        type: 'turn_failed',
+        conversationId: conversationID,
+        clientRequestId,
+        status: 'failed',
+        error,
+        createdAt: new Date().toISOString(),
+      });
+      if (!queueingDuringActiveTurn && chatState.activeStreamStartedAt === submittedAt && !chatState.activeStreamTurnId && !chatState.runningTurnId) {
+        resetRuntimeStreamState(chatState);
+        chatState.lastHasRunning = false;
+        chatState.liveOwnedConversationID = '';
+        const current = convDS?.peekFormData?.() || {};
+        if (String(current.id || '') === conversationID) {
+          convDS?.setFormData?.({ values: { ...current, running: false } });
+        }
+      }
+      if (!queueingDuringActiveTurn) clearPendingConversationBootstrap(conversationID);
+      renderMergedRowsForContext(context);
+    }
+    messagesDS?.setError?.(error);
+    setStage({ phase: 'error', text: error, completedAt: Date.now() });
+    throw err;
   } finally {
     if (String(chatState.pendingInitialSubmitConversationID || '').trim() === conversationID) {
       chatState.pendingInitialSubmitConversationID = '';
@@ -1154,12 +1192,12 @@ export function resolveComposerProps({ context, container, metaCtx: providedMeta
     },
     agentOptions: getWorkspaceMetadataSnapshot()?.composer?.allowAgentSelection === false ? [] : agentOptions,
     agentValue: currentAgent,
-    onAgentChange: (agentID) => applyAgentSelection({ agentID, metaDS, metaSnapshot: metaForm, context }),
+    onAgentChange: (agentID) => {applyAgentSelection({ agentID, metaDS, metaSnapshot: metaForm, context });recordConversationComposerSelection(context,{agent:agentID});syncConversationComposerSelection(context);},
     modelOptions: getWorkspaceMetadataSnapshot()?.composer?.allowModelSelection === false ? [] : modelOptions,
     modelInfo: metaForm?.modelInfo || {},
     modelValue: currentModel,
     defaultModel,
-    onModelChange: (modelID) => applyModelSelection({ modelID, metaDS, context }),
+    onModelChange: (modelID) => {applyModelSelection({ modelID, metaDS, context });recordConversationComposerSelection(context,{model:modelID});syncConversationComposerSelection(context);},
     reasoningOptions: DEFAULT_REASONING_OPTIONS,
     reasoningValue: normalizeString(metaForm?.reasoningEffort),
     onReasoningChange: (effort) => applyReasoningSelection({ effort, metaDS }),
@@ -1220,12 +1258,15 @@ export async function cancelQueuedTurnByID({ context, conversationID, turnID }) 
 export async function moveQueuedTurn({ context, conversationID, turnID, direction }) {
   if (!conversationID || !turnID) return;
   await client.moveQueuedTurn(conversationID, turnID, { direction });
+  // The persisted canonical queue snapshot owns post-move ordering.
+  await client.reconcileAgUiConversation(conversationID);
   await dsTick(context);
 }
 
 export async function editQueuedTurn({ context, conversationID, turnID, content }) {
   if (!conversationID || !turnID) return;
   await client.editQueuedTurn(conversationID, turnID, { content });
+  await client.reconcileAgUiConversation(conversationID);
   await dsTick(context);
 }
 
@@ -1284,13 +1325,16 @@ export async function forceSteerQueuedTurn({ context, conversationID, turnID }) 
 
 function getConversationID(context) {
   const form = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
-  return String(form?.id || '').trim();
+  return String(form?.id || context?.identity?.conversationId || context?.conversationId || '').trim();
 }
 
 function getQueueSelection(context) {
   const queueDS = context?.Context?.('queueTurns')?.handlers?.dataSource;
   const selected = queueDS?.peekSelection?.();
-  return Array.isArray(selected) ? selected[0] : selected;
+  if (Array.isArray(selected)) return selected[0];
+  if (selected && Object.prototype.hasOwnProperty.call(selected,'selected')) return selected.selected;
+  if (Array.isArray(selected?.selection)) return selected.selection[0];
+  return selected;
 }
 
 export function debugMessagesError({ context, error }) {
@@ -1383,6 +1427,8 @@ export function selectAgent({ context, value }) {
   }
   ds.setFormData?.({ values: next });
   metaDS?.setFormData?.({ values: nextMeta });
+  recordConversationComposerSelection(context,{agent:nextAgent,model:next.model});
+  syncConversationComposerSelection(context);
   // Persist selection so new conversations inherit it.
   try { localStorage.setItem('agently.selectedAgent', nextAgent); } catch (_) {}
   return true;
@@ -1397,6 +1443,8 @@ export function selectModel({ context, value }) {
   ds.setFormData?.({ values: { ...form, model: nextModel } });
   const meta = metaDS?.peekFormData?.() || {};
   metaDS?.setFormData?.({ values: { ...meta, model: nextModel } });
+  recordConversationComposerSelection(context,{model:nextModel});
+  syncConversationComposerSelection(context);
   return true;
 }
 
@@ -1446,17 +1494,23 @@ export async function forceSteerQueuedTurnBySelection({ context }) {
 }
 
 export async function saveQueuedTurnForm({ context, parameters }) {
-  const content = String(
-    parameters?.queueTurns?.content
-    ?? parameters?.queueTurns?.preview
-    ?? parameters?.content
-    ?? parameters?.preview
-    ?? readForm(context, 'queueTurns')?.content
-    ?? readForm(context, 'queueTurns')?.preview
-    ?? ''
-  ).trim();
+  const form = readForm(context, 'queueTurns') || {};
+  const provided = parameters?.queueTurns ?? parameters;
+  const hasEditorFields = provided && typeof provided === 'object'
+    && ['id','Id','content','preview'].some(key => Object.prototype.hasOwnProperty.call(provided,key));
+  // Content and native identity must come from one coherent editor snapshot.
+  // A refreshed selection/form must never supply an id for older parameters.
+  const editor = hasEditorFields ? provided : form;
+  const conversationID = getConversationID(context);
+  const turnID = String(editor.id || editor.Id || '').trim();
+  if (!conversationID || !turnID) {
+    showToast('Select a queued request before saving.', {intent:'warning'});
+    if (conversationID) await client.reconcileAgUiConversation(conversationID);
+    return false;
+  }
+  const content = String(editor.content ?? editor.preview ?? '').trim();
   if (!content) return false;
-  await editQueuedTurnBySelection({ context, content });
+  await editQueuedTurn({ context, conversationID, turnID, content });
   return true;
 }
 

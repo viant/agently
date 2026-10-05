@@ -39,7 +39,17 @@ export function normalizeMCPUIApprovalOutcome(detail = null) {
   const payload = detail && typeof detail === 'object' ? detail : {};
   const approvalId = String(payload.approvalId || '').trim();
   if (!approvalId) return null;
+  const supplied = payload.protocol;
+  const protocol = supplied?.version === '1' && typeof supplied.threadId === 'string' && typeof supplied.originalRunId === 'string'
+    ? { version: '1', kind: supplied.kind === 'mcp-app' ? 'mcp-app' : 'chat',
+        threadId: supplied.threadId, originalRunId: supplied.originalRunId,
+        commandRunId: String(supplied.commandRunId || ''),
+        nativeConversationId: String(supplied.nativeConversationId || ''),
+        continuationRunId: String(supplied.continuationRunId || ''),
+        remainingInterruptIds: Array.isArray(supplied.remainingInterruptIds) ? supplied.remainingInterruptIds.filter(id => typeof id === 'string') : [] }
+    : undefined;
   return {
+    ...(protocol ? { protocol } : {}),
     approvalId,
     action: String(payload.action || '').trim(),
     status: String(payload.status || '').trim(),

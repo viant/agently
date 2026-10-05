@@ -1,4 +1,4 @@
-const COMPOSER_SELECTOR = 'form[data-testid="chat-composer"]';
+const COMPOSER_SELECTOR = 'form[data-testid="chat-composer"]:not([data-connection-profile="standard"])';
 const INPUT_SELECTOR = '[data-testid="chat-composer-input"]';
 const HISTORY_SELECTOR = '[data-testid="chat-composer-history"]';
 const TOGGLE_SELECTOR = '[data-testid="chat-composer-history-toggle"]';
@@ -227,7 +227,7 @@ function mountToggleButton(form, input) {
 }
 
 function wireComposer(form) {
-    if (!form || form.dataset.agentlyHistoryEnhanced === 'true') return;
+    if (!form || form.dataset.connectionProfile === 'standard' || form.dataset.agentlyHistoryEnhanced === 'true') return;
 
     const input = form.querySelector(INPUT_SELECTOR);
     if (!input) return;

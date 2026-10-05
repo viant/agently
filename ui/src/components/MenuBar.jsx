@@ -343,6 +343,10 @@ export default function MenuBar({
   onToggleSidebar,
   conversationId = '',
   topbarActions = [],
+  backendConnections = [],
+  activeBackendId = 'agently',
+  onBackendChange,
+  onNativeAction,
 }) {
   const {
     items = [],
@@ -530,8 +534,8 @@ export default function MenuBar({
     setApprovalSubmitting(false);
     setApprovalError('');
     const initialValues = selectedQueueArguments && typeof selectedQueueArguments === 'object'
-      ? JSON.parse(JSON.stringify(selectedQueueArguments))
-      : {};
+      ? { ...JSON.parse(JSON.stringify(selectedQueueArguments)), ...extractSchemaDefaultValues(selectedQueueSchema) }
+      : extractSchemaDefaultValues(selectedQueueSchema);
     if (selectedQueuePlannerMeta?.field) {
       const seededDefaultRows = Array.isArray(selectedQueuePlannerMeta.defaultRows) ? selectedQueuePlannerMeta.defaultRows : [];
       const initialRows = seededDefaultRows.length > 0
@@ -557,11 +561,7 @@ export default function MenuBar({
   const handleApprovalDecision = useCallback(async (item, action) => {
     if (!item || !decide) return;
     const payload = action === 'approve'
-      ? (selectedQueuePlannerMeta?.field
-          ? ((queueFormValuesRef.current && Object.keys(queueFormValuesRef.current).length > 0)
-              ? queueFormValuesRef.current
-              : (selectedQueueArguments && typeof selectedQueueArguments === 'object' ? selectedQueueArguments : null))
-          : (selectedQueueArguments && typeof selectedQueueArguments === 'object' ? selectedQueueArguments : null))
+      ? queueFormValuesRef.current
       : null;
     setApprovalSubmitting(true);
     setApprovalError('');
@@ -615,12 +615,19 @@ export default function MenuBar({
                 onClick={() => {
                   const action = entry.action;
                   if (action?.type !== 'window') return;
+                  onNativeAction?.();
                   const key = action.provider && action.provider !== 'workspace'
                     ? `provider:${action.provider}:${action.windowKey}` : action.windowKey;
                   openWindow(key, entry.title, action.refreshDataSources || [], { parameters: action.parameters || {} });
                 }} />
             </Tooltip>
           ))}
+          {backendConnections.length > 1 ? (
+            <select aria-label="Agent backend" value={activeBackendId}
+              className="app-backend-select" onChange={event => onBackendChange?.(event.target.value)}>
+              {backendConnections.map(connection => <option key={connection.id} value={connection.id}>{connection.label}</option>)}
+            </select>
+          ) : null}
           <Tooltip content={pendingCount > 0 ? `${pendingCount} pending approvals` : 'Approvals'} placement="bottom">
             <Button
               minimal
