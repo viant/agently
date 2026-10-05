@@ -401,12 +401,16 @@ func runConversationCleanupPolicy(ctx context.Context, policy conversationCleanu
 				break
 			}
 			result.Scanned++
+			var candidateStarted time.Time
+			if debug {
+				candidateStarted = time.Now()
+			}
 			outcome, err := policy.ProcessCandidate(ctx, candidate)
 			if err != nil {
 				result.Failed++
 				result.addReason("error")
 				if debug {
-					log.Printf("conversation cleanup: policy=%s %s failed: %v", policy.Name(), formatConversationCleanupCandidate(candidate), err)
+					log.Printf("conversation cleanup: policy=%s %s duration=%s failed: %v", policy.Name(), formatConversationCleanupCandidate(candidate), time.Since(candidateStarted), err)
 				}
 				continue
 			}
@@ -426,7 +430,7 @@ func runConversationCleanupPolicy(ctx context.Context, policy conversationCleanu
 			}
 			result.addReason(outcome.Reason)
 			if debug {
-				log.Printf("conversation cleanup: policy=%s %s eligible=%t deleted=%t mutated=%t reason=%s", policy.Name(), formatConversationCleanupCandidate(candidate), outcome.Eligible, outcome.Deleted, outcome.Mutated, outcome.Reason)
+				log.Printf("conversation cleanup: policy=%s %s eligible=%t deleted=%t mutated=%t reason=%s duration=%s", policy.Name(), formatConversationCleanupCandidate(candidate), outcome.Eligible, outcome.Deleted, outcome.Mutated, outcome.Reason, time.Since(candidateStarted))
 			}
 		}
 		cursor = nextCursor
