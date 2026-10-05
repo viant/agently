@@ -9,6 +9,7 @@ import { reportingHostServices } from './reportingHostServices';
 import { dispatchForgeUIAction } from './forgeUIActions';
 import { fetchDatasource } from '../components/lookups/client';
 import { showToast } from './httpClient';
+import isEqual from 'lodash/isEqual.js';
 
 function normalizeSelectionMode(dataSource = {}) {
   return String(dataSource?.selectionMode || 'single').trim().toLowerCase() === 'multi' ? 'multi' : 'single';
@@ -36,6 +37,19 @@ function rowsEqual(left, right, dataSource = {}) {
 
 function isRowInSelection(row, selection = [], dataSource = {}) {
   return (Array.isArray(selection) ? selection : []).some((candidate) => rowsEqual(candidate, row, dataSource));
+}
+
+function selectionsEqual(left = [], right = [], dataSource = {}, leftRows = null, rightRows = null) {
+  const a = Array.isArray(left) ? left : [];
+  const b = Array.isArray(right) ? right : [];
+  if (a.length !== b.length) return false;
+  if (a.every((row) => isRowInSelection(row, b, dataSource))) return true;
+  if (uniqueKeyFields(dataSource).length > 0 || !Array.isArray(leftRows) || !Array.isArray(rightRows)) return false;
+  return a.length === leftRows.length
+    && b.length === rightRows.length
+    && leftRows.length === rightRows.length
+    && leftRows.every((row) => a.includes(row))
+    && rightRows.every((row) => b.includes(row));
 }
 
 function rowsWithSelectionState(rows = [], selectedRows = [], dataSource = {}) {
@@ -150,6 +164,13 @@ export function createFeedContext(feedId, dataSources = {}, conversationId = '',
       activeFilter: '',
       fullCollection: [],
       initialSelectedRows: null,
+      formBaseline: null,
+      collectionBaseline: null,
+      selectionBaseline: null,
+      hasFormBaseline: false,
+      hasCollectionBaseline: false,
+      hasSelectionBaseline: false,
+      preserveDirty: null,
     };
     dsRuntime.set(dsRef, state);
     return state;
@@ -176,7 +197,13 @@ export function createFeedContext(feedId, dataSources = {}, conversationId = '',
   }).filter(([, value]) => value !== undefined));
 
   const lookupHandlers = {
-    search: async ({ dataSourceRef = '', query = '', queryInput = '', inputs = {}, inputBindings = {}, timeoutMs = 15000 } = {}) => {
+    open: (request = {}) => {
+      if (typeof options?.openLookup !== 'function') {
+        return Promise.reject(new Error('Lookup picker is unavailable in this Tool Feed host.'));
+      }
+      return options.openLookup(request);
+    },
+    search: async ({ dataSourceRef = '', query = '', queryInput = '', inputs = {}, inputBindings = {}, timeoutMs = 15000, signal } = {}) => {
       const ref = String(dataSourceRef || '').trim();
       if (!ref) throw new Error('Lookup datasource is required.');
       let requestInputs = { ...(inputs && typeof inputs === 'object' ? inputs : {}) };
@@ -184,7 +211,7 @@ export function createFeedContext(feedId, dataSources = {}, conversationId = '',
         requestInputs = setPathValue(requestInputs, path, value);
       }
       if (String(queryInput || '').trim()) requestInputs = setPathValue(requestInputs, queryInput, String(query || '').trim());
-      const response = await fetchDatasource(ref, requestInputs, { timeoutMs });
+      const response = await fetchDatasource(ref, requestInputs, { timeoutMs, signal });
       return Array.isArray(response?.rows) ? response.rows : (Array.isArray(response?.data) ? response.data : []);
     },
   };
@@ -345,10 +372,56 @@ export function createFeedContext(feedId, dataSources = {}, conversationId = '',
     const dsConfig = metadata.dataSource?.[dsRef] || {};
     const selectionMode = normalizeSelectionMode(dsConfig);
     const defaultSelection = () => (selectionMode === 'multi' ? { selection: [] } : { selected: null, rowIndex: -1 });
-    const markDirty = () => {
-      try {
-        signals.formStatus.value = { ...(signals.formStatus.peek?.() || signals.formStatus.value || {}), dirty: true };
-      } catch (_) {}
+    const currentStatus = () => {
+      try { return signals.formStatus.peek?.() || signals.formStatus.value || {}; } catch (_) { return {}; }
+    };
+    const captureExternalDirty = () => {
+      if (runtimeState.preserveDirty == null) runtimeState.preserveDirty = currentStatus().dirty === true;
+    };
+    const captureFormBaseline = () => {
+      captureExternalDirty();
+      if (runtimeState.hasFormBaseline) return;
+      try { runtimeState.formBaseline = signals.form.peek?.() || signals.form.value || {}; } catch (_) { runtimeState.formBaseline = {}; }
+      runtimeState.hasFormBaseline = true;
+    };
+    const captureCollectionBaseline = () => {
+      captureExternalDirty();
+      if (runtimeState.hasCollectionBaseline) return;
+      runtimeState.collectionBaseline = resolveRows();
+      runtimeState.hasCollectionBaseline = true;
+    };
+    const captureSelectionBaseline = () => {
+      captureExternalDirty();
+      if (runtimeState.hasSelectionBaseline || selectionMode !== 'multi') return;
+      runtimeState.selectionBaseline = [...selectedRows()];
+      runtimeState.initialSelectedRows = [...runtimeState.selectionBaseline];
+      runtimeState.hasSelectionBaseline = true;
+    };
+    const updateDirty = () => {
+      let dirty = runtimeState.preserveDirty === true;
+      if (runtimeState.hasFormBaseline) {
+        let current = {};
+        try { current = signals.form.peek?.() || signals.form.value || {}; } catch (_) {}
+        dirty ||= !isEqual(runtimeState.formBaseline, current);
+      }
+      if (runtimeState.hasCollectionBaseline) dirty ||= !isEqual(runtimeState.collectionBaseline, resolveRows());
+      if (runtimeState.hasSelectionBaseline) {
+        dirty ||= !selectionsEqual(
+          runtimeState.selectionBaseline,
+          selectedRows(),
+          dsConfig,
+          runtimeState.collectionBaseline,
+          resolveRows()
+        );
+      }
+      const status = currentStatus();
+      if (dirty !== (status.dirty === true)) {
+        signals.formStatus.value = {
+          ...status,
+          dirty,
+          version: Number(status.version || 0) + (dirty ? 0 : 1),
+        };
+      }
     };
     const updateInput = (next = {}) => {
       try {
@@ -480,37 +553,55 @@ export function createFeedContext(feedId, dataSources = {}, conversationId = '',
       },
       setFormData: ({ values }) => {
         try { signals.form.value = values; } catch (_) {}
+        runtimeState.formBaseline = values;
+        runtimeState.hasFormBaseline = true;
+      },
+      setEditedFormData: ({ values }) => {
+        captureFormBaseline();
+        try { signals.form.value = values; } catch (_) {}
+        updateDirty();
+        return true;
       },
       setFormField: ({ item, value }) => {
         const fieldKey = item?.dataField || item?.bindingPath || item?.id || '';
+        captureFormBaseline();
         try { signals.form.value = setPathValue(signals.form.peek?.() || signals.form.value || {}, fieldKey, value); } catch (_) {}
-        markDirty();
+        updateDirty();
         return true;
       },
       setCollection: (data) => {
         runtimeState.fullCollection = Array.isArray(data) ? data : [];
+        runtimeState.collectionBaseline = runtimeState.fullCollection;
+        runtimeState.hasCollectionBaseline = true;
         applyPagedCollection();
       },
       replaceCollection: ({ rows = [], selectAll = false } = {}) => {
         const nextRows = Array.isArray(rows) ? rows : [];
-        if (selectionMode === 'multi' && runtimeState.initialSelectedRows == null) {
-          runtimeState.initialSelectedRows = [...selectedRows()];
-        }
+        captureCollectionBaseline();
+        if (selectionMode === 'multi') captureSelectionBaseline();
+        const previousRows = resolveRows();
+        const previousSelection = selectedRows();
         runtimeState.fullCollection = nextRows;
         applyPagedCollection();
         if (selectionMode === 'multi' && selectAll) {
           try { signals.selection.value = { selection: [...nextRows] }; } catch (_) {}
         }
-        markDirty();
-        publishSelectionChange(null);
+        updateDirty();
+        if (!selectionsEqual(previousSelection, selectedRows(), dsConfig, previousRows, nextRows)) publishSelectionChange(null);
         return true;
       },
       setSelection: ({ selected = null, rowIndex = -1, nodePath = null } = {}) => {
+        const nextSelection = Array.isArray(selected) ? selected : (selected ? [selected] : []);
         try {
           signals.selection.value = selectionMode === 'multi'
-            ? { selection: Array.isArray(selected) ? selected : (selected ? [selected] : []) }
+            ? { selection: nextSelection }
             : { selected, rowIndex, nodePath };
         } catch (_) {}
+        if (selectionMode === 'multi') {
+          runtimeState.selectionBaseline = [...nextSelection];
+          runtimeState.initialSelectedRows = [...nextSelection];
+          runtimeState.hasSelectionBaseline = true;
+        }
         return true;
       },
       setSelected: ({ selected = null, rowIndex = -1, nodePath = null } = {}) => {
@@ -527,14 +618,14 @@ export function createFeedContext(feedId, dataSources = {}, conversationId = '',
           const current = signals.selection.peek?.() || signals.selection.value || defaultSelection();
           if (selectionMode === 'multi') {
             const currentRows = Array.isArray(current?.selection) ? current.selection : [];
-            if (runtimeState.initialSelectedRows == null) runtimeState.initialSelectedRows = [...currentRows];
+            captureSelectionBaseline();
             const isPresent = isRowInSelection(nextSelected, currentRows, dsConfig);
             signals.selection.value = {
               selection: isPresent
                 ? currentRows.filter((candidate) => !rowsEqual(candidate, nextSelected, dsConfig))
                 : [...currentRows, nextSelected],
             };
-            markDirty();
+            updateDirty();
             publishSelectionChange(nextSelected);
             return true;
           }
@@ -555,17 +646,17 @@ export function createFeedContext(feedId, dataSources = {}, conversationId = '',
       setAllSelection: () => {
         if (selectionMode !== 'multi') return false;
         const rows = resolveRows();
-        if (runtimeState.initialSelectedRows == null) runtimeState.initialSelectedRows = [...selectedRows()];
+        captureSelectionBaseline();
         try { signals.selection.value = { selection: [...rows] }; } catch (_) {}
-        markDirty();
+        updateDirty();
         publishSelectionChange(null);
         return true;
       },
       resetSelection: () => {
         if (selectionMode !== 'multi') return false;
-        if (runtimeState.initialSelectedRows == null) runtimeState.initialSelectedRows = [...selectedRows()];
+        captureSelectionBaseline();
         try { signals.selection.value = { selection: [] }; } catch (_) {}
-        markDirty();
+        updateDirty();
         publishSelectionChange(null);
         return true;
       },
