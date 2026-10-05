@@ -1,20 +1,27 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  approvalQueuePollInterval,
   dispatchApprovalDecisionOutcomes,
+  isTerminalApprovalOutcome,
   pickNextOutcomeCursor,
   resolveApprovalDecisionOutcome,
   shouldPollApprovalQueue,
 } from './useApprovalQueue';
 
 describe('shouldPollApprovalQueue', () => {
-  it('polls aggressively only when the queue is open in the visible focused tab', () => {
+  it('keeps polling a closed queue at a lower rate so new approvals update the bell', () => {
     expect(shouldPollApprovalQueue(true, 'visible', true, true)).toBe(true);
     expect(shouldPollApprovalQueue(true, 'visible', true, false, true)).toBe(true);
-    expect(shouldPollApprovalQueue(true, 'visible', true, false)).toBe(false);
+    expect(shouldPollApprovalQueue(true, 'visible', true, false)).toBe(true);
+    expect(approvalQueuePollInterval(true, 'visible', true, true)).toBe(2000);
+    expect(approvalQueuePollInterval(true, 'visible', true, false, true)).toBe(2000);
+    expect(approvalQueuePollInterval(true, 'visible', true, false)).toBe(15000);
     expect(shouldPollApprovalQueue(false, 'visible', true, true)).toBe(false);
     expect(shouldPollApprovalQueue(true, 'hidden', true, true)).toBe(false);
     expect(shouldPollApprovalQueue(true, 'visible', false, true)).toBe(false);
+    expect(approvalQueuePollInterval(true, 'hidden', true, true)).toBeNull();
+    expect(approvalQueuePollInterval(true, 'visible', false, true)).toBeNull();
   });
 
   it('extracts canonical approval outcomes from decide responses', () => {
@@ -38,6 +45,16 @@ describe('shouldPollApprovalQueue', () => {
       result: '{"values":{"HOME":"/tmp"}}',
       errorMessage: '',
     });
+  });
+
+  it('only removes approvals after terminal outcomes, not failed execution', () => {
+    expect(isTerminalApprovalOutcome({ status: 'executed' })).toBe(true);
+    expect(isTerminalApprovalOutcome({ status: 'rejected' })).toBe(true);
+    expect(isTerminalApprovalOutcome({ status: 'canceled' })).toBe(true);
+    expect(isTerminalApprovalOutcome({ status: 'timed_out' })).toBe(true);
+    expect(isTerminalApprovalOutcome({ status: 'failed', errorMessage: 'platform patch failed' })).toBe(false);
+    expect(isTerminalApprovalOutcome({ status: 'pending' })).toBe(false);
+    expect(isTerminalApprovalOutcome(null)).toBe(false);
   });
 
   it('dispatches timeout outcomes from pending-approval polling results', () => {
