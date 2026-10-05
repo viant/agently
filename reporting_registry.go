@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 
 	uiview "github.com/viant/agently-core/protocol/tool/service/ui/view"
@@ -45,6 +46,12 @@ func configureWorkspaceReporting(ctx context.Context, workspaceRoot string, conf
 	runtime := &workspaceReportingRuntime{
 		loader:        loader,
 		windowCleanup: windowloader.SetWorkspaceWindowEnricher(workspaceReportingEnricher(loader)),
+	}
+	if development && strings.TrimSpace(reportingRoot) == "" {
+		if _, statErr := os.Stat(discovered.Root); os.IsNotExist(statErr) {
+			log.Printf("agently-app: optional workspace reporting directory is absent; watcher disabled until restart")
+			return runtime, nil
+		}
 	}
 	if development {
 		runtime.watcher = reportregistry.NewWatcher(loader)

@@ -394,3 +394,27 @@ func writeReportingTestAsset(t *testing.T, root, relative, content string) {
 		t.Fatalf("write reporting asset: %v", err)
 	}
 }
+
+func TestConfigureWorkspaceReportingAllowsAbsentDefaultRootInDevelopment(t *testing.T) {
+	runtime, err := configureWorkspaceReporting(context.Background(), t.TempDir(), nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	if runtime.watcher != nil {
+		t.Fatal("missing optional root unexpectedly watched")
+	}
+	if len(runtime.loader.Current().Builders) != 0 {
+		t.Fatal("empty workspace acquired builders")
+	}
+}
+func TestConfigureWorkspaceReportingRejectsMissingExplicitDevelopmentRoot(t *testing.T) {
+	cfg := &wscfg.Root{Raw: map[string]interface{}{"forge": map[string]interface{}{"reporting": map[string]interface{}{"root": "explicit/missing"}}}}
+	runtime, err := configureWorkspaceReporting(context.Background(), t.TempDir(), cfg, true)
+	if runtime != nil {
+		runtime.Close()
+	}
+	if err == nil {
+		t.Fatal("missing explicitly configured watcher root accepted")
+	}
+}
