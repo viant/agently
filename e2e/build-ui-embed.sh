@@ -15,16 +15,38 @@ fi
 UI_DIR="${ROOT}/ui"
 DEPLOY="${ROOT}/deployment/ui"
 
-echo "[build-ui-embed] Building UI (${UI_DIR})..."
-if [ ! -d "${UI_DIR}/node_modules" ]; then
-  echo "[build-ui-embed] Installing UI deps in ${UI_DIR}..."
-  if [ -f "${UI_DIR}/package-lock.json" ] || [ -f "${UI_DIR}/npm-shrinkwrap.json" ]; then
-    (cd "${UI_DIR}" && npm ci)
-  else
-    (cd "${UI_DIR}" && npm install)
-  fi
+# Vite consumes the linked SDK sources directly. npm does not install a linked
+# package's dependencies when installing the UI, so install them separately.
+SDK_DIR="$(node -e '
+  const path = require("path");
+  const uiDir = process.argv[1];
+  const dependency = require(path.join(uiDir, "package.json")).dependencies["agently-core-ui-sdk"];
+  if (!dependency || !dependency.startsWith("file:")) {
+    throw new Error("Expected a local file: dependency for agently-core-ui-sdk");
+  }
+  process.stdout.write(path.resolve(uiDir, dependency.slice(5)));
+' "${UI_DIR}")"
+
+if [ ! -f "${SDK_DIR}/package.json" ]; then
+  echo "Error: local SDK missing at ${SDK_DIR}. Check out the repository referenced by ui/package.json." >&2
+  exit 1
 fi
 
+install_deps() {
+  local package_dir="$1"
+  echo "[build-ui-embed] Installing deps in ${package_dir}..."
+  if [ -f "${package_dir}/package-lock.json" ] || [ -f "${package_dir}/npm-shrinkwrap.json" ]; then
+    (cd "${package_dir}" && npm ci --include=dev)
+  else
+    (cd "${package_dir}" && npm install --include=dev)
+  fi
+}
+
+# Refresh even when node_modules exists: it may predate new dependencies.
+install_deps "${SDK_DIR}"
+install_deps "${UI_DIR}"
+
+echo "[build-ui-embed] Building UI (${UI_DIR})..."
 (cd "${UI_DIR}" && npm run build)
 
 DIST="${UI_DIR}/dist"
