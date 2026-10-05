@@ -490,12 +490,13 @@ internal suspend fun handleAndroidUIBridgeCommand(
             }
             val gate = com.viant.forgeandroid.runtime.preparedReportPrimaryGate(prepared.identity, prepared)
             check(gate.status == "ready") { "The selected report request cannot run: ${gate.reason ?: gate.status}" }
-            val requestId = "native-${UUID.randomUUID()}"
+            val commandIdentity = nativeReportCommandIdentity(params)
+            val requestId = commandIdentity.requestId
             repeat(100) {
                 if (forgeRuntime.nativeReportLifecycle.admission(windowId)?.let { forgeRuntime.reportPreparationIsCurrent(it.preparation) } == true) return@repeat
                 delay(50)
             }
-            val admitted = forgeRuntime.nativeReportLifecycle.begin(windowId, requestId, "prompt", prepared) { forgeRuntime.reportPreparationIsCurrent(it) }
+            val admitted = forgeRuntime.nativeReportLifecycle.begin(windowId, requestId, "prompt", prepared, commandIdentity.reportAdmissionRef) { forgeRuntime.reportPreparationIsCurrent(it) }
             check(forgeRuntime.reportPreparationIsCurrent(admitted.admission.preparation)) { "The report preparation changed during admission." }
             forgeRuntime.setWindowFormValues(
                 windowId = windowId,

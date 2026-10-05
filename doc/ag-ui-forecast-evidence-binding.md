@@ -8,6 +8,7 @@ A forecast daily `forge-data` envelope carries `sourceBindings` alongside its da
 
 ```json
 {
+  "planId": "<saved immutable plan id>",
   "profile": "forecast-daily-v1",
   "columns": [
     {"key": "overall", "calls": [
@@ -174,3 +175,66 @@ concurrent ordinary checkpoint/document-write, and guarded-GC tests. The pure
 that fixture with real persisted evidence across restart,
 startup injection, and shared streaming/writer publication gates remains unfinished.
 No live feature gate or provider query is enabled by this storage change.
+
+
+## Production source checkpoint (not startup-enabled)
+
+The optional `runtime/evidence.Factory` boundary now captures the original
+`context.client.forecastIntent` before routing/intake, saves and confirms its
+immutable admission after the durable starter, and restores the original
+admission on continuation. A new clock or model-generated nested context cannot
+replace it. `service/agent.WithEvidenceFactory` is not registered at startup yet.
+Historical reads do not pass through this write gate.
+
+The turn controller resolves a unique matching completed profile, or an explicit
+`sourceProfileOpId`, under the authenticated owner/conversation/turn. The effective
+converter request is enriched **before** coalescing, request payload capture and
+dispatch. It records a server-generated `evidenceSourceOpId`; model-supplied trusted
+body/reference fields are rejected. Request and response payloads remain immutable.
+A completed conversion saves/reloads the immutable plan and publishes its receipt.
+A general cube result receives an `_agentlySource` receipt describing the actual
+operation, hashes and request date. It does not claim policy/category/user intent;
+those are independently checked when the report names `sourceBindings.planId`.
+Grouped/range cube reads remain supported and do not gain a scalar pointer unless
+the response satisfies the supported aggregate shape.
+
+For version 1, after a trusted forecast plan is admitted, **every newly authored
+structured dataset in that turn requires trusted bindings**. Renaming a dataset,
+labeling it unrelated, or supplying inline rows, numeric KPI values or chart arrays
+cannot exempt it. Mixed-source tables need an independently trusted source
+classification before they can be supported; model labels are insufficient.
+Canonical `forge-report` layout/prose remain supported. `forge-config` is an
+unsupported alternate runtime/data path within this admitted proof boundary.
+Unrelated turns retain existing report behavior. Dataset mutation modes are
+restricted to complete `replace` transactions, avoiding append/patch duplication.
+
+The common guard is connected to immediate model-call delta publication, model
+assistant projection, agent final content/persistence, `message/add` (including
+interim messages), and fenced compiler content plus explicit/string-encoded
+fences. Structured fences are buffered across byte/UTF-8 boundaries and validated
+before release. Raw provider audit payloads remain unchanged. Rejections propagate
+as evidence errors rather than successful empty data. Native restart tests cover
+all twenty captured calls, fifteen correct cells, immutable plan/admission,
+printable receipts and unrelated checkpoint coexistence.
+
+The standalone HTTP boundary now has an optional server-issued command receipt.
+The UI dispatcher persists an immutable attachment bound to the exact running
+native operation, owner/conversation, canonical persisted workspace creator and
+activation, builder, revision, and admitted plan IDs. It issues a stable request
+UUID plus opaque `reportAdmissionRef`. Begin resolves the receipt and stores only
+server-verified `_agentlyForecastCommand:{version:1,ref,requestId}` linkage in
+requestedParams; caller namespace injection and request/builder substitution fail.
+The linked compiler consumes the same reference, validates bindings, and stores
+an immutable spec/fill/print hash proof. Complete rereads that proof and exact
+scope before its lifecycle CAS. Hashing normalizes decimal spelling without
+float64 rounding, so large integer changes remain detectable. Existing unlinked
+manual reports remain available and are not guessed to be forecast reports from
+an active conversation alone.
+
+The native integration test covers this receipt/compiler/verification path and
+its restart, including wrong workspace revision, request/builder/conversation
+substitution, missing bindings, artifact tampering and idempotent compilation.
+Startup remains disabled pending composition-root registration, the client
+round-trip cohort, authoritative producer deployment, and live acceptance.
+Do not claim live forecast parity or mixed-source report support from these unit
+and native-persistence proofs.
