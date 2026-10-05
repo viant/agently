@@ -5,14 +5,24 @@ import { approvalDecisionInput } from '../services/approvalDecisionInput';
 import { dispatchMCPUIApprovalOutcome, normalizeMCPUIApprovalOutcome } from '../services/mcpApps/approvalEvents.js';
 
 const POLL_MS = 2000;
+const BACKGROUND_POLL_MS = 15000;
 const PAGE_SIZE = 8;
 
-export function shouldPollApprovalQueue(enabled = true, visibilityState = 'visible', hasWindowFocus = true, isOpen = false, hasActiveSelection = false) {
-  return Boolean(enabled) && visibilityState === 'visible' && Boolean(hasWindowFocus) && (Boolean(isOpen) || Boolean(hasActiveSelection));
+export function approvalQueuePollInterval(enabled = true, visibilityState = 'visible', hasWindowFocus = true, isOpen = false, hasActiveSelection = false) {
+  if (!enabled || visibilityState !== 'visible' || !hasWindowFocus) return null;
+  return isOpen || hasActiveSelection ? POLL_MS : BACKGROUND_POLL_MS;
+}
+
+export function shouldPollApprovalQueue(...args) {
+  return approvalQueuePollInterval(...args) !== null;
 }
 
 export function resolveApprovalDecisionOutcome(output = null) {
   return normalizeMCPUIApprovalOutcome(output?.outcome || null);
+}
+
+export function isTerminalApprovalOutcome(outcome = null) {
+  return ['executed', 'rejected', 'canceled', 'timed_out'].includes(String(outcome?.status || '').trim().toLowerCase());
 }
 
 // dispatchApprovalDecisionOutcomes forwards every canonical
@@ -108,10 +118,8 @@ export function useApprovalQueue(enabled = true) {
       return () => {};
     }
     const hasActiveSelection = !!selected?.id;
-    const pollEnabled = shouldPollApprovalQueue(enabled, visibilityState, hasWindowFocus, open, hasActiveSelection);
-    if (!pollEnabled && visibilityState !== 'visible') {
-      return () => {};
-    }
+    const pollInterval = approvalQueuePollInterval(enabled, visibilityState, hasWindowFocus, open, hasActiveSelection);
+    if (pollInterval === null) return () => {};
 
     let timer = null;
     let canceled = false;
@@ -135,7 +143,7 @@ export function useApprovalQueue(enabled = true) {
           const nextTotal = Number(next?.total || 0) || 0;
           if (selected?.id) {
             const resolved = Array.isArray(next?.outcomes) ? next.outcomes.find((entry) => String(entry?.approvalId || '').trim() === String(selected.id || '').trim()) : null;
-            if (resolved || !nextRows.find((entry) => entry?.id === selected.id)) {
+            if (isTerminalApprovalOutcome(resolved) || !nextRows.find((entry) => entry?.id === selected.id)) {
               setSelected(null);
             }
           }
@@ -167,8 +175,8 @@ export function useApprovalQueue(enabled = true) {
           }
         }
       }
-      if (!canceled && pollEnabled) {
-        timer = window.setTimeout(tick, POLL_MS);
+      if (!canceled) {
+        timer = window.setTimeout(tick, pollInterval);
       }
     };
 
@@ -191,6 +199,9 @@ export function useApprovalQueue(enabled = true) {
     const outcome = resolveApprovalDecisionOutcome(output);
     if (outcome) {
       dispatchMCPUIApprovalOutcome(outcome);
+    }
+    if (!isTerminalApprovalOutcome(outcome)) {
+      throw new Error(outcome?.errorMessage || 'Approval did not complete; it remains in the queue.');
     }
     setItems((current) => current.filter((entry) => entry.id !== item.id));
     setTotal((current) => Math.max(0, current - 1));
