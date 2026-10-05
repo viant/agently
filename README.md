@@ -32,7 +32,7 @@ interactive result within one conversation.
   conversation and expose them through web, native mobile or custom clients.
 - **An extensible runtime.** Embed Core in your Go service or use the assembled
   server. Choose providers and integrations, add tools and metadata, and build
-  clients against the AG-UI and application APIs.
+  clients against the [AG-UI protocol](https://docs.ag-ui.com/spec/1.0) and application APIs.
 
 ## Architecture
 
@@ -40,19 +40,7 @@ Agently assembles [Agently Core](https://github.com/viant/agently-core), which
 owns execution and persistence, with [Forge](https://github.com/viant/forge),
 which renders metadata-driven interfaces.
 
-```mermaid
-flowchart TD
-    Clients[Web · iOS · Android · CLI · custom clients] --> BFF[HTTP server and BFF authentication]
-    BFF --> Transport[AG-UI conversation runs and supporting application APIs]
-    Transport --> Core[Agently Core: agents, reactor, tools, goals and scheduler]
-    Workspace[Workspace configuration] --> Core
-    Workspace --> UI[Forge: controls, windows, layouts and visualizations]
-    Core --> Models[Model and embedding providers]
-    Core --> Tools[Internal services · MCP servers · linked agents]
-    Core --> Store[Persistence: SQLite or MySQL]
-    Transport --> UI
-    UI --> Clients
-```
+![Agently architecture: clients, authenticated server, Core execution runtime, workspace configuration, providers, tools and durable state](doc/architecture.svg)
 
 A prompt enters an authenticated conversation. The runtime resolves the agent,
 model, instructions and available tools, assembles knowledge and history, then
@@ -61,7 +49,7 @@ elicitation can collect missing inputs. Messages, calls and execution state are
 persisted as work progresses. Clients render the canonical results and can
 reattach after a disconnect without submitting the prompt again.
 
-AG-UI connects clients to the conversation runtime: runs, streamed messages,
+[AG-UI](https://docs.ag-ui.com/spec/1.0) connects clients to the conversation runtime: runs, streamed messages,
 tool activity, state and interactive continuation. Agently extensions carry
 workspace presentation, tool feeds, goals, approvals and queue controls. The
 BFF applies authentication across this interaction and the application APIs for
