@@ -16,10 +16,10 @@ require (
 	github.com/viant/agently-core v0.1.57-0.20261002195921-3ab85ab9fa12
 	github.com/viant/datly v1.1.1-0.20261005174616-7655958a8719
 	github.com/viant/embedius v0.5.6 // indirect
-	github.com/viant/forge v0.3.45-0.20261002184839-723a9cc896d9
+	github.com/viant/forge v0.3.45-0.20261005183733-226d32c8add6
 	github.com/viant/jsonrpc v0.25.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
-	github.com/viant/mcp v0.24.0
+	github.com/viant/mcp v0.24.1-0.20261005185040-e3fb56e588cd
 	github.com/viant/mcp-protocol v0.19.1-0.20261005144737-c504db7a02bb
 	github.com/viant/mcp-ui v0.2.0 // indirect
 	github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726
@@ -200,7 +200,3 @@ require (
 replace github.com/viant/agently-core => ../agently-core-ag-ui
 
 replace github.com/viant/mcp-protocol => ../mcp-protocol-ag-ui
-
-replace github.com/viant/mcp => ../mcp-ag-ui
-
-replace github.com/viant/forge => ../forge-ag-ui

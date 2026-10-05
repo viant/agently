@@ -1190,6 +1190,8 @@ github.com/viant/datly v1.1.1-0.20261005174616-7655958a8719 h1:UEMmeYPF43vp7gAQ8
 github.com/viant/datly v1.1.1-0.20261005174616-7655958a8719/go.mod h1:dEAoDIXpAVVQjkL1pXdVMU5wFg+zt7Hi4NL5SUk3Wh4=
 github.com/viant/embedius v0.5.6 h1:CLpwc/tztpQArGyea5D+xiYSlHjwTv01ytUJRfs1k1k=
 github.com/viant/embedius v0.5.6/go.mod h1:klyTcRglmMvW/EzFCS4S3RmgCDwaXqC9FWu7RZOtBkc=
+github.com/viant/forge v0.3.45-0.20261005183733-226d32c8add6 h1:LzDYYquVnt73vajcChXD+XJ+/ZOXFvzT7pTz0vlRrAM=
+github.com/viant/forge v0.3.45-0.20261005183733-226d32c8add6/go.mod h1:Q2cbakSthK9Qyke1HiFFm2UG9cFbIvwxLiTL6yFbs7U=
 github.com/viant/gds v0.6.0 h1:HdjogZeJrs5X0aR8yNCep7TxlhkhrH/lrSFW02RZzOI=
 github.com/viant/gds v0.6.0/go.mod h1:oLW99/zRR67jOhDj4qnVoquDMtQd1z2mWxVc9KRvOs4=
 github.com/viant/gmetric v0.3.2 h1:zTdW9QrPk2P0i/do9fokxtHesFQCvYqIc5Yktzmyxtg=
@@ -1206,6 +1208,8 @@ github.com/viant/jsonrpc v0.25.0 h1:amFMTI23e0WW5c+v8lITiqIoCrq4PpuVNzvRkGdSJv4=
 github.com/viant/jsonrpc v0.25.0/go.mod h1:b214Lo4zBwLqbu6Tf2bRlgQkFfPMBW5ap4qS+I3zcJ8=
 github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 h1:OWMFweaKPIdh1tkbxgb0vJ6YPHoUlZR4yWf9CTntHB4=
 github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99/go.mod h1:7ovJ5fzlXnVcadUr9RjJVwVl2l3wbNvm5i4tSOj+VbE=
+github.com/viant/mcp v0.24.1-0.20261005185040-e3fb56e588cd h1:/1KmyOP6HxyFshw1zHh4GFKOhXRba6vAR4CvE+r49b0=
+github.com/viant/mcp v0.24.1-0.20261005185040-e3fb56e588cd/go.mod h1:P0eIZw2kxuALK3RpVm2KsHk6IosHYHez40As6hYN4y4=
 github.com/viant/mcp-ui v0.2.0 h1:DO4NSe7oVuR2dTbJ9UWUQY1KCskuo0yAg/uc4hThVzM=
 github.com/viant/mcp-ui v0.2.0/go.mod h1:U7OVemRTkvzl7VJwluFq5HrLE1eP2XTX7xMuxGlwx3w=
 github.com/viant/parsly v0.3.3 h1:7ytgfLOG4Ils+wviGacWxRD0gAUvVEH/iGsSE+UI8YM=
