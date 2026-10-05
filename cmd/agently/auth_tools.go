@@ -17,6 +17,12 @@ func ensureToolAuth(ctx context.Context, client *sdk.HTTPClient, providers []aut
 	if client == nil {
 		return fmt.Errorf("client is required")
 	}
+	if resolvedToken(rawToken) != "" {
+		if err := tryTokenAuth(ctx, client, rawToken); err != nil {
+			return fmt.Errorf("authorization required: supplied token was rejected")
+		}
+		return nil
+	}
 	if sessionID := strings.TrimSpace(rawSession); sessionID != "" {
 		if err := applySessionCookie(client, sessionID); err != nil {
 			return err
