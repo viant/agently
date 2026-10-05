@@ -6,18 +6,20 @@ import kotlinx.serialization.json.*
 
 internal fun makeNativeReportRunLifecycleHandler(client: AgentlyClient, observe: ((String, String, String?) -> Unit)? = null): NativeReportLifecycleHandler = object : NativeReportLifecycleHandler {
     private val completedRuns = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-    override suspend fun begin(admission: NativeReportAdmission, uiRunRequestId: String, origin: String): NativeReportRunHandle {
+    override suspend fun begin(admission: NativeReportAdmission, uiRunRequestId: String, origin: String): NativeReportRunHandle = begin(admission, uiRunRequestId, origin, null)
+    override suspend fun begin(admission: NativeReportAdmission, uiRunRequestId: String, origin: String, reportAdmissionRef: String?): NativeReportRunHandle {
         check(admission.conversationId.isNotBlank()) { "The report has no authorized conversation binding." }
         val prepared = admission.preparation
         val requestedParams = nativeReportRequestedParams(admission)
+        check(!requestedParams.containsKey("_agentlyForecastCommand")) { "The report command namespace is server-owned." }
         val durableOrigin = when (origin) { "prompt", "ui.report.run" -> "prompt"; "manual" -> "manual"; else -> error("Unsupported native report origin.") }
         val result = client.beginReportRun(BeginReportRunInput(
             uiRunRequestId = uiRunRequestId, conversationId = admission.conversationId, origin = durableOrigin,
             builderRef = prepared.identity.builderRef, sourceKind = "dashboard.reportBuilder", sourceId = prepared.identity.builderRef,
             presetId = (prepared.state["selectedReportPresetId"] as? JsonPrimitive)?.content,
-            requestedParams = requestedParams, effectiveParams = prepared.primaryRequest))
+            requestedParams = requestedParams, effectiveParams = prepared.primaryRequest, reportAdmissionRef = reportAdmissionRef))
         try {
-            check(result.run.status == "running" && result.run.conversationId == admission.conversationId && result.run.builderRef == prepared.identity.builderRef && result.run.effectiveParams == prepared.primaryRequest && result.run.requestedParams == requestedParams) {
+            check(result.run.status == "running" && result.run.conversationId == admission.conversationId && result.run.builderRef == prepared.identity.builderRef && result.run.effectiveParams == prepared.primaryRequest && nativeReportRequestedParamsMatch(result.run.requestedParams, requestedParams, uiRunRequestId, reportAdmissionRef)) {
                 "The report service did not preserve the admitted report identity."
             }
             result.context?.let { previous -> check(previous.ownerId == result.run.ownerId && previous.conversationId == admission.conversationId) { "The previous report context belongs to another owner or conversation." } }
@@ -26,17 +28,19 @@ internal fun makeNativeReportRunLifecycleHandler(client: AgentlyClient, observe:
             throw error
         }
         observe?.invoke("begin", result.run.reportRunId, null)
-        return NativeReportRunHandle(result.run.reportRunId, result.run.revision, uiRunRequestId, admission, result.context?.revision ?: 0, result.run.ownerId)
+        return NativeReportRunHandle(result.run.reportRunId, result.run.revision, uiRunRequestId, admission, result.context?.revision ?: 0, result.run.ownerId, reportAdmissionRef)
     }
 
     override suspend fun complete(handle: NativeReportRunHandle, rows: JsonObject, current: () -> Boolean): NativeReportCompletedRun {
         check(current()) { "The report admission changed before compilation." }
         val invocation = nativeReportInvocation(handle.admission)
         observe?.invoke("compile", handle.reportRunId, null)
-        val raw = client.executeTool("reporting:compile_fenced_report", mapOf(
+        val compilerArgs = linkedMapOf<String, JsonElement>(
             "reportId" to JsonPrimitive(handle.uiRunRequestId),
             "fences" to nativeReportFences(handle.uiRunRequestId, handle.admission.document, rows),
-            "invocation" to invocation), handle.admission.conversationId)
+            "invocation" to invocation)
+        handle.reportAdmissionRef?.let { compilerArgs["reportAdmissionRef"] = JsonPrimitive(it) }
+        val raw = client.executeTool("reporting:compile_fenced_report", compilerArgs, handle.admission.conversationId)
         val compiled = Json.parseToJsonElement(raw) as? JsonObject ?: error("The report compiler returned an invalid result.")
         val spec = compiled["reportSpec"] as? JsonObject ?: error("The report compiler omitted reportSpec.")
         val fill = compiled["reportFill"] as? JsonObject ?: error("The report compiler omitted reportFill.")
@@ -52,7 +56,7 @@ internal fun makeNativeReportRunLifecycleHandler(client: AgentlyClient, observe:
             if (saved?.status == "completed" && saved.reportRunId == handle.reportRunId && saved.conversationId == handle.admission.conversationId &&
                 (handle.ownerId == null || saved.ownerId == handle.ownerId) && saved.reportSpec == spec && saved.reportFill == fill && saved.reportPrint == print) saved else throw error
         }
-        check(run.status == "completed" && run.reportRunId == handle.reportRunId && run.conversationId == handle.admission.conversationId && (handle.ownerId == null || run.ownerId == handle.ownerId) && run.reportSpec == spec && run.reportFill == fill && run.reportPrint == print) { "The report service did not preserve the completed report artifact." }
+        check(run.status == "completed" && nativeReportRequestedParamsMatch(run.requestedParams, nativeReportRequestedParams(handle.admission), handle.uiRunRequestId, handle.reportAdmissionRef) && run.reportRunId == handle.reportRunId && run.conversationId == handle.admission.conversationId && (handle.ownerId == null || run.ownerId == handle.ownerId) && run.reportSpec == spec && run.reportFill == fill && run.reportPrint == print) { "The report service did not preserve the completed report artifact." }
         completedRuns.add(run.reportRunId)
         val verifiedDatasets=(run.reportFill as JsonObject).getValue("datasets").jsonArray
         fun completedOutcome(status:String="active",active:Boolean?=true,error:String?=null)=NativeReportCompletedRun(run.reportRunId,run.revision,status,active,error,verifiedDatasets)

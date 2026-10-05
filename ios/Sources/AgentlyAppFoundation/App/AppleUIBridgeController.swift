@@ -551,8 +551,9 @@ func handleAppleUIBridgeCommand(
             throw AppleUIBridgeReportError.windowNotFound(windowID)
         }
         _ = try await forgeRuntime.waitPreparedReportRequest(windowID: windowID)
-        let requestID = "native-\(UUID().uuidString)"
-        let handle = try await forgeRuntime.beginNativeReportRun(windowID: windowID, requestID: requestID, origin: "ui.report.run")
+        let commandIdentity = try nativeReportCommandIdentity(params)
+        let requestID = commandIdentity.requestID
+        let handle = try await forgeRuntime.beginNativeReportRun(windowID: windowID, requestID: requestID, origin: "ui.report.run", reportAdmissionRef: commandIdentity.reportAdmissionRef)
         await forgeRuntime.setWindowFormValue(
             windowID: windowID,
             values: [
@@ -568,7 +569,8 @@ func handleAppleUIBridgeCommand(
             "windowId": .string(windowID),
             "accepted": .bool(true),
             "materialized": .bool(false),
-            "materializationId": .string(handle.reportRunID),
+            "materializationId": .string(commandIdentity.reportAdmissionRef == nil ? handle.reportRunID : requestID),
+            "reportRunId": .string(handle.reportRunID),
             "status": .string("running")
         ]
 

@@ -43,6 +43,29 @@ class NativeReportRunLifecycleHandlerTest {
         server.enqueue(response(run(admission, "completed", spec, fill, print)))
         return spec
     }
+    @Test fun linkedReceiptRoundTripsWithoutAuthoringNamespace() = runBlocking {
+        val server=MockWebServer();server.start()
+        val admitted=admission();val id="12345678-1234-1234-1234-123456789ABC";val ref=" opaque/ref "
+        val base=beginResponse(admitted);val previous=base.getValue("run").jsonObject
+        val requested=JsonObject(nativeReportRequestedParams(admitted)+mapOf("_agentlyForecastCommand" to buildJsonObject{put("version",1);put("ref",ref);put("requestId",id)}))
+        server.enqueue(response(JsonObject(base+mapOf("run" to JsonObject(previous+mapOf("requestedParams" to requested))))))
+        try {
+            val handler=makeNativeReportRunLifecycleHandler(AgentlyClient(mapOf("appAPI" to EndpointConfig(server.url("/").toString().trimEnd('/')))))
+            val handle=handler.begin(admitted,id,"prompt",ref)
+            assertEquals(id,handle.uiRunRequestId);assertEquals(ref,handle.reportAdmissionRef)
+            val sent=Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+            assertEquals(JsonPrimitive(id),sent["uiRunRequestId"]);assertEquals(JsonPrimitive(ref),sent["reportAdmissionRef"])
+            assertNull(sent.getValue("requestedParams").jsonObject["_agentlyForecastCommand"])
+            server.enqueue(MockResponse().setResponseCode(503).setBody("compiler unavailable"))
+            val rows=buildJsonObject{put("summary",JsonArray(emptyList()))}
+            assertTrue(runCatching{handler.complete(handle,rows){true}}.isFailure)
+            val compiled=Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+            assertEquals(JsonPrimitive(id),compiled["reportId"]);assertEquals(JsonPrimitive(ref),compiled["reportAdmissionRef"])
+            assertEquals(nativeReportFences(id,admitted.document,rows),compiled["fences"])
+            assertEquals(nativeReportInvocation(admitted),compiled["invocation"])
+            assertEquals(2,server.requestCount)
+        } finally {server.shutdown()}
+    }
     @Test fun activationConflictKeepsSavedRecordAndNeverOverwritesNewerContext() = runBlocking {
         val server = MockWebServer(); server.start()
         try {

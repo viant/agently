@@ -12,6 +12,7 @@ const BEGIN_FIELDS = [
   'requestedParams',
   'effectiveParams',
   'uiRunRequestId',
+  'reportAdmissionRef',
 ];
 const COMPLETE_FIELDS = [
   'reportRunId',

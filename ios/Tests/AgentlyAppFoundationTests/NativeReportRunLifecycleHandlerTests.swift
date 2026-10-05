@@ -29,7 +29,7 @@ final class NativeReportRunLifecycleHandlerTests: XCTestCase {
         }
         return data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as! [String: Any])
     }
-    private func exercise(priorRevision: Int64?, activation: String) async throws {
+    private func exercise(priorRevision: Int64?, activation: String, reportAdmissionRef: String? = nil) async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [Stub.self]
         let session = URLSession(configuration: configuration)
@@ -52,6 +52,11 @@ final class NativeReportRunLifecycleHandlerTests: XCTestCase {
                 XCTAssertEqual(body["origin"] as? String, "prompt")
                 let requested = body["requestedParams"] as! [String: Any]
                 XCTAssertNotNil(requested[nativeReportAdmissionKey])
+                XCTAssertNil(requested["_agentlyForecastCommand"])
+                XCTAssertEqual(body["reportAdmissionRef"] as? String, reportAdmissionRef)
+                var stored = requested
+                if let reportAdmissionRef { stored["_agentlyForecastCommand"] = ["version": 1, "ref": reportAdmissionRef, "requestId": "request"] }
+                run["requestedParams"] = stored
                 XCTAssertNil((body["effectiveParams"] as? [String: Any])?[nativeReportAdmissionKey])
                 var result: [String: Any] = ["run": run]
                 if let priorRevision { result["context"] = context("previous-run", priorRevision) }
@@ -59,6 +64,11 @@ final class NativeReportRunLifecycleHandlerTests: XCTestCase {
             }
             if path.contains("compile_fenced_report") {
                 phases.append("compile")
+                XCTAssertEqual(body["reportAdmissionRef"] as? String, reportAdmissionRef)
+                XCTAssertEqual(body["reportId"] as? String, "request")
+                let expectedFences = nativeReportFences("request", document: admission.document, rows: ["summary": [["spend": .number(309)]]])
+                let actualFences = try JSONDecoder().decode(ForgeIOSRuntime.JSONValue.self, from: JSONSerialization.data(withJSONObject: body["fences"]!))
+                XCTAssertEqual(actualFences, expectedFences)
                 let spec = body["invocation"] as! [String: Any]
                 let datasets = (spec["datasets"] as! [[String: Any]]).map { item -> [String: Any] in var result = item; result["rows"] = [["spend": 309]]; return result }
                 let artifacts: [String: Any] = ["reportSpec": spec, "reportFill": ["source": spec["source"]!, "datasets": datasets], "reportPrint": ["source": spec["source"]!, "pages": []]]
@@ -88,9 +98,10 @@ final class NativeReportRunLifecycleHandlerTests: XCTestCase {
             XCTFail("Unexpected lifecycle path: \(path)")
             return (500, ["error": "unexpected"])
         }
-        let begun = try await handler.begin(admission: admission, uiRunRequestID: "request", origin: "ui.report.run")
+        let begun = try await handler.begin(admission: admission, uiRunRequestID: "request", origin: "ui.report.run", reportAdmissionRef: reportAdmissionRef)
         XCTAssertEqual(begun.expectedContextRevision, priorRevision ?? 0)
         XCTAssertEqual(begun.ownerID, "owner")
+        XCTAssertEqual(begun.reportAdmissionRef, reportAdmissionRef)
         let completed = try await handler.complete(handle: begun, rows: ["summary": [["spend": .number(309)]]], current: { true })
         XCTAssertEqual(completed.reportRunID, "run")
         XCTAssertEqual(completed.revision, 2)
@@ -100,6 +111,7 @@ final class NativeReportRunLifecycleHandlerTests: XCTestCase {
         else if activation == "conflict" { XCTAssertEqual(completed.contextStatus, "superseded"); XCTAssertEqual(completed.active, false) }
         else { XCTAssertEqual(completed.contextStatus, "unconfirmed"); XCTAssertNil(completed.active) }
     }
+    func testLinkedReceiptRoundTripsWithoutAuthoringNamespace() async throws { try await exercise(priorRevision: nil, activation: "normal", reportAdmissionRef: " opaque/ref ") }
     func testBeginWithoutContextCompletesThenActivatesRevisionZero() async throws { try await exercise(priorRevision: nil, activation: "normal") }
     func testBeginWithPreviousContextUsesCapturedRevision() async throws { try await exercise(priorRevision: 7, activation: "normal") }
     func testLostActivationResponseReconcilesSameRun() async throws { try await exercise(priorRevision: nil, activation: "lost") }

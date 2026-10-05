@@ -5,29 +5,36 @@ import ForgeIOSRuntime
 internal struct NativeReportRunLifecycleHandler: NativeReportLifecycleHandler {
     let client: AgentlyClient
     func begin(admission: NativeReportAdmission, uiRunRequestID: String, origin: String) async throws -> NativeReportRunHandle {
+        try await begin(admission: admission, uiRunRequestID: uiRunRequestID, origin: origin, reportAdmissionRef: nil)
+    }
+    func begin(admission: NativeReportAdmission, uiRunRequestID: String, origin: String, reportAdmissionRef: String?) async throws -> NativeReportRunHandle {
         guard !admission.conversationID.isEmpty else { throw NativeReportPersistenceError.invalidIdentity }
         let packet = admission.preparation
         let requested = try nativeReportRequestedParams(admission)
+        guard requested["_agentlyForecastCommand"] == nil else { throw NativeReportPersistenceError.invalidIdentity }
         let result = try await client.beginReportRun(BeginReportRunInput(
             uiRunRequestId: uiRunRequestID, conversationId: admission.conversationID, origin: origin == "ui.report.run" ? "prompt" : origin,
             builderRef: packet.identity.builderRef, presetId: packet.state["selectedReportPresetId"]?.stringValue,
             sourceKind: "dashboard.reportBuilder", sourceId: packet.identity.builderRef,
-            requestedParams: .object(requested.mapValues(\.appValue)), effectiveParams: .object(packet.request.mapValues(\.appValue))))
+            requestedParams: .object(requested.mapValues(\.appValue)), effectiveParams: .object(packet.request.mapValues(\.appValue)), reportAdmissionRef: reportAdmissionRef))
         guard result.run.status == "running", result.run.conversationId == admission.conversationID,
               result.run.builderRef == packet.identity.builderRef,
-              result.run.effectiveParams?.forgeValue == .object(packet.request), !result.run.ownerId.isEmpty else { throw NativeReportPersistenceError.invalidIdentity }
+              result.run.effectiveParams?.forgeValue == .object(packet.request), !result.run.ownerId.isEmpty,
+              nativeReportRequestedParamsMatch(result.run.requestedParams, expected: requested, requestID: uiRunRequestID, ref: reportAdmissionRef) else { throw NativeReportPersistenceError.invalidIdentity }
         if let context = result.context {
             guard context.ownerId == result.run.ownerId, context.conversationId == admission.conversationID else { throw NativeReportPersistenceError.invalidIdentity }
         }
-        return NativeReportRunHandle(reportRunID: result.run.reportRunId, revision: result.run.revision, uiRunRequestID: uiRunRequestID, admission: admission, ownerID: result.run.ownerId, expectedContextRevision: result.context?.revision ?? 0)
+        return NativeReportRunHandle(reportRunID: result.run.reportRunId, revision: result.run.revision, uiRunRequestID: uiRunRequestID, admission: admission, ownerID: result.run.ownerId, expectedContextRevision: result.context?.revision ?? 0, reportAdmissionRef: reportAdmissionRef)
     }
     func complete(handle: NativeReportRunHandle, rows: [String: [[String: ForgeIOSRuntime.JSONValue]]], current: @escaping @Sendable () async -> Bool) async throws -> NativeReportCompletedRun {
         guard await current(), Set(rows.keys) == Set(handle.admission.datasets.map(\.id)) else { throw NativeReportPersistenceError.invalidIdentity }
         let invocation = nativeReportInvocation(handle.admission)
-        let raw = try await client.executeTool(name: "reporting:compile_fenced_report", args: [
+        var compilerArgs: [String: AgentlySDK.JSONValue] = [
             "reportId": .string(handle.uiRunRequestID), "fences": nativeReportFences(handle.uiRunRequestID, document: handle.admission.document, rows: rows).appValue,
             "invocation": invocation.appValue
-        ], conversationID: handle.admission.conversationID)
+        ]
+        if let ref = handle.reportAdmissionRef { compilerArgs["reportAdmissionRef"] = .string(ref) }
+        let raw = try await client.executeTool(name: "reporting:compile_fenced_report", args: compilerArgs, conversationID: handle.admission.conversationID)
         let compiled = try JSONDecoder().decode(ForgeIOSRuntime.JSONValue.self, from: Data(raw.utf8))
         guard let object = compiled.objectValue, let spec = object["reportSpec"], let fill = object["reportFill"], let print = object["reportPrint"] else { throw NativeReportPersistenceError.invalidArtifacts }
         try validateNativeReportCompilerIdentity(spec, invocation: invocation)
@@ -42,7 +49,7 @@ internal struct NativeReportRunLifecycleHandler: NativeReportLifecycleHandler {
             do { run = try await client.getReportRun(id: handle.reportRunID, conversationID: handle.admission.conversationID) }
             catch { throw NativeReportCompletionUncertainError() }
         }
-        guard run.status == "completed", run.reportRunId == handle.reportRunID, run.conversationId == handle.admission.conversationID,
+        guard run.status == "completed", nativeReportRequestedParamsMatch(run.requestedParams, expected: try nativeReportRequestedParams(handle.admission), requestID: handle.uiRunRequestID, ref: handle.reportAdmissionRef), run.reportRunId == handle.reportRunID, run.conversationId == handle.admission.conversationID,
               run.builderRef == handle.admission.preparation.identity.builderRef, run.ownerId == handle.ownerID,
               run.reportSpec?.forgeValue == spec, run.reportFill?.forgeValue == fill, run.reportPrint?.forgeValue == print else {
             if run.status == "completed" { throw NativeReportCompletionUncertainError() }
