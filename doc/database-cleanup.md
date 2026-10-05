@@ -44,8 +44,11 @@ than falling back silently.
 technically valid Go durations but create an effectively continuous cleanup
 loop and must not be used in a deployed environment.
 
-`AGENTLY_DEBUG_CONVERSATION_DELETE` is a separate diagnostic switch for an
-individual conversation-tree deletion. It does not control worker logging.
+`AGENTLY_DEBUG_CONVERSATION_DELETE=1` is a separate, default-off diagnostic
+switch for manual deletion and maintenance operations. It reports internal
+phase/component durations and component invocation counts (not SQL query
+counts), without logging row contents, SQL parameters or credentials. It does
+not control worker logging. Enable it temporarily to diagnose slow candidates.
 
 ## Policy behavior
 
@@ -178,7 +181,8 @@ policy and pass emits a summary containing:
 - `failed`: candidate operations that returned errors;
 - `reasons`: aggregate eligibility, deletion, skip, or orphan-rule reasons.
 
-With `AGENTLY_CLEANUP_DEBUG=true`, logs additionally identify each candidate and
+With `AGENTLY_CLEANUP_DEBUG=true`, logs additionally identify each candidate,
+include its processing duration (also for skipped and failed candidates), and
 show lease acquisition, renewal, and release. Disable debug after rollout unless
 candidate-level diagnostics are needed.
 
