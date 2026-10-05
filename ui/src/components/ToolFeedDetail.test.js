@@ -74,9 +74,36 @@ vi.mock('forge/components', () => ({
     { 'data-testid': 'forge-container' },
     JSON.stringify(container || {})
   ),
+  LookupPickerDialog: ({ title, columns }) => React.createElement(
+    'div',
+    { 'data-testid': 'forge-lookup-picker' },
+    JSON.stringify({ title, columns })
+  ),
 }));
 
 describe('ToolFeedDetail', () => {
+  it('passes declared lookup columns to the shared Forge picker unchanged', async () => {
+    const { FeedLookupPicker } = await import('./ToolFeedDetail.jsx');
+    const columns = [
+      { key: 'id', label: 'ID' },
+      { key: 'name', label: 'Advertiser' },
+      { key: 'agencyName', label: 'Agency' },
+    ];
+
+    const html = renderToStaticMarkup(React.createElement(FeedLookupPicker, {
+      lookupDialog: {
+        id: 1,
+        title: 'Select an option',
+        columns,
+        loadRows: vi.fn(),
+      },
+      onSelect: vi.fn(),
+      onCancel: vi.fn(),
+    }));
+
+    expect(html).toContain(JSON.stringify({ title: 'Select an option', columns }).replaceAll('"', '&quot;'));
+  });
+
   it('places every Forge-backed feed inside the shared theme boundary', async () => {
     const source = fs.readFileSync(path.join(repoRoot, 'ui/src/components/ToolFeedDetail.jsx'), 'utf8');
     const shellCSS = fs.readFileSync(path.join(repoRoot, 'ui/src/styles/shell.css'), 'utf8');
