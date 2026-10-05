@@ -1,380 +1,267 @@
 # Agently
 
-Agently is an agentic application framework and ready-to-run server built on
-[Agently Core](https://github.com/viant/agently-core). It combines durable agent
-execution with a CLI, embedded web application, native mobile shells and
-workspace-driven configuration.
+Agently is an agentic application framework with a ready-to-run server, CLI,
+web application, and native iOS and Android shells. It brings together
+configurable agents, models, tools, knowledge, durable conversations, and
+interactive workspaces.
 
-Use it to build assistants that work with your tools and data, retain useful
-conversation history, request approvals, coordinate linked agents and render
-interactive results. Provider integrations and application metadata are
-configurable; the framework is not tied to one business domain.
+Build assistants that work with your APIs and data, ask for missing information
+or approvals, delegate tasks, produce reports, and continue scheduled work.
+Application behavior and appearance are defined by the workspace; the framework
+is not tied to one business domain.
 
-## How the pieces fit
+## Why Agently
 
-| Layer | Responsibility |
+Agently provides the execution engine and the application around it. A workspace
+connects agent instructions, model choices, knowledge, tools and UI metadata,
+so the same assistant can reason over data, ask for approval and present an
+interactive result within one conversation.
+
+- **Declarative applications.** Define agents, intent profiles, tool bundles,
+  skills, templates, data sources and application windows as workspace resources.
+  Reuse configuration across assistants and customize navigation, layout and
+  appearance for your application.
+- **Work that survives the session.** Persist conversations, tool calls and run
+  state; coordinate queued turns, asynchronous operations, linked agents, goals
+  and schedules. Reopen work and recover from interruption using saved state.
+- **Governed access to tools and data.** Combine internal services and MCP tools
+  under common dispatch, authorization and approval policies. Use forms and
+  lookups to collect precise inputs before execution.
+- **Results people can use.** Go beyond text with live tool feeds, tables,
+  charts, reports and hosted workspaces. Keep these results associated with their
+  conversation and expose them through web, native mobile or custom clients.
+- **An extensible runtime.** Embed Core in your Go service or use the assembled
+  server. Choose providers and integrations, add tools and metadata, and build
+  clients against the AG-UI and application APIs.
+
+## Architecture
+
+Agently assembles [Agently Core](https://github.com/viant/agently-core), which
+owns execution and persistence, with [Forge](https://github.com/viant/forge),
+which renders metadata-driven interfaces.
+
+```mermaid
+flowchart TD
+    Clients[Web · iOS · Android · CLI · custom clients] --> BFF[HTTP server and BFF authentication]
+    BFF --> Transport[AG-UI conversation runs and supporting application APIs]
+    Transport --> Core[Agently Core: agents, reactor, tools, goals and scheduler]
+    Workspace[Workspace configuration] --> Core
+    Workspace --> UI[Forge: controls, windows, layouts and visualizations]
+    Core --> Models[Model and embedding providers]
+    Core --> Tools[Internal services · MCP servers · linked agents]
+    Core --> Store[Persistence: SQLite or MySQL]
+    Transport --> UI
+    UI --> Clients
+```
+
+A prompt enters an authenticated conversation. The runtime resolves the agent,
+model, instructions and available tools, assembles knowledge and history, then
+runs the model/tool loop. Tool policy can block execution or request approval;
+elicitation can collect missing inputs. Messages, calls and execution state are
+persisted as work progresses. Clients render the canonical results and can
+reattach after a disconnect without submitting the prompt again.
+
+AG-UI connects clients to the conversation runtime: runs, streamed messages,
+tool activity, state and interactive continuation. Agently extensions carry
+workspace presentation, tool feeds, goals, approvals and queue controls. The
+BFF applies authentication across this interaction and the application APIs for
+history, metadata, uploads, reporting and management. All clients share the same
+execution and persistence services; Forge renders the workspace's authored UI.
+
+## Capabilities
+
+| Area | What you can build or configure |
 | --- | --- |
-| Agently Core | Model/tool execution, persistence, recovery, authentication, goals, scheduling and SDK contracts |
-| Workspace | Agents, models, MCP clients, tools/policies, intents, templates, feeds and application metadata |
-| Agently server | Assembled HTTP/BFF service, CLI, application integrations and embedded assets |
-| Forge | Generic metadata-driven controls, windows, layouts, charts, tables and inline content |
-| Web/iOS/Android shells | Navigation, conversation coordination, hosted workspaces, native interaction and presentation |
+| Agents and orchestration | Agent/model selection, intake profiles, prompt binding, iterative model/tool execution, parallel tools, linked agents and follow-up chains |
+| Models and knowledge | Multiple model providers, embedding-based knowledge retrieval, budgeted prompt augmentation, instructions, skills and reusable templates |
+| Tools and integration | Internal tools and MCP servers, bundles and policies, resources, optional MCP exposure and A2A endpoints |
+| Conversations | Durable history, streaming, attachments, queued turns, cancellation, recovery and continuation |
+| Human interaction | Server-driven forms, lookups, input refinement, immediate or queued tool approval and editable approval inputs |
+| Autonomous work | Conversation goals, usage budgets, controller-owned continuation, schedules and long-running asynchronous operations |
+| Application UI | Workspace-defined navigation, windows, layouts, actions, themes, CSS, fonts, inline or detached tool feeds and MCP Apps |
+| Reporting | Authored report definitions, scoped datasets, charts and tables, durable report lifecycle, saved results and explicit export/publication |
+| Security and operations | Local/JWT/OAuth authentication, BFF sessions, scoped MCP credentials, SQLite/MySQL persistence, cleanup and separate scheduler runners |
+| Clients and extension | Go, TypeScript, Swift and Kotlin SDKs; web/mobile shells; custom tools, providers, runtime integrations and presentation |
 
-The server supports OpenAI, Vertex AI Gemini/Claude, Bedrock Converse/Claude,
-Grok, InceptionLabs and Ollama through the configured core adapters. Actual
-models, credentials, streaming and multimodal capabilities depend on the
-selected provider. Optional MCP exposure and A2A endpoints let other clients
-interoperate with the application.
+Provider capabilities vary. The configured core adapters include OpenAI,
+Vertex AI Gemini/Claude, Bedrock Converse/Claude, Grok, InceptionLabs and Ollama.
+Uploads and resource tools support file inspection and extraction; multimodal
+model input and optional speech transcription depend on the chosen adapter.
 
-## Build and start
+Context management derives the model-visible history from durable conversation
+state. Limits, pruning and overflow recovery are configurable; proactive
+percentage-based compaction is an optional agent setting. See the
+[context guide](https://github.com/viant/agently-core/blob/ag-ui/doc/context-management.md)
+and [compaction settings](https://github.com/viant/agently-core/blob/ag-ui/doc/proactive-context-compaction.md).
 
-Requires Go 1.25.8 or newer. Web builds also require Node.js/npm. For this
-AG-UI branch, first arrange the compatible sibling dependencies described in
-[local development](#local-development).
+## Build and run
 
-~~~bash
-# From the repository root
+Requires Go 1.25.8 or newer. Configure a workspace model and its provider
+credentials before making a model request. The Go module selects the server's
+runtime dependencies.
+
+```bash
 go build -o ./bin/agently ./agently
-
-# Serve the workspace, API and embedded application
 ./bin/agently serve -a :8080 -w /path/to/workspace
+./bin/agently query --api http://localhost:8080 -q "Summarize the project documentation"
+./bin/agently list-tools --api http://localhost:8080
+```
 
-# Submit a prompt or use the interactive CLI
-./bin/agently query -q "Summarize the project documentation"
-./bin/agently query
-./bin/agently list-tools
-~~~
+## Workspace configuration and customization
 
-Configure the workspace's selected model and its provider credentials before
-making a model request. A web build embeds application assets into the server;
-use the safe [UI build workflow](#web-application-development) after editing them.
+The application workspace defaults to `.agently` in the working directory; `AGENTLY_WORKSPACE` or
+`serve --workspace` selects another root. It is the authored configuration of
+an application, separate from the conversation-owned UI workspace that holds
+open reports and windows.
 
-Useful server options:
-
-| Option | Purpose |
-| --- | --- |
-| -a / --addr | Listen address; default :8080 |
-| -w / --workspace | Workspace path |
-| -p / --policy | Coarse tool policy: auto, ask or deny |
-| --expose-mcp | Optional MCP tool exposure, with configured port/patterns |
-| --ui-dist | Explicit local UI asset override |
-| -d / --debug | Debug diagnostics |
-
-The CLI can connect to a remote server with --api and its supported bearer,
-session or OOB authentication options. See the command's help before selecting
-a deployment-specific credential method.
-
-## Configure a workspace
-
-Agently's application workspace defaults to ~/.agently; AGENTLY_WORKSPACE or
-the server's --workspace option selects another location.
-
-~~~text
+```text
 workspace/
-  config.yaml
-  agents/
-  models/
-  embedders/
-  mcp/
-  tools/bundles/
-  intents/
-  templates/
-  workflows/
-  feeds/
-~~~
+  config.yaml                 # Application defaults and service configuration
+  agents/                     # Prompts, model selection, knowledge and tools
+  models/                     # Model/provider definitions
+  embedders/                  # Embedding providers
+  mcp/                        # MCP client connections
+  tools/bundles/              # Tool groups and approval policy
+  tools/instructions/         # Tool-specific instructions
+  intents/                    # Scenario profiles and routing context
+  skills/                     # Reusable skill resources
+  templates/                  # Output templates and template bundles
+  workflows/                  # Workflow resources
+  feeds/                      # Tool-output feed definitions
+  oauth/                      # Identity-provider resources
+  a2a/                        # Agent-to-agent definitions
+  callbacks/                  # Interaction callbacks
+  extension/forge/
+    datasources/              # Data bindings for forms and views
+    dialogs/                  # Dialog definitions
+    lookups/                  # Lookup/picker configuration
+    models/                   # UI model metadata
+    windows/                  # Hosted window definitions
+```
 
-A basic application configuration selects resources by their workspace IDs:
+Select resource IDs in `config.yaml`, for example:
 
-~~~yaml
+```yaml
 default:
   agent: assistant
   model: configured-model
+  appName: Project Assistant
+ui:
+  composer:
+    allowAgentSelection: true
+    allowModelSelection: true
+```
 
-auth:
-  enabled: true
-  cookieName: agently_session
-  local:
-    enabled: true
-~~~
+Define `agents/assistant.yaml` and the matching model resource. An agent's
+instructions can use prompt bindings; its configuration can select knowledge,
+tool bundles, skills, templates and execution limits. Provider credentials and
+model options belong to the model/provider configuration, not the prompt.
+For example, the agent can start with an explicitly bound task prompt:
 
-Define an agent under agents/:
-
-~~~yaml
+```yaml
 id: assistant
 name: Project Assistant
 temperature: 0
 parallelToolCalls: true
 prompt:
-  text: "{{.Task.Prompt}}"
   engine: go
-~~~
+  text: "{{.Task.Prompt}}"
+```
 
-Configure the selected model/provider in models/, then choose tool bundles,
-knowledge/resources and intent profiles for the agent. Imported YAML fragments
-support shared, keyed and scoped parameterized configuration. Exact parameters
-retain their YAML types; overrides stay within their intended scope.
+Tool bundles determine which operations the agent can use and their approval
+rules. A bundle can require queued approval for a tool group:
 
-Workspace resources are editable through the application's APIs or as authored
-files. For the configuration contracts, start with the core
-[workspace guide](../agently-core-ag-ui/doc/workspace-system.md),
-[agents and prompts](../agently-core-ag-ui/doc/prompts.md),
-[providers](../agently-core-ag-ui/doc/llm-providers.md),
-[tools](../agently-core-ag-ui/doc/tool-system.md) and
-[templates](../agently-core-ag-ui/doc/templates.md).
-
-## Authentication and tool policy
-
-The framework supports local sessions, JWT RSA/HMAC and OAuth BFF, SPA, bearer
-and mixed modes. The BFF keeps the configured session/current cookies and
-headers in use across chat, metadata, fonts, uploads, reporting and MCP calls.
-Credential reuse for MCP is scoped by user, origin and audience rather than
-copied into arbitrary tool requests. Distributed token refresh supports
-multi-instance deployments.
-
-Local development may use a default development user. Remove development
-auto-login and select the deployment's identity provider for a protected service.
-See the core [authentication](../agently-core-ag-ui/doc/auth-system.md) and
-[MCP integration](../agently-core-ag-ui/doc/mcp-integration.md) guides.
-
-Tool policy has two layers: --policy supplies coarse auto/ask/deny behavior;
-bundle match rules supply none/prompt/queue approval. Denial happens before
-approval. An approval is not permission to bypass the underlying tool policy.
-
-~~~yaml
+```yaml
 match:
   - name: "project:*"
     approval:
       mode: queue
-~~~
+```
 
-Approval editors can use selectors to extract and write back editable data.
-Built-in checkbox_list and radio_list editors support collection selection.
-Their configured callback and receipt remain associated with the original
-native tool operation; changing views or replaying the outcome does not create
-a second tool invocation.
+These are configuration fragments, not a complete provider setup. The
+[workspace](https://github.com/viant/agently-core/blob/ag-ui/doc/workspace-system.md)
+and [agent authoring](https://github.com/viant/agently-core/blob/ag-ui/doc/prompts.md)
+guides describe these contracts.
 
-## Conversations, AG-UI and SDKs
+Workspace YAML can import reusable fragments and parameterize them in a scoped
+context. Exact parameter substitutions preserve YAML types. Resources can be
+managed as versioned files or through workspace resource APIs. Loading and
+reload behavior are handled by the resource repositories and their consumers.
 
-The outward Go HTTP, TypeScript, Swift and Kotlin SDKs use **AG-UI**. Submission,
-canonical bootstrap, observation, attachment, cancellation and continuation use
-the configured BFF client. Supporting native application APIs remain available.
-Host-side Go Backend.Query and internal executor calls remain native and do not
-loop through the public AG-UI endpoint. Go HTTP Query/RunAGUI and the CLI use
-the run SSE directly; the CLI answers interrupts with standard resume entries.
-Scoped application events remain a separate supporting API.
+UI customization is also declarative: navigation, starter prompts, windows,
+controls, data sources and actions are driven by metadata. Web, iOS and Android
+can resolve platform/form-factor-specific definitions. Named themes, fonts and
+scoped workspace CSS control appearance; web CSS remains web styling, while
+native renderers consume their supported theme and metadata contracts.
+Inline tool feeds and conversation-owned windows have distinct ownership and
+placement. See [workspace UI](doc/workspace-ui.md) and
+[UI ownership](https://github.com/viant/agently-core/blob/ag-ui/doc/ui-ownership-model.md).
 
-Standard POST /v1/ag-ui/run requests and SSE events carry runs, messages,
-frontend tools/results, state, interrupts, resumes and subagent attribution.
-Versioned **Agently extensions** carry native presentation, goals, approvals,
-queued-turn control, workspace/datasource commands, feeds and MCP Apps.
-Applications integrating a generic AG-UI client should keep that distinction
-explicit.
+For integration beyond configuration, register internal tool services or connect
+MCP servers, add resource finders and application handlers through Core, and
+compose Forge with application-owned data/action connectors. Forge is a separate
+data-driven UI framework; Agently owns the agent runtime, authentication and
+conversation coordination around it.
 
-The coordinator owns submitted work independently of a mounted view. Reopening
-History or a pane attaches to its durable journal rather than sending another
-prompt. Native conversation IDs and opaque wire thread IDs remain separate;
-an authenticated aguiThreadId reference lets the SDK reopen the original wire
-thread while UI, history and application hints use native identity. Account
-changes invalidate previous transport state and bindings.
+Use `serve --help` and `query --help` for deployment and authentication options.
+The server supports local sessions, JWT and OAuth modes. Configure the identity
+provider and tool policy for your deployment. The coarse `--policy` setting
+supports `auto`, `ask` and `deny`; tool-bundle rules refine approval behavior.
 
-Conversation SDKs provide only the AG-UI interaction path. There is no legacy
-mode, query resubmission or unscoped conversation-stream fallback. Supporting
-BFF APIs remain available, including dedicated readConversationHistory and
-readApplicationState helpers for authorized native/read-only history.
-A shared reader denied access to an owner's private journal does not acquire
-that journal or initiate execution.
+SQLite is the workspace default; MySQL uses a configured connection and
+versioned schema. Scheduler API and runner roles can be deployed separately.
+Key settings include `AGENTLY_DB_DRIVER`, `AGENTLY_DB_DSN`,
+`AGENTLY_SCHEDULER_API`, `AGENTLY_SCHEDULER_RUNNER` and the cleanup policies.
+Conversation, execution and report state share the application's persistence
+lifecycle, including authorization, retention and cleanup.
 
-See the core [SDK guide](../agently-core-ag-ui/doc/sdk.md),
-[TypeScript](../agently-core-ag-ui/sdk/ts/AG-UI.md),
-[Swift](../agently-core-ag-ui/sdk/ios/AG-UI.md),
-[Kotlin](../agently-core-ag-ui/sdk/android/AG-UI.md) and
-[operation matrix](../agently-core-ag-ui/doc/ag-ui-operation-matrix.md).
-Passing SDK/source checks is not a claim of universal protocol or product-shell
-parity.
+## Documentation
 
-## Workspaces and visual results
+The guides below are tracked in Git. Framework guides live in Agently Core;
+application and platform guides live here. Start with architecture, workspace
+configuration and the tool system, then follow the guide for your use case.
 
-The application distinguishes navigation, conversation-owned hosted workspaces
-and message/turn-owned inline content. Metadata defines controls, dialogs,
-window placement, chart/table content and actions. Mobile targeting has explicit
-platform/form-factor branches so a mobile change does not remove web metadata.
-
-Named theme manifests, scoped application/workspace CSS and authenticated
-native font assets support shared appearance across shell and hosted content.
-Layouts and authoring data remain owned by the workspace. Tool feeds retain
-their actual persisted operation identity and can appear inline or detached.
-Developer execution detail and user-facing progress are separate surfaces.
-
-Reports capture the authored document and exact scoped dataset requests before
-execution. Begin, compile, complete and activate are distinct phases; saved
-completion is distinct from active context. Verified frozen results can restore
-a completed report without an implicit dataset rerun. Export/publication are
-explicit actions. Application-specific forecast evidence binding remains
-disabled at startup while its evidence gates are pending.
-
-Read [workspace ownership/appearance](doc/workspace-ui.md),
-[platform architecture](multi-platform.md),
-[core UI scopes](../agently-core-ag-ui/doc/ui-ownership-model.md),
-[feeds](../agently-core-ag-ui/doc/feed-system.md) and
-[MCP UI](../agently-core-ag-ui/doc/mcp-ui.md).
-
-## Goals, scheduling and recovery
-
-Goals retain objectives, budgets/accounting, pause/resume and scheduler wakeups.
-Cron, interval and adhoc schedules use distributed leases. Queued turns,
-elicitation, approvals and continuation retain native ownership and admitted
-tool identity. Management commands use existing domain services rather than
-requiring a model round trip.
-
-Async start/status/cancel tools and linked agents retain parent/child invocation
-attribution. Disconnecting an observer is distinct from canceling the native
-execution. Durable receipts and canonical history let recovery reconcile what
-actually happened, rather than assume success or blindly repeat a tool.
-
-Use AGENTLY_SCHEDULER_API and AGENTLY_SCHEDULER_RUNNER to separate API and runner
-deployments. See [scheduler](../agently-core-ag-ui/doc/scheduler.md),
-[async operations](../agently-core-ag-ui/doc/async.md),
-[goals](../agently-core-ag-ui/doc/autonomous.md) and
-[approval coordination](../agently-core-ag-ui/doc/ag-ui-approval-coordination.md).
-
-## Optional proactive context compaction
-
-Proactive compaction is off until an agent explicitly sets:
-
-~~~yaml
-contextCompactionPercent: 80
-~~~
-
-The selected model must separately declare its actual positive
-options.contextWindow capacity. At the percentage threshold, the runtime
-compacts eligible completed history, rebuilds/recounts the request and resumes.
-Latest-user, pending-operation and completed-tool identity protections remain.
-Durable full-history barriers cover failures/restarts. The threshold is a
-trigger, not a hard context cap.
-
-Exact prepared-input counting is implemented for OpenAI Responses API models
-through their normal authenticated HTTP client. Chat Completions, the ChatGPT
-backend and unsupported counters do not silently become character estimates.
-Omitting the setting adds no proactive count/compaction calls; ordinary reactive
-provider-limit recovery remains available.
-
-See [configuration and verification](../agently-core-ag-ui/doc/proactive-context-compaction.md).
-Live provider tests require explicit setup; ordinary unit/HTTP failure fixtures
-do not make provider business calls.
-
-## Persistence and deployment
-
-SQLite is the workspace default; MySQL is available through the configured
-connection. Apply the versioned MySQL schema for deployment. AG-UI reuses
-existing conversation, run and call_payload tables: protocol projection,
-admission/lease and ordered journal payloads are isolated from native execution
-rows and ordinary payload classes. Native APIs cannot overwrite protocol
-identity/state. Cleanup follows owned references in the existing transaction.
-
-| Environment setting | Purpose |
+| Topic | Guides |
 | --- | --- |
-| AGENTLY_WORKSPACE | Workspace root |
-| AGENTLY_ADDR | Listen address |
-| AGENTLY_DB_DRIVER / AGENTLY_DB_DSN | Persistence driver/connection |
-| AGENTLY_UI_DIST | Explicit UI asset directory |
-| AGENTLY_DEBUG | Global diagnostics |
-| AGENTLY_SCHEDULER_API / AGENTLY_SCHEDULER_RUNNER | Scheduler deployment roles |
-| AGENTLY_CLEANUP_ENABLED | Enable periodic cleanup |
-| AGENTLY_CLEANUP_INTERACTIVE_MODE / SCHEDULED_MODE / ORPHAN_MODE | off, dry-run or execute policies |
+| Architecture and execution | [Core architecture](https://github.com/viant/agently-core/blob/ag-ui/doc/architecture.md), [agent orchestration](https://github.com/viant/agently-core/blob/ag-ui/doc/agent-orchestration.md), [planning/intake](https://github.com/viant/agently-core/blob/ag-ui/doc/planning-and-intake.md) |
+| Agent authoring | [Workspace configuration](https://github.com/viant/agently-core/blob/ag-ui/doc/workspace-system.md), [intent profiles](https://github.com/viant/agently-core/blob/ag-ui/doc/prompts.md), [prompt binding](https://github.com/viant/agently-core/blob/ag-ui/doc/prompt-binding.md), [skills](https://github.com/viant/agently-core/blob/ag-ui/doc/skills.md), [templates](https://github.com/viant/agently-core/blob/ag-ui/doc/templates.md) |
+| Models, knowledge and files | [Providers](https://github.com/viant/agently-core/blob/ag-ui/doc/llm-providers.md), [knowledge augmentation](https://github.com/viant/agently-core/blob/ag-ui/doc/augmentation.md), [embeddings](https://github.com/viant/agently-core/blob/ag-ui/doc/embedius-embeddings.md), [resources](https://github.com/viant/agently-core/blob/ag-ui/doc/resources.md), [speech](https://github.com/viant/agently-core/blob/ag-ui/doc/speech.md) |
+| Tools and interoperability | [Tool system](https://github.com/viant/agently-core/blob/ag-ui/doc/tool-system.md), [internal tools](https://github.com/viant/agently-core/blob/ag-ui/doc/internal-tools.md), [MCP integration](https://github.com/viant/agently-core/blob/ag-ui/doc/mcp-integration.md), [A2A](https://github.com/viant/agently-core/blob/ag-ui/doc/a2a-protocol.md) |
+| Human input and approvals | [Elicitation](https://github.com/viant/agently-core/blob/ag-ui/doc/elicitation-system.md), [lookups](https://github.com/viant/agently-core/blob/ag-ui/doc/lookups.md), [schema overlays](https://github.com/viant/agently-core/blob/ag-ui/doc/overlays.md), [approval policy](https://github.com/viant/agently-core/blob/ag-ui/doc/approval.md) |
+| Goals, schedules and background work | [Goals](https://github.com/viant/agently-core/blob/ag-ui/doc/autonomous.md), [scheduler](https://github.com/viant/agently-core/blob/ag-ui/doc/scheduler.md), [async operations](https://github.com/viant/agently-core/blob/ag-ui/doc/async.md), [follow-up chains](https://github.com/viant/agently-core/blob/ag-ui/doc/followup-chains.md) |
+| UI and reporting | [Workspace UI and appearance](doc/workspace-ui.md), [architecture](https://github.com/viant/agently-core/blob/ag-ui/doc/architecture.md), [UI ownership](https://github.com/viant/agently-core/blob/ag-ui/doc/ui-ownership-model.md), [feeds](https://github.com/viant/agently-core/blob/ag-ui/doc/feed-system.md), [MCP UI](https://github.com/viant/agently-core/blob/ag-ui/doc/mcp-ui.md) |
+| Client integration | [SDK guide](https://github.com/viant/agently-core/blob/ag-ui/doc/sdk.md), [AG-UI operation matrix](https://github.com/viant/agently-core/blob/ag-ui/doc/ag-ui-operation-matrix.md), [iOS](doc/ios.md), [Android](doc/android.md) |
+| Security and persistence | [Authentication](https://github.com/viant/agently-core/blob/ag-ui/doc/auth-system.md), [authorization policy](https://github.com/viant/agently-core/blob/ag-ui/doc/authorization-policy.md), [conversation model](https://github.com/viant/agently-core/blob/ag-ui/doc/conversation-model.md), [storage contracts](https://github.com/viant/agently-core/blob/ag-ui/doc/conversation-model.md), [cleanup](doc/database-cleanup.md) |
 
-Keep credentials in the configured provider/identity resources, provision
-schema and assets, and select API/runner roles for the deployment. Request-scoped
-SDK SessionDebug settings and X-Agently-Debug headers allow diagnostics without
-turning on global debug. See [cleanup policies](doc/database-cleanup.md) and the
-core [storage/schema guide](../agently-core-ag-ui/doc/ag-ui-storage-reuse.md).
+The [Core documentation index](https://github.com/viant/agently-core/blob/ag-ui/doc/README.md)
+links to additional design, configuration and lifecycle references.
 
-Persistence readers/writers are authored in the core's dql/ and adjacent SQL.
-The stock Endly task in its e2e/datly directory runs endly -t=transcribe and
-overwrites generated component artifacts. Application lifecycle hooks remain
-authored. There is no separate regeneration workflow; see the
-[transcription task](../agently-core-ag-ui/e2e/datly/transcribe.yaml).
+## Development and extension
 
-## Local development
+| Path | Responsibility |
+| --- | --- |
+| `agently/`, `cmd/agently/` | Binary entry point and CLI |
+| `serve.go`, `runtime/`, `bootstrap/` | Server assembly, integrations and defaults |
+| `metadata/`, `ui/`, `deployment/ui/` | Authored metadata, web source and embedded assets |
+| `ios/`, `android/` | Native shells and platform dependency selection |
+| `doc/`, `e2e/`, `preview/` | Guides, test workflows and previews |
 
-This branch's Go module intentionally selects compatible sibling checkouts:
+Custom applications can register tools, connect MCP servers, configure agent
+resources, extend metadata, or compose their own shell over Core's SDKs.
+For an embedded runtime, start with the [Core architecture guide](https://github.com/viant/agently-core/blob/ag-ui/doc/architecture.md).
 
-~~~text
-agently-ag-ui/
-agently-core-ag-ui/
-forge-ag-ui/
-mcp-ag-ui/
-mcp-protocol-ag-ui/
-~~~
-
-Read go.mod for their replacements and the pinned Datly dependency graph.
-An optional parent go.work may support experiments, but it should not silently
-select incompatible revisions.
-
-Web dependencies are declared separately in ui/package.json: the core TypeScript
-SDK points to the AG-UI core fork, while the current Forge npm source points to
-the sibling forge checkout. A Go replacement does not change that npm source.
-iOS package links select the core SDK/Forge forks; AGENTLY_IOS_SDK_PACKAGE_PATH
-provides an explicit SDK override. Android normally uses pinned android/deps;
-local AG-UI changes require the explicit sibling-source flag.
-
-~~~bash
-# From this repository root
+```bash
+# Build and safely sync web assets, preserving deployment/ui/init.go
+(cd ui && npm ci && npm test && npm run build:embed)
 go build -o ./bin/agently ./agently
-(cd ui && npm ci && npm test && npm run build)
+
+# Native source checks
 swift test --package-path ios
-(cd android && ./gradlew -Pagently.android.useSiblingSources=true   :app:testDebugUnitTest :app:assembleDebug)
-~~~
+(cd android && ./gradlew -Pagently.android.useSiblingSources=true :app:testDebugUnitTest :app:assembleDebug)
+```
 
-Android requires JDK 17 and the configured Android SDK. Device signing,
-installation and service-connected acceptance are separate:
-[Android workflow](doc/android.md), [iOS workflow](doc/ios.md).
-
-### Web application development
-
-~~~bash
-# Safe build and sync to the embedded deployment bundle
-(cd ui && npm run build:embed)
-# Or use the repository wrapper
-./e2e/build-ui-embed.sh
-
-# Include the updated assets in the server
-go build -o ./bin/agently ./agently
-
-# Vite development server
-(cd ui && npm run dev)
-~~~
-
-The safe sync workflow preserves deployment/ui/init.go. Avoid replacing that
-directory with a raw destructive copy of ui/dist.
-
-### CLI tools and extension points
-
-~~~bash
-./bin/agently query --api https://agent.example -q "Summarize the README"
-./bin/agently list-tools --api https://agent.example
-./bin/agently mcp list --api https://agent.example
-./bin/agently mcp run -n project/read -a @args.json --api https://agent.example
-./bin/agently chatgpt-login --clientURL "scy://configured-client"
-~~~
-
-Select authenticated CLI options appropriate for the deployment. Optional
-MCP tool exposure uses --expose-mcp plus configured tool patterns; A2A services
-publish /.well-known/agent.json and /v1/api/a2a endpoints. Custom applications can
-reuse the core runtime and SDKs, add their own tools and metadata, or compose a
-different shell without replacing the execution/persistence contracts.
-
-## Repository map and further reading
-
-| Path | Contents |
-| --- | --- |
-| agently/ | Binary entry point |
-| cmd/agently/ | CLI commands |
-| serve.go, runtime/, bootstrap/ | Server assembly and workspace configuration |
-| metadata/, deployment/ui/, ui/ | Authored UI metadata, embedded assets and web source |
-| ios/, android/ | Native application shells and their dependency selection |
-| doc/, e2e/, preview/ | Guides, acceptance workflows and development previews |
-
-Start with the [core documentation index](../agently-core-ag-ui/doc/README.md)
-for framework internals. Keep application-specific acceptance and integration
-evidence in their dedicated guides rather than treating it as a generic
-framework guarantee.
+Web npm sources, Swift package links and Android dependency selection are
+independent of Go module replacements. Inspect their manifests when developing
+against sibling sources. Android requires JDK 17 and the Android SDK; iOS device
+builds require Xcode. Installation, signing and real service-connected tests are
+covered in the platform guides.
