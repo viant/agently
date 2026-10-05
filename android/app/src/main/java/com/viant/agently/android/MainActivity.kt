@@ -216,7 +216,6 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
     }
     val forgeTargetContext = remember(formFactor) { buildForgeTargetContext(formFactor) }
     fun buildClient(baseUrl: String): AgentlyClient = AgentlyClient(
-        conversationTransportMode = com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI,
         endpoints = mapOf(
             "appAPI" to EndpointConfig(
                 baseUrl = baseUrl,
@@ -379,7 +378,6 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
                     (commandResult["ok"] as? JsonPrimitive)?.booleanOrNull == true
                 ) {
                     loading = false
-                    if (client.conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.LEGACY) markLatestSubmittedUserEntryDelivered(transcript)
                     error = null
                 }
                 commandResult
@@ -1089,9 +1087,8 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
             activeConversationId = snapshot.conversationId
         }
         streamedMarkdown = latestAssistantMarkdown(snapshot) ?: streamedMarkdown
-        if (client.conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.LEGACY && streamSnapshotHasAcceptedActivity(snapshot) || ownedRequestAccepted) {
+        if (ownedRequestAccepted) {
             loading = false
-            if (client.conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.LEGACY) markLatestSubmittedUserEntryDelivered(transcript)
             setVisibleError(null)
         }
     }
@@ -1524,10 +1521,8 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
                                     maxResponseBytes = conversationPolicy.maxTranscriptResponseBytes
                                 )
                             }.getOrNull()?.takeIf {
-                                if (recoveryClient.conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) {
-                                    val requestId = userEntryId
-                                    requestId != null && recoveryClient.isConversationRequestAdmitted(conversationId, requestId)
-                                } else submittedTurnWasAccepted(it, prompt)
+                                val requestId = userEntryId
+                                requestId != null && recoveryClient.isConversationRequestAdmitted(conversationId, requestId)
                             }
                             if (recovered != null) break
                             if (attempt < 2) delay(350)
