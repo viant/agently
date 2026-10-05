@@ -155,11 +155,13 @@ a second tool invocation.
 
 ## Conversations, AG-UI and SDKs
 
-The outward TypeScript, Swift and Kotlin SDKs default to **AG-UI**. Submission,
+The outward Go HTTP, TypeScript, Swift and Kotlin SDKs use **AG-UI**. Submission,
 canonical bootstrap, observation, attachment, cancellation and continuation use
 the configured BFF client. Supporting native application APIs remain available.
-Embedded Go Client.Query and internal executor calls remain native and do not
-loop through the public AG-UI endpoint.
+Host-side Go Backend.Query and internal executor calls remain native and do not
+loop through the public AG-UI endpoint. Go HTTP Query/RunAGUI and the CLI use
+the run SSE directly; the CLI answers interrupts with standard resume entries.
+Scoped application events remain a separate supporting API.
 
 Standard POST /v1/ag-ui/run requests and SSE events carry runs, messages,
 frontend tools/results, state, interrupts, resumes and subagent attribution.

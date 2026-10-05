@@ -109,24 +109,21 @@ func (c *ChatCmd) Execute(_ []string) error {
 	if strings.TrimSpace(defaultAgent) != "" && strings.TrimSpace(c.AgentID) == "chatter" {
 		c.AgentID = strings.TrimSpace(defaultAgent)
 	}
-	modelOverride := pickModel(defaultModel, models)
-	modelSource := ""
-	if explicitModel := strings.TrimSpace(c.Model); explicitModel != "" {
-		modelOverride = explicitModel
-		modelSource = "caller"
-	} else if strings.TrimSpace(modelOverride) != "" {
-		// The CLI displays and forwards the workspace's inherited default for
-		// compatibility. Mark it so turn-scoped intent profiles can override it.
-		modelSource = "agent.model"
+	modelOverride := strings.TrimSpace(c.Model)
+	displayModel := modelOverride
+	if displayModel == "" {
+		displayModel = pickModel(defaultModel, models)
 	}
+	// Only an explicit --model is an execution override. Server-owned agent and
+	// intent selection retains control of inherited workspace defaults.
 
 	if strings.TrimSpace(workspaceRoot) != "" {
 		fmt.Printf("[workspace] %s\n", workspaceRoot)
 	} else {
 		fmt.Printf("[workspace] <unknown>\n")
 	}
-	if modelOverride != "" {
-		fmt.Printf("[agent] %s [model] %s\n", c.AgentID, modelOverride)
+	if displayModel != "" {
+		fmt.Printf("[agent] %s [model] %s\n", c.AgentID, displayModel)
 	} else {
 		fmt.Printf("[agent] %s\n", c.AgentID)
 	}
@@ -150,9 +147,7 @@ func (c *ChatCmd) Execute(_ []string) error {
 			AgentID:        c.AgentID,
 			ConversationID: convID,
 			Query:          query,
-			UserId:         strings.TrimSpace(c.User),
 			ModelOverride:  modelOverride,
-			ModelSource:    modelSource,
 			Context:        buildQueryContext(contextData, defaultElicitationPayload, lastElicitationPayload),
 		}
 		if !sentAttachments && len(attachments) > 0 {
