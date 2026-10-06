@@ -55,6 +55,11 @@ function clearAuthMeCache() {
   authMeCacheValue = null;
 }
 
+// Opaque account/cache generation for rejecting stale report restoration reads.
+export function getReportRestoreScope() {
+  return `${workspaceMetadataGeneration}:${protocolSessionOwner}`;
+}
+
 function resetProtocolSession() {
   client.resetAgUiInteractions?.();
   protocolSessionOwner = '';

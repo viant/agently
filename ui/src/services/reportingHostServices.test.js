@@ -14,6 +14,7 @@ vi.mock('../components/lookups/client', () => ({
 vi.mock('./chatStore', () => chatStore);
 
 import {
+  createCompletedReportRestoreReader,
   buildReportProvenanceFromRows,
   createReportingHostServices,
   fetchReportBuilderPreviewByRef,
@@ -269,5 +270,30 @@ describe('reportingHostServices report-builder preview adapter', () => {
       getBuildContext: getReportBuildProvenance,
       subscribeBuildContext: subscribeReportBuildProvenance,
     });
+  });
+});
+
+
+describe('completed report restoration reader', () => {
+  it('uses only exact scoped read APIs and stops a stale account response', async () => {
+    let scope = 'account-1';
+    const context = {ownerId:'owner', conversationId:'conversation', activeReportRunId:'run', revision:1};
+    const run = {ownerId:'owner', conversationId:'conversation', reportRunId:'run',status:'completed'};
+    const readContext = vi.fn().mockResolvedValue({enabled:true,context});
+    const readRun = vi.fn().mockResolvedValue(run);
+    const reader = createCompletedReportRestoreReader({probeIdentity:vi.fn(),getScope:()=>scope,readContext,readRun});
+    await expect(reader({conversationId:'conversation'})).resolves.toEqual({context,run,scopeKey:'account-1'});
+    expect(readContext).toHaveBeenCalledWith({conversationId:'conversation'});
+    expect(readRun).toHaveBeenCalledWith({conversationId:'conversation',reportRunId:'run'});
+    readRun.mockImplementationOnce(async()=>{scope='account-2';return run;});
+    await expect(reader({conversationId:'conversation'})).rejects.toThrow('account changed');
+  });
+  it('does not read a run for an absent or foreign context', async () => {
+    const readRun=vi.fn();const readContext=vi.fn().mockResolvedValue({enabled:true,context:null});
+    const reader=createCompletedReportRestoreReader({probeIdentity:vi.fn(),getScope:()=> 'account',readContext,readRun});
+    await expect(reader({conversationId:'conversation'})).resolves.toBeNull();
+    readContext.mockResolvedValue({enabled:true,context:{ownerId:'owner',conversationId:'foreign',activeReportRunId:'run'}});
+    await expect(reader({conversationId:'conversation'})).rejects.toThrow('not scoped');
+    expect(readRun).not.toHaveBeenCalled();
   });
 });
