@@ -9,7 +9,6 @@ public final class QueryRuntime: ObservableObject {
     @Published public var lastError: String?
 
     private let client: AgentlyClient
-    private var acceptedWhileSending = false
 
     public init(client: AgentlyClient) {
         self.client = client
@@ -17,6 +16,7 @@ public final class QueryRuntime: ObservableObject {
 
     public func send(
         conversationID: String?,
+        messageID: String? = nil,
         agentID: String?,
         query: String,
         attachments: [QueryAttachment] = [],
@@ -24,10 +24,8 @@ public final class QueryRuntime: ObservableObject {
         context: [String: JSONValue] = [:]
     ) async -> QueryOutput? {
         isSending = true
-        acceptedWhileSending = false
         defer {
             isSending = false
-            acceptedWhileSending = false
         }
         do {
             logger.info("Submitting query request")
@@ -35,6 +33,7 @@ public final class QueryRuntime: ObservableObject {
             return try await client.query(
                 QueryInput(
                     conversationID: conversationID,
+                    messageID: messageID,
                     agentID: agentID,
                     query: query,
                     attachments: attachments,
@@ -43,23 +42,13 @@ public final class QueryRuntime: ObservableObject {
                 )
             )
         } catch {
-            if acceptedWhileSending {
-                logger.info("Ignoring query transport error after workspace acceptance: \(String(describing: error), privacy: .public)")
-                lastError = nil
-                return QueryOutput()
-            }
             logger.error("Query request failed: \(String(describing: error), privacy: .public)")
             lastError = visibleQueryError(error)
             return nil
         }
     }
 
-    public func markAccepted() {
-        guard isSending else { return }
-        acceptedWhileSending = true
-        isSending = false
-        lastError = nil
-    }
+
 }
 
 internal func visibleQueryError(_ error: Error) -> String {

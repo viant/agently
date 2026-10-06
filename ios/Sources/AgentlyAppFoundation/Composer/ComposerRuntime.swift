@@ -41,6 +41,9 @@ public final class ComposerRuntime: ObservableObject {
             if query != oldValue {
                 pruneLookupSelections()
             }
+            #if DEBUG
+            traceResolvedLookupIDs(stage: "commit")
+            #endif
         }
     }
     @Published public var attachments: [ComposerAttachmentDraft] = []
@@ -114,7 +117,20 @@ public final class ComposerRuntime: ObservableObject {
         let token = LookupTokens.serializeToken(entry: occurrence.entry, resolved: row.mapValues(\.anyValue))
         let label = LookupTokens.parseTokens(token).first?.label ?? occurrence.title
         lookupSelections[occurrence.key] = ComposerLookupSelection(token: token, label: label)
+        #if DEBUG
+        traceResolvedLookupIDs(stage: "selection")
+        #endif
     }
+
+    #if DEBUG
+    private func traceResolvedLookupIDs(stage: String) {
+        guard ProcessInfo.processInfo.environment["AGENTLY_COMPOSER_SCOPE_PROOF"] == "1" else { return }
+        let ids = lookupSelections.values.compactMap { LookupTokens.parseTokens($0.token).first?.id }.sorted()
+        guard !ids.isEmpty, let resolved = try? resolvedQuery() else { return }
+        let present = ids.filter { resolved.contains($0) }
+        NSLog("ComposerLookupScope stage=%@ selectedIDs=%@ resolvedIDs=%@", stage, ids.joined(separator: ","), present.joined(separator: ","))
+    }
+    #endif
 
     public func clearLookupSelection(for occurrence: ComposerLookupOccurrence) {
         lookupSelections.removeValue(forKey: occurrence.key)
@@ -305,6 +321,9 @@ private extension JSONValue {
         case .string(let value):
             return value
         case .number(let value):
+            // Lookup IDs use the same integral spelling as JSON/JavaScript,
+            // rather than a Double description such as "2659534.0".
+            if let integer = Int64(exactly: value) { return integer }
             return value
         case .bool(let value):
             return value

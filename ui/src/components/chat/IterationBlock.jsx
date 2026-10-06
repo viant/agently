@@ -1687,6 +1687,8 @@ export function buildIterationDataFromCanonicalRow(canonicalRow = null, message 
   const finalRenderedContent = finalRound?.renderedContent || null;
   return {
     ...(message?._iterationData || {}),
+    connectionProfile: canonicalRow?.connectionProfile,
+    hostEffectsAllowed: canonicalRow?.hostEffectsAllowed,
     turnId: canonicalRow?.turnId || message?._iterationData?.turnId || '',
     status: canonicalRow?.lifecycle || message?._iterationData?.status || '',
     errorMessage: canonicalRow?.errorMessage || message?._iterationData?.errorMessage || '',
@@ -1789,7 +1791,7 @@ export function resolveCanonicalDetailStep(canonicalRow = null, step = {}) {
   return step;
 }
 
-export default function IterationBlock({ message, canonicalRow = null, context, showToolFeedDetail = true, suppressBubble = false, retryPrompt = '', attachment = null }) {
+function NativeIterationBlock({ message, canonicalRow = null, context, showToolFeedDetail = true, suppressBubble = false, retryPrompt = '', attachment = null }) {
   const { showDetail } = useContext(DetailContext);
   const { developerMode = false, showIntakeDetails = false, toolFeedDock = 'inline' } = useContext(ConversationViewContext);
   const data = buildIterationDataFromCanonicalRow(canonicalRow, message);
@@ -2829,4 +2831,27 @@ export default function IterationBlock({ message, canonicalRow = null, context, 
       ) : null}
     </>
   );
+}
+
+/** Select the passive path before any native execution/feed/payload hooks mount. */
+export default function IterationBlock(props) {
+  const { canonicalRow, message } = props;
+  const sources = [canonicalRow, message, message?._iterationData];
+  const denied = sources.some(source => source?.hostEffectsAllowed === false || source?.connectionProfile === 'standard');
+  if (!denied) return <NativeIterationBlock {...props} />;
+  const data = buildIterationDataFromCanonicalRow(canonicalRow,message);
+  const groups = Array.isArray(data.executionGroups) ? data.executionGroups : [];
+  return <div className="app-iteration-block" data-host-effects="disabled">
+    <details className="app-execution-details"><summary>Execution details</summary>
+      {groups.map((group,index) => <div key={group.pageId || index}>
+        {group.narration ? <div style={{whiteSpace:'pre-wrap'}}>{String(group.narration)}</div> : null}
+        {(group.toolSteps || []).map((step,toolIndex) => <div key={step.toolCallId || toolIndex} style={{whiteSpace:'pre-wrap'}}>
+          <span>{String(step.toolName || 'Tool')} · {String(step.status || 'requested')}</span>
+          {step.content ? <pre>{String(step.content)}</pre> : null}
+        </div>)}
+      </div>)}
+    </details>
+    {!props.suppressBubble && groups.filter(group=>group.content).map((group,index)=><BubbleMessage key={group.pageId || index}
+      message={{id:group.pageId || `standard-${index}`,role:'assistant',content:group.content,hostEffectsAllowed:false,connectionProfile:'standard'}} />)}
+  </div>;
 }

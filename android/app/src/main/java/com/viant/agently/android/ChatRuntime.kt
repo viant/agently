@@ -604,31 +604,19 @@ internal fun transcriptFromState(state: ConversationStateResponse): List<ChatEnt
                 )
             )
         }
-        val assistantMessages = listOfNotNull(turn.assistant?.narration, turn.assistant?.final)
-        val assistantId = turn.assistant?.final?.messageId ?: turn.assistant?.narration?.messageId
-        // Narration is the active assistant bubble. The global turn-status card
-        // carries compact metadata only; final content replaces narration.
-        val finalContent = sanitizeAssistantTranscriptText(turn.assistant?.final?.content).orEmpty()
-        val narrationFallback = sanitizeAssistantTranscriptText(turn.assistant?.narration?.content).orEmpty()
-        val assistantContent = (finalContent.ifBlank { narrationFallback }).trim()
-        val renderedReports = canonicalAssistantReports(assistantMessages)
-        val diagnosticMessages = assistantMessages.flatMap { message ->
-            message.renderedContent?.diagnostics.orEmpty().mapNotNull { it.message.trim().takeIf(String::isNotEmpty) }
-        }
-        if (!assistantId.isNullOrBlank() && (assistantContent.isNotBlank() || !renderedReports.isNullOrEmpty() || diagnosticMessages.isNotEmpty())) {
-            entries.add(
-                ChatEntry(
-                    id = assistantId,
-                    role = "assistant",
-                    markdown = assistantContent,
-                    turnId = turn.turnId,
-                    renderedParts = canonicalAssistantParts(assistantMessages),
-                    renderedReports = renderedReports,
-                    diagnosticMessages = diagnosticMessages,
-                    streaming = false,
-                    timestampLabel = formatTimestampLabel(turn.createdAt)
-                )
-            )
+        com.viant.agentlysdk.canonicalAssistantMessages(turn).forEach { message ->
+            val assistantMessages = listOf(AssistantMessageState(message.messageId, message.content, message.renderedContent, message.createdAt))
+            val content = sanitizeAssistantTranscriptText(message.content).orEmpty()
+            val reports = canonicalAssistantReports(assistantMessages)
+            val diagnostics = message.renderedContent?.diagnostics.orEmpty().mapNotNull { it.message.trim().takeIf(String::isNotEmpty) }
+            if (content.isNotBlank() || !reports.isNullOrEmpty() || diagnostics.isNotEmpty()) {
+                entries.add(ChatEntry(
+                    id = message.messageId, role = "assistant", markdown = content, turnId = turn.turnId,
+                    renderedParts = canonicalAssistantParts(assistantMessages), renderedReports = reports,
+                    diagnosticMessages = diagnostics, streaming = false,
+                    timestampLabel = formatTimestampLabel(message.createdAt ?: turn.createdAt)
+                ))
+            }
         }
     }
     return entries

@@ -25,6 +25,8 @@ import WorkspaceSidebar from './WorkspaceSidebar';
 import ScheduleConversationHistory from './ScheduleConversationHistory';
 import ElicitationOverlay from './ElicitationOverlay';
 import { useApprovalQueue } from '../hooks/useApprovalQueue';
+import { useAgUiBackendSelection } from '../hooks/useAgUiBackendSelection';
+import AgUiRemoteConversation from './AgUiRemoteConversation';
 import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, dismissWorkspaceWindowForConversation, ensureWorkspaceWindowForConversation, getScopedActiveSurface, getScopedConversationSelection, getScopedWorkspacePresentationMode, getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, restoreWorkspaceNavigationTrailEntry, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
 import { bindLandingWorkspaceWindows } from '../services/conversationWindow';
@@ -604,6 +606,7 @@ export default function Root() {
   const desktopSidebarOpenRef = useRef(true);
   const previousCompactShellRef = useRef(isCompactShell);
   const approvals = useApprovalQueue(authState === 'ready');
+  const backendSelection = useAgUiBackendSelection(authState === 'ready');
   const selectedWindow = resolveSelectedMainWindow(
     activeWindows.value,
     selectedTabId.value,
@@ -730,7 +733,7 @@ export default function Root() {
   ) >= 0;
   const isWorkspaceFull = workspacePresentationMode === 'full';
   const forceWorkspaceFull = shouldForceWorkspaceFull({ isCompactShell, showWorkspacePane });
-  const effectiveWorkspaceFull = isWorkspaceFull || forceWorkspaceFull;
+  const effectiveWorkspaceFull = showWorkspacePane && (isWorkspaceFull || forceWorkspaceFull);
   const showChatChrome = shouldShowChatChromeForLayout({
     chatChromeWindow,
     effectiveWorkspaceFull,
@@ -1426,9 +1429,13 @@ export default function Root() {
         >
           <MenuBar
             approvals={approvals}
+            backendConnections={backendSelection.connections}
+            activeBackendId={backendSelection.selectedId}
+            onBackendChange={backendSelection.select}
+            onNativeAction={() => backendSelection.select('agently')}
             topbarActions={layoutTopbarActions}
             onToggleSidebar={() => setIsSidebarOpen((open) => !open)}
-            conversationId={conversationIDFromPath(typeof window !== 'undefined' ? window.location.pathname : '')}
+            conversationId={backendSelection.isRemote ? '' : conversationIDFromPath(typeof window !== 'undefined' ? window.location.pathname : '')}
           />
 
         <div className={`app-main${isCompactShell ? ' is-compact-shell' : ''}`}>
@@ -1444,13 +1451,17 @@ export default function Root() {
             <WorkspaceSidebar
               conversationId={mainConversationId}
               onOpenWorkspace={() => {
+                backendSelection.select('agently');
                 setWorkspacePresentationMode('full');
                 setActiveSurface('workspace');
               }}
               collapsed={!isCompactShell && !isSidebarOpen}
               onExpand={() => setIsSidebarOpen(true)}
               onTopbarActionsChange={setLayoutTopbarActions}
-              onNavigate={isCompactShell ? () => setIsSidebarOpen(false) : undefined}
+              onNavigate={() => {
+                backendSelection.select('agently');
+                if (isCompactShell) setIsSidebarOpen(false);
+              }}
             />
           ) : null}
           {!isCompactShell && isSidebarOpen ? (
@@ -1470,7 +1481,12 @@ export default function Root() {
             />
           ) : null}
           <main className={`app-chat-pane${showChatChrome ? ' is-chat-main-window' : ''}`}>
-            <div className={`app-chat-layout${showChatChrome ? ' has-tool-workspace' : ''}`}>
+            {backendSelection.visited.map(connection => (
+              <div key={connection.id} style={{ display: backendSelection.selectedId === connection.id ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
+                <AgUiRemoteConversation connection={connection} active={backendSelection.selectedId === connection.id} />
+              </div>
+            ))}
+            <div className={`app-chat-layout${showChatChrome ? ' has-tool-workspace' : ''}`} style={backendSelection.isRemote ? { display: 'none' } : undefined}>
             <div className="app-chat-content-column" style={{ flex: 1, minHeight: 0, overflow: 'visible', display: 'flex', flexDirection: 'column' }}>
               {shouldShowMainWindowHeader(selectedWindow) && !activeWorkspaceWindow ? (
                 <div className="app-main-window-header">
@@ -1531,14 +1547,17 @@ export default function Root() {
                 />
               )}
             </div>
-            {showChatChrome ? <ToolFeedWorkspace conversationId={activeConversationId} developerMode={developerMode} /> : null}
-            <ToolFeedDetached conversationId={activeConversationId} developerMode={developerMode} />
+            {showChatChrome ? <ToolFeedWorkspace active={!backendSelection.isRemote} conversationId={activeConversationId} developerMode={developerMode} /> : null}
+            <ToolFeedDetached active={!backendSelection.isRemote} conversationId={activeConversationId} developerMode={developerMode} />
             </div>
-            {showChatChrome && developerMode ? <UsageBar /> : null}
+            {showChatChrome && developerMode && !backendSelection.isRemote ? <UsageBar /> : null}
           </main>
         </div>
 
-          <StatusBar developerMode={developerMode} backendUnavailable={!!approvals?.backendUnavailable} approvals={approvals} />
+          <StatusBar hidden={backendSelection.isRemote} developerMode={developerMode} backendUnavailable={!!approvals?.backendUnavailable} approvals={approvals} />
+          {backendSelection.isRemote ? <footer className="app-statusbar" role="status">
+            <span>{backendSelection.connections.find(connection => connection.id === backendSelection.selectedId)?.label} · Session-only conversation</span>
+          </footer> : null}
         </div>
       </ConversationViewContext.Provider>
 

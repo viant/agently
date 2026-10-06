@@ -1,6 +1,8 @@
 package com.viant.agently.android
 
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import com.viant.agentlysdk.LookupRegistryEntry
 import com.viant.agentlysdk.LookupTokenFormat
 import org.junit.Assert.assertEquals
@@ -9,6 +11,26 @@ import org.junit.Assert.assertSame
 import org.junit.Test
 
 class ComposerScreenTest {
+    @Test
+    fun `lagging parent echoes preserve newest rapid input selection and composition`() {
+        val newest = TextFieldValue("Create", TextRange(6), TextRange(0, 6))
+        val pending = mutableListOf("C", "Cr", "Cre", "Crea", "Creat", "Create")
+        assertSame(newest, reconcileComposerEditorValue(newest, "Cr", 2, pending))
+        assertEquals(listOf("Cre", "Crea", "Creat", "Create"), pending)
+        assertSame(newest, reconcileComposerEditorValue(newest, "Create", 6, pending))
+        assertEquals(emptyList<String>(), pending)
+    }
+
+    @Test
+    fun `external starter replacement hydrates after pending local edits`() {
+        val local = TextFieldValue("draft", TextRange(5))
+        val pending = mutableListOf("dra", "draft")
+        val changed = reconcileComposerEditorValue(local, "new starter", 0, pending)
+        assertEquals("new starter", changed.text)
+        assertEquals(TextRange(11), changed.selection)
+        assertEquals(emptyList<String>(), pending)
+    }
+
     @Test
     fun `compact composer expands for long selected prompts`() {
         assertEquals(2, composerInputMaxLines(compactConversationDock = true, query = ""))

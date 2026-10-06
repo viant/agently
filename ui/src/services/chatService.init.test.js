@@ -65,6 +65,8 @@ vi.mock('./chatRuntime', () => ({
   getSettledConversationBootstrapSnapshot: getSettledConversationBootstrapSnapshotMock,
   hasPendingConversationBootstrap: hasPendingConversationBootstrapMock,
   hydrateMeta: hydrateMetaMock,
+  syncConversationComposerSelection: vi.fn(),
+  hydrateConversationComposerSelection: vi.fn(),
   hydrateConversationFromBootstrapSnapshot: hydrateConversationFromBootstrapSnapshotMock,
   isConversationLiveish: vi.fn(() => false),
   logExecutorDebug: logExecutorDebugMock,

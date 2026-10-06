@@ -1,0 +1,61 @@
+{
+  "checkedAt": "2026-10-04T03:20:31.566Z",
+  "mode": "authenticated-bff-to-public-hosted",
+  "backend": "Official AG-UI LangGraph Dojo FastAPI",
+  "productionUI": {
+    "tested": false,
+    "reason": "This verifies the real BFF and SDK transport; rendered production UI is a separate gate."
+  },
+  "status": "passed",
+  "assertions": [
+    "existing BFF session established",
+    "only authorized backend listed",
+    "server-issued scoped remote thread",
+    "two standard streamed runs and conversation continuity",
+    "all client requests use the BFF origin",
+    "legacy BFF identity remains valid"
+  ],
+  "eventCounts": {
+    "RUN_STARTED": 2,
+    "RAW": 62,
+    "STEP_STARTED": 8,
+    "STATE_SNAPSHOT": 4,
+    "STEP_FINISHED": 8,
+    "TEXT_MESSAGE_START": 2,
+    "TEXT_MESSAGE_CONTENT": 14,
+    "TEXT_MESSAGE_END": 2,
+    "MESSAGES_SNAPSHOT": 2,
+    "RUN_FINISHED": 2
+  },
+  "requests": [
+    {
+      "path": "/v1/api/auth/session",
+      "status": 200
+    },
+    {
+      "path": "/v1/api/auth/me",
+      "status": 200
+    },
+    {
+      "path": "/v1/ag-ui/backends",
+      "status": 200
+    },
+    {
+      "path": "/v1/ag-ui/backends/langgraph/threads",
+      "status": 200
+    },
+    {
+      "path": "/v1/ag-ui/backends/langgraph/run",
+      "status": 200
+    },
+    {
+      "path": "/v1/ag-ui/backends/langgraph/run",
+      "status": 200
+    },
+    {
+      "path": "/v1/api/auth/me",
+      "status": 200
+    }
+  ],
+  "reply": "AGUI_BFF_INTEROP_OK"
+}

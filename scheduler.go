@@ -78,6 +78,9 @@ func RunScheduler(options SchedulerRunOptions) error {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
 	}
 	defer rt.Close(context.Background())
+	if err := agentlyrt.ConfigureForecastEvidence(ctx, rt, workspace.Root()); err != nil {
+		return fmt.Errorf("forecast evidence startup: %w", err)
+	}
 	authCfg, err := svcauth.LoadWorkspaceConfig(workspace.Root())
 	if err != nil {
 		return fmt.Errorf("failed to load workspace auth config: %w", err)

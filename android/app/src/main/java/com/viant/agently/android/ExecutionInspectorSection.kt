@@ -33,10 +33,11 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun ExecutionInspectorSection(
     state: ConversationStateResponse?,
-    client: AgentlyClient
+    client: AgentlyClient,
+    turnId: String? = null
 ) {
     val turn = state?.conversation?.turns
-        ?.lastOrNull { it.execution?.pages?.isNotEmpty() == true }
+        ?.lastOrNull { (turnId == null || it.turnId == turnId) && it.execution?.pages?.isNotEmpty() == true }
         ?: return
     val pages = turn.execution?.pages.orEmpty()
     if (pages.isEmpty()) {
@@ -79,7 +80,7 @@ internal fun ExecutionInspectorSection(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Execution", style = MaterialTheme.typography.titleMedium)
+            Text(if (turnId == null) "Execution" else "Tool execution", style = MaterialTheme.typography.titleMedium)
             pages.forEachIndexed { index, page ->
                 val payloads = payloadPreviewSources(page, payloadTitles)
                 ExecutionPageCard(
@@ -146,7 +147,7 @@ private fun ExecutionPageCard(
                     onClose = { selectedPayloadId = null }
                 )
             }
-            if (selectedPayloadId == loadingPayloadId) {
+            if (selectedPayloadId != null && selectedPayloadId == loadingPayloadId) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     CircularProgressIndicator()
                     Text("Loading payload preview…", style = MaterialTheme.typography.bodySmall)
@@ -197,6 +198,7 @@ private fun ToolStepCard(
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Medium
         )
+        Text(listOfNotNull(step.status?.takeIf(String::isNotBlank), step.toolCallId.takeIf(String::isNotBlank)).joinToString(" · "), style = MaterialTheme.typography.bodySmall)
         PayloadChipRow(
             requestPayloadId = step.requestPayloadId,
             providerRequestPayloadId = null,
@@ -246,6 +248,7 @@ private fun payloadChip(
 
 private fun buildPageSubtitle(page: ExecutionPageState): String? {
     val parts = buildList {
+        page.executionRole?.takeIf { it.isNotBlank() }?.let { add(it) }
         page.mode?.takeIf { it.isNotBlank() }?.let { add(it) }
         page.status?.takeIf { it.isNotBlank() }?.let { add(it) }
         page.iteration?.let { add("iteration $it") }

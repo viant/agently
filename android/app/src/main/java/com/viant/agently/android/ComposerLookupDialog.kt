@@ -174,7 +174,7 @@ internal fun ComposerLookupDialog(
                                     )
                                     Spacer(Modifier.width(10.dp))
                                     Text(
-                                        composerLookupRowSecondaryText(row) ?: "—",
+                                        composerLookupRowSecondaryText(row, occurrence.entry) ?: "—",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = if (selected) Color(0xFF175CD3) else Color(0xFF667085),
                                         textAlign = TextAlign.End,

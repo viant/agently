@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  assistantExecutionContent,
   describeTimelineEvent,
   isPresentableGroup,
   mergeLatestTranscriptAndLiveGroups,
@@ -134,5 +135,16 @@ describe('ExecutionWorkspace helpers', () => {
 
     expect(modelStep.id).toBe('mc-1');
     expect(toolStep.id).toBe('tc-1');
+  });
+});
+
+
+describe('tool-owned execution response', () => {
+  it('hides only exact tool-owned assistant content while leaving inspection intact', () => {
+    const page = {pageId:'tool-result', assistantMessageId:'tool-result', content:'{"name":"contract"}',
+      toolSteps:[{toolMessageId:'tool-result',toolName:'template/get',content:'{"name":"contract"}'}]};
+    expect(assistantExecutionContent(page)).toBe('');
+    expect(page.toolSteps[0].content).toBe('{"name":"contract"}');
+    expect(assistantExecutionContent({...page,assistantMessageId:'assistant'})).toBe('{"name":"contract"}');
   });
 });

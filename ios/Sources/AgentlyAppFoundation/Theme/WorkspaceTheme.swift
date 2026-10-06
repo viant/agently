@@ -17,6 +17,7 @@ public struct WorkspaceThemeCatalog: Decodable, Sendable {
     public let paletteVersion: Int
     public let defaultTheme: String
     public let defaultMode: String
+    public let fonts: [WorkspaceFontFamily]?
     public let themes: [WorkspaceTheme]
 
     public static func load(_ data: Data) throws -> WorkspaceThemeCatalog {
@@ -48,7 +49,8 @@ public struct WorkspaceTheme: Decodable, Sendable {
     }
 
     private static let dimensions: [String: ClosedRange<Double>] = [
-        "typography.size": 8...72, "control.minHeight": 16...128,
+        "typography.size": 8...72,
+        "typography.body.size": 8...72, "typography.body.lineHeight": 8...128, "typography.caption.size": 8...72, "typography.caption.lineHeight": 8...128, "typography.code.size": 8...72, "typography.code.lineHeight": 8...128, "typography.display.size": 8...72, "typography.display.lineHeight": 8...128, "typography.heading.size": 8...72, "typography.heading.lineHeight": 8...128, "typography.metric.size": 8...72, "typography.metric.lineHeight": 8...128, "typography.section.size": 8...72, "typography.section.lineHeight": 8...128, "typography.small.size": 8...72, "typography.small.lineHeight": 8...128, "typography.title.size": 8...72, "typography.title.lineHeight": 8...128, "control.minHeight": 16...128,
         "control.radius": 0...64, "control.paddingInline": 0...64,
     ]
     private static let colors: Set<String> = [
@@ -78,10 +80,11 @@ public struct WorkspaceTheme: Decodable, Sendable {
               Set(modes.keys).isSubset(of: ["light", "dark"]) else {
             throw WorkspaceThemeError.invalidCatalog
         }
-        let expected = Self.colors.union(Self.dimensions.keys).union(["typography.family"])
+        let requiredDimensions = Set(["typography.size", "control.minHeight", "control.radius", "control.paddingInline"])
+        let expected = Self.colors.union(requiredDimensions).union(["typography.family"])
         for tokens in modes.values {
             let keys = Set(tokens.keys)
-            guard expected.isSubset(of: keys), keys.isSubset(of: expected.union(Self.optionalColors)) else {
+            guard expected.isSubset(of: keys), keys.isSubset(of: expected.union(Self.optionalColors).union(Self.dimensions.keys)) else {
                 throw WorkspaceThemeError.invalidTokens
             }
             for (key, token) in tokens {
@@ -90,7 +93,7 @@ public struct WorkspaceTheme: Decodable, Sendable {
                         throw WorkspaceThemeError.invalidTokens
                     }
                 } else if key == "typography.family" {
-                    guard token == .text("system") else { throw WorkspaceThemeError.invalidTokens }
+                    guard token == .text("system") || token == .text("workspace-primary") else { throw WorkspaceThemeError.invalidTokens }
                 } else {
                     guard case .text(let color) = token,
                           color.range(of: "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$", options: .regularExpression) != nil else {
@@ -100,4 +103,22 @@ public struct WorkspaceTheme: Decodable, Sendable {
             }
         }
     }
+}
+
+public struct WorkspaceFontFamily: Decodable, Sendable {
+    public let role: String
+    public let name: String
+    public let fallback: String?
+    public let faces: [WorkspaceFontFace]
+}
+public struct WorkspaceFontFace: Decodable, Sendable {
+    public let style: String
+    public let weight: String
+    public let native: WorkspaceNativeFontAsset?
+}
+public struct WorkspaceNativeFontAsset: Decodable, Sendable {
+    public let href: String
+    public let format: String
+    public let sha256: String
+    public let sizeBytes: Int
 }

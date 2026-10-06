@@ -24,12 +24,12 @@ val useSiblingSources = providers
     .toBooleanStrictOrNull() == true
 
 val forgeSdkDirectory = if (useSiblingSources) {
-    file("../../forge/android/sdk")
+    file("../../forge-ag-ui/android/sdk")
 } else {
     file("deps/forge/android/sdk")
 }
 val agentlyCoreSdkDirectory = if (useSiblingSources) {
-    file("../../agently-core/sdk/android")
+    file("../../agently-core-ag-ui/sdk/android")
 } else {
     file("deps/agently-core/sdk/android")
 }

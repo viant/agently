@@ -226,6 +226,9 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
         )
     )
     val client = remember(appApiBaseUrl) { buildClient(appApiBaseUrl) }
+    var conversationGeneration by remember { mutableStateOf(0L) }
+    fun resetNativeConversationTransport() { conversationGeneration++; client.resetConversationTransport() }
+    DisposableEffect(client) { onDispose { client.resetConversationTransport() } }
     var loading by remember { mutableStateOf(false) }
     var metadata by remember { mutableStateOf<WorkspaceMetadata?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -261,20 +264,53 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
     val approvalJson = remember { Json { ignoreUnknownKeys = true } }
     LaunchedEffect(context) {
         ActionHookRuntime.initialize(context.applicationContext)
+        com.viant.agentlysdk.agui.AgUiClient.frameObservation = if (BuildConfig.DEBUG) ({ phase, characters ->
+            if (characters >= 1024 * 1024 || phase.endsWith("RUN_FINISHED") || phase.endsWith("RUN_ERROR")) {
+                val heap = Runtime.getRuntime()
+                android.util.Log.i("AgUiFrameMemory", "phase=$phase characters=$characters usedBytes=${heap.totalMemory() - heap.freeMemory()} maxBytes=${heap.maxMemory()}")
+            }
+        }) else null
     }
     val forgeRuntime = remember(scope, forgeTargetContext, appApiBaseUrl) {
         ForgeRuntime(
             endpoints = emptyMap(),
             scope = scope,
-            targetContext = forgeTargetContext
+            targetContext = forgeTargetContext,
+            reportRequestInspectionOnly = BuildConfig.DEBUG && BuildConfig.REPORT_REQUEST_INSPECTION_ONLY,
+            reportInspectionObserver = if (BuildConfig.DEBUG) ({ prepared: com.viant.forgeandroid.runtime.PreparedReportRequest ->
+                val request = prepared.primaryRequest
+                val filters = request["filters"] as? JsonObject
+                val safeScope = filters?.filterKeys { it in setOf("From", "To", "advertiserId", "advertiserIds", "campaignIds", "orderIds", "lineItemIds") }
+                val measureCount = (request["measures"] as? JsonObject)?.size ?: 0
+                val dimensionCount = (request["dimensions"] as? JsonObject)?.size ?: 0
+                android.util.Log.i("ReportRequestInspection", "inspectionOnly=${BuildConfig.REPORT_REQUEST_INSPECTION_ONLY} status=${prepared.status} identity=${prepared.identity} source=${prepared.dataSourceRef} scope=$safeScope measures=$measureCount dimensions=$dimensionCount sources=${prepared.publishedSources.size}")
+                if (prepared.status == "ready") prepared.publishedSources.forEach { source ->
+                    val scoped = (prepared.state["reportDatasetScopeParams"] ?: prepared.state["datasetScopeParams"]) as? JsonObject
+                    val plan = com.viant.forgeandroid.runtime.preparePublishedReportRequest(prepared.identity, prepared, source, scoped)
+                    val publishedFilters = (plan.request?.get("filters") as? JsonObject)?.filterKeys { it in setOf("From", "To", "advertiserId", "advertiserIds", "campaignIds", "orderIds", "lineItemIds") }
+                    android.util.Log.i("ReportRequestInspection", "published=${source.id} source=${source.dataSourceRef} status=${plan.status} scope=$publishedFilters")
+                }
+
+            }) else null,
+            frozenReportInspectionObserver=if(BuildConfig.DEBUG) ({ windowId,reason -> android.util.Log.d("FrozenReportProof","window=$windowId reason=$reason") }) else null
         ).also { runtime ->
+            runtime.nativeReportLifecycle.register(makeNativeReportRunLifecycleHandler(client,
+                if (BuildConfig.DEBUG) ({ phase, reportRunId, contextStatus -> android.util.Log.i("NativeReportLifecycle", "phase=$phase run=$reportRunId contextStatus=$contextStatus") }) else null))
             runtime.registerExternalURLHandler { href ->
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(href)))
             }
             runtime.registerWindowMetadataRequestLoader(
                 makeForgeAgentlyWindowMetadataLoader(client, forgeTargetContext)
             )
-            runtime.registerDataSourceLoader(makeForgeAgentlyDataSourceLoader(client))
+            val nativeLoader = makeForgeAgentlyDataSourceLoader(client)
+            runtime.registerDataSourceLoader { request ->
+                if (BuildConfig.DEBUG && runtime.metadataSignal(request.windowId).peek()?.let { request.dataSourceRef in com.viant.forgeandroid.runtime.reportOwnedDataSourceRefs(it) } == true) {
+                    val filters = request.input.parameters["filters"] as? Map<*, *>
+                    val safeScope = filters?.filterKeys { it in setOf("From", "To", "advertiserId", "advertiserIds", "campaignIds", "orderIds", "lineItemIds") }
+                    android.util.Log.i("ReportRequestDispatch", "window=${request.windowId} source=${request.dataSourceRef} scope=$safeScope")
+                }
+                nativeLoader(request)
+            }
             registerScheduleHandlers(runtime, client) { filter ->
                 scheduleHistoryFilter = filter
                 currentScreen = AppScreen.History
@@ -342,7 +378,6 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
                     (commandResult["ok"] as? JsonPrimitive)?.booleanOrNull == true
                 ) {
                     loading = false
-                    markLatestSubmittedUserEntryDelivered(transcript)
                     error = null
                 }
                 commandResult
@@ -485,12 +520,15 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
         state: AuthState
     ) {
         if (state == AuthState.Required) themeRuntime.clear(forgetAccount = true)
+        if (authUser?.subject != user?.subject || state == AuthState.Required) resetNativeConversationTransport()
+        forgeRuntime.bindNativeReportAccount(user?.subject?.takeIf { state == AuthState.Ready })
         authProviders = providers
         authUser = user
         authState = state
     }
 
     fun setAuthState(state: AuthState) {
+        if (state == AuthState.Required) resetNativeConversationTransport()
         if (state == AuthState.Required) themeRuntime.clear(forgetAccount = true)
         authState = state
     }
@@ -724,6 +762,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
     }
 
     fun resetWorkspaceForBaseUrl(baseUrl: String) {
+        resetNativeConversationTransport()
         themeRuntime.clear()
         val resetState = buildWorkspaceSessionReset()
         authSessionId = null
@@ -881,6 +920,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
     }
 
     fun clearAuthSecrets() {
+        resetNativeConversationTransport()
         themeRuntime.clear(forgetAccount = true)
         authSessionId = null
         sessionCookieJar.clear()
@@ -1012,6 +1052,17 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
     }
 
     fun applyConversationSnapshot(snapshot: ConversationStreamSnapshot) {
+        if (snapshot.conversationId != activeConversationId) return
+        snapshot.canonicalTranscript?.let { conversationState = it }
+        var ownedRequestAccepted = false
+        snapshot.userMessageAliases.forEach { (clientId, nativeId) ->
+            val index = transcript.indexOfFirst { it.id == clientId && it.role.equals("user", true) }
+            if (index >= 0) {
+                ownedRequestAccepted = ownedRequestAccepted || transcript[index].deliveryState in setOf("sending", "waiting", "pending")
+                if (transcript.any { it.id == nativeId && it.id != clientId }) transcript.removeAt(index)
+                else transcript[index] = transcript[index].copy(id = nativeId, deliveryState = null)
+            }
+        }
         val previousSnapshot = streamSnapshot
         val completedTurnId = previousSnapshot?.activeTurnId?.trim().orEmpty()
             .takeIf { it.isNotBlank() && snapshot.activeTurnId.isNullOrBlank() }
@@ -1023,6 +1074,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
             }
         }
         streamSnapshot = snapshot
+        snapshot.transportError?.let(::setVisibleError)
         resolveMCPAuthElicitationTarget(snapshot.pendingElicitation)?.let { target ->
             if (mcpAuthElicitationTarget != target) {
                 mcpAuthElicitationTarget = target
@@ -1035,9 +1087,8 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
             activeConversationId = snapshot.conversationId
         }
         streamedMarkdown = latestAssistantMarkdown(snapshot) ?: streamedMarkdown
-        if (streamSnapshotHasAcceptedActivity(snapshot)) {
+        if (ownedRequestAccepted) {
             loading = false
-            markLatestSubmittedUserEntryDelivered(transcript)
             setVisibleError(null)
         }
     }
@@ -1064,10 +1115,11 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
     }
 
     fun handleConversationStreamError(err: Throwable) {
-        applyVisibleAppError(err)
+        if (err.message?.contains("401") == true) setAuthRequired(err) else applyVisibleAppError(err)
     }
 
     fun startConversationStream(client: AgentlyClient, conversationId: String) {
+        val streamGeneration = conversationGeneration
         streamJob = scope.launch {
             var sawActiveTurn = false
             try {
@@ -1075,6 +1127,11 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
                     conversationId,
                     maxResponseBytes = conversationPolicy.maxTranscriptResponseBytes
                 ).collect { snapshot ->
+                    if (streamGeneration != conversationGeneration || snapshot.conversationId != activeConversationId) return@collect
+                    if (snapshot.transportError?.contains("401") == true) {
+                        setAuthRequired(IllegalStateException(snapshot.transportError))
+                        return@collect
+                    }
                     val previousActiveTurnId = streamSnapshot?.activeTurnId
                     applyConversationSnapshot(snapshot)
                     if (!snapshot.activeTurnId.isNullOrBlank()) {
@@ -1423,6 +1480,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
                     activeConversationId = activeConversationId,
                     effectiveAgentId = effectiveAgentId,
                     prompt = preparedQuerySubmission.effectivePrompt,
+                    clientMessageId = preparedQuerySubmission.entryId,
                     attachments = resolvedDraft.attachments,
                     queryContext = buildClientQueryContext(
                         formFactor = formFactor,
@@ -1462,7 +1520,10 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
                                     includeFeeds = true,
                                     maxResponseBytes = conversationPolicy.maxTranscriptResponseBytes
                                 )
-                            }.getOrNull()?.takeIf { submittedTurnWasAccepted(it, prompt) }
+                            }.getOrNull()?.takeIf {
+                                val requestId = userEntryId
+                                requestId != null && recoveryClient.isConversationRequestAdmitted(conversationId, requestId)
+                            }
                             if (recovered != null) break
                             if (attempt < 2) delay(350)
                         }
@@ -1811,6 +1872,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
                 val account = if (subject.isEmpty()) "" else kotlinx.serialization.json.JsonArray(listOf(
                     JsonPrimitive(authUser?.provider.orEmpty()), JsonPrimitive(subject))).toString()
                 themeRuntime.refresh(currentMetadata, appApiBaseUrl, account) { client.getWorkspaceThemeCatalog(it) }
+                themeRuntime.refreshFonts(context.cacheDir) { client.getWorkspaceFont(it) }
             }
         }
     }

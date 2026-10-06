@@ -519,3 +519,17 @@ describe('ChatFeedFromChatStore', () => {
     expect(html).not.toContain('Turn started');
   });
 });
+
+describe('native conversation-level feed ownership',()=>{
+  it('renders unbound Goal/Queue only on latest native turn while retaining per-turn feed slots',()=>{
+    toolFeedDetailSpy.mockClear();
+    const rows=[{kind:'assistant',renderKey:'old',turnId:'old-turn',content:'Old'},{kind:'assistant',renderKey:'new',turnId:'new-turn',content:'New'}];
+    renderToStaticMarkup(h(ChatFeedFromChatStore,{conversationId:'c',rowsOverride:rows}));
+    expect(toolFeedDetailSpy.mock.calls.map(call=>[call[0].turnId,call[0].includeConversationFeeds])).toEqual([['old-turn',false],['new-turn',true]]);
+  });
+  it('standard-profile rows never mount native Goal/Queue/feed surfaces',()=>{
+    toolFeedDetailSpy.mockClear();
+    renderToStaticMarkup(h(ChatFeedFromChatStore,{conversationId:'',rowsOverride:[{kind:'assistant',renderKey:'standard',turnId:'foreign',content:'Foreign',connectionProfile:'standard',hostEffectsAllowed:false}]}));
+    expect(toolFeedDetailSpy).not.toHaveBeenCalled();
+  });
+});

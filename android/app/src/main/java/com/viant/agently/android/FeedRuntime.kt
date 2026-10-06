@@ -28,7 +28,7 @@ internal data class FeedCollections(
     val collections: Map<String, List<Map<String, Any?>>>
 )
 
-internal fun buildFeedWindowMetadata(payload: FeedDataResponse): WindowMetadata {
+internal fun buildFeedWindowMetadata(payload: FeedDataResponse, sharedMetadata: WindowMetadata? = null): WindowMetadata {
     val ui = payload.ui ?: error("Feed ${payload.feedId ?: payload.title ?: "unknown"} is missing ui metadata")
     val content = decodeFeedContent(ui)
     val dataSources = decodeFeedDataSources(payload.dataSources).toMutableMap()
@@ -41,13 +41,43 @@ internal fun buildFeedWindowMetadata(payload: FeedDataResponse): WindowMetadata 
             )
         )
     }
+    val requiredDialogs = referencedFeedLookupDialogs(payload.ui)
+    val dialogs = sharedMetadata?.dialogs.orEmpty().filter { it.id in requiredDialogs }
+    val dialogSources = linkedSetOf<String>()
+    fun visit(container: ContainerDef) {
+        container.dataSourceRef?.let(dialogSources::add)
+        container.containers.forEach(::visit)
+    }
+    dialogs.forEach { dialog ->
+        dialog.dataSourceRef?.let(dialogSources::add)
+        dialog.content?.let(::visit)
+    }
+    dialogSources.forEach { ref -> sharedMetadata?.dataSources?.get(ref)?.let { dataSources.putIfAbsent(ref, it) } }
     return WindowMetadata(
+        dialogs = dialogs,
         namespace = "agently.android.feed",
         dataSources = dataSources,
         view = ViewDef(
             content = content
         )
     )
+}
+
+internal fun referencedFeedLookupDialogs(ui: JsonElement?): Set<String> {
+    val ids = linkedSetOf<String>()
+    fun visit(value: JsonElement?) {
+        when (value) {
+            is JsonObject -> {
+                val lookup = value["lookup"] as? JsonObject
+                (lookup?.get("dialogId") as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf(String::isNotEmpty)?.let(ids::add)
+                value.values.forEach(::visit)
+            }
+            is JsonArray -> value.forEach(::visit)
+            else -> Unit
+        }
+    }
+    visit(ui)
+    return ids
 }
 
 private fun referencedFeedLookupDataSources(content: ContentDef): Set<String> {

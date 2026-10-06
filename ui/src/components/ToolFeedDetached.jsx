@@ -17,7 +17,7 @@ export function filterDetachedFeeds(feeds = [], conversationId = '', developerMo
   });
 }
 
-export default function ToolFeedDetached({ conversationId = '', developerMode = false, initialOpen = false }) {
+export default function ToolFeedDetached({ conversationId = '', developerMode = false, initialOpen = false, active = true }) {
   const [feeds, setFeeds] = useState(getActiveFeeds);
   const [open, setOpen] = useState(initialOpen === true);
   const [selectedFeedId, setSelectedFeedId] = useState('');
@@ -41,7 +41,7 @@ export default function ToolFeedDetached({ conversationId = '', developerMode = 
     setOpen(true);
   }, [signature]);
 
-  if (visibleFeeds.length === 0) return null;
+  if (!active || visibleFeeds.length === 0) return null;
   const selected = visibleFeeds.find((feed) => feed.feedId === selectedFeedId) || visibleFeeds[0];
   const accent = feedAccent(selected?.presentation);
 

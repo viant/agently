@@ -76,7 +76,10 @@ func pickModel(defaultModel string, models []string) string {
 }
 
 func (c *ChatCmd) ensureAuth(ctx context.Context, client *sdk.HTTPClient, providers []authProviderInfo) error {
-	if err := tryTokenAuth(ctx, client, c.Token); err == nil {
+	if resolvedToken(c.Token) != "" {
+		if err := tryTokenAuth(ctx, client, c.Token); err != nil {
+			return fmt.Errorf("authorization required: supplied token was rejected")
+		}
 		return nil
 	}
 	hasBFF := findProvider(providers, "bff") != nil

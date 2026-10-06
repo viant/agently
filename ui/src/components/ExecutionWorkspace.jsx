@@ -247,6 +247,12 @@ export function normalizeToolStep(tool = {}, group = {}) {
   };
 }
 
+export function assistantExecutionContent(page) {
+  const id = firstString(page?.assistantMessageId, page?.pageId);
+  const tools = [...(Array.isArray(page?.toolSteps) ? page.toolSteps : []), ...(Array.isArray(page?.toolCalls) ? page.toolCalls : [])];
+  return id && tools.some(tool => tool?.toolMessageId === id) ? '' : firstString(page?.content);
+}
+
 function extractExecutionGroups(turns = []) {
   const groups = [];
   for (const turn of Array.isArray(turns) ? turns : []) {
@@ -262,7 +268,7 @@ function extractExecutionGroups(turns = []) {
         sequence: firstNumber(page?.pageIndex, page?.iteration),
         iteration: firstNumber(page?.iteration),
         narration: firstString(page?.narration),
-        content: firstString(page?.content),
+        content: assistantExecutionContent(page),
         status: firstString(page?.status, turnStatus),
         finalResponse: Boolean(page?.finalResponse),
         modelSteps: Array.isArray(page?.modelSteps) ? page.modelSteps : [],
@@ -866,9 +872,9 @@ export default function ExecutionWorkspace() {
                   </div>
                 );})}
                 {group.narration ? <div className="app-execution-response narration">{group.narration}</div> : null}
-                {group.content ? (
+                {assistantExecutionContent(group) ? (
                   <div className="app-execution-response final">
-                    <RichContent content={group.content} conversationId={conversationId} messageId={firstString(group?.assistantMessageId)} />
+                    <RichContent content={assistantExecutionContent(group)} conversationId={conversationId} messageId={firstString(group?.assistantMessageId)} />
                   </div>
                 ) : null}
                     </>

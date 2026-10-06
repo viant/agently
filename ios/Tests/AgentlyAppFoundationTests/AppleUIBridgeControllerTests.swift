@@ -367,7 +367,8 @@ final class AppleUIBridgeControllerTests: XCTestCase {
                         ])])
                     ])
                 ])
-            ]
+            ],
+            conversationID: "conversation"
         )
         await runtime.setWindowFormValue(
             windowID: window.id,
@@ -394,9 +395,15 @@ final class AppleUIBridgeControllerTests: XCTestCase {
             baseURL: "http://localhost"
         )
         XCTAssertEqual(current["ok"], .bool(true))
-        XCTAssertEqual(current["canRun"], .bool(true))
+        XCTAssertEqual(current["canRun"], .bool(false))
+        XCTAssertEqual(current["preparationStatus"], .string("pending"))
         XCTAssertEqual(current["hasCompletedRun"], .bool(false))
 
+        let identity = await runtime.reportPreparationIdentity(windowID: window.id, builderRef: "testBuilder")
+        let packet = PreparedReportRequest(identity: identity, status: "ready", hookStatus: "completed", dataSourceRef: "testSource", request: ["filters": .object([:])])
+        _ = await runtime.publishPreparedReportRequest(packet)
+        await runtime.registerNativeReportLifecycleHandler(BridgeReportLifecycleFixture())
+        try await runtime.publishNativeReportAdmission(NativeReportAdmission(preparation: packet, conversationID: "conversation", stateKey: "reportBuilder:testBuilder", document: ["blocks": .array([])], datasets: [NativeReportDatasetAdmission(id: "summary", dataSourceRef: "testSource", request: packet.request)]))
         let accepted = try await handleAppleUIBridgeCommand(
             method: "ui.report.run",
             params: ["windowId": .string(window.id)],
@@ -416,7 +423,7 @@ final class AppleUIBridgeControllerTests: XCTestCase {
             windowID: window.id,
             values: [
                 "reportMaterialization": .object([
-                    "id": .string(requestID),
+                    "id": .string("durable-report-run"),
                     "requestId": .string(requestID),
                     "status": .string("completed"),
                     "materialized": .bool(true),
@@ -429,7 +436,7 @@ final class AppleUIBridgeControllerTests: XCTestCase {
         XCTAssertEqual(accepted["ok"], .bool(true))
         XCTAssertEqual(accepted["accepted"], .bool(true))
         XCTAssertEqual(accepted["materialized"], .bool(false))
-        XCTAssertEqual(accepted["materializationId"], .string(requestID))
+        XCTAssertEqual(accepted["materializationId"], .string("durable-report-run"))
         let completed = try await handleAppleUIBridgeCommand(
             method: "ui.report.getCurrent",
             params: ["windowId": .string(window.id)],
@@ -437,6 +444,14 @@ final class AppleUIBridgeControllerTests: XCTestCase {
             baseURL: "http://localhost"
         )
         XCTAssertEqual(completed["hasCompletedRun"], .bool(true))
+        XCTAssertEqual(completed["canRun"], .bool(true))
+        let invalid = PreparedReportRequest(identity: identity, status: "error", hookStatus: "completed", dataSourceRef: "testSource", request: packet.request, error: "unbound-intent")
+        _ = await runtime.publishPreparedReportRequest(invalid)
+        let unavailable = try await handleAppleUIBridgeCommand(method: "ui.report.getCurrent", params: ["windowId": .string(window.id)], forgeRuntime: runtime, baseURL: "http://localhost")
+        XCTAssertEqual(unavailable["canRun"], .bool(false))
+        XCTAssertEqual(unavailable["preparationStatus"], .string("error"))
+        XCTAssertEqual(unavailable["preparationError"], .string("unbound-intent"))
+        XCTAssertEqual(unavailable["hasCompletedRun"], .bool(true))
     }
 }
 
@@ -457,4 +472,14 @@ private extension ForgeIOSRuntime.JSONValue {
         guard case .string(let value) = self else { return nil }
         return value
     }
+}
+
+private struct BridgeReportLifecycleFixture: NativeReportLifecycleHandler {
+    func begin(admission: NativeReportAdmission, uiRunRequestID: String, origin: String) async throws -> NativeReportRunHandle {
+        NativeReportRunHandle(reportRunID: "durable-report-run", revision: 1, uiRunRequestID: uiRunRequestID, admission: admission)
+    }
+    func complete(handle: NativeReportRunHandle, rows: [String: [[String: ForgeIOSRuntime.JSONValue]]], current: @escaping @Sendable () async -> Bool) async throws -> NativeReportCompletedRun {
+        NativeReportCompletedRun(reportRunID: handle.reportRunID, revision: 2)
+    }
+    func fail(handle: NativeReportRunHandle, code: String, text: String) async throws {}
 }

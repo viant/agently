@@ -1012,6 +1012,10 @@ body {
   background: var(--app-bg, #f5f7fb);
 }
 
+.app-tool-feed-detached-drawer { z-index: 81 !important; }
+.app-tool-feed-detached-portal,
+.app-tool-feed-detached-portal > .bp6-overlay { z-index: 80 !important; }
+
 .app-tool-feed-detached-header {
   display: flex;
   align-items: center;
@@ -1056,6 +1060,23 @@ body {
   flex: 1 1 auto;
   overflow: hidden;
   padding: 12px;
+}
+
+.app-tool-feed-detail--rail .app-tool-feed-detail-section {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.app-tool-feed-detail--rail .app-tool-feed-detail-section > .agently-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.app-tool-feed-detail--rail .app-tool-feed-detail-forge {
+  display: flex;
+  flex-direction: column;
 }
 
 .app-tool-workspace-card {
@@ -5377,4 +5398,21 @@ span.app-workspace-breadcrumb-chip.is-current { background: rgba(222, 234, 253, 
 .app-summary-conversation.is-composer-only [data-testid="chat-composer"] {
   position: relative;
   bottom: auto !important;
+}
+
+.app-backend-select {
+  max-width: 220px;
+  padding: 5px 8px;
+  border: 1px solid var(--app-border-color, #d8dde6);
+  border-radius: 8px;
+  background: var(--app-panel-bg, #fff);
+  color: inherit;
+  font: inherit;
+}
+
+.app-agui-remote-conversation [data-testid="chat-composer-input"] {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
 }

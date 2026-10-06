@@ -1,5 +1,8 @@
 package com.viant.agently.android
 
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+
 import com.viant.agentlysdk.DownloadFileOutput
 import com.viant.agentlysdk.GeneratedFileEntry
 import com.viant.agentlysdk.PendingToolApproval
@@ -23,6 +26,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -35,6 +39,47 @@ import java.util.concurrent.atomic.AtomicInteger
 class QueryRuntimeTest {
 
     @Test
+    fun `bridge registry exposes logical dataset contexts without inventing a physical primary`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val runtime = ForgeRuntime(emptyMap(), scope)
+        try {
+            runtime.openWindowInline("W", metadata = WindowMetadata(dataSources = mapOf("cube" to DataSourceDef(), "unused" to DataSourceDef())), conversationId = "conversation")
+            val window = runtime.windowContext("W")
+            window.contextForInstance("reportDocument:summary", "cube").collection.set(listOf(mapOf("grain" to "summary")))
+            window.contextForInstance("reportDocument:daily", "cube").collection.set(listOf(mapOf("grain" to "daily")))
+            val registry = nativeWindowDataSourceSnapshot(runtime, "W")
+            assertEquals(setOf("summary", "daily"), registry.keys)
+            assertEquals(JsonPrimitive("cube"), registry.getValue("daily").let { it as JsonObject }["dataSourceRef"])
+            window.context("cube").collection.set(listOf(mapOf("grain" to "primary")))
+            val snapshot = buildAndroidUIBridgeSnapshot("conversation", runtime).windows.first { it.windowId == "W" }
+            assertEquals(setOf("summary", "daily", "cube"), snapshot.dataSources.keys)
+            val primary = (snapshot.dataSources.getValue("cube") as JsonObject).getValue("collection") as JsonArray
+            assertEquals(JsonPrimitive("primary"), (primary.single() as JsonObject)["grain"])
+            assertNull(snapshot.dataSources["unused"])
+        } finally { scope.cancel() }
+    }
+
+    @Test
+    fun `inspection mode rejects report execution before accepted or materialized state`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val runtime = ForgeRuntime(emptyMap(), scope, reportRequestInspectionOnly = true)
+        try {
+            runtime.openWindowInline("inspection", metadata = WindowMetadata())
+            runtime.setWindowFormValues("inspection", mapOf("reportDefinition" to mapOf("documentPatch" to mapOf("blocks" to listOf(mapOf("id" to "one"))))))
+            val identity = com.viant.forgeandroid.runtime.ReportPreparationIdentity("inspection", "", com.viant.forgeandroid.runtime.reportPreparationFormRevision(runtime.windowContext("inspection").peekWindowForm(), runtime.metadataSignal("inspection").peek()), "ready-state")
+            runtime.publishPreparedReportRequest(com.viant.forgeandroid.runtime.PreparedReportRequest(identity, "ready", "cube"))
+            val params = buildJsonObject { put("windowId", JsonPrimitive("inspection")) }
+            val current = handleAndroidUIBridgeCommand("ui.report.getCurrent", params, runtime)
+            assertEquals(false, (current["canRun"] as? JsonPrimitive)?.booleanOrNull)
+            val failure = runCatching { handleAndroidUIBridgeCommand("ui.report.run", params, runtime) }.exceptionOrNull()
+            assertTrue(failure?.message?.contains("inspection") == true)
+            val form = runtime.windowContext("inspection").peekWindowForm()
+            assertNull(form["reportRunRequest"])
+            assertNull(form["reportMaterialization"])
+        } finally { scope.cancel() }
+    }
+
+    @Test
     fun `ui report commands use exact native materialization identity`() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val runtime = ForgeRuntime(endpoints = emptyMap(), scope = scope)
@@ -43,6 +88,7 @@ class QueryRuntimeTest {
                 windowKey = "reportBuilder",
                 title = "Report",
                 windowIdOverride = "report-window-1",
+                conversationId = "conversation",
                 parameters = mapOf(
                     "reportDefinition" to mapOf(
                         "id" to "delivery_report",
@@ -74,6 +120,20 @@ class QueryRuntimeTest {
                 ),
                 replace = false
             )
+            val identity = com.viant.forgeandroid.runtime.ReportPreparationIdentity("report-window-1", "", com.viant.forgeandroid.runtime.reportPreparationFormRevision(runtime.windowContext("report-window-1").peekWindowForm(), runtime.metadataSignal("report-window-1").peek()), "test-state")
+            val prepared = com.viant.forgeandroid.runtime.PreparedReportRequest(identity, "ready", "cube")
+            runtime.publishPreparedReportRequest(prepared)
+            val document = buildJsonObject { put("blocks", JsonArray(listOf(buildJsonObject { put("id", "spend"); put("kind", "kpiBlock"); put("datasetRef", "summary") }))) }
+            val source = com.viant.forgeandroid.runtime.ReportBuilderPublishedDataSourceDef(id = "summary", dataSourceRef = "cube", request = JsonObject(emptyMap()))
+            val admittedPrepared = prepared.copy(publishedSources = listOf(source))
+            runtime.publishPreparedReportRequest(admittedPrepared)
+            runtime.nativeReportLifecycle.publish(com.viant.forgeandroid.runtime.NativeReportAdmission(admittedPrepared, "conversation", "builder-state", document,
+                listOf(com.viant.forgeandroid.runtime.NativeReportDatasetAdmission("summary", "cube", JsonObject(emptyMap())))))
+            runtime.nativeReportLifecycle.register(object : com.viant.forgeandroid.runtime.NativeReportLifecycleHandler {
+                override suspend fun begin(admission: com.viant.forgeandroid.runtime.NativeReportAdmission, uiRunRequestId: String, origin: String) = com.viant.forgeandroid.runtime.NativeReportRunHandle("durable-run-1", 1, uiRunRequestId, admission)
+                override suspend fun complete(handle: com.viant.forgeandroid.runtime.NativeReportRunHandle, rows: JsonObject, current: () -> Boolean) = com.viant.forgeandroid.runtime.NativeReportCompletedRun(handle.reportRunId, 2)
+                override suspend fun fail(handle: com.viant.forgeandroid.runtime.NativeReportRunHandle, code: String, text: String) = Unit
+            })
             val current = handleAndroidUIBridgeCommand(
                 "ui.report.getCurrent",
                 buildJsonObject { put("windowId", JsonPrimitive("report-window-1")) },
@@ -95,17 +155,22 @@ class QueryRuntimeTest {
                 delay(10)
             }
             assertTrue(requestId.isNotEmpty())
+            val rows=buildJsonObject { put("summary",JsonArray(listOf(buildJsonObject { put("value",1) }))) }
+            val handle=runtime.nativeReportLifecycle.handle(requestId)!!
+            runtime.nativeReportLifecycle.complete(handle,rows) { runtime.reportPreparationIsCurrent(it) }
             runtime.setWindowFormValues(
                 "report-window-1",
                 mapOf(
                     "reportMaterialization" to mapOf(
                         "id" to requestId,
                         "requestId" to requestId,
+                        "reportRunId" to "durable-run-1",
                         "status" to "completed",
                         "materialized" to true,
                         "datasetRefs" to listOf("summary"),
                         "rowCounts" to mapOf("summary" to 1)
-                    )
+                    ),
+                    "reportStaticDatasets" to com.viant.forgeandroid.runtime.JsonUtil.elementToAny(runtime.nativeReportLifecycle.completedDatasets(requestId)!!)
                 ),
                 replace = false,
                 bumpPrefillRevision = false
@@ -119,6 +184,15 @@ class QueryRuntimeTest {
                 runtime
             )
             assertEquals(true, (completed["hasCompletedRun"] as? JsonPrimitive)?.booleanOrNull)
+            assertEquals(true,completed["materialized"]?.jsonPrimitive?.booleanOrNull)
+            val original=runtime.nativeReportLifecycle.completedDatasets(requestId)!!
+            val changed=JsonArray(original.map { JsonObject(it.jsonObject+mapOf("rows" to JsonArray(listOf(buildJsonObject { put("value",999) })))) })
+            runtime.setWindowFormValues("report-window-1",mapOf("reportStaticDatasets" to com.viant.forgeandroid.runtime.JsonUtil.elementToAny(changed)),bumpPrefillRevision=false)
+            val rejected=handleAndroidUIBridgeCommand("ui.report.getCurrent",buildJsonObject { put("windowId","report-window-1") },runtime)
+            assertEquals(true,rejected["hasCompletedRun"]?.jsonPrimitive?.booleanOrNull)
+            assertEquals(false,rejected["materialized"]?.jsonPrimitive?.booleanOrNull)
+            assertEquals(JsonPrimitive("failed"),rejected.getValue("materialization").jsonObject["status"])
+            assertEquals("durable-run-1",runtime.nativeReportLifecycle.completed(requestId)!!.reportRunId)
         } finally {
             scope.cancel()
         }
@@ -275,7 +349,7 @@ class QueryRuntimeTest {
     }
 
     @Test
-    fun `ui bridge data fetch returns before metadata and refreshes after load`() {
+    fun `ui bridge data fetch waits for metadata and uses mounted sources only`() {
         runBlocking {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             val runtime = ForgeRuntime(endpoints = emptyMap(), scope = scope)
@@ -302,23 +376,23 @@ class QueryRuntimeTest {
                     forgeRuntime = runtime
                 )
 
-                val response = withTimeout(1_000) {
+                val pendingResponse = async {
                     handleAndroidUIBridgeCommand(
                         method = "ui.data.fetch",
-                        params = buildJsonObject {
-                            put("windowId", JsonPrimitive("record-detail-2"))
-                        },
+                        params = buildJsonObject { put("windowId", JsonPrimitive("record-detail-2")) },
                         forgeRuntime = runtime
                     )
                 }
-
-                assertEquals(true, (response["ok"] as? JsonPrimitive)?.booleanOrNull)
+                delay(100)
                 assertEquals(0, fetchAttempts.get())
+                runtime.registerVisibleWindowDependency("record-detail-2", "detail")
                 metadata.complete(
                     WindowMetadata(
                         dataSources = mapOf("detail" to DataSourceDef())
                     )
                 )
+                val response = withTimeout(2_000) { pendingResponse.await() }
+                assertEquals(true, (response["ok"] as? JsonPrimitive)?.booleanOrNull)
                 val request = withTimeout(1_000) {
                     fetched.await()
                 }

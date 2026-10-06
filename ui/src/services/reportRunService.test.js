@@ -1,12 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const compilerClient = vi.hoisted(() => ({ executeTool: vi.fn() }));
+vi.mock('./agentlyClient', () => ({ client: compilerClient }));
+
 import {
+  compileReportRun,
   activateReportRun,
   adoptReportRun,
   beginReportRun,
   completeReportRun,
   failReportRun,
   getReportRunContext,
+  getCompletedReportRun,
 } from './reportRunService';
 
 afterEach(() => {
@@ -22,6 +27,19 @@ function response(status, body) {
 }
 
 describe('reportRunService', () => {
+  it('reads a materialization using credentials and exact conversation scope without a mutation', async () => {
+    const fetcher = vi.fn(async () => response(200, {reportRunId: 'run/1', conversationId: 'conv/1', status: 'completed'}));
+    vi.stubGlobal('fetch', fetcher);
+    await expect(getCompletedReportRun({reportRunId: 'run/1', conversationId: 'conv/1'})).resolves.toMatchObject({status: 'completed'});
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const [url, init] = fetcher.mock.calls[0];
+    expect(url).toContain('/api/report-runs/run%2F1?conversationId=conv%2F1');
+    expect(init.method).toBe('GET');
+    expect(init.credentials).toBe('include');
+    expect(init.body).toBeUndefined();
+    expect(() => getCompletedReportRun({reportRunId: 'run/1'})).toThrow('conversationId');
+  });
+
   it('treats only an absent default-closed route as legacy feature off', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: false,
@@ -251,5 +269,37 @@ describe('reportRunService', () => {
         source: 'manual',
       },
     ]);
+  });
+});
+
+
+describe('linked report compiler', () => {
+  it('uses the BFF SDK with exact scope, admission ref and unchanged fence data', async () => {
+    const artifacts = { reportSpec: { server: 1 }, reportFill: { server: 2 }, reportPrint: { server: 3 } };
+    compilerClient.executeTool.mockResolvedValueOnce(JSON.stringify(artifacts));
+    const input = { conversationId: 'conversation', reportId: 'stable-id', reportAdmissionRef: ' opaque/ref ', fences: [{ kind: 'forge-data', payload: { data: [{ value: 0 }], sourceBindings: { opaque: 'retained' } } }], invocation: { source: { id: 'source' } } };
+    await expect(compileReportRun(input)).resolves.toEqual(artifacts);
+    const { conversationId, ...args } = input;
+    expect(compilerClient.executeTool).toHaveBeenLastCalledWith('reporting:compile_fenced_report', args, { conversationId });
+    expect(args).not.toHaveProperty('_agentlyForecastCommand');
+  });
+  it('rejects missing identities and incomplete server artifacts', async () => {
+    await expect(compileReportRun({ reportId: 'id' })).rejects.toThrow('identities');
+    compilerClient.executeTool.mockResolvedValueOnce('{}');
+    await expect(compileReportRun({ conversationId: 'c', reportId: 'id', reportAdmissionRef: 'ref' })).rejects.toThrow('artifacts');
+  });
+});
+
+
+describe('linked report admission', () => {
+  it('returns the opaque reference only after exact server-linkage and original-param validation', async () => {
+    const input = { uiRunRequestId: '12345678-1234-1234-1234-123456789ABC', reportAdmissionRef: ' opaque/ref ', requestedParams: { filters: { order: [7] } } };
+    const run = { reportRunId: 'run', revision: 1, status: 'running', requestedParams: { ...input.requestedParams, _agentlyForecastCommand: { version: 1, ref: input.reportAdmissionRef, requestId: input.uiRunRequestId } } };
+    const fetchMock = vi.fn().mockResolvedValueOnce(response(200, { run }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(beginReportRun(input)).resolves.toMatchObject({ reportAdmissionRef: input.reportAdmissionRef });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).requestedParams).not.toHaveProperty('_agentlyForecastCommand');
+    fetchMock.mockResolvedValueOnce(response(200, { run: { ...run, requestedParams: { ...run.requestedParams, filters: { order: [8] } } } }));
+    await expect(beginReportRun(input)).rejects.toThrow('identity and request');
   });
 });
