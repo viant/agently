@@ -80,7 +80,7 @@ export default defineConfig(({ mode, command }) => {
   const devHost = resolveDevHost(env);
   const devPort = resolveDevPort(env);
   const uiRoot = __dirname;
-  const forgeRoot = resolve(__dirname, '../../forge-ag-ui');
+  const forgeRoot = resolve(__dirname, '../../forge');
   const forgeNodeModules = resolve(uiRoot, 'node_modules/forge');
   const appNodeModules = resolve(uiRoot, 'node_modules');
 
@@ -99,7 +99,7 @@ export default defineConfig(({ mode, command }) => {
         '@codemirror/language'
       ],
       alias: {
-        'agently-core-ui-sdk': resolve(__dirname, '../../agently-core-ag-ui/sdk/ts/src'),
+        'agently-core-ui-sdk': resolve(__dirname, '../../agently-core/sdk/ts/src'),
         forge: resolve(forgeRoot, 'src'),
         react: resolve(appNodeModules, 'react'),
         'react-dom': resolve(appNodeModules, 'react-dom'),
@@ -187,7 +187,7 @@ export default defineConfig(({ mode, command }) => {
           manualChunks(id) {
             if (id.includes('/node_modules/mermaid/')) return 'mermaid';
             if (id.includes('/node_modules/@codemirror/') || id.includes('/node_modules/codemirror/')) return 'code-editor';
-            if (id.includes('/forge-ag-ui/src/reporting/') || id.includes('/forge-ag-ui/src/components/dashboard/')) return 'forge-reporting';
+            if (id.includes('/forge/src/reporting/') || id.includes('/forge/src/components/dashboard/')) return 'forge-reporting';
             return undefined;
           }
         }
