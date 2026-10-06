@@ -1,9 +1,10 @@
+import ElicitationTiming from '../ElicitationTiming';
 import ElicitationMessage from '../ElicitationMessage';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Button, Dialog, Classes, Spinner } from '@blueprintjs/core';
 import SchemaBasedForm from 'forge/widgets/SchemaBasedForm.jsx';
 import { client } from '../../services/agentlyClient';
-import { dsTick } from '../../services/chatRuntime';
+import { refreshAfterElicitationResolution } from '../../services/chatRuntime';
 import { getScopedConversationSelection, MAIN_CHAT_WINDOW_ID } from '../../services/conversationWindow';
 import {
   collectElicitationFormValues,
@@ -25,6 +26,8 @@ export function parseConversationAndElicitation(message = {}) {
     elicitationId: String(target.elicitationId || '').trim()
   };
 }
+
+const EMPTY_FORM_DATA = Object.freeze({});
 
 export default function ElicitationForm({ message, context, onResolved = null }) {
   const elicitation = message?.elicitation || {};
@@ -69,7 +72,7 @@ export default function ElicitationForm({ message, context, onResolved = null })
     setError('');
     try {
       await client.resolveElicitation(ids.conversationId, ids.elicitationId, { action: resolvedAction, payload: resolvedPayload });
-      await dsTick(context, { conversationID: ids.conversationId });
+      await refreshAfterElicitationResolution(context, { conversationID: ids.conversationId, elicitationID: ids.elicitationId, turnID: message?.turnId || elicitation?.turnId, action: resolvedAction });
       setClosed(true);
       onResolved?.(resolvedAction);
     } catch (err) {
@@ -98,17 +101,18 @@ export default function ElicitationForm({ message, context, onResolved = null })
       enforceFocus={false}
       autoFocus={false}
       title={approvalMeta?.title || 'Needs your input'}
-      style={{ width: '100%', maxWidth: 520 }}
+      style={{ width: 'calc(100vw - 32px)', maxWidth: 520 }}
     >
       <div className={Classes.DIALOG_BODY}>
         <ElicitationMessage message={prompt} />
+        {!approvalMeta ? <ElicitationTiming source={message} /> : null}
         {approvalMeta?.toolName ? <p style={{ marginBottom: 12 }}><strong>Tool:</strong> {approvalMeta.toolName}</p> : null}
         {
           <div id={formWrapperId.current}>
             <SchemaBasedForm
               showSubmit={false}
               schema={preparedSchema}
-              data={{}}
+              data={EMPTY_FORM_DATA}
               dataBinding={dataBindingKey}
               context={context}
               onChange={(payload) => {
@@ -125,7 +129,7 @@ export default function ElicitationForm({ message, context, onResolved = null })
       <div className={Classes.DIALOG_FOOTER}>
         <div className={Classes.DIALOG_FOOTER_ACTIONS}>
           {submitting ? <Spinner size={16} /> : null}
-          <Button minimal onClick={handleDecline} disabled={submitting}>{approvalMeta?.rejectLabel || 'Decline'}</Button>
+          <Button minimal onClick={handleDecline} disabled={submitting}>{approvalMeta?.rejectLabel || 'Skip'}</Button>
           <Button onClick={handleCancel} disabled={submitting}>{approvalMeta?.cancelLabel || 'Cancel'}</Button>
           <Button
             intent="primary"
