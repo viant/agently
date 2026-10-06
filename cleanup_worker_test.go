@@ -1,8 +1,10 @@
 package agently
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
 	"reflect"
 	"strings"
 	"sync"
@@ -11,6 +13,36 @@ import (
 
 	agentlyrt "github.com/viant/agently/runtime"
 )
+
+func TestConversationCleanupCandidateDurationRequiresDebug(t *testing.T) {
+	for _, debug := range []bool{false, true} {
+		var logs bytes.Buffer
+		writer, flags := log.Writer(), log.Flags()
+		log.SetOutput(&logs)
+		log.SetFlags(0)
+		policy := eligibleConversationCleanupPolicy("test", "success", "skip", "failed")
+		policy.failures = map[string]error{"failed": errors.New("test failure")}
+		policy.outcomes["skip"] = conversationCleanupOutcome{Reason: "recent_activity"}
+		result, err := runConversationCleanupPolicy(context.Background(), policy, 3, debug)
+		log.SetOutput(writer)
+		log.SetFlags(flags)
+		if err != nil || result.Failed != 1 || result.Skipped != 1 || result.Eligible != 1 {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+		if debug {
+			if strings.Count(logs.String(), "duration=") != 3 {
+				t.Fatalf("missing candidate timings: %s", logs.String())
+			}
+			for _, id := range []string{"success", "skip", "failed"} {
+				if !strings.Contains(logs.String(), "root="+id) {
+					t.Fatalf("missing candidate %s: %s", id, logs.String())
+				}
+			}
+		} else if logs.Len() != 0 {
+			t.Fatalf("debug disabled: %s", logs.String())
+		}
+	}
+}
 
 func newTestConversationCleanupWorker(options agentlyrt.ConversationCleanupOptions, policies ...conversationCleanupPolicy) *conversationCleanupWorker {
 	return newConversationCleanupWorker(&recordingConversationCleanupData{}, options, policies...)
