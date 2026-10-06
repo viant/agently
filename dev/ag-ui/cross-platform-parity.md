@@ -12,6 +12,12 @@ The earlier browser session recorded a campaign lookup HTTP 500 caused by MCP di
 
 The lookup failure subsequently reproduced on a fresh load after approximately 35 seconds: `ad_order_lookup/fetch` returned HTTP 500 after the remote MCP discovery/initialization connection timed out. This remains a current error, independently of the corrected transcript projection.
 
+Later native verification: both rebuilt clients cold-opened `7754bfda` through their History screens. Android shows the user prompt, one preliminary findings section, narration, final report and Tools (10). iOS shows the same distinct transcript entries; its preliminary heading is visually present after scrolling to the top. Both open the saved report with $4 spend, 3,183 impressions, 11,089 bids and nine clicks. No contract/classification JSON appears in the transcript. This checks restoration of the Android-created starter; it is not an independent fresh iOS starter submission.
+
+The device review caught another discrepancy: narration showed 4:07 PM on iOS because canonical narration dropped the stored timestamp and serialized Go's year-one zero. Core now preserves the original narration time, and iOS suppresses unknown/zero timestamps instead of substituting the turn time. The installed iOS app now shows narration at 5:32 PM between the 5:31 PM user prompt and 5:33 PM final report. Go narration regressions and all 207 iOS app tests pass; the Endly rebuild took 42.931 seconds.
+
+VPN routing to Steward is present via `utun8`, and its MCP port is reachable. A new local page load returns HTTP 200 for the order lookup. The regular production campaign picker also now resolves Daybright Coffee (563259). An actual regular Review campaign performance starter was submitted once, conversation `d1f606ec-856e-4f5e-aa03-828db6105534`, with the same canonical prompt as the local campaign trial. Its backend status is still running at this checkpoint; result/tab/source/cold comparisons remain pending. The historical timeout remains recorded but no longer prevents this lookup retry.
+
 Canonical message preservation changes are committed on Core `35dcb3f3` and Agently `f18638d2`. Go SDK and native app tests passed; device acceptance of the full interim/narration/final transcript is still pending. Forge's previous changes are committed at `384ece4`. Dependency edits remain outside these commits because the published Datly revision lacks the tested SQL projection repair.
 
 ## Required outcome

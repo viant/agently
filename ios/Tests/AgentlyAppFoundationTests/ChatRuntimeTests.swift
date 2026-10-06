@@ -415,6 +415,24 @@ final class ChatRuntimeTests: XCTestCase {
         XCTAssertEqual(runtime.transcript.filter { $0.id == "final" }.count, 1)
     }
 
+
+    @MainActor
+    func testColdNarrationUnknownTimestampIsOmittedAndDurableTimestampPreserved() {
+        let runtime = ChatRuntime()
+        for raw in [nil, "0001-01-01T00:00:00Z", "0001-01-01T00:00:00.000Z"] as [String?] {
+            runtime.replaceTranscript(from: ConversationStateResponse(conversation: ConversationState(conversationID: "c", turns: [
+                TurnState(turnID: "t", assistant: AssistantState(narration: AssistantMessageState(messageID: "n", content: "Checking results", createdAt: raw)), createdAt: "2026-10-05T17:31:23-07:00")
+            ])))
+            XCTAssertNil(runtime.transcript.first?.timestampLabel)
+        }
+        let time = "2026-10-05T17:32:55-07:00"
+        runtime.replaceTranscript(from: ConversationStateResponse(conversation: ConversationState(conversationID: "c", turns: [
+            TurnState(turnID: "t", assistant: AssistantState(narration: AssistantMessageState(messageID: "n", content: "Checking results", createdAt: time)))
+        ])))
+        let date = ISO8601DateFormatter().date(from: time)!
+        XCTAssertEqual(runtime.transcript.first?.timestampLabel, DateFormatter.localizedString(from: date, dateStyle: .none, timeStyle: .short))
+    }
+
     @MainActor
     func testReplaceTranscriptPreservesDistinctNarrationAndFinalIdentities() {
         let runtime = ChatRuntime()
