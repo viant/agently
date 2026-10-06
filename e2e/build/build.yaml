@@ -4,7 +4,7 @@ init:
 pipeline:
   buildUI:
     action: exec:run
-    TimeoutMs: 120000
+    TimeoutMs: 600000
     description: build and embed UI
     checkError: true
     commands:
