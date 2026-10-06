@@ -79,8 +79,8 @@ model input and optional speech transcription depend on the chosen adapter.
 Context management derives the model-visible history from durable conversation
 state. Limits, pruning and overflow recovery are configurable; proactive
 percentage-based compaction is an optional agent setting. See the
-[context guide](https://github.com/viant/agently-core/blob/ag-ui/doc/context-management.md)
-and [compaction settings](https://github.com/viant/agently-core/blob/ag-ui/doc/proactive-context-compaction.md).
+[context guide](https://github.com/viant/agently-core/blob/main/doc/context-management.md)
+and [compaction settings](https://github.com/viant/agently-core/blob/main/doc/proactive-context-compaction.md).
 
 ## Build and run
 
@@ -167,8 +167,8 @@ match:
 ```
 
 These are configuration fragments, not a complete provider setup. The
-[workspace](https://github.com/viant/agently-core/blob/ag-ui/doc/workspace-system.md)
-and [agent authoring](https://github.com/viant/agently-core/blob/ag-ui/doc/prompts.md)
+[workspace](https://github.com/viant/agently-core/blob/main/doc/workspace-system.md)
+and [agent authoring](https://github.com/viant/agently-core/blob/main/doc/prompts.md)
 guides describe these contracts.
 
 Workspace YAML can import reusable fragments and parameterize them in a scoped
@@ -183,7 +183,7 @@ scoped workspace CSS control appearance; web CSS remains web styling, while
 native renderers consume their supported theme and metadata contracts.
 Inline tool feeds and conversation-owned windows have distinct ownership and
 placement. See [workspace UI](doc/workspace-ui.md) and
-[UI ownership](https://github.com/viant/agently-core/blob/ag-ui/doc/ui-ownership-model.md).
+[UI ownership](https://github.com/viant/agently-core/blob/main/doc/ui-ownership-model.md).
 
 For integration beyond configuration, register internal tool services or connect
 MCP servers, add resource finders and application handlers through Core, and
@@ -211,17 +211,17 @@ configuration and the tool system, then follow the guide for your use case.
 
 | Topic | Guides |
 | --- | --- |
-| Architecture and execution | [Core architecture](https://github.com/viant/agently-core/blob/ag-ui/doc/architecture.md), [agent orchestration](https://github.com/viant/agently-core/blob/ag-ui/doc/agent-orchestration.md), [planning/intake](https://github.com/viant/agently-core/blob/ag-ui/doc/planning-and-intake.md) |
-| Agent authoring | [Workspace configuration](https://github.com/viant/agently-core/blob/ag-ui/doc/workspace-system.md), [intent profiles](https://github.com/viant/agently-core/blob/ag-ui/doc/prompts.md), [prompt binding](https://github.com/viant/agently-core/blob/ag-ui/doc/prompt-binding.md), [skills](https://github.com/viant/agently-core/blob/ag-ui/doc/skills.md), [templates](https://github.com/viant/agently-core/blob/ag-ui/doc/templates.md) |
-| Models, knowledge and files | [Providers](https://github.com/viant/agently-core/blob/ag-ui/doc/llm-providers.md), [knowledge augmentation](https://github.com/viant/agently-core/blob/ag-ui/doc/augmentation.md), [embeddings](https://github.com/viant/agently-core/blob/ag-ui/doc/embedius-embeddings.md), [resources](https://github.com/viant/agently-core/blob/ag-ui/doc/resources.md), [speech](https://github.com/viant/agently-core/blob/ag-ui/doc/speech.md) |
-| Tools and interoperability | [Tool system](https://github.com/viant/agently-core/blob/ag-ui/doc/tool-system.md), [internal tools](https://github.com/viant/agently-core/blob/ag-ui/doc/internal-tools.md), [MCP integration](https://github.com/viant/agently-core/blob/ag-ui/doc/mcp-integration.md), [A2A](https://github.com/viant/agently-core/blob/ag-ui/doc/a2a-protocol.md) |
-| Human input and approvals | [Elicitation](https://github.com/viant/agently-core/blob/ag-ui/doc/elicitation-system.md), [lookups](https://github.com/viant/agently-core/blob/ag-ui/doc/lookups.md), [schema overlays](https://github.com/viant/agently-core/blob/ag-ui/doc/overlays.md), [approval policy](https://github.com/viant/agently-core/blob/ag-ui/doc/approval.md) |
-| Goals, schedules and background work | [Goals](https://github.com/viant/agently-core/blob/ag-ui/doc/autonomous.md), [scheduler](https://github.com/viant/agently-core/blob/ag-ui/doc/scheduler.md), [async operations](https://github.com/viant/agently-core/blob/ag-ui/doc/async.md), [follow-up chains](https://github.com/viant/agently-core/blob/ag-ui/doc/followup-chains.md) |
-| UI and reporting | [Workspace UI and appearance](doc/workspace-ui.md), [architecture](https://github.com/viant/agently-core/blob/ag-ui/doc/architecture.md), [UI ownership](https://github.com/viant/agently-core/blob/ag-ui/doc/ui-ownership-model.md), [feeds](https://github.com/viant/agently-core/blob/ag-ui/doc/feed-system.md), [MCP UI](https://github.com/viant/agently-core/blob/ag-ui/doc/mcp-ui.md) |
-| Client integration | [SDK guide](https://github.com/viant/agently-core/blob/ag-ui/doc/sdk.md), [AG-UI operation matrix](https://github.com/viant/agently-core/blob/ag-ui/doc/ag-ui-operation-matrix.md), [iOS](doc/ios.md), [Android](doc/android.md) |
-| Security and persistence | [Authentication](https://github.com/viant/agently-core/blob/ag-ui/doc/auth-system.md), [authorization policy](https://github.com/viant/agently-core/blob/ag-ui/doc/authorization-policy.md), [conversation model](https://github.com/viant/agently-core/blob/ag-ui/doc/conversation-model.md), [storage contracts](https://github.com/viant/agently-core/blob/ag-ui/doc/conversation-model.md), [cleanup](doc/database-cleanup.md) |
+| Architecture and execution | [Core architecture](https://github.com/viant/agently-core/blob/main/doc/architecture.md), [agent orchestration](https://github.com/viant/agently-core/blob/main/doc/agent-orchestration.md), [planning/intake](https://github.com/viant/agently-core/blob/main/doc/planning-and-intake.md) |
+| Agent authoring | [Workspace configuration](https://github.com/viant/agently-core/blob/main/doc/workspace-system.md), [intent profiles](https://github.com/viant/agently-core/blob/main/doc/prompts.md), [prompt binding](https://github.com/viant/agently-core/blob/main/doc/prompt-binding.md), [skills](https://github.com/viant/agently-core/blob/main/doc/skills.md), [templates](https://github.com/viant/agently-core/blob/main/doc/templates.md) |
+| Models, knowledge and files | [Providers](https://github.com/viant/agently-core/blob/main/doc/llm-providers.md), [knowledge augmentation](https://github.com/viant/agently-core/blob/main/doc/augmentation.md), [embeddings](https://github.com/viant/agently-core/blob/main/doc/embedius-embeddings.md), [resources](https://github.com/viant/agently-core/blob/main/doc/resources.md), [speech](https://github.com/viant/agently-core/blob/main/doc/speech.md) |
+| Tools and interoperability | [Tool system](https://github.com/viant/agently-core/blob/main/doc/tool-system.md), [internal tools](https://github.com/viant/agently-core/blob/main/doc/internal-tools.md), [MCP integration](https://github.com/viant/agently-core/blob/main/doc/mcp-integration.md), [A2A](https://github.com/viant/agently-core/blob/main/doc/a2a-protocol.md) |
+| Human input and approvals | [Elicitation](https://github.com/viant/agently-core/blob/main/doc/elicitation-system.md), [lookups](https://github.com/viant/agently-core/blob/main/doc/lookups.md), [schema overlays](https://github.com/viant/agently-core/blob/main/doc/overlays.md), [approval policy](https://github.com/viant/agently-core/blob/main/doc/approval.md) |
+| Goals, schedules and background work | [Goals](https://github.com/viant/agently-core/blob/main/doc/autonomous.md), [scheduler](https://github.com/viant/agently-core/blob/main/doc/scheduler.md), [async operations](https://github.com/viant/agently-core/blob/main/doc/async.md), [follow-up chains](https://github.com/viant/agently-core/blob/main/doc/followup-chains.md) |
+| UI and reporting | [Workspace UI and appearance](doc/workspace-ui.md), [architecture](https://github.com/viant/agently-core/blob/main/doc/architecture.md), [UI ownership](https://github.com/viant/agently-core/blob/main/doc/ui-ownership-model.md), [feeds](https://github.com/viant/agently-core/blob/main/doc/feed-system.md), [MCP UI](https://github.com/viant/agently-core/blob/main/doc/mcp-ui.md) |
+| Client integration | [SDK guide](https://github.com/viant/agently-core/blob/main/doc/sdk.md), [AG-UI operation matrix](https://github.com/viant/agently-core/blob/main/doc/ag-ui-operation-matrix.md), [iOS](doc/ios.md), [Android](doc/android.md) |
+| Security and persistence | [Authentication](https://github.com/viant/agently-core/blob/main/doc/auth-system.md), [authorization policy](https://github.com/viant/agently-core/blob/main/doc/authorization-policy.md), [conversation model](https://github.com/viant/agently-core/blob/main/doc/conversation-model.md), [storage contracts](https://github.com/viant/agently-core/blob/main/doc/conversation-model.md), [cleanup](doc/database-cleanup.md) |
 
-The [Core documentation index](https://github.com/viant/agently-core/blob/ag-ui/doc/README.md)
+The [Core documentation index](https://github.com/viant/agently-core/blob/main/doc/README.md)
 links to additional design, configuration and lifecycle references.
 
 ## Development and extension
@@ -236,7 +236,7 @@ links to additional design, configuration and lifecycle references.
 
 Custom applications can register tools, connect MCP servers, configure agent
 resources, extend metadata, or compose their own shell over Core's SDKs.
-For an embedded runtime, start with the [Core architecture guide](https://github.com/viant/agently-core/blob/ag-ui/doc/architecture.md).
+For an embedded runtime, start with the [Core architecture guide](https://github.com/viant/agently-core/blob/main/doc/architecture.md).
 
 ```bash
 # Build and safely sync web assets, preserving deployment/ui/init.go
