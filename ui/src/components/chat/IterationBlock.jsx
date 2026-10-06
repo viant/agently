@@ -1305,6 +1305,7 @@ function openElicitationReview(step = {}) {
   openElicitationDialog({
     elicitationId: step?.elicitationId,
     requestedSchema: step?.requestedSchema,
+    deadline: step?.deadline,
     message: step?.message,
     callbackURL: step?.callbackURL,
     conversationId,
@@ -1935,6 +1936,7 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
           completedAt: '',
           latencyMs: null,
           requestedSchema: elic?.requestedSchema || null,
+          deadline: elic?.deadline || null,
           callbackURL: elic?.callbackUrl || elic?.callbackURL || '',
           conversationId: String(elic?.conversationId || message?.conversationId || data?.conversationId || '').trim(),
           turnId: String(elic?.turnId || message?.turnId || data?.turnId || '').trim(),

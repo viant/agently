@@ -1,9 +1,10 @@
+import ElicitationTiming from './ElicitationTiming';
 import ElicitationMessage from './ElicitationMessage';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Dialog, Classes, Spinner } from '@blueprintjs/core';
 import SchemaBasedForm from 'forge/widgets/SchemaBasedForm.jsx';
 import { client } from '../services/agentlyClient';
-import { dsTick } from '../services/chatRuntime';
+import { refreshAfterElicitationResolution } from '../services/chatRuntime';
 import { beginBrowserMCPAuth, clearPendingMCPAuth, pendingMCPAuth } from '../services/mcpAuth';
 import {
   collectElicitationFormValues,
@@ -25,6 +26,8 @@ import {
   extractLookupBindings,
   registerLookupDataSourceServices,
 } from './lookups/forgeBridge';
+
+const EMPTY_FORM_DATA = Object.freeze({});
 
 export default function ElicitationOverlay({ context }) {
   const [pendingItems, setPendingItems] = useState(getPendingElicitations);
@@ -60,7 +63,7 @@ export default function ElicitationOverlay({ context }) {
   );
 }
 
-function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
+export function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [plannerRows, setPlannerRows] = useState([]);
@@ -153,7 +156,7 @@ function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
     }
     let resolvedAction = action;
     let resolvedPayload = payload || collectFormValues();
-    if (plannerMeta) {
+    if (plannerMeta && (action === 'accept' || action === 'submit')) {
       resolvedPayload = {
         ...(resolvedPayload && typeof resolvedPayload === 'object' ? resolvedPayload : {}),
         rows: plannerRows.map((row) => ({ ...row })),
@@ -172,10 +175,7 @@ function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
         payload: resolvedPayload
       });
       removePendingElicitation({ conversationId, elicitationId }, { allConversationsForElicitation: true });
-      await dsTick(context, { conversationID: conversationId || resolveConversationId });
-      if (resolveConversationId && resolveConversationId !== conversationId) {
-        await dsTick(context, { conversationID: resolveConversationId });
-      }
+      await refreshAfterElicitationResolution(context, { conversationID: conversationId || resolveConversationId, elicitationID: resolveElicitationId, turnID: pending?.turnId, action: resolvedAction });
     } catch (err) {
       setError(String(err?.message || err || 'Failed'));
     } finally {
@@ -233,15 +233,16 @@ function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
       isOpen={true}
       canEscapeKeyClose={!submitting}
       canOutsideClickClose={!submitting}
-      onClose={() => (isResolvedHistory ? removePendingElicitation({ conversationId, elicitationId }, { allConversationsForElicitation: true }) : resolve('cancel'))}
+      onClose={() => (isResolvedHistory ? removePendingElicitation({ conversationId, elicitationId }, { allConversationsForElicitation: true }) : resolve('cancel', {}))}
       hasBackdrop={false}
       enforceFocus={false}
       autoFocus={false}
       title={`${approvalMeta?.title || 'Needs your input'}${total > 1 ? ` - ${index + 1} of ${total}` : ''}`}
-      style={{ width: '50vw', minWidth: 520, maxWidth: '80vw', marginTop: index ? 32 * index : undefined }}
+      style={{ width: 'calc(100vw - 32px)', maxWidth: 680, marginTop: index ? 32 * index : undefined }}
     >
       <div className={Classes.DIALOG_BODY}>
         <ElicitationMessage message={prompt} />
+        {!approvalMeta && !isOOB && !isResolvedHistory ? <ElicitationTiming source={pending} /> : null}
         {approvalMeta?.toolName ? (
           <div style={{ marginBottom: 12 }}>
             <strong>Tool:</strong> {approvalMeta.toolName}
@@ -306,7 +307,7 @@ function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
             <SchemaBasedForm
               showSubmit={false}
               schema={preparedSchema}
-              data={{}}
+              data={EMPTY_FORM_DATA}
               dataBinding={dataBindingKey}
               transport="post"
               context={context}
@@ -336,11 +337,11 @@ function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
             <Button onClick={() => removePendingElicitation({ conversationId, elicitationId }, { allConversationsForElicitation: true })}>Close</Button>
           ) : (
             <>
-              <Button minimal onClick={() => resolve('decline')} disabled={submitting}>
-                {approvalMeta?.rejectLabel || 'Decline'}
+              <Button minimal onClick={() => resolve('decline', {})} disabled={submitting}>
+                {approvalMeta?.rejectLabel || (isOOB ? 'Decline' : 'Skip')}
               </Button>
               {!isOOB ? (
-                <Button onClick={() => resolve('cancel')} disabled={submitting}>
+                <Button onClick={() => resolve('cancel', {})} disabled={submitting}>
                   {approvalMeta?.cancelLabel || 'Cancel'}
                 </Button>
               ) : null}

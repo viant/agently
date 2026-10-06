@@ -1109,7 +1109,7 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
   const activeChatState = typeof window !== 'undefined' ? window.__agentlyActiveChatState : null;
   const latestTurnLiveOwned = transcriptShouldBeIdle(activeChatState, normalizedConversationID);
   const pendingBootstrap = hasPendingConversationBootstrap(normalizedConversationID);
-  if (!pendingBootstrap && (hasActiveConversationTurnStream(normalizedConversationID) || latestTurnLiveOwned)) {
+  if (!options?.allowLiveHydration && !pendingBootstrap && (hasActiveConversationTurnStream(normalizedConversationID) || latestTurnLiveOwned)) {
     logExecutorDebug('transcript-fetch-deferred-to-sse-owner', {
       conversationId: normalizedConversationID,
       pendingBootstrap,
@@ -1476,6 +1476,8 @@ function shouldDeferTranscriptToLiveStream(context, conversationID = '') {
 export async function dsTick(context, options = {}) {
   const requestedConversationID = String(options?.conversationID || getCurrentConversationID(context) || '').trim();
   const chatState = ensureContextResources(context);
+  const recoveringElicitation = chatState.elicitationRecoveryConversationID === requestedConversationID;
+  const allowLiveHydration = options?.allowLiveHydration || recoveringElicitation;
   if (typeof window !== 'undefined') {
     try {
       window.__agentlyActiveChatState = chatState;
@@ -1493,7 +1495,7 @@ export async function dsTick(context, options = {}) {
   }
   const pendingBootstrapOwned = hasPendingConversationBootstrap(requestedConversationID);
   const activeStreamOwned = hasActiveConversationTurnStream(requestedConversationID);
-  if (pendingBootstrapOwned || (!options?.allowLiveHydration && (
+  if ((!allowLiveHydration && pendingBootstrapOwned) || (!allowLiveHydration && (
     activeStreamOwned || shouldDeferTranscriptToLiveStream(context, requestedConversationID)
   ))) {
     logExecutorDebug('transcript-deferred-to-live', {
@@ -1530,10 +1532,11 @@ export async function dsTick(context, options = {}) {
     });
   }
   const conversationID = requestedConversationID;
-  const since = String(chatState.lastSinceCursor || '').trim();
+  const since = recoveringElicitation ? '' : String(chatState.lastSinceCursor || '').trim();
   const transcriptOptions = options?.transcript && typeof options.transcript === 'object'
     ? options.transcript
     : {};
+  if (allowLiveHydration) transcriptOptions.allowLiveHydration = true;
   let turns = Array.isArray(options?.prefetchedTranscriptTurns)
     ? options.prefetchedTranscriptTurns
     : await fetchTranscript(conversationID, since, transcriptOptions);
@@ -1551,6 +1554,11 @@ export async function dsTick(context, options = {}) {
     routeBootstrapConversationID: conversationID,
     autoRestoreWorkspace: options?.autoRestoreWorkspace,
   });
+  if (recoveringElicitation && turns.length > 0) {
+    const stillRunning = turns.some((turn) => RUNNING_STATUSES.has(String(turn?.status || '').toLowerCase()));
+    const waitingAgain = pendingElicitations.some((item) => String(item?.elicitationId || '') !== chatState.elicitationRecoveryID);
+    if (!stillRunning || waitingAgain) chatState.elicitationRecoveryConversationID = '';
+  }
   const result = {
     projection: _chatStoreRef()?.getProjection?.(conversationID) || [],
     queuedTurns: chatState.lastQueuedTurns || [],
@@ -1580,10 +1588,45 @@ export async function dsTick(context, options = {}) {
   return result;
 }
 
+// An elicitation answer can resume native work after its original execution
+// stream ended. Hydrate through that stale ownership fence until work settles.
+export async function refreshAfterElicitationResolution(context, { conversationID, elicitationID, turnID, action } = {}) {
+  const requestedID = String(conversationID || '').trim();
+  // The app-wide overlay has no local chat context. Recover only the mounted
+  // polling owner of this conversation; another window must keep its state.
+  if (!context || (requestedID && getCurrentConversationID(context) !== requestedID)) {
+    context = Array.from(pollingOwnersByWindowId.values()).find((candidate) => getCurrentConversationID(candidate) === requestedID);
+  }
+  if (!context) return;
+  const chatState = ensureContextResources(context);
+  const visibleID = requestedID || String(getCurrentConversationID(context) || '').trim();
+  const id = String(elicitationID || '').trim();
+  if (!visibleID || !id) return;
+  chatState.elicitationRecoveryConversationID = visibleID;
+  chatState.elicitationRecoveryID = id;
+  clearPendingConversationBootstrap(visibleID);
+  removePendingElicitation({ elicitationId: id }, { allConversationsForElicitation: true });
+  const status = action === 'decline' ? 'rejected' : action === 'cancel' ? 'canceled' : 'accepted';
+  _chatStoreRef()?.onSSE?.(visibleID, {
+    type: 'elicitation_resolved', conversationId: visibleID,
+    turnId: String(turnID || canonicalActiveTurnId(chatState, visibleID) || '').trim(),
+    elicitationId: id, status,
+  });
+  setStage({ phase: 'executing', text: 'Resuming…' });
+  renderMergedRowsForContext(context);
+  try {
+    await dsTick(context, { conversationID: visibleID, allowLiveHydration: true });
+  } catch (error) {
+    logExecutorDebug('elicitation-refresh-failed', { conversationId: visibleID, error: String(error?.message || error) });
+  }
+}
+
 export function resetConversationSnapshotState(context) {
   const chatState = ensureContextResources(context);
   clearPendingStreamReconnect(chatState);
   chatState.lastSinceCursor = '';
+  chatState.elicitationRecoveryConversationID = '';
+  chatState.elicitationRecoveryID = '';
   chatState.lastTranscriptFeedsByConversation = {};
   chatState.lastQueuedTurns = [];
   chatState.lastHasRunning = false;
@@ -2277,6 +2320,7 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
           turnId: String(payload?.turnId || '').trim(),
           message: String(payload?.content || '').trim(),
           requestedSchema,
+          deadline: elicitationData?.deadline || elicitationData?.expiresAt || elicitationData?.timeoutAt || null,
           callbackURL: String(payload?.callbackUrl || '').trim(),
           url: elicUrl,
           mode: elicMode,
@@ -2932,6 +2976,12 @@ export function startPolling(context) {
       return;
     }
     if (!desiredID && !currentID) return;
+    if (chatState.elicitationRecoveryConversationID === currentID) {
+      void dsTick(context, { conversationID: currentID, allowLiveHydration: true }).catch((error) => {
+        logExecutorDebug('elicitation-refresh-failed', { conversationId: currentID, error: String(error?.message || error) });
+      });
+      return;
+    }
     const streamIsHot = !!chatState.stream
       && (Date.now() - Number(chatState.lastStreamEventAt || 0) < 6000);
     if (streamIsHot) return;

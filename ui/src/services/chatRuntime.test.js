@@ -18,7 +18,7 @@ vi.mock('./elicitationBus', () => ({
   replacePendingElicitationsForConversation: replacePendingElicitationsForConversationMock,
 }));
 
-import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, clearPendingConversationBootstrap, connectStream, createNewConversation, dsTick, enqueueConversationSwitch, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, getSettledConversationBootstrapSnapshot, handleStreamEvent, hasPendingConversationBootstrap, hydrateMeta, hydrateConversationComposerSelection, recordConversationComposerSelection, refreshGoalFeed, syncConversationComposerSelection, hydrateConversationFromBootstrapSnapshot, installChatStoreMirror, isConversationLiveish, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolvePollingConversationSelection, resolveStarterTaskCategories, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
+import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, clearPendingConversationBootstrap, connectStream, createNewConversation, dsTick, enqueueConversationSwitch, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, getSettledConversationBootstrapSnapshot, handleStreamEvent, hasPendingConversationBootstrap, hydrateMeta, hydrateConversationComposerSelection, recordConversationComposerSelection, refreshGoalFeed, refreshAfterElicitationResolution, syncConversationComposerSelection, hydrateConversationFromBootstrapSnapshot, installChatStoreMirror, isConversationLiveish, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolvePollingConversationSelection, resolveStarterTaskCategories, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
 import { client } from './agentlyClient';
 import { applyFeedEvent, clearFeedState, getFeedData, getActiveFeeds } from './toolFeedBus';
 
@@ -644,13 +644,14 @@ describe('handleStreamEvent', () => {
         elicitationId: 'elic-1',
         status: 'pending',
         content: 'Need input',
-        elicitationData: { requestedSchema: { type: 'object' } }
+        elicitationData: { requestedSchema: { type: 'object' }, deadline: '2026-10-06T18:00:00Z' }
       });
       expect(conversationState.values).toMatchObject({
         running: true,
         stage: 'eliciting',
         status: 'pending'
       });
+      expect(setPendingElicitationMock).toHaveBeenLastCalledWith(expect.objectContaining({deadline: '2026-10-06T18:00:00Z'}));
 
       handleStreamEvent(context.resources.chat, context, 'conv-1', {
         type: 'turn_completed',
@@ -1188,6 +1189,60 @@ describe('handleStreamEvent', () => {
 });
 
 describe('dsTick', () => {
+  it('refreshes accepted elicitation past stale stream ownership and keeps recovery until completion', async () => {
+    const store = await import('./chatStore.js');
+    installChatStoreMirror(store);
+    const id = 'conv-resume-elicitation';
+    store.onSSE(id, {type: 'turn_started', conversationId: id, turnId: 'turn-resume'});
+    store.onSSE(id, {type: 'elicitation_requested', conversationId: id, turnId: 'turn-resume', elicitationId: 'ask-resume', status: 'pending'});
+    const form = {values: {id}};
+    const context = {resources: {chat: {liveOwnedConversationID: id, liveOwnedTurnIds: ['turn-resume'], runningTurnId: 'turn-resume', activeStreamTurnId: 'turn-resume', lastHasRunning: true}},
+      Context(name) {return name === 'conversations' ? {handlers: {dataSource: {peekFormData: () => form.values, setFormData: ({values}) => {form.values = values;}}}} : null;}};
+    client.getTranscript.mockReset();
+    client.listPendingElicitations.mockResolvedValue([]);
+    client.getTranscript.mockResolvedValueOnce({conversation: {conversationId: id, turns: [{turnId: 'turn-resume', status: 'running', elicitation: {elicitationId: 'ask-resume', status: 'accepted'}}]}});
+    await refreshAfterElicitationResolution(context, {conversationID: id, elicitationID: 'ask-resume', turnID: 'turn-resume', action: 'submit'});
+    expect(client.getTranscript).toHaveBeenCalledTimes(1);
+    expect(removePendingElicitationMock).toHaveBeenCalledWith({elicitationId: 'ask-resume'}, {allConversationsForElicitation: true});
+    expect(store.getState(id).turns[0].elicitation.status).toBe('accepted');
+    expect(context.resources.chat.elicitationRecoveryConversationID).toBe(id);
+    client.getTranscript.mockResolvedValueOnce({conversation: {conversationId: id, turns: [{turnId: 'turn-resume', status: 'completed', elicitation: {elicitationId: 'ask-resume', status: 'accepted'}}]}});
+    await dsTick(context, {conversationID: id});
+    expect(client.getTranscript).toHaveBeenCalledTimes(2);
+    expect(context.resources.chat.elicitationRecoveryConversationID).toBe('');
+    expect(context.resources.chat.lastHasRunning).toBe(false);
+    expect(store.getState(id).turns[0].lifecycle).toBe('completed');
+    stopPolling(context);
+    store.reset(id);
+  });
+
+  it('recovers the app-wide null-context overlay through only its matching polling owner', async () => {
+    const contextFor = (id, windowId) => ({identity: {windowId}, resources: {chat: {lastHasRunning: true, runningTurnId: 'turn-overlay', stream: {close: vi.fn()}}}, Context(name) {
+      return name === 'conversations' ? {handlers: {dataSource: {peekFormData: () => ({id}), setFormData: vi.fn()}}} : null;
+    }});
+    const matching = contextFor('conv-overlay-null', 'chat/overlay-owner');
+    const other = contextFor('conv-other-window', 'chat/other-owner');
+    startPolling(matching);
+    startPolling(other);
+    client.getTranscript.mockReset();
+    client.getTranscript.mockResolvedValue({conversation: {conversationId: 'conv-overlay-null', turns: [{turnId: 'turn-overlay', status: 'running', elicitation: {elicitationId: 'ask-overlay', status: 'accepted'}}]}});
+    client.listPendingElicitations.mockResolvedValue([]);
+    try {
+      await refreshAfterElicitationResolution(null, {conversationID: 'conv-overlay-null', elicitationID: 'ask-overlay', turnID: 'turn-overlay', action: 'submit'});
+      expect(matching.resources.chat.elicitationRecoveryConversationID).toBe('conv-overlay-null');
+      expect(matching.resources.chat.elicitationRecoveryID).toBe('ask-overlay');
+      expect(other.resources.chat.elicitationRecoveryConversationID).toBeUndefined();
+      expect(client.getTranscript).toHaveBeenCalledWith(expect.objectContaining({conversationId: 'conv-overlay-null'}), undefined);
+      const calls = client.getTranscript.mock.calls.length;
+      await refreshAfterElicitationResolution(null, {conversationID: 'conv-not-mounted', elicitationID: 'unknown'});
+      expect(client.getTranscript).toHaveBeenCalledTimes(calls);
+    } finally {
+      stopPolling(matching);
+      stopPolling(other);
+      (await import('./chatStore.js')).reset('conv-overlay-null');
+    }
+  });
+
   it('restores a past conversation workspace from the route while the main chat form is empty', async () => {
     const previousWindow = global.window;
     global.window = {
