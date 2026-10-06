@@ -228,7 +228,7 @@ public final class ChatRuntime: ObservableObject {
                     next.append(ChatTranscriptEntry(
                         id: message.messageID, role: "assistant", markdown: content, turnID: turn.turnID,
                         renderedParts: Self.canonicalAssistantParts(assistantMessages), renderedReports: reports,
-                        diagnosticMessages: diagnostics, timestampLabel: Self.timestampLabel(for: message.createdAt ?? turn.createdAt)
+                        diagnosticMessages: diagnostics, timestampLabel: Self.timestampLabel(for: message.createdAt)
                     ))
                 }
             }
@@ -502,16 +502,22 @@ public final class ChatRuntime: ObservableObject {
               !rawValue.isEmpty else {
             return nil
         }
+        // Go's zero time denotes an unknown timestamp, not a historical event.
+        let zeroTimestamp = "0001-01-01T00:00:00Z"
+        let zeroFormatter = ISO8601DateFormatter()
+        let zeroDate = zeroFormatter.date(from: zeroTimestamp)
 
         let fractionalFormatter = ISO8601DateFormatter()
         fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let date = fractionalFormatter.date(from: rawValue) {
+            guard date != zeroDate else { return nil }
             return timestampLabel(for: date)
         }
 
         let fallbackFormatter = ISO8601DateFormatter()
         fallbackFormatter.formatOptions = [.withInternetDateTime]
         if let date = fallbackFormatter.date(from: rawValue) {
+            guard date != zeroDate else { return nil }
             return timestampLabel(for: date)
         }
 
