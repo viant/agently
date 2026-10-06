@@ -120,7 +120,7 @@ internal fun composerLookupSelection(
     return ComposerLookupSelection(
         token = token,
         label = label,
-        detail = composerLookupRowSecondaryText(row)
+        detail = composerLookupRowSecondaryText(row, occurrence.entry)
     )
 }
 
@@ -137,9 +137,15 @@ internal fun composerLookupRowLabel(row: Map<String, JsonElement>, entry: Lookup
         ?: "Select"
 }
 
-internal fun composerLookupRowSecondaryText(row: Map<String, JsonElement>): String? {
+internal fun composerLookupRowSecondaryText(
+    row: Map<String, JsonElement>,
+    entry: LookupRegistryEntry? = null
+): String? {
     val group = jsonElementDisplayString(row["groupName"]).orEmpty()
-    val identifier = jsonElementDisplayString(row["entityId"])
+    val declaredIdentifier = entry?.token?.store?.let { composerLookupApplyTemplate(it, row) }
+        ?.takeIf { it.isNotBlank() }
+    val identifier = declaredIdentifier
+        ?: jsonElementDisplayString(row["entityId"])
         ?: jsonElementDisplayString(row["adOrderId"])
         ?: jsonElementDisplayString(row["orderId"])
         ?: jsonElementDisplayString(row["order_id"])
