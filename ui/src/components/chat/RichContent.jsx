@@ -1827,6 +1827,13 @@ function rewriteSandboxHrefInHTML(html = '', generatedFiles = []) {
   });
 }
 
+function hideInteractivePlaceholderForRenderedReport(text = '', hasRenderedReport = false) {
+  if (!hasRenderedReport) return String(text || '');
+  // This is a whole-line transport fallback. Keep ordinary prose intact when
+  // it merely mentions the same words as part of a sentence.
+  return String(text || '').replace(/(^|\n)[ \t]*\[Interactive content\][ \t]*(?=\n|$)/g, '$1');
+}
+
 export function resolveScratchpadArtifactId(href = '') {
   const match = String(href || '').trim().match(/^\/__report_artifact__\/([a-z0-9_-]+)$/i);
   if (!match?.[1]) return '';
@@ -2452,6 +2459,12 @@ function NativeRichContent({ content = '', renderedContent = null, generatedFile
   const reportIsBuilding = trailingForgeFence || progressiveReports.assemblies.some(
     (assembly) => String(assembly?.status || '').trim().toLowerCase() === 'rendering'
   );
+  const hasRenderableCanonicalReport = Array.isArray(renderedContent?.reports)
+    && progressiveReports.assemblies.some((assembly) => (
+      assembly?.status !== 'orphaned'
+      && Array.isArray(assembly?.source?.blocks)
+      && assembly.source.blocks.length > 0
+    ));
 
   if (!descriptors.length) return <span>&nbsp;</span>;
 
@@ -2467,7 +2480,9 @@ function NativeRichContent({ content = '', renderedContent = null, generatedFile
   for (let descriptorIndex = 0; descriptorIndex < descriptors.length; descriptorIndex += 1) {
     const part = descriptors[descriptorIndex];
     if (part.kind === 'text') {
-      const chunk = normalizeBrokenMarkdownLayout(String(part.value || ''));
+      const chunk = normalizeBrokenMarkdownLayout(hideInteractivePlaceholderForRenderedReport(
+        String(part.value || ''), hasRenderableCanonicalReport,
+      ));
       // Skip chunks that have no visible content once markdown formatting markers
       // are removed. These appear between forge-data / forge-ui fences (e.g. `> `
       // fragments from token boundaries, or whitespace-only chunks) and were
