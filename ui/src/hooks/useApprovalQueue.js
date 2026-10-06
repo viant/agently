@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { isConnectivityError } from '../services/networkError';
 import { client } from '../services/agentlyClient';
+import { approvalDecisionInput } from '../services/approvalDecisionInput';
 import { dispatchMCPUIApprovalOutcome, normalizeMCPUIApprovalOutcome } from '../services/mcpApps/approvalEvents.js';
 
 const POLL_MS = 2000;
@@ -193,10 +194,7 @@ export function useApprovalQueue(enabled = true) {
 
   const decide = async (item, action, editedFields = null) => {
     if (!item?.id) return;
-    const payload = { action };
-    if (editedFields && typeof editedFields === 'object' && Object.keys(editedFields).length > 0) {
-      payload.editedFields = editedFields;
-    }
+    const payload = approvalDecisionInput(item, action, editedFields);
     const output = await client.decideToolApproval(item.id, payload);
     const outcome = resolveApprovalDecisionOutcome(output);
     if (outcome) {

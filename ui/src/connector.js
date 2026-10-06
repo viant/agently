@@ -68,9 +68,10 @@ export const connectorConfig = {
     snapshotOptions: {
       includeCollection: true,
       includeInlineMetadata: true,
+      includeFullWindowForm: true,
     },
     snapshotBuilder: () => {
-      const snapshot = buildUISnapshot({ includeCollection: true, includeInlineMetadata: true });
+      const snapshot = buildUISnapshot({ includeCollection: true, includeInlineMetadata: true, includeFullWindowForm: true });
       return {
         ...snapshot,
         clientId: uiBridgeClientId(),

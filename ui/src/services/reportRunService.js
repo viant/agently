@@ -1,3 +1,4 @@
+import { client } from './agentlyClient';
 import { sdkBaseURL } from '../endpoint';
 
 const RUNS_PATH = `${String(sdkBaseURL || '').replace(/\/+$/, '')}/api/report-runs`;
@@ -12,6 +13,7 @@ const BEGIN_FIELDS = [
   'requestedParams',
   'effectiveParams',
   'uiRunRequestId',
+  'reportAdmissionRef',
 ];
 const COMPLETE_FIELDS = [
   'reportRunId',
@@ -92,10 +94,27 @@ async function request(path, body, { method = 'POST' } = {}) {
 
 // A missing route means the default-closed persistence feature is off. Only
 // this case falls back to a legacy run; mounted endpoint failures must surface.
+function validateCommandBinding(input, result) {
+  const key = '_agentlyForecastCommand';
+  if (Object.hasOwn(input.requestedParams || {}, key)) throw new Error('Report command metadata is server-owned.');
+  if (input.reportAdmissionRef == null) return {};
+  const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
+    ? Object.fromEntries(Object.keys(value).sort().map(name => [name, canonical(value[name])])) : value;
+  const params = result?.run?.requestedParams;
+  const expected = { version: 1, ref: input.reportAdmissionRef, requestId: input.uiRunRequestId };
+  if (!params || typeof params !== 'object' || Array.isArray(params)
+      || JSON.stringify(canonical(params[key])) !== JSON.stringify(canonical(expected))
+      || JSON.stringify(canonical(Object.fromEntries(Object.entries(params).filter(([name]) => name !== key)))) !== JSON.stringify(canonical(input.requestedParams))) {
+    throw new Error('The report service did not preserve the admitted command identity and request.');
+  }
+  return { reportAdmissionRef: input.reportAdmissionRef };
+}
+
 export async function beginReportRun(input = {}) {
+  if (Object.hasOwn(input.requestedParams || {}, '_agentlyForecastCommand')) throw new Error('Report command metadata is server-owned.');
   try {
     const result = await request('/begin', normalizeRequestBody(input, BEGIN_FIELDS));
-    return { enabled: true, ...result };
+    return { enabled: true, ...result, ...validateCommandBinding(input, result) };
   } catch (error) {
     // The server's unmounted route is a plain 404. Mounted lifecycle errors
     // are structured JSON, including scoped not-found responses.
@@ -133,6 +152,13 @@ export function activateReportRun(input = {}) {
   );
 }
 
+export function getCompletedReportRun(input = {}) {
+  const reportRunId = normalizeId(input.reportRunId);
+  const conversationId = normalizeId(input.conversationId);
+  if (!reportRunId || !conversationId) throw new Error('reportRunId and conversationId are required');
+  return request(`/${encodeURIComponent(reportRunId)}?conversationId=${encodeURIComponent(conversationId)}`, {}, {method: 'GET'});
+}
+
 export function getReportRunContext(input = {}) {
   const conversationId = normalizeId(input.conversationId);
   if (!conversationId) throw new Error('conversationId is required');
@@ -168,4 +194,20 @@ export function adoptReportRun(input = {}) {
     }
     throw error;
   });
+}
+
+
+// Linked report runs require the server compiler's artifact proof.
+export async function compileReportRun({ conversationId, ...input } = {}) {
+  if (typeof conversationId !== 'string' || !conversationId.trim()
+      || typeof input.reportAdmissionRef !== 'string' || !input.reportAdmissionRef.trim()
+      || typeof input.reportId !== 'string' || !input.reportId) {
+    throw new Error('Linked report compilation requires exact conversation, request and admission identities.');
+  }
+  const raw = await client.executeTool('reporting:compile_fenced_report', input, { conversationId });
+  const result = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  if (!result || typeof result !== 'object' || !result.reportSpec || !result.reportFill || !result.reportPrint) {
+    throw new Error('The report compiler omitted authoritative artifacts.');
+  }
+  return result;
 }

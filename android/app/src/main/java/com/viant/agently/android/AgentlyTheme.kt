@@ -126,17 +126,32 @@ private val AgentlyShapes = Shapes(
 internal fun AgentlyTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     appearance: ForgeThemeAppearance? = null,
+    tokens: kotlinx.serialization.json.JsonObject? = null,
+    workspaceFont: FontFamily? = null,
     content: @Composable () -> Unit
 ) {
     val baseColors = if (darkTheme) AgentlyDarkColors else AgentlyLightColors
     val colors = appearance?.let { baseColors.copy(primary = it.buttonBackground, onPrimary = it.buttonForeground,
         background = it.surface, onBackground = it.text, surface = it.surface, onSurface = it.text,
         outline = it.controlBorder, error = it.validationBorder) } ?: baseColors
-    val typography = appearance?.let { theme -> AgentlyTypography.copy(
-        bodyMedium = AgentlyTypography.bodyMedium.copy(fontSize = theme.fontSize.sp),
-        bodyLarge = AgentlyTypography.bodyLarge.copy(fontSize = theme.fontSize.sp),
-        labelLarge = AgentlyTypography.labelLarge.copy(fontSize = theme.fontSize.sp),
-    ) } ?: AgentlyTypography
+    fun role(style: androidx.compose.ui.text.TextStyle, name: String): androidx.compose.ui.text.TextStyle {
+        fun value(key: String) = (tokens?.get("typography.$name.$key") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toFloatOrNull()
+        return style.copy(fontFamily = if ((tokens?.get("typography.family") as? kotlinx.serialization.json.JsonPrimitive)?.content == "workspace-primary") workspaceFont ?: style.fontFamily else style.fontFamily, fontSize = (value("size") ?: (if (name == "body") appearance?.fontSize else null) ?: style.fontSize.value).sp,
+            lineHeight = value("lineHeight")?.sp ?: style.lineHeight)
+    }
+    val typography = AgentlyTypography.copy(
+        bodySmall = role(AgentlyTypography.bodySmall, "small"),
+        bodyMedium = role(AgentlyTypography.bodyMedium, "body"),
+        bodyLarge = role(AgentlyTypography.bodyLarge, "body"),
+        labelSmall = role(AgentlyTypography.labelSmall, "caption"),
+        labelMedium = role(AgentlyTypography.labelMedium, "small"),
+        labelLarge = role(AgentlyTypography.labelLarge, "body"),
+        titleSmall = role(AgentlyTypography.titleSmall, "section"),
+        titleMedium = role(AgentlyTypography.titleMedium, "heading"),
+        titleLarge = role(AgentlyTypography.titleLarge, "title"),
+        headlineSmall = role(AgentlyTypography.headlineSmall, "metric"),
+        displaySmall = role(AgentlyTypography.displaySmall, "display"),
+    )
     MaterialTheme(
         colorScheme = colors,
         typography = typography,

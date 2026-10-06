@@ -19,6 +19,8 @@ internal data class WorkspaceThemeState(
     val themeId: String = "",
     val modePreference: String = "system",
     val diagnostic: String? = null,
+    val fontFamily: androidx.compose.ui.text.font.FontFamily? = null,
+    val fontName: String? = null,
 ) {
     val selectedTheme get() = catalog?.themes?.find { it.id == themeId }
     fun effectiveMode(systemMode: String) = selectedTheme?.effectiveMode(modePreference, systemMode) ?: systemMode
@@ -36,6 +38,8 @@ internal class WorkspaceThemeRuntime(private val storage: WorkspaceThemeStorage)
     val state = mutable.asStateFlow()
     private var scope: Scope? = null
     private var generation = 0
+    private var fontGeneration = 0
+    private var loadedFontKey: String? = null
     private var preference: Preference? = null
 
     private fun read(key: String) = runCatching { storage.read(key) }.getOrNull()
@@ -112,8 +116,51 @@ internal class WorkspaceThemeRuntime(private val storage: WorkspaceThemeStorage)
             mutable.value = mutable.value.copy(diagnostic = if (mutable.value.catalog == null) "Workspace appearance is unavailable. Using the default appearance." else "Workspace appearance could not be refreshed. Using the cached theme.")
         }
     }
+    @OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+    suspend fun refreshFonts(cache: java.io.File, fetch: suspend (com.viant.agentlysdk.WorkspaceFontAsset) -> ByteArray) {
+        val current = scope ?: return
+        val key = current.key + ":" + mutable.value.revision
+        if (key == loadedFontKey) return
+        val request = ++fontGeneration
+        val family = mutable.value.catalog?.fonts?.firstOrNull { it.role == "workspace-primary" }
+        val faces = family?.faces.orEmpty().filter { it.native?.isNative == true }.distinctBy { Triple(it.native?.sha256, it.style, it.weight) }
+        if (faces.isEmpty()) { mutable.value = mutable.value.copy(fontFamily = null, fontName = null); return }
+        try {
+            val assets = faces.mapNotNull { it.native }.distinctBy { it.sha256 }
+            require(assets.sumOf { it.sizeBytes.toLong() } <= 8L * 1024 * 1024)
+            val files = linkedMapOf<String, java.io.File>()
+            for (asset in assets) {
+                val bytes = fetch(asset)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val directory = java.io.File(cache, "workspace-fonts/" + current.key).apply { mkdirs() }
+                    val file = java.io.File(directory, asset.sha256 + "." + asset.format)
+                    file.writeBytes(bytes)
+                    files[asset.sha256] = file
+                }
+            }
+            files.values.forEach { file -> checkNotNull(android.graphics.Typeface.Builder(file).build()) { "Native font could not be registered" } }
+            val fonts = faces.flatMap { face ->
+                val file = files.getValue(face.native!!.sha256)
+                val range = face.weight.trim().split(Regex("\\s+")).mapNotNull(String::toIntOrNull)
+                val weights = if (range.size == 2) (range[0]..range[1] step 100).toList() else listOf(range.firstOrNull() ?: 400)
+                weights.map { weight -> androidx.compose.ui.text.font.Font(file = file,
+                    weight = androidx.compose.ui.text.font.FontWeight(weight.coerceIn(1,1000)),
+                    style = if (face.style == "italic") androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
+                    variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(androidx.compose.ui.text.font.FontVariation.weight(weight))) }
+            }
+            if (scope != current || request != fontGeneration) return
+            mutable.value = mutable.value.copy(fontFamily = androidx.compose.ui.text.font.FontFamily(fonts), fontName = family?.name)
+            if (BuildConfig.DEBUG) android.util.Log.d("WorkspaceFont", "Registered ${family?.name}: ${assets.map { it.sha256 }}")
+            loadedFontKey = key
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) {
+            if (scope == current && request == fontGeneration) mutable.value = mutable.value.copy(diagnostic = "Workspace font is unavailable. Using the system font.", fontFamily = null, fontName = null)
+        }
+    }
+
     fun clear(forgetAccount: Boolean = false) {
         generation++
+        fontGeneration++; loadedFontKey = null
         if (forgetAccount) scope?.let { write(serverKey(it.server), null) }
         scope = null; preference = null; mutable.value = WorkspaceThemeState()
     }

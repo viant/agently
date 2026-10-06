@@ -19,6 +19,15 @@ class WorkspaceThemeTest {
         assertEquals("36", theme.modes.getValue("light").getValue("control.minHeight").toString())
         assertEquals("\"#1b2230\"", theme.modes.getValue("dark").getValue("surface").toString())
     }
+    @Test fun acceptsCanonicalWorkspaceFontRoleAndTypographyRoles() {
+        val source = fixture().replace("\"typography.family\": \"system\"", "\"typography.family\": \"workspace-primary\"")
+            .replace("\"typography.size\": 14", "\"typography.size\": 14, \"typography.body.size\": 14, \"typography.body.lineHeight\": 20, \"typography.display.size\": 32, \"typography.display.lineHeight\": 40")
+        val theme = WorkspaceThemeCatalog.load(source).themes.single()
+        assertEquals("\"workspace-primary\"", theme.modes.getValue("light").getValue("typography.family").toString())
+        assertEquals("20", theme.modes.getValue("light").getValue("typography.body.lineHeight").toString())
+        assertThrows(IllegalArgumentException::class.java) { WorkspaceThemeCatalog.load(source.replace("workspace-primary", "unregistered-font")) }
+        assertThrows(IllegalArgumentException::class.java) { WorkspaceThemeCatalog.load(source.replace("\"typography.body.lineHeight\": 20", "\"typography.body.lineHeight\": 200")) }
+    }
     @Test fun rejectsInvalidValues() {
         val source = fixture()
         listOf(source.replace("\"version\": 1", "\"version\": 2"),

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.BorderStroke
@@ -18,6 +19,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ExperimentalMaterial3Api
+import com.viant.forgeandroid.ui.LocalForgeThemeAppearance
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
@@ -29,6 +31,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -49,6 +53,7 @@ import com.viant.forgeandroid.ui.LocalForgePresentationDensity
 import com.viant.agentlysdk.FeedPresentation
 import com.viant.agentlysdk.stream.ActiveFeed
 import com.viant.forgeandroid.runtime.ForgeRuntime
+import com.viant.forgeandroid.ui.DialogRenderer
 import com.viant.forgeandroid.ui.ContainerRenderer
 
 internal fun toolFeedIcon(presentation: FeedPresentation?): ImageVector = when (presentation?.icon?.trim()?.lowercase()) {
@@ -175,6 +180,7 @@ internal fun ActiveFeedsSection(
                     state.error != null -> Text(state.error, style = MaterialTheme.typography.bodySmall, color = Color(0xFFB42318))
                     state.payload != null -> FeedPanel(
                         payload = state.payload,
+                        client = client,
                         conversationId = scopedConversationId,
                         forgeRuntime = forgeRuntime,
                         activeFeed = state.visibleFeeds.firstOrNull { it.feedId == state.selectedFeedId }
@@ -204,9 +210,9 @@ internal fun InlineFeedSurface(
     )
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = Color(0xFFF7F9FC),
+        color = (LocalForgeThemeAppearance.current?.surface ?: Color(0xFFF7F9FC)),
         shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.dp, Color(0xFFDDE4F1))
+        border = BorderStroke(1.dp, LocalForgeThemeAppearance.current?.controlBorder ?: Color(0xFFDDE4F1))
     ) {
         Column(
             modifier = Modifier.padding(4.dp),
@@ -217,6 +223,7 @@ internal fun InlineFeedSurface(
                 state.error != null -> Text(state.error, style = MaterialTheme.typography.bodySmall, color = Color(0xFFB42318))
                 state.payload != null -> FeedPanel(
                     payload = state.payload,
+                    client = client,
                     conversationId = conversationId,
                     forgeRuntime = forgeRuntime,
                     activeFeed = feed,
@@ -231,6 +238,7 @@ internal fun InlineFeedSurface(
 @Composable
 private fun FeedPanel(
     payload: FeedDataResponse,
+    client: AgentlyClient,
     conversationId: String,
     forgeRuntime: ForgeRuntime,
     activeFeed: ActiveFeed? = null,
@@ -240,28 +248,47 @@ private fun FeedPanel(
         payload = payload,
         conversationId = conversationId,
         forgeRuntime = forgeRuntime,
-        activeFeed = activeFeed
+        activeFeed = activeFeed,
+        client = client
     )
     if (windowState.metadata == null || windowState.windowContext == null) {
-        Text(
-            text = windowState.error ?: "Unable to render feed.",
-            style = MaterialTheme.typography.bodyMedium
-        )
+        if (windowState.error == null) {
+            CircularProgressIndicator()
+        } else {
+            Text(windowState.error, style = MaterialTheme.typography.bodyMedium)
+        }
         return
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .let { base ->
-                if (maxHeight == null) base
-                else base.heightIn(max = maxHeight).verticalScroll(rememberScrollState())
-            },
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
+    var expanded by remember(conversationId, payload.feedId) { mutableStateOf(false) }
+    val content: @Composable () -> Unit = {
         CompositionLocalProvider(LocalForgePresentationDensity provides ForgePresentationDensity.Compact) {
             windowState.metadata.view?.content?.containers?.forEach { container ->
                 ContainerRenderer(forgeRuntime, windowState.windowContext, container)
+            }
+            DialogRenderer(forgeRuntime, windowState.windowContext, windowState.metadata.dialogs)
+        }
+    }
+    Column(
+        modifier = Modifier.fillMaxWidth().let { base ->
+            if (maxHeight == null) base
+            else base.heightIn(max = maxHeight).verticalScroll(rememberScrollState())
+        },
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        TextButton(onClick = { expanded = true }) { Text("Open workspace") }
+        if (!expanded) content()
+    }
+    if (expanded) {
+        Dialog(onDismissRequest = { expanded = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Surface(modifier = Modifier.fillMaxSize(), color = LocalForgeThemeAppearance.current?.surface ?: MaterialTheme.colorScheme.surface) {
+                Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(payload.title ?: "Workspace", style = MaterialTheme.typography.titleMedium)
+                        TextButton(onClick = { expanded = false }) { Text("Close workspace") }
+                    }
+                    Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) { content() }
+                }
             }
         }
     }
@@ -286,7 +313,7 @@ private fun FeedTextPreviewSection(
                     Text(
                         preview.subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF667085)
+                        color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085))
                     )
                 }
                 TextButton(onClick = onClose) {

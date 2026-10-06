@@ -401,7 +401,40 @@ final class ChatRuntimeTests: XCTestCase {
     }
 
     @MainActor
-    func testReplaceTranscriptDoesNotDuplicateNarrationBesideFinalAnswer() {
+    func testCanonicalHistoryKeepsTaskInterimAndExactFinalIdentity() {
+        let runtime = ChatRuntime()
+        let state = ConversationStateResponse(conversation: ConversationState(conversationID: "c", turns: [
+            TurnState(turnID: "t", status: "completed", user: UserMessageState(messageID: "user", content: "question"), messages: [
+                TurnMessageState(messageID: "router", role: "assistant", content: "classification JSON", sequence: 1, mode: "router"),
+                TurnMessageState(messageID: "interim", role: "assistant", content: "Preliminary findings", sequence: 2, mode: "task"),
+                TurnMessageState(messageID: "final", role: "assistant", content: "Final report", sequence: 4, mode: "task")
+            ], assistant: AssistantState(narration: AssistantMessageState(messageID: "narration", content: "Checking launch day"), final: AssistantMessageState(messageID: "final", content: "Final report")))
+        ]))
+        runtime.replaceTranscript(from: state)
+        XCTAssertEqual(runtime.transcript.map(\.id), ["user", "interim", "narration", "final"])
+        XCTAssertEqual(runtime.transcript.filter { $0.id == "final" }.count, 1)
+    }
+
+
+    @MainActor
+    func testColdNarrationUnknownTimestampIsOmittedAndDurableTimestampPreserved() {
+        let runtime = ChatRuntime()
+        for raw in [nil, "0001-01-01T00:00:00Z", "0001-01-01T00:00:00.000Z"] as [String?] {
+            runtime.replaceTranscript(from: ConversationStateResponse(conversation: ConversationState(conversationID: "c", turns: [
+                TurnState(turnID: "t", assistant: AssistantState(narration: AssistantMessageState(messageID: "n", content: "Checking results", createdAt: raw)), createdAt: "2026-10-05T17:31:23-07:00")
+            ])))
+            XCTAssertNil(runtime.transcript.first?.timestampLabel)
+        }
+        let time = "2026-10-05T17:32:55-07:00"
+        runtime.replaceTranscript(from: ConversationStateResponse(conversation: ConversationState(conversationID: "c", turns: [
+            TurnState(turnID: "t", assistant: AssistantState(narration: AssistantMessageState(messageID: "n", content: "Checking results", createdAt: time)))
+        ])))
+        let date = ISO8601DateFormatter().date(from: time)!
+        XCTAssertEqual(runtime.transcript.first?.timestampLabel, DateFormatter.localizedString(from: date, dateStyle: .none, timeStyle: .short))
+    }
+
+    @MainActor
+    func testReplaceTranscriptPreservesDistinctNarrationAndFinalIdentities() {
         let runtime = ChatRuntime()
         let state = ConversationStateResponse(
             conversation: ConversationState(
@@ -421,8 +454,8 @@ final class ChatRuntimeTests: XCTestCase {
 
         runtime.replaceTranscript(from: state)
 
-        XCTAssertEqual(runtime.transcript.count, 1)
-        XCTAssertEqual(runtime.transcript[0].markdown, "The report is ready.")
+        XCTAssertEqual(runtime.transcript.map(\.id), ["n1", "a1"])
+        XCTAssertEqual(runtime.transcript.map(\.markdown), ["Waiting for response", "The report is ready."])
     }
 
     @MainActor
@@ -460,9 +493,10 @@ final class ChatRuntimeTests: XCTestCase {
 
         runtime.replaceTranscript(from: state)
 
-        let parts = try XCTUnwrap(runtime.transcript.first?.renderedParts)
-        XCTAssertEqual(parts[0].text, "I’ll check delivery evidence.")
-        XCTAssertEqual(parts[1].text, "\n\n### Key findings\n- **Primary blocker:** bid competitiveness.")
+        let narrationParts = try XCTUnwrap(runtime.transcript.first?.renderedParts)
+        let finalParts = try XCTUnwrap(runtime.transcript.last?.renderedParts)
+        XCTAssertEqual(narrationParts.first?.text, "I’ll check delivery evidence.")
+        XCTAssertEqual(finalParts.first?.text, "### Key findings\n- **Primary blocker:** bid competitiveness.")
     }
 
     func testPendingInlineReportStatusIncludesDataSourcesAndBlocks() {

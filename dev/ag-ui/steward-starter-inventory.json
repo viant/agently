@@ -1,0 +1,98 @@
+[
+  {
+    "id": "troubleshoot-adorder",
+    "categoryId": "diagnose",
+    "title": "Troubleshoot ad order",
+    "prompt": "Troubleshoot /order order for delivery issues and identify the primary causal blocker family such as setup, supply, bid competitiveness, or change pressure. Treat pacing as posture unless pacing-control / bid-allocation rejection is explicitly proven."
+  },
+  {
+    "id": "analyze-campaign-performance",
+    "categoryId": "measure",
+    "title": "Review campaign performance",
+    "prompt": "Analyze /campaign campaign performance for pacing, spend, delivery, KPI health, and the top next actions."
+  },
+  {
+    "id": "diagnose-inventory-constraints",
+    "categoryId": "diagnose",
+    "title": "Diagnose inventory constraints",
+    "prompt": "Diagnose the top inventory, supply-path, deal, site, or signal constraints hurting delivery for /order order, and explain which are most material."
+  },
+  {
+    "id": "analyze-targeting-signals",
+    "categoryId": "diagnose",
+    "title": "Analyze targeting and signals",
+    "prompt": "Analyze the most important targeting rules and signal effects for /campaign campaign, including restrictive selectors, impactful signals, and safer expansion options when they exist."
+  },
+  {
+    "id": "forecast-audience-coverage",
+    "categoryId": "plan",
+    "title": "Forecast reach and availability",
+    "prompt": "Forecast reach and availability for /line line."
+  },
+  {
+    "id": "test-creative-rendering",
+    "categoryId": "activate",
+    "title": "Test creative rendering",
+    "prompt": "Test /creative creative and show screenshot rendering, frame verdicts, and network activity."
+  },
+  {
+    "id": "check-audience-overlap",
+    "categoryId": "diagnose",
+    "title": "Check overlap and saturation",
+    "prompt": "Check overlap for /campaign campaign and distinguish shared targeting-rule usage from delivery or household saturation, then recommend how to reduce real cannibalization when it exists."
+  },
+  {
+    "id": "build-weekly-summary",
+    "categoryId": "measure",
+    "title": "Build weekly summary",
+    "prompt": "Create a weekly campaign health summary for /advertiser advertiser covering performance, inventory, creative, and verification highlights."
+  },
+  {
+    "id": "build-order-performance-report",
+    "categoryId": "measure",
+    "title": "Build order performance report",
+    "prompt": "Build me a report for order /order from ${7 days ago} through ${now} with spend, bids, impressions, CTR, eCPM, pacing, and delivery shortfall. Show headline KPIs, a daily trend chart, a bid funnel, ranked breakdown tables with data bars, status badges, findings, and recommendations."
+  },
+  {
+    "id": "recommend-sitelist",
+    "categoryId": "optimize",
+    "title": "Recommend sitelist",
+    "prompt": "Recommend sitelist for audience /line ."
+  },
+  {
+    "id": "recommend-frequency-cap",
+    "categoryId": "optimize",
+    "title": "Recommend frequency cap",
+    "prompt": "Recommend frequency cap for /order order."
+  },
+  {
+    "id": "review-creative-fatigue",
+    "categoryId": "optimize",
+    "title": "Review creative fatigue",
+    "prompt": "Review creative fatigue for /campaign campaign and identify which creatives should be refreshed, tested, or paused."
+  },
+  {
+    "id": "recommend-spo",
+    "categoryId": "optimize",
+    "title": "Recommend SPO",
+    "prompt": "Recommend SPO for audience /line ."
+  },
+  {
+    "id": "recommend-site-lists",
+    "categoryId": "optimize",
+    "title": "Recommend sites",
+    "prompt": "Recommend sites for audience /line , including candidate additions and exclusions."
+  },
+  {
+    "id": "send-performance-delivery-command-center",
+    "categoryId": "measure",
+    "title": "Send Performance Delivery Command Center",
+    "prompt": "Send me the Performance Delivery Command Center report for order /order from ${7 days ago} through ${now}."
+  },
+  {
+    "id": "create-media-plan",
+    "categoryId": "plan",
+    "title": "Create media plan",
+    "prompt": "Create for <advertiser or product website> an awareness Media Plan from <YYYY-MM-DD> to <YYYY-MM-DD> for $<positive amount>, across all channels."
+  }
+]

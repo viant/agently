@@ -1,3 +1,4 @@
+import {getAuthMeSilently, getReportRestoreScope} from './agentlyClient';
 import {
   getReportExportArtifact,
   getReportExportStatus,
@@ -29,8 +30,10 @@ import {
   adoptReportRun,
   beginReportRun,
   completeReportRun,
+  compileReportRun,
   failReportRun,
   getReportRunContext,
+  getCompletedReportRun,
 } from './reportRunService';
 
 function normalizeText(value = '') {
@@ -111,6 +114,35 @@ export async function fetchReportBuilderPreviewByRef({
   );
 }
 
+export function createCompletedReportRestoreReader({
+  probeIdentity = getAuthMeSilently, getScope = getReportRestoreScope,
+  readContext = getReportRunContext, readRun = getCompletedReportRun,
+} = {}) {
+  return async ({conversationId = ''} = {}) => {
+    if (!normalizeText(conversationId)) return null;
+    await probeIdentity();
+    const scopeKey = getScope();
+    const selected = await readContext({conversationId});
+    if (scopeKey !== getScope()) throw new Error('Report restoration account changed.');
+    if (!selected?.enabled || !selected.context?.activeReportRunId) return null;
+    if (selected.context.conversationId !== conversationId || !selected.context.ownerId) throw new Error('Report restoration context is not scoped to this conversation.');
+    const run = await readRun({conversationId, reportRunId: selected.context.activeReportRunId});
+    if (scopeKey !== getScope()) throw new Error('Report restoration account changed.');
+    return {context: selected.context, run, scopeKey};
+  };
+}
+export function readCompletedReportRestore(input = {}) {
+  return createCompletedReportRestoreReader()(input);
+}
+
+function subscribeReportRestoreScope(listener) {
+  if (typeof window === 'undefined') return () => {};
+  const changed = () => listener(getReportRestoreScope());
+  const events = ['agently:session-reset', 'agently:logout', 'agently:authorized'];
+  events.forEach(event => window.addEventListener(event, changed));
+  return () => events.forEach(event => window.removeEventListener(event, changed));
+}
+
 export function createReportingHostServices() {
   return {
     reportExport: {
@@ -151,11 +183,16 @@ export function createReportingHostServices() {
       fetchByRef: fetchReportBuilderPreviewByRef,
     },
     reportRuns: {
+      readCompletedRestore: readCompletedReportRestore,
+      getRestoreScope: () => getReportRestoreScope(),
+      subscribeRestoreScope: subscribeReportRestoreScope,
       begin: beginReportRun,
       complete: completeReportRun,
+      compile: compileReportRun,
       fail: failReportRun,
       activate: activateReportRun,
       getContext: getReportRunContext,
+      getRun: getCompletedReportRun,
       adopt: adoptReportRun,
     },
   };

@@ -19,9 +19,7 @@ public struct ComposerScreen: View {
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var activeLookupOccurrence: ComposerLookupOccurrence?
     @State private var lookupSearchText: String = ""
-    @State private var lookupRows: [[String: JSONValue]] = []
-    @State private var lookupErrorMessage: String?
-    @State private var lookupRowsLoading = false
+    @State private var lookupLoadState = ComposerLookupLoadState()
     @State private var isCompactComposerExpanded = false
     @State private var editorSelectionUTF16Offset = 0
     @State private var dictationInsertionUTF16Offset = 0
@@ -177,18 +175,18 @@ public struct ComposerScreen: View {
         .agentlyLookupPresentation(item: $activeLookupOccurrence) { occurrence in
             NavigationStack {
                 List {
-                    if let lookupErrorMessage, !lookupErrorMessage.isEmpty {
+                    if let lookupErrorMessage = lookupLoadState.errorMessage, !lookupErrorMessage.isEmpty {
                         Text(lookupErrorMessage)
                             .foregroundStyle(.red)
                     }
-                    if lookupRowsLoading {
+                    if lookupLoadState.isLoading {
                         HStack(spacing: 10) {
                             ProgressView()
                             Text("Loading \(occurrence.title.lowercased())…")
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    ForEach(Array(lookupRows.enumerated()), id: \.offset) { _, row in
+                    ForEach(Array(lookupLoadState.rows.enumerated()), id: \.offset) { _, row in
                         Button {
                             runtime.setLookupSelection(for: occurrence, row: row)
                             activeLookupOccurrence = nil
@@ -197,7 +195,7 @@ public struct ComposerScreen: View {
                                 Text(composerLookupRowLabel(row: row, entry: occurrence.entry))
                                     .foregroundStyle(.primary)
                                     .multilineTextAlignment(.leading)
-                                if let secondary = composerLookupRowSecondaryText(row: row), !secondary.isEmpty {
+                                if let secondary = composerLookupRowSecondaryText(row: row, entry: occurrence.entry), !secondary.isEmpty {
                                     Text(secondary)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
@@ -479,15 +477,17 @@ public struct ComposerScreen: View {
 
     @MainActor
     private func reloadLookupRows(for occurrence: ComposerLookupOccurrence) async {
-        lookupRowsLoading = true
-        lookupErrorMessage = nil
+        guard !Task.isCancelled, activeLookupOccurrence?.key == occurrence.key else { return }
+        let generation = lookupLoadState.begin()
+        let query = lookupSearchText
+        let result: Result<[[String: JSONValue]], Error>
         do {
-            lookupRows = try await runtime.loadLookupRows(for: occurrence, query: lookupSearchText)
+            result = .success(try await runtime.loadLookupRows(for: occurrence, query: query))
         } catch {
-            lookupRows = []
-            lookupErrorMessage = error.localizedDescription
+            result = .failure(error)
         }
-        lookupRowsLoading = false
+        guard activeLookupOccurrence?.key == occurrence.key else { return }
+        lookupLoadState.complete(result, generation: generation, taskCancelled: Task.isCancelled)
     }
 
     @ViewBuilder
@@ -714,10 +714,14 @@ private func composerLookupRowLabel(row: [String: JSONValue], entry: LookupRegis
         ?? "Select"
 }
 
-private func composerLookupRowSecondaryText(row: [String: JSONValue]) -> String? {
+func composerLookupRowSecondaryText(row: [String: JSONValue], entry: LookupRegistryEntry? = nil) -> String? {
     let group = row["groupName"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    let identifier = row["entityId"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
-        ?? row["id"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let declaredIdentifier = (entry?.token?.store).flatMap { template in
+        composerLookupApplyTemplate(template, row: row).nonEmpty
+    }
+    let identifier = declaredIdentifier
+        ?? (row["entityId"]?.stringValue ?? row["entityId"]?.numberStringValue)?.nonEmpty
+        ?? (row["id"]?.stringValue ?? row["id"]?.numberStringValue)?.nonEmpty
         ?? ""
     let parts = [group, identifier].filter { !$0.isEmpty }
     return parts.isEmpty ? nil : parts.joined(separator: " • ")

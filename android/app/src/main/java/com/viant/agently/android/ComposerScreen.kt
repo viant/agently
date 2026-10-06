@@ -25,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.InputChipDefaults
+import com.viant.forgeandroid.ui.LocalForgeThemeAppearance
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -148,8 +149,8 @@ internal fun PhoneComposerDock(
             .onGloballyPositioned { coordinates ->
                 onMeasuredHeight(with(density) { coordinates.size.height.toDp() })
             },
-        color = Color(0xFFFDFDFE),
-        border = BorderStroke(1.dp, Color(0xFFDDE4F1)),
+        color = (LocalForgeThemeAppearance.current?.surface ?: Color(0xFFFDFDFE)),
+        border = BorderStroke(1.dp, (LocalForgeThemeAppearance.current?.controlBorder ?: Color(0xFFDDE4F1))),
         shape = RoundedCornerShape(if (compactConversationDock) 24.dp else 28.dp),
         tonalElevation = 2.dp,
         shadowElevation = if (compactConversationDock) 6.dp else 10.dp
@@ -176,7 +177,7 @@ internal fun PhoneComposerDock(
                         Text(
                             "Start a fresh conversation",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF667085)
+                            color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085))
                         )
                     }
                     agentLabel?.takeIf { it.isNotBlank() }?.let {
@@ -198,8 +199,8 @@ internal fun PhoneComposerDock(
                             focusManager.clearFocus(force = true)
                             composerExpanded = true
                         },
-                        color = ComposerInputFill,
-                        border = BorderStroke(1.dp, ComposerInputBorder),
+                        color = LocalForgeThemeAppearance.current?.controlBackground ?: ComposerInputFill,
+                        border = BorderStroke(1.dp, LocalForgeThemeAppearance.current?.controlBorder ?: ComposerInputBorder),
                         shape = RoundedCornerShape(20.dp),
                         modifier = Modifier.weight(1f)
                     ) {
@@ -207,7 +208,7 @@ internal fun PhoneComposerDock(
                             "Type your message…",
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFF667085)
+                            color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085))
                         )
                     }
                     if (canUseVoiceInput) {
@@ -242,8 +243,8 @@ internal fun PhoneComposerDock(
                 ) {
                     Surface(
                         modifier = Modifier.weight(1f),
-                        color = ComposerInputFill,
-                        border = BorderStroke(1.dp, ComposerInputBorder),
+                        color = LocalForgeThemeAppearance.current?.controlBackground ?: ComposerInputFill,
+                        border = BorderStroke(1.dp, LocalForgeThemeAppearance.current?.controlBorder ?: ComposerInputBorder),
                         shape = RoundedCornerShape(20.dp)
                     ) {
                         Column(
@@ -426,11 +427,11 @@ internal fun PhoneComposerDock(
                     visualTransformation = composerLookupVisualTransformation(lookupOccurrences),
                     shape = RoundedCornerShape(22.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = ComposerInputFill,
-                        unfocusedContainerColor = ComposerInputFill,
-                        disabledContainerColor = ComposerInputFill,
-                        focusedBorderColor = ComposerInputBorder,
-                        unfocusedBorderColor = ComposerInputBorder,
+                        focusedContainerColor = LocalForgeThemeAppearance.current?.controlBackground ?: ComposerInputFill,
+                        unfocusedContainerColor = LocalForgeThemeAppearance.current?.controlBackground ?: ComposerInputFill,
+                        disabledContainerColor = LocalForgeThemeAppearance.current?.controlBackground ?: ComposerInputFill,
+                        focusedBorderColor = LocalForgeThemeAppearance.current?.controlBorder ?: ComposerInputBorder,
+                        unfocusedBorderColor = LocalForgeThemeAppearance.current?.controlBorder ?: ComposerInputBorder,
                         disabledBorderColor = ComposerInputBorder.copy(alpha = 0.6f)
                     )
                 )
@@ -442,7 +443,7 @@ internal fun PhoneComposerDock(
                     Text(
                         "A new conversation will be created",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF667085),
+                        color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085)),
                         modifier = Modifier.weight(1f)
                     )
                     Button(
@@ -554,18 +555,17 @@ private fun InlineLookupPromptField(
             )
         )
     }
-    LaunchedEffect(value, selectionPosition) {
-        if (editorValue.text != value) {
-            val requestedPosition = selectionPosition
-                .takeIf { it in 1..value.length }
-                ?: value.length
-            editorValue = TextFieldValue(
-                text = value,
-                selection = TextRange(requestedPosition)
-            )
-            onSelectionChange(requestedPosition)
+    val pendingLocalTexts = remember { mutableListOf<String>() }
+    // Cursor updates echo local edits before the parent text is committed.
+    // Only external text changes may replace the local editor value.
+    LaunchedEffect(value) {
+        val reconciled = reconcileComposerEditorValue(editorValue, value, selectionPosition, pendingLocalTexts)
+        if (reconciled !== editorValue) {
+            editorValue = reconciled
+            onSelectionChange(reconciled.selection.end)
         }
     }
+
     val display = remember(value, occurrences, selections) {
         buildComposerInlineLookupDisplay(value, occurrences, selections)
     }
@@ -582,13 +582,14 @@ private fun InlineLookupPromptField(
             value = editorValue,
             onValueChange = { updated ->
                 editorValue = updated
-                onSelectionChange(updated.selection.end)
                 if (updated.text != value) {
+                    pendingLocalTexts.add(updated.text)
                     onValueChange(updated.text)
                 }
+                onSelectionChange(updated.selection.end)
             },
             modifier = Modifier.fillMaxWidth(),
-            textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color(0xFF182230)),
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = (LocalForgeThemeAppearance.current?.text ?: Color(0xFF182230))),
             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             minLines = minLines,
             maxLines = maxLines,
@@ -602,7 +603,7 @@ private fun InlineLookupPromptField(
                         Text(
                             placeholder,
                             style = MaterialTheme.typography.bodyLarge,
-                            color = Color(0xFF667085)
+                            color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085))
                         )
                     }
                     innerTextField()
@@ -893,6 +894,24 @@ internal class ComposerLookupVisualTransformation(
     }
 }
 
+internal fun reconcileComposerEditorValue(
+    editorValue: TextFieldValue,
+    externalText: String,
+    selectionPosition: Int,
+    pendingLocalTexts: MutableList<String>
+): TextFieldValue {
+    val acknowledged = pendingLocalTexts.indexOf(externalText)
+    if (acknowledged >= 0) {
+        // A parent echo can lag several native key events.
+        repeat(acknowledged + 1) { pendingLocalTexts.removeAt(0) }
+        return editorValue
+    }
+    if (editorValue.text == externalText) return editorValue
+    pendingLocalTexts.clear()
+    val position = selectionPosition.takeIf { it in 1..externalText.length } ?: externalText.length
+    return TextFieldValue(text = externalText, selection = TextRange(position))
+}
+
 internal fun composerInputMaxLines(compactConversationDock: Boolean, query: String): Int {
     if (!compactConversationDock) {
         return 6
@@ -1015,7 +1034,7 @@ private fun AttachmentChipsRow(
                         Text(
                             "${attachment.source} · ${formatSizeLabel(attachment.bytes.size.toLong())}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF667085)
+                            color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085))
                         )
                     }
                     TextButton(onClick = { onRemoveAttachment(attachment.id) }) {
@@ -1054,7 +1073,7 @@ internal fun ComposerHeader(
                     Text(
                         it,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF667085)
+                        color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085))
                     )
                 }
             }
@@ -1112,7 +1131,7 @@ internal fun ComposerHeader(
                                 Text(
                                     "${attachment.source} · ${formatSizeLabel(attachment.bytes.size.toLong())}",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = Color(0xFF667085)
+                                    color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085))
                                 )
                             }
                             TextButton(onClick = { onRemoveAttachment(attachment.id) }) {

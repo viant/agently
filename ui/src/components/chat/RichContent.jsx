@@ -2375,7 +2375,7 @@ function stripLeadingTemplateDescriptor(content = '') {
 
 // ── Main component ──
 
-function RichContent({ content = '', renderedContent = null, generatedFiles = [], messageId = '', conversationId = '' }) {
+function NativeRichContent({ content = '', renderedContent = null, generatedFiles = [], messageId = '', conversationId = '' }) {
   const entityAliasVersion = React.useSyncExternalStore(subscribeFeedEntityAliases, getFeedEntityAliasVersion, getFeedEntityAliasVersion);
   const textNorm = React.useMemo(() => normalizeBrokenMarkdownLayout(
     normalizeLegacyForgeFenceBlocks(stripLeadingTemplateDescriptor(rewriteFeedEntityAliases(String(content || ''), conversationId)))
@@ -2585,8 +2585,18 @@ function RichContent({ content = '', renderedContent = null, generatedFiles = []
   return <div className="app-rich-content">{out}</div>;
 }
 
+/** Passive foreign text never mounts native datasource/report/file handlers. */
+function RichContent(props) {
+  if (props.allowHostEffects === false || props.connectionProfile === 'standard') {
+    return <div className="app-rich-content app-rich-content-passive" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{String(props.content || '')}</div>;
+  }
+  return <NativeRichContent {...props} />;
+}
+
 export default React.memo(RichContent, (a, b) => (
-  (a.content || '') === (b.content || '')
+  a.allowHostEffects === b.allowHostEffects
+  && a.connectionProfile === b.connectionProfile
+  && (a.content || '') === (b.content || '')
   && a.renderedContent === b.renderedContent
   && String(a.messageId || '') === String(b.messageId || '')
   && String(a.conversationId || '') === String(b.conversationId || '')

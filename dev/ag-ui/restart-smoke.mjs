@@ -1,0 +1,18 @@
+// Two-stage actual-backend proof. Restart the owned backend between stages.
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {randomUUID} from 'node:crypto';
+import {readFile,writeFile} from 'node:fs/promises';
+const require=createRequire(new URL('../../../agently-core-ag-ui/sdk/ts/package.json',import.meta.url));
+const {HttpAgent}=require('@ag-ui/client');const {EventSchema}=require('@ag-ui/core/schemas');
+const [stage,path]=process.argv.slice(2);assert.ok(['prepare','resume'].includes(stage)&&path,'usage: restart-smoke.mjs prepare|resume /tmp/fixture.json');
+const url=process.env.AGENTLY_AGUI_URL??'http://127.0.0.1:18192/v1/ag-ui/run';
+let saved=stage==='resume'?JSON.parse(await readFile(path,'utf8')):null;let cookie=saved?.cookie??'';const requests=[];const wires=[];
+const transport=async(input,init)=>{requests.push(JSON.parse(init.body));const response=await fetch(input,{...init,headers:{...init.headers,...(cookie?{cookie}:{})}});const set=response.headers.get('set-cookie');if(set)cookie=set.split(';')[0];if(!response.ok)throw new Error(`HTTP ${response.status}: ${await response.text()}`);wires.push(response.clone().text());return response};
+const tools=[{name:'ui_lookup',description:'Local browser lookup',parameters:{type:'object',properties:{value:{type:'string'}},required:['value'],additionalProperties:false}}];const forwardedProps={agently:{version:'1',operation:'chat',payload:{agentId:'simple',model:'local_mock'}}};
+if(stage==='prepare'){
+ const agent=new HttpAgent({url,fetch:transport,threadId:randomUUID(),initialMessages:[{id:randomUUID(),role:'user',content:'fixture-client-tool please'}]});let outcome;await agent.runAgent({runId:randomUUID(),tools,forwardedProps},{onRunErrorEvent:({event})=>{throw new Error(event.message)},onRunFinishedEvent:({event})=>{outcome=event.outcome}});assert.equal(outcome.pendingToolCallIds.length,1);const callId=outcome.pendingToolCallIds[0];assert.match(callId,/^agui\.tool\/[^/]+\/fixture-client-call$/);await writeFile(path,JSON.stringify({cookie,threadId:agent.threadId,messages:agent.messages,input:requests[0],wire:await wires[0],callId}));console.log('Prepared real pending frontend call; restart owned backend now');
+}else{
+ const replay=await fetch(url,{method:'POST',headers:{'content-type':'application/json',cookie},body:JSON.stringify(saved.input)});assert.equal(replay.status,200);assert.equal(await replay.text(),saved.wire,'backend restart must retain exact committed replay');
+ const agent=new HttpAgent({url,fetch:transport,threadId:saved.threadId,initialMessages:[...saved.messages,{id:randomUUID(),role:'tool',toolCallId:saved.callId,content:'browser result after backend restart'}]});let outcome;await agent.runAgent({runId:randomUUID(),tools,forwardedProps},{onRunErrorEvent:({event})=>{throw new Error(event.message)},onRunFinishedEvent:({event})=>{outcome=event.outcome}});assert.equal(outcome.type,'success');assert.ok(!outcome.pendingToolCallIds?.length);assert.ok(agent.messages.some(m=>m.role==='assistant'&&m.content==='Hello from the local Agently AG-UI assembly fixture.'));assert.equal(agent.messages.flatMap(m=>m.toolCalls??[]).filter(c=>c.id===saved.callId).length,1);assert.equal(agent.messages.filter(m=>m.role==='tool'&&m.toolCallId===saved.callId).length,1);for(const wire of await Promise.all(wires))for(const frame of wire.split(/\r?\n\r?\n/)){const data=frame.split(/\r?\n/).filter(l=>l.startsWith('data:')).map(l=>l.slice(5).trimStart()).join('\n');if(data)EventSchema.parse(JSON.parse(data))}console.log('Backend restart: exact durable replay + stable scoped call ID + original call continuation passed');
+}

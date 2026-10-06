@@ -74,6 +74,9 @@ func makeForgeAgentlyDataSourceLoader(
             ? await conversationIDProvider()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             : ""
         let conversationID = requestConversationID.isEmpty ? fallbackConversationID : requestConversationID
+        #if DEBUG
+        NSLog("NativeDatasetRead datasource=%@", datasourceID)
+        #endif
         let response = try await client.fetchDatasource(
             FetchDatasourceInput(
                 id: datasourceID,

@@ -55,6 +55,7 @@ public final class AppState: ObservableObject {
             )
         )
         self.forgeRuntime = resolvedForgeRuntime
+        Task { await resolvedForgeRuntime.registerNativeReportLifecycleHandler(NativeReportRunLifecycleHandler(client: client)) }
         #if canImport(UIKit)
         Task {
             await resolvedForgeRuntime.registerExternalURLHandler { url in

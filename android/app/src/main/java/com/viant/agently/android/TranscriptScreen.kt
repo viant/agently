@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import com.viant.forgeandroid.ui.LocalForgeThemeAppearance
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -108,7 +109,7 @@ internal fun RenderTranscript(
             horizontalArrangement = if (item.role == "user") Arrangement.End else Arrangement.Start
         ) {
             Surface(
-                color = if (item.role == "user") Color(0xFFF5F8FF) else MaterialTheme.colorScheme.surfaceVariant,
+                color = if (item.role == "user") (LocalForgeThemeAppearance.current?.controlBackground ?: Color(0xFFF5F8FF)) else MaterialTheme.colorScheme.surfaceVariant,
                 shape = MaterialTheme.shapes.large,
                 modifier = Modifier.fillMaxWidth(0.92f)
             ) {
@@ -127,7 +128,7 @@ internal fun RenderTranscript(
                                 else if (item.streaming && showStreamingStatusInHeader) "Assistant is responding..."
                                 else "Assistant",
                                 style = MaterialTheme.typography.labelLarge,
-                                color = if (item.role == "user") Color(0xFF1849A9) else Color(0xFF344054)
+                                color = if (item.role == "user") Color(0xFF1849A9) else (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF344054))
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 item.deliveryState?.let { state ->
@@ -145,7 +146,7 @@ internal fun RenderTranscript(
                                     Text(
                                         it,
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = Color(0xFF667085)
+                                        color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085))
                                     )
                                 }
                             }
@@ -167,7 +168,7 @@ internal fun RenderTranscript(
                                 Text(
                                     it,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = Color(0xFF667085)
+                                    color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085))
                                 )
                             }
                         }
@@ -191,7 +192,7 @@ internal fun RenderTranscript(
                             Text(
                                 "Approval required",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = Color(0xFF667085)
+                                color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085))
                             )
                             messageApprovals.forEach { approval ->
                                 InlineApprovalCard(
@@ -210,7 +211,7 @@ internal fun RenderTranscript(
                             Text(
                                 "Artifacts from this response",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = Color(0xFF667085)
+                                color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085))
                             )
                             Row(
                                 modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -286,7 +287,7 @@ internal fun AssistantDestinationLink(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        color = Color(0xFFF5F9FF),
+        color = (LocalForgeThemeAppearance.current?.surface ?: Color(0xFFF5F9FF)),
         shape = MaterialTheme.shapes.medium,
         modifier = modifier.fillMaxWidth().clickable(onClick = onOpen),
     ) {
@@ -308,7 +309,7 @@ internal fun AssistantDestinationLink(
                 Text(
                     supportingText,
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF667085),
+                    color = (if (LocalForgeThemeAppearance.current != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF667085)),
                     maxLines = 1,
                 )
             }

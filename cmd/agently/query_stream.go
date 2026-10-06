@@ -11,7 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	coreplan "github.com/viant/agently-core/protocol/agent/execution"
+	"github.com/viant/agently-core/protocol/agui"
 	streamingrt "github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/sdk"
 	agentsvc "github.com/viant/agently-core/service/agent"
@@ -21,87 +23,116 @@ func (c *ChatCmd) executeQuery(ctx context.Context, client *sdk.HTTPClient, inpu
 	if err := ensureConversation(ctx, client, input, strings.TrimSpace(input.Query)); err != nil {
 		return nil, false, err
 	}
-	inlineElicitation := len(defaultPayload) > 0 || stdinIsTTY()
-	if inlineElicitation {
-		input.ElicitationMode = ""
-	} else {
-		input.ElicitationMode = "deferred"
-	}
-	streamCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	streamer, err := startChatStream(streamCtx, client, strings.TrimSpace(input.ConversationID))
+	input.ElicitationMode = "deferred"
+	prepared, err := client.PrepareAGUIChat(ctx, input)
 	if err != nil {
 		return nil, false, err
 	}
-	defer streamer.Close()
+	input.ConversationID = prepared.ConversationID
+	request := prepared.Input
+	printed := false
+	for {
+		stream, err := client.RunAGUI(ctx, &request, nil)
+		if err != nil {
+			return nil, printed, err
+		}
+		result, err := sdk.CollectAGUI(stream, prepared.ConversationID, func(event sdk.AGUIEvent) error {
+			var text struct {
+				Type, Delta   string
+				SubagentRunID *string `json:"subagentRunId"`
+			}
+			if err := event.Decode(&text); err != nil {
+				return err
+			}
+			if text.SubagentRunID == nil && (text.Type == "TEXT_MESSAGE_CONTENT" || text.Type == "TEXT_MESSAGE_CHUNK") && text.Delta != "" {
+				fmt.Fprint(os.Stdout, text.Delta)
+				printed = true
+			}
+			return nil
+		})
+		_ = stream.Close()
+		if err != nil {
+			return nil, printed, err
+		}
+		if result.Outcome.Type != "interrupt" {
+			if printed {
+				fmt.Fprintln(os.Stdout)
+			}
+			return &agentsvc.QueryOutput{ConversationID: result.ConversationID, TurnID: result.TurnID, MessageID: result.TurnID, Content: result.Content, ExecutionStatus: result.Outcome.Type}, printed, nil
+		}
+		if len(result.Outcome.Interrupts) == 0 {
+			return nil, printed, fmt.Errorf("AG-UI interrupt has no explicit response request")
+		}
+		answers := make([]agui.WireResumeEntry, 0, len(result.Outcome.Interrupts))
+		for _, interrupt := range result.Outcome.Interrupts {
+			answer, err := resolveCLIAGUIInterrupt(ctx, interrupt, defaultPayload, seedPayload, c.elicitationTimeout)
+			if err != nil {
+				return nil, printed, err
+			}
+			answers = append(answers, answer)
+		}
+		resume, err := json.Marshal(answers)
+		if err != nil {
+			return nil, printed, err
+		}
+		runID := uuid.NewString()
+		forwarded, _ := json.Marshal(map[string]any{"agently": map[string]any{"version": "1", "operation": "chat", "requestId": runID, "payload": map[string]any{"useServerState": true}}})
+		request = agui.RunAgentInput{ThreadID: prepared.Input.ThreadID, RunID: runID, Messages: []agui.Message{}, Resume: resume, ForwardedProps: forwarded}
+	}
+}
 
-	startedAt := time.Now().UTC()
-	resolverCtx, stopResolver := context.WithCancel(ctx)
-	defer stopResolver()
-	// Buffered so the watcher never blocks reporting the first error it sees,
-	// even if the main goroutine has already returned without reading.
-	resolverErr := make(chan error, 1)
-	var resolverWG sync.WaitGroup
-	if inlineElicitation {
-		resolverWG.Add(1)
-		go func() {
-			defer resolverWG.Done()
-			watchPendingElicitations(resolverCtx, client, strings.TrimSpace(input.ConversationID), defaultPayload, seedPayload, c.elicitationTimeout, resolverErr)
-		}()
+func resolveCLIAGUIInterrupt(ctx context.Context, interrupt agui.WireInterrupt, defaults map[string]interface{}, seed *map[string]interface{}, timeout time.Duration) (agui.WireResumeEntry, error) {
+	answer := agui.WireResumeEntry{InterruptId: interrupt.ID, Status: "resolved"}
+	if interrupt.Reason != "elicitation" && interrupt.Reason != "approval" {
+		return answer, fmt.Errorf("AG-UI interrupt %s requires a frontend handler", interrupt.Reason)
 	}
-	// Ensure the watcher goroutine has exited before the function returns so
-	// it cannot race the caller on shared state or outlive the CLI command.
-	defer func() {
-		stopResolver()
-		resolverWG.Wait()
-	}()
-	out, err := client.Query(ctx, input)
-	if err != nil {
-		return nil, false, err
+	raw, _ := json.Marshal(map[string]any{"elicitationId": interrupt.ID, "message": interrupt.Message, "requestedSchema": interrupt.ResponseSchema})
+	var request coreplan.Elicitation
+	if err := json.Unmarshal(raw, &request); err != nil {
+		return answer, err
 	}
-	select {
-	case err := <-resolverErr:
-		if err != nil && !isShutdownElicitationError(err) {
-			return nil, false, err
+	if seed != nil {
+		applyElicitationDefaults(&request, *seed)
+	}
+	payload := defaults
+	if len(payload) == 0 {
+		if !stdinIsTTY() {
+			return answer, fmt.Errorf("elicitation required; run interactively or provide --elicitation-default")
 		}
-	default:
-	}
-	stopResolver()
-	resolverWG.Wait()
-	// Drain any error the watcher raised after we passed the non-blocking
-	// select above but before cancellation took effect.
-	select {
-	case err := <-resolverErr:
-		if err != nil && !isShutdownElicitationError(err) {
-			return nil, false, err
+		promptCtx := ctx
+		cancel := func() {}
+		if timeout > 0 {
+			promptCtx, cancel = context.WithTimeout(ctx, timeout)
 		}
-	default:
+		result, err := awaitCoreElicitation(promptCtx, &request)
+		cancel()
+		if err != nil {
+			return answer, err
+		}
+		if result == nil {
+			return answer, fmt.Errorf("elicitation returned no decision")
+		}
+		if result.Action != coreplan.ElicitResultActionAccept {
+			if interrupt.Reason == "approval" {
+				payload = map[string]interface{}{"action": "reject"}
+			} else {
+				answer.Status = "cancelled"
+				return answer, nil
+			}
+		} else {
+			payload = result.Payload
+		}
 	}
-	if out == nil {
-		return nil, false, fmt.Errorf("query returned no response")
-	}
-	if strings.TrimSpace(out.ConversationID) != "" {
-		input.ConversationID = strings.TrimSpace(out.ConversationID)
-	}
-	if strings.TrimSpace(out.Content) != "" {
-		streamer.Close()
-		return out, streamer.Flush(out.Content), nil
-	}
-	elicitation := out.Elicitation
-	if elicitation == nil && out.Plan != nil {
-		elicitation = out.Plan.Elicitation
-	}
-	if elicitation != nil && !inlineElicitation {
-		streamer.Close()
-		return nil, false, fmt.Errorf("elicitation required; run interactively or provide --elicitation-default")
-	}
-	content, err := waitForAssistantContent(ctx, client, streamer, strings.TrimSpace(out.ConversationID), startedAt, defaultPayload, seedPayload, c.elicitationTimeout)
+	rawPayload, err := json.Marshal(payload)
 	if err != nil {
-		return nil, false, err
+		return answer, err
 	}
-	out.Content = content
-	streamer.Close()
-	return out, streamer.Flush(out.Content), nil
+	jsonPayload := json.RawMessage(rawPayload)
+	answer.Payload = &jsonPayload
+	if seed != nil {
+		mergePayload(seed, payload)
+	}
+	return answer, nil
 }
 
 type chatStreamer struct {
@@ -119,7 +150,7 @@ type chatStreamer struct {
 }
 
 func startChatStream(ctx context.Context, client *sdk.HTTPClient, conversationID string) (*chatStreamer, error) {
-	sub, err := client.StreamEvents(ctx, &sdk.StreamEventsInput{ConversationID: conversationID})
+	sub, err := client.ObserveApplicationEvents(ctx, &sdk.StreamEventsInput{ConversationID: conversationID})
 	if err != nil {
 		return nil, fmt.Errorf("stream events: %w", err)
 	}

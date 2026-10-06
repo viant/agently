@@ -1,5 +1,7 @@
 import Foundation
 import AgentlySDK
+import var ForgeIOSRuntime.nativeReportAdmissionKey
+import func ForgeIOSRuntime.nativeReportSelectedDocument
 import Dispatch
 import OSLog
 import Combine
@@ -20,6 +22,7 @@ public final class AppRuntime: ObservableObject {
     private let settingsStore: AppSettingsStore
     private let clientFactory: @Sendable (String) -> AgentlyClient
     private let uiBridge: AppleUIBridgeController
+    private var accountGeneration = 0
     private var themeRefreshTask: Task<Void, Never>?
     private var streamTask: Task<Void, Never>?
     private var postTurnRefreshTask: Task<Void, Never>?
@@ -45,6 +48,7 @@ public final class AppRuntime: ObservableObject {
         self.approvalRuntime = ApprovalRuntime(client: client)
         self.elicitationRuntime = ElicitationRuntime(client: client)
         Task {
+            await state.forgeRuntime.registerNativeReportLifecycleHandler(NativeReportRunLifecycleHandler(client: client))
             await state.forgeRuntime.registerDataSourceLoader(
                 makeForgeAgentlyDataSourceLoader(
                     client: client,
@@ -103,7 +107,6 @@ public final class AppRuntime: ObservableObject {
                 if let restoreState = bridgeHostedWorkspaceRestoreState(from: result) {
                     await MainActor.run {
                         state.activeHostedWorkspace = restoreState
-                        queryRuntime.markAccepted()
                     }
                 }
                 return result
@@ -123,7 +126,16 @@ public final class AppRuntime: ObservableObject {
     }
 
     private func bindChildObjectChanges() {
-        authRuntime.onSessionCleared = { [weak self] in self?.themeRefreshTask?.cancel(); self?.themeRuntime.clear(forgetAccount: true) }
+        authRuntime.onSessionCleared = { [weak self] in
+            guard let self else { return }
+            self.accountGeneration += 1
+            let clearedGeneration = self.accountGeneration
+            Task { await self.state.forgeRuntime.bindNativeReportAccount(generation: clearedGeneration) }
+            self.settingsStore.saveActiveConversationID(nil)
+            self.streamTask?.cancel()
+            self.themeRefreshTask?.cancel()
+            self.themeRuntime.clear(forgetAccount: true)
+        }
         themeRuntime.onRefresh = { [weak self] in await self?.reloadWorkspaceAppearance() }
         observationCancellables.removeAll()
 
@@ -224,7 +236,8 @@ public final class AppRuntime: ObservableObject {
             state.artifactErrorMessage = nil
             state.streamErrorMessage = nil
             state.isStoppingTurn = false
-            settingsStore.saveActiveConversationID(nil)
+            // Keep the saved view selection for a normal auth renewal/retry.
+            // An explicit account/logout boundary clears it separately.
             state.bootstrapErrorMessage = bootstrapErrorMessage(for: error)
             let authRequired = isAuthenticationError(error)
             if authRequired { themeRefreshTask?.cancel(); themeRuntime.clear(forgetAccount: true) }
@@ -390,7 +403,7 @@ public final class AppRuntime: ObservableObject {
             state.bootstrapErrorMessage = nil
             if let activeConversationID = state.activeConversationID,
                !state.conversations.contains(where: { $0.id == activeConversationID }) {
-                startNewConversation()
+                await ensureConversationPresentInRecentList(conversationID: activeConversationID)
             }
         } catch {
             logger.error("Conversation list refresh failed: \(String(describing: error), privacy: .public)")
@@ -420,6 +433,8 @@ public final class AppRuntime: ObservableObject {
     }
 
     public func sendCurrentQuery() async {
+        let sendingClient = state.client
+        let sendingAccountGeneration = accountGeneration
         let text: String
         do {
             text = try composerRuntime.resolvedQuery().trimmingCharacters(in: .whitespacesAndNewlines)
@@ -455,12 +470,14 @@ public final class AppRuntime: ObservableObject {
             }
             if let response = await queryRuntime.send(
                 conversationID: conversationID,
+                messageID: optimisticTurn.userEntryID,
                 agentID: selectedAgentID,
                 query: text,
                 attachments: attachments.legacy,
                 resourceURIs: attachments.resourceURIs,
                 context: queryContext
             ) {
+                guard state.client === sendingClient, accountGeneration == sendingAccountGeneration else { return }
                 chatRuntime.markOptimisticTurnAccepted(optimisticTurn)
                 let resolvedConversationID = response.conversationID?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
                     ?? conversationID?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
@@ -474,6 +491,7 @@ public final class AppRuntime: ObservableObject {
                     chatRuntime.completeOptimisticTurn(optimisticTurn, response: response.content)
                 }
             } else {
+                guard state.client === sendingClient, accountGeneration == sendingAccountGeneration else { return }
                 logger.error("Query send failed before response: \(self.queryRuntime.lastError ?? "unknown error", privacy: .public)")
                 chatRuntime.failOptimisticTurn(optimisticTurn, errorMessage: queryRuntime.lastError)
                 if composerRuntime.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -582,7 +600,9 @@ public final class AppRuntime: ObservableObject {
         state.isStoppingTurn = true
         state.streamErrorMessage = nil
         do {
-            try await state.client.cancelTurn(id: activeTurnID)
+            if let conversationID = state.activeConversationID {
+                try await state.client.agUiConversations.cancel(conversationID: conversationID, nativeTurnID: activeTurnID)
+            } else { try await state.client.cancelTurn(id: activeTurnID) }
             logger.info("Cancelled active turn \(activeTurnID, privacy: .public)")
             if let conversationID = state.activeConversationID, !conversationID.isEmpty {
                 await loadConversationState(conversationID: conversationID, replaceTranscript: false)
@@ -654,6 +674,8 @@ public final class AppRuntime: ObservableObject {
         replaceTranscript: Bool = true
     ) async {
         state.isLoadingConversation = true
+        let loadingClient = state.client
+        let loadingAccountGeneration = accountGeneration
         do {
             await ensureConversationPresentInRecentList(conversationID: conversationID)
             let transcriptState: ConversationStateResponse
@@ -674,18 +696,20 @@ public final class AppRuntime: ObservableObject {
                 )
             }
             let goal = try await state.client.getGoal(conversationID: conversationID)
+            guard state.client === loadingClient, accountGeneration == loadingAccountGeneration, state.activeConversationID == conversationID else { return }
             state.activeConversationState = transcriptState
             state.activeGoal = goal
-            state.activeHostedWorkspace = resolvedHostedWorkspaceRestoreState(
-                conversationID: conversationID,
-                transcriptState: transcriptState
-            )
+            let restored = resolvedHostedWorkspaceRestoreState(conversationID: conversationID, transcriptState: transcriptState)
+            let completedRestore = await hydrateCompletedReportRestore(restored, conversationID: conversationID, client: loadingClient)
+            guard state.client === loadingClient, accountGeneration == loadingAccountGeneration, state.activeConversationID == conversationID else { return }
+            state.activeHostedWorkspace = completedRestore
             if replaceTranscript {
                 chatRuntime.replaceTranscript(from: transcriptState)
             }
             state.streamErrorMessage = nil
             logger.info("Loaded transcript state for conversation \(conversationID, privacy: .public)")
         } catch {
+            guard state.client === loadingClient, accountGeneration == loadingAccountGeneration, state.activeConversationID == conversationID else { return }
             state.activeConversationState = nil
             state.activeGoal = nil
             state.activeHostedWorkspace = nil
@@ -696,6 +720,41 @@ public final class AppRuntime: ObservableObject {
         await approvalRuntime.refresh(conversationID: conversationID)
         await elicitationRuntime.refresh(conversationID: conversationID)
         state.isLoadingConversation = false
+    }
+
+    private func hydrateCompletedReportRestore(_ restored: HostedWorkspaceRestoreState?, conversationID: String, client: AgentlyClient) async -> HostedWorkspaceRestoreState? {
+        guard let restored, restored.windows.contains(where: { $0.windowForm?["reportDefinition"] != nil }) else { return restored }
+        let generation = accountGeneration
+        await state.forgeRuntime.bindNativeReportAccount(generation: generation)
+        guard let context = try? await client.getReportContext(conversationID: conversationID), context.conversationId == conversationID,
+              let run = try? await client.getReportRun(id: context.activeReportRunId, conversationID: conversationID), run.reportRunId == context.activeReportRunId,
+              !context.ownerId.isEmpty, context.ownerId == run.ownerId,
+              state.client === client, accountGeneration == generation else { return restored }
+        var windows: [WorkspaceWindowSnapshot] = []
+        for window in restored.windows {
+            let liveMetadata = try? await client.getForgeWindowMetadata(windowKey: window.windowKey, targetContext: state.metadataTargetContext)
+            guard state.client === client, accountGeneration == generation else { return restored }
+            let form: [String: JSONValue]
+            if run.requestedParams?.objectValue?[nativeReportAdmissionKey] != nil {
+                guard let originalForm = window.windowForm,
+                      let metadata = liveMetadata ?? originalForm["__agentlyWindowMetadata"],
+                      let verified = try? restoreNativeReportContext(originalForm, run: run, conversationID: conversationID, metadata: metadata, windowID: window.windowId) else { windows.append(window); continue }
+                do {
+                    try await state.forgeRuntime.installNativeReportFrozenAdmission(verified.admission, reportRunID: run.reportRunId, ownerID: run.ownerId, form: verified.form.mapValues(\.forgeValue), generation: generation)
+                } catch { windows.append(window); continue }
+                form = verified.form
+            } else {
+                guard let legacy = restoredCompletedReportForm(window.windowForm, run: run, conversationID: conversationID, liveMetadata: liveMetadata) else { windows.append(window); continue }
+                do { try await state.forgeRuntime.installVerifiedLegacyReportCache(windowID: window.windowId, conversationID: conversationID, reportRunID: run.reportRunId, ownerID: run.ownerId, form: legacy.mapValues(\.forgeValue), generation: generation) }
+                catch { windows.append(window); continue }
+                form = legacy
+            }
+            windows.append(WorkspaceWindowSnapshot(windowId: window.windowId, conversationId: window.conversationId, windowKey: window.windowKey,
+                windowTitle: window.windowTitle, presentation: window.presentation, region: window.region, parentKey: window.parentKey,
+                workspaceSharePct: window.workspaceSharePct, workspaceMinHeight: window.workspaceMinHeight, inTab: window.inTab,
+                parameters: window.parameters, windowForm: form))
+        }
+        return HostedWorkspaceRestoreState(windows: windows, selectedWindowId: restored.selectedWindowId)
     }
 
     private func resolvedHostedWorkspaceRestoreState(
@@ -723,7 +782,7 @@ public final class AppRuntime: ObservableObject {
         state.isLoadingArtifacts = true
         do {
             async let generatedFilesTask = state.client.listGeneratedFiles(conversationID: conversationID)
-            async let fileListTask = state.client.listFiles(ListFilesInput(conversationID: conversationID))
+            async let fileListTask = optionalConversationFileList(client: state.client, input: ListFilesInput(conversationID: conversationID))
             let generatedFiles = try await generatedFilesTask
             let listedFiles = try await fileListTask
             state.artifacts = mergeArtifacts(
@@ -781,7 +840,7 @@ public final class AppRuntime: ObservableObject {
         )
     }
 
-    nonisolated private static func mergeWindowForm(
+    nonisolated static func mergeWindowForm(
         base: [String: AgentlySDK.JSONValue]?,
         overlay: [String: AgentlySDK.JSONValue]?
     ) -> [String: AgentlySDK.JSONValue]? {
@@ -792,10 +851,26 @@ public final class AppRuntime: ObservableObject {
         guard let durable, !durable.isEmpty else {
             return local
         }
+        var retainedStateKey: String?
         if durable["reportDefinition"]?.objectValue != nil {
-            local = local.filter { !$0.key.hasPrefix("reportBuilder:") }
+            if let builder = durable["reportBuilderRef"]?.forgeValue.stringValue, !builder.isEmpty,
+               local["reportBuilderRef"]?.forgeValue.stringValue == builder {
+                let key = "reportBuilder:" + builder
+                if let durableDocument = nativeReportSelectedDocument(durable.mapValues(\.forgeValue), stateKey: key),
+                   nativeReportSelectedDocument(local.mapValues(\.forgeValue), stateKey: key) == durableDocument {
+                    retainedStateKey = key
+                }
+            }
+            // Preserve a candidate's opaque hook fields only for the identical
+            // selected document. The authenticated restore verifier still owns
+            // trust, and explicit durable edits below always take precedence.
+            local = local.filter { !$0.key.hasPrefix("reportBuilder:") || $0.key == retainedStateKey }
         }
-        return mergeJSONObjects(base: local, overlay: durable)
+        var merged = mergeJSONObjects(base: local, overlay: durable)
+        if let key = retainedStateKey, let localState = local[key]?.objectValue, let durableState = durable[key]?.objectValue {
+            merged[key] = .object(mergeJSONObjects(base: localState, overlay: durableState, emptyObjectsOverride: true))
+        }
+        return merged
     }
 
     nonisolated private static func sanitizeOrphanedReportMaterialization(
@@ -813,16 +888,18 @@ public final class AppRuntime: ObservableObject {
 
     nonisolated private static func mergeJSONObjects(
         base: [String: AgentlySDK.JSONValue],
-        overlay: [String: AgentlySDK.JSONValue]
+        overlay: [String: AgentlySDK.JSONValue],
+        emptyObjectsOverride: Bool = false
     ) -> [String: AgentlySDK.JSONValue] {
         var merged = base
         for (key, value) in overlay {
             if case .object(let baseObject)? = merged[key],
                case .object(let overlayObject) = value {
-                if overlayObject.isEmpty && !baseObject.isEmpty {
-                    continue
+                if overlayObject.isEmpty {
+                    if emptyObjectsOverride { merged[key] = .object([:]); continue }
+                    if !baseObject.isEmpty { continue }
                 }
-                merged[key] = .object(mergeJSONObjects(base: baseObject, overlay: overlayObject))
+                merged[key] = .object(mergeJSONObjects(base: baseObject, overlay: overlayObject, emptyObjectsOverride: emptyObjectsOverride))
             } else {
                 merged[key] = value
             }
@@ -841,17 +918,19 @@ public final class AppRuntime: ObservableObject {
         state.activeStreamSnapshot = nil
         state.streamErrorMessage = nil
         state.isStoppingTurn = false
+        let streamingClient = state.client
+        let streamingAccountGeneration = accountGeneration
         streamTask = Task { [weak self] in
             guard let self else { return }
             logger.info("Starting live stream for conversation \(conversationID, privacy: .public)")
             var sawActiveTurn = false
             var reconciledInactiveSnapshot = false
             do {
-                for try await snapshot in state.client.trackConversation(conversationID: conversationID) {
+                for try await snapshot in streamingClient.trackConversation(conversationID: conversationID) {
                     if Task.isCancelled { return }
                     let previousActiveTurnID = state.activeTurnID?.trimmingCharacters(in: .whitespacesAndNewlines)
                     let previousSnapshot = state.activeStreamSnapshot
-                    guard state.activeConversationID == conversationID else {
+                    guard state.client === streamingClient, accountGeneration == streamingAccountGeneration, state.activeConversationID == conversationID else {
                         continue
                     }
                     let currentTurnID = snapshot.activeTurnID?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -863,14 +942,7 @@ public final class AppRuntime: ObservableObject {
                             chatRuntime.commitAssistantTurn(from: previousSnapshot, turnID: completedTurnID)
                         }
                     }
-                    let hasAcceptedActivity =
-                        (currentTurnID?.isEmpty == false) ||
-                        !snapshot.bufferedMessages.isEmpty ||
-                        !snapshot.liveExecutionGroupsByID.isEmpty ||
-                        snapshot.pendingElicitation != nil
-                    if hasAcceptedActivity {
-                        queryRuntime.markAccepted()
-                    }
+
                     state.activeTurnID = snapshot.activeTurnID
                     state.activeStreamSnapshot = snapshot
                     if let currentTurnID,
@@ -908,15 +980,16 @@ public final class AppRuntime: ObservableObject {
                         elicitationRuntime.dismiss()
                     }
                 }
+                guard state.client === streamingClient, accountGeneration == streamingAccountGeneration, state.activeConversationID == conversationID else { return }
                 state.activeTurnID = nil
                 state.activeStreamSnapshot = nil
                 state.isStoppingTurn = false
                 logger.info("Live stream ended for conversation \(conversationID, privacy: .public)")
             } catch {
+                guard !Task.isCancelled, state.client === streamingClient, accountGeneration == streamingAccountGeneration, state.activeConversationID == conversationID else { return }
                 state.activeTurnID = nil
                 state.activeStreamSnapshot = nil
                 state.isStoppingTurn = false
-                guard !Task.isCancelled else { return }
                 logger.error("Live stream failed for conversation \(conversationID, privacy: .public): \(String(describing: error), privacy: .public)")
                 state.streamErrorMessage = "Live updates failed: \(error.localizedDescription)"
             }
@@ -1036,6 +1109,7 @@ public final class AppRuntime: ObservableObject {
         await themeRuntime.refresh(metadata: metadata, server: state.bootstrapBaseURL, account: account) { asset in
             try await client.getWorkspaceThemeCatalog(asset)
         }
+        await themeRuntime.loadNativeFonts(client: client)
     }
 
     public func reloadWorkspaceAppearance() async {
@@ -1053,11 +1127,16 @@ public final class AppRuntime: ObservableObject {
     private func rebuildClient() {
         let configuredBaseURL = settingsRuntime.apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         logger.info("Rebuilding runtime client for base URL: \(configuredBaseURL, privacy: .public)")
+        accountGeneration += 1
+        state.client.agUiConversations.invalidate()
         let client = clientFactory(configuredBaseURL)
         state.client = client
         state.bootstrapBaseURL = configuredBaseURL
         uiBridge.updateClient(client)
+        let newGeneration = accountGeneration
         Task {
+            await state.forgeRuntime.bindNativeReportAccount(generation: newGeneration)
+            await state.forgeRuntime.registerNativeReportLifecycleHandler(NativeReportRunLifecycleHandler(client: client))
             await state.forgeRuntime.registerDataSourceLoader(
                 makeForgeAgentlyDataSourceLoader(
                     client: client,
@@ -1156,9 +1235,12 @@ public final class AppRuntime: ObservableObject {
         if let activeConversationID = state.activeConversationID, !activeConversationID.isEmpty {
             return activeConversationID
         }
-        let conversation = try await state.client.createConversation(
+        let client = state.client
+        let generation = accountGeneration
+        let conversation = try await client.createConversation(
             CreateConversationInput(agentID: selectedAgentID)
         )
+        guard client === state.client, generation == accountGeneration else { throw CancellationError() }
         state.activeConversationID = conversation.id
         settingsStore.saveActiveConversationID(conversation.id)
         if let index = state.conversations.firstIndex(where: { $0.id == conversation.id }) {
@@ -1536,5 +1618,19 @@ private extension String {
     var nonEmpty: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+/// A deployment may deliberately disable optional conversation file listing.
+/// Preserve generated artifacts while retaining real authorization/server errors.
+internal func optionalConversationFileList(client: AgentlyClient, input: ListFilesInput) async throws -> ListFilesOutput {
+    do { return try await client.listFiles(input) }
+    catch AgentlySDKError.httpStatus(let status, let detail) {
+        let message = detail.flatMap { try? AgUiValue.parse($0) }?["error"]?.string
+            ?? detail?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard status == 500, message == "file listing is disabled" else {
+            throw AgentlySDKError.httpStatus(status, detail)
+        }
+        return ListFilesOutput()
     }
 }

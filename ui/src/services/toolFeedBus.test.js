@@ -7,6 +7,17 @@ vi.mock('./agentlyClient', () => ({
 }));
 
 describe('toolFeedBus conversation scoping', () => {
+  it('retains content while clearing activation knowledge only in the addressed conversation', async () => {
+    const mod = await import('./toolFeedBus');
+    for (const conversationId of ['a', 'b']) mod.applyFeedEvent({
+      type: 'tool_feed_active', feedId: 'feed', conversationId, feedData: { rows: [conversationId] },
+    });
+    mod.applyFeedEvent({ type: 'tool_feed_unknown', feedId: 'feed', conversationId: 'a' });
+    expect(mod.getActiveFeeds().find(feed => feed.conversationId === 'a')).toMatchObject({ active: null, activationKnown: false });
+    expect(mod.getActiveFeeds().find(feed => feed.conversationId === 'b')).toMatchObject({ active: true, activationKnown: true });
+    expect(mod.getFeedData('feed', 'a').data.rows).toEqual(['a']);
+    expect(mod.isFeedInactive('feed', 'a')).toBe(false);
+  });
   afterEach(async () => {
     const mod = await import('./toolFeedBus');
     mod.clearFeedState();

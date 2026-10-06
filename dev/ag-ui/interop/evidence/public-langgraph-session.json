@@ -1,0 +1,181 @@
+{
+  "checkedAt": "2026-10-04T03:02:04.057Z",
+  "backend": "Official AG-UI LangGraph Dojo FastAPI",
+  "mode": "public-hosted",
+  "endpoint": "https://ag-ui-dojo-langgraph-fastapi.onrender.com/agent/agentic_chat",
+  "sourceReferenceRevision": "97f789cc1c48eaaf6949c9e9a88abb5cf6e7c5e3",
+  "deploymentRevision": null,
+  "sourceReference": "https://github.com/ag-ui-protocol/ag-ui/tree/97f789cc1c48eaaf6949c9e9a88abb5cf6e7c5e3/integrations/langgraph/python/examples",
+  "deploymentConfig": "https://github.com/ag-ui-protocol/ag-ui/blob/97f789cc1c48eaaf6949c9e9a88abb5cf6e7c5e3/render.yaml",
+  "client": {
+    "implementation": "AgUiSession",
+    "profile": "standard",
+    "sdk": "@ag-ui/client@1.0.1",
+    "authentication": "none",
+    "credentials": "omit"
+  },
+  "productionUI": {
+    "tested": false,
+    "reason": "This portable session harness is preparation; same production UI browser proof is a separate gate."
+  },
+  "health": {
+    "status": "ok",
+    "agent": {
+      "name": "agentic_chat"
+    }
+  },
+  "openapi": {
+    "title": "LangGraph Dojo Example Server",
+    "version": "0.1.0",
+    "protocolVersionProperty": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Protocolversion"
+    }
+  },
+  "assertions": [
+    {
+      "name": "standard streamed chat completed",
+      "passed": true
+    },
+    {
+      "name": "same thread follow-up preserves conversation",
+      "passed": true
+    },
+    {
+      "name": "standard frontend tool handoff",
+      "passed": true,
+      "detail": "phase=completed; pending=1"
+    },
+    {
+      "name": "frontend tool result continues through same session",
+      "passed": true
+    },
+    {
+      "name": "official reducer observes protocol text and state",
+      "passed": true
+    },
+    {
+      "name": "no Agently extension discovery or envelope",
+      "passed": true
+    },
+    {
+      "name": "does not assume unsupported durable replay",
+      "passed": true
+    }
+  ],
+  "status": "passed",
+  "syntheticAssistantReplies": [
+    "AGUI_WEB_INTEROP_OK",
+    "AGUI_WEB_INTEROP_OK",
+    "",
+    "AGUI_WEB_INTEROP_TOOL_OK"
+  ],
+  "final": {
+    "phase": "completed",
+    "messageCount": 9,
+    "stateKeys": [
+      "messages",
+      "copilotkit"
+    ],
+    "pendingInterrupts": 0,
+    "frontendToolExecutions": 1
+  },
+  "eventCounts": {
+    "RUN_STARTED": 4,
+    "RAW": 126,
+    "STEP_STARTED": 16,
+    "STATE_SNAPSHOT": 10,
+    "STEP_FINISHED": 16,
+    "TEXT_MESSAGE_START": 3,
+    "TEXT_MESSAGE_CONTENT": 19,
+    "TEXT_MESSAGE_END": 3,
+    "MESSAGES_SNAPSHOT": 4,
+    "RUN_FINISHED": 4,
+    "TOOL_CALL_START": 1,
+    "TOOL_CALL_ARGS": 11,
+    "TOOL_CALL_END": 1
+  },
+  "phases": [
+    "running",
+    "completed",
+    "running",
+    "completed",
+    "running",
+    "completed",
+    "running",
+    "completed"
+  ],
+  "requests": [
+    {
+      "url": "https://ag-ui-dojo-langgraph-fastapi.onrender.com/agent/agentic_chat",
+      "method": "POST",
+      "inputKeys": [
+        "context",
+        "forwardedProps",
+        "messages",
+        "protocolVersion",
+        "runId",
+        "state",
+        "threadId",
+        "tools"
+      ],
+      "hasAgentlyExtension": false,
+      "credentials": "omit"
+    },
+    {
+      "url": "https://ag-ui-dojo-langgraph-fastapi.onrender.com/agent/agentic_chat",
+      "method": "POST",
+      "inputKeys": [
+        "context",
+        "forwardedProps",
+        "messages",
+        "protocolVersion",
+        "runId",
+        "state",
+        "threadId",
+        "tools"
+      ],
+      "hasAgentlyExtension": false,
+      "credentials": "omit"
+    },
+    {
+      "url": "https://ag-ui-dojo-langgraph-fastapi.onrender.com/agent/agentic_chat",
+      "method": "POST",
+      "inputKeys": [
+        "context",
+        "forwardedProps",
+        "messages",
+        "protocolVersion",
+        "runId",
+        "state",
+        "threadId",
+        "tools"
+      ],
+      "hasAgentlyExtension": false,
+      "credentials": "omit"
+    },
+    {
+      "url": "https://ag-ui-dojo-langgraph-fastapi.onrender.com/agent/agentic_chat",
+      "method": "POST",
+      "inputKeys": [
+        "context",
+        "forwardedProps",
+        "messages",
+        "protocolVersion",
+        "runId",
+        "state",
+        "threadId",
+        "tools"
+      ],
+      "hasAgentlyExtension": false,
+      "credentials": "omit"
+    }
+  ]
+}

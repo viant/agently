@@ -163,6 +163,77 @@ func decodedToolFeedContent(_ value: AgentlySDK.JSONValue?) -> ContentDef? {
     }
 }
 
+func nativeToolFeedMetadata(payload: FeedDataResponse, content: ContentDef) -> WindowMetadata {
+    let resources = payload.ui.flatMap { value in
+        (try? JSONEncoder().encode(value)).flatMap { try? JSONDecoder().decode(WindowMetadata.self, from: $0) }
+    }
+    let dataSources = (resources?.dataSources ?? [:]).merging(
+        toolFeedDataSources(declared: payload.dataSources, content: content),
+        uniquingKeysWith: { _, declared in declared }
+    )
+    return WindowMetadata(
+        namespace: resources?.namespace,
+        view: ViewDef(content: content),
+        dialogs: resources?.dialogs ?? [],
+        dataSources: dataSources,
+        window: resources?.window,
+        actions: resources?.actions,
+        on: resources?.on ?? [],
+        target: resources?.target,
+        targetOverrides: resources?.targetOverrides ?? [:],
+        authorizationSnapshot: resources?.authorizationSnapshot ?? [:],
+        schemas: resources?.schemas ?? [:],
+        resourceModels: resources?.resourceModels ?? [:]
+    )
+}
+
+func referencedFeedDialogIDs(_ ui: AgentlySDK.JSONValue?) -> Set<String> {
+    var ids = Set<String>()
+    func walk(_ value: AgentlySDK.JSONValue) {
+        switch value {
+        case .object(let object):
+            if case .string(let id) = object["dialogId"], !id.isEmpty { ids.insert(id) }
+            object.values.forEach(walk)
+        case .array(let values): values.forEach(walk)
+        default: break
+        }
+    }
+    if let ui { walk(ui) }
+    return ids
+}
+
+func hydrateReferencedFeedDialogs(_ metadata: WindowMetadata, ui: AgentlySDK.JSONValue?, shared: WindowMetadata) throws -> WindowMetadata {
+    let encoder = JSONEncoder()
+    guard var result = try JSONSerialization.jsonObject(with: encoder.encode(metadata)) as? [String: Any],
+          let resources = try JSONSerialization.jsonObject(with: encoder.encode(shared)) as? [String: Any] else { return metadata }
+    let existing = Set(metadata.dialogs.compactMap(\.id))
+    let wanted = referencedFeedDialogIDs(ui).subtracting(existing)
+    let dialogs = (resources["dialogs"] as? [[String: Any]] ?? []).filter { wanted.contains($0["id"] as? String ?? "") }
+    var refs = Set<String>()
+    func collect(_ value: Any) {
+        if let object = value as? [String: Any] {
+            if let ref = object["dataSourceRef"] as? String { refs.insert(ref) }
+            object.values.forEach(collect)
+        } else if let values = value as? [Any] { values.forEach(collect) }
+    }
+    dialogs.forEach(collect)
+    let sharedSources = resources["dataSource"] as? [String: Any] ?? resources["dataSources"] as? [String: Any] ?? [:]
+    var sources = result["dataSource"] as? [String: Any] ?? result["dataSources"] as? [String: Any] ?? [:]
+    var visited = Set<String>()
+    while let ref = refs.subtracting(visited).first {
+        visited.insert(ref)
+        if let definition = sharedSources[ref], sources[ref] == nil {
+            sources[ref] = definition
+            collect(definition)
+        }
+    }
+    result["dialogs"] = (result["dialogs"] as? [[String: Any]] ?? []) + dialogs
+    result["dataSources"] = sources
+    result.removeValue(forKey: "dataSource")
+    if result["namespace"] == nil { result["namespace"] = resources["namespace"] }
+    return try JSONDecoder().decode(WindowMetadata.self, from: JSONSerialization.data(withJSONObject: result))
+}
+
 func decodedToolFeedDataSources(_ value: AgentlySDK.JSONValue?) -> [String: DataSourceDef] {
     guard let definitions = value?.objectValue else { return [:] }
     return definitions.reduce(into: [:]) { result, entry in
@@ -734,7 +805,8 @@ struct ToolFeedsSection: View {
                 feed: selectedFeed,
                 conversationID: effectiveConversationID,
                 content: content,
-                forgeRuntime: forgeRuntime
+                forgeRuntime: forgeRuntime,
+                client: client
             )
         } else {
             let lines = toolFeedSummaryLines(payload?.data ?? selectedFeed?.data)
@@ -772,6 +844,7 @@ struct InlineToolFeedSurface: View {
     let client: AgentlyClient
     let forgeRuntime: ForgeRuntime
 
+    @State private var isWorkspacePresented = false
     @State private var payload: FeedDataResponse?
     @State private var errorMessage: String?
 
@@ -781,6 +854,13 @@ struct InlineToolFeedSurface: View {
                 Image(systemName: toolFeedSymbol(feed.presentation))
                 Text(feed.title ?? feed.feedID ?? "Feed").font(.headline)
                 Spacer()
+                Button { isWorkspacePresented = true } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open workspace")
+                .accessibilityIdentifier("agently-tool-feed-open-workspace")
                 if (feed.itemCount ?? 0) > 0 {
                     Text("\(feed.itemCount ?? 0)").font(.caption.weight(.bold)).foregroundStyle(.secondary)
                 }
@@ -791,8 +871,11 @@ struct InlineToolFeedSurface: View {
                     feed: feed,
                     conversationID: conversationID,
                     content: content,
-                    forgeRuntime: forgeRuntime
+                    forgeRuntime: forgeRuntime,
+                    client: client,
+                    scrollEnabled: true
                 )
+                .frame(height: 520)
             } else if let errorMessage {
                 Text(errorMessage).font(.footnote).foregroundStyle(Color.red)
             } else {
@@ -803,6 +886,34 @@ struct InlineToolFeedSurface: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.secondary.opacity(0.045), in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(toolFeedAccent(feed.presentation).opacity(0.22), lineWidth: 1))
+        .agentlyFullScreenCover(isPresented: $isWorkspacePresented) {
+            NavigationStack {
+                Group {
+                    if let payload, let content = decodedToolFeedContent(payload.ui) {
+                        NativeToolFeedView(
+                            payload: payload,
+                            feed: feed,
+                            conversationID: conversationID,
+                            content: content,
+                            forgeRuntime: forgeRuntime,
+                            client: client,
+                            scrollEnabled: true
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ProgressView("Loading workspace")
+                    }
+                }
+                .navigationTitle(feed.title ?? "Workspace")
+                .agentlyInlineTitleMode()
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Back to conversation") { isWorkspacePresented = false }
+                            .accessibilityIdentifier("agently-tool-feed-back-to-conversation")
+                    }
+                }
+            }
+        }
         .task(id: "\(conversationID)#\(feed.feedID ?? "")") {
             guard let feedID = feed.feedID?.trimmingCharacters(in: .whitespacesAndNewlines), !feedID.isEmpty else { return }
             do {
@@ -824,6 +935,9 @@ private struct NativeToolFeedView: View {
     let conversationID: String
     let content: ContentDef
     let forgeRuntime: ForgeRuntime
+    let client: AgentlyClient
+
+    var scrollEnabled = false
 
     @State private var window: ForgeRuntime.WindowState?
     @State private var windowContext: WindowContext?
@@ -831,13 +945,16 @@ private struct NativeToolFeedView: View {
 
     var body: some View {
         Group {
-            if window != nil, let windowContext {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(content.containers) { container in
-                        ContainerRenderer(runtime: forgeRuntime, window: windowContext, container: container)
-                    }
-                }
+            if let window, let metadata = window.metadata, let windowContext {
+                WindowContentView(
+                    runtime: forgeRuntime,
+                    window: windowContext,
+                    metadata: metadata,
+                    scrollEnabled: scrollEnabled,
+                    contentPadding: 0
+                )
                 .environment(\.forgePresentationDensity, .compact)
+                if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(Color.red) }
             } else if let errorMessage {
                 Text(errorMessage).font(.footnote).foregroundStyle(Color.red)
             } else {
@@ -861,10 +978,18 @@ private struct NativeToolFeedView: View {
             ui: payload.ui
         )
         let key = "feed-\(feedID)-\(conversationID)"
-        let metadata = WindowMetadata(
-            view: ViewDef(content: content),
-            dataSources: toolFeedDataSources(declared: payload.dataSources, content: content)
-        )
+        errorMessage = nil
+        var metadata = nativeToolFeedMetadata(payload: payload, content: content)
+        if !referencedFeedDialogIDs(payload.ui).subtracting(Set(metadata.dialogs.compactMap(\.id))).isEmpty {
+            do {
+                let loader = makeForgeAgentlyWindowMetadataLoader(client: client, targetContext: forgeRuntime.targetContext)
+                if let shared = try await loader(.init(windowID: key, windowKey: "chat/new", conversationID: conversationID)) {
+                    metadata = try hydrateReferencedFeedDialogs(metadata, ui: payload.ui, shared: shared)
+                }
+            } catch {
+                errorMessage = "Unable to load workspace lookup resources."
+            }
+        }
         let existing = await forgeRuntime.windows.first(where: { $0.key == key && $0.conversationID == conversationID })
         let state: ForgeRuntime.WindowState
         if let existing,
@@ -906,7 +1031,6 @@ private struct NativeToolFeedView: View {
         }
         window = state
         windowContext = await forgeRuntime.windowContext(id: state.id)
-        errorMessage = nil
     }
 }
 

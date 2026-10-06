@@ -28,6 +28,30 @@ final class AppRuntimeDeletionTests: XCTestCase {
     }
 
     @MainActor
+    func testRecentPageMissingActiveConversationDoesNotClearSavedSelection() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let client = AgentlyClient(endpoints: ["appAPI": EndpointConfig(baseURL: URL(string: "http://fixture.invalid")!)], session: URLSession(configuration: configuration))
+        let defaults = UserDefaults(suiteName: #function)!
+        defaults.removePersistentDomain(forName: #function)
+        let store = AppSettingsStore(defaults: defaults)
+        let runtime = AppRuntime(client: client, startupBaseURL: "http://fixture.invalid", settingsStore: store, clientFactory: { _ in client })
+        runtime.state.activeConversationID = "active"
+        store.saveActiveConversationID("active")
+        URLProtocolStub.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+            let body = url.path == "/v1/conversations/active" ? #"{"id":"active","title":"Selected"}"# : #"{"Rows":[{"id":"recent","title":"Recent"}],"HasMore":true}"#
+            return (response, Data(body.utf8))
+        }
+        defer { URLProtocolStub.requestHandler = nil; defaults.removePersistentDomain(forName: #function) }
+        await runtime.refreshConversationList()
+        XCTAssertEqual(runtime.state.activeConversationID, "active")
+        XCTAssertEqual(store.loadActiveConversationID(), "active")
+        XCTAssertTrue(runtime.state.conversations.contains { $0.id == "active" })
+    }
+
+    @MainActor
     func testDeleteConversationClearsActiveSelectionAndRefreshesList() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]

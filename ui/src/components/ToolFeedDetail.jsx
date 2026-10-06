@@ -1,3 +1,4 @@
+import { normalizeQueueEditorBinding } from '../services/queueFeedSpec';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CompactFeedList, Container, ForgeThemeBoundary, LookupPickerDialog, Terminal } from 'forge/components';
 import { getFeedData, fetchFeedDataNow, onFeedDataChange, getActiveFeeds, onFeedChange, splitFeedKey } from '../services/toolFeedBus';
@@ -62,7 +63,7 @@ function resolveFeedDetailConversationId(explicitConversationId = '', context = 
  * Uses Forge Container to render feed UI specs from YAML.
  * Falls back to generic InlineRenderer when no UI spec is present.
  */
-export default function ToolFeedDetail({ context, variant = 'inline', conversationId = '', turnId = '', placement = 'inline', includeAuto = true, hostedFeedId = '', onLifecycle }) {
+export default function ToolFeedDetail({ context, variant = 'inline', conversationId = '', turnId = '', placement = 'inline', includeAuto = true, includeConversationFeeds = true, hostedFeedId = '', onLifecycle }) {
   const [feeds, setFeeds] = useState(getActiveFeeds);
   const [dataVersion, setDataVersion] = useState(0);
   const [hostedLoad, setHostedLoad] = useState({loading: !!hostedFeedId, error: ''});
@@ -107,7 +108,8 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
     if (hostedFeedId ? feed.feedId !== hostedFeedId : !toolFeedTargetsPlacement(feed, placement, includeAuto)) return false;
     const feedTurnId = String(feed?.turnId || '').trim();
     const scopedTurnId = String(turnId || '').trim();
-    if (normalizeToolFeedTarget(feed?.presentation?.target) === 'inline' && feedTurnId && scopedTurnId && feedTurnId !== scopedTurnId) return false;
+    if (!hostedFeedId && !feedTurnId && !includeConversationFeeds) return false;
+    if (feedTurnId && scopedTurnId && feedTurnId !== scopedTurnId) return false;
     return !!getFeedData(feed.feedId, feed.conversationId);
   }));
   const hasAnyExpandedFeed = candidateFeeds.some((feed) => expandedFeeds.has(feed.feedId));
@@ -120,7 +122,7 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
     ? candidateFeeds.filter((feed) => normalizeToolFeedTarget(feed?.presentation?.target) === 'inline')
     : [];
   const forceExpandedInline = normalizeToolFeedTarget(placement) === 'inline' && candidateFeeds.length > 0;
-  const visibleFeeds = hostedFeedId ? candidateFeeds : dedupeFeeds([...explicitInlineFeeds, ...expandedVisibleFeeds]);
+  const visibleFeeds = hostedFeedId || forceExpandedInline ? candidateFeeds : dedupeFeeds([...explicitInlineFeeds, ...expandedVisibleFeeds]);
   const renderableFeeds = visibleFeeds.filter((feed) => {
     const data = getFeedData(feed.feedId, feed.conversationId);
     if (!data) return false;
@@ -204,6 +206,7 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
                 {feed.itemCount > 0 ? <span className="app-tool-feed-detail-section-badge">{feed.itemCount}</span> : null}
               </div>
             ) : null}
+            {feed.activationKnown === false ? <div role="status" className="app-tool-feed-detail-explanation">Status unknown · showing last known content</div> : null}
             {!hostedFeedId && feed.conversationId ? <button type="button" className="app-tool-feed-promote"
               onClick={() => window.dispatchEvent(new CustomEvent('agently:toolfeed-workspace-open', {detail: feed}))}>Open in workspace</button> : null}
             <FeedPanel
@@ -211,7 +214,7 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
               rawFeedId={feed.rawFeedId || splitFeedKey(feed.feedId).feedId}
               context={context}
               variant={variant}
-              fullHeight={normalizeToolFeedTarget(placement) === 'inline'}
+              fullHeight={!!hostedFeedId}
             />
           </section>
         ))}
@@ -240,7 +243,7 @@ function FeedPanel({ feedId, context, variant = 'inline', fullHeight = false }) 
   const onPathActivate = rawFeedId === 'resources'
     ? (row) => openResourceFeedPath({ row, context })
     : null;
-  if (hasForgeFeedUI(data?.ui, data?.renderMode)) {
+  if (hasForgeFeedUI(data?.ui, resolveFeedRenderMode(rawFeedId,data))) {
     return (
       <ForgeFeedRenderer
         key={`${scopedConversationId}:${rawFeedId || feedId}`}
@@ -253,6 +256,14 @@ function FeedPanel({ feedId, context, variant = 'inline', fullHeight = false }) 
     );
   }
   return <InlineRenderer data={data} variant={variant} onPathActivate={onPathActivate} />;
+}
+
+/** Existing installed Queue declarations predate renderMode. Restore their
+ * authored controls while respecting every explicit workspace override. */
+export function resolveFeedRenderMode(feedId='',payload={}) {
+  if (payload?.ui && Object.prototype.hasOwnProperty.call(payload.ui,'renderMode')) return String(payload.ui.renderMode ?? '');
+  if (Object.prototype.hasOwnProperty.call(payload,'renderMode')) return String(payload.renderMode ?? '');
+  return feedId === 'queue' ? 'forge' : '';
 }
 
 function hasForgeFeedUI(ui = null, fallbackRenderMode = '') {
@@ -278,7 +289,7 @@ function cloneFeedNode(node) {
 }
 
 function buildForgeFeedContainer(feedId = '', payload = {}, dataMap = {}) {
-  const ui = (payload?.ui && typeof payload.ui === 'object') ? payload.ui : {};
+  const ui = normalizeQueueEditorBinding(feedId, (payload?.ui && typeof payload.ui === 'object') ? payload.ui : {});
   const rootContainers = Array.isArray(ui.containers) ? cloneFeedNode(ui.containers) : [];
   const rootItems = Array.isArray(ui.items) ? cloneFeedNode(ui.items) : [];
   const dsRefs = Object.keys((ui.dataSources && typeof ui.dataSources === 'object')
@@ -478,9 +489,14 @@ function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = '
 
   if (!container) return null;
   if (!signalsReady) return <div className="app-tool-feed-detail-loading" role="status">Loading feed content…</div>;
+  // Honor workspace-authored non-stretch layouts: their forms and tabs need
+  // intrinsic height, while compact flex tables still need a definite viewport.
+  const authoredFlow = container.layout?.itemStretch === false;
   const railStyle = variant === 'rail' || fullHeight
-    ? { height: '100%', minHeight: 0, overflowY: 'auto' }
-    : { maxHeight: 'min(18vh, 220px)', overflowY: 'auto' };
+    ? { height: '100%', minHeight: 0, overflowY: 'auto', display:'flex', flexDirection:'column' }
+    : authoredFlow
+      ? { height: 'auto', maxHeight: 'none', minHeight: 0, overflowY: 'visible' }
+      : { height: 'min(18vh, 220px)', maxHeight:'min(18vh, 220px)', minHeight:0, overflowY: 'auto', display:'flex', flexDirection:'column' };
   return (
     <ForgeThemeBoundary windowKey={`tool-feed-${feedId}`}>
       <div className="app-tool-feed-detail-forge" data-tool-feed-id={feedId} style={railStyle}>

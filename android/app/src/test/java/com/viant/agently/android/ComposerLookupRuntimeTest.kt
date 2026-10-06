@@ -222,6 +222,21 @@ class ComposerLookupRuntimeTest {
         )
     }
 
+    @Test
+    fun `lookup details use declared identity instead of unrelated fallback id`() {
+        val entry = LookupRegistryEntry(
+            name = "campaign", dataSource = "campaign_lookup",
+            token = LookupTokenFormat(store = "\${campaignId}", display = "\${campaignName}")
+        )
+        val row = mapOf(
+            "campaignId" to JsonPrimitive(910003),
+            "campaignName" to JsonPrimitive("Example Coffee"),
+            "id" to JsonPrimitive(999)
+        )
+        assertEquals("910003", composerLookupRowSecondaryText(row, entry))
+        assertEquals(JsonPrimitive(999), row["id"])
+    }
+
     private fun orderLookupEntry(): LookupRegistryEntry {
         return LookupRegistryEntry(
             name = "order",

@@ -13,17 +13,17 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
-	github.com/viant/agently-core v0.1.57-0.20261002224239-c16fa9799f0d
-	github.com/viant/datly v1.1.1-0.20261002181801-e0634731ef99
+	github.com/viant/agently-core v0.1.57-0.20261006032626-6b79f55962ba
+	github.com/viant/datly v1.1.1-0.20261005233219-5d0ceb9ac532
 	github.com/viant/embedius v0.5.6 // indirect
-	github.com/viant/forge v0.3.45-0.20261002184839-723a9cc896d9
+	github.com/viant/forge v0.3.45-0.20261006013147-384ece4646d5
 	github.com/viant/jsonrpc v0.25.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
-	github.com/viant/mcp v0.24.0
-	github.com/viant/mcp-protocol v0.19.0
+	github.com/viant/mcp v0.24.1-0.20261005185040-e3fb56e588cd
+	github.com/viant/mcp-protocol v0.19.1-0.20261005144737-c504db7a02bb
 	github.com/viant/mcp-ui v0.2.0 // indirect
 	github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726
-	github.com/viant/structology v0.10.1-0.20260925145657-42c5a7e1d1d7 // indirect
+	github.com/viant/structology v0.10.1-0.20261005184011-cdaab8ea7dab // indirect
 	github.com/viant/velty v0.4.1-0.20260915052314-fca47c0595f8 // indirect
 	github.com/viant/x v0.5.1-0.20260915043005-1bc42b9eef47 // indirect
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect; indirect -- replaced with internal stub, see below
@@ -83,6 +83,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.37.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.3.3 // indirect
+	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/francoispqt/gojay v1.2.13 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
@@ -123,6 +124,7 @@ require (
 	github.com/richardlehane/mscfb v1.0.4 // indirect
 	github.com/richardlehane/msoleps v1.0.4 // indirect
 	github.com/rwtodd/Go.Sed v0.0.0-20250326002959-ba712dc84b62 // indirect
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	github.com/shakinm/xlsReader v0.9.12 // indirect
 	github.com/sourcegraph/go-diff v0.7.0 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
@@ -133,7 +135,7 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tiendc/go-deepcopy v1.7.1 // indirect
 	github.com/viant/authz v0.0.0-20260928224026-ae44aa9ad366 // indirect
-	github.com/viant/bindly v0.2.1-0.20260915164201-7cf35da5bd9a // indirect
+	github.com/viant/bindly v0.4.1-0.20261005213521-e5944f61e2a9 // indirect
 	github.com/viant/bintly v0.2.0 // indirect
 	github.com/viant/gds v0.6.0 // indirect
 	github.com/viant/gmetric v0.3.2 // indirect
@@ -142,13 +144,13 @@ require (
 	github.com/viant/igo v0.2.0 // indirect
 	github.com/viant/parsly v0.3.3 // indirect
 	github.com/viant/sqlite-vec v0.3.1-0.20260220164201-136574510a3f // indirect
-	github.com/viant/sqlparser v0.13.1-0.20261001210110-82d5588e4251 // indirect
-	github.com/viant/sqlx v0.26.1-0.20261001153633-c707e294db3b // indirect
+	github.com/viant/sqlparser v0.13.1-0.20261005175605-18369aade19d // indirect
+	github.com/viant/sqlx v0.26.1-0.20261005180002-cf279facc496 // indirect
 	github.com/viant/structql v0.5.4 // indirect
-	github.com/viant/tagly v0.3.1-0.20260914020630-eadee36c3630 // indirect
+	github.com/viant/tagly v0.4.1-0.20261003132159-8165180970e1 // indirect
 	github.com/viant/toolbox v0.39.0 // indirect
 	github.com/viant/vec v0.2.4-0.20250819200643-7e16b6ea443c // indirect
-	github.com/viant/xdatly v1.0.1-0.20261001162605-e2b68d4babd9 // indirect
+	github.com/viant/xdatly v1.0.1-0.20261005144549-60dd64a21442 // indirect
 	github.com/viant/xlsy v0.3.1 // indirect
 	github.com/viant/xmlify v0.1.2-0.20260914155716-e525a8788fd0 // indirect
 	github.com/viant/xreflect v0.7.5-0.20260314170600-13f09f37d46e // indirect
@@ -194,3 +196,7 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.45.0 // indirect
 )
+
+replace github.com/viant/agently-core => ../agently-core-ag-ui
+
+replace github.com/viant/forge => ../forge-ag-ui

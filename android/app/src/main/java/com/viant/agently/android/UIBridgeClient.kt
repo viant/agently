@@ -3,6 +3,7 @@ package com.viant.agently.android
 import android.content.Context
 import com.viant.agentlysdk.AgentlyClient
 import com.viant.agentlysdk.UIBridgeRpcClient
+import com.viant.forgeandroid.runtime.JsonUtil
 import com.viant.forgeandroid.runtime.ForgeRuntime
 import com.viant.forgeandroid.runtime.FeedPatchOperation
 import com.viant.forgeandroid.runtime.WindowMetadata
@@ -25,8 +26,12 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
@@ -50,6 +55,7 @@ internal data class NativeUIBridgeWindow(
     val parameters: JsonObject = JsonObject(emptyMap()),
     val windowForm: JsonObject = JsonObject(emptyMap()),
     val metadata: JsonObject = JsonObject(emptyMap()),
+    val dataSources: JsonObject = JsonObject(emptyMap()),
     val inTab: Boolean = true,
     val isModal: Boolean = false
 )
@@ -275,7 +281,8 @@ internal fun buildAndroidUIBridgeSnapshot(
             windows += window.toUIBridgeWindow(
                 conversationId = conversationId.ifEmpty { window.conversationId?.trim() },
                 windowForm = windowForm,
-                metadata = metadata
+                metadata = nativeMetadataWithReportAuthoringSummary(metadata,windowForm.toJsonObject()),
+                dataSources = nativeWindowDataSourceSnapshot(forgeRuntime, window.windowId)
             )
         }
     return NativeUIBridgeSnapshot(
@@ -284,10 +291,30 @@ internal fun buildAndroidUIBridgeSnapshot(
     )
 }
 
+internal fun nativeWindowDataSourceSnapshot(runtime: ForgeRuntime, windowId: String): JsonObject = buildJsonObject {
+    runtime.registeredWindowDataSources(windowId).forEach { (instance, context) ->
+        val alias = instance.removePrefix("reportDocument:")
+        val input = context.input.peek()
+        val control = context.control.peek()
+        val selection = context.selection.peek()
+        put(alias, buildJsonObject {
+            put("dataSourceRef", context.dataSourceRef)
+            put("input", input.parameters.toJsonObject())
+            put("filter", (input.parameters["filters"] as? Map<String, Any?> ?: input.filter).toJsonObject())
+            put("control", mapOf("loading" to control.loading, "resolved" to control.resolved, "inactive" to control.inactive, "error" to control.error, "warnings" to control.warnings).toJsonObject())
+            put("form", context.form.peek().toJsonObject())
+            put("selection", mapOf("selected" to selection.selected, "selection" to selection.selection, "rowIndex" to selection.rowIndex).toJsonObject())
+            put("collection", context.collection.peek().toJsonElement())
+            put("metrics", context.metrics.peek().toJsonObject())
+        })
+    }
+}
+
 private fun WindowState.toUIBridgeWindow(
     conversationId: String?,
     windowForm: Map<String, Any?> = emptyMap(),
-    metadata: JsonObject = JsonObject(emptyMap())
+    metadata: JsonObject = JsonObject(emptyMap()),
+    dataSources: JsonObject = JsonObject(emptyMap())
 ): NativeUIBridgeWindow {
     return NativeUIBridgeWindow(
         windowId = windowId,
@@ -302,6 +329,7 @@ private fun WindowState.toUIBridgeWindow(
         parameters = parameters.toJsonObject(),
         windowForm = windowForm.toJsonObject(),
         metadata = metadata,
+        dataSources = dataSources,
         inTab = inTab,
         isModal = isModal
     )
@@ -321,6 +349,7 @@ private fun NativeUIBridgeWindow.toJsonObject(): JsonObject {
         put("parameters", parameters)
         put("windowForm", windowForm)
         if (metadata.isNotEmpty()) put("metadata", metadata)
+        put("dataSources", dataSources)
         put("inTab", JsonPrimitive(inTab))
         put("isModal", JsonPrimitive(isModal))
     }
@@ -438,18 +467,37 @@ internal suspend fun handleAndroidUIBridgeCommand(
             }
             androidReportCurrentResult(
                 windowId,
-                forgeRuntime.windowContext(windowId).peekWindowForm()
+                forgeRuntime.windowContext(windowId).peekWindowForm(),
+                forgeRuntime.preparedReportRequest(windowId),
+                forgeRuntime.reportRequestInspectionOnly,
+                forgeRuntime.nativeReportLifecycle.admission(windowId)?.let { forgeRuntime.reportPreparationIsCurrent(it.preparation) } == true,
+                forgeRuntime.nativeReportLifecycle.status(forgeRuntime.preparedReportRequest(windowId)),
+                forgeRuntime.verifiedCompletedReportDatasets(windowId)
             )
         }
 
         "ui.report.run" -> {
+            check(!forgeRuntime.reportRequestInspectionOnly) { "Debug report request inspection is active; report execution is disabled." }
             val windowId = jsonString(params["windowId"]).ifBlank {
                 throw IllegalArgumentException("windowId is required")
             }
             if (forgeRuntime.windows.value.none { it.windowId == windowId }) {
                 throw IllegalArgumentException("report window not found: $windowId")
             }
-            val requestId = "native-${UUID.randomUUID()}"
+            val prepared = forgeRuntime.awaitReadyReportPreparation(windowId)
+            check(prepared != null && prepared.status == "ready" && forgeRuntime.reportPreparationIsCurrent(prepared)) {
+                "The selected report request is not ready: ${prepared?.reason ?: "pending"}"
+            }
+            val gate = com.viant.forgeandroid.runtime.preparedReportPrimaryGate(prepared.identity, prepared)
+            check(gate.status == "ready") { "The selected report request cannot run: ${gate.reason ?: gate.status}" }
+            val commandIdentity = nativeReportCommandIdentity(params)
+            val requestId = commandIdentity.requestId
+            repeat(100) {
+                if (forgeRuntime.nativeReportLifecycle.admission(windowId)?.let { forgeRuntime.reportPreparationIsCurrent(it.preparation) } == true) return@repeat
+                delay(50)
+            }
+            val admitted = forgeRuntime.nativeReportLifecycle.begin(windowId, requestId, "prompt", prepared, commandIdentity.reportAdmissionRef) { forgeRuntime.reportPreparationIsCurrent(it) }
+            check(forgeRuntime.reportPreparationIsCurrent(admitted.admission.preparation)) { "The report preparation changed during admission." }
             forgeRuntime.setWindowFormValues(
                 windowId = windowId,
                 values = mapOf(
@@ -467,6 +515,7 @@ internal suspend fun handleAndroidUIBridgeCommand(
                 put("accepted", JsonPrimitive(true))
                 put("materialized", JsonPrimitive(false))
                 put("materializationId", JsonPrimitive(requestId))
+                put("reportRunId", JsonPrimitive(admitted.reportRunId))
                 put("status", JsonPrimitive("running"))
             }
         }
@@ -476,17 +525,13 @@ internal suspend fun handleAndroidUIBridgeCommand(
                 throw IllegalArgumentException("windowId is required")
             }
             val requestedRef = jsonString(params["dataSourceRef"]).ifBlank { null }
-            val metadataSignal = forgeRuntime.metadataSignal(windowId)
-            val metadata = metadataSignal.peek()
-            if (metadata != null || requestedRef != null) {
-                forgeRuntime.refreshWindowDataSources(windowId, requestedRef, metadata)
-            } else {
-                forgeRuntime.scope.launch {
-                    val loaded = metadataSignal.flow.first { it != null }
-                    forgeRuntime.refreshWindowDataSources(windowId, requestedRef = null, metadata = loaded)
-                }
+            val plan = forgeRuntime.awaitScopedWindowFetchPlan(windowId, requestedRef)
+            if (plan.status == "ready") forgeRuntime.executeScopedWindowFetchPlan(windowId, plan)
+            buildJsonObject {
+                put("ok", plan.status == "ready"); put("status", plan.status)
+                plan.reason?.let { put("reason", it) }
+                put("dataSourceRefs", JsonArray(plan.targets.map(::JsonPrimitive)))
             }
-            buildJsonObject { put("ok", JsonPrimitive(true)) }
         }
 
         "ui.feed.get" -> {
@@ -571,7 +616,12 @@ private fun findAndroidFeedWindow(
 
 private fun androidReportCurrentResult(
     windowId: String,
-    form: Map<String, Any?>
+    form: Map<String, Any?>,
+    preparation: com.viant.forgeandroid.runtime.PreparedReportRequest? = null,
+    inspectionOnly: Boolean = false,
+    admissionReady: Boolean = false,
+    admissionStatus: com.viant.forgeandroid.runtime.NativeReportAdmissionStatus? = null,
+    verifiedDatasets:JsonArray?=null
 ): JsonObject {
     val definition = stringKeyMap(form["reportDefinition"])
     val document = stringKeyMap(definition["documentPatch"])
@@ -586,11 +636,25 @@ private fun androidReportCurrentResult(
         put("windowId", JsonPrimitive(windowId))
         definition["id"]?.let { put("reportId", it.toJsonElement()) }
         document["title"]?.let { put("reportName", it.toJsonElement()) }
-        put("canRun", JsonPrimitive(!blocks.isNullOrEmpty()))
+        put("canRun", JsonPrimitive(!inspectionOnly && admissionReady && admissionStatus?.status != "error" && !blocks.isNullOrEmpty() && preparation?.let { com.viant.forgeandroid.runtime.preparedReportPrimaryGate(it.identity, it).status == "ready" } == true))
+        materialization["reportRunId"]?.let { put("reportRunId", it.toJsonElement()) }
+        materialization["contextStatus"]?.let { put("contextStatus", it.toJsonElement()); put("active", materialization["active"].toJsonElement()) }
+        materialization["activationError"]?.let { put("activationError", it.toJsonElement()) }
+        val preparationStatus = if (preparation?.status != "ready") preparation?.status ?: "pending" else admissionStatus?.status ?: if (admissionReady) "ready" else "pending"
+        put("preparationStatus", preparationStatus)
+        (preparation?.reason ?: admissionStatus?.reason ?: if (!admissionReady) "Waiting for a prepared authored report and all declared dataset requests." else null)?.let { put("preparationReason", it) }
         put("canSave", JsonPrimitive(false))
         put("hasCompletedRun", JsonPrimitive(status == "completed"))
+        put("materialized",JsonPrimitive(status=="completed" && verifiedDatasets!=null))
         if (materialization.isNotEmpty()) {
-            put("materialization", materialization.toJsonObject())
+            val safe=materialization.toMutableMap()
+            if(status=="completed" && verifiedDatasets==null) {
+                safe["status"]="failed";safe["materialized"]=false;safe["errors"]=listOf("The saved report data does not match its verified datasets.")
+            } else if(status=="completed") {
+                safe["datasetRefs"]=verifiedDatasets!!.map { it.jsonObject.getValue("id").jsonPrimitive.content }
+                safe["rowCounts"]=verifiedDatasets.associate { it.jsonObject.getValue("id").jsonPrimitive.content to it.jsonObject.getValue("rows").jsonArray.size }
+            }
+            put("materialization", safe.toJsonObject())
         }
     }
 }
@@ -606,9 +670,9 @@ private suspend fun waitForAndroidReportMaterialization(
         if (materialization["requestId"]?.toString() == requestId) {
             when (materialization["status"]?.toString()?.lowercase()) {
                 "completed" -> {
+                    val verified=forgeRuntime.verifiedCompletedReportDatasets(windowId) ?: error("The saved report data does not match its verified datasets.")
                     val referenced = androidReportReferencedDatasetRefs(form)
-                    val materialized = (materialization["datasetRefs"] as? List<*>)
-                        .orEmpty().mapNotNull { it?.toString()?.takeIf(String::isNotBlank) }.toSet()
+                    val materialized = verified.map { it.jsonObject.getValue("id").jsonPrimitive.content }.toSet()
                     val missing = referenced.filterNot(materialized::contains)
                     if (missing.isNotEmpty()) {
                         throw IllegalStateException(
@@ -621,8 +685,11 @@ private suspend fun waitForAndroidReportMaterialization(
                         put("materialized", JsonPrimitive(true))
                         put("materializationId", JsonPrimitive(requestId))
                         put("status", JsonPrimitive("completed"))
-                        put("datasetRefs", (materialization["datasetRefs"] ?: emptyList<String>()).toJsonElement())
-                        put("rowCounts", (materialization["rowCounts"] ?: emptyMap<String, Int>()).toJsonElement())
+                        materialization["reportRunId"]?.let { put("reportRunId", it.toJsonElement()) }
+                        materialization["contextStatus"]?.let { put("contextStatus", it.toJsonElement()); put("active", materialization["active"].toJsonElement()) }
+                        materialization["activationError"]?.let { put("activationError", it.toJsonElement()) }
+                        put("datasetRefs", materialized.toList().toJsonElement())
+                        put("rowCounts", verified.associate { it.jsonObject.getValue("id").jsonPrimitive.content to it.jsonObject.getValue("rows").jsonArray.size }.toJsonElement())
                     }
                 }
                 "failed" -> {
@@ -650,30 +717,62 @@ private fun androidReportReferencedDatasetRefs(form: Map<String, Any?>): Set<Str
 private fun stringKeyMap(value: Any?): Map<String, Any?> =
     (value as? Map<*, *>)?.entries?.associate { it.key.toString() to it.value }.orEmpty()
 
-private fun ForgeRuntime.refreshWindowDataSources(
-    windowId: String,
-    requestedRef: String?,
-    metadata: WindowMetadata?
-) {
-    val dataSourceRefs = requestedRef?.let(::listOf)
-        ?: metadata.defaultDataSourceRefs()
-    dataSourceRefs.forEach { ref ->
-        refreshDataSourceCollection(
-            windowID = windowId,
-            dataSourceRef = ref
-        )
+private suspend fun ForgeRuntime.awaitReadyReportPreparation(windowId: String): com.viant.forgeandroid.runtime.PreparedReportRequest? {
+    repeat(100) {
+        val prepared = preparedReportRequest(windowId)
+        if (prepared != null && prepared.status != "pending") return prepared
+        delay(100)
     }
+    return preparedReportRequest(windowId)
 }
 
-private fun WindowMetadata?.defaultDataSourceRefs(): List<String> {
-    if (this == null) {
-        return emptyList()
+private suspend fun ForgeRuntime.awaitScopedWindowFetchPlan(windowId: String, requestedRef: String?): com.viant.forgeandroid.runtime.PreparedFetchPlan {
+    repeat(100) {
+        val metadata = metadataSignal(windowId).peek()
+        if (metadata != null) {
+            val prepared = preparedReportRequest(windowId)
+            val active = visibleWindowDataSourceRefs(windowId)
+            if (active == null && requestedRef == null) { delay(100); return@repeat }
+            val owned = com.viant.forgeandroid.runtime.reportOwnedDataSourceRefs(metadata)
+            val ready = prepared?.takeIf { com.viant.forgeandroid.runtime.preparedReportPrimaryGate(it.identity, it).status == "ready" }
+            val readyRefs = ready?.let { setOf(it.dataSourceRef) + it.publishedSources.filter { it.request != null }.map { it.dataSourceRef } }.orEmpty()
+            val plan = com.viant.forgeandroid.runtime.preparedReportFetchPlan(requestedRef, active.orEmpty(), metadata.dataSources.keys, owned, readyRefs)
+            if (plan.status != "pending") return plan
+            if (prepared?.status == "error") return plan.copy(status = "error", reason = prepared.reason)
+        }
+        delay(100)
     }
-    val refs = mutableListOf<String>()
-    view?.content?.containers.orEmpty()
-        .mapNotNullTo(refs) { it.dataSourceRef?.takeIf(String::isNotBlank) }
-    dataSources.keys.forEach(refs::add)
-    return refs.distinct()
+    return com.viant.forgeandroid.runtime.PreparedFetchPlan("pending", reason = "Report request preparation is pending")
+}
+
+private fun ForgeRuntime.executeScopedWindowFetchPlan(windowId: String, plan: com.viant.forgeandroid.runtime.PreparedFetchPlan) {
+    val metadata = metadataSignal(windowId).peek() ?: error("Window metadata is unavailable")
+    val owned = com.viant.forgeandroid.runtime.reportOwnedDataSourceRefs(metadata)
+    val prepared = preparedReportRequest(windowId)
+    // Resolve and validate EVERY target before allowing the first effect.
+    val requests = plan.targets.map { ref ->
+        if (ref !in owned) ref to null else {
+            check(prepared != null && reportPreparationIsCurrent(prepared)) { "The report preparation is stale" }
+            if (ref == prepared.dataSourceRef) {
+                val gate = com.viant.forgeandroid.runtime.preparedReportPrimaryGate(prepared.identity, prepared)
+                check(gate.status == "ready") { "The report request is not ready" }
+                ref to gate.request
+            } else {
+                val source = prepared.publishedSources.filter { it.dataSourceRef == ref }.singleOrNull() ?: error("The report datasource has ambiguous dataset requests")
+                val result = com.viant.forgeandroid.runtime.preparePublishedReportRequest(prepared.identity, prepared, source)
+                check(result.status == "ready") { result.reason ?: "The report dataset request is not ready" }
+                ref to result.request
+            }
+        }
+    }
+    if (requests.any { it.first in owned }) {
+        check(prepared != null && reportPreparationIsCurrent(prepared)) { "The report preparation changed" }
+        check(nativeReportLifecycle.canPreview(windowContext(windowId))) { "This report is admitted or completed. Use an explicit report run to refresh its data." }
+    }
+    requests.forEach { (ref, request) ->
+        if (request == null) refreshDataSourceCollection(windowId, ref)
+        else checkNotNull(windowContext(windowId).contextOrNull(ref)?.setPreparedInputParameters(JsonUtil.asStringMap(JsonUtil.elementToAny(request))) { prepared != null && reportPreparationIsCurrent(prepared) }) { "The report preview query is not authorized." }
+    }
 }
 
 private fun Map<String, Any?>.toJsonObject(): JsonObject {

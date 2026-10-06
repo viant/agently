@@ -32,6 +32,7 @@ import (
 	uireport "github.com/viant/agently-core/protocol/tool/service/ui/report"
 	uiview "github.com/viant/agently-core/protocol/tool/service/ui/view"
 	uiwindow "github.com/viant/agently-core/protocol/tool/service/ui/window"
+	"github.com/viant/agently-core/sdk"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauthctx "github.com/viant/agently-core/service/auth"
 	svcscheduler "github.com/viant/agently-core/service/scheduler"
@@ -150,6 +151,9 @@ func Serve(options ServeOptions) error {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
 	}
 	defer rt.Close(context.Background())
+	if err := agentlyrt.ConfigureForecastEvidence(ctx, rt, workspace.Root()); err != nil {
+		return fmt.Errorf("forecast evidence startup: %w", err)
+	}
 	if orchestrationEnabled {
 		switch {
 		case rt.Registry == nil:
@@ -225,7 +229,11 @@ func Serve(options ServeOptions) error {
 			log.Printf("agently-app: failed to register internal UI report service: %v", err)
 		}
 	}
-	agentWatchdog := agentsvc.NewWatchdog(rt.Data, rt.Agent, agentsvc.WithWatchdogTokenProvider(rt.TokenProvider))
+	watchdogOptions := []agentsvc.WatchdogOption{agentsvc.WithWatchdogTokenProvider(rt.TokenProvider)}
+	if reconciler, ok := client.(sdk.AGUIApprovalReconciler); ok {
+		watchdogOptions = append(watchdogOptions, agentsvc.WithWatchdogProtocolRecovery(reconciler.ReconcileAGUIApprovals, reconciler.IsAGUIApprovalRecoveryOwnedTurn))
+	}
+	agentWatchdog := agentsvc.NewWatchdog(rt.Data, rt.Agent, watchdogOptions...)
 	go func() {
 		if err := rt.Agent.ReconcileRunningConversationStatuses(ctx, 500); err != nil {
 			log.Printf("conversation status reconcile error: %v", err)
@@ -236,6 +244,10 @@ func Serve(options ServeOptions) error {
 	layoutDefault, err := coremeta.FS.ReadFile("workspace-layout.yaml")
 	if err != nil {
 		return fmt.Errorf("read embedded workspace layout: %w", err)
+	}
+	demoBackends, err := configuredAGUIDemoBackends(wsConfig)
+	if err != nil {
+		return err
 	}
 	apiHandler, err := appserver.NewAPIHandler(ctx, appserver.APIOptions{
 		Version:          firstNonEmpty(strings.TrimSpace(Version), "agently-v1"),
@@ -248,6 +260,7 @@ func Serve(options ServeOptions) error {
 		SchedulerService: schedulerSvc,
 		SchedulerOptions: schedulerOpts,
 		UIBridgeHandler:  http.HandlerFunc(uiBridge.Hub().ServeHTTPRPC),
+		AGUIDemoBackends: demoBackends,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create api handler: %w", err)
