@@ -2,6 +2,14 @@
 
 Status: active. This is the web-to-mobile parity goal; successful SDK tests or legacy mobile builds do not establish simulator acceptance.
 
+## Open errors from the October 5 transcript review
+
+Conversation `7754bfda-0c0b-49c3-882e-2cad17656ae6` is not accepted. Its web transcript renders the internal `analytics_dashboard` report contract as prose. This was reproduced after a fresh load of the current embedded asset `index-C8JOyPkc.js`, so it is not just an old browser bundle. Canonical execution page `3215157a-f570-4912-9085-24da4c8ced96` contains the `template/get` response body, with the same ID as its tool message; the page is marked task/sidecar/react. Tool output must remain inspectable without being promoted into assistant chat prose. Fix and fresh web/native verification remain pending.
+
+The earlier browser session recorded a campaign lookup HTTP 500 caused by MCP discovery/initialization timing out against Steward. It also recorded refused connections, interrupted application-event streams, and transient UI RPC 404s across local server restarts. These are distinct observations, not 42 independent product defects. The initial fresh-load check of the current server contains no console errors; this does not close the earlier MCP access failure or establish all starter coverage.
+
+Canonical message preservation changes are committed on Core `35dcb3f3` and Agently `f18638d2`. Go SDK and native app tests passed; device acceptance of the full interim/narration/final transcript is still pending. Forge's previous changes are committed at `384ece4`. Dependency edits remain outside these commits because the published Datly revision lacks the tested SQL projection repair.
+
 ## Required outcome
 
 Compare the regular Steward experience with the AG-UI experience, first on web and then in Android emulator and iOS simulator. Use workspace starter cards and their actual lookup selections. Preserve configured navigation/windows/layouts/styles/themes, canonical history, reports, tool feeds, goals, approvals, attachments and application controls.
