@@ -219,30 +219,18 @@ public final class ChatRuntime: ObservableObject {
                 )
             }
 
-            let assistantMessages = [turn.assistant?.narration, turn.assistant?.final].compactMap { $0 }
-            // Narration is the active assistant bubble. The global progress card
-            // carries only compact status metadata; final content replaces it.
-            let finalMarkdown = sanitizeAssistantTranscriptText(turn.assistant?.final?.content) ?? ""
-            let narrationFallback = sanitizeAssistantTranscriptText(turn.assistant?.narration?.content) ?? ""
-            let assistantMarkdown = finalMarkdown.isEmpty ? narrationFallback : finalMarkdown
-            let renderedReports = Self.canonicalAssistantReports(assistantMessages)
-            let diagnosticMessages = assistantMessages.flatMap { message in
-                message.renderedContent?.diagnostics.map { $0.message.trimmingCharacters(in: .whitespacesAndNewlines) } ?? []
-            }.filter { !$0.isEmpty }
-
-            if !assistantMarkdown.isEmpty || renderedReports?.isEmpty == false || !diagnosticMessages.isEmpty {
-                next.append(
-                    ChatTranscriptEntry(
-                        id: turn.assistant?.final?.messageID ?? turn.assistant?.narration?.messageID ?? "\(turn.id)-assistant",
-                        role: "assistant",
-                        markdown: assistantMarkdown,
-                        turnID: turn.turnID,
-                        renderedParts: Self.canonicalAssistantParts(assistantMessages),
-                        renderedReports: renderedReports,
-                        diagnosticMessages: diagnosticMessages,
-                        timestampLabel: Self.timestampLabel(for: turn.createdAt)
-                    )
-                )
+            for message in canonicalAssistantMessages(turn) {
+                let assistantMessages = [AssistantMessageState(messageID: message.messageID, content: message.content, renderedContent: message.renderedContent, createdAt: message.createdAt)]
+                let content = sanitizeAssistantTranscriptText(message.content) ?? ""
+                let reports = Self.canonicalAssistantReports(assistantMessages)
+                let diagnostics = message.renderedContent?.diagnostics.map { $0.message.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty } ?? []
+                if !content.isEmpty || reports?.isEmpty == false || !diagnostics.isEmpty {
+                    next.append(ChatTranscriptEntry(
+                        id: message.messageID, role: "assistant", markdown: content, turnID: turn.turnID,
+                        renderedParts: Self.canonicalAssistantParts(assistantMessages), renderedReports: reports,
+                        diagnosticMessages: diagnostics, timestampLabel: Self.timestampLabel(for: message.createdAt ?? turn.createdAt)
+                    ))
+                }
             }
         }
         transcript = next

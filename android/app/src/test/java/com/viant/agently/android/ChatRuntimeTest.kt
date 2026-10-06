@@ -10,6 +10,7 @@ import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.ModelUsageState
 import com.viant.agentlysdk.UsageModelSummary
 import com.viant.agentlysdk.UsageSummary
+import com.viant.agentlysdk.TurnMessageState
 import com.viant.agentlysdk.TurnState
 import com.viant.agentlysdk.UserMessageState
 import com.viant.agentlysdk.stream.BufferedMessage
@@ -26,6 +27,25 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ChatRuntimeTest {
+
+    @Test
+    fun canonicalHistoryKeepsTaskInterimAndDedupesFinalByExactId() {
+        val state = ConversationStateResponse(conversation = ConversationState(conversationId = "c", turns = listOf(
+            TurnState(turnId = "t", status = "completed", user = UserMessageState("user", "question"), messages = listOf(
+                TurnMessageState("router", "assistant", "{\"classification\":true}", sequence = 1, mode = "router"),
+                TurnMessageState("interim", "assistant", "Preliminary findings", sequence = 2, mode = "task"),
+                TurnMessageState("final", "assistant", "Final report", sequence = 4, mode = "task")
+            ), assistant = AssistantState(narration = AssistantMessageState("narration", "Checking launch day"), final = AssistantMessageState("final", "Final report")))
+        )))
+        val entries = transcriptFromState(state)
+        assertEquals(listOf("user", "interim", "narration", "final"), entries.map { it.id })
+        assertEquals(1, entries.count { it.markdown == "Preliminary findings" })
+        assertEquals(1, entries.count { it.id == "final" })
+        val sharedId = state.copy(conversation = state.conversation!!.copy(turns = listOf(state.conversation!!.turns.single().copy(
+            assistant = AssistantState(narration = AssistantMessageState("final", "same projection"), final = AssistantMessageState("final", "Final report"))
+        ))))
+        assertEquals(listOf("user", "interim", "final"), transcriptFromState(sharedId).map { it.id })
+    }
 
     @Test
     fun toolActivityLabelsHumanizeProtocolNamesWithoutSemanticInference() {
@@ -311,7 +331,7 @@ class ChatRuntimeTest {
     }
 
     @Test
-    fun transcriptFromState_doesNotDuplicateNarrationBesideFinalAnswer() {
+    fun transcriptFromState_preservesDistinctNarrationAndFinalIdentities() {
         val state = ConversationStateResponse(
             conversation = ConversationState(
                 conversationId = "conv-1",
@@ -328,7 +348,8 @@ class ChatRuntimeTest {
             )
         )
 
-        assertEquals("The report is ready.", transcriptFromState(state).single().markdown)
+        assertEquals(listOf("n1", "a1"), transcriptFromState(state).map { it.id })
+        assertEquals(listOf("Waiting for response", "The report is ready."), transcriptFromState(state).map { it.markdown })
     }
 
     @Test
@@ -370,10 +391,9 @@ class ChatRuntimeTest {
             )
         )
 
-        val parts = transcriptFromState(state).single().renderedParts.orEmpty()
-
-        assertEquals("I’ll check delivery evidence.", parts[0].text)
-        assertEquals("\n\n### Key findings\n- **Primary blocker:** bid competitiveness.", parts[1].text)
+        val entries = transcriptFromState(state)
+        assertEquals("I’ll check delivery evidence.", entries[0].renderedParts.orEmpty().single().text)
+        assertEquals("### Key findings\n- **Primary blocker:** bid competitiveness.", entries[1].renderedParts.orEmpty().single().text)
     }
 
     @Test
