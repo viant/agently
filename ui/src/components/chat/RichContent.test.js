@@ -268,6 +268,54 @@ describe('RichContent fence parsing', () => {
     expect(html).not.toContain('Run the report');
   });
 
+  it('hides only a standalone interactive fallback when a canonical report renders', () => {
+    const renderedContent = {
+      schemaVersion: '1',
+      parts: [],
+      reports: [{
+        scope: 'message', id: 'brief', grammar: 'dashboard-v1', status: 'committed', sequence: 1,
+        source: { title: 'Canonical Delivery', blocks: [{
+          id: 'delivery_table', kind: 'dashboard.table', title: 'Delivery rows', dataSourceRef: 'delivery',
+          columns: [{ key: 'channel', label: 'Channel' }],
+        }] },
+        dataSources: { delivery: { version: 2, id: 'delivery', format: 'json', mode: 'replace', payload: [{ channel: 'CTV' }] } },
+      }],
+      diagnostics: [],
+    };
+    const html = renderToStaticMarkup(React.createElement(RichContent, {
+      content: '[Interactive content]\nThis paragraph mentions [Interactive content] in context.',
+      renderedContent,
+      messageId: 'message-placeholder-report',
+    }));
+
+    expect(html).toContain('data-forge-report-id="brief"');
+    expect(html).toContain('This paragraph mentions [Interactive content] in context.');
+    expect(html).not.toMatch(/<p[^>]*>\[Interactive content\]<\/p>/);
+  });
+
+  it('keeps the interactive fallback when canonical report content is malformed', () => {
+    const renderedContent = {
+      schemaVersion: '1', parts: [], reports: [{
+        scope: 'message', id: 'broken', grammar: 'dashboard-v1', status: 'incomplete', sequence: 1,
+        source: { title: 'Broken report', blocks: [] }, dataSources: {},
+      }], diagnostics: [],
+    };
+    const html = renderToStaticMarkup(React.createElement(RichContent, {
+      content: '[Interactive content]', renderedContent, messageId: 'message-placeholder-malformed',
+    }));
+
+    expect(html).toContain('[Interactive content]');
+    expect(html).toContain('data-forge-report-status="incomplete"');
+  });
+
+  it('keeps the interactive fallback when no rendered report is available', () => {
+    const html = renderToStaticMarkup(React.createElement(RichContent, {
+      content: '[Interactive content]', messageId: 'message-placeholder-text-only',
+    }));
+
+    expect(html).toContain('[Interactive content]');
+  });
+
   it('hides a leaked analytics dashboard template descriptor before the report', () => {
     const content = [
       JSON.stringify({
