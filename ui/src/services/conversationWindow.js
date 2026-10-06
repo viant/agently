@@ -802,7 +802,7 @@ function workspacePayloadTargets(turns = []) {
       const steps = Array.isArray(page?.toolSteps) ? page.toolSteps : [];
       steps.forEach((step, stepIndex) => {
         const toolName = workspaceToolName(step);
-        if (!['ui/view/open', 'ui/window/open', 'ui/window/list', 'ui/window/get', 'ui/window/show', 'ui/window/close', 'ui/window/setformdata'].includes(toolName)) return;
+        if (!['ui/view/open', 'ui/window/open', 'ui/window/list', 'ui/window/get', 'ui/window/show', 'ui/window/close', 'ui/window/setformdata', 'ui/context/get'].includes(toolName)) return;
         ['requestPayload', 'responsePayload'].forEach((field) => {
           const payloadId = workspaceToolPayloadReference(step, field);
           if (payloadId) targets.push({ turnIndex, pageIndex, stepIndex, field, payloadId });
