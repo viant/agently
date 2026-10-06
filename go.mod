@@ -13,7 +13,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
-	github.com/viant/agently-core v0.1.57-0.20261006151557-20a9ad48adb0
+	github.com/viant/agently-core v0.1.57-0.20261006153511-c0c432744b11
 	github.com/viant/datly v1.1.1-0.20261005233219-5d0ceb9ac532
 	github.com/viant/embedius v0.5.6 // indirect
 	github.com/viant/forge v0.3.45-0.20261006144249-3feb061490cf
