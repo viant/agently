@@ -151,6 +151,9 @@ func Serve(options ServeOptions) error {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
 	}
 	defer rt.Close(context.Background())
+	if err := agentlyrt.ConfigureForecastEvidence(ctx, rt, workspace.Root()); err != nil {
+		return fmt.Errorf("forecast evidence startup: %w", err)
+	}
 	if orchestrationEnabled {
 		switch {
 		case rt.Registry == nil:

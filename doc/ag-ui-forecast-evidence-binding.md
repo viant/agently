@@ -183,7 +183,8 @@ The optional `runtime/evidence.Factory` boundary now captures the original
 `context.client.forecastIntent` before routing/intake, saves and confirms its
 immutable admission after the durable starter, and restores the original
 admission on continuation. A new clock or model-generated nested context cannot
-replace it. `service/agent.WithEvidenceFactory` is not registered at startup yet.
+replace it. Startup registration is now available through the explicit workspace
+opt-in below; existing workspaces remain disabled by default.
 Historical reads do not pass through this write gate.
 
 The turn controller resolves a unique matching completed profile, or an explicit
@@ -234,7 +235,82 @@ an active conversation alone.
 The native integration test covers this receipt/compiler/verification path and
 its restart, including wrong workspace revision, request/builder/conversation
 substitution, missing bindings, artifact tampering and idempotent compilation.
-Startup remains disabled pending composition-root registration, the client
-round-trip cohort, authoritative producer deployment, and live acceptance.
+Startup remains disabled for the current Steward workspace pending verified
+authoritative producer deployment, explicit picker-origin context binding, and
+live acceptance. The composition-root registration is implemented as an opt-in.
 Do not claim live forecast parity or mixed-source report support from these unit
 and native-persistence proofs.
+
+
+## Explicit workspace rollout configuration
+
+The assembly's `Serve` and headless scheduler startup read this optional workspace
+configuration before accepting requests:
+
+```yaml
+features:
+  forecastEvidence:
+    enabled: true
+    profile: forecast-daily-v1
+    timeZone: America/Los_Angeles
+    rolloutCutoff: '2026-10-05T18:00:00-07:00'
+```
+
+This is an example, not an enabled deployment. Missing configuration or
+`enabled: false` captures no new admissions and performs no registry preflight,
+while restoring existing recorded authority. Enabled configuration requires
+an exact supported profile, a valid IANA zone and a fixed RFC3339 cutoff;
+unknown fields and invalid values fail startup. An enabled cutoff must be at or
+before the activation clock; the clock validates the value without deriving or
+changing it. The cutoff comes from deployment
+configuration and is never derived from boot time, prompt text or a missing
+admission document.
+
+Enabled startup first waits, bounded and cancelable, for the existing runtime-owned
+registry warmup completion. It does not start a duplicate initializer or replace
+the registry refresh lifetime with a temporary wait context. Startup then checks
+the converter's declared
+`Request.evidenceProfile` object, `Request.evidenceAudienceId` integer,
+`Request.evidenceSourceOpId` string and `forecastEvidence` object output. Local
+schema references are supported; absent, cyclic or external references do not
+establish capability. The authenticated deployed catalog currently lacks all
+three inputs and declares only a generic object output, so the current workspace
+must remain disabled. No converter or cube business call is needed for that
+capability check.
+
+A single native source store and immutable-document store are shared by the
+agent factory and report-command backend. The backend is attached to both report
+compilation and run admission/completion before serving. Ordinary unlinked
+reports retain their existing behavior. New turns in the enabled workspace
+capture an admission; their publication guard remains dormant until an actual
+trusted forecast plan is admitted.
+
+On resume, a present admission is restored and validated strictly. Corrupt
+admissions and storage errors never become legacy eligibility. A typed,
+scoped missing-document result is eligible for passthrough only after checking
+native run/conversation ownership and proving the server-owned run creation time
+is strictly before the configured cutoff. Equality, later times and unknown
+creation times fail closed. Resume never recreates intent or changes the clock;
+the same enabled cutoff remains required after restart. Disabling or removing
+the feature installs restore-only enforcement: present recorded admissions and
+command proofs remain strict under their stored clock/policy, missing ordinary
+admissions resume only after native ownership verification, and new queries do
+not capture evidence. This path does not wait for or consult current producer
+capability. Saved historical report bodies,
+rows and hashes are never rewritten by this registration.
+
+Current web, iOS and Android starter submissions do not emit structured
+`client.forecastIntent`. Their lookup selections currently become resolved
+prompt tokens. The factory can therefore support `tool-evidence` provenance but
+cannot claim that those selected entities were captured as explicit user-origin
+intent. A future declarative starter binding must name the accepted lookup token
+and supported window mode, capture those values at Send before clearing the draft,
+and pass them through the existing context map. Prompt parsing, lookup-name
+heuristics and later producer arguments must not establish user-selection proof.
+
+The saved `ac0973a1-9c3e-4c96-bd5b-cfeddac8b610` artifact remains erroneous:
+October 2/3 overall values were swapped in provider-authored `forge-data` before
+persistence. The recorded twenty paired request/results and nine continuation
+links are correct. Formatter fixes do not repair those stored cells. Source
+materialization, publication and native restart regressions reject that exact
+swap; a new enabled, verified live workflow is still required for acceptance.
