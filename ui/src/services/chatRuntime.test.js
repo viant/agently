@@ -2739,7 +2739,7 @@ describe('startPolling', () => {
     }
   });
 
-  it('marks an AG-UI approval interrupt as waiting without completing the native turn', () => {
+  it('marks AG-UI interrupts as waiting and loads server-owned elicitation dialogs', async () => {
     const form = { id: 'conv-interrupt', running: true, stage: 'executing' };
     const setFormData = vi.fn(({ values }) => Object.assign(form, values));
     let handlers;
@@ -2756,6 +2756,10 @@ describe('startPolling', () => {
       handlers.onOutcome({ phase: 'interrupt', logicalTurnId: 'native-turn', interrupts: [{ id: 'approval', reason: 'approval' }] });
       expect(form).toMatchObject({ running: true, stage: 'eliciting', status: 'pending' });
       expect(context.resources.chat.activeStreamTurnId).toBe('native-turn');
+      const pending = [{ elicitationId: 'connect-jira', elicitation: { mode: 'mcp_oauth', url: '/v1/api/auth/mcp/jira/initiate' } }];
+      client.listPendingElicitations.mockResolvedValue(pending);
+      handlers.onOutcome({ phase: 'interrupt', logicalTurnId: 'native-turn', interrupts: [{ id: 'connect-jira', reason: 'elicitation' }] });
+      await vi.waitFor(() => expect(replacePendingElicitationsForConversationMock).toHaveBeenCalledWith(form.id, pending));
       stopPolling(context);
       setFormData.mockClear();
       handlers.onOutcome({ phase: 'interrupt', logicalTurnId: 'native-turn', interrupts: [] });
