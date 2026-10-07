@@ -1176,6 +1176,8 @@ github.com/viant/afsc v1.18.0 h1:9GxdDyMlhNhFc+Sdciclymn8/gV+PI8VPER/zEZUdno=
 github.com/viant/afsc v1.18.0/go.mod h1:BJr1JBeM6bYfBwSBEfy4bCx3mgZJqxTScKBA9seuShM=
 github.com/viant/agently-core v0.1.57-0.20261007052324-efca34a7a801 h1:MwF1UlohRkkJ4O1FMf/5oS4PRjB6L6gp2IvOlh+seSw=
 github.com/viant/agently-core v0.1.57-0.20261007052324-efca34a7a801/go.mod h1:fhN1cHp9/L00x5eAPVOCxH3T9OM3jMaF6btYYPUfkes=
+github.com/viant/agently-core v0.1.57-0.20261007202727-bc5478337ddc h1:DF8GcpeqWEODwjpDsbpAQEYBxE/3cteId6sZeEjkl9k=
+github.com/viant/agently-core v0.1.57-0.20261007202727-bc5478337ddc/go.mod h1:fhN1cHp9/L00x5eAPVOCxH3T9OM3jMaF6btYYPUfkes=
 github.com/viant/assertly v0.4.8/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.0/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
 github.com/viant/assertly v0.9.1-0.20220620174148-bab013f93a60 h1:VFJvCOHKXv4IqX8rJwn1otpHWQGgMDv2bXtAPgEzndM=
@@ -1216,6 +1218,8 @@ github.com/viant/mcp-protocol v0.19.1-0.20261005144737-c504db7a02bb h1:OvK6Nnayz
 github.com/viant/mcp-protocol v0.19.1-0.20261005144737-c504db7a02bb/go.mod h1:8h2yGk/LjWpyLqQEZYOGuNZQPohCr1vtM8IvtcNcEIQ=
 github.com/viant/mcp-ui v0.2.0 h1:DO4NSe7oVuR2dTbJ9UWUQY1KCskuo0yAg/uc4hThVzM=
 github.com/viant/mcp-ui v0.2.0/go.mod h1:U7OVemRTkvzl7VJwluFq5HrLE1eP2XTX7xMuxGlwx3w=
+github.com/viant/mcp-ui v0.2.1-0.20261007203211-e2befc0bbbaf h1:KFNd5Ty9Wc0RJAW7o0I34rouZ8PDi9k5byCq200MzeE=
+github.com/viant/mcp-ui v0.2.1-0.20261007203211-e2befc0bbbaf/go.mod h1:kPCGz0Bwuoj1ktzDF1zDioScbg/JFUKY7RKw95v8FLg=
 github.com/viant/parsly v0.3.3 h1:7ytgfLOG4Ils+wviGacWxRD0gAUvVEH/iGsSE+UI8YM=
 github.com/viant/parsly v0.3.3/go.mod h1:85fneXJbErKMGhSQto3A5ElTQCwl3t74U9cSV0waBHw=
 github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726 h1:vXZewpcbOqVvj1yNxwT5mLZzVZXcJViKzv22a0v2uK0=

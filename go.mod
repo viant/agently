@@ -13,7 +13,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
-	github.com/viant/agently-core v0.1.57-0.20261007052324-efca34a7a801
+	github.com/viant/agently-core v0.1.57-0.20261007202727-bc5478337ddc
 	github.com/viant/datly v1.1.1-0.20261005233219-5d0ceb9ac532
 	github.com/viant/embedius v0.5.6 // indirect
 	github.com/viant/forge v0.3.45-0.20261006144249-3feb061490cf
@@ -21,7 +21,7 @@ require (
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
 	github.com/viant/mcp v0.24.1-0.20261005185040-e3fb56e588cd
 	github.com/viant/mcp-protocol v0.19.1-0.20261005144737-c504db7a02bb
-	github.com/viant/mcp-ui v0.2.0 // indirect
+	github.com/viant/mcp-ui v0.2.1-0.20261007203211-e2befc0bbbaf // indirect
 	github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726
 	github.com/viant/structology v0.10.1-0.20261005184011-cdaab8ea7dab // indirect
 	github.com/viant/velty v0.4.1-0.20260915052314-fca47c0595f8 // indirect
