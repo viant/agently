@@ -38,6 +38,8 @@ function uiBridgeClientId() {
 export const connectorConfig = {
   workspace: { tabs: String(import.meta.env.VITE_WORKSPACE_TABS || 'auto').trim().toLowerCase() },
   mcpUI: {
+    sandboxUrl: String(import.meta.env.VITE_MCP_APPS_SANDBOX_URL || '').trim(),
+    legacyAdapter: String(import.meta.env.VITE_MCP_UI_LEGACY_ADAPTER || '').trim(),
     // Resource metadata is a request; deployments must opt in before an
     // MCP/UI iframe may become a conversation Workspace surface.
     allowWorkspacePlacement: String(import.meta.env.VITE_MCP_UI_WORKSPACE_PLACEMENT || '').trim().toLowerCase() === 'true',

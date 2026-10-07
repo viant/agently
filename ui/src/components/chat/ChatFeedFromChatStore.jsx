@@ -14,7 +14,7 @@
  *   - §6.8 steering: `[u_first, IterationRow, u_rest…]` placement
  */
 
-import React, { useContext } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 
 import { useChatProjection } from '../../services/chatStore.js';
 import { isStreamDebugEnabled } from '../../services/debugFlags';
@@ -34,6 +34,21 @@ import {
 } from '../../services/workspaceMetadata.js';
 
 export { resolveWorkspaceAttachmentOwnerIndex } from '../../services/workspaceAttachment.js';
+
+import { client } from '../../services/agentlyClient.js';
+
+// Ephemeral browser app instances belong to the active local MCP connection,
+// never to workspace window/navigation state or a saved Forge definition.
+function BrowserAppFeed({ conversationId }) {
+  const [activities, setActivities] = useState([]);
+  useEffect(() => {
+    const refresh = () => setActivities(client.browserMCPAppActivities?.(conversationId) || []);
+    const stop = client.subscribeBrowserMCPApps?.(refresh);
+    refresh();
+    return () => stop?.();
+  }, [conversationId]);
+  return activities.map(activity => <StandardAppRenderer key={activity.mountKey} activity={activity} />);
+}
 
 export function resolveStarterTaskPresentation(metaForm = {}, workspaceMetadata = {}) {
   const localTasks = Array.isArray(metaForm?.starterTasks) ? metaForm.starterTasks : [];
@@ -279,6 +294,7 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
           ...appRows,
         ];
       })}
+      <BrowserAppFeed conversationId={conversationId} />
     </div>
   );
 }

@@ -210,6 +210,9 @@ export const client = new AgentlyClient({
   baseURL: sdkBaseURL,
   interactionProtocol: 'ag-ui',
   observeNativeWork: true,
+  browserMCP: {
+    onApprovalRequired: (server) => showToast(`Approve the ${server} browser connection in its local application.`, { intent: 'primary' }),
+  },
   useCookies: true,
   retries: 2,
   retryDelayMs: 250,
