@@ -1174,12 +1174,6 @@ github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861 h1:GAqu0cnUFqBOjwMhh+
 github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861/go.mod h1:rScbFd9LJPGTM8HOI8Kjwee0AZ+MZMupAvFpPg+Qdj4=
 github.com/viant/afsc v1.18.0 h1:9GxdDyMlhNhFc+Sdciclymn8/gV+PI8VPER/zEZUdno=
 github.com/viant/afsc v1.18.0/go.mod h1:BJr1JBeM6bYfBwSBEfy4bCx3mgZJqxTScKBA9seuShM=
-github.com/viant/agently-core v0.1.57-0.20261006151557-20a9ad48adb0 h1:W3ggIs0Es9CMdrUuxn3MV+OdAZEgcEj5GVNQWTugTZ8=
-github.com/viant/agently-core v0.1.57-0.20261006151557-20a9ad48adb0/go.mod h1:tR7unxIOYC5SFQ+/KFzPZAzbgh5zzEfbgLlq4fSsPUc=
-github.com/viant/agently-core v0.1.57-0.20261006153511-c0c432744b11 h1:7Z7gKHHBies5+QHx8wocaTn22fyMTDRNQZPZ6td/DFw=
-github.com/viant/agently-core v0.1.57-0.20261006153511-c0c432744b11/go.mod h1:fhN1cHp9/L00x5eAPVOCxH3T9OM3jMaF6btYYPUfkes=
-github.com/viant/agently-core v0.1.57-0.20261006191115-19d1179f6ba3 h1:0X4kI1HjEhh9kdgDCEh7vGjiLu3ZGpTGyyhdsclMLVU=
-github.com/viant/agently-core v0.1.57-0.20261006191115-19d1179f6ba3/go.mod h1:fhN1cHp9/L00x5eAPVOCxH3T9OM3jMaF6btYYPUfkes=
 github.com/viant/agently-core v0.1.57-0.20261007052324-efca34a7a801 h1:MwF1UlohRkkJ4O1FMf/5oS4PRjB6L6gp2IvOlh+seSw=
 github.com/viant/agently-core v0.1.57-0.20261007052324-efca34a7a801/go.mod h1:fhN1cHp9/L00x5eAPVOCxH3T9OM3jMaF6btYYPUfkes=
 github.com/viant/assertly v0.4.8/go.mod h1:aGifi++jvCrUaklKEKT0BU95igDNaqkvz+49uaYMPRU=
