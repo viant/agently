@@ -1724,6 +1724,17 @@ export function connectStream(context, conversationID) {
         applyStreamConversationState(context, 'eliciting', { turnId: outcome.logicalTurnId });
         setStage({ phase: 'waiting', text: approval ? 'Waiting for approval…' : 'Waiting for input…' });
         renderMergedRowsForContext(context);
+        if (interrupts.some((item) => item?.reason === 'elicitation')) {
+          // AG-UI hands off with a canonical interrupt, not a legacy
+          // elicitation_requested event. Load its server-owned dialog payload.
+          void fetchPendingElicitations(conversationID).then((pending) => {
+            if (!isCurrentSubscription()) return;
+            replacePendingElicitationsForConversation(conversationID, pending);
+          }).catch((error) => {
+            if (!isCurrentSubscription()) return;
+            logStreamDebug(chatState, 'interrupt-dialog-load-failed', { conversationId: conversationID, error: String(error) });
+          });
+        }
       },
       onSnapshot: (snapshot) => {
         if (!isCurrentSubscription()) return;
