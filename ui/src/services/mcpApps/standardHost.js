@@ -2,7 +2,7 @@ import { AppBridge } from '@modelcontextprotocol/ext-apps/app-bridge';
 import { JSONRPCMessageSchema } from '@modelcontextprotocol/sdk/types.js';
 
 const guestMethods = new Set(['tools/call', 'resources/read', 'ping', 'ui/notifications/size-changed',
-  'ui/notifications/request-teardown', 'notifications/cancelled']);
+  'ui/notifications/request-teardown', 'notifications/cancelled', 'ui/request-display-mode']);
 const idKey = id => `${typeof id}:${id}`;
 
 // Official AppBridge handles schemas/version negotiation. This transport adds
@@ -48,6 +48,11 @@ export class AppHostTransport {
   }
   async send(message) {
     if (this.phase === 'closed') throw new Error('App transport closed');
+    if (message.method) {
+      const sandboxLoad = message.method === 'ui/notifications/sandbox-resource-ready' && this.phase === 'loading';
+      const teardown = message.method === 'ui/resource-teardown' && this.phase === 'teardown';
+      if (this.phase !== 'ready' && !sandboxLoad && !teardown) throw new Error('App transport is not initialized');
+    }
     if (!message.method && message.id === this.initializeId) this.initializeSucceeded = !!message.result?.protocolVersion && !message.error;
     if (message.method && message.id !== undefined) this.outstanding.add(idKey(message.id));
     this.target.postMessage(message, this.origin);
@@ -65,15 +70,32 @@ export function createStandardAppHost({ proxy, target, origin, eventWindow, reso
   const bridge = new AppBridge(null, { name: 'Agently', version: '1' }, {
     ...(proxy.serverTools === false ? {} : { serverTools: {} }), serverResources: {}, sandbox: { csp: resource.csp },
   }, { hostContext: { displayMode: 'inline', availableDisplayModes: ['inline'] } });
-  let closed = false, ready = false, closing;
+  let closed = false, ready = false, closing, queued = 0, completeInput = false, delivery = Promise.resolve();
+  let initialize, abortInitialization;
+  const initialized = new Promise((resolve, reject) => { initialize = resolve; abortInitialization = reject; });
+  // Closing an app that never queued any data must not cause an unhandled rejection.
+  void initialized.catch(() => {});
+  const deliver = send => {
+    if (closed) return Promise.reject(new Error('App host closed'));
+    if (queued >= 32) return Promise.reject(new Error('App delivery queue exhausted'));
+    queued++;
+    const result = delivery.then(() => initialized).then(() => {
+      if (closed) throw new Error('App host closed');
+      return send();
+    }).finally(() => { queued--; });
+    delivery = result.catch(() => {});
+    return result;
+  };
   if (proxy.serverTools !== false) bridge.oncalltool = params => proxy.call('tools/call', params);
   bridge.onreadresource = params => proxy.call('resources/read', params);
   bridge.onsizechange = onSize;
+  bridge.onrequestdisplaymode = async () => ({ mode: 'inline' });
   bridge.onsandboxready = () => { void bridge.sendSandboxResourceReady({ html: resource.html, csp: resource.csp, sandbox: 'allow-scripts' }).catch(onError); };
-  bridge.oninitialized = () => { if (!closed) { ready = true; onReady(); } };
+  bridge.oninitialized = () => { if (!closed) { ready = true; initialize(); onReady(); } };
   const close = () => {
     if (closing) return closing;
     closed = true; proxy.dispose();
+    abortInitialization(new Error('App closed before initialization'));
     transport.beginTeardown();
     closing = (async () => {
       try { if (ready) await bridge.teardownResource({}, { timeout: 1000 }); }
@@ -85,8 +107,12 @@ export function createStandardAppHost({ proxy, target, origin, eventWindow, reso
   bridge.onrequestteardown = () => { void close(); };
   return {
     connect: () => bridge.connect(transport), close,
-    sendInput: argumentsValue => bridge.sendToolInput({ arguments: argumentsValue }),
-    sendPartialInput: argumentsValue => bridge.sendToolInputPartial({ arguments: argumentsValue }),
-    sendResult: result => bridge.sendToolResult(result),
+    sendInput: argumentsValue => deliver(() => { completeInput = true; return bridge.sendToolInput({ arguments: argumentsValue }); }),
+    sendPartialInput: argumentsValue => deliver(() => {
+      if (completeInput) throw new Error('Complete app tool input already sent');
+      return bridge.sendToolInputPartial({ arguments: argumentsValue });
+    }),
+    sendResult: result => deliver(() => bridge.sendToolResult(result)),
+    sendCancelled: reason => deliver(() => bridge.sendToolCancelled(reason ? { reason } : {})),
   };
 }
