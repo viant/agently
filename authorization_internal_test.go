@@ -112,6 +112,15 @@ func TestInternalHostPreloadsNativeWindowsAndUsesMetadataOnlyList(t *testing.T) 
 	if err == nil {
 		require.Empty(t, rows.Windows, "explicit namespace must not leak across tenants")
 	}
+	write("extension/forge/windows/window0.yaml", "view:\n  title: Changed\n  content: {id: root}\n")
+	_, err = snapshot.WindowIndex(ctx)
+	require.ErrorIs(t, err, identity.ErrResourceStale)
+	require.EqualValues(t, 20, snapshot.CompileCount(), "changed assets must not trigger hot reload")
+	restarted, err := newInternalWindowSnapshot(ctx, root, "", config)
+	require.NoError(t, err)
+	rowsAfterRestart, err := restarted.WindowIndex(ctx)
+	require.NoError(t, err)
+	require.Len(t, rowsAfterRestart, 20)
 }
 
 func TestInternalHostReportReaderRetainsIndependentOperationPolicy(t *testing.T) {
