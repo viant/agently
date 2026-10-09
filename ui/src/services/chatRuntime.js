@@ -1141,6 +1141,9 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     conversationId: normalizedConversationID,
     includeModelCalls: includeExecutionDetails,
     includeToolCalls: includeExecutionDetails,
+    // Initial history needs execution summaries and workspace ACKs, not the
+    // full model prompts/provider bodies. Detail expansion fetches those later.
+    includeModelPayloads: options?.includeModelPayloads === true,
     includeFeeds,
     since: since || undefined,
   };
@@ -1203,7 +1206,7 @@ export async function fetchPendingElicitations(conversationID = '') {
 export async function fetchConversation(conversationID = '') {
   const id = String(conversationID || '').trim();
   if (!id) return null;
-  const data = await client.getConversation(id);
+  const data = await client.getConversation(id, {includeTranscript: false});
   if (!data || typeof data !== 'object') return null;
   const resolvedID = String(data?.id || data?.Id || '').trim();
   if (resolvedID) {
@@ -1334,7 +1337,7 @@ export async function hydrateConversationComposerSelection(context,conversationI
   const generation=conversationComposerGeneration;
   const resources=ensureContextResources(context), selectionGeneration=Number(resources.conversationSelectionGeneration || 0), composerGeneration=Number(resources.composerSelectionGeneration || 0);
   try {
-    const conversation=await client.getConversation(id);
+    const conversation=await client.getConversation(id, {includeTranscript: false});
     const ds=context?.Context?.('conversations')?.handlers?.dataSource;
     const current=ds?.peekFormData?.() || {};
     if(generation!==conversationComposerGeneration || Number(resources.conversationSelectionGeneration || 0)!==selectionGeneration || Number(resources.composerSelectionGeneration || 0)!==composerGeneration || composerConversationID(context,current)!==id || !conversation)return;
