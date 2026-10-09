@@ -1753,8 +1753,8 @@ describe('switchConversation', () => {
     const latest = enqueueConversationSwitch(context, 'conv-latest');
     await Promise.resolve();
 
-    expect(client.getConversation).toHaveBeenCalledWith('conv-first');
-    expect(client.getConversation).toHaveBeenCalledWith('conv-latest');
+    expect(client.getConversation).toHaveBeenCalledWith('conv-first', {includeTranscript: false});
+    expect(client.getConversation).toHaveBeenCalledWith('conv-latest', {includeTranscript: false});
     expect(context.resources.chat.requestedConversationID).toBe('conv-latest');
 
     pending.get('conv-first')?.(null);
@@ -1920,6 +1920,7 @@ describe('switchConversation', () => {
         conversationId: 'conv-live-target',
         includeModelCalls: true,
         includeToolCalls: true,
+        includeModelPayloads: false,
       }),
       undefined,
     );
