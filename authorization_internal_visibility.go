@@ -20,7 +20,11 @@ import (
 // platform templates carry no individual ownership; users namespaces need a
 // separate trusted directory/owner projection and are deliberately not served
 // by this platform-only adapter.
-func internalNamespaceIsolation(config *hostAuthorizationFile, bindings []resources.LocalResourceBinding) (resources.LocalResourceAuthorizer, error) {
+func internalNamespaceIsolation(config *hostAuthorizationFile, bindings []resources.LocalResourceBinding, native ...*nativeWindowAuthority) (resources.LocalResourceAuthorizer, error) {
+	var nativeAuthority *nativeWindowAuthority
+	if len(native) > 0 {
+		nativeAuthority = native[0]
+	}
 	byURI := map[string]map[string]bool{}
 	byNamespace := map[string]map[string]bool{}
 	for _, entry := range bindings {
@@ -32,6 +36,11 @@ func internalNamespaceIsolation(config *hostAuthorizationFile, bindings []resour
 		for _, mapping := range config.ResourceRevisionBindings {
 			if mapping.URI == entry.URI && mapping.Resource.Kind == uri.Kind && mapping.Resource.ID == entry.URI && mapping.Resource.Tenant != "" {
 				tenants[mapping.Resource.Tenant] = true
+			}
+		}
+		if nativeAuthority != nil {
+			if _, bound := nativeAuthority.allowed[entry.URI]; bound {
+				continue
 			}
 		}
 		if len(tenants) == 0 {
@@ -48,6 +57,29 @@ func internalNamespaceIsolation(config *hostAuthorizationFile, bindings []resour
 	return func(ctx context.Context, actor identity.VerifiedActor, uri identity.ResourceURI, _ string) error {
 		if ctx == nil || ctx.Err() != nil || !actor.Valid(time.Now()) || uri.Namespace == "users" {
 			return identity.ErrResourceDenied
+		}
+		if nativeAuthority != nil {
+			if _, bound := nativeAuthority.allowed[uri.String()]; bound {
+				current, err := nativeAuthority.actor(ctx)
+				if err != nil {
+					return err
+				}
+				if current.Subject != actor.Subject || current.Issuer != actor.Issuer || current.TenantID != actor.TenantID || current.AccountID != actor.AccountID {
+					return identity.ErrResourceDenied
+				}
+				return nil
+			}
+			if nativeAuthority.active(ctx) {
+				if uri.Kind == "resource" {
+					for key := range nativeAuthority.allowed {
+						parsed, _ := identity.ParseResourceURI(key)
+						if parsed.Namespace == uri.Namespace {
+							return verifyActor(nativeAuthority.actor)(ctx, actor)
+						}
+					}
+				}
+				return identity.ErrResourceDenied
+			}
 		}
 		tenants := byURI[uri.String()]
 		if uri.Kind == "resource" {
@@ -68,7 +100,19 @@ type internalVisibilityRequirements struct {
 // List is metadata discovery. Only declared roles/features participate; entity
 // selections, datasource read checks and write capabilities belong to Open and
 // execution, not catalog enumeration.
+type internalWindowVisibilityLease func(context.Context, identity.VerifiedActor, resources.LocalResourceBinding) (bool, time.Time, error)
+
 func internalWindowVisibility(config *hostAuthorizationFile, principals gating.PrincipalResolver) (resources.LocalWindowListVisibility, error) {
+	check, err := newInternalWindowVisibilityLease(config, principals)
+	if err != nil {
+		return nil, err
+	}
+	return func(ctx context.Context, actor identity.VerifiedActor, binding resources.LocalResourceBinding) (bool, error) {
+		allowed, _, err := check(ctx, actor, binding)
+		return allowed, err
+	}, nil
+}
+func newInternalWindowVisibilityLease(config *hostAuthorizationFile, principals gating.PrincipalResolver) (internalWindowVisibilityLease, error) {
 	var manifest struct {
 		Windows []forge.SavedWindow `yaml:"windows"`
 	}
@@ -90,6 +134,11 @@ func internalWindowVisibility(config *hostAuthorizationFile, principals gating.P
 			}
 		}
 		for _, mapping := range config.ResourceRevisionBindings {
+			// Native YAML visibility comes from its existing authored catalog.
+			// Added resource ACL requirements do not become template gates.
+			if config.nativeWindows {
+				continue
+			}
 			if mapping.URI != binding.URI || mapping.Operation != policy.OperationWindowView {
 				continue
 			}
@@ -106,21 +155,21 @@ func internalWindowVisibility(config *hostAuthorizationFile, principals gating.P
 		}
 		byURI[binding.URI] = required
 	}
-	return func(ctx context.Context, actor identity.VerifiedActor, binding resources.LocalResourceBinding) (bool, error) {
+	return func(ctx context.Context, actor identity.VerifiedActor, binding resources.LocalResourceBinding) (bool, time.Time, error) {
 		required := byURI[binding.URI]
 		if len(required.exposures) == 0 && len(required.roleGroups) == 0 {
-			return true, nil
+			return true, actor.ValidUntil, nil
 		}
 		if principals == nil {
-			return false, identity.ErrResourceDenied
+			return false, time.Time{}, identity.ErrResourceDenied
 		}
 		principal, err := principals.ResolvePrincipal(ctx)
 		if err != nil {
-			return false, err
+			return false, time.Time{}, err
 		}
 		facts := principal.Facts
-		if !facts.ValidUntil.After(time.Now()) || facts.Subject != actor.Subject || facts.Issuer != actor.Issuer || facts.Tenant != actor.TenantID || principal.AccountID != actor.AccountID || principal.IdentityRevision != actor.IdentityRevision {
-			return false, identity.ErrResourceDenied
+		if !facts.ValidUntil.After(time.Now()) || facts.Subject != actor.Subject || facts.Issuer != actor.Issuer || facts.Tenant != actor.TenantID || principal.AccountID != actor.AccountID || !config.nativeWindows && principal.IdentityRevision != actor.IdentityRevision {
+			return false, time.Time{}, identity.ErrResourceDenied
 		}
 		contains := func(values []string, value string) bool {
 			for _, candidate := range values {
@@ -132,7 +181,7 @@ func internalWindowVisibility(config *hostAuthorizationFile, principals gating.P
 		}
 		for _, exposure := range required.exposures {
 			if !contains(facts.Exposures, exposure) {
-				return false, nil
+				return false, time.Time{}, nil
 			}
 		}
 		for _, group := range required.roleGroups {
@@ -144,9 +193,9 @@ func internalWindowVisibility(config *hostAuthorizationFile, principals gating.P
 				}
 			}
 			if !matched {
-				return false, nil
+				return false, time.Time{}, nil
 			}
 		}
-		return true, nil
+		return true, facts.ValidUntil, nil
 	}, nil
 }

@@ -23,10 +23,16 @@ type internalReportRegistration struct {
 	bindings []resources.LocalResourceBinding
 }
 type internalHostRegistration struct {
-	bind func(context.Context, *executor.Runtime) error
+	initialize func(context.Context) error
+	bind       func(context.Context, *executor.Runtime) error
 }
 
 func (r *internalHostRegistration) Bind(ctx context.Context, rt *executor.Runtime) error {
+	if r != nil && r.initialize != nil {
+		if err := r.initialize(ctx); err != nil {
+			return err
+		}
+	}
 	if r != nil && r.bind != nil {
 		return r.bind(ctx, rt)
 	}
@@ -97,10 +103,19 @@ func internalActorVerifier(prepared *executor.PreparedAuthorization) resources.A
 		return nil
 	}
 }
-func configureInternalHostResources(owner string, config *hostAuthorizationFile, prepared *executor.PreparedAuthorization, windowResolve func(context.Context, string) (*identity.ResourceResolver, identity.ResourceRef, error), snapshot *internalWindowSnapshot, reports *internalReportRegistration, catalog *reportcatalog.ReportCatalogService, scope forge.MetadataReadScope, proof types.WindowTargetProof, principals gating.PrincipalResolver, registration *internalHostRegistration) (*resources.LocalProvider, error) {
+func configureInternalHostResources(owner string, config *hostAuthorizationFile, prepared *executor.PreparedAuthorization, windowResolve func(context.Context, string) (*identity.ResourceResolver, identity.ResourceRef, error), snapshot *internalWindowSnapshot, reports *internalReportRegistration, catalog *reportcatalog.ReportCatalogService, scope forge.MetadataReadScope, proof types.WindowTargetProof, principals gating.PrincipalResolver, registration *internalHostRegistration, native ...*nativeWindowAuthority) (*resources.LocalProvider, error) {
 	if owner == "" || prepared == nil || registration == nil {
 		return nil, fmt.Errorf("explicit internal provider and runtime binding required")
 	}
+	var nativeAuthority *nativeWindowAuthority
+	if len(native) > 0 {
+		nativeAuthority = native[0]
+	}
+	actorResolver := resources.ActorResolver(prepared.ResourceActor)
+	if nativeAuthority != nil {
+		actorResolver = nativeAuthority.resolveActor(actorResolver)
+	}
+	verify := verifyActor(actorResolver)
 	var bindings []resources.LocalResourceBinding
 	for _, group := range [][]windowloader.ResourceBinding{config.WindowResources, config.FrameworkWindowResources} {
 		for _, declared := range group {
@@ -109,7 +124,7 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 			}
 			entry := declared
 			bindings = append(bindings, resources.LocalResourceBinding{URI: entry.URI, Title: entry.WindowKey, FormatVersion: 2, Resolver: func(ctx context.Context, actor identity.VerifiedActor, _ string) (*identity.ResourceResolver, error) {
-				if err := internalActorVerifier(prepared)(ctx, actor); err != nil {
+				if err := verify(ctx, actor); err != nil {
 					return nil, err
 				}
 				resolver, ref, err := windowResolve(ctx, entry.URI)
@@ -154,8 +169,7 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 			bindings = append(bindings, entry)
 		}
 	}
-	verify := internalActorVerifier(prepared)
-	authorize, err := internalNamespaceIsolation(config, bindings)
+	authorize, err := internalNamespaceIsolation(config, bindings, nativeAuthority)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +177,7 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 	if err != nil {
 		return nil, err
 	}
-	localConfig := resources.LocalConfig{ProviderIdentity: owner, Actor: prepared.ResourceActor, Verify: verify, Authorize: authorize, Bindings: bindings, Validators: map[string]resources.LocalResourceValidator{"window": resources.ValidateWindowBundle, "report": resources.ValidateReportEnvelope}}
+	localConfig := resources.LocalConfig{ProviderIdentity: owner, Actor: actorResolver, Verify: verify, Authorize: authorize, Bindings: bindings, Validators: map[string]resources.LocalResourceValidator{"window": resources.ValidateWindowBundle, "report": resources.ValidateReportEnvelope}}
 	if snapshot != nil {
 		localConfig.WindowIndex, localConfig.WindowListVisibility = snapshot.WindowIndex, visibility
 	}
@@ -180,11 +194,33 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 				return fmt.Errorf("internal windows require the host bridge and target proof")
 			}
 			remote := &resources.WindowCatalog{Gateway: rt.PrimitiveProviders, TargetProof: proof, Admission: func(ctx context.Context, pin identity.ResolvedResource, _ *types.Window) error {
+				if nativeAuthority != nil {
+					return nativeAuthority.admit(ctx, pin)
+				}
 				return internalCandidateAdmission(prepared, owner, ctx, policy.OperationWindowView, pin)
 			}}
+			if snapshot != nil {
+				remote.ContentCurrent = map[string]resources.WindowContentCheck{
+					owner: func(ctx context.Context, pin identity.ResolvedResource) error {
+						uri, err := identity.ParseResourceURI(pin.URI)
+						if err != nil || uri.Kind != "window" || pin.ProviderIdentity != owner {
+							return identity.ErrResourceDenied
+						}
+						return snapshot.CheckCandidate(ctx, uri, pin.ResourceCandidate)
+					},
+				}
+			}
 			windows, err := newInternalWindowCatalog(remote, append(append([]windowloader.ResourceBinding(nil), config.WindowResources...), config.FrameworkWindowResources...))
 			if err != nil {
 				return err
+			}
+			if nativeAuthority != nil {
+				windows.native = nativeAuthority
+				// This phase reads static native definitions only; entity admission
+				// and datasource execution retain their separate fresh providers.
+				rt.UIBridge.ConfigureWindowReadDecisionScope(func(ctx context.Context) (context.Context, func() error, error) {
+					return ctx, func() error { return ctx.Err() }, nil
+				})
 			}
 			rt.UIBridge.ConfigureWindowCatalog(func(forge.WindowDefinitionCatalog) forge.WindowDefinitionCatalog { return windows })
 		}
