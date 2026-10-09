@@ -1,3 +1,5 @@
+import { request as requestMock } from './httpClient';
+vi.mock('./httpClient', () => ({ request: vi.fn().mockResolvedValue([]) }));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { activeWindows, getFormSignal } from 'forge/core';
 import { getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, MAIN_CHAT_WINDOW_ID } from './conversationWindow';
@@ -3755,4 +3757,71 @@ it('hydrates owned header when a datasource refresh clears its form id but the a
   const pending=hydrateConversationComposerSelection(context,'temporarily-cleared-id');conv.values={agent:'simple'};
   finish({id:'temporarily-cleared-id',agentId:'presentation_fixture',defaultModel:'default'});await pending;
   expect(conv.values.id).toBe('temporarily-cleared-id');expect(meta.values.agent).toBe('presentation_fixture');
+});
+
+it('does not apply history A after selection changes during its pending elicitation request', async () => {
+  let finishElicitations;
+  const pending = new Promise(resolve => { finishElicitations = resolve; });
+  const values = { id: 'history-a' };
+  const chat = { lastSyncReason: 'selected-history-b' };
+  const messages = { setCollection: vi.fn(), setError: vi.fn() };
+  const conversation = { peekFormData: () => values, setFormData: vi.fn() };
+  const context = { resources: { chat }, Context(name) {
+    return name === 'conversations' ? {handlers:{dataSource:conversation}}
+      : name === 'messages' ? {handlers:{dataSource:messages}} : null;
+  }};
+  client.listPendingElicitations.mockReturnValueOnce(pending);
+  const read = dsTick(context, { conversationID: 'history-a', allowLiveHydration: true,
+    prefetchedTranscriptTurns: [], reason: 'history-switch' });
+  await Promise.resolve();
+  values.id = 'history-b';
+  chat.lastSyncReason = 'selected-history-b';
+  conversation.setFormData.mockClear();
+  finishElicitations([]);
+  await read;
+  expect(chat.lastSyncReason).toBe('selected-history-b');
+  expect(conversation.setFormData).not.toHaveBeenCalled();
+});
+
+it('does not replace selected history B files when history A generated-files request finishes late', async () => {
+  let finishFiles;
+  const pending = new Promise(resolve => { finishFiles = resolve; });
+  const values = { id: 'file-history-a' };
+  const chat = {};
+  const context = { resources: { chat }, Context(name) {
+    return name === 'conversations' ? {handlers:{dataSource:{peekFormData:()=>values,setFormData:vi.fn()}}}
+      : name === 'messages' ? {handlers:{dataSource:{setCollection:vi.fn(),setError:vi.fn()}}} : null;
+  }};
+  requestMock.mockReturnValueOnce(pending);
+  const read = dsTick(context, { conversationID: 'file-history-a', allowLiveHydration: true,
+    prefetchedTranscriptTurns: [], prefetchedPendingElicitations: [], reason: 'history-switch' });
+  await Promise.resolve();
+  values.id = 'file-history-b';
+  chat.generatedFiles = [{name:'selected-b-file'}];
+  finishFiles([{name:'obsolete-a-file'}]);
+  await read;
+  expect(chat.generatedFiles).toEqual([{name:'selected-b-file'}]);
+});
+
+it('renders history before slow approvals and rejects the earlier A generation after A to B to A', async () => {
+  let finish;
+  const pending = new Promise(resolve => { finish = resolve; });
+  const form = {id:'history-aba'};
+  const chat = {conversationSelectionGeneration:1};
+  const metadata = {peekFormData:()=>form,setFormData:vi.fn()};
+  const context = {resources:{chat},Context(name){return name==='conversations'?{handlers:{dataSource:metadata}}:name==='messages'?{handlers:{dataSource:{setCollection:vi.fn(),setError:vi.fn()}}}:null;}};
+  replacePendingElicitationsForConversationMock.mockClear();
+  client.listPendingElicitations.mockReturnValueOnce(pending);
+  const read = dsTick(context,{conversationID:'history-aba',allowLiveHydration:true,prefetchedTranscriptTurns:[],reason:'history-switch'});
+  await Promise.resolve();
+  expect(metadata.setFormData).toHaveBeenCalled();
+  expect(replacePendingElicitationsForConversationMock).not.toHaveBeenCalled();
+  chat.conversationSelectionGeneration = 3;
+  chat.lastSyncReason = 'latest-aba-generation';
+  metadata.setFormData.mockClear();
+  finish([{conversationId:'history-aba',elicitationId:'obsolete-approval'}]);
+  await read;
+  expect(chat.lastSyncReason).toBe('latest-aba-generation');
+  expect(metadata.setFormData).not.toHaveBeenCalled();
+  expect(replacePendingElicitationsForConversationMock).not.toHaveBeenCalled();
 });
