@@ -222,7 +222,7 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 					return ctx, func() error { return ctx.Err() }, nil
 				})
 			}
-			rt.UIBridge.ConfigureWindowCatalog(func(forge.WindowDefinitionCatalog) forge.WindowDefinitionCatalog { return windows })
+			bindInternalWindowCatalog(rt, owner, windows)
 		}
 		if catalog == nil {
 			return nil
@@ -239,6 +239,18 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 		return nil
 	}
 	return local, nil
+}
+
+// Late internal registration replaces only the local side of an already
+// configured composite. Delegated providers keep their admission and proof.
+func bindInternalWindowCatalog(rt *executor.Runtime, owner string, windows forge.WindowDefinitionCatalog) {
+	catalog := windows
+	if rt.PrimitiveWindows != nil {
+		rt.PrimitiveWindows.Local = windows
+		rt.PrimitiveWindows.LocalProviderIdentity = owner
+		catalog = rt.PrimitiveWindows
+	}
+	rt.UIBridge.ConfigureWindowCatalog(func(forge.WindowDefinitionCatalog) forge.WindowDefinitionCatalog { return catalog })
 }
 
 func internalReportCapabilities(prepared *executor.PreparedAuthorization, owner string) func(context.Context, identity.VerifiedActor, reportcatalog.ReportCatalogCandidate, identity.ResolvedResource) (reportcatalog.ReportCapabilities, error) {
