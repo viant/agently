@@ -31,7 +31,7 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 		if err != nil {
 			return nil, err
 		}
-		result.workspace, err = resources.NewNativeAssetSnapshot(ctx, root, definitions, resources.NativeSnapshotOptions{BeforeCompile: func(ctx context.Context, reader *resources.ExtensionReader) error {
+		result.workspace, err = resources.NewNativeAssetSnapshot(ctx, root, definitions, resources.NativeSnapshotOptions{ImmutableUntilRestart: true, BeforeCompile: func(ctx context.Context, reader *resources.ExtensionReader) error {
 			options, check, err := resources.ConfinedReportingOptions(ctx, reader, registry.Options{WorkspaceRoot: root, ReportingRoot: reportingRoot})
 			if err != nil {
 				return err
