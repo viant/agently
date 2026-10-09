@@ -12,6 +12,7 @@ import (
 	"github.com/viant/agently-core/service/policy"
 	"github.com/viant/agently-core/service/reporting"
 	"github.com/viant/agently-core/service/reporting/catalog"
+	resourcesvc "github.com/viant/agently-core/service/resource"
 	"github.com/viant/authz"
 	"github.com/viant/authz/gating"
 )
@@ -20,12 +21,16 @@ import (
 // the current verified actor so a SQL implementation can bind tenant/account.
 // Each canonical URI must have one configured source, including after imports.
 type HostResourceAccess struct {
-	Resolver  func(context.Context, string, identity.ResourceSource) (*identity.ResourceResolver, error)
-	Actor     func(context.Context) (identity.VerifiedActor, error)
-	Authority identity.ResourceAuthority
+	// ProviderIdentity enables explicit native snapshot/provider construction.
+	// It is supplied by the embedding host, never resource request data.
+	ProviderIdentity string
+	Resolver         func(context.Context, string, identity.ResourceSource) (*identity.ResourceResolver, error)
+	Actor            func(context.Context) (identity.VerifiedActor, error)
+	Authority        identity.ResourceAuthority
 }
 
 type ReportResourceProviders struct {
+	LocalBindings  []resourcesvc.LocalResourceBinding
 	WindowSource   func(context.Context, identity.VerifiedActor) (identity.ResourceSource, error)
 	BuilderWindows map[string]string
 	Writer         primitive.ResourceAuthoringFactory
@@ -38,19 +43,24 @@ type ReportResourceProviders struct {
 // administrative operations, separate from validating/starting an HTTP host.
 type ReportResourceProviderFactory func(context.Context, json.RawMessage, string, HostResourceAccess) (ReportResourceProviders, error)
 
-func configureHostReportResources(options ServeOptions, config *hostAuthorizationFile, workspaceRoot string, prepared *executor.PreparedAuthorization, principals gating.PrincipalResolver) (*catalog.ReportCatalogService, reporting.ResourceResolver, primitive.ResourceAuthoring, func(context.Context, identity.VerifiedActor) (identity.ResourceSource, error), error) {
+func configureHostReportResources(options ServeOptions, config *hostAuthorizationFile, workspaceRoot string, prepared *executor.PreparedAuthorization, principals gating.PrincipalResolver, internal ...*internalReportRegistration) (*catalog.ReportCatalogService, reporting.ResourceResolver, primitive.ResourceAuthoring, func(context.Context, identity.VerifiedActor) (identity.ResourceSource, error), error) {
 	if len(config.ReportResources) == 0 {
 		return nil, nil, nil, nil, nil
 	}
 	if options.ReportResourceProviderFactory == nil {
 		return nil, nil, nil, nil, fmt.Errorf("report resources require an explicit host storage factory")
 	}
-	providers, err := options.ReportResourceProviderFactory(context.Background(), config.ReportResources, workspaceRoot, preparedHostResourceAccess(prepared))
+	access := preparedHostResourceAccess(prepared)
+	access.ProviderIdentity = options.InternalResourceProviderIdentity
+	providers, err := options.ReportResourceProviderFactory(context.Background(), config.ReportResources, workspaceRoot, access)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("report resource storage: %w", err)
 	}
 	if providers.Source == nil || len(providers.Inventories) == 0 || prepared == nil || principals == nil {
 		return nil, nil, nil, nil, fmt.Errorf("report resources require source, inventory and verified authority")
+	}
+	if len(internal) > 0 && internal[0] != nil {
+		internal[0].bindings = append([]resourcesvc.LocalResourceBinding(nil), providers.LocalBindings...)
 	}
 	actor := prepared.ResourceActor
 	resolve := func(ctx context.Context, operation string) (*identity.ResourceResolver, error) {

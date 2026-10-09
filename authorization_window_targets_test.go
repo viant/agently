@@ -2,8 +2,8 @@ package agently
 
 import (
 	"context"
-	"github.com/viant/agently-core/service/ui/window"
 	identity "github.com/viant/agently-core/protocol/resource"
+	"github.com/viant/agently-core/service/ui/window"
 	"github.com/viant/forge/backend/types"
 	"testing"
 )

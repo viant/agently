@@ -129,6 +129,10 @@ func (r *workspaceReportingRuntime) EnrichView(_ context.Context, item *uiview.L
 }
 
 func workspaceReportingEnricher(loader *reportregistry.Loader) windowloader.WorkspaceWindowEnricher {
+	return workspaceReportingRegistryEnricher(loader.Current)
+}
+
+func workspaceReportingRegistryEnricher(current func() *reportregistry.Registry) windowloader.WorkspaceWindowEnricher {
 	return func(_ context.Context, window *forgeTypes.Window) error {
 		if window == nil || window.View.Content == nil {
 			return nil
@@ -137,7 +141,7 @@ func workspaceReportingEnricher(loader *reportregistry.Loader) windowloader.Work
 		if content.Kind != "dashboard.reportCatalog" && content.Kind != "dashboard.reportBuilder" {
 			return nil
 		}
-		registry := loader.Current()
+		registry := current()
 		if registry == nil {
 			return fmt.Errorf("workspace reporting registry is not initialized")
 		}
