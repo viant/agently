@@ -19,7 +19,7 @@ import {
   serializeManualToken,
 } from './tokens.js';
 import { listLookupRegistry, fetchDatasource } from './client.js';
-import { applyResolvedChipToken, createEditingChipState, shouldSkipEditorSync, unwrapLookupSelection as unwrapSelection, draftWithEditedChip } from './chipEditing.js';
+import { applyResolvedChipToken, createEditingChipState, shouldSkipEditorSync, unwrapLookupSelection as unwrapSelection, draftWithEditedChip, lookupPlaceholderAtTrigger } from './chipEditing.js';
 import { DEFAULT_LOOKUP_TRIGGER, filterLookupRegistry, findLookupTriggerStart, shouldClearSoleLookupTrigger } from './lookupTrigger.js';
 
 const DEFAULT_TRIGGER = DEFAULT_LOOKUP_TRIGGER;
@@ -879,8 +879,12 @@ export default function NamedLookupInput({
         if (!parsedSelection?.id || parsedSelection.id === '?' || !String(parsedSelection.label || '').replace(/\|/g, '').trim()) return false;
         const label = tokenLabel(token, unresolvedChipLabel(entry.name));
         let nextStored = '';
-        if (chipRaw) {
-          const resolved = applyResolvedChipToken(currentValueRef.current, chipRaw, token);
+        const placeholder = !chipRaw ? lookupPlaceholderAtTrigger(
+          currentValueRef.current, entry.name, triggerStart, !!(multiline && editorRef.current)
+        ) : null;
+        const replacedChipRaw = chipRaw || placeholder?.raw;
+        if (replacedChipRaw) {
+          const resolved = applyResolvedChipToken(currentValueRef.current, replacedChipRaw, token, placeholder?.index);
           if (!resolved.ok) { setEditingChip(prev => prev ? {...prev, error: resolved.error} : prev); return false; }
           nextStored = resolved.nextStored;
         } else if (multiline && editorRef.current) {
