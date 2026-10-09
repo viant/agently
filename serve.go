@@ -61,7 +61,8 @@ type servedUIBundle struct {
 }
 
 type ServeOptions struct {
-	WindowOpenBootstrapFactory WindowOpenBootstrapFactory
+	InternalResourceProviderIdentity string
+	WindowOpenBootstrapFactory       WindowOpenBootstrapFactory
 	// WindowTargetProof may provide shared verification across host replicas.
 	// Nil uses an ephemeral process key; outstanding short leases require the
 	// same process and are invalidated by restart.
@@ -159,7 +160,8 @@ func Serve(options ServeOptions) error {
 	}
 	orchestrationEnabled := defaults.Reporting.OrchestrationEnabled()
 	options, bindWindowBootstrap := prepareWindowBootstrap(options)
-	configureBuilder, err := configureHostAuthorization(options, workspace.Root(), wsConfig, workspaceReportingEnricher(reportingRuntime.loader))
+	internal := &internalHostRegistration{}
+	configureBuilder, err := configureHostAuthorization(options, workspace.Root(), wsConfig, workspaceReportingEnricher(reportingRuntime.loader), internal)
 	if err != nil {
 		return err
 	}
@@ -177,6 +179,9 @@ func Serve(options ServeOptions) error {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
 	}
 	defer rt.Close(context.Background())
+	if err := internal.Bind(ctx, rt); err != nil {
+		return fmt.Errorf("internal resource startup: %w", err)
+	}
 	if err := bindWindowBootstrap(ctx, client); err != nil {
 		return fmt.Errorf("window bootstrap startup: %w", err)
 	}

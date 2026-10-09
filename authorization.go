@@ -3,8 +3,11 @@ package agently
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	identity "github.com/viant/agently-core/protocol/resource"
+	resourcesvc "github.com/viant/agently-core/service/resource"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,13 +17,13 @@ import (
 	"github.com/viant/agently-core/app/executor"
 	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/service/policy"
+	forgeservice "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/agently-core/service/ui/permittedview"
 	windowloader "github.com/viant/agently-core/service/ui/window"
 	wscfg "github.com/viant/agently-core/workspace/config"
 	"github.com/viant/authz"
 	"github.com/viant/authz/gating"
 	"github.com/viant/authz/oauth"
-	forgeservice "github.com/viant/agently-core/service/primitiveprovider"
 	forgetypes "github.com/viant/forge/backend/types"
 )
 
@@ -84,7 +87,7 @@ func ValidateHostAuthorizationConfiguration(options ServeOptions) error {
 	if err != nil {
 		return err
 	}
-	configure, err := configureHostAuthorization(options, root, settings, nil)
+	configure, err := configureHostAuthorization(options, root, settings, nil, &internalHostRegistration{})
 	if err != nil {
 		return err
 	}
@@ -278,12 +281,15 @@ func validateHostAuthorizationMappings(config *hostAuthorizationFile, bundle *oa
 	return nil
 }
 
-func configureHostAuthorization(options ServeOptions, workspaceRoot string, workspaceConfig *wscfg.Root, enrich windowloader.WorkspaceWindowEnricher) (func(context.Context, *executor.Builder) error, error) {
+func configureHostAuthorization(options ServeOptions, workspaceRoot string, workspaceConfig *wscfg.Root, enrich windowloader.WorkspaceWindowEnricher, internal ...*internalHostRegistration) (func(context.Context, *executor.Builder) error, error) {
 	path := strings.TrimSpace(options.AuthzConfigPath)
 	if path == "" {
 		path = strings.TrimSpace(os.Getenv("AGENTLY_AUTHZ_CONFIG"))
 	}
 	if path == "" {
+		if options.InternalResourceProviderIdentity != "" {
+			return nil, fmt.Errorf("internal resource provider requires explicit host authorization configuration")
+		}
 		return options.ConfigureBuilder, nil
 	}
 	config, err := readHostAuthorization(path)
@@ -385,9 +391,30 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 	if providers.MetadataScope != nil {
 		metadataScope = &idTokenMetadataScope{source: providers.MetadataScope}
 	}
-	reportCatalog, reportResolver, reportWriter, windowSource, err := configureHostReportResources(options, config, workspaceRoot, prepared, svcauth.IDTokenIdentityProvider{Source: bundle.Identity})
+	reportRegistration := &internalReportRegistration{}
+	reportCatalog, reportResolver, reportWriter, windowSource, err := configureHostReportResources(options, config, workspaceRoot, prepared, svcauth.IDTokenIdentityProvider{Source: bundle.Identity}, reportRegistration)
 	if err != nil {
 		return nil, err
+	}
+	var nativeWindows *internalWindowSnapshot
+	if options.InternalResourceProviderIdentity != "" {
+		if options.WindowTargetProof == nil {
+			key := make([]byte, 32)
+			if _, err = rand.Read(key); err != nil {
+				return nil, err
+			}
+			options.WindowTargetProof, err = forgetypes.NewWindowTargetHMAC(key)
+			if err != nil {
+				return nil, err
+			}
+		}
+		nativeWindows, err = newInternalWindowSnapshot(context.Background(), workspaceRoot, workspaceConfig.ForgeReportingRoot(), config)
+		if err != nil {
+			return nil, err
+		}
+		windowSource = func(context.Context, identity.VerifiedActor) (identity.ResourceSource, error) {
+			return nativeWindows, nil
+		}
 	}
 	catalogOptions := []forgeservice.WindowCatalogOption{forgeservice.WithWindowMetadataScope(metadataScope)}
 	if options.WindowTargetProof != nil {
@@ -406,10 +433,25 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 		}
 		catalogOptions = append(catalogOptions, forgeservice.WithWindowLegacyTargetSupport(support))
 	}
+	var windowResolve func(context.Context, string) (*identity.ResourceResolver, identity.ResourceRef, error)
 	if len(config.WindowResources) > 0 || len(config.FrameworkWindowResources) > 0 {
 		resolve, resolveErr := configuredWindowResourceResolver(config, workspaceRoot, prepared, enrich, windowSource)
 		if resolveErr != nil {
 			return nil, resolveErr
+		}
+		windowResolve = resolve
+		if options.InternalResourceProviderIdentity != "" {
+			original := windowResolve
+			windowResolve = func(ctx context.Context, key string) (*identity.ResourceResolver, identity.ResourceRef, error) {
+				resolver, ref, err := original(ctx, key)
+				if err != nil {
+					return nil, ref, err
+				}
+				copied := *resolver
+				copied.ProviderIdentity = options.InternalResourceProviderIdentity
+				return &copied, ref, nil
+			}
+			resolve = windowResolve
 		}
 		if err := prepared.WithWindowResourceResolver(resolve); err != nil {
 			return nil, err
@@ -432,7 +474,21 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 	if reportCatalog != nil && metadataScope != nil {
 		reportCatalog.BeginMetadataRead = metadataScope.BeginMetadataRead
 	}
+	var internalProvider *resourcesvc.LocalProvider
+	if options.InternalResourceProviderIdentity != "" {
+		if len(internal) != 1 || internal[0] == nil {
+			return nil, fmt.Errorf("internal resource runtime binder required")
+		}
+		internalProvider, err = configureInternalHostResources(options.InternalResourceProviderIdentity, config, prepared, windowResolve, nativeWindows, reportRegistration, reportCatalog, metadataScope, options.WindowTargetProof, svcauth.IDTokenIdentityProvider{Source: bundle.Identity}, internal[0])
+		if err != nil {
+			return nil, err
+		}
+	}
 	return func(ctx context.Context, builder *executor.Builder) error {
+		if internalProvider != nil {
+			builder.WithLocalPrimitiveProvider(internalProvider)
+			builder.WithPrimitiveAuthority(prepared.ResourceActor, internalActorVerifier(prepared), options.InternalResourceProviderIdentity)
+		}
 		if reportCatalog != nil {
 			builder.WithReportResources(reportCatalog, reportResolver)
 			builder.WithReportResourceService(reportWriter)

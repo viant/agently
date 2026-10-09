@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	windowloader "github.com/viant/agently-core/service/ui/window"
 	identity "github.com/viant/agently-core/protocol/resource"
+	windowloader "github.com/viant/agently-core/service/ui/window"
 	"github.com/viant/forge/backend/types"
 )
 
