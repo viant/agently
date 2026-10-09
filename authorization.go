@@ -30,20 +30,24 @@ import (
 // AuthorizationProviders is an explicit trusted binding, implemented by an
 // embedding host. This public module interprets no provider-specific identity DTO.
 type AuthorizationProviders struct {
-	Entitlements        map[string]gating.EntitlementProvider
-	AccountProjection   permittedview.AccountProjection
-	DecisionScope       executor.AuthorizationDecisionScope
-	MetadataScope       forgeservice.MetadataReadScope
-	Identity            oauth.IdentityAuthority
-	AllowsTenant        func(string) bool
-	EntityPermissions   gating.EntityPermissionProvider
-	PermissionWithLease func(context.Context, authz.Facts, authz.Entity, string) (bool, time.Time, error)
+	// NativeWindowIdentity verifies identity only for configured static YAML reads.
+	// It carries no role, feature or entity authority. Protected operations use Identity.
+	NativeWindowIdentity func(context.Context) (gating.Principal, error)
+	Entitlements         map[string]gating.EntitlementProvider
+	AccountProjection    permittedview.AccountProjection
+	DecisionScope        executor.AuthorizationDecisionScope
+	MetadataScope        forgeservice.MetadataReadScope
+	Identity             oauth.IdentityAuthority
+	AllowsTenant         func(string) bool
+	EntityPermissions    gating.EntityPermissionProvider
+	PermissionWithLease  func(context.Context, authz.Facts, authz.Entity, string) (bool, time.Time, error)
 }
 
 // AuthorizationProviderFactory consumes only operator-owned configuration.
 type AuthorizationProviderFactory func(context.Context, json.RawMessage, json.RawMessage) (AuthorizationProviders, error)
 
 type hostAuthorizationFile struct {
+	nativeWindows             bool
 	FrameworkWindowResources  []windowloader.ResourceBinding   `json:"frameworkWindowResources,omitempty"`
 	ResourceSelectionProvider json.RawMessage                  `json:"resourceSelectionProvider,omitempty"`
 	ReportResources           json.RawMessage                  `json:"reportResources,omitempty"`
@@ -87,9 +91,15 @@ func ValidateHostAuthorizationConfiguration(options ServeOptions) error {
 	if err != nil {
 		return err
 	}
-	configure, err := configureHostAuthorization(options, root, settings, nil, &internalHostRegistration{})
+	internal := &internalHostRegistration{}
+	configure, err := configureHostAuthorization(options, root, settings, nil, internal)
 	if err != nil {
 		return err
+	}
+	if internal.initialize != nil {
+		if err := internal.initialize(context.Background()); err != nil {
+			return err
+		}
 	}
 	return configure(context.Background(), executor.NewBuilder())
 }
@@ -245,6 +255,9 @@ func validateHostAuthorizationMappings(config *hostAuthorizationFile, bundle *oa
 		}
 
 		for _, binding := range config.ResourceRevisionBindings {
+			if nativeWindowViewBinding(config, binding) {
+				continue
+			}
 			if selector, explicit := directResourceSelector(binding.Operation); explicit {
 				if err := check(authz.Resource{Kind: binding.Resource.Kind, ID: binding.Resource.ID, Tenant: binding.Resource.Tenant, Version: selector}, binding.Action); err != nil {
 					return err
@@ -258,6 +271,9 @@ func validateHostAuthorizationMappings(config *hostAuthorizationFile, bundle *oa
 		return err
 	}
 	for _, binding := range config.ResourceRevisionBindings {
+		if nativeWindowViewBinding(config, binding) {
+			continue
+		}
 		if selector, explicit := directResourceSelector(binding.Operation); explicit {
 			if err := check(authz.Resource{Kind: binding.Resource.Kind, ID: binding.Resource.ID, Tenant: binding.Resource.Tenant, Version: selector}, binding.Action); err != nil {
 				return err
@@ -305,6 +321,14 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 	providers, err := options.AuthorizationProviderFactory(context.Background(), config.Identity, config.EntityEvaluation)
 	if err != nil {
 		return nil, fmt.Errorf("authorization provider binding: %w", err)
+	}
+	config.nativeWindows = options.InternalResourceProviderIdentity != "" && providers.NativeWindowIdentity != nil
+	if config.nativeWindows {
+		var source struct {
+			Source string `json:"source"`
+		}
+		_ = json.Unmarshal(config.ReportResources, &source)
+		config.nativeWindows = source.Source == "workspace"
 	}
 	bundle, err := oauth.NewStaticAuthorization(oauth.StaticAuthorizationConfig{
 		Identity: providers.Identity, AllowsTenant: providers.AllowsTenant,
@@ -397,6 +421,8 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 		return nil, err
 	}
 	var nativeWindows *internalWindowSnapshot
+	var nativeAuthority *nativeWindowAuthority
+	windowMetadataScope := metadataScope
 	if options.InternalResourceProviderIdentity != "" {
 		if options.WindowTargetProof == nil {
 			key := make([]byte, 32)
@@ -408,15 +434,36 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 				return nil, err
 			}
 		}
-		nativeWindows, err = newInternalWindowSnapshot(context.Background(), workspaceRoot, workspaceConfig.ForgeReportingRoot(), config)
+		nativeWindows, err = newInternalWindowSnapshot(context.Background(), workspaceRoot, workspaceConfig.ForgeReportingRoot(), config, config.nativeWindows)
 		if err != nil {
 			return nil, err
+		}
+		if config.nativeWindows {
+			if len(internal) != 1 || internal[0] == nil {
+				return nil, fmt.Errorf("native source initialization requires runtime registration")
+			}
+			internal[0].initialize = nativeWindows.Initialize
 		}
 		windowSource = func(context.Context, identity.VerifiedActor) (identity.ResourceSource, error) {
 			return nativeWindows, nil
 		}
+		if config.nativeWindows {
+			nativeAuthority = &nativeWindowAuthority{principal: func(ctx context.Context) (gating.Principal, error) {
+				return providers.NativeWindowIdentity(svcauth.AuthzIDTokenContext(ctx))
+			}, allowed: map[string]resourcesvc.LocalResourceBinding{}}
+			for _, group := range [][]windowloader.ResourceBinding{config.WindowResources, config.FrameworkWindowResources} {
+				for _, b := range group {
+					nativeAuthority.allowed[b.URI] = resourcesvc.LocalResourceBinding{URI: b.URI, Title: b.WindowKey, FormatVersion: 2}
+				}
+			}
+			nativeAuthority.visibilityLease, err = newInternalWindowVisibilityLease(config, svcauth.IDTokenIdentityProvider{Source: bundle.Identity})
+			if err != nil {
+				return nil, err
+			}
+			windowMetadataScope = nativeWindowMetadataScope{}
+		}
 	}
-	catalogOptions := []forgeservice.WindowCatalogOption{forgeservice.WithWindowMetadataScope(metadataScope)}
+	catalogOptions := []forgeservice.WindowCatalogOption{forgeservice.WithWindowMetadataScope(windowMetadataScope)}
 	if options.WindowTargetProof != nil {
 		catalogOptions = append(catalogOptions, forgeservice.WithWindowTargetProof(options.WindowTargetProof))
 	}
@@ -435,7 +482,13 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 	}
 	var windowResolve func(context.Context, string) (*identity.ResourceResolver, identity.ResourceRef, error)
 	if len(config.WindowResources) > 0 || len(config.FrameworkWindowResources) > 0 {
-		resolve, resolveErr := configuredWindowResourceResolver(config, workspaceRoot, prepared, enrich, windowSource)
+		var resolve func(context.Context, string) (*identity.ResourceResolver, identity.ResourceRef, error)
+		var resolveErr error
+		if nativeAuthority != nil {
+			resolve, resolveErr = configuredNativeWindowResolver(config, nativeWindows, nativeAuthority)
+		} else {
+			resolve, resolveErr = configuredWindowResourceResolver(config, workspaceRoot, prepared, enrich, windowSource)
+		}
 		if resolveErr != nil {
 			return nil, resolveErr
 		}
@@ -448,6 +501,9 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 					return nil, ref, err
 				}
 				copied := *resolver
+				if nativeAuthority != nil {
+					copied.Policy = &nativeWindowPolicy{authority: nativeAuthority}
+				}
 				copied.ProviderIdentity = options.InternalResourceProviderIdentity
 				return &copied, ref, nil
 			}
@@ -479,7 +535,7 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 		if len(internal) != 1 || internal[0] == nil {
 			return nil, fmt.Errorf("internal resource runtime binder required")
 		}
-		internalProvider, err = configureInternalHostResources(options.InternalResourceProviderIdentity, config, prepared, windowResolve, nativeWindows, reportRegistration, reportCatalog, metadataScope, options.WindowTargetProof, svcauth.IDTokenIdentityProvider{Source: bundle.Identity}, internal[0])
+		internalProvider, err = configureInternalHostResources(options.InternalResourceProviderIdentity, config, prepared, windowResolve, nativeWindows, reportRegistration, reportCatalog, metadataScope, options.WindowTargetProof, svcauth.IDTokenIdentityProvider{Source: bundle.Identity}, internal[0], nativeAuthority)
 		if err != nil {
 			return nil, err
 		}
@@ -487,13 +543,27 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 	return func(ctx context.Context, builder *executor.Builder) error {
 		if internalProvider != nil {
 			builder.WithLocalPrimitiveProvider(internalProvider)
-			builder.WithPrimitiveAuthority(prepared.ResourceActor, internalActorVerifier(prepared), options.InternalResourceProviderIdentity)
+			actor := resourcesvc.ActorResolver(prepared.ResourceActor)
+			if nativeAuthority != nil {
+				actor = nativeAuthority.resolveActor(actor)
+			}
+			builder.WithPrimitiveAuthority(actor, verifyActor(actor), options.InternalResourceProviderIdentity)
 		}
 		if reportCatalog != nil {
 			builder.WithReportResources(reportCatalog, reportResolver)
 			builder.WithReportResourceService(reportWriter)
 		}
-		builder.WithUIBridge(forgeservice.NewService(&forgeservice.Config{MetadataScope: metadataScope, WindowDefinitions: catalog, DynamicWindowAuthorizer: prepared.WindowAuthorizer, ResolvedWindowAuthorizer: prepared.AuthorizeResolvedWindow}))
+		resolvedAuthorizer := prepared.AuthorizeResolvedWindow
+		if nativeAuthority != nil {
+			original := resolvedAuthorizer
+			resolvedAuthorizer = func(ctx context.Context, pin identity.ResolvedResource, method string, params map[string]any) error {
+				if _, native := nativeAuthority.allowed[pin.URI]; native && method == "ui.window.open" {
+					return nativeAuthority.admit(ctx, pin)
+				}
+				return original(ctx, pin, method, params)
+			}
+		}
+		builder.WithUIBridge(forgeservice.NewService(&forgeservice.Config{MetadataScope: windowMetadataScope, WindowDefinitions: catalog, DynamicWindowAuthorizer: prepared.WindowAuthorizer, ResolvedWindowAuthorizer: resolvedAuthorizer}))
 		if err := prepared.Register(builder); err != nil {
 			return err
 		}

@@ -204,3 +204,52 @@ func TestInternalWindowCatalogBindingAmbiguityFailsClosed(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+func TestInternalWindowCatalogFinalContentCheckPreservesAliasAndProviderPin(t *testing.T) {
+	ctx := context.Background()
+	catalog, _ := newInternalWindowTestCatalog(t, map[string]json.RawMessage{
+		"window://platform/deliver/orders": json.RawMessage(`{"schemaVersion":2,"view":{"title":"Orders","content":{"id":"orders"}}}`),
+	})
+	result, err := catalog.Get(ctx, &primitiveprovider.WindowDefinitionGetInput{WindowID: "orders"})
+	require.NoError(t, err)
+	original := *result.Definition.Resource
+	calls := 0
+	catalog.remote.ContentCurrent = map[string]resources.WindowContentCheck{
+		original.ProviderIdentity: func(_ context.Context, pin identity.ResolvedResource) error {
+			calls++
+			require.Equal(t, original, pin)
+			return identity.ErrResourceStale
+		},
+	}
+	require.ErrorIs(t, catalog.CheckWindowContent(ctx, "orders", original, result.Definition.ResourceTarget), identity.ErrResourceStale)
+	require.Equal(t, 1, calls)
+	foreign := original
+	foreign.URI = "window://platform/foreign"
+	require.Error(t, catalog.CheckWindowContent(ctx, "orders", foreign, nil))
+	expired := original
+	expired.ValidUntil = time.Now().Add(-time.Second)
+	require.Error(t, catalog.CheckWindowContent(ctx, "orders", expired, nil))
+	require.Equal(t, 1, calls, "invalid alias/expired pins must not reach trusted content callback")
+}
+
+func TestInternalWindowFrameworkContentCheckIsExact(t *testing.T) {
+	ctx := context.Background()
+	uri, err := identity.ParseResourceURI("window://platform/framework/orders")
+	require.NoError(t, err)
+	raw := json.RawMessage(`{"view":{"content":{"id":"orders"}}}`)
+	snapshot := &internalWindowSnapshot{framework: map[string]json.RawMessage{uri.String(): raw}}
+	candidate := identity.ResourceCandidate{Kind: identity.WorkingCandidate, ContentFingerprint: identity.ContentFingerprint(raw)}
+	require.NoError(t, snapshot.CheckCandidate(ctx, uri, candidate))
+	changed := candidate
+	changed.ContentFingerprint = identity.ContentFingerprint([]byte("changed"))
+	require.ErrorIs(t, snapshot.CheckCandidate(ctx, uri, changed), identity.ErrResourceStale)
+	stamped := candidate
+	stamped.Kind, stamped.Revision = identity.StampedCandidate, "stamp-1"
+	require.Error(t, snapshot.CheckCandidate(ctx, uri, stamped))
+	unknown, err := identity.ParseResourceURI("window://platform/framework/other")
+	require.NoError(t, err)
+	require.Error(t, snapshot.CheckCandidate(ctx, unknown, candidate))
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	require.Error(t, snapshot.CheckCandidate(canceled, uri, candidate))
+}

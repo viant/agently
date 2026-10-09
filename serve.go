@@ -179,9 +179,6 @@ func Serve(options ServeOptions) error {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
 	}
 	defer rt.Close(context.Background())
-	if err := internal.Bind(ctx, rt); err != nil {
-		return fmt.Errorf("internal resource startup: %w", err)
-	}
 	if err := bindWindowBootstrap(ctx, client); err != nil {
 		return fmt.Errorf("window bootstrap startup: %w", err)
 	}
@@ -226,6 +223,11 @@ func Serve(options ServeOptions) error {
 	}
 	forgeWindowRepo := forgewindowrepo.NewWithStore(rt.Store)
 	logLoadedForgeWindows(ctx, forgeWindowRepo)
+	// Capture native immutable sources only after constructor and original
+	// window-loader startup reads finish normalizing their filesystem.
+	if err := internal.Bind(ctx, rt); err != nil {
+		return fmt.Errorf("internal resource startup: %w", err)
+	}
 	if rt.Registry != nil {
 		if err := tool.AddInternalService(rt.Registry, uiview.New(forgeWindowRepo, uiBridge, uiview.WithListItemEnricher(reportingRuntime.EnrichView))); err != nil {
 			log.Printf("agently-app: failed to register internal UI view service: %v", err)

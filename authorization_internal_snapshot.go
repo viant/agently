@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"sync"
 
 	"github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
@@ -15,12 +16,37 @@ import (
 // internalWindowSnapshot contains authored content only. Caller identity and
 // revision policy are checked independently on every operation.
 type internalWindowSnapshot struct {
+	initialize     func(context.Context) error
+	initOnce       sync.Once
+	initErr        error
 	workspace      *resources.NativeAssetSnapshot
 	framework      map[string]json.RawMessage
 	frameworkIndex []primitive.ResourceState
 }
 
-func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, config *hostAuthorizationFile) (*internalWindowSnapshot, error) {
+func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, config *hostAuthorizationFile, deferred ...bool) (*internalWindowSnapshot, error) {
+	if len(deferred) > 0 && deferred[0] {
+		if len(config.WindowResources) > 0 {
+			if _, err := resources.SnapshotWindowDefinitions(ctx, root, config.WindowResources, nil); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := newEmbeddedWindowSource(config.FrameworkWindowResources); err != nil {
+			return nil, err
+		}
+		result := &internalWindowSnapshot{}
+		result.initialize = func(ctx context.Context) error {
+			loaded, err := newInternalWindowSnapshot(ctx, root, reportingRoot, config)
+			if err != nil {
+				return err
+			}
+			result.workspace = loaded.workspace
+			result.framework = loaded.framework
+			result.frameworkIndex = loaded.frameworkIndex
+			return nil
+		}
+		return result, nil
+	}
 	result := &internalWindowSnapshot{framework: map[string]json.RawMessage{}}
 	if len(config.WindowResources) > 0 {
 		// This registry belongs to one serialized snapshot compilation. It is
@@ -59,9 +85,22 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 		}
 		result.framework[binding.URI] = append(json.RawMessage(nil), raw...)
 		title := binding.WindowKey
-		result.frameworkIndex = append(result.frameworkIndex, primitive.ResourceState{URI: binding.URI, Kind: "window", Namespace: uri.Namespace, Name: uri.Name, Title: title, FormatVersion: 2, ContentFingerprint: identity.ContentFingerprint(raw)})
+		result.frameworkIndex = append(result.frameworkIndex, primitive.ResourceState{URI: binding.URI, Kind: "window", Namespace: uri.Namespace, Name: uri.Name, Title: title, Lifecycle: identity.WorkingCandidate, Revision: identity.WorkingCandidate, FormatVersion: 2, ContentFingerprint: identity.ContentFingerprint(raw)})
 	}
 	return result, nil
+}
+
+// Initialize captures the original source generation after runtime construction
+// has finished preparing its filesystem, before any request can be served.
+func (s *internalWindowSnapshot) Initialize(ctx context.Context) error {
+	if s == nil {
+		return identity.ErrResourceDenied
+	}
+	if s.initialize == nil {
+		return nil
+	}
+	s.initOnce.Do(func() { s.initErr = s.initialize(ctx) })
+	return s.initErr
 }
 
 func (s *internalWindowSnapshot) Candidates(ctx context.Context, uri identity.ResourceURI) ([]identity.ResourceCandidate, error) {
@@ -91,6 +130,26 @@ func (s *internalWindowSnapshot) ReadCandidate(ctx context.Context, uri identity
 	}
 	return s.workspace.ReadCandidate(ctx, uri, candidate)
 }
+
+// CheckCandidate verifies original authored content after the authority phase ends.
+// Framework bytes are fixed in the linked bundle; workspace metadata remains
+// sticky-invalid after any source/dependency change until restart.
+func (s *internalWindowSnapshot) CheckCandidate(ctx context.Context, uri identity.ResourceURI, candidate identity.ResourceCandidate) error {
+	if s == nil || ctx == nil || ctx.Err() != nil || !uri.Valid() || !candidate.Valid() {
+		return identity.ErrResourceDenied
+	}
+	if raw, ok := s.framework[uri.String()]; ok {
+		if candidate.Kind != identity.WorkingCandidate || candidate.ContentFingerprint != identity.ContentFingerprint(raw) {
+			return identity.ErrResourceStale
+		}
+		return nil
+	}
+	if s.workspace == nil {
+		return identity.ErrResourceDenied
+	}
+	return s.workspace.CheckCandidate(ctx, uri, candidate)
+}
+
 func (s *internalWindowSnapshot) WindowIndex(ctx context.Context) ([]primitive.ResourceState, error) {
 	if s == nil || ctx == nil || ctx.Err() != nil {
 		return nil, identity.ErrResourceDenied

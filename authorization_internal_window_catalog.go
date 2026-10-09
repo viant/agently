@@ -18,6 +18,7 @@ import (
 // routing every read to the canonical primitive Gateway. The alias table is
 // fixed at construction; a provider cannot add aliases by advertising them.
 type internalWindowCatalog struct {
+	native  *nativeWindowAuthority
 	remote  *resources.WindowCatalog
 	byAlias map[string]internalWindowBinding
 	byURI   map[string]internalWindowBinding
@@ -123,6 +124,11 @@ func (c *internalWindowCatalog) List(ctx context.Context, input *primitiveprovid
 		return nil, identity.ErrResource
 	}
 
+	if c.native != nil {
+		var close func()
+		ctx, close = c.native.begin(ctx)
+		defer close()
+	}
 	// Read only the delegated static index. Paging is done before applying the
 	// host's allowlist so provider pagination cannot hide a later bound window.
 	indexed := make(map[string]primitiveprovider.WindowDefinitionSummary, len(c.byURI))
@@ -213,6 +219,11 @@ func (c *internalWindowCatalog) get(ctx context.Context, input *primitiveprovide
 	if err != nil {
 		return nil, err
 	}
+	if c.native != nil {
+		var close func()
+		ctx, close = c.native.begin(ctx)
+		defer close()
+	}
 	if input.Resource != nil && input.Resource.URI != binding.uri {
 		return nil, identity.ErrResourceDenied
 	}
@@ -278,6 +289,11 @@ func (c *internalWindowCatalog) CheckWindowAdmission(ctx context.Context, key st
 	if err != nil {
 		return false, err
 	}
+	if c.native != nil {
+		var close func()
+		ctx, close = c.native.begin(ctx)
+		defer close()
+	}
 	return c.remote.CheckWindowAdmission(ctx, binding.uri)
 }
 
@@ -288,6 +304,11 @@ func (c *internalWindowCatalog) RevalidateResource(ctx context.Context, key stri
 	binding, err := c.binding(key)
 	if err != nil || pin.URI != binding.uri || !pin.ValidUntil.After(time.Now()) {
 		return nil, identity.ErrResourceDenied
+	}
+	if c.native != nil {
+		var close func()
+		ctx, close = c.native.begin(ctx)
+		defer close()
 	}
 	connection, err := c.remote.Gateway.ConnectionForProvider(ctx, pin.ProviderIdentity)
 	if err != nil {
@@ -300,6 +321,19 @@ func (c *internalWindowCatalog) RevalidateResource(ctx context.Context, key stri
 		return nil, identity.ErrResourceDenied
 	}
 	return result.ResolvedResource, nil
+}
+
+// CheckWindowContent forwards the original provider pin after a bounded read
+// phase without carrying shared authorization facts into event persistence.
+func (c *internalWindowCatalog) CheckWindowContent(ctx context.Context, key string, pin identity.ResolvedResource, target *types.WindowTarget) error {
+	if !c.AuthzReady() {
+		return identity.ErrResourceDenied
+	}
+	binding, err := c.binding(key)
+	if err != nil || pin.URI != binding.uri || !pin.ValidUntil.After(time.Now()) {
+		return identity.ErrResourceDenied
+	}
+	return c.remote.CheckWindowContent(ctx, binding.uri, pin, target)
 }
 
 func (c *internalWindowCatalog) VerifyWindowTarget(ctx context.Context, pin identity.ResolvedResource, target types.WindowTarget, variant string) error {
