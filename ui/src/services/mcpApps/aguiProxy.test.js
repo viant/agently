@@ -89,14 +89,15 @@ describe('isolated MCP Apps AG-UI proxy', () => {
 });
 describe('standard app document policy', () => {
   it('isolates resource policy from legacy sandbox overrides and rejects CSP injection', () => {
-    const html = buildStandardMcpDocument({ mimeType: 'text/html;profile=mcp-app', text: '<h1>App</h1>', _meta: { ui: {
-      sandbox: 'allow-same-origin', csp: { connectDomains: ['https://api.example', "https://bad.example/;default-src *"], resourceDomains: [] },
-    } } });
+    const resource = { uri: 'ui://generic/app', mimeType: 'text/html;profile=mcp-app', text: '<h1>App</h1>', _meta: { ui: {
+      sandbox: 'allow-same-origin', csp: { connectDomains: ['https://api.example'], resourceDomains: [] },
+    } } };
+    const html = buildStandardMcpDocument(resource);
     expect(html).toContain("default-src 'none'");
     expect(html).toContain('connect-src https://api.example');
-    expect(html).not.toContain('bad.example');
     expect(html).not.toContain('allow-same-origin');
-    expect(html).toContain("base-uri 'none'");
-    expect(() => buildStandardMcpDocument({ mimeType: 'text/plain', text: 'data' })).toThrow('HTML');
+    expect(html).toContain("base-uri 'self'");
+    expect(() => buildStandardMcpDocument({ ...resource, _meta: { ui: { csp: { connectDomains: ["https://bad.example/;default-src *"] } } } })).toThrow();
+    expect(() => buildStandardMcpDocument({ ...resource, mimeType: 'text/plain' })).toThrow('text/html;profile=mcp-app');
   });
 });

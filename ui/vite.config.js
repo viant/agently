@@ -184,6 +184,7 @@ export default defineConfig(({ mode, command }) => {
       brotliSize: false,
       chunkSizeWarningLimit: 1200,
       rollupOptions: {
+        input: { main: resolve(uiRoot, 'index.html'), mcpAppSandbox: resolve(uiRoot, 'mcp-app-sandbox.html') },
         output: {
           manualChunks(id) {
             if (id.includes('/node_modules/mermaid/')) return 'mermaid';
