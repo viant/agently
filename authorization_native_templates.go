@@ -57,6 +57,7 @@ type nativeWindowReadKey struct{}
 type nativeWindowRead struct {
 	owner  *nativeWindowAuthority
 	active atomic.Bool
+	actor  *identity.VerifiedActor
 }
 type nativeWindowAuthority struct {
 	principal       func(context.Context) (gating.Principal, error)
@@ -66,6 +67,9 @@ type nativeWindowAuthority struct {
 
 func (n *nativeWindowAuthority) begin(ctx context.Context) (context.Context, func()) {
 	state := &nativeWindowRead{owner: n}
+	if held, _ := ctx.Value(nativeWindowReadKey{}).(*nativeWindowRead); held != nil && held.owner == n && held.active.Load() {
+		state.actor = held.actor
+	}
 	state.active.Store(true)
 	return context.WithValue(ctx, nativeWindowReadKey{}, state), func() { state.active.Store(false) }
 }
@@ -84,6 +88,12 @@ func (n *nativeWindowAuthority) actor(ctx context.Context) (identity.VerifiedAct
 	a := identity.VerifiedActor{Subject: principal.Facts.Subject, Issuer: principal.Facts.Issuer, TenantID: principal.Facts.Tenant, AccountID: principal.AccountID, IdentityRevision: principal.IdentityRevision, ValidUntil: principal.Facts.ValidUntil}
 	if !a.Valid(time.Now()) {
 		return identity.VerifiedActor{}, policy.ErrIdentityRejected
+	}
+	if held, _ := ctx.Value(nativeWindowReadKey{}).(*nativeWindowRead); held != nil && held.owner == n && held.active.Load() && held.actor != nil {
+		initial := *held.actor
+		if !initial.Valid(time.Now()) || initial.Subject != a.Subject || initial.Issuer != a.Issuer || initial.TenantID != a.TenantID || initial.AccountID != a.AccountID || initial.IdentityRevision != a.IdentityRevision {
+			return identity.VerifiedActor{}, identity.ErrResourceDenied
+		}
 	}
 	return a, nil
 }

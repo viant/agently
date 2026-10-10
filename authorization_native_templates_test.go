@@ -13,10 +13,12 @@ import (
 	"github.com/viant/agently-core/protocol/mcp/manager"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/service/policy"
+	ui "github.com/viant/agently-core/service/primitiveprovider"
 	resources "github.com/viant/agently-core/service/resource"
 	windowloader "github.com/viant/agently-core/service/ui/window"
 	"github.com/viant/authz"
 	"github.com/viant/authz/gating"
+	"github.com/viant/forge/backend/types"
 	mcp "github.com/viant/mcp"
 	mcpclient "github.com/viant/mcp/client"
 )
@@ -119,6 +121,96 @@ func TestNativeTemplateScopeSurvivesActualLocalMCPListAndGet(t *testing.T) {
 	got, err := gateway.Get(read, rows[0].Connection, identity.ResourceRef{URI: binding.URI}, nil)
 	require.NoError(t, err)
 	require.Equal(t, binding.URI, got.ResolvedResource.URI)
+
+	proof, err := types.NewWindowTargetHMAC(make([]byte, 32))
+	require.NoError(t, err)
+	remote := &resources.WindowCatalog{Gateway: gateway, TargetProof: proof, Admission: func(ctx context.Context, pin identity.ResolvedResource, _ *types.Window) error {
+		return native.admit(ctx, pin)
+	}}
+	catalog, err := newInternalWindowCatalog(remote, config.WindowResources)
+	require.NoError(t, err)
+	catalog.native = native
+	catalog.providerIdentity = "internal"
+	composite := &resources.CompositeWindowCatalog{Local: catalog, LocalProviderIdentity: "internal", Remote: remote}
+	var heldContext context.Context
+	native.principal = func(ctx context.Context) (gating.Principal, error) {
+		heldContext = ctx
+		return principal, nil
+	}
+	listed, err := composite.List(ctx, &ui.WindowDefinitionListInput{Limit: 100})
+	require.NoError(t, err, "aggregate metadata must retain the same native actor when delegated listing begins")
+	require.Len(t, listed.Windows, 1)
+	_, err = actor(heldContext)
+	require.ErrorIs(t, err, policy.ErrIdentityRejected, "metadata actor scope must expire before control returns")
+	_, err = gateway.List(ctx, "window", "")
+	require.ErrorIs(t, err, policy.ErrIdentityRejected, "ordinary gateway operations must retain the protected authority")
+
+	native.principal = func(context.Context) (gating.Principal, error) {
+		return gating.Principal{}, policy.ErrIdentityRejected
+	}
+	_, err = composite.List(ctx, &ui.WindowDefinitionListInput{})
+	require.ErrorIs(t, err, policy.ErrIdentityRejected, "identity revocation must fail the aggregate")
+	reads := 0
+	native.principal = func(context.Context) (gating.Principal, error) {
+		reads++
+		current := principal
+		if reads > 1 {
+			current.IdentityRevision = "changed-identity"
+		}
+		return current, nil
+	}
+	_, err = composite.List(ctx, &ui.WindowDefinitionListInput{})
+	require.ErrorIs(t, err, identity.ErrResourceDenied, "identity drift must fail current-actor verification")
+
+	reads = 0
+	native.principal = func(read context.Context) (gating.Principal, error) {
+		reads++
+		heldContext = read
+		if reads > 1 {
+			return gating.Principal{}, policy.ErrIdentityRejected
+		}
+		return principal, nil
+	}
+	_, err = composite.List(ctx, &ui.WindowDefinitionListInput{})
+	require.ErrorIs(t, err, policy.ErrIdentityRejected)
+	require.False(t, native.active(heldContext), "metadata actor scope must close after a provider error")
+	cancelled, cancel := context.WithCancel(ctx)
+	reads = 0
+	native.principal = func(read context.Context) (gating.Principal, error) {
+		reads++
+		heldContext = read
+		if reads > 1 {
+			cancel()
+		}
+		return principal, nil
+	}
+	_, err = composite.List(cancelled, &ui.WindowDefinitionListInput{})
+	require.Error(t, err, "cancelled metadata reads cannot return a catalog")
+	require.False(t, native.active(heldContext), "metadata actor scope must close after cancellation")
+	for _, change := range []string{"revision", "expiry", "revocation"} {
+		t.Run("final-"+change, func(t *testing.T) {
+			current := principal
+			revoked := false
+			native.principal = func(context.Context) (gating.Principal, error) {
+				if revoked {
+					return gating.Principal{}, policy.ErrIdentityRejected
+				}
+				return current, nil
+			}
+			read, finish, err := catalog.BeginWindowList(ctx)
+			require.NoError(t, err)
+			switch change {
+			case "revision":
+				current.IdentityRevision = "new-identity"
+			case "expiry":
+				current.Facts.ValidUntil = time.Now().Add(-time.Second)
+			case "revocation":
+				revoked = true
+			}
+			require.Error(t, finish(), "final verification cannot silently switch to a new authority")
+			require.False(t, native.active(read), "final verification always ends its actor scope")
+		})
+	}
 }
 
 func TestNativeSnapshotCapturesAfterStartupAndRejectsLaterSourceChanges(t *testing.T) {

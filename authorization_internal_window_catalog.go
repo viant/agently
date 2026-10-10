@@ -97,6 +97,32 @@ func (c *internalWindowCatalog) AuthzReady() bool {
 func (c *internalWindowCatalog) UsesResourceResolution() bool { return true }
 func (c *internalWindowCatalog) MetadataOnlyWindowList() bool { return true }
 
+// BeginWindowList owns the native metadata actor context across a composite
+// list. Delegated providers retain their independent admission; the context
+// expires before the caller can use it for an open or execution operation.
+func (c *internalWindowCatalog) BeginWindowList(ctx context.Context) (context.Context, func() error, error) {
+	if !c.AuthzReady() || ctx == nil || ctx.Err() != nil {
+		return nil, nil, identity.ErrResourceDenied
+	}
+	if c.native == nil {
+		return ctx, func() error { return ctx.Err() }, nil
+	}
+	actor, err := c.native.actor(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	read, closeRead := c.native.begin(ctx)
+	state := read.Value(nativeWindowReadKey{}).(*nativeWindowRead)
+	state.actor = &actor
+	return read, func() error {
+		defer closeRead()
+		if read.Err() != nil {
+			return read.Err()
+		}
+		return verifyActor(c.native.actor)(read, actor)
+	}, nil
+}
+
 func (c *internalWindowCatalog) ResourceReference(_ context.Context, key string) (identity.ResourceRef, error) {
 	binding, err := c.binding(key)
 	if err != nil {
