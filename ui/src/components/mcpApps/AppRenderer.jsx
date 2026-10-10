@@ -162,6 +162,7 @@ export function buildApprovalOutcomeToolResultEnvelope({ windowId = '', resource
 export default function AppRenderer({ uri = '', title = 'MCP UI Preview', toolInput = null, toolInputPartial = null, conversationId = '', hosted = false, origin = {}, historical = true, onLifecycle }) {
   const {connectorConfig: hostConnectorConfig} = useSetting();
   const effectiveConnectorConfig = hostConnectorConfig || connectorConfig;
+  const legacyEnabled = effectiveConnectorConfig?.mcpUI?.legacyAdapter === 'mcpui:1.0.0';
   const frameRef = useRef(null);
   const windowId = useMemo(() => `mcpui-preview:${String(uri || '').trim()}`, [uri]);
   const [frameLoaded, setFrameLoaded] = useState(false);
@@ -206,6 +207,10 @@ export default function AppRenderer({ uri = '', title = 'MCP UI Preview', toolIn
       pendingApprovalTitle: '',
       placement: 'inline',
     }));
+    if (!legacyEnabled) {
+      setState(prev => ({ ...prev, loading: false, error: 'Legacy MCP UI adapter is disabled; select mcpui:1.0.0 explicitly to use this resource' }));
+      return () => { active = false; };
+    }
     readMCPUIResource(uri)
       .then((payload) => {
         if (!active) return;
@@ -271,7 +276,7 @@ export default function AppRenderer({ uri = '', title = 'MCP UI Preview', toolIn
     return () => {
       active = false;
     };
-  }, [conversationId, hosted, uri, title]);
+  }, [conversationId, hosted, uri, title, legacyEnabled]);
 
   useEffect(() => {
     if (!frameLoaded || (!state.srcDoc && !state.src) || !frameRef.current?.contentWindow) return;
