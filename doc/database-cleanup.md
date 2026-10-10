@@ -44,11 +44,13 @@ than falling back silently.
 technically valid Go durations but create an effectively continuous cleanup
 loop and must not be used in a deployed environment.
 
-`AGENTLY_DEBUG_CONVERSATION_DELETE=1` is a separate, default-off diagnostic
-switch for manual deletion and maintenance operations. It reports internal
-phase/component durations and component invocation counts (not SQL query
-counts), without logging row contents, SQL parameters or credentials. It does
-not control worker logging. Enable it temporarily to diagnose slow candidates.
+`AGENTLY_DEBUG_CONVERSATION_DELETE=1` enables compact manual-deletion logs.
+For internal phase/component durations and component invocation counts (not SQL
+query counts), additionally set `AGENTLY_DEBUG_CONVERSATION_DELETE_DETAILS=1`.
+The details flag is off by default and has no effect without the base flag.
+Neither flag controls worker logging. Detailed traces do not log row contents,
+SQL parameters or credentials; enable them temporarily to diagnose slow
+candidates.
 
 ## Policy behavior
 
@@ -185,6 +187,31 @@ With `AGENTLY_CLEANUP_DEBUG=true`, logs additionally identify each candidate,
 include its processing duration (also for skipped and failed candidates), and
 show lease acquisition, renewal, and release. Disable debug after rollout unless
 candidate-level diagnostics are needed.
+
+## Deletion reader selection
+
+Deletion uses private, generated Datly readers; ordinary conversation reads,
+transcripts, scheduler execution, and retention candidate selection are unchanged.
+The following optional variables select the read path for manual deletion and
+maintenance without rebuilding:
+
+| Variable | Default | Values | Scope |
+| --- | --- | --- | --- |
+| `AGENTLY_DELETE_METADATA_READER` | `compact` | `compact`, `legacy` | Turn/message/model/tool IDs and reference metadata |
+| `AGENTLY_DELETE_GRAPH_READER` | `compact` | `compact`, `legacy` | Conversation graph metadata and descendant discovery |
+
+Compact metadata reads omit large content, JSON, and BLOB columns. The existing
+compact graph reader projects conversation identity, owner, status, run ID, and
+creation time. Descendant discovery still follows parent, parent-turn, and
+linked-message relationships. Each new metadata reader accepts one bounded
+predicate, splits inputs into at most 400 IDs per query, and does not paginate
+matching results.
+
+Reader choices are pinned for the managed deletion operation; invalid values fail
+before its transaction starts. To compare or revert the readers, explicitly set
+one or both variables to `legacy`. This does not change ownership, eligibility,
+row locking, payload reference protection, or the fresh graph/reference/liveness
+checks inside the transaction. There is no cross-phase result cache.
 
 ## Recommended rollout
 
