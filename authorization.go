@@ -47,6 +47,7 @@ type AuthorizationProviders struct {
 type AuthorizationProviderFactory func(context.Context, json.RawMessage, json.RawMessage) (AuthorizationProviders, error)
 
 type hostAuthorizationFile struct {
+	ToolfeedSources           []HostToolfeedSource `json:"toolfeedSources,omitempty"`
 	nativeWindows             bool
 	FrameworkWindowResources  []windowloader.ResourceBinding   `json:"frameworkWindowResources,omitempty"`
 	ResourceSelectionProvider json.RawMessage                  `json:"resourceSelectionProvider,omitempty"`
@@ -531,10 +532,14 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 		reportCatalog.BeginMetadataRead = metadataScope.BeginMetadataRead
 	}
 	var internalProvider *resourcesvc.LocalProvider
+	if len(config.ToolfeedSources) > 0 && options.InternalResourceProviderIdentity == "" {
+		return nil, fmt.Errorf("toolfeed sources require explicit internal resource provider")
+	}
 	if options.InternalResourceProviderIdentity != "" {
 		if len(internal) != 1 || internal[0] == nil {
 			return nil, fmt.Errorf("internal resource runtime binder required")
 		}
+		internal[0].workspaceRoot = workspaceRoot
 		internalProvider, err = configureInternalHostResources(options.InternalResourceProviderIdentity, config, prepared, windowResolve, nativeWindows, reportRegistration, reportCatalog, metadataScope, options.WindowTargetProof, svcauth.IDTokenIdentityProvider{Source: bundle.Identity}, internal[0], nativeAuthority)
 		if err != nil {
 			return nil, err
