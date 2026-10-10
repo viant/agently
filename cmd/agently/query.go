@@ -16,21 +16,23 @@ import (
 
 // ChatCmd handles interactive/chat queries.
 type ChatCmd struct {
-	AgentID   string   `short:"a" long:"agent-id" description:"agent id"`
-	Model     string   `long:"model" description:"single-turn model override"`
-	Query     []string `short:"q" long:"query"    description:"user query (repeatable)"`
-	ConvID    string   `short:"c" long:"conv"     description:"conversation ID (optional)"`
-	ResetLogs bool     `long:"reset-logs" description:"truncate/clean log files before each run"`
-	Timeout   int      `short:"t" long:"timeout" description:"timeout in seconds for the agent response (0=none)"`
-	User      string   `short:"u" long:"user" description:"user id for the chat" default:"devuser"`
-	API       string   `long:"api" description:"Agently base URL (skips auto-detect)"`
-	Token     string   `long:"token" description:"Bearer token for API requests (overrides AGENTLY_TOKEN)"`
-	OOB       string   `long:"oob" description:"Use local scy OAuth2 out-of-band login with the supplied secrets URL"`
-	OAuthCfg  string   `long:"oauth-config" description:"Optional scy OAuth config URL override for client-side OOB login"`
-	OAuthScp  string   `long:"oauth-scopes" description:"comma-separated OAuth scopes for OOB login"`
-	ElicitDef string   `long:"elicitation-default" description:"JSON or @file to auto-accept elicitations when stdin is not a TTY"`
-	Context   string   `long:"context" description:"inline JSON object or @file with context data"`
-	Attach    []string `long:"attach" description:"file to attach (repeatable). Format: <path>"`
+	AgentID      string   `short:"a" long:"agent-id" description:"agent id"`
+	Model        string   `long:"model" description:"single-turn model override"`
+	Query        []string `short:"q" long:"query"    description:"user query (repeatable)"`
+	ConvID       string   `short:"c" long:"conv"     description:"conversation ID (optional)"`
+	AttachRun    string   `long:"attach-run" description:"Observe an existing AG-UI run without sending another query (requires --conv)"`
+	AfterEventID string   `long:"after-event-id" description:"Last consumed AG-UI event ID when using --attach-run"`
+	ResetLogs    bool     `long:"reset-logs" description:"truncate/clean log files before each run"`
+	Timeout      int      `short:"t" long:"timeout" description:"timeout in seconds for the agent response (0=none)"`
+	User         string   `short:"u" long:"user" description:"user id for the chat" default:"devuser"`
+	API          string   `long:"api" description:"Agently base URL (skips auto-detect)"`
+	Token        string   `long:"token" description:"Bearer token for API requests (overrides AGENTLY_TOKEN)"`
+	OOB          string   `long:"oob" description:"Use local scy OAuth2 out-of-band login with the supplied secrets URL"`
+	OAuthCfg     string   `long:"oauth-config" description:"Optional scy OAuth config URL override for client-side OOB login"`
+	OAuthScp     string   `long:"oauth-scopes" description:"comma-separated OAuth scopes for OOB login"`
+	ElicitDef    string   `long:"elicitation-default" description:"JSON or @file to auto-accept elicitations when stdin is not a TTY"`
+	Context      string   `long:"context" description:"inline JSON object or @file with context data"`
+	Attach       []string `long:"attach" description:"file to attach (repeatable). Format: <path>"`
 
 	// elicitationTimeout is sourced from the resolved instance's workspace
 	// defaults. Zero means fall back to defaultElicitationResponseTimeout.
@@ -38,6 +40,12 @@ type ChatCmd struct {
 }
 
 func (c *ChatCmd) Execute(_ []string) error {
+	if c.AttachRun != "" && (c.ConvID == "" || len(c.Query) != 0 || len(c.Attach) != 0 || c.Context != "" || c.Model != "") {
+		return fmt.Errorf("--attach-run requires --conv and cannot send a query, attachments, context or model override")
+	}
+	if c.AfterEventID != "" && c.AttachRun == "" {
+		return fmt.Errorf("--after-event-id requires --attach-run")
+	}
 	if strings.TrimSpace(c.AgentID) == "" {
 		c.AgentID = "chatter"
 	}
@@ -130,6 +138,26 @@ func (c *ChatCmd) Execute(_ []string) error {
 
 	convID := strings.TrimSpace(c.ConvID)
 	var lastElicitationPayload map[string]interface{}
+	if c.AttachRun != "" {
+		ctx := ctxBase
+		if c.Timeout > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, time.Duration(c.Timeout)*time.Second)
+			defer cancel()
+		}
+		_, _, err := c.attachExistingQuery(ctx, client, defaultElicitationPayload, &lastElicitationPayload)
+		if err != nil {
+			return err
+		}
+		code, err := resolveConversationExitCode(ctxBase, client, c.ConvID)
+		if err != nil {
+			return err
+		}
+		if code != 0 {
+			return &commandExitCode{code: code}
+		}
+		return nil
+	}
 	sentAttachments := false
 
 	runQuery := func(query string) error {

@@ -95,6 +95,18 @@ go build -o ./bin/agently ./agently
 ./bin/agently list-tools --api http://localhost:8080
 ```
 
+The query CLI prints the conversation and AG-UI run IDs before observing the
+answer. If an event stream disconnects, it reattaches to that same run using
+the last event cursor; it does not submit the prompt again. To observe a known
+run later, use the same authentication options with:
+
+```bash
+./bin/agently query --api http://localhost:8080 --conv <conversation-id> --attach-run <run-id>
+```
+
+Add `--after-event-id <cursor>` when continuing an already consumed stream.
+Attach mode cannot include a new query, attachment, context, or model override.
+
 ## Workspace configuration and customization
 
 The application workspace defaults to `.agently` in the working directory; `AGENTLY_WORKSPACE` or

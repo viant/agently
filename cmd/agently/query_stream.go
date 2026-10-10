@@ -29,34 +29,24 @@ func (c *ChatCmd) executeQuery(ctx context.Context, client *sdk.HTTPClient, inpu
 		return nil, false, err
 	}
 	input.ConversationID = prepared.ConversationID
-	request := prepared.Input
+	return c.observeAGUIQuery(ctx, client, prepared.ConversationID, prepared.Input, nil, defaultPayload, seedPayload)
+}
+
+func (c *ChatCmd) observeAGUIQuery(ctx context.Context, client *sdk.HTTPClient, conversationID string, request agui.RunAgentInput, options *sdk.AGUIRunOptions, defaultPayload map[string]interface{}, seedPayload *map[string]interface{}) (*agentsvc.QueryOutput, bool, error) {
+	fmt.Printf("[conversation-id] %s\n", conversationID)
 	printed := false
 	for {
-		stream, err := client.RunAGUI(ctx, &request, nil)
+		fmt.Printf("[ag-ui-run-id] %s\n", request.RunID)
+		result, err := collectCLIAGUI(ctx, client, conversationID, request, options, &printed)
 		if err != nil {
-			return nil, printed, err
-		}
-		result, err := sdk.CollectAGUI(stream, prepared.ConversationID, func(event sdk.AGUIEvent) error {
-			var text struct {
-				Type, Delta   string
-				SubagentRunID *string `json:"subagentRunId"`
-			}
-			if err := event.Decode(&text); err != nil {
-				return err
-			}
-			if text.SubagentRunID == nil && (text.Type == "TEXT_MESSAGE_CONTENT" || text.Type == "TEXT_MESSAGE_CHUNK") && text.Delta != "" {
-				fmt.Fprint(os.Stdout, text.Delta)
-				printed = true
-			}
-			return nil
-		})
-		_ = stream.Close()
-		if err != nil {
-			return nil, printed, err
+			return nil, printed, fmt.Errorf("conversation %s: %w", conversationID, err)
 		}
 		if result.Outcome.Type != "interrupt" {
 			if printed {
 				fmt.Fprintln(os.Stdout)
+			}
+			if result.Outcome.Type == "success" && strings.Contains(result.Content, "[Interactive content]") {
+				printCLIReportSummary(ctx, client, conversationID, result.TurnID)
 			}
 			return &agentsvc.QueryOutput{ConversationID: result.ConversationID, TurnID: result.TurnID, MessageID: result.TurnID, Content: result.Content, ExecutionStatus: result.Outcome.Type}, printed, nil
 		}
@@ -77,7 +67,8 @@ func (c *ChatCmd) executeQuery(ctx context.Context, client *sdk.HTTPClient, inpu
 		}
 		runID := uuid.NewString()
 		forwarded, _ := json.Marshal(map[string]any{"agently": map[string]any{"version": "1", "operation": "chat", "requestId": runID, "payload": map[string]any{"useServerState": true}}})
-		request = agui.RunAgentInput{ThreadID: prepared.Input.ThreadID, RunID: runID, Messages: []agui.Message{}, Resume: resume, ForwardedProps: forwarded}
+		request = agui.RunAgentInput{ThreadID: request.ThreadID, RunID: runID, Messages: []agui.Message{}, Resume: resume, ForwardedProps: forwarded}
+		options = nil
 	}
 }
 
