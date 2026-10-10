@@ -11,7 +11,7 @@ export function createEditingChipState(chip = {}) {
   };
 }
 
-export function applyResolvedChipToken(currentValue = '', currentRaw = '', token = '') {
+export function applyResolvedChipToken(currentValue = '', currentRaw = '', token = '', originalIndex = null) {
   const parsed = parseTokens(token)[0];
   if (!String(parsed?.label || '').trim()) {
     return {
@@ -21,8 +21,8 @@ export function applyResolvedChipToken(currentValue = '', currentRaw = '', token
   }
   const source = String(currentValue || '');
   const raw = String(currentRaw || '');
-  const idx = source.indexOf(raw);
-  if (idx < 0) {
+  const idx = Number.isInteger(originalIndex) ? originalIndex : source.indexOf(raw);
+  if (idx < 0 || source.slice(idx, idx + raw.length) !== raw) {
     return {
       ok: false,
       error: 'The original chip is no longer in the draft. Your text was preserved.',
@@ -69,4 +69,16 @@ export function draftWithEditedChip(draft, chip, inputValue) {
   if (!chip || !value || value === parseTokens(chip.raw)[0]?.id) return draft;
   const result = applyResolvedChipToken(draft, chip.raw, serializeManualToken(chip.name, value));
   return result.ok ? result.nextStored : draft;
+}
+
+// Auto-tokenization can replace a slash trigger while its picker is awaiting a
+// selection. Recover that exact placeholder by position, never another chip.
+export function lookupPlaceholderAtTrigger(stored = '', name = '', start = -1, displayOffsets = false) {
+  let removed = 0;
+  for (const token of parseTokens(stored)) {
+    const offset = token.index - (displayOffsets ? removed : 0);
+    if (offset === start && token.name === name && token.id === '?') return {raw: token.raw, index: token.index};
+    removed += token.raw.length - token.label.length;
+  }
+  return null;
 }

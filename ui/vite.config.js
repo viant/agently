@@ -80,7 +80,8 @@ export default defineConfig(({ mode, command }) => {
   const devHost = resolveDevHost(env);
   const devPort = resolveDevPort(env);
   const uiRoot = __dirname;
-  const forgeRoot = resolve(__dirname, '../../forge');
+  const forgeRoot = resolve(env.FORGE_SOURCE_ROOT || resolve(__dirname, '../../forge'));
+  const coreRoot = resolve(env.AGENTLY_CORE_SOURCE_ROOT || resolve(__dirname, '../../agently-core'));
   const forgeNodeModules = resolve(uiRoot, 'node_modules/forge');
   const appNodeModules = resolve(uiRoot, 'node_modules');
 
@@ -99,7 +100,7 @@ export default defineConfig(({ mode, command }) => {
         '@codemirror/language'
       ],
       alias: {
-        'agently-core-ui-sdk': resolve(__dirname, '../../agently-core/sdk/ts/src'),
+        'agently-core-ui-sdk': resolve(coreRoot, 'sdk/ts/src'),
         forge: resolve(forgeRoot, 'src'),
         react: resolve(appNodeModules, 'react'),
         'react-dom': resolve(appNodeModules, 'react-dom'),
@@ -132,7 +133,7 @@ export default defineConfig(({ mode, command }) => {
         }
       },
       fs: {
-        allow: [uiRoot, forgeRoot, resolve(forgeRoot, 'src')],
+        allow: [uiRoot, forgeRoot, resolve(forgeRoot, 'src'), coreRoot, resolve(coreRoot, 'sdk/ts/src')],
         strict: false
       },
       proxy: {

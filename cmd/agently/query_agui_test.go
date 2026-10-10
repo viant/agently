@@ -63,8 +63,9 @@ func TestCLIQueryUsesRunStreamAndExactInterruptResume(t *testing.T) {
 	require.Len(t, runs, 2)
 	require.Equal(t, "blue", seed["color"])
 }
-func TestCLIInterruptedObservationDoesNotSendAnotherRun(t *testing.T) {
+func TestCLIInterruptedObservationOnlyReattachesExistingRun(t *testing.T) {
 	posts := 0
+	originalRunID := ""
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/conversations/native" {
 			_ = json.NewEncoder(w).Encode(map[string]string{"id": "native"})
@@ -74,6 +75,14 @@ func TestCLIInterruptedObservationDoesNotSendAnotherRun(t *testing.T) {
 		posts++
 		var input agui.RunAgentInput
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&input))
+		if posts == 1 {
+			originalRunID = input.RunID
+			require.Len(t, input.Messages, 1)
+		} else {
+			require.Equal(t, originalRunID, input.RunID)
+			require.Empty(t, input.Messages)
+			require.Contains(t, string(input.ForwardedProps), "run.attach")
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprintf(w, "data: {\"type\":\"RUN_STARTED\",\"threadId\":%q,\"runId\":%q}\n\n", input.ThreadID, input.RunID)
 	}))
@@ -84,5 +93,72 @@ func TestCLIInterruptedObservationDoesNotSendAnotherRun(t *testing.T) {
 	var interrupted *sdk.AGUIObservationError
 	require.ErrorAs(t, err, &interrupted)
 	require.NotEmpty(t, interrupted.RunID)
-	require.Equal(t, 1, posts)
+	require.Equal(t, 1+maxCLIAGUIReattachments, posts)
+	require.ErrorContains(t, err, "--conv native --attach-run "+originalRunID)
+}
+
+func TestCLIReattachmentPreservesCursorAndPartialAnswer(t *testing.T) {
+	posts := 0
+	var original agui.RunAgentInput
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/conversations/native" {
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "native"})
+			return
+		}
+		require.Equal(t, "/v1/ag-ui/run", r.URL.Path)
+		posts++
+		var input agui.RunAgentInput
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&input))
+		w.Header().Set("Content-Type", "text/event-stream")
+		if posts == 1 {
+			original = input
+			fmt.Fprintf(w, "id: 1\ndata: {\"type\":\"RUN_STARTED\",\"threadId\":%q,\"runId\":%q}\n\n", input.ThreadID, input.RunID)
+			fmt.Fprint(w, "id: 2\ndata: {\"type\":\"TEXT_MESSAGE_CONTENT\",\"messageId\":\"answer\",\"delta\":\"Hello \"}\n\n")
+			return
+		}
+		require.Equal(t, 2, posts)
+		require.Equal(t, original.RunID, input.RunID)
+		require.Empty(t, input.Messages)
+		require.Equal(t, "2", r.Header.Get("Last-Event-ID"))
+		// A duplicate cursor event must not duplicate the terminal answer.
+		fmt.Fprint(w, "id: 2\ndata: {\"type\":\"TEXT_MESSAGE_CONTENT\",\"messageId\":\"answer\",\"delta\":\"Hello \"}\n\n")
+		fmt.Fprint(w, "id: 3\ndata: {\"type\":\"TEXT_MESSAGE_CONTENT\",\"messageId\":\"answer\",\"delta\":\"world\"}\n\n")
+		fmt.Fprintf(w, "id: 4\ndata: {\"type\":\"RUN_FINISHED\",\"threadId\":%q,\"runId\":%q,\"outcome\":{\"type\":\"success\"}}\n\n", input.ThreadID, input.RunID)
+	}))
+	defer server.Close()
+	client, err := sdk.NewHTTP(server.URL)
+	require.NoError(t, err)
+	out, printed, err := (&ChatCmd{}).executeQuery(context.Background(), client, &agentsvc.QueryInput{ConversationID: "native", Query: "task"}, nil, nil)
+	require.NoError(t, err)
+	require.True(t, printed)
+	require.Equal(t, "Hello world", out.Content)
+	require.Equal(t, 2, posts)
+}
+
+func TestCLIExplicitAttachPreservesWireIdentityWithoutNewQuery(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/conversations/native/transcript":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"aguiThreadId": " wire ", "schemaVersion": "1", "conversation": map[string]interface{}{"conversationId": "native", "turns": []interface{}{}}})
+		case "/v1/ag-ui/run":
+			var input agui.RunAgentInput
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&input))
+			require.Equal(t, " wire ", input.ThreadID)
+			require.Equal(t, "existing-run", input.RunID)
+			require.Empty(t, input.Messages)
+			require.Empty(t, input.Resume)
+			require.Contains(t, string(input.ForwardedProps), "run.attach")
+			require.Equal(t, "cursor", r.Header.Get("Last-Event-ID"))
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "data: {\"type\":\"RUN_FINISHED\",\"threadId\":\" wire \",\"runId\":\"existing-run\",\"outcome\":{\"type\":\"success\"}}\n\n")
+		default:
+			t.Fatalf("attach created or prepared a new query: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	client, err := sdk.NewHTTP(server.URL)
+	require.NoError(t, err)
+	out, _, err := (&ChatCmd{ConvID: "native", AttachRun: "existing-run", AfterEventID: "cursor"}).attachExistingQuery(context.Background(), client, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, "native", out.ConversationID)
 }
