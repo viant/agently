@@ -98,11 +98,20 @@ func (p *internalWindowTestProvider) CallTool(_ context.Context, request *schema
 	return &schema.CallToolResult{StructuredContent: result}, nil
 }
 
-func newInternalWindowTestCatalog(t *testing.T, definitions map[string]json.RawMessage) (*internalWindowCatalog, *internalWindowTestProvider) {
+func newInternalWindowTestCatalog(t *testing.T, definitions map[string]json.RawMessage, offline ...bool) (*internalWindowCatalog, *internalWindowTestProvider) {
 	t.Helper()
 	provider := &internalWindowTestProvider{owner: "studio-provider", definition: definitions, lease: time.Now().Add(time.Minute)}
 	options := internalWindowTestOptions{"studio": &corecfg.MCPClient{}}
-	mgr, err := manager.New(options, manager.WithClientFactory(func(context.Context, string, string) (mcpclient.Interface, error) { return provider, nil }))
+	if len(offline) != 0 && offline[0] {
+		options["studio"].PrimitiveProviderIdentity = provider.owner
+		options["offline"] = &corecfg.MCPClient{PrimitiveProviderIdentity: "unrelated-owner"}
+	}
+	mgr, err := manager.New(options, manager.WithClientFactory(func(_ context.Context, _ string, name string) (mcpclient.Interface, error) {
+		if name == "offline" {
+			return nil, errors.New("unrelated provider offline")
+		}
+		return provider, nil
+	}))
 	require.NoError(t, err)
 	t.Cleanup(func() { mgr.CloseConversation("") })
 	actor := identity.VerifiedActor{Subject: "alice", Issuer: "https://issuer.example", TenantID: "platform", AccountID: "opaque-account", IdentityRevision: "rev-1", ValidUntil: time.Now().Add(time.Minute)}
@@ -252,4 +261,21 @@ func TestInternalWindowFrameworkContentCheckIsExact(t *testing.T) {
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
 	require.Error(t, snapshot.CheckCandidate(canceled, uri, candidate))
+}
+
+func TestInternalBoundOwnerWindowGetSurvivesUnrelatedProviderOutage(t *testing.T) {
+	catalog, provider := newInternalWindowTestCatalog(t, map[string]json.RawMessage{
+		"window://platform/deliver/orders": json.RawMessage(`{"schemaVersion":2,"view":{"title":"Orders","content":{"id":"orders"}}}`),
+	}, true)
+	// Set by the server's internal provider registration, not by the input.
+	catalog.providerIdentity = provider.owner
+	result, err := catalog.Get(context.Background(), &primitiveprovider.WindowDefinitionGetInput{WindowID: "orders"})
+	require.NoError(t, err)
+	require.Equal(t, provider.owner, result.Definition.Resource.ProviderIdentity)
+	before := provider.getCalls
+	foreign := *result.Definition.Resource
+	foreign.ProviderIdentity = "unrelated-owner"
+	_, err = catalog.Get(context.Background(), &primitiveprovider.WindowDefinitionGetInput{WindowID: "orders", ResolvedResource: &foreign})
+	require.ErrorIs(t, err, identity.ErrResourceDenied)
+	require.Equal(t, before, provider.getCalls, "foreign owner must not reach execution")
 }

@@ -18,10 +18,11 @@ import (
 // routing every read to the canonical primitive Gateway. The alias table is
 // fixed at construction; a provider cannot add aliases by advertising them.
 type internalWindowCatalog struct {
-	native  *nativeWindowAuthority
-	remote  *resources.WindowCatalog
-	byAlias map[string]internalWindowBinding
-	byURI   map[string]internalWindowBinding
+	providerIdentity string // Trusted server registration; never supplied by an MCP caller.
+	native           *nativeWindowAuthority
+	remote           *resources.WindowCatalog
+	byAlias          map[string]internalWindowBinding
+	byURI            map[string]internalWindowBinding
 }
 
 type internalWindowBinding struct {
@@ -251,12 +252,18 @@ func (c *internalWindowCatalog) get(ctx context.Context, input *primitiveprovide
 		}
 		target = &copy
 	}
-	delegated, err := c.remote.Get(ctx, &primitiveprovider.WindowDefinitionGetInput{
+	request := &primitiveprovider.WindowDefinitionGetInput{
 		WindowID:         binding.uri,
 		Resource:         &ref,
 		ResolvedResource: pin,
 		Target:           target,
-	})
+	}
+	var delegated *primitiveprovider.WindowDefinitionGetOutput
+	if c.providerIdentity != "" {
+		delegated, err = c.remote.GetForProvider(ctx, c.providerIdentity, request)
+	} else {
+		delegated, err = c.remote.Get(ctx, request)
+	}
 	if err != nil || delegated == nil || delegated.Definition == nil || delegated.Definition.Resource == nil {
 		if err == nil {
 			err = identity.ErrResourceDenied
