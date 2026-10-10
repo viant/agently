@@ -1,2 +1,0 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/forge-reporting-Chwob3f1.js","assets/forge-reporting-YEgxQxrB.css"])))=>i.map(i=>d[i]);
-import{p as r,I as s,_ as a}from"./forge-reporting-Chwob3f1.js";const p=async(_,o)=>{const i=r(_);let t;return o===s.STANDARD?t=await a(()=>import("./forge-reporting-Chwob3f1.js").then(e=>e.c_),__vite__mapDeps([0,1])):t=await a(()=>import("./forge-reporting-Chwob3f1.js").then(e=>e.c$),__vite__mapDeps([0,1])),t[i]};export{p as splitPathsBySizeLoader};
