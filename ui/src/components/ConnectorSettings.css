@@ -1,0 +1,13 @@
+.app-settings-tabs, #settings-panel-connectors { max-width: 760px; margin-inline: auto; }
+.app-settings-tabs { display: flex; gap: 1.5rem; border-bottom: 1px solid var(--forge-control-border, var(--app-border, #d8dee5)); margin-block: 1.5rem; }
+.app-settings-tabs button { font: inherit; color: inherit; background: none; border: 0; border-bottom: 2px solid transparent; padding: .75rem 0; cursor: pointer; }
+.app-settings-tabs button[aria-selected="true"] { border-bottom-color: currentColor; font-weight: 600; }
+.app-settings-tabs button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.app-connectors-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.app-connectors-heading p, .app-connectors-note { max-width: 65ch; line-height: 1.5; }
+.app-connectors-list { list-style: none; padding: 0; margin-block: 1rem 2rem; }
+.app-connectors-list li { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding-block: 1.25rem; border-bottom: 1px solid var(--forge-control-border, var(--app-border, #d8dee5)); }
+.app-connectors-list h3 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.app-connectors-list p { margin: .35rem 0 0; }
+.app-connectors-status, .app-connectors-note { opacity: .8; }
+.app-connectors-error { color: var(--app-danger-color, #c23030); }
