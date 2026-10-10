@@ -47,6 +47,7 @@ type AuthorizationProviders struct {
 type AuthorizationProviderFactory func(context.Context, json.RawMessage, json.RawMessage) (AuthorizationProviders, error)
 
 type hostAuthorizationFile struct {
+	MenuSources               []HostMenuSource     `json:"menuSources,omitempty"`
 	ToolfeedSources           []HostToolfeedSource `json:"toolfeedSources,omitempty"`
 	nativeWindows             bool
 	FrameworkWindowResources  []windowloader.ResourceBinding   `json:"frameworkWindowResources,omitempty"`
@@ -191,6 +192,9 @@ func readHostAuthorization(path string) (*hostAuthorizationFile, error) {
 		if decoder.Decode(new(any)) != io.EOF {
 			return nil, fmt.Errorf("invalid window resource manifest")
 		}
+	}
+	if err := validateHostMenuSources(&config, path); err != nil {
+		return nil, err
 	}
 	return &config, nil
 }
@@ -413,6 +417,12 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 			return nil, err
 		}
 	}
+	if len(config.MenuSources) > 0 {
+		if len(internal) != 1 || internal[0] == nil {
+			return nil, fmt.Errorf("menu sources require standard runtime registration")
+		}
+		internal[0].menuReader = configureLayoutMenuReader(config.MenuSources, options.InternalResourceProviderIdentity, prepared)
+	}
 	var metadataScope forgeservice.MetadataReadScope
 	if providers.MetadataScope != nil {
 		metadataScope = &idTokenMetadataScope{source: providers.MetadataScope}
@@ -533,6 +543,11 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 		reportCatalog.BeginMetadataRead = metadataScope.BeginMetadataRead
 	}
 	var internalProvider *resourcesvc.LocalProvider
+	for _, source := range config.MenuSources {
+		if source.LocalLayoutPath != "" && options.InternalResourceProviderIdentity == "" {
+			return nil, fmt.Errorf("local menu sources require explicit internal provider")
+		}
+	}
 	if len(config.ToolfeedSources) > 0 && options.InternalResourceProviderIdentity == "" {
 		return nil, fmt.Errorf("toolfeed sources require explicit internal resource provider")
 	}
@@ -547,6 +562,10 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 		}
 	}
 	return func(ctx context.Context, builder *executor.Builder) error {
+		if internalProvider == nil && len(config.MenuSources) > 0 {
+			actor := resourcesvc.ActorResolver(prepared.ResourceActor)
+			builder.WithPrimitiveAuthority(actor, verifyActor(actor), "")
+		}
 		if internalProvider != nil {
 			builder.WithLocalPrimitiveProvider(internalProvider)
 			actor := resourcesvc.ActorResolver(prepared.ResourceActor)

@@ -39,6 +39,7 @@ import (
 	svcauthctx "github.com/viant/agently-core/service/auth"
 	svcscheduler "github.com/viant/agently-core/service/scheduler"
 	"github.com/viant/agently-core/service/ui/permittedview"
+	workspaceui "github.com/viant/agently-core/service/workspace"
 	"github.com/viant/agently-core/workspace"
 	wscfg "github.com/viant/agently-core/workspace/config"
 	forgewindowrepo "github.com/viant/agently-core/workspace/repository/forgewindow"
@@ -296,7 +297,15 @@ func Serve(options ServeOptions) error {
 	if err != nil {
 		return err
 	}
+	var menuReader workspaceui.LayoutMenuReader
+	if internal.menuReader != nil {
+		menuReader, err = internal.menuReader(rt)
+		if err != nil {
+			return fmt.Errorf("configure navigation menu: %w", err)
+		}
+	}
 	apiHandler, err := appserver.NewAPIHandler(ctx, appserver.APIOptions{
+		MenuReader:       menuReader,
 		Version:          firstNonEmpty(strings.TrimSpace(Version), "agently-v1"),
 		LayoutDefault:    layoutDefault,
 		Runtime:          rt,

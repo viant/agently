@@ -14,6 +14,7 @@ import (
 	reportcatalog "github.com/viant/agently-core/service/reporting/catalog"
 	resources "github.com/viant/agently-core/service/resource"
 	windowloader "github.com/viant/agently-core/service/ui/window"
+	workspaceui "github.com/viant/agently-core/service/workspace"
 	"github.com/viant/authz"
 	"github.com/viant/authz/gating"
 	"github.com/viant/forge/backend/types"
@@ -23,6 +24,7 @@ type internalReportRegistration struct {
 	bindings []resources.LocalResourceBinding
 }
 type internalHostRegistration struct {
+	menuReader    func(*executor.Runtime) (workspaceui.LayoutMenuReader, error)
 	workspaceRoot string
 	initialize    func(context.Context) error
 	bind          func(context.Context, *executor.Runtime) error
@@ -175,6 +177,11 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 		return nil, err
 	}
 	bindings = append(bindings, toolfeeds...)
+	menus, err := configuredMenuBindings(owner, config, prepared)
+	if err != nil {
+		return nil, err
+	}
+	bindings = append(bindings, menus...)
 	authorize, err := internalNamespaceIsolation(config, bindings, nativeAuthority)
 	if err != nil {
 		return nil, err
@@ -184,6 +191,13 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 		return nil, err
 	}
 	localConfig := resources.LocalConfig{ProviderIdentity: owner, Actor: actorResolver, Verify: verify, Authorize: authorize, Bindings: bindings, Validators: map[string]resources.LocalResourceValidator{"window": resources.ValidateWindowBundle, "report": resources.ValidateReportEnvelope, "toolfeed": resources.ValidateToolfeedDefinition}}
+	if len(menus) > 0 {
+		localConfig.Validators["menu"] = resources.ValidateMenu
+		localConfig.MenuActionVisibility, err = configuredMenuVisibility(config, principals, authorize)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if snapshot != nil {
 		localConfig.WindowIndex, localConfig.WindowListVisibility = snapshot.WindowIndex, visibility
 	}
