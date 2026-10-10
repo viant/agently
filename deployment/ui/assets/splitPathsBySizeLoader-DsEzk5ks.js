@@ -1,1 +1,0 @@
-import{_ as a}from"./mermaid-D7Em-hMZ.js";import{a as _,b as s}from"./index-wlq-_HvR.js";import"./code-editor-CrHJOVch.js";const c=async(o,r)=>{const i=_(o);let t;return r===s.STANDARD?t=await a(()=>import("./index-Bp4RqK05.js").then(e=>e.I),[]):t=await a(()=>import("./index-Uc4Xhv31.js").then(e=>e.I),[]),t[i]};export{c as splitPathsBySizeLoader};

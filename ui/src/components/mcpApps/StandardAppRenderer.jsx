@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { connectorConfig } from '../../connector.js';
 import { createStandardAppHost } from '../../services/mcpApps/standardHost.js';
 import { client } from '../../services/agentlyClient.js';
@@ -7,7 +7,7 @@ import { readStandardAppResource, resolveSandboxUrl } from '../../services/mcpAp
 import AppFrame from './AppFrame.jsx';
 import { dispatchMCPUIApprovalRequest, subscribeMCPUIApprovalOutcomes } from '../../services/mcpApps/approvalEvents.js';
 
-export default function StandardAppRenderer({ activity, sandboxUrl = connectorConfig.mcpUI.sandboxUrl }) {
+function StandardAppContent({ activity, sandboxUrl = connectorConfig.mcpUI.sandboxUrl }) {
   const frame = useRef(null);
   const current = useRef(activity);
   current.current = activity;
@@ -92,10 +92,7 @@ export default function StandardAppRenderer({ activity, sandboxUrl = connectorCo
   useEffect(() => {
     void flushResultRef.current?.();
   }, [activity]);
-  return <div className="app-bubble-row app-bubble-row-assistant app-mcpui-bubble-row" data-testid="standard-mcp-app" data-app-instance={activity.content._agentlyApp.appInstanceId}>
-    <div className="app-bubble app-bubble-assistant app-mcpui-bubble">
-      <div className="app-bubble-content app-mcpui-bubble-content">
-        <div className="app-mcpui-bubble-label">Interactive app</div>
+  return <>
         {loading && !error ? <div role="status">Loading app…</div> : null}
         {error ? <div role="alert">{error}</div> : null}
         {pending.length ? <div role="status">{pending.every(request => request.resuming) ? 'Finishing app request…' : 'Waiting for approval…'}
@@ -106,6 +103,26 @@ export default function StandardAppRenderer({ activity, sandboxUrl = connectorCo
           <button type="button" onClick={() => { void proxyRef.current?.refreshPending(); }}>Check status</button>
         </div> : null}
         <AppFrame ref={frame} onLoad={() => { if (bridgeRef.current && ++proxyLoads.current > 1) void bridgeRef.current.close(); }} sandbox="allow-scripts allow-same-origin" title="MCP App" />
+  </>;
+}
+
+export default function StandardAppRenderer({ activity, sandboxUrl = connectorConfig.mcpUI.sandboxUrl }) {
+  const [expanded, setExpanded] = useState(true);
+  const [generation, setGeneration] = useState(0);
+  const contentId = useId();
+  return <div className="app-bubble-row app-bubble-row-assistant app-mcpui-bubble-row" data-testid="standard-mcp-app" data-app-instance={activity.content._agentlyApp.appInstanceId}>
+    <div className="app-bubble app-bubble-assistant app-mcpui-bubble">
+      <div className="app-bubble-content app-mcpui-bubble-content">
+        <div className="app-mcpui-toolbar">
+          <span className="app-mcpui-bubble-label">Interactive app</span>
+          <div className="app-mcpui-controls">
+            <button type="button" aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded(value => !value)}>{expanded ? 'Collapse app' : 'Reopen app'}</button>
+            <button type="button" onClick={() => { setGeneration(value => value + 1); setExpanded(true); }}>Reload app</button>
+          </div>
+        </div>
+        <div id={contentId} hidden={!expanded}>
+          {expanded ? <StandardAppContent key={generation} activity={activity} sandboxUrl={sandboxUrl} /> : null}
+        </div>
       </div>
     </div>
   </div>;
