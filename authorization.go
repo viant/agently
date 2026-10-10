@@ -375,6 +375,7 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 		decisionScope = &idTokenDecisionScope{source: providers.DecisionScope}
 	}
 	registration := executor.StaticAuthorizationRegistration{DecisionScope: decisionScope, AuthoritySnapshot: svcauth.IDTokenIdentityProvider{Source: bundle.Identity}.ResolvePrincipal, ProviderRef: config.ProviderRef, CapabilityMappingRef: config.CapabilityMappingRef, PolicyVersion: config.PolicyVersion, Service: acl, Account: svcauth.IDTokenAccountResolver(bundle.Identity), AuthorityRevision: svcauth.IDTokenAuthorityRevisionResolver(bundle.Identity), GateEvaluator: bundle.Gates, EntityPermission: resolveEntity, EntityRoles: bundle.EntityRoleProjection, WholeResources: config.WholeResources, Capabilities: config.Capabilities, BackendResources: config.BackendResources, ProtectTools: config.ProtectTools}
+	registration.DatasourceReadFactsScope = configuredDatasourceReadFacts(providers.DecisionScope)
 	registration.ComponentAuthoritySnapshot = freshComponentAuthority(
 		svcauth.IDTokenIdentityProvider{Source: bundle.Identity}.ResolvePrincipal,
 		providers.MetadataScope, decisionScope)
