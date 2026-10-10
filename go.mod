@@ -13,15 +13,15 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
-	github.com/viant/agently-core v0.1.57-0.20261009114447-be2f89890ad2
-	github.com/viant/datly v1.1.1-0.20261008212701-79814253bce5
+	github.com/viant/agently-core v0.1.57-0.20261010001309-e40a5e1c1447
+	github.com/viant/datly v1.1.1-0.20261009184553-8f0c7d3ca47e
 	github.com/viant/embedius v0.5.6 // indirect
-	github.com/viant/forge v0.3.45-0.20261009055551-39e5cdaaf115
-	github.com/viant/jsonrpc v0.25.0
+	github.com/viant/forge v0.3.45-0.20261009205439-93044221fa1b
+	github.com/viant/jsonrpc v0.25.1-0.20261010000858-1444533d5a7e
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
 	github.com/viant/mcp v0.24.1-0.20261009012849-6a1945fe2baf
 	github.com/viant/mcp-protocol v0.19.1-0.20261008202502-046707df5ed9
-	github.com/viant/mcp-ui v0.2.0
+	github.com/viant/mcp-ui v0.2.1-0.20261008153838-be1ceb5c4c0e // indirect
 	github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726
 	github.com/viant/structology v0.10.1-0.20261005184011-cdaab8ea7dab // indirect
 	github.com/viant/velty v0.4.1-0.20260915052314-fca47c0595f8 // indirect
@@ -144,6 +144,8 @@ require (
 	github.com/viant/agently-core/protocol/window v0.0.0-20261008230757-163b77505d6a // indirect
 	github.com/viant/agently-core/service/reportdefinition/materializer v0.0.0-20261008231612-4e2d839e8f05 // indirect
 	github.com/viant/bindly v0.4.1-0.20261006234956-d0b4e58bac4e // indirect
+	github.com/viant/authz v0.0.0-20260928224026-ae44aa9ad366 // indirect
+	github.com/viant/bindly v0.4.1-0.20261009060128-e3a43863d252 // indirect
 	github.com/viant/bintly v0.2.0 // indirect
 	github.com/viant/gds v0.6.0 // indirect
 	github.com/viant/gmetric v0.3.2 // indirect
