@@ -214,6 +214,7 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 			if err != nil {
 				return err
 			}
+			windows.providerIdentity = owner
 			if nativeAuthority != nil {
 				windows.native = nativeAuthority
 				// This phase reads static native definitions only; entity admission
