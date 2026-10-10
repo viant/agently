@@ -170,7 +170,9 @@ async function refreshGeneratedFiles(context, conversationID = '') {
     chatState.generatedFiles = [];
     return [];
   }
+  const generation = Number(chatState.conversationSelectionGeneration || 0);
   const files = await fetchGeneratedFiles(id);
+  if (Number(chatState.conversationSelectionGeneration || 0) !== generation || !matchesSelectedConversationOrRouteBootstrap(context, id)) return [];
   chatState.generatedFiles = files;
   return files;
 }
@@ -1139,6 +1141,9 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     conversationId: normalizedConversationID,
     includeModelCalls: includeExecutionDetails,
     includeToolCalls: includeExecutionDetails,
+    // Initial history needs execution summaries and workspace ACKs, not the
+    // full model prompts/provider bodies. Detail expansion fetches those later.
+    includeModelPayloads: options?.includeModelPayloads === true,
     includeFeeds,
     since: since || undefined,
   };
@@ -1201,7 +1206,7 @@ export async function fetchPendingElicitations(conversationID = '') {
 export async function fetchConversation(conversationID = '') {
   const id = String(conversationID || '').trim();
   if (!id) return null;
-  const data = await client.getConversation(id);
+  const data = await client.getConversation(id, {includeTranscript: false});
   if (!data || typeof data !== 'object') return null;
   const resolvedID = String(data?.id || data?.Id || '').trim();
   if (resolvedID) {
@@ -1332,7 +1337,7 @@ export async function hydrateConversationComposerSelection(context,conversationI
   const generation=conversationComposerGeneration;
   const resources=ensureContextResources(context), selectionGeneration=Number(resources.conversationSelectionGeneration || 0), composerGeneration=Number(resources.composerSelectionGeneration || 0);
   try {
-    const conversation=await client.getConversation(id);
+    const conversation=await client.getConversation(id, {includeTranscript: false});
     const ds=context?.Context?.('conversations')?.handlers?.dataSource;
     const current=ds?.peekFormData?.() || {};
     if(generation!==conversationComposerGeneration || Number(resources.conversationSelectionGeneration || 0)!==selectionGeneration || Number(resources.composerSelectionGeneration || 0)!==composerGeneration || composerConversationID(context,current)!==id || !conversation)return;
@@ -1413,7 +1418,7 @@ export function syncMessagesSnapshot(context, turns, reason = 'poll', pendingEli
     finalizeRuntimeLiveTurn(chatState, { turnId: chatState.activeStreamTurnId || chatState.runningTurnId });
   }
 
-  if (currentConversationID) {
+  if (currentConversationID && !options.preservePendingElicitations) {
     replacePendingElicitationsForConversation(currentConversationID, pendingElicitations);
   }
   const transcriptFeeds = Array.isArray(chatState.lastTranscriptFeedsByConversation?.[currentConversationID])
@@ -1476,6 +1481,8 @@ function shouldDeferTranscriptToLiveStream(context, conversationID = '') {
 export async function dsTick(context, options = {}) {
   const requestedConversationID = String(options?.conversationID || getCurrentConversationID(context) || '').trim();
   const chatState = ensureContextResources(context);
+  const generation = Number(chatState.conversationSelectionGeneration || 0);
+  const isCurrent = () => Number(chatState.conversationSelectionGeneration || 0) === generation && matchesSelectedConversationOrRouteBootstrap(context, requestedConversationID);
   const recoveringElicitation = chatState.elicitationRecoveryConversationID === requestedConversationID;
   const allowLiveHydration = options?.allowLiveHydration || recoveringElicitation;
   if (typeof window !== 'undefined') {
@@ -1540,15 +1547,21 @@ export async function dsTick(context, options = {}) {
   let turns = Array.isArray(options?.prefetchedTranscriptTurns)
     ? options.prefetchedTranscriptTurns
     : await fetchTranscript(conversationID, since, transcriptOptions);
-  if (!matchesSelectedConversationOrRouteBootstrap(context, conversationID)) return;
+  if (!isCurrent()) return;
   if (since && turns.length === 0 && (chatState.lastHasRunning || (_chatStoreRef()?.getProjection?.(conversationID) || []).length > 0)) {
     turns = await fetchTranscript(conversationID, '', transcriptOptions);
-    if (!matchesSelectedConversationOrRouteBootstrap(context, conversationID)) return;
+    if (!isCurrent()) return;
   }
   if (turns.length > 0) chatState.lastSinceCursor = resolveLastTranscriptCursor(turns);
+  if (!Array.isArray(options?.prefetchedPendingElicitations)) {
+    syncMessagesSnapshot(context, turns, String(options?.reason || 'poll'), [], {
+      restoreWorkspace: false, routeBootstrapConversationID: conversationID, preservePendingElicitations: true
+    });
+  }
   const pendingElicitations = Array.isArray(options?.prefetchedPendingElicitations)
     ? options.prefetchedPendingElicitations
     : await fetchPendingElicitations(conversationID);
+  if (!isCurrent()) return;
   syncMessagesSnapshot(context, turns, String(options?.reason || 'poll').trim() || 'poll', pendingElicitations, {
     restoreWorkspace: options?.restoreWorkspace,
     routeBootstrapConversationID: conversationID,
@@ -1568,6 +1581,7 @@ export async function dsTick(context, options = {}) {
   };
   if (conversationID) {
     await refreshGeneratedFiles(context, conversationID);
+    if (!isCurrent()) return;
     renderMergedRowsForContext(context);
   }
   const transcriptReportedRunning = !!(
@@ -2564,9 +2578,9 @@ export async function switchConversation(context, conversationID = '') {
   const targetID = String(conversationID || '').trim();
   if (!targetID) return;
   const chatState = ensureContextResources(context);
-  advanceConversationSelectionGeneration(chatState);
+  const generation = advanceConversationSelectionGeneration(chatState);
   chatState.requestedConversationID = targetID;
-  const isCurrentRequest = () => String(chatState.requestedConversationID || '').trim() === targetID;
+  const isCurrentRequest = () => Number(chatState.conversationSelectionGeneration || 0) === generation && String(chatState.requestedConversationID || '').trim() === targetID;
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const messagesDS = context?.Context?.('messages')?.handlers?.dataSource;
   if (!conversationsDS || !messagesDS) return;
