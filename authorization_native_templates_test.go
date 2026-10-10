@@ -145,6 +145,22 @@ func TestNativeTemplateScopeSurvivesActualLocalMCPListAndGet(t *testing.T) {
 	_, err = gateway.List(ctx, "window", "")
 	require.ErrorIs(t, err, policy.ErrIdentityRejected, "ordinary gateway operations must retain the protected authority")
 
+	openedNative, err := catalog.Get(ctx, &ui.WindowDefinitionGetInput{WindowID: binding.URI})
+	require.NoError(t, err)
+	delegated := *remote
+	delegatedAdmissionCalls := 0
+	delegated.Admission = func(context.Context, identity.ResolvedResource, *types.Window) error {
+		delegatedAdmissionCalls++
+		return policy.ErrDenied
+	}
+	composite.Remote = &delegated
+	for i := 0; i < 2; i++ {
+		restored, err := composite.Get(ctx, &ui.WindowDefinitionGetInput{WindowID: binding.URI, ResolvedResource: openedNative.Definition.Resource, Target: openedNative.Definition.ResourceTarget})
+		require.NoError(t, err, "pinned native restore must retain the native principal/template admission")
+		require.Equal(t, binding.URI, restored.Definition.Resource.URI)
+	}
+	require.Zero(t, delegatedAdmissionCalls, "the registered local owner must retain its own admission")
+
 	native.principal = func(context.Context) (gating.Principal, error) {
 		return gating.Principal{}, policy.ErrIdentityRejected
 	}
