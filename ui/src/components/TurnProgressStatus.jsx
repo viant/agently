@@ -188,6 +188,7 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
 
   if (developerMode || !progress) return null;
 
+  const operationalNarration = typeof row.operationalNarration === 'string' ? row.operationalNarration.trim() : '';
   const rawActivity = progress.activity.label || ACTIVITY_LABELS[progress.activity.kind] || 'Working';
   const activity = /\berror\b|\bfailed\b/i.test(rawActivity) ? 'Continuing' : rawActivity;
   const toolText = toolProgressText(progress);
@@ -214,6 +215,7 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
         {waiting ? <span>!</span> : <Spinner size={18} />}
       </div>
       <div className="app-turn-progress-content">
+        {operationalNarration ? <div className="app-turn-progress-narration" data-testid="turn-progress-narration">{operationalNarration}</div> : null}
         <div className="app-turn-progress-title">{waiting ? 'Needs your input' : 'Working on your request'}</div>
         <div className="app-turn-progress-chips">
           <span className="app-turn-progress-chip is-activity">{activity}</span>

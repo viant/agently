@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { applyResolvedChipToken, createEditingChipState, shouldSkipEditorSync, unwrapLookupSelection, draftWithEditedChip } from './chipEditing.js';
+import { applyResolvedChipToken, createEditingChipState, shouldSkipEditorSync, unwrapLookupSelection, lookupPlaceholderAtTrigger, draftWithEditedChip } from './chipEditing.js';
 
 const resolvedChip = createEditingChipState({
   raw: '@{order:7 "Order 7"}',
@@ -121,3 +121,19 @@ const before = 'Before @{order:7 "Seven"} after.';
 assert.equal(draftWithEditedChip(before, {raw: '@{order:7 "Seven"}', name: 'order'}, '7'), before);
 assert.equal(draftWithEditedChip(before, {raw: '@{order:7 "Seven"}', name: 'order'}, '42'), 'Before @{order:42 "42"} after.');
 assert.equal(draftWithEditedChip(before, {raw: '@{order:missing "Missing"}', name: 'order'}, '42'), before);
+
+// Slash-menu selection resolves the placeholder created during the async open.
+const unresolved = '@{campaign:? "Campaign"}';
+assert.deepEqual(lookupPlaceholderAtTrigger(unresolved, 'campaign', 0, true), {raw: unresolved, index: 0});
+const resolvedCampaign = '@{campaign:563622 "Chosen campaign"}';
+const target = lookupPlaceholderAtTrigger(unresolved, 'campaign', 0, true);
+assert.equal(applyResolvedChipToken(unresolved, target.raw, resolvedCampaign, target.index).nextStored, resolvedCampaign);
+assert.equal(createEditingChipState({raw: resolvedCampaign, name: 'campaign'}).value, '563622');
+const repeated = 'First ' + unresolved + ' then ' + unresolved;
+const second = lookupPlaceholderAtTrigger(repeated, 'campaign', 20, true);
+assert.deepEqual(second, {raw: unresolved, index: 6 + unresolved.length + 6});
+assert.equal(applyResolvedChipToken(repeated, second.raw, resolvedCampaign, second.index).nextStored, 'First ' + unresolved + ' then ' + resolvedCampaign);
+assert.equal(lookupPlaceholderAtTrigger(repeated, 'campaign', 7, true), null);
+assert.equal(lookupPlaceholderAtTrigger(unresolved, 'order', 0, true), null);
+assert.equal(lookupPlaceholderAtTrigger(resolvedCampaign, 'campaign', 0, true), null);
+assert.equal(applyResolvedChipToken('changed', unresolved, resolvedCampaign, 0).ok, false);

@@ -2146,6 +2146,13 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
     () => filterSuppressedRenderedReports(visibleRenderedContent, suppressedReportIds),
     [visibleRenderedContent, suppressedReportIds],
   );
+  const hasPublicTypedPendingReport = Array.isArray(displayRenderedContent?.reports)
+    && displayRenderedContent.reports.some(report => report?.status === 'rendering');
+  const hasPublicTypedReport = Array.isArray(displayRenderedContent?.reports)
+    && displayRenderedContent.reports.some(report => report?.status === 'rendering'
+      || report?.status === 'committed' && Array.isArray(report?.source?.blocks) && report.source.blocks.length > 0);
+
+
   useEffect(() => {
     logIterationDebug('presentation-state', {
       messageId: message?.id || '',
@@ -2715,8 +2722,11 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
                   {` (${displayGroupEntries.length})`}
                 </span>
               </span>
-              {developerMode && iterationStatusDetail ? (
-                <span className="app-iteration-status-detail" title={iterationStatusDetail}>{iterationStatusDetail}</span>
+              {developerMode && (isActiveIteration && canonicalRow?.operationalNarration || iterationStatusDetail) ? (
+                <span className="app-iteration-status-detail" data-testid={isActiveIteration && canonicalRow?.operationalNarration ? 'execution-status-narration' : undefined}
+                  title={isActiveIteration && canonicalRow?.operationalNarration || iterationStatusDetail}>
+                  {isActiveIteration && canonicalRow?.operationalNarration || iterationStatusDetail}
+                </span>
               ) : null}
             </span>
             <span className="app-iteration-toggle">{collapsed ? '▸' : '▾'}</span>
@@ -2818,7 +2828,7 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
       {showToolFeedDetail && (developerMode || !isActiveIteration) ? (
         <ToolFeedDetail context={context} conversationId={iterationConversationId} turnId={String(data?.turnId || canonicalRow?.turnId || '').trim()} placement="inline" includeAuto={toolFeedDock !== 'right'} />
       ) : null}
-      {(developerMode || !isActiveIteration) && !showTerminalNotice && !suppressBubble && !hasPendingVisibleElicitation && !hasPendingExecutionElicitation && shouldShowNarrationBubble(visibleGroups, displayContinuousRenderedText, stripSuppressedForgeReports(data?.response?.content, suppressedReportIds)) ? (
+      {(developerMode || !isActiveIteration || hasPublicTypedPendingReport) && !showTerminalNotice && !suppressBubble && !hasPendingVisibleElicitation && !hasPendingExecutionElicitation && (hasPublicTypedReport || shouldShowNarrationBubble(visibleGroups, displayContinuousRenderedText, stripSuppressedForgeReports(data?.response?.content, suppressedReportIds))) ? (
         <BubbleMessage
           conversationId={iterationConversationId}
           attachment={attachment}
