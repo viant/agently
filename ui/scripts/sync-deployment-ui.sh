@@ -18,3 +18,7 @@ cp "${DIST_DIR}/index.html" "${DEPLOY_DIR}/index.html"
 if [[ -f "${DIST_DIR}/favicon.ico" ]]; then
   cp "${DIST_DIR}/favicon.ico" "${DEPLOY_DIR}/favicon.ico"
 fi
+
+if [[ -f "${DIST_DIR}/mcp-app-sandbox.html" ]]; then
+  cp "${DIST_DIR}/mcp-app-sandbox.html" "${DEPLOY_DIR}/mcp-app-sandbox.html"
+fi
