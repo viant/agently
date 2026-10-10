@@ -2461,9 +2461,10 @@ function NativeRichContent({ content = '', renderedContent = null, generatedFile
   );
   const hasRenderableCanonicalReport = Array.isArray(renderedContent?.reports)
     && progressiveReports.assemblies.some((assembly) => (
-      assembly?.status !== 'orphaned'
-      && Array.isArray(assembly?.source?.blocks)
-      && assembly.source.blocks.length > 0
+      assembly?.status === 'rendering'
+      || (assembly?.status !== 'orphaned'
+        && Array.isArray(assembly?.source?.blocks)
+        && assembly.source.blocks.length > 0)
     ));
 
   if (!descriptors.length) return <span>&nbsp;</span>;
@@ -2590,6 +2591,7 @@ function NativeRichContent({ content = '', renderedContent = null, generatedFile
     const key = `${assembly?.scope || 'message'}:${assembly?.id || ''}`;
     if (renderedReportKeys.has(key)) return;
     renderedReportKeys.add(key);
+    if (assembly?.status === 'rendering' && !assembly?.source?.blocks?.length) return;
     if (assembly?.status === 'orphaned' || (assembly?.status === 'incomplete' && !assembly?.source?.blocks?.length)) {
       out.push(<ForgeReportAssemblyDiagnostic key={`forge-report-diagnostic-${key}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} />);
     } else {

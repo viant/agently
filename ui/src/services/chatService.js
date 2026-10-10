@@ -116,6 +116,14 @@ function stripAttachmentRuntimeFields(attachment = null) {
   return rest;
 }
 
+function attachmentResourceMetadata(resource = null) {
+  const uri = String(resource?.uri || '').trim();
+  if (!uri.startsWith('scratchpad://artifact/')) return undefined;
+  return Object.fromEntries(['uri', 'id', 'name', 'mimeType', 'sizeBytes', 'sha256']
+    .filter((key) => typeof resource[key] === 'string' || (key === 'sizeBytes' && Number.isFinite(resource[key])))
+    .map((key) => [key, resource[key]]));
+}
+
 function normalizeUploadItems(raw = null) {
   let list = raw;
   if (list && !Array.isArray(list)) {
@@ -141,6 +149,7 @@ function normalizeUploadItems(raw = null) {
       ? src.file
       : (isFileLike(src?.sourceFile) ? src.sourceFile : (isFileLike(src?.uploadFile) ? src.uploadFile : undefined));
     const normalized = {
+      ...(attachmentResourceMetadata(src?.resource) ? { resource: attachmentResourceMetadata(src.resource) } : {}),
       id: src?.id || src?.fileId || undefined,
       name: name || undefined,
       mime: mime || undefined,
@@ -177,6 +186,7 @@ async function promoteAttachmentToConversation(conversationID, attachment) {
   }
 
   return {
+    ...(attachmentResourceMetadata(output?.resource) ? { resource: attachmentResourceMetadata(output.resource) } : {}),
     id: output?.id || output?.ID || attachment.id || undefined,
     name: output?.name || output?.Name || attachment.name || file?.name || undefined,
     uri: output?.uri || output?.URI || undefined,
