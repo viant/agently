@@ -452,6 +452,7 @@ describe('submitMessage', () => {
   it('promotes staged attachments to conversation files before querying', async () => {
     client.query.mockResolvedValue({});
     client.uploadFile.mockResolvedValue({
+      resource: { uri: 'scratchpad://artifact/owned-upload', id: 'owned-upload', name: 'cat.jpg', mimeType: 'image/jpeg', sizeBytes: 5, data: 'must-not-forward-bytes' },
       id: 'file-promoted',
       name: 'cat.jpg',
       uri: '/v1/files/file-promoted?conversationId=conv-staged',
@@ -521,6 +522,7 @@ describe('submitMessage', () => {
       conversationId: 'conv-staged',
       query: "what's in this picture?",
       attachments: [{
+        resource: { uri: 'scratchpad://artifact/owned-upload', id: 'owned-upload', name: 'cat.jpg', mimeType: 'image/jpeg', sizeBytes: 5 },
         id: 'file-promoted',
         name: 'cat.jpg',
         uri: '/v1/files/file-promoted?conversationId=conv-staged',

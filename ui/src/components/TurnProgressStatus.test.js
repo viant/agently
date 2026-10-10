@@ -173,3 +173,15 @@ describe('TurnProgressStatus helpers', () => {
     expect(html).toContain('Not reported');
   });
 });
+
+it('places narration only in the scoped active turn status card', () => {
+  projectedRows = [
+    {kind:'iteration',turnId:'old',lifecycle:'completed',operationalNarration:'Old completed narration',rounds:[]},
+    {kind:'iteration',turnId:'current',lifecycle:'running',operationalNarration:'Preparing current report data',rounds:[{pageId:'current-page',status:'running'}]},
+  ];
+  const html=renderToStaticMarkup(React.createElement(TurnProgressStatus,{conversationId:'current-conversation'}));
+  expect(html).toContain('turn-progress-status');expect(html).toContain('turn-progress-narration');
+  expect(html).toContain('Preparing current report data');expect(html).not.toContain('Old completed narration');
+  projectedRows=[{...projectedRows[1],lifecycle:'completed'}];
+  expect(renderToStaticMarkup(React.createElement(TurnProgressStatus,{conversationId:'current-conversation'}))).toBe('');
+});
