@@ -23,8 +23,9 @@ type internalReportRegistration struct {
 	bindings []resources.LocalResourceBinding
 }
 type internalHostRegistration struct {
-	initialize func(context.Context) error
-	bind       func(context.Context, *executor.Runtime) error
+	workspaceRoot string
+	initialize    func(context.Context) error
+	bind          func(context.Context, *executor.Runtime) error
 }
 
 func (r *internalHostRegistration) Bind(ctx context.Context, rt *executor.Runtime) error {
@@ -169,6 +170,11 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 			bindings = append(bindings, entry)
 		}
 	}
+	toolfeeds, err := configuredToolfeedBindings(context.Background(), registration.workspaceRoot, owner, config.ToolfeedSources, prepared)
+	if err != nil {
+		return nil, err
+	}
+	bindings = append(bindings, toolfeeds...)
 	authorize, err := internalNamespaceIsolation(config, bindings, nativeAuthority)
 	if err != nil {
 		return nil, err
@@ -177,7 +183,7 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 	if err != nil {
 		return nil, err
 	}
-	localConfig := resources.LocalConfig{ProviderIdentity: owner, Actor: actorResolver, Verify: verify, Authorize: authorize, Bindings: bindings, Validators: map[string]resources.LocalResourceValidator{"window": resources.ValidateWindowBundle, "report": resources.ValidateReportEnvelope}}
+	localConfig := resources.LocalConfig{ProviderIdentity: owner, Actor: actorResolver, Verify: verify, Authorize: authorize, Bindings: bindings, Validators: map[string]resources.LocalResourceValidator{"window": resources.ValidateWindowBundle, "report": resources.ValidateReportEnvelope, "toolfeed": resources.ValidateToolfeedDefinition}}
 	if snapshot != nil {
 		localConfig.WindowIndex, localConfig.WindowListVisibility = snapshot.WindowIndex, visibility
 	}
