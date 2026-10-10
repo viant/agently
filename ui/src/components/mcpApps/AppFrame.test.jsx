@@ -12,6 +12,16 @@ describe('AppFrame', () => {
     expect(html).toContain('srcDoc="&lt;main&gt;ok&lt;/main&gt;"');
   });
 
+  it('leaves srcDoc absent until HTML is provided so the standard host can navigate the frame', () => {
+    const html = renderToStaticMarkup(<AppFrame title="MCP App" />);
+    expect(html).not.toContain('srcDoc=');
+    expect(html).not.toContain('src=');
+  });
+
+  it('preserves an explicitly empty inline document', () => {
+    expect(renderToStaticMarkup(<AppFrame srcDoc="" />)).toContain('srcDoc=""');
+  });
+
   it('prefers explicit src when provided', () => {
     const html = renderToStaticMarkup(<AppFrame title="Preview" src="/mcp-ui-forge-window.html?windowKey=order" sandbox="allow-scripts allow-same-origin" srcDoc="<main>ignored</main>" />);
     expect(html).toContain('src="/mcp-ui-forge-window.html?windowKey=order"');

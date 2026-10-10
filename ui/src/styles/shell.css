@@ -4714,6 +4714,14 @@ span.app-workspace-breadcrumb-chip.is-current { background: rgba(222, 234, 253, 
   color: var(--app-text-secondary);
 }
 
+.app-mcpui-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.app-mcpui-toolbar .app-mcpui-bubble-label { margin-bottom: 0; }
+.app-mcpui-controls { display: flex; flex-wrap: wrap; gap: 6px; }
+.app-mcpui-controls button { min-height: 32px; padding: 4px 10px; border: 1px solid var(--app-border); border-radius: 6px; background: var(--app-surface); color: var(--app-text); font: inherit; font-size: 12px; cursor: pointer; }
+.app-mcpui-controls button:hover { border-color: var(--app-accent); background: var(--app-selected-background); }
+.app-mcpui-controls button:active { background: var(--app-border); }
+.app-mcpui-controls button:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+
 .app-stream-caret {
   display: inline-block;
   margin-left: 2px;
