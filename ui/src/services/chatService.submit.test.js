@@ -1033,6 +1033,7 @@ describe('submitMessage', () => {
 
     const convForm = {};
     const context = {
+      metadata: {resource:{uri:"window://owned/chat",kind:"working",providerIdentity:"owned-provider",authorityBinding:"owned-actor"}},
       Context(name) {
         if (name === 'conversations') {
           return {
@@ -1066,6 +1067,9 @@ describe('submitMessage', () => {
       agent: 'steward',
     });
 
+    expect(listLookupRegistry).toHaveBeenCalledWith('chat-composer','steward',{
+      owner:{uri:'window://owned/chat',revision:'working'},providerIdentity:'owned-provider',authorityBinding:'owned-actor',
+    });
     expect(client.query).toHaveBeenCalledWith(expect.objectContaining({
       query: 'Troubleshoot /order order for delivery issues.',
     }));
