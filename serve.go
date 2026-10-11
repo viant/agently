@@ -62,6 +62,7 @@ type servedUIBundle struct {
 }
 
 type ServeOptions struct {
+	nativeWindowRuntimeBinder        func(*executor.Runtime) error
 	InternalResourceProviderIdentity string
 	NativeWindowConfigPath           string
 	WindowOpenBootstrapFactory       WindowOpenBootstrapFactory
@@ -192,6 +193,9 @@ func Serve(options ServeOptions) error {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
 	}
 	defer rt.Close(context.Background())
+	if err := bindNativeWindowRuntime(options, rt); err != nil {
+		return fmt.Errorf("native window identity startup: %w", err)
+	}
 	if err := bindWindowBootstrap(ctx, client); err != nil {
 		return fmt.Errorf("window bootstrap startup: %w", err)
 	}
@@ -626,4 +630,12 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// Native binding runs after runtime construction and before bootstrap or serving.
+func bindNativeWindowRuntime(options ServeOptions, runtime *executor.Runtime) error {
+	if options.nativeWindowRuntimeBinder == nil {
+		return nil
+	}
+	return options.nativeWindowRuntimeBinder(runtime)
 }

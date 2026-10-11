@@ -13,15 +13,12 @@ import (
 	"log"
 	"os"
 	"reflect"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/viant/agently-core/app/executor"
 	ds "github.com/viant/agently-core/protocol/datasource"
 	identity "github.com/viant/agently-core/protocol/resource"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
-	"github.com/viant/agently-core/sdk/api"
 	auth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/service/policy"
 	forge "github.com/viant/agently-core/service/primitiveprovider"
@@ -34,7 +31,8 @@ import (
 
 // NativeWindowHostConfig binds operator-installed templates without replacing
 // the workspace's explicitly configured MCP permission provider.
-// ToolCapabilities is a reviewed exact service/method map, not a name heuristic.
+// ToolCapabilities classifies exact methods for selection fidelity only.
+// Managing MCP owns data authorization; no UI business grant is consulted.
 type NativeWindowHostConfig struct {
 	SchemaVersion     int                            `json:"schemaVersion"`
 	ProviderIdentity  string                         `json:"providerIdentity"`
@@ -48,7 +46,8 @@ type NativeWindowHostConfig struct {
 
 // NativeWindowExecutionBinding correlates an exact authored mutation to the
 // selected entity. Selectors traverse fixed object keys and array wildcards.
-// Unmapped mutations are denied, including cross-entity actions.
+// Selected-entity mutations require their declared body relation. This
+// establishes fidelity to the signed selection, never a business ACL grant.
 type NativeWindowExecutionBinding struct {
 	URI               string            `json:"uri"`
 	DataSource        string            `json:"dataSource"`
@@ -129,12 +128,12 @@ func validateNativeExecutionDefinitions(ctx context.Context, source identity.Res
 }
 
 type nativeWindowHost struct {
-	config      NativeWindowHostConfig
-	source      identity.ResourceSource
-	authority   *nativeWindowAuthority
-	catalog     *forge.MetadataWindowCatalog
-	permissions permittedview.Resolver
-	datasource  WindowBootstrapDatasource
+	config     NativeWindowHostConfig
+	source     identity.ResourceSource
+	authority  *nativeWindowAuthority
+	catalog    *forge.MetadataWindowCatalog
+	delivery   *nativeWindowDelivery
+	datasource WindowBootstrapDatasource
 }
 
 func configureNativeWindowHost(options ServeOptions) (ServeOptions, error) {
@@ -215,12 +214,13 @@ func configureNativeWindowHost(options ServeOptions) (ServeOptions, error) {
 		}
 		authority.allowed[w.URI] = resources.LocalResourceBinding{URI: w.URI}
 	}
+	var delivery *nativeWindowDelivery
 	resolve := func(ctx context.Context, key string) (*identity.ResourceResolver, identity.ResourceRef, error) {
 		uri, ok := aliases[key]
 		if !ok {
 			return nil, identity.ResourceRef{}, identity.ErrResourceDenied
 		}
-		return &identity.ResourceResolver{Source: source, Policy: &nativeWindowPolicy{authority: authority}, ProviderIdentity: config.ProviderIdentity}, identity.ResourceRef{URI: uri}, nil
+		return &identity.ResourceResolver{Source: source, Policy: &nativeDeliveryPolicy{base: &nativeWindowPolicy{authority: authority}, delivery: delivery}, ProviderIdentity: config.ProviderIdentity}, identity.ResourceRef{URI: uri}, nil
 	}
 	key := make([]byte, 32)
 	if _, e = rand.Read(key); e != nil {
@@ -230,6 +230,15 @@ func configureNativeWindowHost(options ServeOptions) (ServeOptions, error) {
 	if e != nil {
 		return options, e
 	}
+	selectionKey := make([]byte, 32)
+	if _, e = rand.Read(selectionKey); e != nil {
+		return options, e
+	}
+	selection, e := identity.NewSelectionHMAC(selectionKey)
+	if e != nil {
+		return options, e
+	}
+	delivery = &nativeWindowDelivery{authority: authority, signer: selection, target: proof, resolve: resolve}
 	// A metadata loader is required by the catalog API; canonical entries always
 	// resolve the immutable source above, never this legacy fallback.
 	entries := make([]forge.SavedWindow, 0, len(bindings))
@@ -240,7 +249,7 @@ func configureNativeWindowHost(options ServeOptions) (ServeOptions, error) {
 	if e != nil {
 		return options, e
 	}
-	host := &nativeWindowHost{config: config, source: source, authority: authority, catalog: catalog}
+	host := &nativeWindowHost{config: config, source: source, authority: authority, catalog: catalog, delivery: delivery}
 	revalidate := func(ctx context.Context, pin identity.ResolvedResource) (*identity.ResolvedResource, error) {
 		resolver, ref, e := resolve(ctx, pin.URI)
 		if e != nil || ref.URI != pin.URI {
@@ -281,26 +290,33 @@ func configureNativeWindowHost(options ServeOptions) (ServeOptions, error) {
 				return e
 			}
 		}
-		b.WithUIBridge(forge.NewService(&forge.Config{WindowDefinitions: catalog, ResolvedWindowAuthorizer: func(ctx context.Context, pin identity.ResolvedResource, method string, _ map[string]any) error {
+		b.WithUIBridge(forge.NewService(&forge.Config{WindowDefinitions: catalog, WindowSelectionEmitter: delivery.emitSelection, ResolvedWindowAuthorizer: func(ctx context.Context, pin identity.ResolvedResource, method string, _ map[string]any) error {
 			if method != "ui.window.open" {
 				return identity.ErrResourceDenied
 			}
 			return authority.admit(ctx, pin)
 		}}))
 		b.WithPinnedDatasourceDefinitions(revalidate, definition, host.authorize)
+		b.WithNewDatasourceDeliveryPreparer(delivery.prepare)
 		b.WithDatasourceDenialRootRead(host.authorizeRootRead)
 		return nil
 	}
+	options.nativeWindowRuntimeBinder = func(rt *executor.Runtime) error {
+		if rt == nil || rt.Native == nil {
+			return identity.ErrResourceDenied
+		}
+		return delivery.bindUsers(auth.NewDatlyUserService(rt.Native))
+	}
 	factory := ConfiguredWindowBootstrap(config.Bootstrap)
 	options.WindowOpenBootstrapFactory = func(ctx context.Context, source WindowBootstrapDatasource) (permittedview.OpenBootstrap, permittedview.OpenSelectionCheck, error) {
-		// Runtime construction has retained the configured real MCP resolver.
-		runtime := permittedview.DefaultRuntime()
-		if runtime == nil || runtime.Resolver == nil {
-			return nil, nil, fmt.Errorf("configured native MCP permission resolver unavailable")
-		}
-		host.permissions = runtime.Resolver
 		host.datasource = source
-		return factory(ctx, source)
+		load, match, err := factory(ctx, &nativeBootstrapDatasource{host: host, source: source})
+		if err != nil {
+			return nil, nil, err
+		}
+		return func(ctx context.Context, pin identity.ResolvedResource, window *types.Window, parameters map[string]any) (map[string]any, error) {
+			return load(requestctx.WithWindowParameters(ctx, parameters), pin, window, parameters)
+		}, match, nil
 	}
 	return options, nil
 }
@@ -311,204 +327,111 @@ func (h *nativeWindowHost) authorize(ctx context.Context, descriptor *ds.DataSou
 func (h *nativeWindowHost) authorizeRootRead(ctx context.Context, descriptor *ds.DataSource, inputs map[string]interface{}) error {
 	return h.authorizeMode(ctx, descriptor, inputs, true)
 }
-func (h *nativeWindowHost) authorizeMode(ctx context.Context, descriptor *ds.DataSource, inputs map[string]interface{}, rootRead bool) error {
-	pin, ok := requestctx.ResolvedResourceFromContext(ctx)
-	target, present := requestctx.WindowTargetFromContext(ctx)
-	if !ok || !present || target == nil || h.permissions == nil || descriptor == nil {
+func (h *nativeWindowHost) authorizeMode(ctx context.Context, descriptor *ds.DataSource, inputs map[string]interface{}, _ bool) error {
+	if h == nil || h.delivery == nil || descriptor == nil {
 		return identity.ErrResourceDenied
 	}
-	definition, e := h.catalog.Get(ctx, &forge.WindowDefinitionGetInput{WindowID: pin.URI, ResolvedResource: pin, Target: target})
-	if e != nil {
-		return nativeWindowAuthorityError(e)
+	pin, ok := requestctx.ResolvedResourceFromContext(ctx)
+	target, present := requestctx.WindowTargetFromContext(ctx)
+	if !ok || !present || target == nil {
+		return identity.ErrResourceDenied
+	}
+	if err := h.verifyDeliveryContext(ctx, *pin, target, descriptor.ID, inputs); err != nil {
+		return err
+	}
+	definition, err := h.catalog.Get(ctx, &forge.WindowDefinitionGetInput{WindowID: pin.URI, ResolvedResource: pin, Target: target})
+	if err != nil {
+		return nativeWindowAuthorityError(err)
 	}
 	if definition == nil || definition.Definition == nil {
 		return identity.ErrResourceDenied
 	}
-	return h.authorizeWindowMode(ctx, pin.URI, definition.Definition, descriptor, inputs, rootRead)
+	return h.authorizeWindow(ctx, pin.URI, definition.Definition, descriptor, inputs)
 }
 
+// A datasource admission checks only original artifact and selection fidelity.
+// Its managing MCP endpoint owns every business read/write authorization check.
 func (h *nativeWindowHost) authorizeWindow(ctx context.Context, uri string, window *types.Window, descriptor *ds.DataSource, inputs map[string]interface{}) error {
-	return h.authorizeWindowMode(ctx, uri, window, descriptor, inputs, false)
-}
-func (h *nativeWindowHost) authorizeWindowMode(ctx context.Context, uri string, window *types.Window, descriptor *ds.DataSource, inputs map[string]interface{}, rootRead bool) error {
-	if window == nil || descriptor == nil || h.permissions == nil {
+	if h == nil || window == nil || descriptor == nil {
 		return identity.ErrResourceDenied
 	}
-	capability := "read"
+	classification := "read"
 	if descriptor.Backend != nil && descriptor.Backend.Kind == ds.BackendMCPTool {
-		var found bool
-		capability, found = h.config.ToolCapabilities[descriptor.Backend.Service+":"+descriptor.Backend.Method]
-		if !found {
+		var known bool
+		classification, known = h.config.ToolCapabilities[descriptor.Backend.Service+":"+descriptor.Backend.Method]
+		if !known {
 			return identity.ErrResourceDenied
 		}
 	} else if descriptor.Backend != nil && descriptor.Backend.Kind != ds.BackendInline {
 		return identity.ErrResourceDenied
 	}
-	if rootRead {
-		capability = "read"
-	}
-	spec := window.Authorization
-	if spec == nil {
+	if marker, _ := ctx.Value(nativeBootstrapKey{}).(*nativeBootstrapRead); marker != nil && marker.owner == h && classification != "read" {
 		return identity.ErrResourceDenied
 	}
-	resourceType := spec.ResourceType
-	if spec.Resource != nil {
-		resourceType = spec.Resource.Type
-	}
-	if resourceType == "" {
-		return identity.ErrResourceDenied
-	}
-	params := requestctx.WindowParametersFromContext(ctx)
-	var ids []int
-	if strings.EqualFold(spec.Scope, "resource") {
-		var binding *WindowBootstrapBinding
-		for i := range h.config.Bootstrap {
-			if h.config.Bootstrap[i].URI == uri {
-				binding = &h.config.Bootstrap[i]
-				break
-			}
+	parameters := requestctx.WindowParametersFromContext(ctx)
+	for _, parameter := range descriptor.Parameters {
+		from := parameter.From
+		if from == "" {
+			from = parameter.In
 		}
-		if binding == nil || !matchesDeclaredBootstrap(window, *binding) {
+		if from != "windowForm" {
+			continue
+		}
+		actual, supplied := inputs[parameter.Name]
+		if !supplied {
+			continue
+		}
+		expected, present := bootstrapParameterValue(parameters, parameter.Location)
+		if !present || !nativeJSONEqual(actual, expected) {
 			return identity.ErrResourceDenied
 		}
-		value := params[binding.Parameter]
-		// Only the operator-declared ById bootstrap can select from its fixed input.
-		if value == nil && descriptor.ID == binding.DataSource {
-			value = inputs[binding.Input]
-		}
-		requested, e := authoredBootstrapIDs(value)
-		if e != nil || len(requested) != 1 {
-			return identity.ErrResourceDenied
-		}
-		selected := requested[0]
-		ids = []int{int(selected)}
-		// Authored windowForm inputs cannot be changed independently of the
-		// entity selection. Compare only supplied inputs; the binder fills defaults.
-		for _, p := range descriptor.Parameters {
-			from := p.From
-			if from == "" {
-				from = p.In
-			}
-			if from != "windowForm" || (p.Location != binding.Parameter && !strings.HasPrefix(p.Location, binding.Parameter+".")) {
-				continue
-			}
-			actual, exists := inputs[p.Name]
-			if !exists {
-				continue
-			}
-			expected, exists := bootstrapParameterValue(map[string]any{binding.Parameter: []int64{selected}}, p.Location)
-			if !exists || !sameNativeSelection(actual, expected) {
-				return identity.ErrResourceDenied
-			}
-		}
-		if capability != "read" {
-			var declared *NativeWindowExecutionBinding
-			for i := range h.config.ExecutionBindings {
-				b := &h.config.ExecutionBindings[i]
-				if b.URI == uri && b.DataSource == descriptor.ID {
-					if declared != nil {
-						return identity.ErrResourceDenied
-					}
-					declared = b
-				}
-			}
-			if declared == nil || len(declared.IdentitySelectors) == 0 {
-				return identity.ErrResourceDenied
-			}
-			for _, selector := range declared.IdentitySelectors {
-				values, err := nativeSelectionValues(inputs, strings.Split(selector, "."))
-				if err != nil || len(values) == 0 {
-					return identity.ErrResourceDenied
-				}
-				for _, value := range values {
-					id, err := authoredBootstrapID(value)
-					if err != nil || id != selected {
-						return identity.ErrResourceDenied
-					}
-				}
-			}
-		}
 	}
-	requested := []string{"read"}
-	if capability != "read" {
-		requested = append(requested, capability)
-	}
-	globals := []string{capability}
-	if strings.EqualFold(spec.Scope, "principal") {
-		requested = append([]string(nil), spec.RequestedCapabilities...)
-		globals = append([]string(nil), spec.RequestedGlobalCapabilities...)
-		if capability != "read" {
-			globals = append(globals, capability)
-		}
-	}
-	snapshot, e := h.permissions.Resolve(ctx, &permittedview.Request{ResourceType: resourceType, ResourceIDs: ids, RequestedCapabilities: requested, RequestedGlobalCapabilities: globals, IncludePrincipal: true})
-	if e != nil {
-		return nativeWindowAuthorityError(e)
-	}
-	if snapshot == nil || snapshot.AuthorizationVersion == "" || !snapshot.ExpiresAt.After(time.Now()) {
-		return identity.ErrResourceDenied
-	}
-	if len(ids) == 0 {
-		if (!strings.EqualFold(spec.Scope, "principal") || capability != "read") && !snapshot.GlobalCapabilities[capability] {
-			return identity.ErrResourceDenied
-		}
+	if classification == "read" {
 		return nil
 	}
-	row := snapshot.Resources[strconv.Itoa(ids[0])]
-	if row == nil || row.ID != ids[0] || !strings.EqualFold(row.Type, resourceType) || !row.Capabilities["read"] || !row.Capabilities[capability] {
+	var selection *WindowBootstrapBinding
+	for i := range h.config.Bootstrap {
+		if h.config.Bootstrap[i].URI == uri {
+			selection = &h.config.Bootstrap[i]
+			break
+		}
+	}
+	var binding *NativeWindowExecutionBinding
+	for i := range h.config.ExecutionBindings {
+		candidate := &h.config.ExecutionBindings[i]
+		if candidate.URI == uri && candidate.DataSource == descriptor.ID {
+			if binding != nil {
+				return identity.ErrResourceDenied
+			}
+			binding = candidate
+		}
+	}
+	if binding == nil {
+		if selection != nil {
+			return identity.ErrResourceDenied
+		}
+		return nil // No selected-entity relation was declared for this principal action.
+	}
+	if selection == nil || len(binding.IdentitySelectors) == 0 {
 		return identity.ErrResourceDenied
 	}
-	if capability != "read" {
-		for _, b := range h.config.ExecutionBindings {
-			if b.URI != uri || b.DataSource != descriptor.ID || len(b.ParentSelectors) == 0 {
-				continue
-			}
-			if h.datasource == nil {
+	selected, present := parameters[selection.Parameter]
+	if !present {
+		return identity.ErrResourceDenied
+	}
+	for _, selector := range binding.IdentitySelectors {
+		values, err := nativeSelectionValues(inputs, strings.Split(selector, "."))
+		if err != nil || len(values) == 0 {
+			return identity.ErrResourceDenied
+		}
+		for _, value := range values {
+			if !nativeSelectionContains(selected, value) {
 				return identity.ErrResourceDenied
-			}
-			pin, ok := requestctx.ResolvedResourceFromContext(ctx)
-			target, present := requestctx.WindowTargetFromContext(ctx)
-			if !ok || !present || target == nil {
-				return identity.ErrResourceDenied
-			}
-			var bootstrap *WindowBootstrapBinding
-			for i := range h.config.Bootstrap {
-				if h.config.Bootstrap[i].URI == uri {
-					bootstrap = &h.config.Bootstrap[i]
-					break
-				}
-			}
-			if bootstrap == nil {
-				return identity.ErrResourceDenied
-			}
-			fetched, e := h.datasource.FetchDatasource(ctx, &api.FetchDatasourceInput{ID: bootstrap.DataSource, Resource: pin, Target: target, WindowParameters: map[string]any{bootstrap.Parameter: ids}, Inputs: map[string]interface{}{bootstrap.Input: ids}, Cache: &api.DatasourceCacheHints{BypassCache: true}})
-			if e != nil {
-				return nativeWindowAuthorityError(e)
-			}
-			if fetched == nil || len(fetched.Rows) != 1 {
-				return identity.ErrResourceDenied
-			}
-			returned, e := authoredBootstrapID(fetched.Rows[0][bootstrap.RowIdentity])
-			if e != nil || returned != int64(ids[0]) {
-				return identity.ErrResourceDenied
-			}
-			for selector, field := range b.ParentSelectors {
-				values, e := nativeOptionalSelectionValues(inputs, strings.Split(selector, "."))
-				if e != nil {
-					return identity.ErrResourceDenied
-				}
-				for _, v := range values {
-					if !sameNativeSelection(v, fetched.Rows[0][field]) {
-						return identity.ErrResourceDenied
-					}
-				}
 			}
 		}
 	}
-	// A fresh parent bootstrap may outlive the permission lease. Recheck
-	// immediately before handing control back to protected execution.
-	if !snapshot.ExpiresAt.After(time.Now()) {
-		return identity.ErrResourceDenied
+	if len(binding.ParentSelectors) != 0 {
+		return h.verifyParentSelection(ctx, *selection, *binding, inputs)
 	}
 	return nil
 }
