@@ -175,7 +175,14 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 			bindings = append(bindings, entry)
 		}
 	}
-	toolfeeds, err := configuredToolfeedBindings(context.Background(), registration.workspaceRoot, owner, config.ToolfeedSources, prepared)
+	if len(config.ToolfeedSources) > 0 && snapshot == nil {
+		var snapshotErr error
+		snapshot, snapshotErr = newInternalWindowSnapshot(context.Background(), registration.workspaceRoot, "", config)
+		if snapshotErr != nil {
+			return nil, snapshotErr
+		}
+	}
+	toolfeeds, err := configuredToolfeedBindings(context.Background(), registration.workspaceRoot, owner, config.ToolfeedSources, prepared, snapshot)
 	if err != nil {
 		return nil, err
 	}
