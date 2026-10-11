@@ -2241,3 +2241,5 @@ github.com/viant/agently-core v0.1.57-0.20261010202106-448835d5060b h1:kKl/14lqr
 github.com/viant/agently-core v0.1.57-0.20261010202106-448835d5060b/go.mod h1:koPRetUGf7ki9iCeSMfg3elmyvFqG3R1YoO1uI7YSro=
 github.com/viant/agently-core v0.1.57-0.20261010211039-287070e89a13 h1:4S5P4Sqlj/fpOvYW5OFQVGYkBY9IN7zSL+uXPL4epCg=
 github.com/viant/agently-core v0.1.57-0.20261010211039-287070e89a13/go.mod h1:koPRetUGf7ki9iCeSMfg3elmyvFqG3R1YoO1uI7YSro=
+github.com/viant/agently-core v0.1.57-0.20261011142616-5a6bebe31ccf h1:OB+9mZoArptaGpTsMqAgQX2CixS13G2e9zMwR8zdiM0=
+github.com/viant/agently-core v0.1.57-0.20261011142616-5a6bebe31ccf/go.mod h1:koPRetUGf7ki9iCeSMfg3elmyvFqG3R1YoO1uI7YSro=
