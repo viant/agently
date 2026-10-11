@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/viant/afs"
+	"github.com/viant/authz"
 	"github.com/viant/authz/gating"
 	"github.com/viant/forge/backend/service/meta"
 	"log"
@@ -21,6 +23,7 @@ import (
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/sdk/api"
 	auth "github.com/viant/agently-core/service/auth"
+	"github.com/viant/agently-core/service/policy"
 	forge "github.com/viant/agently-core/service/primitiveprovider"
 	resources "github.com/viant/agently-core/service/resource"
 	"github.com/viant/agently-core/service/ui/permittedview"
@@ -315,7 +318,10 @@ func (h *nativeWindowHost) authorizeMode(ctx context.Context, descriptor *ds.Dat
 		return identity.ErrResourceDenied
 	}
 	definition, e := h.catalog.Get(ctx, &forge.WindowDefinitionGetInput{WindowID: pin.URI, ResolvedResource: pin, Target: target})
-	if e != nil || definition.Definition == nil {
+	if e != nil {
+		return nativeWindowAuthorityError(e)
+	}
+	if definition == nil || definition.Definition == nil {
 		return identity.ErrResourceDenied
 	}
 	return h.authorizeWindowMode(ctx, pin.URI, definition.Definition, descriptor, inputs, rootRead)
@@ -436,7 +442,10 @@ func (h *nativeWindowHost) authorizeWindowMode(ctx context.Context, uri string, 
 		}
 	}
 	snapshot, e := h.permissions.Resolve(ctx, &permittedview.Request{ResourceType: resourceType, ResourceIDs: ids, RequestedCapabilities: requested, RequestedGlobalCapabilities: globals, IncludePrincipal: true})
-	if e != nil || snapshot == nil || snapshot.AuthorizationVersion == "" || !snapshot.ExpiresAt.After(time.Now()) {
+	if e != nil {
+		return nativeWindowAuthorityError(e)
+	}
+	if snapshot == nil || snapshot.AuthorizationVersion == "" || !snapshot.ExpiresAt.After(time.Now()) {
 		return identity.ErrResourceDenied
 	}
 	if len(ids) == 0 {
@@ -473,7 +482,10 @@ func (h *nativeWindowHost) authorizeWindowMode(ctx context.Context, uri string, 
 				return identity.ErrResourceDenied
 			}
 			fetched, e := h.datasource.FetchDatasource(ctx, &api.FetchDatasourceInput{ID: bootstrap.DataSource, Resource: pin, Target: target, WindowParameters: map[string]any{bootstrap.Parameter: ids}, Inputs: map[string]interface{}{bootstrap.Input: ids}, Cache: &api.DatasourceCacheHints{BypassCache: true}})
-			if e != nil || fetched == nil || len(fetched.Rows) != 1 {
+			if e != nil {
+				return nativeWindowAuthorityError(e)
+			}
+			if fetched == nil || len(fetched.Rows) != 1 {
 				return identity.ErrResourceDenied
 			}
 			returned, e := authoredBootstrapID(fetched.Rows[0][bootstrap.RowIdentity])
@@ -499,6 +511,31 @@ func (h *nativeWindowHost) authorizeWindowMode(ctx context.Context, uri string, 
 		return identity.ErrResourceDenied
 	}
 	return nil
+}
+
+// Preserve only trusted error classifications. Unknown verification failures
+// deny execution; upstream details never become browser-visible error text.
+func nativeWindowAuthorityError(err error) error {
+	if errors.Is(err, ds.ErrDatasourceDenied) {
+		return ds.ErrDatasourceDenied
+	}
+	var upstream *ds.UpstreamAuthorizationError
+	if errors.As(err, &upstream) && (upstream.Status == 401 || upstream.Status == 403) {
+		return &ds.UpstreamAuthorizationError{Status: upstream.Status}
+	}
+	if errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, identity.ErrResourceStale) || errors.Is(err, policy.ErrDenied) || errors.Is(err, authz.ErrDenied) {
+		return identity.ErrResourceDenied
+	}
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return context.DeadlineExceeded
+	case errors.Is(err, permittedview.ErrUnavailable) || errors.Is(err, authz.ErrUnavailable) || errors.Is(err, gating.ErrUnavailable):
+		return permittedview.ErrUnavailable
+	case errors.Is(err, context.Canceled):
+		return context.Canceled
+	default:
+		return identity.ErrResourceDenied
+	}
 }
 
 func nativeOptionalSelectionValues(value any, path []string) ([]any, error) {

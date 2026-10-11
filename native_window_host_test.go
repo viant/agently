@@ -4,14 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	ds "github.com/viant/agently-core/protocol/datasource"
 	identity "github.com/viant/agently-core/protocol/resource"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/sdk/api"
 	dssvc "github.com/viant/agently-core/service/datasource"
 	"github.com/viant/agently-core/service/ui/permittedview"
+	"github.com/viant/authz"
+	"github.com/viant/authz/gating"
 	"github.com/viant/forge/backend/types"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -164,5 +168,71 @@ func TestNativeWindowMutationRejectsLeaseExpiredDuringParentBootstrap(t *testing
 	}
 	if !errors.Is(err, identity.ErrResourceDenied) {
 		t.Fatalf("expired mutation lease admitted: %v", err)
+	}
+}
+
+func TestNativeWindowAuthorityFailuresRemainTypedAndNeverDispatch(t *testing.T) {
+	for _, stage := range []string{"permission", "parent"} {
+		for _, tc := range []struct {
+			name   string
+			err    error
+			want   error
+			status int
+		}{
+			{"deadline", fmt.Errorf("sensitive upstream payload: %w", context.DeadlineExceeded), context.DeadlineExceeded, 0},
+			{"unavailable", fmt.Errorf("sensitive upstream payload: %w", permittedview.ErrUnavailable), permittedview.ErrUnavailable, 0},
+			{"generic authz unavailable", fmt.Errorf("sensitive upstream payload: %w", authz.ErrUnavailable), permittedview.ErrUnavailable, 0},
+			{"generic gate unavailable", fmt.Errorf("sensitive upstream payload: %w", gating.ErrUnavailable), permittedview.ErrUnavailable, 0},
+			{"canceled", fmt.Errorf("sensitive upstream payload: %w", context.Canceled), context.Canceled, 0},
+			{"unauthorized", &ds.UpstreamAuthorizationError{Status: 401, Cause: errors.New("sensitive upstream payload")}, nil, 401},
+			{"forbidden", &ds.UpstreamAuthorizationError{Status: 403, Cause: errors.New("sensitive upstream payload")}, nil, 403},
+			{"unknown verification failure", errors.New("dependency unavailable sensitive upstream payload"), identity.ErrResourceDenied, 0},
+			{"real denial", identity.ErrResourceDenied, identity.ErrResourceDenied, 0},
+			{"denial dominates unavailable", errors.Join(identity.ErrResourceDenied, permittedview.ErrUnavailable), identity.ErrResourceDenied, 0},
+		} {
+			t.Run(stage+"/"+tc.name, func(t *testing.T) {
+				binding := bootstrapDeclaration()
+				source := &authoredBootstrapSource{rows: []map[string]any{{"wireKey": 42, "parentKey": 7}}}
+				permissionCalls := 0
+				permissions := &permittedview.MCPResolver{ToolName: "original", Executor: nativePermissionExecutor(func(context.Context, string, map[string]interface{}) (string, error) {
+					permissionCalls++
+					if stage == "permission" {
+						return "", tc.err
+					}
+					raw, _ := json.Marshal(&permittedview.Snapshot{AuthorizationVersion: "fresh", ExpiresAt: time.Now().Add(time.Minute), Resources: map[string]*permittedview.Resource{"42": {ID: 42, Type: "widget", Capabilities: map[string]bool{"read": true, "write": true}}}})
+					return string(raw), nil
+				})}
+				if stage == "parent" {
+					source.err = tc.err
+				}
+				host := &nativeWindowHost{permissions: permissions, datasource: source, config: NativeWindowHostConfig{Bootstrap: []WindowBootstrapBinding{binding}, ToolCapabilities: map[string]string{"native:Patch": "write"}, ExecutionBindings: []NativeWindowExecutionBinding{{URI: binding.URI, DataSource: "change", IdentitySelectors: []string{"Objects.*.Id"}, ParentSelectors: map[string]string{"Objects.*.ParentId": "parentKey"}}}}}
+				descriptor := &ds.DataSource{ID: "change", Backend: &ds.Backend{Kind: ds.BackendMCPTool, Service: "native", Method: "Patch"}}
+				store := dssvc.NewMemoryStore()
+				store.Put(descriptor)
+				dispatches := 0
+				service := dssvc.New(dssvc.Options{Store: store, AuthorizeDefinition: func(ctx context.Context, d *ds.DataSource, in map[string]interface{}) error {
+					return host.authorizeWindow(requestctx.WithWindowTarget(requestctx.WithResolvedResource(ctx, identity.ResolvedResource{URI: binding.URI}), &types.WindowTarget{Platform: "web"}), binding.URI, authoredBootstrapFixture(), d, in)
+				}, Executor: nativePermissionExecutor(func(context.Context, string, map[string]interface{}) (string, error) { dispatches++; return "{}", nil })})
+				ctx := requestctx.WithWindowParameters(context.Background(), map[string]any{"Selected": []int{42}})
+				for attempt := 0; attempt < 2; attempt++ {
+					_, err := service.Fetch(ctx, "change", map[string]interface{}{"Objects": []map[string]interface{}{{"Id": 42, "ParentId": 7}}}, dssvc.FetchOptions{WindowParameters: map[string]any{"Selected": []int{42}}})
+					if tc.want != nil && !errors.Is(err, tc.want) {
+						t.Fatalf("want typed %v, got %v", tc.want, err)
+					}
+					if tc.status != 0 {
+						var upstream *ds.UpstreamAuthorizationError
+						if !errors.As(err, &upstream) || upstream.Status != tc.status {
+							t.Fatalf("lost trusted auth status%d: %v", tc.status, err)
+						}
+					}
+					if err == nil || strings.Contains(err.Error(), "sensitive upstream payload") {
+						t.Fatalf("verification failure leaked/admitted: %v", err)
+					}
+				}
+				if dispatches != 0 || permissionCalls != 2 {
+					t.Fatalf("dispatches=%d fresh permissions=%d", dispatches, permissionCalls)
+				}
+			})
+		}
 	}
 }
