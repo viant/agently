@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
+vi.mock('./chatStore', () => ({getProjection: vi.fn(), subscribe: vi.fn()}));
+
+vi.mock('./agentlyClient', () => ({client: {}, getAuthMeSilently: vi.fn(), getReportRestoreScope: vi.fn()}));
+
+vi.mock('./permissionService', () => ({applyPermission: vi.fn()}));
+
 vi.mock('./chatService', () => ({
   chatService: {
     explorerRead: vi.fn(),
@@ -100,6 +106,8 @@ import { forgeHostServices } from './forgeHostServices';
 describe('forgeHostServices', () => {
   it('exposes the hosted Forge service bundle including reporting services', async () => {
     expect(forgeHostServices.chat).toBe(chatService);
+    expect(typeof forgeHostServices.applyPermission).toBe('function');
+    expect(forgeHostServices).not.toHaveProperty('authorizationRefresh');
     expect(forgeHostServices.schedule).toBe(scheduleService);
     expect(forgeHostServices.prepareDataConnectorRequest).toBe(prepareAgentlyDataConnectorRequest);
     expect(typeof forgeHostServices.reportExport.submitRequest).toBe('function');
