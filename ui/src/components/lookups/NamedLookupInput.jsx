@@ -1,6 +1,7 @@
 import './skillHints.css';
 import {client as skillClient} from '../../services/agentlyClient';
 import {skillHintQuery, matchingSkills, insertSkillPrefix} from './skillHints.js';
+import {useSignals} from '@preact/signals-react/runtime';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Popover,
@@ -19,6 +20,7 @@ import {
   serializeManualToken,
 } from './tokens.js';
 import { listLookupRegistry, fetchDatasource } from './client.js';
+import {lookupOwnerFromContext} from './owner.js';
 import { applyResolvedChipToken, createEditingChipState, shouldSkipEditorSync, unwrapLookupSelection as unwrapSelection, draftWithEditedChip, lookupPlaceholderAtTrigger } from './chipEditing.js';
 import { DEFAULT_LOOKUP_TRIGGER, filterLookupRegistry, findLookupTriggerStart, shouldClearSoleLookupTrigger } from './lookupTrigger.js';
 
@@ -463,7 +465,10 @@ export default function NamedLookupInput({
   'data-testid': dataTestId,
   ...rest
 }) {
+  useSignals();
   const [registry, setRegistry] = useState([]);
+  const owningLookup = lookupOwnerFromContext(context, {reactive: true});
+  const owningLookupKey = JSON.stringify(owningLookup);
   const [activeTrigger, setActiveTrigger] = useState(null);
   const skillMenuID = React.useId();
   const dismissedSkillValue = useRef(null);
@@ -522,7 +527,8 @@ export default function NamedLookupInput({
 
   useEffect(() => {
     let cancelled = false;
-    listLookupRegistry(contextKind, contextID)
+    setRegistry([]);
+    listLookupRegistry(contextKind, contextID, owningLookup)
       .then((entries) => {
         if (cancelled) return;
         emitNamedLookupDebug('registry.loaded', {
@@ -534,6 +540,9 @@ export default function NamedLookupInput({
         onRegistryLoaded?.(entries);
       })
       .catch((e) => {
+        if (cancelled) return;
+        setRegistry([]);
+        onRegistryLoaded?.([]);
         emitNamedLookupDebug('registry.error', {
           context: `${contextKind}:${contextID}`,
           reason: String(e?.message || e || 'unknown'),
@@ -543,7 +552,7 @@ export default function NamedLookupInput({
     return () => {
       cancelled = true;
     };
-  }, [contextKind, contextID, onRegistryLoaded]);
+  }, [contextKind, contextID, owningLookupKey, onRegistryLoaded]);
 
   useEffect(() => {
     if (!autoResolveAuthored || registry.length === 0) return;

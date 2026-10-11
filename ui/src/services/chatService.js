@@ -66,6 +66,7 @@ import { recordConversationProjectionUsage } from './usageProjectionStore';
 import NamedLookupInput from '../components/lookups/NamedLookupInput.jsx';
 import { flattenStored } from '../components/lookups/tokens.js';
 import { listLookupRegistry } from '../components/lookups/client.js';
+import {lookupOwnerFromContext} from '../components/lookups/owner.js';
 import { composerPresentation } from './composerPresentation';
 import { publishWorkspaceMetadataSnapshot, getWorkspaceMetadataSnapshot } from './workspaceMetadata';
 import { connectForgeUIActionsToCallbacksOrChat } from './forgeUIActions';
@@ -756,7 +757,7 @@ export async function submitMessage({ context, message, model, agent }) {
   let query = rawQuery;
   if (rawQuery && rawQuery.includes('@{')) {
     try {
-      const registry = await listLookupRegistry('chat-composer', effectiveAgentForLookup);
+      const registry = await listLookupRegistry('chat-composer', effectiveAgentForLookup, lookupOwnerFromContext(context));
       query = flattenStored(rawQuery, registry, { allowUnresolvedRequired: true }).trim();
     } catch (err) {
       showToast(String(err?.message || err || 'Resolve required lookups before sending.'), { intent: 'warning' });
