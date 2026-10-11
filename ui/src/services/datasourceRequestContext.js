@@ -2,6 +2,8 @@ import {findMetadataSignal} from 'forge/core';
 
 const DATASOURCE_FETCH_ROUTE = /\/v1\/api\/datasources\/[^/]+\/fetch$/;
 const WINDOW_METADATA_ROUTE = /\/v1\/api\/agently\/forge\/window\/[^/]+$/;
+const isObject = value => !!value && typeof value === 'object' && !Array.isArray(value);
+const detached = value => JSON.parse(JSON.stringify(value));
 
 export function prepareAgentlyDataConnectorRequest({
   url = '',
@@ -19,6 +21,20 @@ export function prepareAgentlyDataConnectorRequest({
     queryParams.append('conversationId', convID);
   }
   if (body && typeof body === 'object' && !Array.isArray(body)) {
+    // A server-issued binding is provenance, never a UI grant. Keep its
+    // complete original admission frame together; the backend verifies it.
+    const admitted = [windowState?.inlineMetadata, windowState, windowState?.metadata]
+      .find(candidate => isObject(candidate?.selectionBinding));
+    if (admitted) {
+      body.windowParameters = detached(windowState?.openedWindowParameters || windowState?.parameters || {});
+      body.selectionBinding = detached(admitted.selectionBinding);
+      if (isObject(admitted.resource)) body.resource = detached(admitted.resource);
+      else delete body.resource;
+      if (isObject(admitted.resourceTarget)) body.target = detached(admitted.resourceTarget);
+      else delete body.target;
+      if (convID && !body.conversationId) body.conversationId = convID;
+      return;
+    }
     if (windowState?.parameters && typeof windowState.parameters === 'object') body.windowParameters = {...windowState.parameters};
     if (convID && !body.conversationId) body.conversationId = convID;
     const metadata = (windowState?.windowId ? findMetadataSignal(windowState.windowId)?.peek?.() : null) || windowState?.metadata;

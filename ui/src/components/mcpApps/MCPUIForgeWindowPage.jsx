@@ -21,6 +21,12 @@ export function buildWindowPayload(windowKey, payload, parameters) {
   const normalizedWindowId = `mcpui:${normalizedWindowKey}`;
   return {
     ...data,
+    // A signed OPEN supplies one complete admitted frame. Keep its definition
+    // and original parameters together; dynamic frames need no second GET.
+    ...(data?.selectionBinding && data?.view ? {
+      inlineMetadata: JSON.parse(JSON.stringify(data)),
+      openedWindowParameters: JSON.parse(JSON.stringify(parameters && typeof parameters === 'object' ? parameters : {})),
+    } : {}),
     windowId: normalizedWindowId,
     windowKey: normalizedWindowKey,
     // Forge report/export flows derive draft artifact identity from container
@@ -80,6 +86,11 @@ export default function MCPUIForgeWindowPage() {
     }
     const requestParams = new URLSearchParams();
     appendTargetContext(requestParams, targetContext);
+    // Selection parameters must reach server admission before rendering the
+    // window. Client parameters describe the selection; the server resolves
+    // the protected resource and decides its capabilities.
+    requestParams.set('applyPermission', 'true');
+    requestParams.set('windowParams', JSON.stringify(windowParams));
     const query = requestParams.toString();
     const requestURL = `/v1/api/agently/forge/window/${encodeURIComponent(windowKey)}${query ? `?${query}` : ''}`;
     fetch(requestURL, {
