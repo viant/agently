@@ -1,5 +1,5 @@
 import React from 'react';
-import { WindowContent } from 'forge/components';
+import StandaloneForgeWindowSurface from './StandaloneForgeWindowSurface.jsx';
 import { useSetting } from 'forge/core';
 import { installForgeGuestBridge } from '../../services/mcpApps/forgeGuestBridge.js';
 import MCPUIVerifierRouteDebug from './MCPUIVerifierRouteDebug.jsx';
@@ -57,6 +57,31 @@ export function appendTargetContext(params, targetContext = {}) {
   capabilities.forEach((capability) => params.append('capabilities', capability));
 }
 
+export function loadSelectedWindow(windowKey, parameters, targetContext = {}) {
+    const requestParams = new URLSearchParams();
+    appendTargetContext(requestParams, targetContext);
+    // Selection parameters must reach server admission before rendering the
+    // window. Client parameters describe the selection; the server resolves
+    // the protected resource and decides its capabilities.
+    requestParams.set('applyPermission', 'true');
+    requestParams.set('windowParams', JSON.stringify(parameters));
+    const query = requestParams.toString();
+    const requestURL = `/v1/api/agently/forge/window/${encodeURIComponent(windowKey)}${query ? `?${query}` : ''}`;
+    return fetch(requestURL, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const text = await response.text().catch(() => '');
+          throw new Error(text || `window fetch failed (${response.status})`);
+        }
+        return response.json();
+      })
+      .then(payload => buildWindowPayload(windowKey, payload, parameters));
+}
+
 export default function MCPUIForgeWindowPage() {
   const params = React.useMemo(() => new URLSearchParams(window.location.search), []);
   const windowKey = String(params.get('windowKey') || '').trim();
@@ -84,33 +109,14 @@ export default function MCPUIForgeWindowPage() {
       setState({ loading: false, error: 'windowKey is required', window: null });
       return () => {};
     }
-    const requestParams = new URLSearchParams();
-    appendTargetContext(requestParams, targetContext);
-    // Selection parameters must reach server admission before rendering the
-    // window. Client parameters describe the selection; the server resolves
-    // the protected resource and decides its capabilities.
-    requestParams.set('applyPermission', 'true');
-    requestParams.set('windowParams', JSON.stringify(windowParams));
-    const query = requestParams.toString();
-    const requestURL = `/v1/api/agently/forge/window/${encodeURIComponent(windowKey)}${query ? `?${query}` : ''}`;
-    fetch(requestURL, {
-      method: 'GET',
-      credentials: 'include',
-      headers: { Accept: 'application/json' },
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          const text = await response.text().catch(() => '');
-          throw new Error(text || `window fetch failed (${response.status})`);
-        }
-        return response.json();
-      })
-      .then((payload) => {
+    loadSelectedWindow(windowKey, windowParams, targetContext)
+      .then((openedWindow) => {
         if (!active) return;
         setState({
           loading: false,
           error: '',
-          window: buildWindowPayload(windowKey, payload, windowParams),
+          window: openedWindow,
+          targetKey,
         });
       })
       .catch((err) => {
@@ -119,6 +125,7 @@ export default function MCPUIForgeWindowPage() {
           loading: false,
           error: err?.message || 'Failed to load workspace window',
           window: null,
+          targetKey,
         });
       });
     return () => {
@@ -126,7 +133,7 @@ export default function MCPUIForgeWindowPage() {
     };
   }, [windowKey, windowParams, targetContext, targetKey]);
 
-  if (state.loading) {
+  if (state.loading || !state.error && state.targetKey !== targetKey) {
     return <div style={{ padding: 20, color: '#475467', fontFamily: 'var(--app-font-family, ui-sans-serif, system-ui, sans-serif)' }}>Loading workspace window...</div>;
   }
   if (state.error) {
@@ -135,7 +142,7 @@ export default function MCPUIForgeWindowPage() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: '#f8fafc' }}>
       {windowKey === MCPUI_VERIFIER_ROUTE_WINDOW_KEY ? <MCPUIVerifierRouteDebug /> : null}
-      <WindowContent window={state.window} isInTab />
+      <StandaloneForgeWindowSurface selectedWindow={state.window} loadWindow={loadSelectedWindow} targetContext={targetContext} />
     </div>
   );
 }

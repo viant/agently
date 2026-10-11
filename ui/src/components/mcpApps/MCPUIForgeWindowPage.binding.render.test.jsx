@@ -2,12 +2,12 @@
 import React, {act} from 'react';
 import {createRoot} from 'react-dom/client';
 import {afterEach, expect, it, vi} from 'vitest';
-vi.mock('forge/components',async()=>({WindowContent:(await import('forge/components/WindowContent.jsx')).default}));
+vi.mock('forge/components',async()=>({WindowContent:(await import('forge/components/WindowContent.jsx')).default,WindowManager:(await import('forge/components/WindowManager.jsx')).default}));
 vi.mock('../../services/mcpApps/forgeGuestBridge.js',()=>({installForgeGuestBridge:()=>()=>{}}));
 vi.mock('./MCPUIVerifierRouteDebug.jsx',()=>({default:()=>null}));
 import {SettingProvider} from 'forge/core';
 import {registerContainerRenderer} from 'forge/runtime/containerRendererRegistry.js';
-import {getCollectionSignal,removeSignalsForKey} from 'forge/core/store/signals.js';
+import {activeWindows,getCollectionSignal,removeSignalsForKey} from 'forge/core/store/signals.js';
 import {prepareAgentlyDataConnectorRequest} from '../../services/datasourceRequestContext.js';
 import MCPUIForgeWindowPage from './MCPUIForgeWindowPage.jsx';
 
@@ -50,5 +50,5 @@ it('passes the one OPEN bundle from the mounted standalone page through real Win
   expect(body).toMatchObject({resource,target:resourceTarget,selectionBinding,windowParameters:parameters});
   expect(body).not.toHaveProperty('tool_meta');
   expect(element.querySelector('[data-signed-page-content]')).not.toBeNull();
-  expect(getCollectionSignal(`${windowId}DSrows`).peek()).toEqual([{id:'authorized-row'}]);
+  expect(getCollectionSignal(`${activeWindows.peek().find(entry=>entry.windowKey==='Records').windowId}DSrows`).peek()).toEqual([{id:'authorized-row'}]);
 });

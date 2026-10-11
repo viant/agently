@@ -1,7 +1,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('forge/components', () => ({ WindowContent: () => null }));
+vi.mock('./StandaloneForgeWindowSurface.jsx', () => ({ default: () => null }));
 vi.mock('forge/core', () => ({ useSetting: () => ({ targetContext: { platform: 'web', formFactor: 'desktop' } }) }));
 vi.mock('../../services/mcpApps/forgeGuestBridge.js', () => ({ installForgeGuestBridge: () => () => {} }));
 vi.mock('./MCPUIVerifierRouteDebug.jsx', () => ({ default: () => null }));
@@ -52,8 +52,8 @@ describe('standalone Forge window permission request', () => {
     const { setState } = await openStandaloneWindow({
       ok: false, status: 403, text: async () => 'resource not found or access denied',
     });
-    expect(setState).toHaveBeenCalledWith({
+    expect(setState).toHaveBeenCalledWith(expect.objectContaining({
       loading: false, error: 'resource not found or access denied', window: null,
-    });
+    }));
   });
 });
