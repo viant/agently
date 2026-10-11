@@ -4,6 +4,11 @@ import {windowMetadataFetchKey} from 'forge/components/WindowContent.jsx';
 import {activeWindows, addWindow, removeWindow, selectedTabId, selectedWindowId} from 'forge/core';
 import {mountStandaloneRoot, disposeStandaloneScope, closeStandaloneBranch, createStandaloneScopeId, applyStandaloneAdmission} from './standaloneWindowScope.js';
 
+export function windowCatalogRouting(window) {
+  const match = /^window:\/\/([^/]+)\/.+$/.exec(String(window?.resource?.uri || ''));
+  return match ? {namespace: match[1], ...(window?.resource?.providerIdentity ? {providerIdentity: window.resource.providerIdentity} : {})} : {};
+}
+
 export default function StandaloneForgeWindowSurface({selectedWindow, loadWindow, targetContext}) {
   const reactId = React.useId();
   const baseScopeId = `standalone:${reactId}`;
@@ -23,9 +28,10 @@ export default function StandaloneForgeWindowSurface({selectedWindow, loadWindow
       for (const id of pending.keys()) { if (!windows.some(entry => entry.windowId === id && entry.windowScopeId === scopeId)) pending.delete(id); }
       for (const entry of activeWindows.peek()) {
         if (entry.windowScopeId !== scopeId || entry.windowId === root.windowId || pending.has(entry.windowId) || entry.standaloneAdmissionComplete) continue;
-        const request = {parameters: structuredClone(entry.parameters || {})};
+        const parent = windows.find(window => window.windowId === entry.parentKey && window.windowScopeId === scopeId) || selectedWindow;
+        const request = {parameters: structuredClone(entry.parameters || {}), routing: windowCatalogRouting(parent)};
         pending.set(entry.windowId, request);
-        Promise.resolve().then(() => loadWindow(entry.windowKey, request.parameters, targetContext))
+        Promise.resolve().then(() => loadWindow(entry.windowKey, request.parameters, targetContext, request.routing))
           .then(selected => {
             if (!active || pending.get(entry.windowId) !== request) return;
             if (!selected?.inlineMetadata?.view) throw new Error('Selected window frame is incomplete');
