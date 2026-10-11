@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	workspaceconfig "github.com/viant/agently-core/workspace/config"
 	"io"
+	"io/fs"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/viant/agently-core/protocol/primitive"
@@ -19,6 +23,8 @@ import (
 // internalWindowSnapshot contains authored content only. Caller identity and
 // revision policy are checked independently on every operation.
 type internalWindowSnapshot struct {
+	layoutSource   *resources.CapturedLayoutSource
+	menuURIs       map[string]bool
 	initialize     func(context.Context) error
 	initOnce       sync.Once
 	initErr        error
@@ -37,7 +43,15 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 		if _, err := newEmbeddedWindowSource(config.FrameworkWindowResources); err != nil {
 			return nil, err
 		}
-		result := &internalWindowSnapshot{}
+		declaredMenus, _, err := configuredNativeMenuDefinitions(root, config.MenuSources)
+		if err != nil {
+			return nil, err
+		}
+		result := &internalWindowSnapshot{menuURIs: map[string]bool{}}
+		for _, definition := range declaredMenus {
+			result.menuURIs[definition.URI] = true
+		}
+
 		result.initialize = func(ctx context.Context) error {
 			loaded, err := newInternalWindowSnapshot(ctx, root, reportingRoot, config)
 			if err != nil {
@@ -46,20 +60,31 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 			result.workspace = loaded.workspace
 			result.framework = loaded.framework
 			result.frameworkIndex = loaded.frameworkIndex
+			result.menuURIs = loaded.menuURIs
+			result.layoutSource = loaded.layoutSource
 			return nil
 		}
 		return result, nil
 	}
-	result := &internalWindowSnapshot{framework: map[string]json.RawMessage{}}
-	if len(config.WindowResources) > 0 || (root != "" && (len(config.FrameworkWindowResources) > 0 || len(config.ToolfeedSources) > 0)) {
+	menuDefinitions, menuAssets, err := configuredNativeMenuDefinitions(root, config.MenuSources)
+	if err != nil {
+		return nil, err
+	}
+	result := &internalWindowSnapshot{framework: map[string]json.RawMessage{}, menuURIs: map[string]bool{}}
+	for _, definition := range menuDefinitions {
+		result.menuURIs[definition.URI] = true
+	}
+	if len(menuDefinitions) > 0 || len(config.WindowResources) > 0 || (root != "" && (len(config.FrameworkWindowResources) > 0 || len(config.ToolfeedSources)+len(config.TemplateSources)+len(config.IntentSources) > 0)) {
 		// This registry belongs to one serialized snapshot compilation. It is
 		// refreshed through the same confined reader before authored enrichment.
 		var current *registry.Registry
 		enrich := workspaceReportingRegistryEnricher(func() *registry.Registry { return current })
-		var definitions []resources.NativeSnapshotDefinition
+		definitions := append([]resources.NativeSnapshotDefinition(nil), menuDefinitions...)
 		var err error
 		if len(config.WindowResources) > 0 {
-			definitions, err = resources.SnapshotWindowDefinitions(ctx, root, config.WindowResources, resources.StaticWorkspaceWindowEnricher(enrich))
+			windowDefinitions, loadErr := resources.SnapshotWindowDefinitions(ctx, root, config.WindowResources, resources.StaticWorkspaceWindowEnricher(enrich))
+			err = loadErr
+			definitions = append(definitions, windowDefinitions...)
 		}
 		if err != nil {
 			return nil, err
@@ -78,7 +103,7 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 			// are process-owned while dependency imports use this same reader.
 			definitions = append(definitions, resources.NativeSnapshotDefinition{URI: binding.URI, Title: binding.WindowKey, FormatVersion: 2, File: "extension/forge", Load: resources.NativeComposedWindowLoader(binding, base, resources.StaticWorkspaceWindowEnricher(enrich))})
 		}
-		var assetPaths []string
+		assetPaths := append([]string(nil), menuAssets...)
 		if len(config.WindowResources)+len(config.FrameworkWindowResources) > 0 {
 			assetPaths = append(assetPaths, "extension/forge")
 		}
@@ -91,14 +116,60 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 				seenAssets[source.Directory] = true
 			}
 		}
+		authoredDirs, compilers, e := configuredAuthoredDirectories(config)
+		if e != nil {
+			return nil, e
+		}
+		feedDirectories = append(feedDirectories, authoredDirs...)
+		for _, d := range authoredDirs {
+			if !seenAssets[d.Directory] {
+				assetPaths = append(assetPaths, d.Directory)
+				seenAssets[d.Directory] = true
+			}
+		}
+		defer func() {
+			for _, c := range compilers {
+				c.Release()
+			}
+		}()
 		if len(feedDirectories) > 0 {
-			feeds, e := resources.SnapshotToolfeedDefinitions(ctx, root, feedDirectories)
+			feeds, e := resources.SnapshotExtensionDefinitions(ctx, root, feedDirectories)
 			if e != nil {
 				return nil, e
 			}
 			definitions = append(definitions, feeds...)
 		}
 		result.workspace, err = resources.NewNativeAssetSnapshot(ctx, root, definitions, resources.NativeSnapshotOptions{AssetPaths: assetPaths, ImmutableUntilRestart: true, BeforeCompile: func(ctx context.Context, reader *resources.ExtensionReader) error {
+			for _, c := range compilers {
+				if err := c.Prepare(ctx, reader); err != nil {
+					return err
+				}
+			}
+			if len(config.MenuSources) > 0 {
+				layoutFile := "ui/layout.yaml"
+				workspaceConfig, loadErr := workspaceconfig.Load(root)
+				if loadErr != nil {
+					return loadErr
+				}
+				if workspaceConfig != nil {
+					if ui, ok := workspaceConfig.Raw["ui"].(map[string]any); ok {
+						if layout, ok := ui["layout"].(map[string]any); ok {
+							if ref, ok := layout["ref"].(string); ok && strings.TrimSpace(ref) != "" {
+								layoutFile = ref
+							}
+						}
+					}
+				}
+				layoutRaw, loadErr := reader.ReadFile(ctx, layoutFile)
+				if loadErr != nil && !errors.Is(loadErr, fs.ErrNotExist) {
+					return loadErr
+				}
+				if loadErr == nil {
+					checkedURI, _ := identity.ParseResourceURI(definitions[0].URI)
+					result.layoutSource = &resources.CapturedLayoutSource{Root: root, Source: layoutFile, Raw: append([]byte(nil), layoutRaw...), Check: func(ctx context.Context) error { _, err := result.workspace.Candidates(ctx, checkedURI); return err }}
+				}
+			}
+
 			options, check, err := resources.ConfinedReportingOptions(ctx, reader, registry.Options{WorkspaceRoot: root, ReportingRoot: reportingRoot})
 			if err != nil {
 				return err

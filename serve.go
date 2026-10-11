@@ -182,6 +182,19 @@ func Serve(options ServeOptions) error {
 		return err
 	}
 
+	layoutDefault, err := coremeta.FS.ReadFile("workspace-layout.yaml")
+	if err != nil {
+		return fmt.Errorf("read embedded workspace layout: %w", err)
+	}
+	originalConfigureBuilder := configureBuilder
+	configureBuilder = func(ctx context.Context, builder *executor.Builder) error {
+		builder.WithNativeLayoutDefault(layoutDefault)
+		if originalConfigureBuilder != nil {
+			return originalConfigureBuilder(ctx, builder)
+		}
+		return nil
+	}
+
 	rt, client, agentFndr, err := appserver.BuildWorkspaceRuntime(ctx, appserver.RuntimeOptions{
 		WorkspaceRoot:          workspace.Root(),
 		SkipRegistryInitialize: true,
@@ -316,10 +329,6 @@ func Serve(options ServeOptions) error {
 	agentIDs := appserver.DiscoverWorkspaceAgentIDs(workspace.Root())
 	if options.DisableBackgroundWorkers {
 		agentIDs = nil
-	}
-	layoutDefault, err := coremeta.FS.ReadFile("workspace-layout.yaml")
-	if err != nil {
-		return fmt.Errorf("read embedded workspace layout: %w", err)
 	}
 	demoBackends, err := configuredAGUIDemoBackends(wsConfig)
 	if err != nil {
