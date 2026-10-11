@@ -25,6 +25,7 @@ import (
 	execconfig "github.com/viant/agently-core/app/executor/config"
 	appserver "github.com/viant/agently-core/app/server"
 	mcpexpose "github.com/viant/agently-core/protocol/mcp/expose"
+	primitive "github.com/viant/agently-core/protocol/primitive"
 	"github.com/viant/agently-core/protocol/tool"
 	uicontext "github.com/viant/agently-core/protocol/tool/service/ui/context"
 	uicontrol "github.com/viant/agently-core/protocol/tool/service/ui/control"
@@ -37,6 +38,7 @@ import (
 	"github.com/viant/agently-core/sdk"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauthctx "github.com/viant/agently-core/service/auth"
+	resources "github.com/viant/agently-core/service/resource"
 	svcscheduler "github.com/viant/agently-core/service/scheduler"
 	"github.com/viant/agently-core/service/ui/permittedview"
 	workspaceui "github.com/viant/agently-core/service/workspace"
@@ -255,7 +257,17 @@ func Serve(options ServeOptions) error {
 		if err := tool.AddInternalService(rt.Registry, uicontrol.New(uiBridge)); err != nil {
 			log.Printf("agently-app: failed to register internal UI control service: %v", err)
 		}
-		if err := tool.AddInternalService(rt.Registry, uifeed.New(uiBridge)); err != nil {
+		var feedOptions []uifeed.Option
+		if rt.PrimitiveProviders != nil {
+			feedOptions = append(feedOptions, uifeed.WithIdentityResolver(func(ctx context.Context, requested string) (string, error) {
+				got, err := resources.ResolveDefinition[primitive.ToolfeedDefinition](ctx, rt.PrimitiveProviders, primitive.ToolfeedKind, requested, func(definition primitive.ToolfeedDefinition) string { return definition.ID })
+				if err != nil {
+					return "", err
+				}
+				return got.Resource.URI, nil
+			}))
+		}
+		if err := tool.AddInternalService(rt.Registry, uifeed.New(uiBridge, feedOptions...)); err != nil {
 			log.Printf("agently-app: failed to register internal UI feed service: %v", err)
 		}
 		if err := tool.AddInternalService(rt.Registry, uidatasource.New(uiBridge)); err != nil {

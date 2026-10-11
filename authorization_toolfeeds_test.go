@@ -131,8 +131,8 @@ func TestHostToolfeedsThroughMCPUseOperatorPolicyAndCurrentPins(t *testing.T) {
 	_, err = gateway.Get(ctx, namespaces[0].Connection, identity.ResourceRef{URI: uri}, got.ResolvedResource)
 	require.Error(t, err)
 	fresh, err := gateway.Get(ctx, namespaces[0].Connection, identity.ResourceRef{URI: uri}, nil)
-	require.NoError(t, err)
-	require.NotEqual(t, got.ResolvedResource.ContentFingerprint, fresh.ResolvedResource.ContentFingerprint)
+	require.Error(t, err, "changedstartupassets remain denied until restart")
+	require.Nil(t, fresh)
 	principal.principal.Facts.ValidUntil = time.Now().Add(-time.Second)
 	_, err = gateway.Get(ctx, namespaces[0].Connection, identity.ResourceRef{URI: uri}, nil)
 	require.Error(t, err)
@@ -200,14 +200,26 @@ func TestConfiguredHostRuntimeRegistersToolfeedSources(t *testing.T) {
 	got, err := rt.PrimitiveProviders.Get(ctx, namespaces[0].Connection, identity.ResourceRef{URI: uri}, nil)
 	require.NoError(t, err)
 	require.Equal(t, "host-resources", got.ResolvedResource.ProviderIdentity)
-	legacy, ok := backend.(interface{ ListFeedSpecs() []*sdk.FeedSpec })
+	scoped, ok := backend.(interface {
+		ListFeedSpecsContext(context.Context) ([]*sdk.FeedSpec, error)
+		GetFeedSpecContext(context.Context, string) (*sdk.FeedSpec, error)
+	})
 	require.True(t, ok)
-	specs := legacy.ListFeedSpecs()
+	specs, err := scoped.ListFeedSpecsContext(ctx)
+	require.NoError(t, err)
 	require.Len(t, specs, 1)
 	require.Equal(t, "legacy-terminal", specs[0].ID)
+	admitted, err := scoped.GetFeedSpecContext(ctx, "legacy-terminal")
+	require.NoError(t, err)
+	require.Equal(t, uri, admitted.URI)
 	var definition api.FeedSpec
 	require.NoError(t, json.Unmarshal(got.Resource.Definition, &definition))
-	require.Equal(t, *specs[0], definition)
+	original := *admitted
+	original.URI = ""
+	original.ProviderIdentity = ""
+	original.DefinitionFingerprint = ""
+	original.DefinitionRevision = ""
+	require.Equal(t, definition, original)
 	principal.principal.Facts.Roles = nil
 	_, err = rt.PrimitiveProviders.Get(ctx, namespaces[0].Connection, identity.ResourceRef{URI: got.Resource.URI}, nil)
 	require.Error(t, err)

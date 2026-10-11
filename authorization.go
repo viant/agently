@@ -477,11 +477,11 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 				return nil, err
 			}
 		}
-		nativeWindows, err = newInternalWindowSnapshot(context.Background(), workspaceRoot, workspaceConfig.ForgeReportingRoot(), config, config.nativeWindows)
+		nativeWindows, err = newInternalWindowSnapshot(context.Background(), workspaceRoot, workspaceConfig.ForgeReportingRoot(), config, config.nativeWindows || len(config.ToolfeedSources) > 0)
 		if err != nil {
 			return nil, err
 		}
-		if config.nativeWindows {
+		if config.nativeWindows || len(config.ToolfeedSources) > 0 {
 			if len(internal) != 1 || internal[0] == nil {
 				return nil, fmt.Errorf("native source initialization requires runtime registration")
 			}

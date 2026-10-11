@@ -51,7 +51,7 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 		return result, nil
 	}
 	result := &internalWindowSnapshot{framework: map[string]json.RawMessage{}}
-	if len(config.WindowResources) > 0 || (root != "" && len(config.FrameworkWindowResources) > 0) {
+	if len(config.WindowResources) > 0 || (root != "" && (len(config.FrameworkWindowResources) > 0 || len(config.ToolfeedSources) > 0)) {
 		// This registry belongs to one serialized snapshot compilation. It is
 		// refreshed through the same confined reader before authored enrichment.
 		var current *registry.Registry
@@ -78,7 +78,27 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 			// are process-owned while dependency imports use this same reader.
 			definitions = append(definitions, resources.NativeSnapshotDefinition{URI: binding.URI, Title: binding.WindowKey, FormatVersion: 2, File: "extension/forge", Load: resources.NativeComposedWindowLoader(binding, base, resources.StaticWorkspaceWindowEnricher(enrich))})
 		}
-		result.workspace, err = resources.NewNativeAssetSnapshot(ctx, root, definitions, resources.NativeSnapshotOptions{ImmutableUntilRestart: true, BeforeCompile: func(ctx context.Context, reader *resources.ExtensionReader) error {
+		var assetPaths []string
+		if len(config.WindowResources)+len(config.FrameworkWindowResources) > 0 {
+			assetPaths = append(assetPaths, "extension/forge")
+		}
+		seenAssets := map[string]bool{}
+		var feedDirectories []resources.ExtensionDirectory
+		for _, source := range config.ToolfeedSources {
+			feedDirectories = append(feedDirectories, resources.ToolfeedDirectory(source.Namespace, source.Directory))
+			if !seenAssets[source.Directory] {
+				assetPaths = append(assetPaths, source.Directory)
+				seenAssets[source.Directory] = true
+			}
+		}
+		if len(feedDirectories) > 0 {
+			feeds, e := resources.SnapshotToolfeedDefinitions(ctx, root, feedDirectories)
+			if e != nil {
+				return nil, e
+			}
+			definitions = append(definitions, feeds...)
+		}
+		result.workspace, err = resources.NewNativeAssetSnapshot(ctx, root, definitions, resources.NativeSnapshotOptions{AssetPaths: assetPaths, ImmutableUntilRestart: true, BeforeCompile: func(ctx context.Context, reader *resources.ExtensionReader) error {
 			options, check, err := resources.ConfinedReportingOptions(ctx, reader, registry.Options{WorkspaceRoot: root, ReportingRoot: reportingRoot})
 			if err != nil {
 				return err
