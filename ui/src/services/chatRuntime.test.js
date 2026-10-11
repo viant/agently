@@ -22,6 +22,7 @@ vi.mock('./elicitationBus', () => ({
 
 import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, clearPendingConversationBootstrap, connectStream, createNewConversation, dsTick, enqueueConversationSwitch, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, getSettledConversationBootstrapSnapshot, handleStreamEvent, hasPendingConversationBootstrap, hydrateMeta, hydrateConversationComposerSelection, recordConversationComposerSelection, refreshGoalFeed, refreshAfterElicitationResolution, syncConversationComposerSelection, hydrateConversationFromBootstrapSnapshot, installChatStoreMirror, isConversationLiveish, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolvePollingConversationSelection, resolveStarterTaskCategories, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
 import { client } from './agentlyClient';
+import { getAgUiHostActivities, replaceAgUiHostActivities } from './aguiHostActivities';
 import { applyFeedEvent, clearFeedState, getFeedData, getActiveFeeds } from './toolFeedBus';
 
 vi.mock('./agentlyClient', () => ({
@@ -3825,4 +3826,41 @@ it('renders history before slow approvals and rejects the earlier A generation a
   expect(chat.lastSyncReason).toBe('latest-aba-generation');
   expect(metadata.setFormData).not.toHaveBeenCalled();
   expect(replacePendingElicitationsForConversationMock).not.toHaveBeenCalled();
+});
+
+
+describe('late conversation host observer', () => {
+ it('attaches native host activities after a completed conversation hydrates late', async () => {
+  vi.useFakeTimers();
+  const originalWindow = global.window;
+  global.window = { setTimeout, clearTimeout, setInterval, clearInterval, localStorage:createStorage(), sessionStorage:createStorage(), location:{pathname:'/'} };
+  const form = { id:'', running:false, status:'succeeded' };
+  let handlers;
+  client.observesNativeWork = vi.fn(() => true);
+  client.streamEvents = vi.fn((_id, value) => { handlers=value;return {close:vi.fn()}; });
+  const context = {
+   identity:{windowId:'chat/late-host-observer'},
+   resources:{chat:{lastHasRunning:false,transcriptRows:[{id:'finished'}]}},
+   Context:name => name==='conversations' ? {handlers:{dataSource:{peekFormData:()=>form}}} : null,
+  };
+  try {
+   startPolling(context);
+   expect(client.streamEvents).not.toHaveBeenCalled();
+   form.id='late-completed';
+   await vi.advanceTimersByTimeAsync(4000);
+   expect(client.streamEvents).toHaveBeenCalledOnce();
+   expect(client.streamEvents).toHaveBeenCalledWith('late-completed',expect.any(Object));
+   const serverId='agui-app:late-host';
+   const resourceUri='ui://late/host';
+   handlers.onHostActivities([{id:'late-app',role:'activity',activityType:'mcp-apps',content:{serverId,serverHash:'hash',resourceUri,_agentlyApp:{version:'1',appInstanceId:'instance',publicServerId:serverId,serverHash:'hash',resourceUri}}}]);
+   expect(getAgUiHostActivities('late-completed')).toHaveLength(1);
+   expect(context.resources.chat.lastHasRunning).toBe(false);
+  } finally {
+   stopPolling(context);
+   replaceAgUiHostActivities('late-completed',[],'agently');
+   delete client.observesNativeWork;
+   global.window=originalWindow;
+   vi.useRealTimers();
+  }
+ });
 });

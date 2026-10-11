@@ -111,6 +111,7 @@ vi.mock('../utils/dialogBus', () => ({
 }));
 
 import { onInit } from './chatService';
+import { client } from './agentlyClient';
 
 describe('onInit', () => {
   beforeEach(() => {
@@ -368,4 +369,23 @@ describe('onInit', () => {
     expect(convForm).toMatchObject({ id: 'conv-a', title: 'Current A title' });
     expect(conversationsDS.setFormData).not.toHaveBeenCalled();
   });
+  it('observes native host activities immediately when completed history finishes hydrating', async () => {
+    const form = { id:'conv-native-complete', running:false, status:'succeeded' };
+    const conversationsDS = { peekFormData:()=>form, setFormData:vi.fn(({values})=>Object.assign(form,values)) };
+    const context = { Context(name) {
+      if(name==='conversations')return {handlers:{dataSource:conversationsDS}};
+      if(name==='messages')return {handlers:{dataSource:{setCollection:vi.fn(),setError:vi.fn()}}};
+      if(name==='meta')return {handlers:{dataSource:{peekFormData:()=>({defaults:{}})}}};
+      return null;
+    } };
+    client.observesNativeWork=vi.fn(()=>true);
+    fetchConversationMock.mockResolvedValue({...form});
+    dsTickMock.mockResolvedValue({conversationID:form.id,hasRunning:false,projection:[{id:'finished'}]});
+    try {
+      await onInit({context});
+      expect(syncConversationTransportMock).toHaveBeenCalledWith(context,form.id);
+      expect(disconnectStreamMock).not.toHaveBeenCalled();
+    } finally { delete client.observesNativeWork; }
+  });
+
 });
