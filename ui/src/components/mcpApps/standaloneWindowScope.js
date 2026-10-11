@@ -50,6 +50,8 @@ export function applyStandaloneAdmission(store, scopeId, windowId, selection) {
   const next = {...current, ...structuredClone(selection),
     windowId: current.windowId, windowKey: current.windowKey,
     windowScopeId: scopeId, parentKey: current.parentKey,
+    // Local delivery readiness only; never a permission or backend grant.
+    standaloneAdmissionComplete: true,
     inTab: current.inTab, isModal: current.isModal,
     presentation: current.presentation, region: current.region,
     windowTitle: current.windowTitle || selection.windowTitle,
