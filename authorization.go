@@ -592,7 +592,6 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 			// Install the composite before HTTP/runtime consumers capture the
 			// catalog. Late internal binding replaces only its local side.
 			builder.WithPrimitiveWindows(configuredRemoteWindowAdmission(prepared), options.WindowTargetProof)
-			builder.WithPrimitiveDatasourceAdmission(configuredRemoteDatasourceAdmission(prepared))
 		}
 		if reportCatalog != nil {
 			builder.WithReportResources(reportCatalog, reportResolver)
