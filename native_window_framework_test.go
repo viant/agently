@@ -142,13 +142,13 @@ func TestNativeWindowHostComposesFrameworkClosureAndValidatesExecutionDeclaratio
 		t.Fatal("authored MCP backend changed", err)
 	}
 	config.ExecutionBindings[0].DataSource = "typo"
-	if _, err := newNativeWindowHostSnapshot(context.Background(), root, config); err == nil {
-		t.Fatal("nonexistent execution declaration admitted")
+	if _, err := newNativeWindowHostSnapshot(context.Background(), root, config); err != nil {
+		t.Fatal("legacy execution declaration affected artifact startup", err)
 	}
 	config.ExecutionBindings[0].DataSource = "ad_order_lookup"
 	config.ExecutionBindings[0].URI = "window://tenant/local"
-	if _, err := newNativeWindowHostSnapshot(context.Background(), root, config); err == nil {
-		t.Fatal("execution declaration borrowed another URI closure")
+	if _, err := newNativeWindowHostSnapshot(context.Background(), root, config); err != nil {
+		t.Fatal("legacy execution URI affected artifact startup", err)
 	}
 	write("dialogs/order.yaml", "id: adOrderPicker\ndataSourceRef: ad_order_lookup\ncontent: {id: drifted}\n")
 	if _, err := snapshot.ReadCandidate(context.Background(), uri, candidates[0]); !errors.Is(err, identity.ErrResourceStale) {

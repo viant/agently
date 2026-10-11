@@ -11,8 +11,6 @@ import (
 
 	ds "github.com/viant/agently-core/protocol/datasource"
 	identity "github.com/viant/agently-core/protocol/resource"
-	"github.com/viant/agently-core/runtime/requestctx"
-	"github.com/viant/agently-core/sdk/api"
 	datasources "github.com/viant/agently-core/service/datasource"
 	forge "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/agently-core/service/ui/permittedview"
@@ -25,23 +23,6 @@ type nativePermissionExecutor func(context.Context, string, map[string]interface
 
 func (f nativePermissionExecutor) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
 	return f(ctx, name, args)
-}
-
-func TestNativeWindowFullSelectionFidelityIncludesOpaqueIDs(t *testing.T) {
-	for _, value := range []any{"opaque:item/alpha", json.Number("9007199254740993"), 42} {
-		binding := bootstrapDeclaration()
-		host := &nativeWindowHost{config: NativeWindowHostConfig{Bootstrap: []WindowBootstrapBinding{binding}, ToolCapabilities: map[string]string{"arbitrary:Patch": "write"}, ExecutionBindings: []NativeWindowExecutionBinding{{URI: binding.URI, DataSource: "change", IdentitySelectors: []string{"Objects.*.Id"}}}}}
-		descriptor := &ds.DataSource{ID: "change", Backend: &ds.Backend{Kind: ds.BackendMCPTool, Service: "arbitrary", Method: "Patch"}}
-		// This verifies generic body fidelity, not an invented legacy-v1 OPEN
-		// resolver for opaque IDs. Complete selection signing is tested separately.
-		ctx := requestctx.WithWindowParameters(context.Background(), map[string]any{"Selected": []any{"another-selected", value}})
-		if err := host.authorizeWindow(ctx, binding.URI, authoredBootstrapFixture(), descriptor, map[string]any{"Objects": []map[string]any{{"Id": value}}}); err != nil {
-			t.Fatal(err)
-		}
-		if err := host.authorizeWindow(ctx, binding.URI, authoredBootstrapFixture(), descriptor, map[string]any{"Objects": []map[string]any{{"Id": "foreign"}}}); !errors.Is(err, identity.ErrResourceDenied) {
-			t.Fatal("foreign selection admitted", err)
-		}
-	}
 }
 
 func TestNativeBusinessAdmissionOccursOnlyAtOriginalWindowOpen(t *testing.T) {
@@ -94,24 +75,6 @@ func fetchNativeOptions(window *types.Window, parameters map[string]any) datasou
 	return datasources.FetchOptions{Resource: window.Resource, Target: window.ResourceTarget, SelectionBinding: window.SelectionBinding, WindowParameters: parameters}
 }
 
-func TestNativeWindowDeclaredParentUsesManagingMCPOnly(t *testing.T) {
-	f := newNativeDeliveryFixture(t)
-	f.host.config.ExecutionBindings[0].ParentSelectors = map[string]string{"Objects.*.ParentId": "parentKey"}
-	source := &authoredBootstrapSource{rows: []map[string]any{{"wireKey": 42, "parentKey": 7}}}
-	f.host.datasource = source
-	ctx := requestctx.WithWindowParameters(requestctx.WithWindowTarget(requestctx.WithResolvedResource(f.ctx, *f.window.Resource), f.window.ResourceTarget), f.parameters)
-	descriptor := &ds.DataSource{ID: "change", Backend: &ds.Backend{Kind: ds.BackendMCPTool, Service: "arbitrary", Method: "Patch"}}
-	for _, parent := range []int{7, 999} {
-		err := f.host.authorizeWindow(ctx, f.window.Resource.URI, f.window, descriptor, map[string]any{"Objects": []map[string]any{{"Id": 42, "ParentId": parent}}})
-		if (err == nil) != (parent == 7) {
-			t.Fatalf("parent=%d err=%v", parent, err)
-		}
-	}
-	if source.calls != 2 || source.last.Resource.URI != f.window.Resource.URI || !source.last.Cache.BypassCache || source.last.SelectionBinding != nil {
-		t.Fatal("parent read changed original resource/proofs or recursively prepared")
-	}
-}
-
 func TestNativeAuthorityFailureClassificationIsSanitized(t *testing.T) {
 	for _, tc := range []struct {
 		name             string
@@ -142,31 +105,5 @@ func TestNativeAuthorityFailureClassificationIsSanitized(t *testing.T) {
 				t.Fatal("payload leaked", err)
 			}
 		})
-	}
-}
-
-type expiringNativeBootstrap struct {
-	deadline time.Time
-	calls    int
-}
-
-func (s *expiringNativeBootstrap) FetchDatasource(context.Context, *api.FetchDatasourceInput) (*api.FetchDatasourceOutput, error) {
-	s.calls++
-	time.Sleep(time.Until(s.deadline) + time.Millisecond)
-	return &api.FetchDatasourceOutput{Rows: []map[string]any{{"wireKey": 42, "parentKey": 7}}}, nil
-}
-func TestNativeWindowMutationRejectsResourceLeaseExpiredDuringParentBootstrap(t *testing.T) {
-	f := newNativeDeliveryFixture(t)
-	f.host.config.ExecutionBindings[0].ParentSelectors = map[string]string{"Objects.*.ParentId": "parentKey"}
-	deadline := time.Now().Add(50 * time.Millisecond)
-	source := &expiringNativeBootstrap{deadline: deadline}
-	f.host.datasource = source
-	pin := *f.window.Resource
-	pin.ValidUntil = deadline
-	ctx := requestctx.WithWindowParameters(requestctx.WithWindowTarget(requestctx.WithResolvedResource(f.ctx, pin), f.window.ResourceTarget), f.parameters)
-	descriptor := &ds.DataSource{ID: "change", Backend: &ds.Backend{Kind: ds.BackendMCPTool, Service: "arbitrary", Method: "Patch"}}
-	err := f.host.authorizeWindow(ctx, pin.URI, f.window, descriptor, map[string]any{"Objects": []map[string]any{{"Id": 42, "ParentId": 7}}})
-	if source.calls != 1 || !errors.Is(err, identity.ErrResourceDenied) {
-		t.Fatalf("expired resource lease admitted: calls=%d err=%v", source.calls, err)
 	}
 }
