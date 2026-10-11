@@ -57,9 +57,12 @@ export function appendTargetContext(params, targetContext = {}) {
   capabilities.forEach((capability) => params.append('capabilities', capability));
 }
 
-export function loadSelectedWindow(windowKey, parameters, targetContext = {}) {
+export function loadSelectedWindow(windowKey, parameters, targetContext = {}, routing = {}) {
     const requestParams = new URLSearchParams();
     appendTargetContext(requestParams, targetContext);
+    // Catalog routing hints only; never carry another window's authority.
+    if (routing.namespace) requestParams.set('namespace', routing.namespace);
+    if (routing.providerIdentity) requestParams.set('providerIdentity', routing.providerIdentity);
     // Selection parameters must reach server admission before rendering the
     // window. Client parameters describe the selection; the server resolves
     // the protected resource and decides its capabilities.

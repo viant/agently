@@ -34,7 +34,7 @@ afterEach(async()=>{
 });
 function admitted(key){
  const selectionBinding={actor:{issuer:'issuer',subject:'actor',tenantId:'tenant',accountId:'account'},instanceId:`${key}-instance`,parametersDigest:`${key}-digest`,token:`${key}-signed`,opaque:{preserved:true}};
- const resource={uri:`window://example/${key}`,kind:'working',contentFingerprint:`${key}-pin`,authorityBinding:`${key}-authority`,validUntil:'2030-01-01T00:00:00.123456789Z'};
+ const resource={providerIdentity:'owned-independent-report',uri:`window://example/${key}`,kind:'working',contentFingerprint:`${key}-pin`,authorityBinding:`${key}-authority`,validUntil:'2030-01-01T00:00:00.123456789Z'};
  const resourceTarget={platform:'web',formFactor:'desktop',selectionToken:`${key}-target`,dependencyPins:{rows:{uri:`datasource://example/${key}/rows`,contentFingerprint:`${key}-source`}},executionProof:{token:`${key}-proof`}};
  return {resource,resourceTarget,selectionBinding,authorization:{scope:'resource'},authorizationSnapshot:{schemaVersion:2,expiresAt:'2000-01-01T00:00:00Z',resource:{capabilities:{read:false,write:false}}},dataSource:{rows:{service:{uri:`datasources/${key}/fetch`,endpoint:'appAPI',method:'POST'},selectionMode:'none'}},view:{content:{id:`${key}-content`,kind:'test.native-navigation',dataSourceRef:'rows'}}};
 }
@@ -57,8 +57,9 @@ it.each(['signed','unsigned'])('opens an authored child, returns without remount
    expect(JSON.parse(request.searchParams.get('windowParams'))).toEqual(parameters);
    expect(request.searchParams.get('platform')).toBe('web');
    expect(request.searchParams.get('formFactor')).toBe('desktop');
+   if(key!=='Root'){expect(request.searchParams.get('namespace')).toBe('example');expect(request.searchParams.get('providerIdentity')).toBe('owned-independent-report');expect(request.searchParams.has('resolvedResource')).toBe(false);expect(request.searchParams.has('resourceRef')).toBe(false);}
    if(delivery==='unsigned'&&key==='Child')await new Promise(resolve=>{releaseChild=resolve});
-   return new Response(JSON.stringify({data:frame(key)}),{status:200,headers:{'Content-Type':'application/json'}});
+   return new Response(JSON.stringify({data:{...frame(key),windowKey:`window://example/${key}`}}),{status:200,headers:{'Content-Type':'application/json'}});
   }
   if(request.pathname.endsWith('/fetch')){
    const owner=request.pathname.split('/').at(-2);
