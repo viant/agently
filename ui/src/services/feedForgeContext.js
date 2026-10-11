@@ -177,6 +177,8 @@ export function createFeedContext(feedId, dataSources = {}, conversationId = '',
   };
 
   const identity = {
+    feedId,
+    conversationId,
     conversationId: String(conversationId || '').trim(),
     windowId,
     dataSourceRef: firstDS,
