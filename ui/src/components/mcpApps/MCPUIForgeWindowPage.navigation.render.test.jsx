@@ -38,7 +38,9 @@ function admitted(key){
  const resourceTarget={platform:'web',formFactor:'desktop',selectionToken:`${key}-target`,dependencyPins:{rows:{uri:`datasource://example/${key}/rows`,contentFingerprint:`${key}-source`}},executionProof:{token:`${key}-proof`}};
  return {resource,resourceTarget,selectionBinding,authorization:{scope:'resource'},authorizationSnapshot:{schemaVersion:2,expiresAt:'2000-01-01T00:00:00Z',resource:{capabilities:{read:false,write:false}}},dataSource:{rows:{service:{uri:`datasources/${key}/fetch`,endpoint:'appAPI',method:'POST'},selectionMode:'none'}},view:{content:{id:`${key}-content`,kind:'test.native-navigation',dataSourceRef:'rows'}}};
 }
-it('opens an authored child, returns without remounting, and owns only its admitted windows',async()=>{
+it.each(['signed','unsigned'])('opens an authored child, returns without remounting, and owns only its admitted windows (%s)',async(delivery)=>{
+ const frame=key=>{const value=admitted(key);if(delivery==='unsigned'){delete value.selectionBinding;delete value.authorization;delete value.authorizationSnapshot;}return value;};
+ let releaseChild;
  globalThis.IS_REACT_ACT_ENVIRONMENT=true;
  const unrelated=addWindow('Unrelated','foreign','Foreign','',true,{}, {inlineMetadata:{view:{content:{id:'foreign',kind:'test.native-navigation'}}}});
  const foreignFloat=addWindow('Foreign float','foreign','ForeignFloat','',false,{}, {inlineMetadata:{view:{content:{id:'foreign-float',kind:'test.native-navigation'}}}});
@@ -55,12 +57,13 @@ it('opens an authored child, returns without remounting, and owns only its admit
    expect(JSON.parse(request.searchParams.get('windowParams'))).toEqual(parameters);
    expect(request.searchParams.get('platform')).toBe('web');
    expect(request.searchParams.get('formFactor')).toBe('desktop');
-   return new Response(JSON.stringify({data:admitted(key)}),{status:200,headers:{'Content-Type':'application/json'}});
+   if(delivery==='unsigned'&&key==='Child')await new Promise(resolve=>{releaseChild=resolve});
+   return new Response(JSON.stringify({data:frame(key)}),{status:200,headers:{'Content-Type':'application/json'}});
   }
   if(request.pathname.endsWith('/fetch')){
    const owner=request.pathname.split('/').at(-2);
    const body=JSON.parse(options.body);posts.push({owner,body});
-   expect(body).toMatchObject({resource:admitted(owner).resource,target:admitted(owner).resourceTarget,selectionBinding:admitted(owner).selectionBinding,windowParameters:parameters});
+   expect(body).toMatchObject({resource:frame(owner).resource,target:frame(owner).resourceTarget,...(delivery==='signed'?{selectionBinding:frame(owner).selectionBinding}:{}),windowParameters:parameters});
    return new Response(JSON.stringify({data:[{id:`${owner}-row`}]}),{status:200,headers:{'Content-Type':'application/json'}});
   }
   throw new Error(`Unexpected request ${request.pathname}`);
@@ -74,13 +77,14 @@ it('opens an authored child, returns without remounting, and owns only its admit
  const parent=[...contexts.entries()].find(([,context])=>context.windowState.windowKey==='Root');
  const parentContext=parent[1];
  await act(async()=>Array.from(element.querySelectorAll('button')).find(button=>button.textContent==='Open original child').click());await flush();
+ if(delivery==='unsigned'){expect(element.querySelector('[data-native-window="Child"]')).toBeNull();expect(posts.map(post=>post.owner)).toEqual(['Root']);await act(async()=>releaseChild());await flush();}
  expect(element.querySelector('[data-native-window="Child"]')).not.toBeNull();
  const rootTab=Array.from(element.querySelectorAll('[role="tab"]')).find(tab=>tab.textContent.includes('Root'));
  expect(rootTab).toBeDefined();
  await act(async()=>rootTab.click());await flush();
  expect(element.querySelector('[data-native-window="Root"]')).not.toBeNull();
  expect(mounts.get(parent[0])).toBe(1);
- expect(getWindowContext(parent[0]).windowState.selectionBinding).toEqual(admitted("Root").selectionBinding);
+ expect(getWindowContext(parent[0]).windowState.selectionBinding).toEqual(frame("Root").selectionBinding);
  expect(getWindowContext(parent[0]).windowState.openedWindowParameters).toEqual(parameters);
  expect(opens).toEqual({Root:1,Child:1,ChildFloat:0});
  expect(posts.map(post=>post.owner)).toEqual(['Root','Child']);
@@ -142,4 +146,25 @@ it('retains the default manager behavior for ordinary tabs and floating windows'
  await act(async()=>window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'})));await flush();
  expect(activeWindows.peek().some(entry=>entry.windowId===floating.windowId)).toBe(false);
  expect(activeWindows.peek().some(entry=>entry.windowId===tab.windowId)).toBe(true);
+});
+
+it('shows a child HTTP admission error without mounting its content or fetching its data',async()=>{
+ globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+ window.history.replaceState({},'',`/mcp-ui/forge-window?${new URLSearchParams({windowKey:'Root',windowParams:JSON.stringify(parameters)})}`);
+ const posted=[];
+ vi.stubGlobal('fetch',vi.fn(async(url,options={})=>{
+  const request=new URL(String(url),'http://localhost');
+  if(request.pathname==='/v1/api/agently/forge/window/Child')return new Response('child unavailable',{status:403});
+  if(request.pathname==='/v1/api/agently/forge/window/Root'){
+   const value=admitted('Root');delete value.selectionBinding;delete value.authorization;delete value.authorizationSnapshot;
+   return new Response(JSON.stringify({data:value}),{status:200,headers:{'Content-Type':'application/json'}});
+  }
+  expect(request.pathname).toBe('/v1/api/datasources/Root/fetch');posted.push(JSON.parse(options.body));
+  return new Response(JSON.stringify({data:[{id:'Root-row'}]}),{status:200,headers:{'Content-Type':'application/json'}});
+ }));
+ element=document.createElement('div');document.body.append(element);root=createRoot(element);
+ await act(async()=>root.render(<SettingProvider endpoints={{appAPI:{baseURL:'/v1/api'}}} connectorConfig={{window:{service:{uri:'agently/forge/window',endpoint:'appAPI'}}}} services={{prepareDataConnectorRequest:prepareAgentlyDataConnectorRequest,applyPermission:()=>{throw new Error('Duplicate preflight')}}} targetContext={{platform:'web',formFactor:'desktop'}}><MCPUIForgeWindowPage/></SettingProvider>));await flush();
+ await act(async()=>Array.from(element.querySelectorAll('button')).find(button=>button.textContent==='Open original child').click());await flush();
+ expect(element.querySelector('[role="alert"]')?.textContent).toBe('child unavailable');
+ expect(element.querySelector('[data-native-window="Child"]')).toBeNull();expect(posted).toHaveLength(1);
 });

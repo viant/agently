@@ -22,13 +22,13 @@ export default function StandaloneForgeWindowSurface({selectedWindow, loadWindow
       const windows = activeWindows.peek();
       for (const id of pending.keys()) { if (!windows.some(entry => entry.windowId === id && entry.windowScopeId === scopeId)) pending.delete(id); }
       for (const entry of activeWindows.peek()) {
-        if (entry.windowScopeId !== scopeId || entry.windowId === root.windowId || pending.has(entry.windowId) || entry.inlineMetadata?.selectionBinding && entry.inlineMetadata?.view) continue;
+        if (entry.windowScopeId !== scopeId || entry.windowId === root.windowId || pending.has(entry.windowId) || entry.standaloneAdmissionComplete) continue;
         const request = {parameters: structuredClone(entry.parameters || {})};
         pending.set(entry.windowId, request);
         Promise.resolve().then(() => loadWindow(entry.windowKey, request.parameters, targetContext))
           .then(selected => {
             if (!active || pending.get(entry.windowId) !== request) return;
-            if (!selected?.inlineMetadata?.selectionBinding || !selected?.inlineMetadata?.view) throw new Error('Selected window frame is incomplete');
+            if (!selected?.inlineMetadata?.view) throw new Error('Selected window frame is incomplete');
             applyStandaloneAdmission(store, scopeId, entry.windowId, selected);
           })
           .catch(error => {
@@ -50,8 +50,10 @@ export default function StandaloneForgeWindowSurface({selectedWindow, loadWindow
   const onCloseWindow = React.useCallback(id => closeStandaloneBranch({activeWindows, removeWindow}, mountedScope?.scopeId, id), [mountedScope?.scopeId]);
   const renderWindowContent = React.useCallback(({window: entry, defaultContent}) => {
     if (entry.standaloneOpenError) return <div role="alert" style={{padding: 20}}>{entry.standaloneOpenError}</div>;
-    if (!entry.inlineMetadata?.selectionBinding || !entry.inlineMetadata?.view) return <div role="status" style={{padding: 20}}>Loading workspace window...</div>;
-    return defaultContent;
+    if (!entry.standaloneAdmissionComplete || !entry.inlineMetadata?.view) return <div role="status" style={{padding: 20}}>Loading workspace window...</div>;
+    // The frame came from the completed selected GET. This delivery input
+    // avoids a duplicate metadata request; data execution stays server managed.
+    return React.cloneElement(defaultContent, {selectedMetadata: entry.inlineMetadata});
   }, []);
   return mountedScope?.rootId ? <WindowManager includeHosted windowFilter={windowFilter} onCloseWindow={onCloseWindow} renderWindowContent={renderWindowContent} /> : null;
 }

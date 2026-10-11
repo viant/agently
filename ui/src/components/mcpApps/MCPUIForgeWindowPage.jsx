@@ -21,9 +21,9 @@ export function buildWindowPayload(windowKey, payload, parameters) {
   const normalizedWindowId = `mcpui:${normalizedWindowKey}`;
   return {
     ...data,
-    // A signed OPEN supplies one complete admitted frame. Keep its definition
+    // A completed selected OPEN supplies one complete definition. Keep its definition
     // and original parameters together; dynamic frames need no second GET.
-    ...(data?.selectionBinding && data?.view ? {
+    ...(data?.view ? {
       inlineMetadata: JSON.parse(JSON.stringify(data)),
       openedWindowParameters: JSON.parse(JSON.stringify(parameters && typeof parameters === 'object' ? parameters : {})),
     } : {}),
