@@ -12,7 +12,6 @@ import (
 	"github.com/viant/forge/backend/service/meta"
 	"log"
 	"os"
-	"reflect"
 	"strings"
 
 	"github.com/viant/agently-core/app/executor"
@@ -31,7 +30,7 @@ import (
 
 // NativeWindowHostConfig binds operator-installed templates without replacing
 // the workspace's explicitly configured MCP permission provider.
-// ToolCapabilities classifies exact methods for selection fidelity only.
+// ToolCapabilities and ExecutionBindings are retained for config compatibility only.
 // Managing MCP owns data authorization; no UI business grant is consulted.
 type NativeWindowHostConfig struct {
 	SchemaVersion     int                            `json:"schemaVersion"`
@@ -44,10 +43,8 @@ type NativeWindowHostConfig struct {
 	ExecutionBindings []NativeWindowExecutionBinding `json:"executionBindings"`
 }
 
-// NativeWindowExecutionBinding correlates an exact authored mutation to the
-// selected entity. Selectors traverse fixed object keys and array wildcards.
-// Selected-entity mutations require their declared body relation. This
-// establishes fidelity to the signed selection, never a business ACL grant.
+// NativeWindowExecutionBinding is a legacy declaration retained for config decoding.
+// The managing MCP endpoint owns argument and entity authorization.
 type NativeWindowExecutionBinding struct {
 	URI               string            `json:"uri"`
 	DataSource        string            `json:"dataSource"`
@@ -81,50 +78,7 @@ func newNativeWindowHostSnapshot(ctx context.Context, root string, config Native
 	if err != nil {
 		return nil, err
 	}
-	if err := validateNativeExecutionDefinitions(ctx, snapshot, config.ExecutionBindings); err != nil {
-		return nil, err
-	}
 	return snapshot, nil
-}
-
-// Declarations are checked against the compiled closure of their exact URI.
-// A declaration may be specific to an authored target variant.
-func validateNativeExecutionDefinitions(ctx context.Context, source identity.ResourceSource, bindings []NativeWindowExecutionBinding) error {
-	for _, binding := range bindings {
-		uri, err := identity.ParseResourceURI(binding.URI)
-		if err != nil {
-			return err
-		}
-		candidates, err := source.Candidates(ctx, uri)
-		if err != nil || len(candidates) != 1 {
-			return fmt.Errorf("native execution window unavailable: %s", binding.URI)
-		}
-		raw, err := source.ReadCandidate(ctx, uri, candidates[0])
-		if err != nil {
-			return err
-		}
-		var envelope types.WindowResourceEnvelope
-		if err = json.Unmarshal(raw, &envelope); err != nil {
-			return err
-		}
-		if err = envelope.Validate(); err != nil {
-			return err
-		}
-		found := false
-		for _, variant := range envelope.Variants {
-			if descriptor, ok := variant.DataSources[binding.DataSource]; ok {
-				var parsed ds.DataSource
-				if json.Unmarshal(descriptor, &parsed) == nil && parsed.ID == binding.DataSource {
-					found = true
-					break
-				}
-			}
-		}
-		if !found {
-			return fmt.Errorf("native execution datasource %s absent from %s", binding.DataSource, binding.URI)
-		}
-	}
-	return nil
 }
 
 type nativeWindowHost struct {
@@ -158,11 +112,6 @@ func configureNativeWindowHost(options ServeOptions) (ServeOptions, error) {
 	}
 	if e = validateNativeWindowConfig(config); e != nil {
 		return options, e
-	}
-	for _, cap := range config.ToolCapabilities {
-		if cap != "read" && cap != "write" && cap != "archive" {
-			return options, fmt.Errorf("invalid native tool capability")
-		}
 	}
 	providers, e := oauth.NewHTTPProviders(context.Background(), config.Identity, nil)
 	if e != nil {
@@ -346,93 +295,6 @@ func (h *nativeWindowHost) authorizeMode(ctx context.Context, descriptor *ds.Dat
 	if definition == nil || definition.Definition == nil {
 		return identity.ErrResourceDenied
 	}
-	return h.authorizeWindow(ctx, pin.URI, definition.Definition, descriptor, inputs)
-}
-
-// A datasource admission checks only original artifact and selection fidelity.
-// Its managing MCP endpoint owns every business read/write authorization check.
-func (h *nativeWindowHost) authorizeWindow(ctx context.Context, uri string, window *types.Window, descriptor *ds.DataSource, inputs map[string]interface{}) error {
-	if h == nil || window == nil || descriptor == nil {
-		return identity.ErrResourceDenied
-	}
-	classification := "read"
-	if descriptor.Backend != nil && descriptor.Backend.Kind == ds.BackendMCPTool {
-		var known bool
-		classification, known = h.config.ToolCapabilities[descriptor.Backend.Service+":"+descriptor.Backend.Method]
-		if !known {
-			return identity.ErrResourceDenied
-		}
-	} else if descriptor.Backend != nil && descriptor.Backend.Kind != ds.BackendInline {
-		return identity.ErrResourceDenied
-	}
-	if marker, _ := ctx.Value(nativeBootstrapKey{}).(*nativeBootstrapRead); marker != nil && marker.owner == h && classification != "read" {
-		return identity.ErrResourceDenied
-	}
-	parameters := requestctx.WindowParametersFromContext(ctx)
-	for _, parameter := range descriptor.Parameters {
-		from := parameter.From
-		if from == "" {
-			from = parameter.In
-		}
-		if from != "windowForm" {
-			continue
-		}
-		actual, supplied := inputs[parameter.Name]
-		if !supplied {
-			continue
-		}
-		expected, present := bootstrapParameterValue(parameters, parameter.Location)
-		if !present || !nativeJSONEqual(actual, expected) {
-			return identity.ErrResourceDenied
-		}
-	}
-	if classification == "read" {
-		return nil
-	}
-	var selection *WindowBootstrapBinding
-	for i := range h.config.Bootstrap {
-		if h.config.Bootstrap[i].URI == uri {
-			selection = &h.config.Bootstrap[i]
-			break
-		}
-	}
-	var binding *NativeWindowExecutionBinding
-	for i := range h.config.ExecutionBindings {
-		candidate := &h.config.ExecutionBindings[i]
-		if candidate.URI == uri && candidate.DataSource == descriptor.ID {
-			if binding != nil {
-				return identity.ErrResourceDenied
-			}
-			binding = candidate
-		}
-	}
-	if binding == nil {
-		if selection != nil {
-			return identity.ErrResourceDenied
-		}
-		return nil // No selected-entity relation was declared for this principal action.
-	}
-	if selection == nil || len(binding.IdentitySelectors) == 0 {
-		return identity.ErrResourceDenied
-	}
-	selected, present := parameters[selection.Parameter]
-	if !present {
-		return identity.ErrResourceDenied
-	}
-	for _, selector := range binding.IdentitySelectors {
-		values, err := nativeSelectionValues(inputs, strings.Split(selector, "."))
-		if err != nil || len(values) == 0 {
-			return identity.ErrResourceDenied
-		}
-		for _, value := range values {
-			if !nativeSelectionContains(selected, value) {
-				return identity.ErrResourceDenied
-			}
-		}
-	}
-	if len(binding.ParentSelectors) != 0 {
-		return h.verifyParentSelection(ctx, *selection, *binding, inputs)
-	}
 	return nil
 }
 
@@ -461,71 +323,6 @@ func nativeWindowAuthorityError(err error) error {
 	}
 }
 
-func nativeOptionalSelectionValues(value any, path []string) ([]any, error) {
-	if len(path) == 0 {
-		return []any{value}, nil
-	}
-	if path[0] == "*" {
-		v := reflect.ValueOf(value)
-		if !v.IsValid() || (v.Kind() != reflect.Slice && v.Kind() != reflect.Array) || v.Len() == 0 {
-			return nil, identity.ErrResourceDenied
-		}
-		var values []any
-		for i := 0; i < v.Len(); i++ {
-			found, e := nativeOptionalSelectionValues(v.Index(i).Interface(), path[1:])
-			if e != nil {
-				return nil, e
-			}
-			values = append(values, found...)
-		}
-		return values, nil
-	}
-	m, ok := value.(map[string]interface{})
-	if !ok {
-		return nil, identity.ErrResourceDenied
-	}
-	v, exists := m[path[0]]
-	if !exists {
-		return nil, nil
-	}
-	return nativeOptionalSelectionValues(v, path[1:])
-}
-
-func sameNativeSelection(actual, expected any) bool {
-	a, ea := authoredBootstrapIDs(actual)
-	b, eb := authoredBootstrapIDs(expected)
-	return ea == nil && eb == nil && reflect.DeepEqual(a, b)
-}
-func nativeSelectionValues(value any, path []string) ([]any, error) {
-	if len(path) == 0 {
-		return []any{value}, nil
-	}
-	if path[0] == "*" {
-		v := reflect.ValueOf(value)
-		if !v.IsValid() || (v.Kind() != reflect.Slice && v.Kind() != reflect.Array) || v.Len() == 0 {
-			return nil, identity.ErrResourceDenied
-		}
-		var result []any
-		for i := 0; i < v.Len(); i++ {
-			found, e := nativeSelectionValues(v.Index(i).Interface(), path[1:])
-			if e != nil {
-				return nil, e
-			}
-			result = append(result, found...)
-		}
-		return result, nil
-	}
-	m, ok := value.(map[string]interface{})
-	if !ok {
-		return nil, identity.ErrResourceDenied
-	}
-	next, ok := m[path[0]]
-	if !ok || path[0] == "" {
-		return nil, identity.ErrResourceDenied
-	}
-	return nativeSelectionValues(next, path[1:])
-}
-
 func validateNativeWindowConfig(config NativeWindowHostConfig) error {
 	if err := validateWindowBootstrapBindings(config.Bootstrap); err != nil {
 		return err
@@ -542,41 +339,5 @@ func validateNativeWindowConfig(config NativeWindowHostConfig) error {
 			return fmt.Errorf("bootstrap outside native catalog")
 		}
 	}
-	seen := map[string]bool{}
-	for _, b := range config.ExecutionBindings {
-		key := b.URI + "\x00" + b.DataSource
-		if windows[b.URI] == "" || b.DataSource == "" || seen[key] || len(b.IdentitySelectors) == 0 {
-			return fmt.Errorf("invalid native execution binding")
-		}
-		seen[key] = true
-		for _, selector := range b.IdentitySelectors {
-			if !validNativeSelector(selector) {
-				return fmt.Errorf("invalid native identity selector")
-			}
-		}
-		for selector, field := range b.ParentSelectors {
-			if !validNativeSelector(selector) || field == "" || strings.ContainsAny(field, ".*/[]") {
-				return fmt.Errorf("invalid native parent selector")
-			}
-		}
-	}
 	return nil
-}
-func validNativeSelector(selector string) bool {
-	if selector == "" {
-		return false
-	}
-	parts := strings.Split(selector, ".")
-	if parts[0] == "*" {
-		return false
-	}
-	for _, part := range parts {
-		if part == "*" {
-			continue
-		}
-		if part == "" || strings.TrimSpace(part) != part || strings.ContainsAny(part, "/[]*") {
-			return false
-		}
-	}
-	return parts[len(parts)-1] != "*"
 }

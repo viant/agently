@@ -249,7 +249,7 @@ func TestNativeNewDeliveryValidAndExpiredSelection(t *testing.T) {
 }
 
 func TestNativeNewDeliveryRejectsTamperingAndRevokedMappingsBeforeDispatch(t *testing.T) {
-	for _, change := range []string{"selection", "actor", "issuer", "tenant", "account", "disabled", "mapping", "canonical", "namespace", "candidate", "signature", "target", "missing binding", "canceled", "source drift", "body selection", "association", "window decision", "held dispatch", "prepared inheritance", "namespace revoked", "nested selection", "unclassified method"} {
+	for _, change := range []string{"selection", "actor", "issuer", "tenant", "account", "disabled", "mapping", "canonical", "namespace", "candidate", "signature", "target", "missing binding", "canceled", "source drift", "association", "window decision", "held dispatch", "prepared inheritance", "namespace revoked", "nested selection"} {
 		t.Run(change, func(t *testing.T) {
 			f := newNativeDeliveryFixture(t)
 			binding := f.bind(t)
@@ -289,8 +289,6 @@ func TestNativeNewDeliveryRejectsTamperingAndRevokedMappingsBeforeDispatch(t *te
 				c, cancel := context.WithCancel(ctx)
 				cancel()
 				ctx = c
-			case "body selection":
-				inputs = map[string]any{"Objects": []map[string]any{{"Id": 99}}}
 			case "association":
 				var err error
 				ctx, err = requestctx.WithResourceReadAssociation(ctx, &pin, &target)
@@ -307,8 +305,6 @@ func TestNativeNewDeliveryRejectsTamperingAndRevokedMappingsBeforeDispatch(t *te
 				if err != nil {
 					t.Fatal(err)
 				}
-			case "unclassified method":
-				delete(f.host.config.ToolCapabilities, "arbitrary:Patch")
 			case "namespace revoked":
 				delete(f.host.authority.allowed, pin.URI)
 			case "nested selection":
@@ -397,27 +393,114 @@ func TestNativeRuntimeBinderFailsClosedAndBindsActualRuntimeDirectoryOnce(t *tes
 	}
 }
 
-func TestNativeParentFidelityUsesProtectedManagingDatasourceWithoutRecursivePreparation(t *testing.T) {
-	f := newNativeDeliveryFixture(t)
-	f.host.config.ExecutionBindings[0].ParentSelectors = map[string]string{"Objects.*.ParentId": "parentKey"}
-	binding := f.bind(t)
-	reads, writes := 0, 0
-	service := f.service(t, nativePermissionExecutor(func(_ context.Context, name string, _ map[string]any) (string, error) {
-		if name == "arbitrary:ById" {
-			reads++
-			return `{"data":[{"wireKey":42,"parentKey":7}]}`, nil
-		}
-		writes++
-		return `{"data":[{"id":42}]}`, nil
-	}))
-	f.host.datasource = nativeDeliverySDKBackend{service: service}
-	_, err := service.Fetch(f.ctx, "change", map[string]any{"Objects": []map[string]any{{"Id": 42, "ParentId": 7}}}, datasources.FetchOptions{Resource: f.window.Resource, Target: f.window.ResourceTarget, SelectionBinding: binding, WindowParameters: f.parameters})
-	if err != nil || writes != 1 || reads == 0 {
-		t.Fatalf("protected parent reads=%d writes=%d error=%v", reads, writes, err)
+// The managing endpoint resolves ownership from its own directory, never from
+// the caller's account argument or the proxy's original window selection.
+type nativeManagingAccountExecutor struct {
+	account           string
+	owners            map[string]string
+	calls, executions int
+	last              map[string]any
+}
+
+func (m *nativeManagingAccountExecutor) Execute(_ context.Context, name string, args map[string]any) (string, error) {
+	m.calls++
+	raw, err := json.Marshal(args)
+	if err != nil {
+		return "", err
 	}
-	readsBefore, writesBefore := reads, writes
-	_, err = service.Fetch(f.ctx, "change", map[string]any{"Objects": []map[string]any{{"Id": 42, "ParentId": 999}}}, datasources.FetchOptions{Resource: f.window.Resource, Target: f.window.ResourceTarget, SelectionBinding: binding, WindowParameters: f.parameters})
-	if err == nil || writes != writesBefore || reads <= readsBefore {
-		t.Fatalf("foreign parent dispatched: reads=%d writes=%d err=%v", reads, writes, err)
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder.UseNumber()
+	m.last = nil
+	if err = decoder.Decode(&m.last); err != nil {
+		return "", err
+	}
+	var ids []string
+	switch name {
+	case "arbitrary:ById":
+		value, ok := args["Object"].(string)
+		if !ok {
+			return "", &ds.UpstreamAuthorizationError{Status: 403}
+		}
+		ids = append(ids, value)
+	case "arbitrary:Patch":
+		objects, ok := m.last["Objects"].([]any)
+		if !ok {
+			return "", &ds.UpstreamAuthorizationError{Status: 403}
+		}
+		for _, value := range objects {
+			object, ok := value.(map[string]any)
+			if !ok {
+				return "", &ds.UpstreamAuthorizationError{Status: 403}
+			}
+			for _, field := range []string{"Id", "ParentId"} {
+				id, ok := object[field].(string)
+				if !ok {
+					return "", &ds.UpstreamAuthorizationError{Status: 403}
+				}
+				ids = append(ids, id)
+			}
+		}
+	default:
+		return "", &ds.UpstreamAuthorizationError{Status: 403}
+	}
+	if len(ids) == 0 {
+		return "", &ds.UpstreamAuthorizationError{Status: 403}
+	}
+	for _, id := range ids {
+		if m.owners[id] != m.account {
+			return "", &ds.UpstreamAuthorizationError{Status: 403}
+		}
+	}
+	m.executions++
+	return `{"data":[{"wireKey":"owned-other","id":"owned-other"}]}`, nil
+}
+
+func TestNativeManagingMCPOwnsMutableArgumentsAndAccountAuthorization(t *testing.T) {
+	f := newNativeDeliveryFixture(t)
+	f.host.config.ToolCapabilities = nil
+	f.host.config.ExecutionBindings[0].ParentSelectors = map[string]string{"Objects.*.ParentId": "parentKey"}
+	businessCalls := 0
+	f.business = &permittedview.MCPResolver{ToolName: "window:BusinessOpen", Executor: nativePermissionExecutor(func(context.Context, string, map[string]any) (string, error) {
+		businessCalls++
+		return "", errors.New("unexpected datasource business preflight")
+	})}
+	binding := f.bind(t)
+	manager := &nativeManagingAccountExecutor{account: "account", owners: map[string]string{"owned-other": "account", "owned-parent": "account", "foreign": "other-account"}}
+	service := f.service(t, manager)
+	f.host.datasource = nativeDeliverySDKBackend{service: service}
+	opts := datasources.FetchOptions{Resource: f.window.Resource, Target: f.window.ResourceTarget, SelectionBinding: binding, WindowParameters: f.parameters}
+	for _, tc := range []struct {
+		id   string
+		args map[string]any
+	}{
+		{"details", map[string]any{"Object": "owned-other", "filters": map[string]any{"active": false, "limit": json.Number("9007199254740993")}}},
+		{"change", map[string]any{"Objects": []map[string]any{{"Id": "owned-other", "ParentId": "owned-parent"}}, "filters": map[string]any{"enabled": false}}},
+	} {
+		before, _ := json.Marshal(tc.args)
+		if _, err := service.Fetch(f.ctx, tc.id, tc.args, opts); err != nil {
+			t.Fatal(err)
+		}
+		if !nativeJSONEqual(manager.last, tc.args) {
+			t.Fatal("proxy changed managing arguments")
+		}
+		after, _ := json.Marshal(tc.args)
+		if string(before) != string(after) {
+			t.Fatal("caller arguments changed")
+		}
+	}
+	if manager.calls != 2 || manager.executions != 2 || businessCalls != 0 {
+		t.Fatalf("calls=%d executions=%d business=%d", manager.calls, manager.executions, businessCalls)
+	}
+	for _, args := range []map[string]any{
+		{"Objects": []map[string]any{{"Id": "foreign", "ParentId": "owned-parent"}}, "accountId": "account"},
+		{"Objects": []map[string]any{{"Id": "owned-other", "ParentId": "foreign"}}},
+	} {
+		before := manager.calls
+		if _, err := service.Fetch(f.ctx, "change", args, opts); !errors.Is(err, ds.ErrDatasourceDenied) {
+			t.Fatalf("managing cross-account denial scope: %v", err)
+		}
+		if manager.calls != before+1 || manager.executions != 2 || businessCalls != 0 {
+			t.Fatal("proxy preflight, parent read, execution or retry on denial")
+		}
 	}
 }

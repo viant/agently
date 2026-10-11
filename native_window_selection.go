@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
 	identity "github.com/viant/agently-core/protocol/resource"
@@ -38,7 +37,7 @@ func nativeDigest(value map[string]any) (string, error) {
 	return identity.SelectionParametersDigest(value)
 }
 
-// Only trusted OPEN bootstrap and declared parent checks construct this wrapper.
+// Only trusted original OPEN bootstrap constructs this wrapper.
 // It still invokes the same protected datasource stack and managing MCP tool.
 type nativeBootstrapDatasource struct {
 	host   *nativeWindowHost
@@ -119,47 +118,6 @@ func (h *nativeWindowHost) verifyDeliveryContext(ctx context.Context, pin identi
 	}
 	parameters, err := nativeDigest(requestctx.WindowParametersFromContext(ctx))
 	if err != nil || parameters != grant.parameters {
-		return identity.ErrResourceDenied
-	}
-	return nil
-}
-
-func (h *nativeWindowHost) verifyParentSelection(ctx context.Context, selection WindowBootstrapBinding, binding NativeWindowExecutionBinding, inputs map[string]any) error {
-	if h.datasource == nil {
-		return identity.ErrResourceDenied
-	}
-	pin, present := requestctx.ResolvedResourceFromContext(ctx)
-	target, targeted := requestctx.WindowTargetFromContext(ctx)
-	if !present || !targeted || target == nil {
-		return identity.ErrResourceDenied
-	}
-	parameters := requestctx.WindowParametersFromContext(ctx)
-	selected, err := authoredBootstrapIDs(parameters[selection.Parameter])
-	// Parent correspondence is an explicit legacy integer ById declaration.
-	// Generic signed selection/fidelity does not impose this representation.
-	if err != nil || len(selected) != 1 {
-		return identity.ErrResourceDenied
-	}
-	source := &nativeBootstrapDatasource{host: h, source: h.datasource}
-	result, err := source.FetchDatasource(ctx, &api.FetchDatasourceInput{ID: selection.DataSource, Resource: pin, Target: target, Inputs: map[string]any{selection.Input: selected}})
-	if err != nil {
-		return nativeWindowAuthorityError(err)
-	}
-	if result == nil || len(result.Rows) != 1 || !nativeSelectionContains(parameters[selection.Parameter], result.Rows[0][selection.RowIdentity]) {
-		return identity.ErrResourceDenied
-	}
-	for selector, field := range binding.ParentSelectors {
-		values, err := nativeOptionalSelectionValues(inputs, strings.Split(selector, "."))
-		if err != nil {
-			return identity.ErrResourceDenied
-		}
-		for _, value := range values {
-			if !nativeJSONEqual(value, result.Rows[0][field]) {
-				return identity.ErrResourceDenied
-			}
-		}
-	}
-	if !pin.ValidUntil.After(time.Now()) || ctx.Err() != nil {
 		return identity.ErrResourceDenied
 	}
 	return nil
