@@ -622,15 +622,18 @@ export default function NamedLookupInput({
 
   useEffect(() => {
     if (!editingChip || !chipEditInputRef.current || disabled) return;
-    requestAnimationFrame(() => {
+    const target = chipEditInputRef.current;
+    const frame = requestAnimationFrame(() => {
+      // Do not steal a later editor or a selection the user already controls.
+      if (chipEditInputRef.current !== target || document.activeElement === target) return;
       try {
-        chipEditInputRef.current?.focus();
-        const nextValue = String(editingChip.value || '');
-        const end = nextValue.length;
-        chipEditInputRef.current?.setSelectionRange?.(end, end);
+        target.focus();
+        const end = String(target.value || '').length;
+        target.setSelectionRange?.(end, end);
       } catch (_) {}
     });
-  }, [disabled, editingChip]);
+    return () => cancelAnimationFrame(frame);
+  }, [disabled, editingChip?.raw]);
 
   useLayoutEffect(() => {
     const previous = previousInlineModeRef.current;
@@ -1154,9 +1157,10 @@ export default function NamedLookupInput({
     });
     lastSyncedValueRef.current = value;
     if (editingChip && !disabled) {
-      requestAnimationFrame(() => {
+      const target = chipEditInputRef.current;
+      const frame = requestAnimationFrame(() => {
+        if (!target || chipEditInputRef.current !== target || document.activeElement === target) return;
         try {
-          const target = editorRef.current?.querySelector?.('[data-chip-editor="true"] input');
           try {
             editorRef.current?.blur?.();
           } catch (_) {}
@@ -1169,9 +1173,8 @@ export default function NamedLookupInput({
             found: !!target,
           });
           target?.focus?.({ preventScroll: true });
-          const nextValue = String(editingChip.value || '');
-          const end = nextValue.length;
-          target?.setSelectionRange?.(end, end);
+          const end = String(target.value || '').length;
+          target.setSelectionRange?.(end, end);
           emitNamedLookupDebug('chip.input.focus-state', {
             raw: editingChip.raw,
             name: editingChip.name,
@@ -1180,6 +1183,7 @@ export default function NamedLookupInput({
           });
         } catch (_) {}
       });
+      return () => cancelAnimationFrame(frame);
     }
   }, [disabled, editingChip, openEditingChipLookup, resolveEditingChip, segments, useInlineEditor, value]);
 
