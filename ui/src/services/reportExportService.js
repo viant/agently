@@ -275,3 +275,10 @@ export async function listReportExportArtifacts({ artifactRef = '', limit = 0, c
     : normalizeToolResult(await client.executeTool('reporting:list_export_artifacts', args));
   return normalizeListResponse(result, 'artifacts');
 }
+
+export async function submitReportExportResource(request = {}) {
+  if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('report export request is required');
+  const result = normalizeToolResult(await client.executeTool('reporting:submit_export', request));
+  if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('unexpected report export response');
+  return result;
+}
