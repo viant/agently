@@ -10,6 +10,7 @@ import (
 
 	"github.com/viant/agently-core/app/executor"
 	identity "github.com/viant/agently-core/protocol/resource"
+	requestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/policy"
 	forge "github.com/viant/agently-core/service/primitiveprovider"
 	reportcatalog "github.com/viant/agently-core/service/reporting/catalog"
@@ -253,7 +254,7 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 		if rt.Reporting == nil {
 			return fmt.Errorf("internal report runtime missing")
 		}
-		gatewayCatalog := &resources.ReportGatewayCatalog{Gateway: rt.PrimitiveProviders, AdmissionLease: internalOperationLeaseAdmission(prepared, owner), BuilderWindows: catalog.BuilderWindows, Capabilities: internalReportCapabilities(prepared, owner)}
+		gatewayCatalog := &resources.ReportGatewayCatalog{Gateway: rt.PrimitiveProviders, AdmissionLease: hostedReportOperationAdmission(prepared, owner, rt.ReportAuthorizer), BuilderWindows: catalog.BuilderWindows, Capabilities: hostedReportCapabilities(prepared, owner, rt.ReportAuthorizer)}
 		if scope != nil {
 			gatewayCatalog.BeginMetadataRead = scope.BeginMetadataRead
 		}
@@ -291,6 +292,50 @@ func internalReportCapabilities(prepared *executor.PreparedAuthorization, owner 
 			if errors.Is(err, policy.ErrIdentityRejected) || errors.Is(err, authz.ErrIdentityDenied) || !(errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, authz.ErrDenied) || errors.Is(err, policy.ErrDenied)) {
 				return reportcatalog.ReportCapabilities{}, err
 			}
+		}
+		return result, nil
+	}
+}
+
+// Local provider leases retain the exact local authority comparison. A foreign
+// provider pin belongs to its managing gateway and uses only explicit host
+// report-operation policy; dataset business authorization remains at MCP.
+func hostedReportOperationAdmission(prepared *executor.PreparedAuthorization, owner string, authorize func(context.Context, string, string) error) resources.ReportLeaseAdmission {
+	local := internalOperationLeaseAdmission(prepared, owner)
+	return func(ctx context.Context, operation string, pin identity.ResolvedResource, raw json.RawMessage) (time.Time, error) {
+		if pin.ProviderIdentity == owner {
+			return local(ctx, operation, pin, raw)
+		}
+		if authorize != nil {
+			if err := authorize(requestctx.WithResolvedResource(ctx, pin), operation, pin.URI); err != nil {
+				return time.Time{}, err
+			}
+		}
+		return pin.ValidUntil, nil
+	}
+}
+
+func hostedReportCapabilities(prepared *executor.PreparedAuthorization, owner string, authorize func(context.Context, string, string) error) func(context.Context, identity.VerifiedActor, reportcatalog.ReportCatalogCandidate, identity.ResolvedResource) (reportcatalog.ReportCapabilities, error) {
+	local := internalReportCapabilities(prepared, owner)
+	return func(ctx context.Context, actor identity.VerifiedActor, candidate reportcatalog.ReportCatalogCandidate, pin identity.ResolvedResource) (reportcatalog.ReportCapabilities, error) {
+		if pin.ProviderIdentity == owner {
+			return local(ctx, actor, candidate, pin)
+		}
+		result := reportcatalog.ReportCapabilities{}
+		for _, check := range []struct {
+			operation string
+			allowed   *bool
+		}{{"report.retrieve", &result.Open}, {"report.execute", &result.Run}, {"report.export", &result.Export}} {
+			if authorize != nil {
+				err := authorize(requestctx.WithResolvedResource(ctx, pin), check.operation, pin.URI)
+				if err != nil {
+					if errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, authz.ErrDenied) || errors.Is(err, policy.ErrDenied) {
+						continue
+					}
+					return reportcatalog.ReportCapabilities{}, err
+				}
+			}
+			*check.allowed = true
 		}
 		return result, nil
 	}

@@ -448,6 +448,21 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 	if err != nil {
 		return nil, err
 	}
+	defaults, err := workspaceConfig.ResolveDefaultsWithFallback(nil)
+	if err != nil {
+		return nil, err
+	}
+	reportingEnabled := defaults.Reporting.Enabled
+	if reportingEnabled && options.WindowTargetProof == nil {
+		key := make([]byte, 32)
+		if _, err = rand.Read(key); err != nil {
+			return nil, err
+		}
+		options.WindowTargetProof, err = forgetypes.NewWindowTargetHMAC(key)
+		if err != nil {
+			return nil, err
+		}
+	}
 	var nativeWindows *internalWindowSnapshot
 	var nativeAuthority *nativeWindowAuthority
 	windowMetadataScope := metadataScope
@@ -578,7 +593,7 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 		}
 	}
 	return func(ctx context.Context, builder *executor.Builder) error {
-		if internalProvider == nil && len(config.MenuSources) > 0 {
+		if internalProvider == nil && (len(config.MenuSources) > 0 || reportingEnabled) {
 			actor := resourcesvc.ActorResolver(prepared.ResourceActor)
 			builder.WithPrimitiveAuthority(actor, verifyActor(actor), "")
 		}
@@ -592,6 +607,9 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 			// Install the composite before HTTP/runtime consumers capture the
 			// catalog. Late internal binding replaces only its local side.
 			builder.WithPrimitiveWindows(configuredRemoteWindowAdmission(prepared), options.WindowTargetProof)
+		}
+		if reportingEnabled {
+			builder.WithPrimitiveReportDependencyProof(options.WindowTargetProof)
 		}
 		if reportCatalog != nil {
 			builder.WithReportResources(reportCatalog, reportResolver)
