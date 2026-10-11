@@ -1289,7 +1289,21 @@ function applyConversationFormSnapshot(base = {}, conversation = null) {
 
 const conversationComposerSelections = new Map();
 let conversationComposerGeneration=0;
-if (typeof window !== 'undefined') window.addEventListener?.('agently:session-reset', () => {conversationComposerSelections.clear();conversationComposerGeneration++;goalFeedGeneration++;goalFeedRefreshes.clear();});
+export function resetConversationSessionRuntime() {
+  conversationComposerSelections.clear();
+  conversationComposerGeneration++;
+  goalFeedGeneration++;
+  goalFeedRefreshes.clear();
+  for (const owner of streamSubscriptionOwners.values()) {
+    owner.active = false;
+    clearPendingStreamReconnect(owner.chatState);
+    if (owner.chatState.stream === owner.subscription) owner.chatState.stream = null;
+    try { owner.subscription?.close?.(); } catch (_) {}
+  }
+  streamSubscriptionOwners.clear();
+  for (const context of Array.from(pollingOwnersByWindowId.values())) stopPolling(context);
+}
+if (typeof window !== 'undefined') window.addEventListener?.('agently:session-reset', resetConversationSessionRuntime);
 /** Keep the composer metadata and the conversation selection in sync. Metadata
  * defaults describe a fresh draft; they must not replace an owned selection. */
 function composerConversationID(context,form={}) {

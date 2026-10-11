@@ -5,6 +5,7 @@ import {client} from './agentlyClient';
 // context are available.
 export async function applyPermission({
   windowKey = '',
+  completeMetadata = null,
   resource = {},
   windowParams = {},
   conversationId = '',
@@ -12,6 +13,7 @@ export async function applyPermission({
 } = {}) {
   return client.applyPermission(windowKey, {
     conversationId: String(conversationId || '').trim(),
+    ...(completeMetadata?.resource ? {resolvedResource: completeMetadata.resource} : {}),
     resource: resource && typeof resource === 'object' && !Array.isArray(resource) ? resource : {},
     windowParams: windowParams && typeof windowParams === 'object' && !Array.isArray(windowParams) ? windowParams : {},
     targetContext: targetContext || undefined,
