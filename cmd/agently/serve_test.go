@@ -26,9 +26,10 @@ func TestServeCmd_ScratchpadRootURI(t *testing.T) {
 func TestServeCmd_AuthorizationConfig(t *testing.T) {
 	cmd := &ServeCmd{}
 	parser := flags.NewParser(cmd, flags.HelpFlag|flags.PassDoubleDash)
-	_, err := parser.ParseArgs([]string{"--authz-config", "/operator/authz.json"})
+	_, err := parser.ParseArgs([]string{"--authz-config", "/operator/authz.json", "--internal-resource-provider", "internal"})
 	require.NoError(t, err)
 	require.Equal(t, "/operator/authz.json", cmd.serveOptions().AuthzConfigPath)
+	require.Equal(t, "internal", cmd.serveOptions().InternalResourceProviderIdentity)
 }
 
 func TestServeCmd_AuthorizationValidationIsExplicit(t *testing.T) {

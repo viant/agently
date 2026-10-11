@@ -1,9 +1,11 @@
 package agently
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"sync"
 
@@ -11,6 +13,7 @@ import (
 	identity "github.com/viant/agently-core/protocol/resource"
 	resources "github.com/viant/agently-core/service/resource"
 	"github.com/viant/forge/backend/reporting/registry"
+	"github.com/viant/forge/backend/types"
 )
 
 // internalWindowSnapshot contains authored content only. Caller identity and
@@ -48,14 +51,32 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 		return result, nil
 	}
 	result := &internalWindowSnapshot{framework: map[string]json.RawMessage{}}
-	if len(config.WindowResources) > 0 {
+	if len(config.WindowResources) > 0 || (root != "" && len(config.FrameworkWindowResources) > 0) {
 		// This registry belongs to one serialized snapshot compilation. It is
 		// refreshed through the same confined reader before authored enrichment.
 		var current *registry.Registry
 		enrich := workspaceReportingRegistryEnricher(func() *registry.Registry { return current })
-		definitions, err := resources.SnapshotWindowDefinitions(ctx, root, config.WindowResources, resources.StaticWorkspaceWindowEnricher(enrich))
+		var definitions []resources.NativeSnapshotDefinition
+		var err error
+		if len(config.WindowResources) > 0 {
+			definitions, err = resources.SnapshotWindowDefinitions(ctx, root, config.WindowResources, resources.StaticWorkspaceWindowEnricher(enrich))
+		}
 		if err != nil {
 			return nil, err
+		}
+		linked, err := newEmbeddedWindowSource(config.FrameworkWindowResources)
+		if err != nil {
+			return nil, err
+		}
+		for _, binding := range config.FrameworkWindowResources {
+			binding := binding
+			uri, _ := identity.ParseResourceURI(binding.URI)
+			base := serializedWindowBase(func(ctx context.Context, target *types.WindowTarget) (json.RawMessage, error) {
+				return linked.loadTarget(ctx, uri, target)
+			})
+			// The directory is the real workspace source anchor; linked bytes
+			// are process-owned while dependency imports use this same reader.
+			definitions = append(definitions, resources.NativeSnapshotDefinition{URI: binding.URI, Title: binding.WindowKey, FormatVersion: 2, File: "extension/forge", Load: resources.NativeComposedWindowLoader(binding, base, resources.StaticWorkspaceWindowEnricher(enrich))})
 		}
 		result.workspace, err = resources.NewNativeAssetSnapshot(ctx, root, definitions, resources.NativeSnapshotOptions{ImmutableUntilRestart: true, BeforeCompile: func(ctx context.Context, reader *resources.ExtensionReader) error {
 			options, check, err := resources.ConfinedReportingOptions(ctx, reader, registry.Options{WorkspaceRoot: root, ReportingRoot: reportingRoot})
@@ -78,6 +99,9 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 	}
 	linked.bundle = true
 	for _, binding := range config.FrameworkWindowResources {
+		if result.workspace != nil {
+			continue
+		}
 		uri, _ := identity.ParseResourceURI(binding.URI)
 		raw, err := linked.load(ctx, uri)
 		if err != nil {
@@ -175,3 +199,26 @@ func (s *internalWindowSnapshot) CompileCount() uint64 {
 }
 
 var _ identity.ResourceSource = (*internalWindowSnapshot)(nil)
+
+// serializedWindowBase is the trusted linked-byte boundary shared by composed hosts.
+func serializedWindowBase(load func(context.Context, *types.WindowTarget) (json.RawMessage, error)) func(context.Context, *types.WindowTarget) (*types.Window, error) {
+	return func(ctx context.Context, target *types.WindowTarget) (*types.Window, error) {
+		raw, err := load(ctx, target)
+		if err != nil {
+			return nil, err
+		}
+		return decodeTrustedWindow(raw)
+	}
+}
+func decodeTrustedWindow(raw json.RawMessage) (*types.Window, error) {
+	var window types.Window
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&window); err != nil {
+		return nil, err
+	}
+	if decoder.Decode(new(any)) != io.EOF {
+		return nil, fmt.Errorf("linked window must contain one complete JSON value")
+	}
+	return &window, nil
+}
