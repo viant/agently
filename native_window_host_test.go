@@ -5,143 +5,146 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"testing"
+	"time"
+
 	ds "github.com/viant/agently-core/protocol/datasource"
 	identity "github.com/viant/agently-core/protocol/resource"
-	requestctx "github.com/viant/agently-core/runtime/requestctx"
+	"github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/sdk/api"
-	dssvc "github.com/viant/agently-core/service/datasource"
+	datasources "github.com/viant/agently-core/service/datasource"
+	forge "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/agently-core/service/ui/permittedview"
 	"github.com/viant/authz"
 	"github.com/viant/authz/gating"
 	"github.com/viant/forge/backend/types"
-	"reflect"
-	"strings"
-	"testing"
-	"time"
 )
 
 type nativePermissionExecutor func(context.Context, string, map[string]interface{}) (string, error)
 
-func (f nativePermissionExecutor) Execute(c context.Context, n string, a map[string]interface{}) (string, error) {
-	return f(c, n, a)
+func (f nativePermissionExecutor) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+	return f(ctx, name, args)
 }
-func TestNativeWindowLegacyPermissionAndSelectionBeforeExecution(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		allow     bool
-		selected  any
-		mutation  any
-		method    string
-		wantCalls int
-	}{
-		{"allow", true, []int{42}, 42, "Patch", 1},
-		{"legacy deny", false, []int{42}, 42, "Patch", 0},
-		{"foreign mutation", true, []int{42}, 99, "Patch", 0},
-		{"missing selector", true, nil, 42, "Patch", 0},
-		{"unmapped tool", true, []int{42}, 42, "Other", 0},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			w := authoredBootstrapFixture()
-			binding := bootstrapDeclaration()
-			d := &ds.DataSource{ID: "change", Backend: &ds.Backend{Kind: ds.BackendMCPTool, Service: "native", Method: tc.method}}
-			permissions := &permittedview.MCPResolver{ToolName: "steward:ResourceAuthorization", Executor: nativePermissionExecutor(func(_ context.Context, n string, args map[string]interface{}) (string, error) {
-				if n != "steward:ResourceAuthorization" || args["ResourceType"] != "widget" {
-					t.Fatal("legacy permission binding replaced")
-				}
-				ids := args["ResourceIDs"].([]int)
-				if len(ids) != 1 || ids[0] != 42 {
-					t.Fatal("browser changed authorization ID", ids)
-				}
-				raw, _ := json.Marshal(&permittedview.Snapshot{AuthorizationVersion: "real", ExpiresAt: time.Now().Add(time.Minute), Resources: map[string]*permittedview.Resource{"42": {ID: 42, Type: "widget", Capabilities: map[string]bool{"read": true, "write": tc.allow}}}})
-				return string(raw), nil
-			})}
-			h := &nativeWindowHost{permissions: permissions, config: NativeWindowHostConfig{Bootstrap: []WindowBootstrapBinding{binding}, ToolCapabilities: map[string]string{"native:Patch": "write"}, ExecutionBindings: []NativeWindowExecutionBinding{{URI: binding.URI, DataSource: "change", IdentitySelectors: []string{"Objects.*.Id"}}}}}
-			calls := 0
-			store := dssvc.NewMemoryStore()
-			store.Put(d)
-			service := dssvc.New(dssvc.Options{Store: store, AuthorizeDefinition: func(ctx context.Context, d *ds.DataSource, in map[string]interface{}) error {
-				return h.authorizeWindow(ctx, binding.URI, w, d, in)
-			}, Executor: nativePermissionExecutor(func(context.Context, string, map[string]interface{}) (string, error) {
-				calls++
-				return `{"data":[{"id":42}]}`, nil
-			})})
-			ctx := requestctx.WithWindowParameters(context.Background(), map[string]any{"Selected": tc.selected})
-			// Fetch transports parameters as request hints; no permission facts.
-			_, err := service.Fetch(ctx, "change", map[string]interface{}{"Objects": []map[string]interface{}{{"Id": tc.mutation}}}, dssvc.FetchOptions{WindowParameters: map[string]any{"Selected": tc.selected}})
-			if calls != tc.wantCalls {
-				t.Fatalf("executions=%d want=%d error=%v", calls, tc.wantCalls, err)
-			}
-			if tc.wantCalls == 0 && !errors.Is(err, identity.ErrResourceDenied) {
-				t.Fatal("denial did not fail closed", err)
-			}
-			if tc.wantCalls > 0 && err != nil {
-				t.Fatal(err)
-			}
-		})
-	}
-}
-func TestNativeWindowPrincipalReadPreservesOriginalGlobalSemantics(t *testing.T) {
-	h := &nativeWindowHost{config: NativeWindowHostConfig{ToolCapabilities: map[string]string{"native:List": "read"}}, permissions: &permittedview.MCPResolver{ToolName: "original", Executor: nativePermissionExecutor(func(context.Context, string, map[string]interface{}) (string, error) {
-		raw, _ := json.Marshal(&permittedview.Snapshot{AuthorizationVersion: "original", ExpiresAt: time.Now().Add(time.Minute), GlobalCapabilities: map[string]bool{"create": false, "bulkEdit": false}})
-		return string(raw), nil
-	})}}
-	w := &types.Window{Authorization: &types.AuthorizationSpec{Scope: "principal", ResourceType: "advertiser", RequestedGlobalCapabilities: []string{"create", "bulkEdit"}}}
-	if err := h.authorizeWindow(context.Background(), "window://tenant/list", w, &ds.DataSource{ID: "list", Backend: &ds.Backend{Kind: ds.BackendMCPTool, Service: "native", Method: "List"}}, nil); err != nil {
-		t.Fatal(err)
+
+func TestNativeWindowFullSelectionFidelityIncludesOpaqueIDs(t *testing.T) {
+	for _, value := range []any{"opaque:item/alpha", json.Number("9007199254740993"), 42} {
+		binding := bootstrapDeclaration()
+		host := &nativeWindowHost{config: NativeWindowHostConfig{Bootstrap: []WindowBootstrapBinding{binding}, ToolCapabilities: map[string]string{"arbitrary:Patch": "write"}, ExecutionBindings: []NativeWindowExecutionBinding{{URI: binding.URI, DataSource: "change", IdentitySelectors: []string{"Objects.*.Id"}}}}}
+		descriptor := &ds.DataSource{ID: "change", Backend: &ds.Backend{Kind: ds.BackendMCPTool, Service: "arbitrary", Method: "Patch"}}
+		// This verifies generic body fidelity, not an invented legacy-v1 OPEN
+		// resolver for opaque IDs. Complete selection signing is tested separately.
+		ctx := requestctx.WithWindowParameters(context.Background(), map[string]any{"Selected": []any{"another-selected", value}})
+		if err := host.authorizeWindow(ctx, binding.URI, authoredBootstrapFixture(), descriptor, map[string]any{"Objects": []map[string]any{{"Id": value}}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := host.authorizeWindow(ctx, binding.URI, authoredBootstrapFixture(), descriptor, map[string]any{"Objects": []map[string]any{{"Id": "foreign"}}}); !errors.Is(err, identity.ErrResourceDenied) {
+			t.Fatal("foreign selection admitted", err)
+		}
 	}
 }
 
-func TestNativeWindowMutationParentUsesFreshNativeBootstrap(t *testing.T) {
-	binding := bootstrapDeclaration()
-	w := authoredBootstrapFixture()
-	source := &authoredBootstrapSource{rows: []map[string]any{{"wireKey": 42, "parentKey": 7}}}
-	h := &nativeWindowHost{datasource: source, permissions: &permittedview.MCPResolver{ToolName: "original", Executor: nativePermissionExecutor(func(context.Context, string, map[string]interface{}) (string, error) {
-		raw, _ := json.Marshal(&permittedview.Snapshot{AuthorizationVersion: "actual", ExpiresAt: time.Now().Add(time.Minute), Resources: map[string]*permittedview.Resource{"42": {ID: 42, Type: "widget", Capabilities: map[string]bool{"read": true, "write": true}}}})
+func TestNativeBusinessAdmissionOccursOnlyAtOriginalWindowOpen(t *testing.T) {
+	f := newNativeDeliveryFixture(t)
+	f.window.Authorization = &types.AuthorizationSpec{Scope: "principal", ResourceType: "widget", RequestedGlobalCapabilities: []string{"write"}}
+	openCalls := 0
+	resolver := &permittedview.MCPResolver{ToolName: "window:BusinessOpen", Executor: nativePermissionExecutor(func(context.Context, string, map[string]any) (string, error) {
+		openCalls++
+		raw, _ := json.Marshal(&permittedview.Snapshot{AuthorizationVersion: "open-business", ExpiresAt: time.Now().Add(time.Minute), GlobalCapabilities: map[string]bool{"write": false}})
 		return string(raw), nil
-	})}, config: NativeWindowHostConfig{Bootstrap: []WindowBootstrapBinding{binding}, ToolCapabilities: map[string]string{"native:Patch": "write"}, ExecutionBindings: []NativeWindowExecutionBinding{{URI: binding.URI, DataSource: "change", IdentitySelectors: []string{"Objects.*.Id"}, ParentSelectors: map[string]string{"Objects.*.ParentId": "parentKey"}}}}}
-	pin := identity.ResolvedResource{URI: binding.URI}
-	target := &types.WindowTarget{Platform: "web"}
-	ctx := requestctx.WithWindowParameters(requestctx.WithWindowTarget(requestctx.WithResolvedResource(context.Background(), pin), target), map[string]any{"Selected": []int{42}, "ParentSelection": []int{999}})
-	descriptor := &ds.DataSource{ID: "change", Backend: &ds.Backend{Kind: ds.BackendMCPTool, Service: "native", Method: "Patch"}}
+	})}
+	f.business = resolver
+	admission := &permittedview.OpenAdmission{Runtime: permittedview.NewRuntime(resolver)}
+	bridge := forge.NewService(&forge.Config{WindowDefinitions: f.host.catalog, WindowSelectionEmitter: f.host.delivery.emitSelection, WindowOpenAdmission: func(ctx context.Context, pin identity.ResolvedResource, window *types.Window, parameters map[string]any) (*forge.WindowOpenDecision, error) {
+		result, err := admission.ApplyDecision(ctx, pin, window, parameters)
+		if err != nil {
+			return nil, err
+		}
+		return &forge.WindowOpenDecision{Window: result.Window, ValidUntil: result.ExpiresAt}, nil
+	}})
+	admitted, err := bridge.AdmitWindowOpenDecision(f.ctx, f.window, f.parameters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	emitted, err := bridge.EmitWindowSelection(f.ctx, admitted.Window, f.parameters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatches := 0
+	service := f.service(t, nativePermissionExecutor(func(context.Context, string, map[string]any) (string, error) {
+		dispatches++
+		return `{"data":[{"id":42}]}`, nil
+	}))
+	if _, err = service.Fetch(f.ctx, "rows", nil, fetchNativeOptions(emitted, f.parameters)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.Fetch(f.ctx, "change", map[string]any{"Objects": []map[string]any{{"Id": 42}}}, fetchNativeOptions(emitted, f.parameters)); err != nil {
+		t.Fatal(err)
+	}
+	f.principal.IdentityRevision = "credential-refresh"
+	if _, err = service.Fetch(f.ctx, "change", map[string]any{"Objects": []map[string]any{{"Id": 42}}}, fetchNativeOptions(emitted, f.parameters)); err != nil {
+		t.Fatal(err)
+	}
+	if dispatches != 3 || openCalls != 1 {
+		t.Fatalf("open business calls=%d managing dispatch=%d err=%v", openCalls, dispatches, err)
+	}
+}
+
+func fetchNativeOptions(window *types.Window, parameters map[string]any) datasources.FetchOptions {
+	return datasources.FetchOptions{Resource: window.Resource, Target: window.ResourceTarget, SelectionBinding: window.SelectionBinding, WindowParameters: parameters}
+}
+
+func TestNativeWindowDeclaredParentUsesManagingMCPOnly(t *testing.T) {
+	f := newNativeDeliveryFixture(t)
+	f.host.config.ExecutionBindings[0].ParentSelectors = map[string]string{"Objects.*.ParentId": "parentKey"}
+	source := &authoredBootstrapSource{rows: []map[string]any{{"wireKey": 42, "parentKey": 7}}}
+	f.host.datasource = source
+	ctx := requestctx.WithWindowParameters(requestctx.WithWindowTarget(requestctx.WithResolvedResource(f.ctx, *f.window.Resource), f.window.ResourceTarget), f.parameters)
+	descriptor := &ds.DataSource{ID: "change", Backend: &ds.Backend{Kind: ds.BackendMCPTool, Service: "arbitrary", Method: "Patch"}}
 	for _, parent := range []int{7, 999} {
-		err := h.authorizeWindow(ctx, binding.URI, w, descriptor, map[string]interface{}{"Objects": []map[string]interface{}{{"Id": 42, "ParentId": parent}}})
+		err := f.host.authorizeWindow(ctx, f.window.Resource.URI, f.window, descriptor, map[string]any{"Objects": []map[string]any{{"Id": 42, "ParentId": parent}}})
 		if (err == nil) != (parent == 7) {
 			t.Fatalf("parent=%d err=%v", parent, err)
 		}
 	}
-	if source.calls != 2 || source.last.Resource.URI != binding.URI || !reflect.DeepEqual(source.last.Target, target) || !source.last.Cache.BypassCache {
-		t.Fatal("parent read did not retain exact native bootstrap", source.calls)
+	if source.calls != 2 || source.last.Resource.URI != f.window.Resource.URI || !source.last.Cache.BypassCache || source.last.SelectionBinding != nil {
+		t.Fatal("parent read changed original resource/proofs or recursively prepared")
 	}
 }
 
-func TestNativeScopedRecoveryChecksFreshLegacyRootRead(t *testing.T) {
-	calls := 0
-	allow := true
-	binding := bootstrapDeclaration()
-	window := authoredBootstrapFixture()
-	host := &nativeWindowHost{config: NativeWindowHostConfig{Bootstrap: []WindowBootstrapBinding{binding}, ToolCapabilities: map[string]string{"native:Rows": "read"}}, permissions: &permittedview.MCPResolver{ToolName: "original:ResourceAuthorization", Executor: nativePermissionExecutor(func(_ context.Context, name string, in map[string]interface{}) (string, error) {
-		calls++
-		if name != "original:ResourceAuthorization" || in["ResourceType"] != "widget" {
-			t.Fatal("root authority replaced")
-		}
-		raw, _ := json.Marshal(&permittedview.Snapshot{AuthorizationVersion: "actual", ExpiresAt: time.Now().Add(time.Minute), Resources: map[string]*permittedview.Resource{"42": {ID: 42, Type: "widget", Capabilities: map[string]bool{"read": allow}}}})
-		return string(raw), nil
-	})}}
-	descriptor := &ds.DataSource{ID: "rows", Backend: &ds.Backend{Kind: ds.BackendMCPTool, Service: "native", Method: "Rows"}}
-	ctx := requestctx.WithWindowParameters(context.Background(), map[string]any{"Selected": []int{42}})
-	if err := host.authorizeWindowMode(ctx, binding.URI, window, descriptor, nil, true); err != nil {
-		t.Fatal(err)
-	}
-	allow = false
-	if err := host.authorizeWindowMode(ctx, binding.URI, window, descriptor, nil, true); !errors.Is(err, identity.ErrResourceDenied) {
-		t.Fatal("revocation ignored", err)
-	}
-	if calls != 2 {
-		t.Fatal("cached root authority reused", calls)
+func TestNativeAuthorityFailureClassificationIsSanitized(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		input, errorWant error
+		status           int
+	}{
+		{"deadline", fmt.Errorf("sensitive payload:%w", context.DeadlineExceeded), context.DeadlineExceeded, 0},
+		{"unavailable", fmt.Errorf("sensitive payload:%w", permittedview.ErrUnavailable), permittedview.ErrUnavailable, 0},
+		{"authz outage", fmt.Errorf("sensitive payload:%w", authz.ErrUnavailable), permittedview.ErrUnavailable, 0},
+		{"gate outage", fmt.Errorf("sensitive payload:%w", gating.ErrUnavailable), permittedview.ErrUnavailable, 0},
+		{"unknown", errors.New("sensitive payload unavailable"), identity.ErrResourceDenied, 0},
+		{"denial before outage", errors.Join(identity.ErrResourceDenied, permittedview.ErrUnavailable), identity.ErrResourceDenied, 0},
+		{"unauthorized", &ds.UpstreamAuthorizationError{Status: 401, Cause: errors.New("sensitive payload")}, nil, 401},
+		{"forbidden", &ds.UpstreamAuthorizationError{Status: 403, Cause: errors.New("sensitive payload")}, nil, 403},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := nativeWindowAuthorityError(tc.input)
+			if tc.errorWant != nil && !errors.Is(err, tc.errorWant) {
+				t.Fatalf("lost classification: %v", err)
+			}
+			if tc.status != 0 {
+				var up *ds.UpstreamAuthorizationError
+				if !errors.As(err, &up) || up.Status != tc.status {
+					t.Fatal(err)
+				}
+			}
+			if strings.Contains(err.Error(), "sensitive payload") {
+				t.Fatal("payload leaked", err)
+			}
+		})
 	}
 }
 
-// Simulate a real bootstrap read that completes after the granted lease ends.
 type expiringNativeBootstrap struct {
 	deadline time.Time
 	calls    int
@@ -152,87 +155,18 @@ func (s *expiringNativeBootstrap) FetchDatasource(context.Context, *api.FetchDat
 	time.Sleep(time.Until(s.deadline) + time.Millisecond)
 	return &api.FetchDatasourceOutput{Rows: []map[string]any{{"wireKey": 42, "parentKey": 7}}}, nil
 }
-func TestNativeWindowMutationRejectsLeaseExpiredDuringParentBootstrap(t *testing.T) {
-	binding := bootstrapDeclaration()
-	source := &expiringNativeBootstrap{}
-	host := &nativeWindowHost{datasource: source, permissions: &permittedview.MCPResolver{ToolName: "original", Executor: nativePermissionExecutor(func(context.Context, string, map[string]interface{}) (string, error) {
-		source.deadline = time.Now().Add(100 * time.Millisecond)
-		raw, _ := json.Marshal(&permittedview.Snapshot{AuthorizationVersion: "actual", ExpiresAt: source.deadline, Resources: map[string]*permittedview.Resource{"42": {ID: 42, Type: "widget", Capabilities: map[string]bool{"read": true, "write": true}}}})
-		return string(raw), nil
-	})}, config: NativeWindowHostConfig{Bootstrap: []WindowBootstrapBinding{binding}, ToolCapabilities: map[string]string{"native:Patch": "write"}, ExecutionBindings: []NativeWindowExecutionBinding{{URI: binding.URI, DataSource: "change", IdentitySelectors: []string{"Objects.*.Id"}, ParentSelectors: map[string]string{"Objects.*.ParentId": "parentKey"}}}}}
-	ctx := requestctx.WithWindowParameters(requestctx.WithWindowTarget(requestctx.WithResolvedResource(context.Background(), identity.ResolvedResource{URI: binding.URI}), &types.WindowTarget{Platform: "web"}), map[string]any{"Selected": []int{42}})
-	descriptor := &ds.DataSource{ID: "change", Backend: &ds.Backend{Kind: ds.BackendMCPTool, Service: "native", Method: "Patch"}}
-	err := host.authorizeWindow(ctx, binding.URI, authoredBootstrapFixture(), descriptor, map[string]interface{}{"Objects": []map[string]interface{}{{"Id": 42, "ParentId": 7}}})
-	if source.calls != 1 {
-		t.Fatalf("expected fresh parent read, got %d", source.calls)
-	}
-	if !errors.Is(err, identity.ErrResourceDenied) {
-		t.Fatalf("expired mutation lease admitted: %v", err)
-	}
-}
-
-func TestNativeWindowAuthorityFailuresRemainTypedAndNeverDispatch(t *testing.T) {
-	for _, stage := range []string{"permission", "parent"} {
-		for _, tc := range []struct {
-			name   string
-			err    error
-			want   error
-			status int
-		}{
-			{"deadline", fmt.Errorf("sensitive upstream payload: %w", context.DeadlineExceeded), context.DeadlineExceeded, 0},
-			{"unavailable", fmt.Errorf("sensitive upstream payload: %w", permittedview.ErrUnavailable), permittedview.ErrUnavailable, 0},
-			{"generic authz unavailable", fmt.Errorf("sensitive upstream payload: %w", authz.ErrUnavailable), permittedview.ErrUnavailable, 0},
-			{"generic gate unavailable", fmt.Errorf("sensitive upstream payload: %w", gating.ErrUnavailable), permittedview.ErrUnavailable, 0},
-			{"canceled", fmt.Errorf("sensitive upstream payload: %w", context.Canceled), context.Canceled, 0},
-			{"unauthorized", &ds.UpstreamAuthorizationError{Status: 401, Cause: errors.New("sensitive upstream payload")}, nil, 401},
-			{"forbidden", &ds.UpstreamAuthorizationError{Status: 403, Cause: errors.New("sensitive upstream payload")}, nil, 403},
-			{"unknown verification failure", errors.New("dependency unavailable sensitive upstream payload"), identity.ErrResourceDenied, 0},
-			{"real denial", identity.ErrResourceDenied, identity.ErrResourceDenied, 0},
-			{"denial dominates unavailable", errors.Join(identity.ErrResourceDenied, permittedview.ErrUnavailable), identity.ErrResourceDenied, 0},
-		} {
-			t.Run(stage+"/"+tc.name, func(t *testing.T) {
-				binding := bootstrapDeclaration()
-				source := &authoredBootstrapSource{rows: []map[string]any{{"wireKey": 42, "parentKey": 7}}}
-				permissionCalls := 0
-				permissions := &permittedview.MCPResolver{ToolName: "original", Executor: nativePermissionExecutor(func(context.Context, string, map[string]interface{}) (string, error) {
-					permissionCalls++
-					if stage == "permission" {
-						return "", tc.err
-					}
-					raw, _ := json.Marshal(&permittedview.Snapshot{AuthorizationVersion: "fresh", ExpiresAt: time.Now().Add(time.Minute), Resources: map[string]*permittedview.Resource{"42": {ID: 42, Type: "widget", Capabilities: map[string]bool{"read": true, "write": true}}}})
-					return string(raw), nil
-				})}
-				if stage == "parent" {
-					source.err = tc.err
-				}
-				host := &nativeWindowHost{permissions: permissions, datasource: source, config: NativeWindowHostConfig{Bootstrap: []WindowBootstrapBinding{binding}, ToolCapabilities: map[string]string{"native:Patch": "write"}, ExecutionBindings: []NativeWindowExecutionBinding{{URI: binding.URI, DataSource: "change", IdentitySelectors: []string{"Objects.*.Id"}, ParentSelectors: map[string]string{"Objects.*.ParentId": "parentKey"}}}}}
-				descriptor := &ds.DataSource{ID: "change", Backend: &ds.Backend{Kind: ds.BackendMCPTool, Service: "native", Method: "Patch"}}
-				store := dssvc.NewMemoryStore()
-				store.Put(descriptor)
-				dispatches := 0
-				service := dssvc.New(dssvc.Options{Store: store, AuthorizeDefinition: func(ctx context.Context, d *ds.DataSource, in map[string]interface{}) error {
-					return host.authorizeWindow(requestctx.WithWindowTarget(requestctx.WithResolvedResource(ctx, identity.ResolvedResource{URI: binding.URI}), &types.WindowTarget{Platform: "web"}), binding.URI, authoredBootstrapFixture(), d, in)
-				}, Executor: nativePermissionExecutor(func(context.Context, string, map[string]interface{}) (string, error) { dispatches++; return "{}", nil })})
-				ctx := requestctx.WithWindowParameters(context.Background(), map[string]any{"Selected": []int{42}})
-				for attempt := 0; attempt < 2; attempt++ {
-					_, err := service.Fetch(ctx, "change", map[string]interface{}{"Objects": []map[string]interface{}{{"Id": 42, "ParentId": 7}}}, dssvc.FetchOptions{WindowParameters: map[string]any{"Selected": []int{42}}})
-					if tc.want != nil && !errors.Is(err, tc.want) {
-						t.Fatalf("want typed %v, got %v", tc.want, err)
-					}
-					if tc.status != 0 {
-						var upstream *ds.UpstreamAuthorizationError
-						if !errors.As(err, &upstream) || upstream.Status != tc.status {
-							t.Fatalf("lost trusted auth status%d: %v", tc.status, err)
-						}
-					}
-					if err == nil || strings.Contains(err.Error(), "sensitive upstream payload") {
-						t.Fatalf("verification failure leaked/admitted: %v", err)
-					}
-				}
-				if dispatches != 0 || permissionCalls != 2 {
-					t.Fatalf("dispatches=%d fresh permissions=%d", dispatches, permissionCalls)
-				}
-			})
-		}
+func TestNativeWindowMutationRejectsResourceLeaseExpiredDuringParentBootstrap(t *testing.T) {
+	f := newNativeDeliveryFixture(t)
+	f.host.config.ExecutionBindings[0].ParentSelectors = map[string]string{"Objects.*.ParentId": "parentKey"}
+	deadline := time.Now().Add(50 * time.Millisecond)
+	source := &expiringNativeBootstrap{deadline: deadline}
+	f.host.datasource = source
+	pin := *f.window.Resource
+	pin.ValidUntil = deadline
+	ctx := requestctx.WithWindowParameters(requestctx.WithWindowTarget(requestctx.WithResolvedResource(f.ctx, pin), f.window.ResourceTarget), f.parameters)
+	descriptor := &ds.DataSource{ID: "change", Backend: &ds.Backend{Kind: ds.BackendMCPTool, Service: "arbitrary", Method: "Patch"}}
+	err := f.host.authorizeWindow(ctx, pin.URI, f.window, descriptor, map[string]any{"Objects": []map[string]any{{"Id": 42, "ParentId": 7}}})
+	if source.calls != 1 || !errors.Is(err, identity.ErrResourceDenied) {
+		t.Fatalf("expired resource lease admitted: calls=%d err=%v", source.calls, err)
 	}
 }
