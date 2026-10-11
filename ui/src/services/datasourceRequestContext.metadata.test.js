@@ -42,3 +42,33 @@ it('does not resolve or transport datasource proofs on unrelated requests', () =
   expect(findMetadataSignal).not.toHaveBeenCalled();
   expect(body).toEqual({inputs: {}});
 });
+
+it('forwards one complete detached signed admission bundle instead of mixing it with a later signal', () => {
+  const selectionBinding = {actor:{issuer:'issuer',subject:'actor',tenantId:'tenant',accountId:'account'},instanceId:'original',parametersDigest:'digest',token:'signed-binding',extra:{preserved:true}};
+  const resource={uri:'window://example/Records',contentFingerprint:'original',authorityBinding:'original-actor'};
+  const resourceTarget={selectionToken:'original-target',dependencyPins:{rows:{contentFingerprint:'original-rows'}},executionProof:{token:'original-proof'}};
+  const openedWindowParameters={EntityID:['9007199254740993'],nested:{selection:{region:'original'}},Limit:7};
+  const inlineMetadata={resource,resourceTarget,selectionBinding,view:{content:{id:'original'}}};
+  findMetadataSignal.mockReturnValue({peek:()=>({resource:{...resource,contentFingerprint:'fresh-other'},resourceTarget:{selectionToken:'fresh-other'},selectionBinding:{...selectionBinding,token:'fresh-other'}})});
+  const body={inputs:{EntityID:['user-input']}};
+  prepareAgentlyDataConnectorRequest({url:'/v1/api/datasources/rows/fetch',body,windowState:{windowId:'same-ui-frame',parameters:{EntityID:['edited']},openedWindowParameters,inlineMetadata}});
+  expect(body).toMatchObject({resource,target:resourceTarget,selectionBinding,windowParameters:openedWindowParameters,inputs:{EntityID:['user-input']}});
+  expect(body.selectionBinding).not.toBe(selectionBinding);
+  expect(body.selectionBinding.actor).not.toBe(selectionBinding.actor);
+  expect(body.target.dependencyPins).not.toBe(resourceTarget.dependencyPins);
+  expect(body.windowParameters.nested.selection).not.toBe(openedWindowParameters.nested.selection);
+  body.selectionBinding.actor.subject='mutated';body.target.executionProof.token='mutated';body.windowParameters.nested.selection.region='mutated';
+  expect(selectionBinding.actor.subject).toBe('actor');expect(resourceTarget.executionProof.token).toBe('original-proof');expect(openedWindowParameters.nested.selection.region).toBe('original');
+});
+
+it('forwards a complete top-level signed window without changing datasource inputs or proof fields', () => {
+  const selectionBinding={actor:{issuer:'issuer',subject:'actor',tenantId:'tenant',accountId:'account'},instanceId:'opened',parametersDigest:'digest',token:'signed',opaque:{numbers:[1,2]}};
+  const resource={uri:'window://example/Records',contentFingerprint:'opened'};
+  const resourceTarget={selectionToken:'opened-target',executionProof:{token:'proof'}};
+  const parameters={EntityID:['9007199254740993'],nested:{id:17}};
+  const body={inputs:{EntityID:['different-input']}};
+  prepareAgentlyDataConnectorRequest({url:'/v1/api/datasources/rows/fetch',body,windowState:{resource,resourceTarget,selectionBinding,parameters}});
+  expect(body).toEqual({inputs:{EntityID:['different-input']},resource,target:resourceTarget,selectionBinding,windowParameters:parameters});
+  expect(body.selectionBinding.opaque).not.toBe(selectionBinding.opaque);
+  expect(body.windowParameters.nested).not.toBe(parameters.nested);
+});
