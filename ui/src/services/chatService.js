@@ -623,7 +623,7 @@ export async function onInit({ context }) {
           status: String(mergedConversation?.status || mergedConversation?.Status || '').trim(),
           running: !!mergedConversation?.running,
         });
-        if (snapshot?.hasRunning || ((snapshot?.projection || []).length === 0 && isConversationLiveish(existing))) {
+        if (client.observesNativeWork?.() || snapshot?.hasRunning || ((snapshot?.projection || []).length === 0 && isConversationLiveish(existing))) {
           syncConversationTransport(context, conversationID);
         } else {
           disconnectStream(context);

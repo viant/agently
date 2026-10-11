@@ -3021,6 +3021,12 @@ export function startPolling(context) {
       });
       return;
     }
+    // The conversation can hydrate after mount. Keep its authorized native
+    // observer even when the transcript is already complete, so host apps
+    // are restored before the finished-snapshot shortcut below.
+    if (currentID && !chatState.stream && client.observesNativeWork?.()) {
+      syncConversationTransport(context, currentID);
+    }
     const streamIsHot = !!chatState.stream
       && (Date.now() - Number(chatState.lastStreamEventAt || 0) < 6000);
     if (streamIsHot) return;
