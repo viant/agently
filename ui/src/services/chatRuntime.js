@@ -1144,6 +1144,7 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     // Initial history needs execution summaries and workspace ACKs, not the
     // full model prompts/provider bodies. Detail expansion fetches those later.
     includeModelPayloads: options?.includeModelPayloads === true,
+    includeToolPayloads: options?.includeToolPayloads === true,
     includeFeeds,
     since: since || undefined,
   };

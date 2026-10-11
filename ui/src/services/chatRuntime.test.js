@@ -1922,6 +1922,7 @@ describe('switchConversation', () => {
         includeModelCalls: true,
         includeToolCalls: true,
         includeModelPayloads: false,
+        includeToolPayloads: false,
       }),
       undefined,
     );
