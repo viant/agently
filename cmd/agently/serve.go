@@ -7,6 +7,8 @@ import (
 
 // ServeCmd starts the HTTP server.
 type ServeCmd struct {
+	NativeWindowConfig       string `long:"native-window-config" description:"Operator-owned immutable window catalog and trusted entity bootstrap configuration"`
+	InternalResourceProvider string `long:"internal-resource-provider" description:"Identity of the in-process workspace MCP provider (requires authorization configuration)"`
 	DisableBackgroundWorkers bool   `long:"disable-background-workers" description:"Disable autonomous/scheduled work on an isolated interactive validation host"`
 	ValidateAuthz            bool   `long:"validate-authz" description:"Validate explicit workspace authorization configuration without starting a server"`
 	AuthzConfig              string `long:"authz-config" description:"Trusted unified authorization JSON configuration (or AGENTLY_AUTHZ_CONFIG)"`
@@ -32,14 +34,16 @@ func (c *ServeCmd) Execute(_ []string) error {
 
 func (c *ServeCmd) serveOptions() root.ServeOptions {
 	return root.ServeOptions{
-		DisableBackgroundWorkers: c.DisableBackgroundWorkers,
-		AuthzConfigPath:          c.AuthzConfig,
-		Addr:                     c.Addr,
-		WorkspacePath:            c.Workspace,
-		ScratchpadRootURI:        c.ScratchpadRootURI,
-		UIDist:                   c.UIDist,
-		Debug:                    c.Debug,
-		Policy:                   c.Policy,
-		ExposeMCP:                c.ExposeMCP,
+		NativeWindowConfigPath:           c.NativeWindowConfig,
+		InternalResourceProviderIdentity: c.InternalResourceProvider,
+		DisableBackgroundWorkers:         c.DisableBackgroundWorkers,
+		AuthzConfigPath:                  c.AuthzConfig,
+		Addr:                             c.Addr,
+		WorkspacePath:                    c.Workspace,
+		ScratchpadRootURI:                c.ScratchpadRootURI,
+		UIDist:                           c.UIDist,
+		Debug:                            c.Debug,
+		Policy:                           c.Policy,
+		ExposeMCP:                        c.ExposeMCP,
 	}
 }

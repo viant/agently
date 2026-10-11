@@ -82,12 +82,12 @@ func (s *embeddedWindowSource) loadBundle(ctx context.Context, uri identity.Reso
 		if err != nil {
 			return nil, err
 		}
-		var definition types.Window
-		if json.Unmarshal(raw, &definition) != nil {
+		definition, err := decodeTrustedWindow(raw)
+		if err != nil {
 			return nil, identity.ErrResourceDenied
 		}
 		definition.ResourceDependencies = map[string]string{}
-		variant := types.WindowResourceVariant{Window: &definition, DataSources: map[string]json.RawMessage{}}
+		variant := types.WindowResourceVariant{Window: definition, DataSources: map[string]json.RawMessage{}}
 		for id, inline := range definition.DataSource {
 			descriptor, err := json.Marshal(dsproto.DataSource{DataSource: inline, ID: id})
 			if err != nil {

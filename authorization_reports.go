@@ -47,12 +47,13 @@ func configureHostReportResources(options ServeOptions, config *hostAuthorizatio
 	if len(config.ReportResources) == 0 {
 		return nil, nil, nil, nil, nil
 	}
-	if options.ReportResourceProviderFactory == nil {
-		return nil, nil, nil, nil, fmt.Errorf("report resources require an explicit host storage factory")
+	factory := options.ReportResourceProviderFactory
+	if factory == nil {
+		factory = workspaceReportResourceProviders
 	}
 	access := preparedHostResourceAccess(prepared)
 	access.ProviderIdentity = options.InternalResourceProviderIdentity
-	providers, err := options.ReportResourceProviderFactory(context.Background(), config.ReportResources, workspaceRoot, access)
+	providers, err := factory(context.Background(), config.ReportResources, workspaceRoot, access)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("report resource storage: %w", err)
 	}

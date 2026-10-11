@@ -3,6 +3,7 @@ package agently
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/viant/agently-core/app/executor"
@@ -28,6 +29,9 @@ type windowBootstrapState struct {
 // prepareWindowBootstrap installs fail-closed proxies before runtime build and
 // binds the host factory after the SDK datasource service exists, before serving.
 func prepareWindowBootstrap(options ServeOptions) (ServeOptions, func(context.Context, WindowBootstrapDatasource) error) {
+	if options.WindowOpenBootstrapFactory == nil && strings.TrimSpace(options.InternalResourceProviderIdentity) != "" {
+		options.WindowOpenBootstrapFactory = ConfiguredWindowBootstrap(options.WindowBootstrapBindings)
+	}
 	if options.WindowOpenBootstrapFactory == nil {
 		return options, func(context.Context, WindowBootstrapDatasource) error { return nil }
 	}

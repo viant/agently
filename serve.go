@@ -63,7 +63,9 @@ type servedUIBundle struct {
 
 type ServeOptions struct {
 	InternalResourceProviderIdentity string
+	NativeWindowConfigPath           string
 	WindowOpenBootstrapFactory       WindowOpenBootstrapFactory
+	WindowBootstrapBindings          []WindowBootstrapBinding
 	// WindowTargetProof may provide shared verification across host replicas.
 	// Nil uses an ephemeral process key; outstanding short leases require the
 	// same process and are invalidated by restart.
@@ -75,7 +77,8 @@ type ServeOptions struct {
 	// ConfigureBuilder installs trusted host providers before Core constructs
 	// workspace authorization. It is never supplied by a browser request.
 	ConfigureBuilder func(context.Context, *executor.Builder) error
-	// AuthorizationProviderFactory binds provider-specific settings in a trusted embedding host.
+	// AuthorizationProviderFactory optionally overrides the configured authz HTTP
+	// adapter for trusted embedders. The ordinary CLI needs no custom factory.
 	AuthorizationProviderFactory     AuthorizationProviderFactory
 	ReportResourceProviderFactory    ReportResourceProviderFactory
 	ResourceSelectionProviderFactory ResourceSelectionProviderFactory
@@ -160,6 +163,15 @@ func Serve(options ServeOptions) error {
 		return fmt.Errorf("invalid reporting orchestration configuration: %w", err)
 	}
 	orchestrationEnabled := defaults.Reporting.OrchestrationEnabled()
+	options.WorkspacePath = workspace.Root()
+	options, err = configureNativeWindowHost(options)
+	if err != nil {
+		return fmt.Errorf("native window configuration: %w", err)
+	}
+	options, err = configuredWindowBootstrapOptions(options)
+	if err != nil {
+		return fmt.Errorf("window bootstrap configuration: %w", err)
+	}
 	options, bindWindowBootstrap := prepareWindowBootstrap(options)
 	internal := &internalHostRegistration{}
 	configureBuilder, err := configureHostAuthorization(options, workspace.Root(), wsConfig, workspaceReportingEnricher(reportingRuntime.loader), internal)
@@ -297,6 +309,14 @@ func Serve(options ServeOptions) error {
 	if err != nil {
 		return err
 	}
+	var hostedAppReader sdk.MCPUIResourceReader
+	var hostedAppBinder sdk.MCPUIResourceContextBinder
+	if internal.hostedAppReader != nil {
+		hostedAppReader, hostedAppBinder, err = internal.hostedAppReader(rt, client)
+		if err != nil {
+			return err
+		}
+	}
 	var menuReader workspaceui.LayoutMenuReader
 	if internal.menuReader != nil {
 		menuReader, err = internal.menuReader(rt)
@@ -305,18 +325,20 @@ func Serve(options ServeOptions) error {
 		}
 	}
 	apiHandler, err := appserver.NewAPIHandler(ctx, appserver.APIOptions{
-		MenuReader:       menuReader,
-		Version:          firstNonEmpty(strings.TrimSpace(Version), "agently-v1"),
-		LayoutDefault:    layoutDefault,
-		Runtime:          rt,
-		Client:           client,
-		AgentFinder:      agentFndr,
-		AgentIDs:         agentIDs,
-		AuthRuntime:      authRuntime,
-		SchedulerService: schedulerSvc,
-		SchedulerOptions: schedulerOpts,
-		UIBridgeHandler:  http.HandlerFunc(uiBridge.Hub().ServeHTTPRPC),
-		AGUIDemoBackends: demoBackends,
+		MenuReader:                 menuReader,
+		MCPUIResourceReader:        hostedAppReader,
+		MCPUIResourceContextBinder: hostedAppBinder,
+		Version:                    firstNonEmpty(strings.TrimSpace(Version), "agently-v1"),
+		LayoutDefault:              layoutDefault,
+		Runtime:                    rt,
+		Client:                     client,
+		AgentFinder:                agentFndr,
+		AgentIDs:                   agentIDs,
+		AuthRuntime:                authRuntime,
+		SchedulerService:           schedulerSvc,
+		SchedulerOptions:           schedulerOpts,
+		UIBridgeHandler:            http.HandlerFunc(uiBridge.Hub().ServeHTTPRPC),
+		AGUIDemoBackends:           demoBackends,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create api handler: %w", err)

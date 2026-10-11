@@ -27,8 +27,8 @@ import (
 	forgetypes "github.com/viant/forge/backend/types"
 )
 
-// AuthorizationProviders is an explicit trusted binding, implemented by an
-// embedding host. This public module interprets no provider-specific identity DTO.
+// AuthorizationProviders binds trusted authority interfaces. The standard HTTP
+// adapter is configured by the operator; embedding hosts may override it.
 type AuthorizationProviders struct {
 	// NativeWindowIdentity verifies identity only for configured static YAML reads.
 	// It carries no role, feature or entity authority. Protected operations use Identity.
@@ -47,10 +47,12 @@ type AuthorizationProviders struct {
 type AuthorizationProviderFactory func(context.Context, json.RawMessage, json.RawMessage) (AuthorizationProviders, error)
 
 type hostAuthorizationFile struct {
-	MenuSources               []HostMenuSource     `json:"menuSources,omitempty"`
-	ToolfeedSources           []HostToolfeedSource `json:"toolfeedSources,omitempty"`
+	MenuSources               []HostMenuSource               `json:"menuSources,omitempty"`
+	HostedApps                []resourcesvc.HostedAppBinding `json:"hostedApps,omitempty"`
+	ToolfeedSources           []HostToolfeedSource           `json:"toolfeedSources,omitempty"`
 	nativeWindows             bool
 	FrameworkWindowResources  []windowloader.ResourceBinding   `json:"frameworkWindowResources,omitempty"`
+	WindowBootstrapBindings   []WindowBootstrapBinding         `json:"windowBootstrapBindings,omitempty"`
 	ResourceSelectionProvider json.RawMessage                  `json:"resourceSelectionProvider,omitempty"`
 	ReportResources           json.RawMessage                  `json:"reportResources,omitempty"`
 	WindowResourcesPath       string                           `json:"windowResourcesPath,omitempty"`
@@ -64,8 +66,8 @@ type hostAuthorizationFile struct {
 	CatalogPath               string                           `json:"catalogPath"`
 	AccountProjection         string                           `json:"accountProjection,omitempty"`
 	ProtectTools              bool                             `json:"protectTools,omitempty"`
-	// Identity and EntityEvaluation are opaque operator-owned settings. Only an
-	// explicitly injected host factory may interpret provider-specific payloads.
+	// Identity and EntityEvaluation are operator-owned adapter configuration.
+	// Custom embedding factories may interpret their own provider settings.
 	Identity              json.RawMessage                     `json:"identity"`
 	EntityEvaluation      json.RawMessage                     `json:"entityEvaluation,omitempty"`
 	Policies              []authz.Document                    `json:"policies"`
@@ -90,6 +92,10 @@ func ValidateHostAuthorizationConfiguration(options ServeOptions) error {
 		return fmt.Errorf("authorization validation requires an explicit authz config")
 	}
 	settings, err := wscfg.Load(root)
+	if err != nil {
+		return err
+	}
+	options, err = configuredWindowBootstrapOptions(options)
 	if err != nil {
 		return err
 	}
@@ -320,10 +326,11 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 	if err = validateHostAuthorizationSelection(config, workspaceConfig); err != nil {
 		return nil, err
 	}
-	if options.AuthorizationProviderFactory == nil {
-		return nil, fmt.Errorf("authorization configuration requires an explicit host provider factory")
+	factory := options.AuthorizationProviderFactory
+	if factory == nil {
+		factory = configuredHTTPAuthorizationProviders
 	}
-	providers, err := options.AuthorizationProviderFactory(context.Background(), config.Identity, config.EntityEvaluation)
+	providers, err := factory(context.Background(), config.Identity, config.EntityEvaluation)
 	if err != nil {
 		return nil, fmt.Errorf("authorization provider binding: %w", err)
 	}
@@ -416,6 +423,15 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 		if err := prepared.SetResourceRevisionMappings(store); err != nil {
 			return nil, err
 		}
+	}
+	if len(config.HostedApps) > 0 {
+		if err := resourcesvc.ValidateHostedAppBindings(config.HostedApps); err != nil {
+			return nil, err
+		}
+		if len(internal) != 1 || internal[0] == nil {
+			return nil, fmt.Errorf("hosted apps require standard runtime registration")
+		}
+		internal[0].hostedAppReader = configureHostedAppReader(config.HostedApps, prepared)
 	}
 	if len(config.MenuSources) > 0 {
 		if len(internal) != 1 || internal[0] == nil {

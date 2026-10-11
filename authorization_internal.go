@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/sdk"
 	"time"
 
 	"github.com/viant/agently-core/app/executor"
@@ -24,10 +25,11 @@ type internalReportRegistration struct {
 	bindings []resources.LocalResourceBinding
 }
 type internalHostRegistration struct {
-	menuReader    func(*executor.Runtime) (workspaceui.LayoutMenuReader, error)
-	workspaceRoot string
-	initialize    func(context.Context) error
-	bind          func(context.Context, *executor.Runtime) error
+	menuReader      func(*executor.Runtime) (workspaceui.LayoutMenuReader, error)
+	hostedAppReader func(*executor.Runtime, sdk.Backend) (sdk.MCPUIResourceReader, sdk.MCPUIResourceContextBinder, error)
+	workspaceRoot   string
+	initialize      func(context.Context) error
+	bind            func(context.Context, *executor.Runtime) error
 }
 
 func (r *internalHostRegistration) Bind(ctx context.Context, rt *executor.Runtime) error {
