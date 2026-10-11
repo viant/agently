@@ -28,6 +28,16 @@ export function activeIteration(rows = []) {
     .find((row) => row?.kind === 'iteration' && (row?.lifecycle === 'pending' || row?.lifecycle === 'running')) || null;
 }
 
+// Only explicit public assistant messages enter this channel; execution-page
+// narration, reasoning and tool bodies remain outside turn status.
+export function publicTaskNarration(rows = [], turnId = '') {
+  return [...(Array.isArray(rows) ? rows : [])].reverse().find((entry) =>
+    entry?.kind === 'assistant' && entry.turnId === turnId && entry.mode === 'task'
+    && entry.hostEffectsAllowed !== false && entry.connectionProfile !== 'standard'
+    && typeof entry.content === 'string' && entry.content.trim() !== ''
+  )?.content?.trim() || '';
+}
+
 export function groupsFromRow(row = null) {
   if (!row) return [];
   return (Array.isArray(row?.rounds) ? row.rounds : []).map((round) => ({
@@ -186,9 +196,10 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
     assistantHasContent: groups.some((group) => String(group?.content || '').trim() !== ''),
   });
 
-  if (developerMode || !progress) return null;
+  if (!progress) return null;
 
-  const operationalNarration = typeof row.operationalNarration === 'string' ? row.operationalNarration.trim() : '';
+  const operationalNarration = publicTaskNarration(rows, row.turnId)
+    || (typeof row.operationalNarration === 'string' ? row.operationalNarration.trim() : '');
   const rawActivity = progress.activity.label || ACTIVITY_LABELS[progress.activity.kind] || 'Working';
   const activity = /\berror\b|\bfailed\b/i.test(rawActivity) ? 'Continuing' : rawActivity;
   const toolText = toolProgressText(progress);
