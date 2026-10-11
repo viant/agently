@@ -5,6 +5,7 @@ import {
   listReportExportArtifacts,
   listReportExportJobs,
   submitReportExportRun,
+  submitReportExportResource,
   submitReportExportRequest,
   submitReportExportSource,
 } from './reportExportService';
@@ -15,6 +16,7 @@ import {
   listReports,
   recordReportRun,
   saveReport,
+  runReport,
   updateReport,
 } from './reportStoreService';
 import { runReportLifecycleAction } from './reportLifecycleService';
@@ -146,6 +148,7 @@ function subscribeReportRestoreScope(listener) {
 export function createReportingHostServices() {
   return {
     reportExport: {
+      submitResource: submitReportExportResource,
       submitRequest: submitReportExportRequest,
       submitRun: submitReportExportRun,
       submitSource: submitReportExportSource,
@@ -155,6 +158,7 @@ export function createReportingHostServices() {
       listArtifacts: listReportExportArtifacts,
     },
     reportStore: {
+      runReport,
       saveReport,
       getReport,
       listReports,

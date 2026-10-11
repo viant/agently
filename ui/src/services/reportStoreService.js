@@ -96,3 +96,10 @@ export async function recordReportRun(request = null) {
   notifyReportStoreChanged({ action: 'ran', report: result });
   return result;
 }
+
+export async function runReport(request = {}) {
+  if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('report run request is required');
+  const result = await executeReportingTool('reporting:run_report', request, 'report run request failed');
+  if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('unexpected report run response');
+  return result;
+}
