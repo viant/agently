@@ -116,15 +116,22 @@ export async function getAuthMeSilently() {
   if (authMeInFlight) {
     return authMeInFlight;
   }
+  const ownerGeneration = workspaceMetadataGeneration;
   authMeInFlight = (async () => {
     const response = await fetchAuthEndpoint('/api/auth/me');
+    if (ownerGeneration !== workspaceMetadataGeneration) return null;
     if (response.status === 200) {
       try {
-        authMeCacheValue = await response.json();
-        const owner = `${authMeCacheValue?.provider || ''}:${authMeCacheValue?.subject || authMeCacheValue?.email || authMeCacheValue?.username || ''}`;
+        const next = await response.json();
+        if (ownerGeneration !== workspaceMetadataGeneration) return null;
+        authMeCacheValue = next;
+        // This server-issued fence changes on account/credential rotation. It
+        // only invalidates cached UI state and is never sent as authorization.
+        const owner = JSON.stringify([authMeCacheValue?.provider || '', authMeCacheValue?.subject || authMeCacheValue?.email || authMeCacheValue?.username || '', authMeCacheValue?.sessionBinding || '']);
         if (protocolSessionOwner && protocolSessionOwner !== owner) resetProtocolSession();
         protocolSessionOwner = owner;
       } catch (_) {
+        if (ownerGeneration !== workspaceMetadataGeneration) return null;
         authMeCacheValue = null;
       }
       authMeCacheReady = true;
@@ -140,7 +147,7 @@ export async function getAuthMeSilently() {
     // authority for forcing login.
     throw new Error(`auth/me failed with HTTP ${response.status}`);
   })().finally(() => {
-    authMeInFlight = null;
+    if (ownerGeneration === workspaceMetadataGeneration) authMeInFlight = null;
   });
   return authMeInFlight;
 }

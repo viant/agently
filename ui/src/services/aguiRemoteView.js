@@ -9,7 +9,7 @@ export function createRemoteViewService(host) {
   const entry=id=>{if(!entries.has(id))entries.set(id,{view:empty,listeners:new Set(),loading:null,subscription:null});return entries.get(id);};
   const publish=(item,update)=>{item.view={...item.view,...update};for(const listener of item.listeners)listener();};
   const current=(id,item)=>entries.get(id)===item;
-  const read=(id,item,snapshot)=>{if(!current(id,item))return;publish(item,{snapshot,phase:snapshot.phase,rows:remoteRows(id,item.view.thread.threadId,snapshot)});};
+  const read=(id,item,snapshot,owner,threadId)=>{if(owner!==generation||!current(id,item)||item.view.thread?.threadId!==threadId)return;publish(item,{snapshot,phase:snapshot.phase,rows:remoteRows(id,threadId,snapshot)});};
   const service={
     getSnapshot:id=>entry(id).view,
     subscribe(id,listener){const item=entry(id);item.listeners.add(listener);return()=>item.listeners.delete(listener);},
@@ -22,9 +22,9 @@ export function createRemoteViewService(host) {
         try{
           const thread=await transport.create(id);if(owner!==generation||!current(id,item))return;
           item.subscription?.close();publish(item,{...empty,thread,namespace:remoteNamespace(id,thread.threadId)});
-          item.subscription=transport.subscribe(id,thread.threadId,{onSession:snapshot=>read(id,item,snapshot),onDescriptor:descriptor=>{if(descriptor.kind==='protocol-snapshot')read(id,item,transport.getSnapshot(id,thread.threadId));}});
+          item.subscription=transport.subscribe(id,thread.threadId,{onSession:snapshot=>read(id,item,snapshot,owner,thread.threadId),onDescriptor:descriptor=>{if(owner===generation&&current(id,item)&&item.view.thread?.threadId===thread.threadId&&descriptor.kind==='protocol-snapshot')read(id,item,transport.getSnapshot(id,thread.threadId),owner,thread.threadId);}});
           return thread;
-        }catch(error){if(current(id,item))publish(item,{phase:'failed',error:error.message});throw error;}
+        }catch(error){if(owner===generation&&current(id,item))publish(item,{phase:'failed',error:error.message});throw error;}
         finally{if(owner===generation)item.loading=null;}
       })();return item.loading;
     },
