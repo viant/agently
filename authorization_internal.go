@@ -175,7 +175,7 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 			bindings = append(bindings, entry)
 		}
 	}
-	if len(config.ToolfeedSources) > 0 && snapshot == nil {
+	if len(config.ToolfeedSources)+len(config.TemplateSources)+len(config.IntentSources) > 0 && snapshot == nil {
 		var snapshotErr error
 		snapshot, snapshotErr = newInternalWindowSnapshot(context.Background(), registration.workspaceRoot, "", config)
 		if snapshotErr != nil {
@@ -187,7 +187,12 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 		return nil, err
 	}
 	bindings = append(bindings, toolfeeds...)
-	menus, err := configuredMenuBindings(owner, config, prepared)
+	authored, err := configuredAuthoredBindings(context.Background(), registration.workspaceRoot, owner, config, prepared, snapshot)
+	if err != nil {
+		return nil, err
+	}
+	bindings = append(bindings, authored...)
+	menus, err := configuredMenuBindings(owner, config, prepared, snapshot)
 	if err != nil {
 		return nil, err
 	}
@@ -201,6 +206,10 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 		return nil, err
 	}
 	localConfig := resources.LocalConfig{ProviderIdentity: owner, Actor: actorResolver, Verify: verify, Authorize: authorize, Bindings: bindings, Validators: map[string]resources.LocalResourceValidator{"window": resources.ValidateWindowBundle, "report": resources.ValidateReportEnvelope, "toolfeed": resources.ValidateToolfeedDefinition}}
+	if len(authored) > 0 {
+		localConfig.Validators["template"] = resources.ValidateTemplateDefinition
+		localConfig.Validators["intent"] = resources.ValidateIntentDefinition
+	}
 	if len(menus) > 0 {
 		localConfig.Validators["menu"] = resources.ValidateMenu
 		localConfig.MenuActionVisibility, err = configuredMenuVisibility(config, principals, authorize)
@@ -218,6 +227,9 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 	registration.bind = func(ctx context.Context, rt *executor.Runtime) error {
 		if rt == nil || rt.PrimitiveProviders == nil {
 			return fmt.Errorf("internal resource gateway was not constructed")
+		}
+		if snapshot != nil {
+			rt.NativeLayoutSource = snapshot.layoutSource
 		}
 		if len(config.WindowResources)+len(config.FrameworkWindowResources) > 0 {
 			if rt.UIBridge == nil || proof == nil {
