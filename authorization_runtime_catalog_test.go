@@ -137,4 +137,20 @@ func TestConfiguredRuntimeConsumersRetainFrameworkAfterLateInternalBind(t *testi
 
 	_, err = handler.Layout(ctx, &metadata.LayoutRequest{})
 	require.NoError(t, err, "captured workspace consumer must use the late-bound catalog")
+	// A stale browser credential cannot borrow the successful fresh actor catalog.
+	expiredJWT := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{"iss": authority.URL, "aud": "fixture", "sub": "fixture-user", "account": "fixture-account", "iat": time.Now().Add(-2 * time.Hour).Unix(), "exp": time.Now().Add(-time.Hour).Unix()})
+	expiredJWT.Header["kid"] = "fixture"
+	expired, signErr := expiredJWT.SignedString(key)
+	require.NoError(t, signErr)
+	expiredContext := svcauth.InjectTokens(svcauth.InjectUser(context.Background(), "fixture-user"), &scyauth.Token{IDToken: expired})
+	deniedRequest := httptest.NewRequest(http.MethodGet, "/window/chat%2Fnew?platform=web&formFactor=desktop", nil).WithContext(expiredContext)
+	deniedResponse := httptest.NewRecorder()
+	windowHandler.ServeHTTP(deniedResponse, deniedRequest)
+	require.NotEqual(t, http.StatusOK, deniedResponse.Code)
+	// A subsequent normal verified request remains usable on the same gateway.
+	freshRequest := httptest.NewRequest(http.MethodGet, "/window/chat%2Fnew?platform=web&formFactor=desktop", nil).WithContext(ctx)
+	freshResponse := httptest.NewRecorder()
+	windowHandler.ServeHTTP(freshResponse, freshRequest)
+	require.Equal(t, http.StatusOK, freshResponse.Code)
+
 }
