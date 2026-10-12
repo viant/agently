@@ -193,11 +193,18 @@ func TestConfiguredHostRuntimeRegistersToolfeedSources(t *testing.T) {
 	require.NoError(t, registration.Bind(ctx, rt))
 	namespaces, err := rt.PrimitiveProviders.Discover(ctx)
 	require.NoError(t, err)
-	require.Len(t, namespaces, 1)
+	var toolfeedNamespace *resources.DiscoveredNamespace
+	for i := range namespaces {
+		if namespaces[i].ProviderIdentity == "host-resources" && namespaces[i].Namespace == "team" {
+			require.Nil(t, toolfeedNamespace, "duplicate owning toolfeed namespace")
+			toolfeedNamespace = &namespaces[i]
+		}
+	}
+	require.NotNil(t, toolfeedNamespace)
 	rows, err := rt.PrimitiveProviders.List(ctx, "toolfeed", "team")
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
-	got, err := rt.PrimitiveProviders.Get(ctx, namespaces[0].Connection, identity.ResourceRef{URI: uri}, nil)
+	got, err := rt.PrimitiveProviders.Get(ctx, toolfeedNamespace.Connection, identity.ResourceRef{URI: uri}, nil)
 	require.NoError(t, err)
 	require.Equal(t, "host-resources", got.ResolvedResource.ProviderIdentity)
 	scoped, ok := backend.(interface {
