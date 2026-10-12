@@ -1,6 +1,6 @@
 import React from 'react';
 import StandaloneForgeWindowSurface from './StandaloneForgeWindowSurface.jsx';
-import { useSetting } from 'forge/core';
+import { useSetting, getActiveUIBridgeTransportContext } from 'forge/core';
 import { installForgeGuestBridge } from '../../services/mcpApps/forgeGuestBridge.js';
 import MCPUIVerifierRouteDebug from './MCPUIVerifierRouteDebug.jsx';
 import { MCPUI_VERIFIER_ROUTE_WINDOW_KEY } from '../../services/mcpApps/mcpuiVerifierRouteDiagnostics.js';
@@ -65,6 +65,9 @@ export function loadSelectedWindow(windowKey, parameters, targetContext = {}, ro
     // Catalog routing hints only; never carry another window's authority.
     if (routing.namespace) requestParams.set('namespace', routing.namespace);
     if (routing.providerIdentity) requestParams.set('providerIdentity', routing.providerIdentity);
+    if (routing.resolvedResource) requestParams.set('resolvedResource',JSON.stringify(routing.resolvedResource));
+    if (routing.clientId) requestParams.set('clientId',routing.clientId);
+    if (routing.windowId) requestParams.set('windowId',routing.windowId);
     // Selection parameters must reach server admission before rendering the
     // window. Client parameters describe the selection; the server resolves
     // the protected resource and decides its capabilities.
@@ -72,10 +75,13 @@ export function loadSelectedWindow(windowKey, parameters, targetContext = {}, ro
     requestParams.set('windowParams', JSON.stringify(parameters));
     const query = requestParams.toString();
     const requestURL = `/v1/api/agently/forge/window/${encodeURIComponent(windowKey)}${query ? `?${query}` : ''}`;
+    const headers = { Accept: 'application/json' };
+    const transport = routing.windowId ? getActiveUIBridgeTransportContext() : null;
+    if (routing.windowId && transport?.sessionId) headers[transport.sessionHeader] = transport.sessionId;
     return fetch(requestURL, {
       method: 'GET',
       credentials: 'include',
-      headers: { Accept: 'application/json' },
+      headers,
     })
       .then(async (response) => {
         if (!response.ok) {
