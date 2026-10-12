@@ -42,6 +42,9 @@ invent in a capture request.
 
 ## Follow one operation to its outcome
 
+Issue one dependent action per target at a time. Do not batch duplicate calls
+or parallel preparation/status calls for the same sign-in flow.
+
 A queued or running tool result is not completion. Inspect the original
 `operationId` with the advertised status/output tools; do not issue the same
 action again to obtain a result. After a timeout, distinguish explicit
