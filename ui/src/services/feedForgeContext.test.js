@@ -6,6 +6,7 @@ vi.mock('./forgeUIActions', () => ({ dispatchForgeUIAction: dispatchForgeUIActio
 vi.mock('../components/lookups/client', () => ({ fetchDatasource: fetchDatasourceMock }));
 
 vi.mock('./reportExportService', () => ({
+  submitReportExportResource: vi.fn(async (request) => ({ ok: true, request })),
   submitReportExportRequest: vi.fn(async ({ request, source }) => ({
     ok: true,
     source,
