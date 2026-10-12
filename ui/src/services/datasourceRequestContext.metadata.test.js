@@ -1,6 +1,6 @@
 import {beforeEach, expect, it, vi} from 'vitest';
 
-vi.mock('forge/core', () => ({findMetadataSignal: vi.fn()}));
+vi.mock('forge/core', () => ({findMetadataSignal: vi.fn(), getActiveUIBridgeTransportContext: vi.fn(() => null)}));
 import {findMetadataSignal} from 'forge/core';
 import {prepareAgentlyDataConnectorRequest} from './datasourceRequestContext.js';
 

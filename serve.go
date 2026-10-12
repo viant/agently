@@ -186,9 +186,13 @@ func Serve(options ServeOptions) error {
 	if err != nil {
 		return fmt.Errorf("read embedded workspace layout: %w", err)
 	}
+	frameworkDefaults, err := defaultFrameworkWindows()
+	if err != nil {
+		return fmt.Errorf("framework source declarations: %w", err)
+	}
 	originalConfigureBuilder := configureBuilder
 	configureBuilder = func(ctx context.Context, builder *executor.Builder) error {
-		builder.WithNativeLayoutDefault(layoutDefault)
+		builder.WithNativeLayoutDefault(layoutDefault).WithNativeWindowDefaults(frameworkDefaults)
 		if originalConfigureBuilder != nil {
 			return originalConfigureBuilder(ctx, builder)
 		}
@@ -254,6 +258,9 @@ func Serve(options ServeOptions) error {
 		return fmt.Errorf("runtime Forge UI bridge is not configured")
 	}
 	forgeWindowRepo := forgewindowrepo.NewWithStore(rt.Store)
+	if rt.PrimitiveProviders != nil {
+		forgeWindowRepo = forgewindowrepo.NewWithReader(resources.NewWindowViewReader(rt.PrimitiveProviders))
+	}
 	logLoadedForgeWindows(ctx, forgeWindowRepo)
 	// Capture native immutable sources only after constructor and original
 	// window-loader startup reads finish normalizing their filesystem.

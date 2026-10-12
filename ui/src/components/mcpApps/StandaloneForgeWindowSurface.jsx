@@ -1,4 +1,5 @@
 import React from 'react';
+import {isNativePublicPresentation, admitNativePresentation} from './nativePresentationAdmission.js';
 import {WindowManager} from 'forge/components';
 import {windowMetadataFetchKey} from 'forge/components/WindowContent.jsx';
 import {activeWindows, addWindow, removeWindow, selectedTabId, selectedWindowId} from 'forge/core';
@@ -19,8 +20,16 @@ export default function StandaloneForgeWindowSurface({selectedWindow, loadWindow
     const scopeId = createStandaloneScopeId(baseScopeId);
     const focus = {selectedTabId: selectedTabId.peek(), selectedWindowId: selectedWindowId.peek()};
     const root = mountStandaloneRoot(store, scopeId, selectedWindow);
+    if (isNativePublicPresentation(selectedWindow)) {
+      activeWindows.value = activeWindows.peek().map(entry => entry.windowId === root.windowId ? {...entry,standaloneAdmissionComplete:false} : entry);
+    }
     const pending = new Map();
     let active = true;
+    if (isNativePublicPresentation(selectedWindow)) {
+      admitNativePresentation(selectedWindow,root.windowId,loadWindow,structuredClone(selectedWindow.parameters || {}),targetContext,windowCatalogRouting(selectedWindow))
+        .then(admitted => {if(active) applyStandaloneAdmission(store,scopeId,root.windowId,admitted);})
+        .catch(error => {if(active) activeWindows.value=activeWindows.peek().map(entry => entry.windowId===root.windowId ? {...entry,standaloneOpenError:error?.message || 'Workspace UI admission failed'} : entry);});
+    }
     // Existing window actions create scoped child entries. Admit each original
     // key/parameter selection once before its real WindowContent can mount.
     const admitChildren = () => {
@@ -32,9 +41,11 @@ export default function StandaloneForgeWindowSurface({selectedWindow, loadWindow
         const request = {parameters: structuredClone(entry.parameters || {}), routing: windowCatalogRouting(parent)};
         pending.set(entry.windowId, request);
         Promise.resolve().then(() => loadWindow(entry.windowKey, request.parameters, targetContext, request.routing))
-          .then(selected => {
+          .then(async selected => {
             if (!active || pending.get(entry.windowId) !== request) return;
             if (!selected?.inlineMetadata?.view) throw new Error('Selected window frame is incomplete');
+            selected = await admitNativePresentation(selected,entry.windowId,loadWindow,request.parameters,targetContext,request.routing);
+            if (!active || pending.get(entry.windowId) !== request) return;
             applyStandaloneAdmission(store, scopeId, entry.windowId, selected);
           })
           .catch(error => {
