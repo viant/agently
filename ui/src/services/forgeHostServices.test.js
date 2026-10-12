@@ -23,6 +23,7 @@ vi.mock('./datasourceRequestContext', () => ({
 }));
 
 vi.mock('./reportExportService', () => ({
+  submitReportExportResource: vi.fn(async (request) => ({ ok: true, request })),
   submitReportExportRequest: vi.fn(async ({ request, source }) => ({
     ok: true,
     source,
@@ -60,6 +61,7 @@ vi.mock('./reportExportService', () => ({
 }));
 
 vi.mock('./reportStoreService', () => ({
+  runReport: vi.fn(async (request) => ({ ok: true, ...request })),
   saveReport: vi.fn(async (request) => ({ ok: true, artifactId: 'report-1', ...request })),
   getReport: vi.fn(async ({ artifactId }) => ({ artifactId, title: 'Stored Report' })),
   listReports: vi.fn(async ({ limit }) => ({ reports: [{ artifactId: 'report-1', title: 'Stored Report' }], totalCount: limit || 1 })),
