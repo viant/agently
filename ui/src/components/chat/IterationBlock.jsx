@@ -743,6 +743,7 @@ export function mapCanonicalExecutionGroups(groups = []) {
             : title)));
     return {
       id: String(group?.parentMessageId || group?.ParentMessageID || group?.modelMessageId || group?.ModelMessageID || `group:${index}`),
+      pageId: String(group?.pageId || ''),
       groupKind: lifecycleOnly
         ? 'lifecycle'
         : (groupPhase === 'intake'
@@ -2304,7 +2305,17 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
           || String(phaseBadgeLabel(group) || '').trim() !== ''
         );
       return (
-        <div className="app-iteration-group" key={`${group.id}:${groupIndex}`}>
+        <div
+          className="app-iteration-group"
+          key={`${group.id}:${groupIndex}`}
+          data-group-id={group.id}
+          data-page-id={group.pageId || undefined}
+          data-group-kind={group.groupKind}
+          data-group-status={group.status || undefined}
+          data-model-call-id={modelStep?.modelCallId || undefined}
+          data-tool-call-ids={JSON.stringify(group.toolSteps.map((step) => step.toolCallId).filter(Boolean))}
+          data-tool-message-ids={JSON.stringify(group.toolSteps.map((step) => step.toolMessageId).filter(Boolean))}
+        >
       {modelStep ? (
         <div className="app-iteration-model-row">
           <div className="app-iteration-tool-row-main">

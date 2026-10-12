@@ -2427,3 +2427,32 @@ describe('mapCanonicalExecutionGroups', () => {
     expect(html).not.toContain('Execution details');
   });
 });
+
+
+describe('visible execution group correlation', () => {
+  it('preserves the canonical page identity without changing group or status semantics', () => {
+    const [group] = mapCanonicalExecutionGroups([{
+      pageId: 'native-page', status: 'running', content: 'Synthetic final content', modelSteps: [], toolSteps: [],
+    }]);
+    expect(group).toMatchObject({id: 'group:0', pageId: 'native-page', status: 'running', title: 'Execution step'});
+    expect(group.toolSteps).toEqual([]);
+  });
+
+  it('exposes only existing primitive identities on the visible developer group', () => {
+    const html = renderDeveloperIteration({
+      canonicalRow: {
+        kind: 'iteration', conversationId: 'conversation', turnId: 'native-turn', lifecycle: 'running', isStreaming: true,
+        rounds: [{pageId: 'native-page', status: 'running', modelSteps: [], toolCalls: [{
+          toolCallId: 'native-tool', toolMessageId: 'native-tool-message', toolName: 'fixture/read', status: 'running',
+          requestPayload: {secret: 'not-a-visible-attribute'},
+        }]}],
+      }, message: {id: 'native-user'}, context: null,
+    });
+    expect(html).toContain('data-group-id="group:0"');
+    expect(html).toContain('data-page-id="native-page"');
+    expect(html).toContain('data-group-status="running"');
+    expect(html).toContain('data-tool-call-ids="[&quot;native-tool&quot;]"');
+    expect(html).toContain('data-tool-message-ids="[&quot;native-tool-message&quot;]"');
+    expect(html).not.toContain('not-a-visible-attribute');
+  });
+});
