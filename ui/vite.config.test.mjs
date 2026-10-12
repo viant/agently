@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { resolveDevHost, resolveDevPort, resolveProxyTarget } from './vite.config.js';
+import { isLoopbackPeer, loopbackOnlyDevPlugin, resolveDevHost, resolveDevPort, resolveProxyTarget } from './vite.config.js';
 
 assert.equal(
   resolveProxyTarget({ APPSERVER_URL: 'http://127.0.0.1:9191' }, { requireExplicit: true }),
@@ -8,6 +8,17 @@ assert.equal(
 );
 
 assert.equal(resolveDevHost({ HOST: '127.0.0.1' }), '127.0.0.1');
+assert.equal(resolveDevHost({}), '::');
+for (const peer of ['::1', '127.0.0.1', '::ffff:127.0.0.1']) assert.equal(isLoopbackPeer(peer), true);
+for (const peer of ['', '192.0.2.1', '::ffff:192.0.2.1', '127.invalid', '::']) assert.equal(isLoopbackPeer(peer), false);
+let middleware, upgrade;
+loopbackOnlyDevPlugin().configureServer({config:{server:{host:'::'}},middlewares:{use(fn){middleware=fn;}},httpServer:{prependListener(event,fn){assert.equal(event,'upgrade');upgrade=fn;}}});
+let forwarded=false, ended=false, destroyed=false;
+const response={statusCode:200,end(){ended=true;}};
+middleware({socket:{remoteAddress:'192.0.2.1'}},response,()=>{forwarded=true;});
+assert.equal(response.statusCode,403);assert.equal(ended,true);assert.equal(forwarded,false);
+middleware({socket:{remoteAddress:'::ffff:127.0.0.1'}},response,()=>{forwarded=true;});assert.equal(forwarded,true);
+upgrade({}, {remoteAddress:'192.0.2.1',destroy(){destroyed=true;}});assert.equal(destroyed,true);
 assert.equal(resolveDevHost({ VITE_HOST: '0.0.0.0', HOST: '127.0.0.1' }), '0.0.0.0');
 assert.equal(resolveDevPort({ PORT: '5175' }), 5175);
 assert.equal(resolveDevPort({ VITE_PORT: '5176', PORT: '5175' }), 5176);
