@@ -32,3 +32,6 @@ e2e/database/agently/script/schema.ddl
 !/ui/scripts/test-mcp-apps-sandbox.mjs
 
 ui/theme-proof-dist/
+
+/agently-bin
+/bin/

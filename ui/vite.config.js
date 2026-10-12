@@ -1,12 +1,36 @@
 import { resolve } from 'path';
 import path from 'path';
 import fs from 'fs';
+import { isIP } from 'node:net';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
 const NET_LOG = '/tmp/browser-network.log';
-const LOCAL_DEV_HOST = 'localhost';
+const LOCAL_DEV_HOST = '::';
 const LOCAL_DEV_PORT = 5173;
+
+export const isLoopbackPeer = (address = '') => {
+  if (address === '::1') return true;
+  const ipv4 = address.startsWith('::ffff:') ? address.slice(7) : address;
+  return isIP(ipv4) === 4 && ipv4.startsWith('127.');
+};
+
+export function loopbackOnlyDevPlugin() {
+  return {
+    name: 'loopback-only-dual-stack',
+    configureServer(server) {
+      if (server.config.server.host !== LOCAL_DEV_HOST) return;
+      server.middlewares.use((req, res, next) => {
+        if (isLoopbackPeer(req.socket.remoteAddress)) return next();
+        res.statusCode = 403;
+        res.end('Local development access only');
+      });
+      server.httpServer?.prependListener('upgrade', (_req, socket) => {
+        if (!isLoopbackPeer(socket.remoteAddress)) socket.destroy();
+      });
+    }
+  };
+}
 
 function networkLoggerPlugin() {
   return {
@@ -115,7 +139,7 @@ export default defineConfig(({ mode, command }) => {
       'process.env': prodEnv,
       global: 'window'
     },
-    plugins: [react(), networkLoggerPlugin()],
+    plugins: [loopbackOnlyDevPlugin(), react(), networkLoggerPlugin()],
     server: {
       host: devHost,
       port: devPort,

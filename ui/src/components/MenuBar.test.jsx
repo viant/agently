@@ -87,7 +87,7 @@ describe('MenuBar window reuse', () => {
       }
     });
 
-    const { openWindow } = await import('./MenuBar.jsx');
+    const { openWindow } = await import('./menuBarHelpers.js');
     openWindow('schedule/history', 'Runs', ['runs']);
 
     expect(selectedTabId.value).toBe('runs-window');
@@ -108,7 +108,7 @@ describe('MenuBar window reuse', () => {
       return win;
     });
 
-    const { openWindow } = await import('./MenuBar.jsx');
+    const { openWindow } = await import('./menuBarHelpers.js');
     openWindow('schedule/history', 'Runs', ['runs'], { replaceTabbedWindows: true });
 
     expect(activeWindows.value).toEqual([
@@ -132,7 +132,7 @@ describe('MenuBar window reuse', () => {
       return win;
     });
 
-    const { openWindow } = await import('./MenuBar.jsx');
+    const { openWindow } = await import('./menuBarHelpers.js');
     openWindow('schedule/history', 'Runs', ['runs'], { replaceTabbedWindows: true, replaceMainChatTree: true });
 
     expect(activeWindows.value).toEqual([
@@ -153,7 +153,7 @@ describe('MenuBar window reuse', () => {
       return win;
     });
 
-    const { openWindow } = await import('./MenuBar.jsx');
+    const { openWindow } = await import('./menuBarHelpers.js');
     openWindow('schedule', 'Automation', ['schedules']);
 
     expect(activeWindows.value.map((entry) => entry.windowId)).toEqual(['chat/new', 'order_1', 'schedule']);
@@ -168,7 +168,7 @@ describe('MenuBar window reuse', () => {
       activeWindows.value = [...activeWindows.value, win];
       return win;
     });
-    const { openWindow } = await import('./MenuBar.jsx');
+    const { openWindow } = await import('./menuBarHelpers.js');
     openWindow('record', 'Record', [], { conversationId: 'conv-a', parameters: { id: 2 } });
     expect(addWindow).toHaveBeenCalledTimes(1);
     expect(activeWindows.value).toHaveLength(2);
@@ -183,7 +183,7 @@ describe('MenuBar window reuse', () => {
 
 describe('MenuBar auth startup selection', () => {
   it('prefers oauth when oauth provider is present', async () => {
-    const { resolveStartupAuthAction } = await import('./MenuBar.jsx');
+    const { resolveStartupAuthAction } = await import('./menuBarHelpers.js');
     const action = resolveStartupAuthAction([
       { type: 'local', defaultUsername: 'devuser' },
       { type: 'bff', name: 'oauth' }
@@ -192,7 +192,7 @@ describe('MenuBar auth startup selection', () => {
   });
 
   it('falls back to local only when oauth is absent', async () => {
-    const { resolveStartupAuthAction } = await import('./MenuBar.jsx');
+    const { resolveStartupAuthAction } = await import('./menuBarHelpers.js');
     const action = resolveStartupAuthAction([
       { type: 'local', defaultUsername: 'devuser' }
     ]);
@@ -204,7 +204,7 @@ describe('MenuBar auth startup selection', () => {
     client.getAuthMe.mockResolvedValueOnce(null);
     client.getAuthProviders.mockResolvedValueOnce([{ type: 'bff', name: 'oauth' }]);
 
-    const mod = await import('./MenuBar.jsx');
+    const mod = await import('./menuBarHelpers.js');
     expect(mod.resolveStartupAuthAction([{ type: 'bff', name: 'oauth' }])).toEqual({ type: 'oauth' });
     // The component bootstrap should not call local login when oauth is present.
     expect(client.localLogin).not.toHaveBeenCalled();
@@ -213,14 +213,14 @@ describe('MenuBar auth startup selection', () => {
 
 describe('MenuBar branding', () => {
   it('keeps the Viant logo only for the explicit builtin viant icon', async () => {
-    const { resolveBrandLogoSrc } = await import('./MenuBar.jsx');
+    const { resolveBrandLogoSrc } = await import('./menuBarHelpers.js');
     expect(resolveBrandLogoSrc('builtin:viant')).toBe('logo.png');
     expect(resolveBrandLogoSrc('')).toBe('logo.png');
     expect(resolveBrandLogoSrc('builtin:steward')).toBe('');
   });
 
   it('derives a monogram for workspaces without an image-backed icon ref', async () => {
-    const { resolveBrandMonogram } = await import('./MenuBar.jsx');
+    const { resolveBrandMonogram } = await import('./menuBarHelpers.js');
     expect(resolveBrandMonogram('Steward')).toBe('S');
     expect(resolveBrandMonogram('Acme Workspace')).toBe('AW');
     expect(resolveBrandMonogram('')).toBe('A');
@@ -229,7 +229,7 @@ describe('MenuBar branding', () => {
 
 describe('MenuBar approval pagination', () => {
   it('paginates approval items with stable ranges', async () => {
-    const { paginateApprovalItems } = await import('./MenuBar.jsx');
+    const { paginateApprovalItems } = await import('./menuBarHelpers.js');
     const items = Array.from({ length: 18 }, (_, index) => ({ id: `approval-${index + 1}` }));
 
     const first = paginateApprovalItems(items, 0, 8);
@@ -256,7 +256,7 @@ describe('MenuBar approval pagination', () => {
   });
 
   it('clamps out-of-range pages back to the last page', async () => {
-    const { paginateApprovalItems } = await import('./MenuBar.jsx');
+    const { paginateApprovalItems } = await import('./menuBarHelpers.js');
     const items = Array.from({ length: 3 }, (_, index) => ({ id: `approval-${index + 1}` }));
 
     const page = paginateApprovalItems(items, 99, 2);
@@ -269,7 +269,7 @@ describe('MenuBar approval pagination', () => {
 
 describe('MenuBar queue approval dialog', () => {
   it('normalizes queue approvals into renderable review schema seeded from queued arguments', async () => {
-    const { normalizeQueueApprovalDialog } = await import('./MenuBar.jsx');
+    const { normalizeQueueApprovalDialog } = await import('./menuBarHelpers.js');
     const item = {
       toolName: 'steward/RecommendationPatch',
       arguments: {
@@ -318,7 +318,7 @@ describe('MenuBar queue approval dialog', () => {
   });
 
   it('parses stringified queue metadata and arguments', async () => {
-    const { normalizeQueueApprovalDialog } = await import('./MenuBar.jsx');
+    const { normalizeQueueApprovalDialog } = await import('./menuBarHelpers.js');
     const metadata = {
       approval: { toolName: 'steward/RecommendationPatch', title: 'Recommendation review' },
       review: {
@@ -360,7 +360,7 @@ describe('MenuBar queue approval dialog', () => {
   });
 
   it('applies selector-based review seeds for nested recommendation fields', async () => {
-    const { extractSchemaDefaultValues, normalizeQueueApprovalDialog } = await import('./MenuBar.jsx');
+    const { extractSchemaDefaultValues, normalizeQueueApprovalDialog } = await import('./menuBarHelpers.js');
     const item = {
       arguments: {
         Recommendation: {
@@ -419,7 +419,7 @@ describe('MenuBar queue approval dialog', () => {
 
 describe('MenuBar MCP UI approval routing', () => {
   it('matches pending approvals by exact queue row id', async () => {
-    const { findApprovalItemById } = await import('./MenuBar.jsx');
+    const { findApprovalItemById } = await import('./menuBarHelpers.js');
     const items = [
       { id: 'approval-1', toolName: 'system/os:getEnv' },
       { id: 'approval-2', toolName: 'system/os:getEnv' },
@@ -430,7 +430,7 @@ describe('MenuBar MCP UI approval routing', () => {
   });
 
   it('captures and restores a focusable return target exactly', async () => {
-    const { captureReturnFocusTarget, restoreReturnFocusTarget } = await import('./MenuBar.jsx');
+    const { captureReturnFocusTarget, restoreReturnFocusTarget } = await import('./menuBarHelpers.js');
     const focus = vi.fn();
     const target = { focus };
     expect(captureReturnFocusTarget({ activeElement: target })).toBe(target);
@@ -439,13 +439,13 @@ describe('MenuBar MCP UI approval routing', () => {
   });
 
   it('ignores non-focusable active elements when capturing return focus', async () => {
-    const { captureReturnFocusTarget, restoreReturnFocusTarget } = await import('./MenuBar.jsx');
+    const { captureReturnFocusTarget, restoreReturnFocusTarget } = await import('./menuBarHelpers.js');
     expect(captureReturnFocusTarget({ activeElement: {} })).toBe(null);
     expect(restoreReturnFocusTarget(null)).toBe(false);
   });
 
   it('preserves an existing widget return-focus target instead of overwriting it with a later host-side control', async () => {
-    const { resolveReturnFocusTarget } = await import('./MenuBar.jsx');
+    const { resolveReturnFocusTarget } = await import('./menuBarHelpers.js');
     const iframeTarget = { focus: vi.fn() };
     const hostButton = { focus: vi.fn() };
     expect(resolveReturnFocusTarget(iframeTarget, { activeElement: hostButton })).toBe(iframeTarget);
@@ -453,7 +453,7 @@ describe('MenuBar MCP UI approval routing', () => {
   });
 
   it('restores focus only on the approval-dialog open->close transition with a captured target', async () => {
-    const { nextApprovalDialogFocusReturn } = await import('./MenuBar.jsx');
+    const { nextApprovalDialogFocusReturn } = await import('./menuBarHelpers.js');
     const target = { focus: vi.fn() };
 
     // closed -> closed: nothing to restore, was-open flag stays false.
@@ -475,5 +475,15 @@ describe('MenuBar MCP UI approval routing', () => {
     // open -> close without a captured target: do not invent one.
     expect(nextApprovalDialogFocusReturn({ wasOpen: true, isOpen: false, target: null }))
       .toEqual({ wasOpen: false, restoreTarget: null });
+  });
+});
+
+describe('MenuBar component boundary', () => {
+  it('exports only the refreshable component and renders after helper extraction', async () => {
+    const React = await import('react');
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const component = await import('./MenuBar.jsx');
+    expect(Object.keys(component)).toEqual(['default']);
+    expect(() => renderToStaticMarkup(React.createElement(component.default, {}))).not.toThrow();
   });
 });
