@@ -36,7 +36,9 @@ export function buildWindowPayload(windowKey, payload, parameters) {
     // id/stateKey fields so draft export can build a stable artifactRef.
     id: String(data?.id || normalizedWindowKey || normalizedWindowId).trim() || normalizedWindowId,
     stateKey: String(data?.stateKey || data?.id || normalizedWindowKey || normalizedWindowId).trim() || normalizedWindowId,
-    windowTitle: String(data?.namespace || normalizedWindowKey || 'Workspace').trim() || 'Workspace',
+    // Resource provenance is routing metadata, not a display title.
+    windowTitle: [data?.title, data?.viewMetadata?.title, data?.window?.title]
+      .find(value => typeof value === 'string' && value.trim())?.trim() || 'Workspace',
     presentation: String(data?.presentation || 'hosted').trim() || 'hosted',
     region: String(data?.region || 'mcpui.bubble').trim() || 'mcpui.bubble',
     parameters: parameters && typeof parameters === 'object' ? parameters : {},
