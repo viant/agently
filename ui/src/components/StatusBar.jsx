@@ -41,8 +41,16 @@ export default function StatusBar({ backendUnavailable = false, approvals = null
     return () => window.clearInterval(timer);
   }, [isElapsedActive, phase, stage?.updatedAt]);
 
+  const browserLifecycle = globalThis.performance?.getEntriesByName('agently.browserMCP.lifecycle.settled')?.at(-1)?.detail;
+  const browserAliases = globalThis.performance?.getEntriesByName('agently.browserMCP.lifecycle.aliases')?.at(-1)?.detail;
+  const browserContinuation = globalThis.performance?.getEntriesByName('agently.browserMCP.lifecycle.continuation')?.at(-1)?.detail;
+  const browserCloseCause = globalThis.performance?.getEntriesByName('agently.browserMCP.lifecycle.close')?.at(-1)?.detail?.cause;
+  const browserLifecycleLabel = browserLifecycle
+    ? `phase:${browserLifecycle.phase} native:${browserLifecycle.nativeIdentity ? 1 : 0} tools:${browserLifecycle.browserTools ? 1 : 0} retained:${browserLifecycle.retained ? 1 : 0}`
+    : 'unsettled';
+
   return (
-    <footer className={`app-statusbar phase-${phase}`} style={hidden ? { display: 'none' } : undefined} role="status" aria-live="polite">
+    <footer className={`app-statusbar phase-${phase}`} style={hidden ? { display: 'none' } : undefined} role="status" aria-label={import.meta.env.DEV ? `Verification ${globalThis.location?.pathname?.match(/\/(?:v1\/|ui\/)?conversation\/([a-f0-9-]{36})(?:\/)?$/)?.[1] || "no-conversation"} | aliases p:${browserAliases?.pendingCount ?? 0} exact:${browserAliases?.exactCount ?? 0} canon:${browserAliases?.canonicalCount ?? 0} slash:${browserAliases?.slashCount ?? 0} dash:${browserAliases?.dashCount ?? 0} | failure:${browserContinuation?.failure || "none"} stage:${browserContinuation?.stage || "none"} pending:${browserContinuation?.pendingCount ?? 0} interrupts:${browserContinuation?.interruptCount ?? 0} | ${browserLifecycleLabel} close:${browserCloseCause || "none"}` : undefined} aria-live="polite">
       <div className="app-statusbar-main">
         <span className="app-statusbar-icon">{PHASE_ICON[phase] || '●'}</span>
         <span className="app-statusbar-text">

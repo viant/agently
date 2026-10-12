@@ -13,10 +13,10 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
-	github.com/viant/agently-core v0.1.57-0.20261012171109-e692fc4bc5da
-	github.com/viant/datly v1.1.1-0.20261012150720-636d0bfdcbba
+	github.com/viant/agently-core v0.1.57-0.20261012194623-aece7bd6ed8c
+	github.com/viant/datly v1.1.1-0.20261012194200-cff45ee940be
 	github.com/viant/embedius v0.5.6 // indirect
-	github.com/viant/forge v0.3.45-0.20261012164225-0f883855fe4b
+	github.com/viant/forge v0.3.45-0.20261012192952-36079cd69f06
 	github.com/viant/jsonrpc v0.25.1-0.20261010000858-1444533d5a7e
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
 	github.com/viant/mcp v0.24.1-0.20261009143306-aaed6cdc2d48
@@ -147,7 +147,7 @@ require (
 	github.com/viant/sqlite-vec v0.3.1-0.20260220164201-136574510a3f // indirect
 	github.com/viant/sqlparser v0.13.1-0.20261012001419-edea4bd5d9c1 // indirect
 	github.com/viant/sqlx v0.26.1-0.20261012000356-69034efb5257 // indirect
-	github.com/viant/structql v0.5.5-0.20261008164328-d0b837beaa3a // indirect
+	github.com/viant/structql v0.5.5-0.20261012183420-6a47e96ff5b5 // indirect
 	github.com/viant/tagly v0.4.1-0.20261007173811-969600917520 // indirect
 	github.com/viant/toolbox v0.39.0 // indirect
 	github.com/viant/vec v0.2.4-0.20250819200643-7e16b6ea443c // indirect
