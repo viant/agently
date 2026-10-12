@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalWindowParameters } from './MenuBar.jsx';
+import { canonicalWindowParameters } from './menuBarHelpers.js';
 
 describe('workspace window parameter identity', () => {
   it('ignores object key order while preserving values and array order', () => {

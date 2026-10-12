@@ -461,6 +461,7 @@ export default function NamedLookupInput({
   onBlur,
   onKeyDown,
   'data-testid': dataTestId,
+  'aria-label': ariaLabel,
   ...rest
 }) {
   const [registry, setRegistry] = useState([]);
@@ -1272,6 +1273,7 @@ export default function NamedLookupInput({
           contentEditable={!disabled}
           suppressContentEditableWarning
           role="textbox"
+          aria-label={ariaLabel}
           aria-multiline="true"
           data-testid={dataTestId || 'chat-composer-input'}
           aria-autocomplete={skillsEnabled ? 'list' : undefined}
@@ -1311,6 +1313,7 @@ export default function NamedLookupInput({
         multiline ? (
           <textarea
             ref={inputRef}
+            aria-label={ariaLabel}
             value={value}
             placeholder={placeholder}
             disabled={disabled}

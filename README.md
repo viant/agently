@@ -265,3 +265,31 @@ independent of Go module replacements. Inspect their manifests when developing
 against sibling sources. Android requires JDK 17 and the Android SDK; iOS device
 builds require Xcode. Installation, signing and real service-connected tests are
 covered in the platform guides.
+
+## Browser MCP automation
+
+A workspace MCP definition can route tools through an installed Chrome extension instead of a server-side process. Configure this explicitly in the workspace's `mcp/<client-name>.yaml`; regular server-side MCP clients keep their existing transport.
+
+```yaml
+executionLocation: browser
+browserTransport:
+  type: chrome-extension
+  extensionId: YOUR_32_LETTER_EXTENSION_ID
+  portName: mechanize-controller-v1
+  requestTimeoutMs: 9000
+browserTools: ["*"]
+outputArtifacts:
+  mechanize_capture:
+    name: screenshot.png
+    role: screenshot
+```
+
+Replace the extension ID with the installed provider's ID and use its supported port name. Open the web UI in that Chrome profile and configure the UI origin in the provider's trusted-client settings. The tool catalog is registered through the existing browser MCP connection; the backend does not receive local credential values. The Coder agent includes a generic Mechanize operating skill and discovers application guides through the provider's `skills/list` and `skills/get` tools.
+
+Configured captures become owned artifacts before model-visible output. `resources/readImage` loads them into multimodal input; the screenshot role enables bounded preview resolution and retention of recent screenshots in active context while preserving durable history. See the [Core browser MCP design](https://github.com/viant/agently-core/blob/main/doc/browser-mcp-and-mcp-apps-plan.md) for transport and recovery behavior.
+
+## Credits and Acknowledgements
+
+**Library Authors:**
+
+- Adrian Witas
