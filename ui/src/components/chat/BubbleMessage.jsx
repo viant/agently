@@ -26,7 +26,7 @@ export function shouldAutoScrollStreamingRow(rowRect, containerRect, threshold =
   return rowBottom - containerBottom <= threshold;
 }
 
-export default function BubbleMessage({ message, messageIndex = 0, conversationId = '', attachment = null }) {
+export default function BubbleMessage({ message, messageIndex = 0, conversationId = '', attachment = null, context = null }) {
   const rowRef = useRef(null);
   const role = String(message?.role || 'assistant').toLowerCase();
   const isUser = role === 'user';
@@ -60,6 +60,7 @@ export default function BubbleMessage({ message, messageIndex = 0, conversationI
           <span className="app-narration-bubble-indicator" />
           <div className="app-narration-bubble-content">
             <RichContent
+              context={context}
               allowHostEffects={message?.hostEffectsAllowed !== false && message?.connectionProfile !== 'standard'}
               connectionProfile={message?.connectionProfile}
               content={String(message?.content || '').trim()}
@@ -89,6 +90,7 @@ export default function BubbleMessage({ message, messageIndex = 0, conversationI
       <div className={bubbleClass}>
         <div className="app-bubble-content">
           <RichContent
+              context={context}
               allowHostEffects={message?.hostEffectsAllowed !== false && message?.connectionProfile !== 'standard'}
               connectionProfile={message?.connectionProfile}
             content={String(message?.content || '').trim()}

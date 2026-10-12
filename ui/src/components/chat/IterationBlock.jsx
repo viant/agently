@@ -2816,7 +2816,7 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
                   <summary className="app-iteration-summary-head">Summary</summary>
                   <div className="app-iteration-summary-body">
                     <div className="app-iteration-summary-content">
-                      <RichContent content={summaryContent} generatedFiles={generatedFiles} conversationId={iterationConversationId} messageId={String(message?.id || '').trim()} />
+                      <RichContent context={context} content={summaryContent} generatedFiles={generatedFiles} conversationId={iterationConversationId} messageId={String(message?.id || '').trim()} />
                     </div>
                   </div>
                 </details>
@@ -2830,6 +2830,7 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
       ) : null}
       {(developerMode || !isActiveIteration || hasPublicTypedPendingReport) && !showTerminalNotice && !suppressBubble && !hasPendingVisibleElicitation && !hasPendingExecutionElicitation && (hasPublicTypedReport || shouldShowNarrationBubble(visibleGroups, displayContinuousRenderedText, stripSuppressedForgeReports(data?.response?.content, suppressedReportIds))) ? (
         <BubbleMessage
+          context={context}
           conversationId={iterationConversationId}
           attachment={attachment}
           message={{
