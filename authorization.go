@@ -594,7 +594,7 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 			builder.WithPrimitiveAuthority(actor, verifyActor(actor), options.InternalResourceProviderIdentity)
 			// Install the composite before HTTP/runtime consumers capture the
 			// catalog. Late internal binding replaces only its local side.
-			builder.WithPrimitiveWindows(configuredRemoteWindowAdmission(prepared), options.WindowTargetProof)
+			builder.WithPrimitiveWindows(options.WindowTargetProof)
 		}
 		if reportingEnabled {
 			builder.WithPrimitiveReportDependencyProof(options.WindowTargetProof)
@@ -603,17 +603,7 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 			builder.WithReportResources(reportCatalog, reportResolver)
 			builder.WithReportResourceService(reportWriter)
 		}
-		resolvedAuthorizer := prepared.AuthorizeResolvedWindow
-		if nativeAuthority != nil {
-			original := resolvedAuthorizer
-			resolvedAuthorizer = func(ctx context.Context, pin identity.ResolvedResource, method string, params map[string]any) error {
-				if _, native := nativeAuthority.allowed[pin.URI]; native && method == "ui.window.open" {
-					return nativeAuthority.admit(ctx, pin)
-				}
-				return original(ctx, pin, method, params)
-			}
-		}
-		builder.WithUIBridge(forgeservice.NewService(&forgeservice.Config{MetadataScope: windowMetadataScope, WindowDefinitions: catalog, DynamicWindowAuthorizer: prepared.WindowAuthorizer, ResolvedWindowAuthorizer: resolvedAuthorizer}))
+		builder.WithUIBridge(forgeservice.NewService(&forgeservice.Config{MetadataScope: windowMetadataScope, WindowDefinitions: catalog, DynamicWindowAuthorizer: prepared.WindowAuthorizer}))
 		if err := prepared.Register(builder); err != nil {
 			return err
 		}

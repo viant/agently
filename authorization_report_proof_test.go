@@ -43,8 +43,7 @@ func TestHostAuthorizationHeadlessReportProof(t *testing.T) {
 			require.False(t, value.FieldByName("primitiveReportDependencyProof").IsNil())
 			require.False(t, value.FieldByName("primitiveActor").IsNil())
 			require.False(t, value.FieldByName("primitiveVerifier").IsNil())
-			require.True(t, value.FieldByName("primitiveWindowAdmission").IsNil(), "report proof must not enable delegated windows")
-			require.True(t, value.FieldByName("primitiveTargetProof").IsNil(), "report proof must not enter window pair")
+			require.True(t, value.FieldByName("primitiveTargetProof").IsNil(), "report proof must not enable delegated windows")
 			if supplied {
 				require.Equal(t, reflect.ValueOf(opts.WindowTargetProof).Pointer(), value.FieldByName("primitiveReportDependencyProof").Elem().Pointer())
 			}

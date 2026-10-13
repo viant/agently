@@ -88,7 +88,7 @@ func TestConfiguredRuntimeConsumersRetainFrameworkAfterLateInternalBind(t *testi
 	require.NotNil(t, remote)
 	require.NotNil(t, remote.Gateway)
 	require.NotNil(t, remote.TargetProof)
-	require.NotNil(t, remote.Admission)
+	require.True(t, remote.AuthzReady(), "owning-server window delivery needs gateway and target integrity proof")
 	var captured forge.WindowDefinitionCatalog
 	rt.UIBridge.ConfigureWindowCatalog(func(catalog forge.WindowDefinitionCatalog) forge.WindowDefinitionCatalog {
 		captured = catalog

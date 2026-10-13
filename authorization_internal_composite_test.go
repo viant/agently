@@ -1,10 +1,8 @@
 package agently
 
 import (
-	"context"
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/executor"
-	identity "github.com/viant/agently-core/protocol/resource"
 	forge "github.com/viant/agently-core/service/primitiveprovider"
 	resources "github.com/viant/agently-core/service/resource"
 	"github.com/viant/forge/backend/types"
@@ -12,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestLateInternalCatalogPreservesDelegatedCatalogAdmissionAndProof(t *testing.T) {
+func TestLateInternalCatalogPreservesDelegatedCatalogOwnerAndProof(t *testing.T) {
 	for _, delegated := range []bool{false, true} {
 		t.Run(map[bool]string{false: "legacy-local", true: "delegated-and-local"}[delegated], func(t *testing.T) {
 			oldLocal := &internalWindowCatalog{}
@@ -23,9 +21,8 @@ func TestLateInternalCatalogPreservesDelegatedCatalogAdmissionAndProof(t *testin
 			if delegated {
 				proof, err := types.NewWindowTargetHMAC([]byte(strings.Repeat("p", 32)))
 				require.NoError(t, err)
-				remote = &resources.WindowCatalog{Gateway: &resources.Gateway{}, TargetProof: proof, Admission: func(context.Context, identity.ResolvedResource, *types.Window) error {
-					return identity.ErrResourceDenied
-				}}
+				remote = &resources.WindowCatalog{Gateway: &resources.Gateway{}, TargetProof: proof}
+
 				runtime.PrimitiveWindows = &resources.CompositeWindowCatalog{Local: oldLocal, LocalProviderIdentity: "old", Remote: remote}
 			}
 			bindInternalWindowCatalog(runtime, "internal", local)
@@ -42,7 +39,6 @@ func TestLateInternalCatalogPreservesDelegatedCatalogAdmissionAndProof(t *testin
 				require.Same(t, remote, composite.Remote)
 				require.NotNil(t, composite.Remote.Gateway)
 				require.NotNil(t, composite.Remote.TargetProof)
-				require.ErrorIs(t, composite.Remote.Admission(context.Background(), identity.ResolvedResource{}, nil), identity.ErrResourceDenied)
 				return actual
 			})
 		})
