@@ -1288,8 +1288,9 @@ function applyConversationFormSnapshot(base = {}, conversation = null) {
 }
 
 const conversationComposerSelections = new Map();
+const draftComposerSelections = new Map();
 let conversationComposerGeneration=0;
-if (typeof window !== 'undefined') window.addEventListener?.('agently:session-reset', () => {conversationComposerSelections.clear();conversationComposerGeneration++;goalFeedGeneration++;goalFeedRefreshes.clear();});
+if (typeof window !== 'undefined') window.addEventListener?.('agently:session-reset', () => {conversationComposerSelections.clear();draftComposerSelections.clear();conversationComposerGeneration++;goalFeedGeneration++;goalFeedRefreshes.clear();});
 /** Keep the composer metadata and the conversation selection in sync. Metadata
  * defaults describe a fresh draft; they must not replace an owned selection. */
 function composerConversationID(context,form={}) {
@@ -1304,7 +1305,7 @@ export function syncConversationComposerSelection(context, metadata = null) {
   if (!metaDS) return metadata;
   let form = convDS?.peekFormData?.() || {};
   const conversationID=composerConversationID(context,form);
-  const savedSelection=conversationComposerSelections.get(conversationID);
+  const savedSelection=conversationID ? conversationComposerSelections.get(conversationID) : draftComposerSelections.get(getContextWindowId(context));
   const ownedSelection=(metadata || savedSelection?.explicit || savedSelection?.confirmed) ? savedSelection : null;
   if (ownedSelection) { form={...form,id:conversationID || form.id,agent:ownedSelection.agent,model:ownedSelection.model};convDS?.setFormData?.({values:form}); }
   const meta = metadata || metaDS.peekFormData?.() || {};
@@ -1327,7 +1328,9 @@ export function recordConversationComposerSelection(context,selection={}) {
   const form=context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
   const meta=context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
   const id=String(form.id || '').trim();
-  if(id)conversationComposerSelections.set(id,{agent:String(selection.agent ?? form.agent ?? meta.agent ?? '').trim(),model:String(selection.model ?? form.model ?? meta.model ?? '').trim(),explicit:true});
+  const selected={agent:String(selection.agent ?? form.agent ?? meta.agent ?? '').trim(),model:String(selection.model ?? form.model ?? meta.model ?? '').trim(),explicit:true};
+  if(id)conversationComposerSelections.set(id,selected);
+  else draftComposerSelections.set(getContextWindowId(context),selected);
 }
 
 /** Conversation headers are an authenticated supporting application read;
@@ -2536,6 +2539,8 @@ export async function ensureConversation(context, options = {}) {
     metaForm?.agent,
     metaForm?.defaults?.agent
   );
+  const draftWindowID = getContextWindowId(context);
+  const submittedDraftSelection = draftComposerSelections.get(draftWindowID);
   const createPromise = (async () => {
     const created = await client.createConversation({ agentId: agentID });
     const id = String(created?.id || created?.Id || '').trim();
@@ -2551,6 +2556,7 @@ export async function ensureConversation(context, options = {}) {
       }
     });
     conversationComposerSelections.set(id,{agent:agentID,model:preferredModel || form.model || '',confirmed:true});
+    if (draftComposerSelections.get(draftWindowID) === submittedDraftSelection) draftComposerSelections.delete(draftWindowID);
     syncConversationComposerSelection(context);
     publishActiveConversation(id, context);
     chatState.activeConversationID = id;
@@ -2858,6 +2864,7 @@ export function unbindConversationWindowEvents(context) {
 
 export async function createNewConversation(context) {
   const chatState = ensureContextResources(context);
+  draftComposerSelections.delete(getContextWindowId(context));
   advanceConversationSelectionGeneration(chatState);
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const metaDS = context?.Context?.('meta')?.handlers?.dataSource;
@@ -2947,6 +2954,7 @@ export async function createNewConversation(context) {
   renderMergedRowsForContext(context);
   setStage({ phase: 'ready', text: 'Ready' });
   publishActiveConversation('', context);
+  recordConversationComposerSelection(context);
   return true;
 }
 
