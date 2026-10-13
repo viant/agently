@@ -54,7 +54,7 @@ func defaultFrameworkWindows() ([]resources.NativeFrameworkWindowBinding, error)
 	sort.Strings(names)
 	bindings := make([]windowloader.ResourceBinding, 0, len(names))
 	for _, key := range names {
-		bindings = append(bindings, windowloader.ResourceBinding{WindowKey: key, URI: "window://workspace/" + key})
+		bindings = append(bindings, windowloader.ResourceBinding{WindowKey: key, URI: "window://system/" + key})
 	}
 	linked, err := newEmbeddedWindowSource(bindings)
 	if err != nil {
