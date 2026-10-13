@@ -218,7 +218,7 @@ export const client = new AgentlyClient({
   interactionProtocol: 'ag-ui',
   observeNativeWork: true,
   browserMCP: {
-    onApprovalRequired: (server) => showToast(`Approve the ${server} browser connection in its local application.`, { intent: 'primary' }),
+    onApprovalRequired: (server) => showToast(`Waiting for approval of the ${server} browser connection in its local application. Your message has not been sent.`, { intent: 'primary', ttlMs: 120000 }),
   },
   useCookies: true,
   retries: 2,
