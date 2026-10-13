@@ -161,10 +161,23 @@ describe('TurnProgressStatus helpers', () => {
       }
     }
   });
-  it('keeps a pending human elicitation waiting even alongside a client-tool hint', () => {
-    projectedRows=[{kind:'iteration',turnId:'current',lifecycle:'running',waitKind:'client_tool',elicitation:{status:'pending'},rounds:[{pageId:'page',status:'waiting_for_user'}]}];
-    const html=renderToStaticMarkup(React.createElement(TurnProgressStatus,{conversationId:'c'}));
-    expect(html).toContain('Needs your input');expect(html).not.toContain('Executing local tool');
+  it('keeps open and legacy human elicitations waiting alongside a client-tool hint', () => {
+    for (const status of ['pending', 'open', 'waiting_for_user', 'running', undefined, ' OPEN ']) {
+      for (const field of ['elicitation', 'elicitations']) {
+        const item={elicitationId:'approval', ...(status === undefined ? {} : {status})};
+        projectedRows=[{kind:'iteration',turnId:'current',lifecycle:'running',waitKind:'client_tool',
+          [field]:field==='elicitation'?item:[item],rounds:[{pageId:'page',status:'waiting_for_user'}]}];
+        const html=renderToStaticMarkup(React.createElement(TurnProgressStatus,{conversationId:'c'}));
+        expect(html).toContain('Needs your input');expect(html).not.toContain('Executing local tool');
+      }
+    }
+  });
+  it('does not let resolved elicitation history hide current client-tool work', () => {
+    for (const status of ['accepted', 'declined', 'canceled', 'failed']) {
+      projectedRows=[{kind:'iteration',turnId:'current',lifecycle:'running',waitKind:'client_tool',elicitation:{status},rounds:[{pageId:'page',status:'waiting_for_user'}]}];
+      const html=renderToStaticMarkup(React.createElement(TurnProgressStatus,{conversationId:'c'}));
+      expect(html).toContain('Executing local tool');expect(html).not.toContain('Needs your input');
+    }
   });
   it('does not carry client execution into another turn or a terminal turn', () => {
     projectedRows = [{kind: 'iteration', turnId: 'old', lifecycle: 'completed', waitKind: 'client_tool', rounds: []},
