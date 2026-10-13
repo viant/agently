@@ -61,6 +61,10 @@ export const connectorConfig = {
   uiBridge: {
     url: '/v1/ui/rpc',
     transport: 'http',
+    // Agently refreshes its session with this event; Forge's default event
+    // name is different, so an early unauthorized handshake needs this opt-in.
+    authReadyEvents: ['agently:authorized', 'forge:authorized'],
+    snapshotEvents: ['forge:conversation-select', 'forge:conversation-new', 'forge:conversation-active', 'agently:authorized', 'forge:authorized', 'popstate'],
     pollWhenHidden: true,
     // Keep background workspaces responsive without letting an immediately
     // completed/invalidated long-poll turn into a tight request loop.

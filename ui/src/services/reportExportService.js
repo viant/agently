@@ -119,13 +119,15 @@ async function executeDirectReportingTool(name, args, {
   throw lastError || new Error('reporting tool request failed');
 }
 
-export async function submitReportExportRequest({ request, source = '' } = {}) {
+export async function submitReportExportRequest({ request, source = '', conversationId = '' } = {}) {
   if (!request || typeof request !== 'object' || Array.isArray(request)) {
     throw new Error('report export request is required');
   }
-  const result = normalizeToolResult(await client.executeTool('reporting:submit_export', {
-    reportExportRequest: request,
-  }));
+  const args = { reportExportRequest: request };
+  const normalizedConversationId = String(conversationId || '').trim();
+  const result = normalizeToolResult(await (normalizedConversationId
+    ? client.executeTool('reporting:submit_export', args, { conversationId: normalizedConversationId })
+    : client.executeTool('reporting:submit_export', args)));
   const normalizedSource = String(source || '').trim();
   if (result == null) {
     return {
