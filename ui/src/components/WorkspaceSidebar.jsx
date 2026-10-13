@@ -3,7 +3,7 @@ import { Button, Icon } from '@blueprintjs/core';
 import { sdkBaseURL } from '../endpoint';
 import { getAuthMeSilently } from '../services/agentlyClient';
 import Sidebar from './Sidebar';
-import { openWindow } from './MenuBar';
+import { openWindow } from './menuBarHelpers';
 import { MAIN_CHAT_WINDOW_ID } from '../services/conversationWindow';
 
 const DEFAULT_SPLIT = 0.5;
@@ -61,6 +61,7 @@ export default function WorkspaceSidebar({ conversationId = '', collapsed = fals
           setActiveApp(applications[0]?.id || '');
           setFraction(Number(payload.layout?.left?.split?.initial) || DEFAULT_SPLIT);
           setError('');
+        if (error) window.dispatchEvent(new CustomEvent('forge:retry-window-metadata'));
           return;
         }
         const me = await getAuthMeSilently().catch(() => null);
@@ -78,6 +79,7 @@ export default function WorkspaceSidebar({ conversationId = '', collapsed = fals
         window.dispatchEvent(new CustomEvent('agently:layout-width', { detail: { width: savedWidth > 0 ? savedWidth : initialWidth, min: widthSpec.min, max: widthSpec.max, preferenceKey: key, preferenceFormat: 'object' } }));
         setActiveApp(applications.some((app) => app.id === prefs.activeApp) ? prefs.activeApp : (applications[0]?.id || ''));
         setError('');
+        if (error) window.dispatchEvent(new CustomEvent('forge:retry-window-metadata'));
       } catch (cause) {
         if (live) { setLayout(null); onTopbarActionsChange?.([]); setError(String(cause?.message || cause)); }
       }

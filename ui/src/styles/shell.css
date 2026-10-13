@@ -3370,6 +3370,17 @@ td[data-col="enabled"] {
   z-index: 100;
   background: var(--app-bg, #f6f8fc);
 }
+/* Body portals receive input above the fullscreen workspace. Blueprint's
+   default overlay layer (20) otherwise leaves dialogs behind this surface. */
+.agently-application .bp6-portal > .bp6-overlay {
+  z-index: 110;
+}
+/* Popover overlays are static by default. Give their layer a positioning
+   context so menus remain above a workspace dialog without moving dialogs. */
+.agently-application .bp6-portal > .bp6-overlay:not(.bp6-overlay-scroll-container):not(.bp6-overlay-container) {
+  position: relative;
+  z-index: 120;
+}
 .app-summary-surface-shell.is-workspace:not(.is-split) .app-summary-workspace {
   margin: 0;
   border: 0;

@@ -79,7 +79,19 @@ func ConfigureRegistry(ctx context.Context, rt *executor.Runtime, workspaceRoot 
 	}
 	log.Printf("agently-app: starting async registry warmup")
 	done := rt.InitializeRegistryAsync(ctx, 15*time.Second)
-	go func() { <-done; log.Printf("agently-app: registry warmup finished") }()
+	go func() {
+		<-done
+		log.Printf("agently-app: registry warmup finished")
+		warmCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		if rt.Agent != nil {
+			if err := rt.Agent.WarmToolSurface(warmCtx, "steward"); err != nil {
+				log.Printf("agently-app: steward tool-surface warmup failed: %v", err)
+				return
+			}
+			log.Printf("agently-app: steward tool-surface warmup finished")
+		}
+	}()
 }
 
 func debugEnabled() bool {

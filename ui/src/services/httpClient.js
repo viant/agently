@@ -93,11 +93,19 @@ export function showToast(message, { intent = 'danger', key = '', ttlMs = 4200 }
     item.style.opacity = '1';
     item.style.transform = 'translateY(0)';
   });
-  window.setTimeout(() => {
+  let removed = false;
+  const dismiss = () => {
+    if (removed) return;
+    removed = true;
+    globalThis.clearTimeout(timer);
+    item.remove();
+  };
+  const timer = window.setTimeout(() => {
     item.style.opacity = '0';
     item.style.transform = 'translateY(8px)';
-    window.setTimeout(() => item.remove(), 140);
+    window.setTimeout(dismiss, 140);
   }, ttlMs);
+  return dismiss;
 }
 
 export function redirectToLogin(path = '') {

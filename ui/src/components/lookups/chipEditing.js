@@ -1,4 +1,4 @@
-import { parseTokens, serializeManualToken } from './tokens.js';
+import { parseTokens, serializeManualToken, isValidMoney } from './tokens.js';
 
 export function createEditingChipState(chip = {}) {
   const parsed = parseTokens(String(chip.raw || ''))[0];
@@ -66,6 +66,10 @@ export function unwrapLookupSelection(record) {
 
 export function draftWithEditedChip(draft, chip, inputValue) {
   const value = String(inputValue ?? '').trim();
+  if (chip?.name === 'money' && !isValidMoney(value)) {
+    const result = applyResolvedChipToken(draft, chip.raw, '@{money:? "$[___]"}');
+    return result.ok ? result.nextStored : draft;
+  }
   if (!chip || !value || value === parseTokens(chip.raw)[0]?.id) return draft;
   const result = applyResolvedChipToken(draft, chip.raw, serializeManualToken(chip.name, value));
   return result.ok ? result.nextStored : draft;
