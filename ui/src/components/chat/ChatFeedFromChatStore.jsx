@@ -17,6 +17,7 @@
 import React, { useContext, useEffect, useState } from 'react';
 
 import { useChatProjection } from '../../services/chatStore.js';
+import { attachHistoryScroll } from './historyScroll.js';
 import { isStreamDebugEnabled } from '../../services/debugFlags';
 import IterationRowBlock from './IterationRowBlock.jsx';
 import ToolFeedDetail from '../ToolFeedDetail.jsx';
@@ -153,6 +154,15 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
   }), []);
   const subscribed = useChatProjection(conversationId);
   const rows = rowsOverride !== undefined ? rowsOverride : subscribed;
+  const feedRef = React.useRef(null);
+  const hasRows = Array.isArray(rows) && rows.length > 0;
+  React.useEffect(() => {
+    if (!hasRows || !conversationId) return undefined;
+    const feed = feedRef.current;
+    const viewport = feed?.closest('.chat-feed-stage');
+    if (!viewport) return undefined;
+    return attachHistoryScroll(feed, viewport, window);
+  }, [conversationId, hasRows]);
   const conversationForm = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
   const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
   const { starterTasks, starterTaskCategories } = resolveStarterTaskPresentation(metaForm, workspaceMetadata);
@@ -244,7 +254,7 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
   });
 
   return (
-    <div className="app-chat-feed" data-source="chatStore">
+    <div ref={feedRef} className="app-chat-feed" data-source="chatStore">
       {rows.flatMap((row, index) => {
         const turnId = String(row?.turnId || '').trim();
         const allowHostEffects = row.hostEffectsAllowed !== false && row.connectionProfile !== 'standard';
