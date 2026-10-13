@@ -17,8 +17,10 @@ import {
   rehydrate,
   serializeToken,
   serializeManualToken,
+  isValidMoney,
 } from './tokens.js';
 import { listLookupRegistry, fetchDatasource } from './client.js';
+import { resolveComposerPromptMacros } from '../chat/starterPromptMacros.js';
 import { applyResolvedChipToken, createEditingChipState, shouldSkipEditorSync, unwrapLookupSelection as unwrapSelection, draftWithEditedChip, lookupPlaceholderAtTrigger } from './chipEditing.js';
 import { DEFAULT_LOOKUP_TRIGGER, filterLookupRegistry, findLookupTriggerStart, shouldClearSoleLookupTrigger } from './lookupTrigger.js';
 
@@ -27,6 +29,10 @@ const DATE_CHIP_NAMES = new Set(['date_from', 'date_to']);
 
 function isDateChipName(name = '') {
   return DATE_CHIP_NAMES.has(String(name || '').trim().toLowerCase());
+}
+
+function isDirectInputChip(name) {
+  return isDateChipName(name) || name === 'money';
 }
 
 function isValidISODate(value = '') {
@@ -187,9 +193,13 @@ function syncEditorContent(root, segments, options = {}) {
         setChipEditInputElement(input);
       }
       input.type = isDateChipName(segment.name) ? 'date' : 'text';
+      if (segment.name === 'money') {
+        input.inputMode = 'decimal';
+        input.setAttribute('aria-label', 'Money amount');
+      }
       input.setAttribute('data-testid', `named-lookup-inline-editor-${segment.name}`);
       input.value = String(editingChip.value || '');
-      input.placeholder = unresolvedChipLabel(segment.name);
+      input.placeholder = segment.name === 'money' ? '___' : unresolvedChipLabel(segment.name);
       input.style.border = 'none';
       input.style.outline = 'none';
       input.style.background = 'transparent';
@@ -272,8 +282,9 @@ function syncEditorContent(root, segments, options = {}) {
         onChipEditLookup?.();
       });
 
+      if (segment.name === 'money') wrap.appendChild(document.createTextNode('$'));
       wrap.appendChild(input);
-      if (!isDateChipName(segment.name)) {
+      if (!isDirectInputChip(segment.name)) {
         wrap.appendChild(button);
       }
       root.appendChild(wrap);
@@ -347,6 +358,7 @@ function humanizeLookupName(name = '') {
 }
 
 function unresolvedChipLabel(name = '') {
+  if (name === 'money') return '$[___]';
   return humanizeLookupName(name) || String(name || '');
 }
 
@@ -547,6 +559,8 @@ export default function NamedLookupInput({
   }, [contextKind, contextID, onRegistryLoaded]);
 
   useEffect(() => {
+    const expandedValue = resolveComposerPromptMacros(value);
+    if (expandedValue !== value) { onChange(expandedValue); return; }
     if (!autoResolveAuthored || registry.length === 0) return;
     const segments = parseAuthored(value, registry);
     if (!segments.some((s) => s.kind === 'picker')) return;
@@ -570,6 +584,7 @@ export default function NamedLookupInput({
     () =>
       chips.some((chip) => {
         if (!chip.unresolved) return false;
+        if (chip.name === 'money') return true;
         const entry = registry.find((item) => item.name === chip.name);
         return !!entry?.required;
       }),
@@ -1004,7 +1019,11 @@ export default function NamedLookupInput({
       setEditingChip((prev) => prev ? { ...prev, error: 'Choose a valid date.' } : prev);
       return false;
     }
-    if (!entry && !isDateChipName(current.name)) return false;
+    if (current.name === 'money' && !isValidMoney(raw)) {
+      setEditingChip((prev) => prev ? { ...prev, error: 'Enter a valid amount with up to two decimal places.' } : prev);
+      return false;
+    }
+    if (!entry && !isDirectInputChip(current.name)) return false;
     const token = isDateChipName(current.name)
       ? serializeDateChip(current.name, raw)
       : serializeManualToken(current.name, raw);
@@ -1352,6 +1371,8 @@ export default function NamedLookupInput({
                       <InputGroup
                         inputRef={chipEditInputRef}
                         type={isDateChipName(chip.name) ? 'date' : 'text'}
+                        inputMode={chip.name === 'money' ? 'decimal' : undefined}
+                        leftElement={chip.name === 'money' ? <span style={{ padding: '6px' }}>$</span> : undefined}
                         value={editingChip?.value || ''}
                         onChange={(event) => {
                           const nextValue = event?.target?.value ?? '';
@@ -1382,7 +1403,7 @@ export default function NamedLookupInput({
                             setEditingChip(null);
                           }
                         }}
-                        rightElement={isDateChipName(chip.name) ? undefined : (
+                        rightElement={isDirectInputChip(chip.name) ? undefined : (
                           <Button
                             icon="caret-down"
                             minimal
