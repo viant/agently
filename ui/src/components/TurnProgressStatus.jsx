@@ -175,7 +175,12 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
   // SDK interruption hint identifies automatic client execution.
   const pendingElicitations = [row.elicitation, ...(Array.isArray(row.elicitations) ? row.elicitations : [])];
   const executingClientTool = !stopping && row.waitKind === 'client_tool'
-    && !pendingElicitations.some(item => item?.status === 'pending');
+    && !pendingElicitations.some(item => {
+      if (!item) return false;
+      // Match ElicitationOverlay's unresolved legacy and canonical statuses.
+      const status = String(item.status || '').trim().toLowerCase();
+      return !status || ['pending', 'open', 'waiting_for_user', 'running'].includes(status);
+    });
   const status = stopping
     ? 'stopping'
     : executingClientTool ? 'running' : String(latestRound?.status || row?.lifecycle || (stage?.phase === 'waiting' ? 'waiting_for_user' : '')).trim();
