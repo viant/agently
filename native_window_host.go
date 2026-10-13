@@ -239,12 +239,8 @@ func configureNativeWindowHost(options ServeOptions) (ServeOptions, error) {
 				return e
 			}
 		}
-		b.WithUIBridge(forge.NewService(&forge.Config{WindowDefinitions: catalog, WindowSelectionEmitter: delivery.emitSelection, ResolvedWindowAuthorizer: func(ctx context.Context, pin identity.ResolvedResource, method string, _ map[string]any) error {
-			if method != "ui.window.open" {
-				return identity.ErrResourceDenied
-			}
-			return authority.admit(ctx, pin)
-		}}))
+		b.WithUIBridge(forge.NewService(&forge.Config{WindowDefinitions: catalog, WindowSelectionEmitter: delivery.emitSelection}))
+
 		b.WithPinnedDatasourceDefinitions(revalidate, definition, host.authorize)
 		b.WithNewDatasourceDeliveryPreparer(delivery.prepare)
 		b.WithDatasourceDenialRootRead(host.authorizeRootRead)

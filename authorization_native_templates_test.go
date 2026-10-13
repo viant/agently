@@ -124,9 +124,8 @@ func TestNativeTemplateScopeSurvivesActualLocalMCPListAndGet(t *testing.T) {
 
 	proof, err := types.NewWindowTargetHMAC(make([]byte, 32))
 	require.NoError(t, err)
-	remote := &resources.WindowCatalog{Gateway: gateway, TargetProof: proof, Admission: func(ctx context.Context, pin identity.ResolvedResource, _ *types.Window) error {
-		return native.admit(ctx, pin)
-	}}
+	remote := &resources.WindowCatalog{Gateway: gateway, TargetProof: proof}
+
 	catalog, err := newInternalWindowCatalog(remote, config.WindowResources)
 	require.NoError(t, err)
 	catalog.native = native
@@ -148,18 +147,20 @@ func TestNativeTemplateScopeSurvivesActualLocalMCPListAndGet(t *testing.T) {
 	openedNative, err := catalog.Get(ctx, &ui.WindowDefinitionGetInput{WindowID: binding.URI})
 	require.NoError(t, err)
 	delegated := *remote
-	delegatedAdmissionCalls := 0
-	delegated.Admission = func(context.Context, identity.ResolvedResource, *types.Window) error {
-		delegatedAdmissionCalls++
-		return policy.ErrDenied
-	}
+	delegatedCalls := 0
+	delegated.Gateway = resources.NewGateway(mgr, func(context.Context) (identity.VerifiedActor, error) {
+		delegatedCalls++
+		return identity.VerifiedActor{}, identity.ErrResourceDenied
+	}, func(context.Context, identity.VerifiedActor) error { return identity.ErrResourceDenied }, "unrelated-consumer")
+	defer delegated.Gateway.Close()
 	composite.Remote = &delegated
 	for i := 0; i < 2; i++ {
 		restored, err := composite.Get(ctx, &ui.WindowDefinitionGetInput{WindowID: binding.URI, ResolvedResource: openedNative.Definition.Resource, Target: openedNative.Definition.ResourceTarget})
 		require.NoError(t, err, "pinned native restore must retain the native principal/template admission")
 		require.Equal(t, binding.URI, restored.Definition.Resource.URI)
 	}
-	require.Zero(t, delegatedAdmissionCalls, "the registered local owner must retain its own admission")
+	require.Zero(t, delegatedCalls, "the registered local owner must retain its owning-server path")
+	composite.Remote = remote
 
 	native.principal = func(context.Context) (gating.Principal, error) {
 		return gating.Principal{}, policy.ErrIdentityRejected

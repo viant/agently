@@ -29,7 +29,7 @@ import (
 	mcpclient "github.com/viant/mcp/client"
 )
 
-func TestHostedReportAdmissionRetainsLocalPolicyAndForeignProviderPin(t *testing.T) {
+func TestHostedReportControlVisibilityPreservesForeignProviderPin(t *testing.T) {
 	ctx := authsvc.InjectUser(context.Background(), "alice")
 	uri := "report://host/local"
 	owner := "internal"
@@ -82,15 +82,6 @@ func TestHostedReportAdmissionRetainsLocalPolicyAndForeignProviderPin(t *testing
 		}
 		return nil
 	}
-	admission := hostedReportOperationAdmission(prepared, owner, hostPolicy)
-	_, err = admission(ctx, "report.execute", *localPin, raw)
-	require.Error(t, err)
-	require.Zero(t, called, "local policy must not be replaced by foreign admission")
-	deadline, err := admission(ctx, "report.execute", foreignPin, raw)
-	require.NoError(t, err)
-	require.Equal(t, foreignPin.ValidUntil, deadline)
-	_, err = admission(ctx, "report.export", foreignPin, raw)
-	require.ErrorIs(t, err, identity.ErrResourceDenied)
 	caps := hostedReportCapabilities(prepared, owner, hostPolicy)
 	localCaps, err := caps(ctx, identity.VerifiedActor{}, catalog.ReportCatalogCandidate{}, *localPin)
 	require.NoError(t, err)
@@ -153,8 +144,13 @@ func TestHostedReportAdmissionRetainsLocalPolicyAndForeignProviderPin(t *testing
 	require.True(t, reportList.Reports[0].Capabilities.Run)
 	require.False(t, reportList.Reports[0].Capabilities.Export)
 	require.False(t, reportList.Reports[0].Capabilities.Edit)
-	_, err = runtime.Reporting.ExecuteResource(ctx, &reporting.ExecuteResourceRequest{ResolvedResource: localPin})
-	require.Error(t, err, "unchanged local execute denial must survive actual late registration")
+	localRun, err := runtime.Reporting.ExecuteResource(ctx, &reporting.ExecuteResourceRequest{ResolvedResource: localPin})
+	require.NoError(t, err, "a hidden Run control must not become a consumer-side resource denial")
+	require.Equal(t, owner, localRun.Resource.ProviderIdentity)
+	principal.principal.Facts.Roles = nil
+	_, err = runtime.Reporting.ExecuteResource(ctx, &reporting.ExecuteResourceRequest{Resource: &identity.ResourceRef{URI: uri}})
+	require.Error(t, err, "the managing provider's read denial must still reach the caller")
+	principal.principal.Facts.Roles = []string{"reader"}
 	legacy, err := executor.NewBuilder().WithModelFinder(reportCompositionModelFinder{}).WithAgentFinder(reportCompositionAgentFinder{}).WithPrimitiveAuthority(prepared.ResourceActor, internalActorVerifier(prepared), owner).WithReportResources(localCatalog, func(_ context.Context, operation string) (*identity.ResourceResolver, error) {
 		r, e := prepared.ResourceResolver(operation, source, nil)
 		if r != nil {

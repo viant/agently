@@ -123,12 +123,8 @@ func newInternalWindowTestCatalog(t *testing.T, definitions map[string]json.RawM
 	}, "internal-host")
 	proof, err := types.NewWindowTargetHMAC(make([]byte, 32))
 	require.NoError(t, err)
-	remote := &resources.WindowCatalog{Gateway: gateway, TargetProof: proof, Admission: func(_ context.Context, pin identity.ResolvedResource, _ *types.Window) error {
-		if pin.ProviderIdentity != provider.owner || !pin.ValidUntil.After(time.Now()) {
-			return identity.ErrResourceDenied
-		}
-		return nil
-	}}
+	remote := &resources.WindowCatalog{Gateway: gateway, TargetProof: proof}
+
 	catalog, err := newInternalWindowCatalog(remote, []windowloader.ResourceBinding{{CatalogID: "orders", WindowKey: "deliver/orders", URI: "window://platform/deliver/orders"}})
 	require.NoError(t, err)
 	return catalog, provider

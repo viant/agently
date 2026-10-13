@@ -127,7 +127,7 @@ func TestInternalHostPreloadsNativeWindowsAndUsesMetadataOnlyList(t *testing.T) 
 	require.Len(t, rowsAfterRestart, 20)
 }
 
-func TestInternalHostReportReaderRetainsIndependentOperationPolicy(t *testing.T) {
+func TestInternalHostReportReaderUsesManagingProviderAndControlVisibility(t *testing.T) {
 	ctx := context.Background()
 	uri := "report://platform/sales"
 	principal := &reportHostIdentity{gating.Principal{Facts: authz.Facts{Subject: "alice", Issuer: "issuer", Tenant: "tenant", Roles: []string{"reader"}, ValidUntil: time.Now().Add(time.Minute)}, AccountID: "account-a", IdentityRevision: "one"}}
@@ -161,17 +161,6 @@ func TestInternalHostReportReaderRetainsIndependentOperationPolicy(t *testing.T)
 	require.Equal(t, "internal", entry.Resource.ProviderIdentity)
 	require.True(t, entry.Capabilities.Open)
 	require.False(t, entry.Capabilities.Run)
-	short := time.Now().Add(10 * time.Second)
-	principal.principal.Facts.ValidUntil = short
-	lease, err := internalOperationLeaseAdmission(prepared, "internal")(ctx, "report.compile", *entry.Resource, source.raw)
-	require.NoError(t, err)
-	require.True(t, lease.Equal(short), "host admission must return the verified shorter authority deadline")
-	capped := *entry.Resource
-	capped.ValidUntil = lease
-	principal.principal.Facts.ValidUntil = time.Now().Add(time.Minute)
-	lease, err = internalOperationLeaseAdmission(prepared, "internal")(ctx, "report.compile", capped, source.raw)
-	require.NoError(t, err)
-	require.True(t, lease.Equal(short), "a regrant cannot extend an already captured operation lease")
 	_, err = rt.Reporting.GetReport(ctx, &reporting.GetReportInput{ResolvedResource: entry.Resource})
 	require.NoError(t, err)
 	_, err = rt.Reporting.Compile(ctx, &reporting.CompileRequest{ResolvedResource: entry.Resource})

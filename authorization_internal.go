@@ -46,8 +46,8 @@ func (r *internalHostRegistration) Bind(ctx context.Context, rt *executor.Runtim
 }
 
 // candidateSource is used only to construct the existing operation policy. Its
-// bytes cannot be read: the gateway owns content and host admission checks the
-// already-verified exact candidate without a second YAML materialization.
+// bytes cannot be read: it supports UI control visibility without loading a
+// second copy of the definition. It does not authorize resource delivery.
 type candidateSource struct{}
 
 func (candidateSource) Candidates(context.Context, identity.ResourceURI) ([]identity.ResourceCandidate, error) {
@@ -56,46 +56,19 @@ func (candidateSource) Candidates(context.Context, identity.ResourceURI) ([]iden
 func (candidateSource) ReadCandidate(context.Context, identity.ResourceURI, identity.ResourceCandidate) (json.RawMessage, error) {
 	return nil, identity.ErrResourceDenied
 }
-func internalCandidateAdmission(prepared *executor.PreparedAuthorization, owner string, ctx context.Context, operation string, pin identity.ResolvedResource) error {
-	_, err := internalCandidateLease(prepared, owner, ctx, operation, pin)
-	return err
-}
-func internalCandidateLease(prepared *executor.PreparedAuthorization, owner string, ctx context.Context, operation string, pin identity.ResolvedResource) (time.Time, error) {
-	if pin.ProviderIdentity != owner || !pin.ValidUntil.After(time.Now()) {
-		return time.Time{}, identity.ErrResourceDenied
+
+// reportControlVisibility evaluates UI controls only. Report delivery and tool
+// execution are authorized by the managing MCP, never by this callback.
+func reportControlVisibility(prepared *executor.PreparedAuthorization, owner string, ctx context.Context, operation string, pin identity.ResolvedResource) error {
+	if pin.ProviderIdentity != owner {
+		return identity.ErrResourceDenied
 	}
 	resolver, err := prepared.ResourceResolver(operation, candidateSource{}, nil)
 	if err != nil {
-		return time.Time{}, err
+		return err
 	}
-	decision, err := resolver.Policy.SelectRevision(ctx, identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, []identity.ResourceCandidate{pin.ResourceCandidate})
-	if err != nil {
-		return time.Time{}, err
-	}
-	if decision.Candidate != pin.ResourceCandidate || decision.AuthorityBinding != pin.AuthorityBinding || !decision.ValidUntil.After(time.Now()) || !pin.ValidUntil.After(time.Now()) {
-		return time.Time{}, identity.ErrResourceDenied
-	}
-	lease := pin.ValidUntil
-	if decision.ValidUntil.Before(lease) {
-		lease = decision.ValidUntil
-	}
-	return lease, nil
-}
-func internalOperationAdmission(prepared *executor.PreparedAuthorization, owner string) resources.ReportAdmission {
-	return func(ctx context.Context, operation string, pin identity.ResolvedResource, raw json.RawMessage) error {
-		if identity.ContentFingerprint(raw) != pin.ContentFingerprint {
-			return identity.ErrResourceDenied
-		}
-		return internalCandidateAdmission(prepared, owner, ctx, operation, pin)
-	}
-}
-func internalOperationLeaseAdmission(prepared *executor.PreparedAuthorization, owner string) resources.ReportLeaseAdmission {
-	return func(ctx context.Context, operation string, pin identity.ResolvedResource, raw json.RawMessage) (time.Time, error) {
-		if identity.ContentFingerprint(raw) != pin.ContentFingerprint {
-			return time.Time{}, identity.ErrResourceDenied
-		}
-		return internalCandidateLease(prepared, owner, ctx, operation, pin)
-	}
+	_, err = resolver.Policy.SelectRevision(ctx, identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, []identity.ResourceCandidate{pin.ResourceCandidate})
+	return err
 }
 func internalActorVerifier(prepared *executor.PreparedAuthorization) resources.ActorVerifier {
 	return func(ctx context.Context, held identity.VerifiedActor) error {
@@ -235,12 +208,8 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 			if rt.UIBridge == nil || proof == nil {
 				return fmt.Errorf("internal windows require the host bridge and target proof")
 			}
-			remote := &resources.WindowCatalog{Gateway: rt.PrimitiveProviders, TargetProof: proof, Admission: func(ctx context.Context, pin identity.ResolvedResource, _ *types.Window) error {
-				if nativeAuthority != nil {
-					return nativeAuthority.admit(ctx, pin)
-				}
-				return internalCandidateAdmission(prepared, owner, ctx, policy.OperationWindowView, pin)
-			}}
+			remote := &resources.WindowCatalog{Gateway: rt.PrimitiveProviders, TargetProof: proof}
+
 			if snapshot != nil {
 				remote.ContentCurrent = map[string]resources.WindowContentCheck{
 					owner: func(ctx context.Context, pin identity.ResolvedResource) error {
@@ -273,7 +242,7 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 		if rt.Reporting == nil {
 			return fmt.Errorf("internal report runtime missing")
 		}
-		gatewayCatalog := &resources.ReportGatewayCatalog{Gateway: rt.PrimitiveProviders, AdmissionLease: hostedReportOperationAdmission(prepared, owner, rt.ReportAuthorizer), BuilderWindows: catalog.BuilderWindows, Capabilities: hostedReportCapabilities(prepared, owner, rt.ReportAuthorizer)}
+		gatewayCatalog := &resources.ReportGatewayCatalog{Gateway: rt.PrimitiveProviders, BuilderWindows: catalog.BuilderWindows, Capabilities: hostedReportCapabilities(prepared, owner, rt.ReportAuthorizer)}
 		if scope != nil {
 			gatewayCatalog.BeginMetadataRead = scope.BeginMetadataRead
 		}
@@ -303,7 +272,7 @@ func internalReportCapabilities(prepared *executor.PreparedAuthorization, owner 
 			operation string
 			allowed   *bool
 		}{{"report.retrieve", &result.Open}, {"report.execute", &result.Run}, {"report.edit", &result.Edit}, {"report.duplicate", &result.Duplicate}, {"report.edit", &result.Rename}, {"report.export", &result.Export}, {"report.delete", &result.Delete}, {"report.runRange", &result.RunRange}} {
-			err := internalCandidateAdmission(prepared, owner, ctx, check.operation, pin)
+			err := reportControlVisibility(prepared, owner, ctx, check.operation, pin)
 			if err == nil {
 				*check.allowed = true
 				continue
@@ -313,24 +282,6 @@ func internalReportCapabilities(prepared *executor.PreparedAuthorization, owner 
 			}
 		}
 		return result, nil
-	}
-}
-
-// Local provider leases retain the exact local authority comparison. A foreign
-// provider pin belongs to its managing gateway and uses only explicit host
-// report-operation policy; dataset business authorization remains at MCP.
-func hostedReportOperationAdmission(prepared *executor.PreparedAuthorization, owner string, authorize func(context.Context, string, string) error) resources.ReportLeaseAdmission {
-	local := internalOperationLeaseAdmission(prepared, owner)
-	return func(ctx context.Context, operation string, pin identity.ResolvedResource, raw json.RawMessage) (time.Time, error) {
-		if pin.ProviderIdentity == owner {
-			return local(ctx, operation, pin, raw)
-		}
-		if authorize != nil {
-			if err := authorize(requestctx.WithResolvedResource(ctx, pin), operation, pin.URI); err != nil {
-				return time.Time{}, err
-			}
-		}
-		return pin.ValidUntil, nil
 	}
 }
 
