@@ -1629,7 +1629,7 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
         conversationId,
         detail: eventDetail,
       });
-      const submitted = await submitReportExportRequest({ request: exportRequest, source: 'inline' });
+      const submitted = await submitReportExportRequest({ request: exportRequest, source: 'inline', conversationId });
       const result = await waitForInlineReportExport(submitted, { conversationId });
       const status = String(result?.status || '').trim().toLowerCase();
       const artifactId = String(result?.artifactId || '').trim();

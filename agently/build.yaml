@@ -8,6 +8,7 @@ init:
 pipeline:
   build:
     action: exec:run
+    TimeoutMs: 600000
     checkError: true
     commands:
       - cd ${appPath}/agently

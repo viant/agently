@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { startUIBridgeHTTP } from 'forge/core';
+import { publishUIBridgeSnapshotNow, startUIBridgeHTTP } from 'forge/core';
+import { connectorConfig } from './connector';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -77,5 +78,74 @@ describe('bridge startup readiness', () => {
     expect(calls.slice(0, 4)).toEqual(['ui.hello', 'ui.snapshot.get', 'ui.snapshot', 'ui.poll']);
     expect(storedClientId).toBe(window.__forgeUIBridgeClientId);
     expect(window.__forgeUIBridgeClientId.length).toBeGreaterThan(0);
+  });
+});
+
+
+describe('workspace bridge recovery regressions', () => {
+  function setupBrowser() {
+    const target = new EventTarget();
+    target.sessionStorage = { getItem: () => '', setItem: () => {} };
+    globalThis.window = target;
+    globalThis.document = {
+      visibilityState: 'visible', hasFocus: () => true,
+      addEventListener: target.addEventListener.bind(target),
+      removeEventListener: target.removeEventListener.bind(target),
+    };
+    return target;
+  }
+
+  function rpcResponse(body, result = {}) {
+    return new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id, result }), {
+      status: 200, headers: { 'Mcp-Session-Id': 'regression-session' },
+    });
+  }
+
+  it('reattaches the workspace after Agently recovers its login session', async () => {
+    const target = setupBrowser();
+    const calls = [];
+    let authenticated = false;
+    globalThis.fetch = async (_url, options = {}) => {
+      const body = JSON.parse(options.body);
+      calls.push(body.method);
+      if (body.method === 'ui.hello' && !authenticated) return new Response('', { status: 401 });
+      if (body.method === 'ui.poll') return new Response('', { status: 202 });
+      return rpcResponse(body);
+    };
+    const stop = startUIBridgeHTTP({
+      ...connectorConfig.uiBridge,
+      snapshotIntervalMs: 10000, reconnectDelayMs: 10000,
+      snapshotBuilder: () => ({ conversationId: 'conv-regression', windows: [] }),
+    });
+    try {
+      await sleep(25);
+      authenticated = true;
+      target.dispatchEvent(new Event('agently:authorized'));
+      await sleep(40);
+      expect(calls.slice(0, 4)).toEqual(['ui.hello', 'ui.hello', 'ui.snapshot.get', 'ui.snapshot']);
+    } finally { stop(); }
+  });
+
+  it('waits for an in-flight handshake before publishing the pre-submit snapshot', async () => {
+    setupBrowser();
+    let releaseHello;
+    const calls = [];
+    globalThis.fetch = async (_url, options = {}) => {
+      const body = JSON.parse(options.body);
+      calls.push(body.method);
+      if (body.method === 'ui.hello') await new Promise(resolve => { releaseHello = resolve; });
+      if (body.method === 'ui.poll') return new Response('', { status: 202 });
+      return rpcResponse(body);
+    };
+    const stop = startUIBridgeHTTP({
+      url: '/v1/ui/rpc', snapshotIntervalMs: 10000, reconnectDelayMs: 10000,
+      snapshotBuilder: () => ({ conversationId: 'conv-regression', windows: [] }),
+    });
+    try {
+      const publishing = publishUIBridgeSnapshotNow();
+      releaseHello();
+      expect(await publishing).toBe(true);
+      expect(calls).toContain('ui.snapshot');
+    } finally { stop(); }
   });
 });
