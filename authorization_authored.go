@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/viant/agently-core/app/executor"
+	"github.com/viant/agently-core/app/host"
 	identity "github.com/viant/agently-core/protocol/resource"
 	resources "github.com/viant/agently-core/service/resource"
 	"github.com/viant/agently-core/workspace"
@@ -53,7 +54,9 @@ func configuredAuthoredBindings(ctx context.Context, root, owner string, config 
 	if err != nil {
 		return nil, err
 	}
-	bindings, err := resources.ExtensionBindings(ctx, root, dirs, func(ctx context.Context, a identity.VerifiedActor, _ identity.ResourceURI, operation string) (identity.ResourceRevisionPolicy, error) {
+	return host.BindSources(ctx, root, owner, dirs, func(directory resources.ExtensionDirectory) (resources.ExtensionDirectory, error) {
+		return directory, nil
+	}, func(ctx context.Context, a identity.VerifiedActor, _ identity.ResourceURI, operation string) (identity.ResourceRevisionPolicy, error) {
 		if err := internalActorVerifier(prepared)(ctx, a); err != nil {
 			return nil, err
 		}
@@ -62,22 +65,5 @@ func configuredAuthoredBindings(ctx context.Context, root, owner string, config 
 			return nil, err
 		}
 		return r.Policy, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	for i := range bindings {
-		original := bindings[i].Resolver
-		bindings[i].Resolver = func(ctx context.Context, a identity.VerifiedActor, op string) (*identity.ResourceResolver, error) {
-			r, err := original(ctx, a, op)
-			if err != nil || r == nil {
-				return nil, identity.ErrResourceDenied
-			}
-			copy := *r
-			copy.ProviderIdentity = owner
-			copy.Source = snapshot
-			return &copy, nil
-		}
-	}
-	return bindings, nil
+	}, snapshot)
 }

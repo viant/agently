@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/app/executor"
+	"github.com/viant/agently-core/app/host"
 	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/service/policy"
 	forgeservice "github.com/viant/agently-core/service/primitiveprovider"
@@ -27,24 +28,9 @@ import (
 	forgetypes "github.com/viant/forge/backend/types"
 )
 
-// AuthorizationProviders binds trusted authority interfaces. The standard HTTP
-// adapter is configured by the operator; embedding hosts may override it.
-type AuthorizationProviders struct {
-	// NativeWindowIdentity verifies identity only for configured static YAML reads.
-	// It carries no role, feature or entity authority. Protected operations use Identity.
-	NativeWindowIdentity func(context.Context) (gating.Principal, error)
-	Entitlements         map[string]gating.EntitlementProvider
-	AccountProjection    permittedview.AccountProjection
-	DecisionScope        executor.AuthorizationDecisionScope
-	MetadataScope        forgeservice.MetadataReadScope
-	Identity             oauth.IdentityAuthority
-	AllowsTenant         func(string) bool
-	EntityPermissions    gating.EntityPermissionProvider
-	PermissionWithLease  func(context.Context, authz.Facts, authz.Entity, string) (bool, time.Time, error)
-}
-
-// AuthorizationProviderFactory consumes only operator-owned configuration.
-type AuthorizationProviderFactory func(context.Context, json.RawMessage, json.RawMessage) (AuthorizationProviders, error)
+// AuthorizationProviders and AuthorizationProviderFactory preserve the embedding API.
+type AuthorizationProviders = host.Providers
+type AuthorizationProviderFactory = host.ProviderFactory
 
 type hostAuthorizationFile struct {
 	MenuSources               []HostMenuSource               `json:"menuSources,omitempty"`
@@ -330,7 +316,7 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 	}
 	factory := options.AuthorizationProviderFactory
 	if factory == nil {
-		factory = configuredHTTPAuthorizationProviders
+		factory = host.HTTPProviders
 	}
 	providers, err := factory(context.Background(), config.Identity, config.EntityEvaluation)
 	if err != nil {
@@ -389,18 +375,18 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 	}
 	registration := executor.StaticAuthorizationRegistration{DecisionScope: decisionScope, AuthoritySnapshot: svcauth.IDTokenIdentityProvider{Source: bundle.Identity}.ResolvePrincipal, ProviderRef: config.ProviderRef, CapabilityMappingRef: config.CapabilityMappingRef, PolicyVersion: config.PolicyVersion, Service: acl, Account: svcauth.IDTokenAccountResolver(bundle.Identity), AuthorityRevision: svcauth.IDTokenAuthorityRevisionResolver(bundle.Identity), GateEvaluator: bundle.Gates, EntityPermission: resolveEntity, EntityRoles: bundle.EntityRoleProjection, WholeResources: config.WholeResources, Capabilities: config.Capabilities, BackendResources: config.BackendResources, ProtectTools: config.ProtectTools}
 	registration.DatasourceReadFactsScope = configuredDatasourceReadFacts(providers.DecisionScope)
-	registration.ComponentAuthoritySnapshot = freshComponentAuthority(
+	registration.ComponentAuthoritySnapshot = host.FreshAuthority(
 		svcauth.IDTokenIdentityProvider{Source: bundle.Identity}.ResolvePrincipal,
 		providers.MetadataScope, decisionScope)
 	registration.ExecutionContext = func(ctx context.Context) context.Context {
-		return freshExecutionContext(ctx, providers.MetadataScope, decisionScope)
+		return host.ExecutionContext(ctx, providers.MetadataScope, decisionScope)
 	}
 	if entityCapabilityWithLease != nil {
 		registration.EntityPermissionWithLease = func(ctx context.Context, facts authz.Facts, entity authz.Entity, capability string) (bool, time.Time, error) {
 			return entityCapabilityWithLease(svcauth.AuthzIDTokenContext(ctx), facts, entity, capability)
 		}
 	}
-	registration.AccountProjection, err = configuredAccountProjection(config.AccountProjection, providers.AccountProjection)
+	registration.AccountProjection, err = host.AccountProjection(config.AccountProjection, providers.AccountProjection)
 	if err != nil {
 		return nil, err
 	}
