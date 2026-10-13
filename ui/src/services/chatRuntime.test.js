@@ -3864,3 +3864,72 @@ describe('late conversation host observer', () => {
   }
  });
 });
+
+describe('draft composer selection ownership', () => {
+  const metadata = () => normalizeMetaResponse({
+    agents: ['simple', 'presentation_fixture'], models: ['default', 'chosen'],
+    defaults: { agent: 'simple', model: 'default' },
+  });
+  const draftContext = (windowId, selection = { agent: 'simple', model: 'default' }) => {
+    const ds = (values) => ({ values, peekFormData() { return this.values; }, setFormData({ values }) { this.values = values; } });
+    const conv = ds({ id: '', ...selection });
+    const meta = ds({ ...metadata(), ...selection });
+    return { conv, meta, context: { identity: { windowId }, resources: {}, Context: (name) => name === 'conversations' ? { handlers: { dataSource: conv } } : name === 'meta' ? { handlers: { dataSource: meta } } : null } };
+  };
+  it('retains a no-ID explicit selection across a same-window remount without changing another window', async () => {
+    const original = draftContext('draft-selection-fixture', { agent: 'presentation_fixture', model: 'chosen' });
+    recordConversationComposerSelection(original.context);
+    syncConversationComposerSelection(original.context);
+    const replacement = draftContext('draft-selection-fixture');
+    syncConversationComposerSelection(replacement.context, metadata());
+    expect(replacement.meta.values).toMatchObject({ agent: 'presentation_fixture', model: 'chosen' });
+    expect(replacement.conv.values).toMatchObject({ id: '', agent: 'presentation_fixture', model: 'chosen' });
+    const other = draftContext('other-draft-selection-fixture');
+    syncConversationComposerSelection(other.context, metadata());
+    expect(other.meta.values).toMatchObject({ agent: 'simple', model: 'default' });
+    client.createConversation.mockReset().mockResolvedValue({ id: 'draft-selection-created' });
+    ensureContextResources(replacement.context).explicitNewConversationRequested = true;
+    await ensureConversation(replacement.context, { agent: replacement.meta.values.agent, model: replacement.meta.values.model, immediateSubmit: true });
+    expect(client.createConversation).toHaveBeenLastCalledWith({ agentId: 'presentation_fixture' });
+    expect(replacement.conv.values).toMatchObject({ id: 'draft-selection-created', agent: 'presentation_fixture', model: 'chosen' });
+    publishActiveConversation('', replacement.context);
+    const fresh = draftContext('draft-selection-fixture');
+    syncConversationComposerSelection(fresh.context, metadata());
+    expect(fresh.meta.values).toMatchObject({ agent: 'simple', model: 'default' });
+  });
+  it('preserves explicit auto agent and empty automatic model in the draft', () => {
+    const original = draftContext('automatic-draft-fixture', { agent: 'auto', model: '' });
+    recordConversationComposerSelection(original.context);
+    const replacement = draftContext('automatic-draft-fixture');
+    syncConversationComposerSelection(replacement.context, metadata());
+    expect(replacement.meta.values).toMatchObject({ agent: 'auto', model: '' });
+  });
+  it('starts a new draft with the current conversation selection instead of an older draft override', async () => {
+    const stale = draftContext('new-draft-reset-fixture', { agent: 'auto', model: '' });
+    recordConversationComposerSelection(stale.context);
+    const current = draftContext('new-draft-reset-fixture', { agent: 'presentation_fixture', model: 'chosen' });
+    current.conv.values.id = 'existing-reset-fixture';
+    await createNewConversation(current.context);
+    const replacement = draftContext('new-draft-reset-fixture');
+    syncConversationComposerSelection(replacement.context, metadata());
+    expect(replacement.meta.values).toMatchObject({ agent: 'presentation_fixture', model: 'chosen' });
+    expect(replacement.conv.values.id).toBe('');
+  });
+  it('clears draft ownership at the existing authenticated session reset boundary', async () => {
+    const previousWindow = global.window;
+    const listeners = new Map();
+    global.window = { ...previousWindow, addEventListener: (name, callback) => listeners.set(name, callback) };
+    try {
+      vi.resetModules();
+      const runtime = await import('./chatRuntime');
+      const original = draftContext('session-reset-draft-fixture', { agent: 'presentation_fixture', model: 'chosen' });
+      runtime.recordConversationComposerSelection(original.context);
+      listeners.get('agently:session-reset')();
+      const replacement = draftContext('session-reset-draft-fixture');
+      runtime.syncConversationComposerSelection(replacement.context, metadata());
+      expect(replacement.meta.values).toMatchObject({ agent: 'simple', model: 'default' });
+    } finally {
+      global.window = previousWindow;
+    }
+  });
+});
