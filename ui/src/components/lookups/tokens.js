@@ -21,6 +21,34 @@
 const TOKEN_RE =
   /@\{([a-zA-Z][a-zA-Z0-9_-]*):([^\s"]+)\s+"((?:[^"\\]|\\.)*)"\}/g;
 
+export function resolveMoneyPlaceholder(text = '') {
+  // Preserve existing stored tokens and their labels verbatim.
+  return String(text).replace(new RegExp(`${TOKEN_RE.source}|\\$\\{\\s*money(?:\\s+[^{}]+)?\\s*\\}`, 'gi'), raw => {
+    if (raw.startsWith('@{')) return raw;
+    const amount = raw.replace(/^\$\{\s*money\s*/i, '').replace(/\s*\}$/, '').trim();
+    if (!amount) return '@{money:? "$[___]"}';
+    return isValidMoney(amount) ? serializeManualToken('money', amount) : raw;
+  });
+}
+
+export function normalizeMoney(value = '') {
+  const amount = String(value).trim().replace(/^\$\s*/, '');
+  if (!/^(?:\d+|\d{1,3}(?:[ ,\u00a0\u202f]\d{3})+)(?:\.\d{1,2})?$/.test(amount)) return null;
+  const canonical = amount.replace(/[ ,\u00a0\u202f]/g, '').replace(/^0+(?=\d)/, '');
+  return Number.isFinite(Number(canonical)) ? canonical : null;
+}
+
+export function formatMoney(value) {
+  const canonical = normalizeMoney(value);
+  if (canonical === null) return '';
+  const [whole, fraction] = canonical.split('.');
+  return `$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ' ')}${fraction === undefined ? '' : `.${fraction}`}`;
+}
+
+export function isValidMoney(value = '') {
+  return normalizeMoney(value) !== null;
+}
+
 /** True when the parsed token is an authored placeholder (id sentinel "?"). */
 export function isUnresolvedToken(parsedOrId) {
   const id = typeof parsedOrId === 'string' ? parsedOrId : parsedOrId?.id;
@@ -54,8 +82,9 @@ export function serializeToken(entry, resolved) {
  */
 export function serializeManualToken(name, value) {
   const lookupName = String(name || '').trim();
-  const raw = String(value ?? '').trim();
-  const label = raw.replace(/"/g, '\\"');
+  const entered = String(value ?? '').trim();
+  const raw = lookupName === 'money' ? (normalizeMoney(entered) ?? entered) : entered;
+  const label = (lookupName === 'money' ? (formatMoney(raw) || `$${raw}`) : raw).replace(/"/g, '\\"');
   return `@{${lookupName}:${raw} "${label}"}`;
 }
 
@@ -155,6 +184,10 @@ export function flattenStored(storedText, registry, options = {}) {
   const byName = new Map();
   for (const e of registry) byName.set(e.name, e);
   return storedText.replace(TOKEN_RE, (raw, name, id, label) => {
+    if (name === 'money') {
+      if (!isValidMoney(id)) throw new Error('Enter a valid money amount before sending.');
+      return formatMoney(id);
+    }
     if (isUnresolvedToken(id)) {
       const entry = byName.get(name);
       if (entry && entry.required && !allowUnresolvedRequired) {
