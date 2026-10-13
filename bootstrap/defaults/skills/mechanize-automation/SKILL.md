@@ -52,5 +52,12 @@ action again to obtain a result. After a timeout, distinguish explicit
 Check fresh state and business evidence before claiming success. Preserve user
 tabs, unsent drafts and unresolved receipts.
 
+Before stopping on a browser interaction failure, retrieve
+`mechanize-browser-recovery` from the discovered skill inventory and follow its
+available recovery route. A failed DOM route is not evidence that native
+screenshots, accessibility or pointer control are unavailable. Continue toward
+the same objective within the user's submission limits; ask for help only when
+the current evidence identifies a human-only step or a missing capability.
+
 Keep task-specific details in the user's conversation and the relevant private
 application guide. This bootstrap contains no website-specific walkthrough.
