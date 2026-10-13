@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"github.com/viant/agently-core/app/host"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -29,7 +30,7 @@ func TestHTTPAuthorizationConfigFailsClosedBeforeProviderBinding(t *testing.T) {
 		"missing endpoints":     `{"kind":"oidc-userinfo"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			providers, err := configuredHTTPAuthorizationProviders(context.Background(), json.RawMessage(raw), nil)
+			providers, err := host.HTTPProviders(context.Background(), json.RawMessage(raw), nil)
 			if err == nil || providers.Identity != nil {
 				t.Fatal("invalid operator configuration produced an authority")
 			}
@@ -82,7 +83,7 @@ func TestConfiguredHTTPAuthorizationUsesDeployedEndpointWithoutCustomHost(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	providers, err := configuredHTTPAuthorizationProviders(context.Background(), raw, nil)
+	providers, err := host.HTTPProviders(context.Background(), raw, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
