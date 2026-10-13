@@ -289,6 +289,8 @@ describe('conversation delete helpers', () => {
       .toBe('Conversation or one of its child conversations has not finished yet.');
     expect(conversationDeleteErrorMessage({ status: 403, body: 'permission denied' }))
       .toBe('Only the conversation owner can delete this conversation.');
+    expect(conversationDeleteErrorMessage({ status: 500, body: 'forbidden full drain in protected invocation' }))
+      .toBe('forbidden full drain in protected invocation');
     expect(conversationDeleteErrorMessage({ status: 404, body: 'conversation not found' }))
       .toBe('Conversation was already deleted or is no longer available.');
   });
