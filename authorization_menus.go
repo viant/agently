@@ -66,8 +66,6 @@ func configuredMenuBindings(owner string, config *hostAuthorizationFile, prepare
 	// mechanism. Authored bytes are compiled once; actors and menu policy stay
 	// request-scoped in the unchanged resolver and visibility callbacks.
 	definitions := map[string][]resources.NativeSnapshotDefinition{}
-	assets := map[string][]string{}
-	seenAssets := map[string]map[string]bool{}
 	for _, source := range config.MenuSources {
 		if source.LocalLayoutPath == "" {
 			continue
@@ -99,13 +97,7 @@ func configuredMenuBindings(owner string, config *hostAuthorizationFile, prepare
 			return nil, err
 		}
 		definitions[root] = append(definitions[root], definition)
-		if seenAssets[root] == nil {
-			seenAssets[root] = map[string]bool{}
-		}
-		if !seenAssets[root][file] {
-			assets[root] = append(assets[root], file)
-			seenAssets[root][file] = true
-		}
+
 	}
 	roots := make([]string, 0, len(definitions))
 	for root := range definitions {
@@ -113,7 +105,7 @@ func configuredMenuBindings(owner string, config *hostAuthorizationFile, prepare
 	}
 	sort.Strings(roots)
 	for _, root := range roots {
-		snapshot, err := resources.NewNativeAssetSnapshot(context.Background(), root, definitions[root], resources.NativeSnapshotOptions{AssetPaths: assets[root], ImmutableUntilRestart: true})
+		snapshot, err := resources.NewNativeAssetSnapshot(context.Background(), root, definitions[root], resources.NativeSnapshotOptions{})
 		if err != nil {
 			return nil, err
 		}
@@ -339,20 +331,18 @@ func configureLayoutMenuReader(sources []HostMenuSource, localOwner string, prep
 // configuredNativeMenuDefinitions joins only explicitly declared local files
 // confined to the already trusted workspace snapshot root. External trusted
 // roots are handled separately by the same native snapshot mechanism.
-func configuredNativeMenuDefinitions(root string, sources []HostMenuSource) ([]resources.NativeSnapshotDefinition, []string, error) {
+func configuredNativeMenuDefinitions(root string, sources []HostMenuSource) ([]resources.NativeSnapshotDefinition, error) {
 	if root == "" {
-		return nil, nil, nil
+		return nil, nil
 	}
 	var defs []resources.NativeSnapshotDefinition
-	var assets []string
-	seen := map[string]bool{}
 	for _, source := range sources {
 		if source.LocalLayoutPath == "" {
 			continue
 		}
 		relative, err := filepath.Rel(root, source.LocalLayoutPath)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		relative = filepath.ToSlash(relative)
 		if relative == ".." || strings.HasPrefix(relative, "../") {
@@ -360,13 +350,10 @@ func configuredNativeMenuDefinitions(root string, sources []HostMenuSource) ([]r
 		}
 		definition, err := resources.SnapshotLayoutMenuDefinition(relative, source.URI)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		defs = append(defs, definition)
-		if !seen[relative] {
-			assets = append(assets, relative)
-			seen[relative] = true
-		}
+
 	}
-	return defs, assets, nil
+	return defs, nil
 }

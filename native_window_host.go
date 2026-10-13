@@ -74,7 +74,7 @@ func newNativeWindowHostSnapshot(ctx context.Context, root string, config Native
 		})
 		definitions = append(definitions, resources.NativeSnapshotDefinition{URI: binding.URI, Title: binding.WindowKey, FormatVersion: 2, File: "extension/forge", Load: resources.NativeComposedWindowLoader(binding, base, nil)})
 	}
-	snapshot, err := resources.NewNativeAssetSnapshot(ctx, root, definitions, resources.NativeSnapshotOptions{ImmutableUntilRestart: true})
+	snapshot, err := resources.NewNativeAssetSnapshot(ctx, root, definitions, resources.NativeSnapshotOptions{})
 	if err != nil {
 		return nil, err
 	}

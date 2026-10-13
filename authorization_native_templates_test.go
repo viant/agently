@@ -230,7 +230,7 @@ func TestNativeTemplateScopeSurvivesActualLocalMCPListAndGet(t *testing.T) {
 	}
 }
 
-func TestNativeSnapshotCapturesAfterStartupAndRejectsLaterSourceChanges(t *testing.T) {
+func TestNativeSnapshotCapturesAfterStartupAndKeepsBytesUntilExplicitReload(t *testing.T) {
 	for _, change := range []string{"content", "import", "mode"} {
 		t.Run(change, func(t *testing.T) {
 			ctx := context.Background()
@@ -266,10 +266,16 @@ func TestNativeSnapshotCapturesAfterStartupAndRejectsLaterSourceChanges(t *testi
 			case "mode":
 				require.NoError(t, os.Chmod(imported, 0600))
 			}
-			require.ErrorIs(t, snapshot.CheckCandidate(ctx, uri, candidates[0]), identity.ErrResourceStale)
+			require.NoError(t, snapshot.CheckCandidate(ctx, uri, candidates[0]))
 			_, err = snapshot.WindowIndex(ctx)
-			require.ErrorIs(t, err, identity.ErrResourceStale)
-			require.EqualValues(t, 1, snapshot.CompileCount(), "serving cannot rebuild a changed immutable generation")
+			require.NoError(t, err)
+			require.EqualValues(t, 1, snapshot.CompileCount(), "reads never rebuild captured content")
+			require.NoError(t, snapshot.workspace.Reload(ctx))
+			if change == "mode" {
+				require.NoError(t, snapshot.CheckCandidate(ctx, uri, candidates[0]), "file permissions do not change captured semantic content")
+			} else {
+				require.ErrorIs(t, snapshot.CheckCandidate(ctx, uri, candidates[0]), identity.ErrResourceStale)
+			}
 		})
 	}
 }

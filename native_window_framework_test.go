@@ -151,8 +151,18 @@ func TestNativeWindowHostComposesFrameworkClosureAndValidatesExecutionDeclaratio
 		t.Fatal("legacy execution URI affected artifact startup", err)
 	}
 	write("dialogs/order.yaml", "id: adOrderPicker\ndataSourceRef: ad_order_lookup\ncontent: {id: drifted}\n")
+	retained, err := snapshot.ReadCandidate(context.Background(), uri, candidates[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(retained) != string(raw) {
+		t.Fatal("file edit replaced captured framework bytes")
+	}
+	if err := snapshot.Reload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := snapshot.ReadCandidate(context.Background(), uri, candidates[0]); !errors.Is(err, identity.ErrResourceStale) {
-		t.Fatal("framework source drift admitted", err)
+		t.Fatal("reloaded source accepted old fingerprint", err)
 	}
 }
 
@@ -170,7 +180,7 @@ func TestSerializedLinkedWindowBasePreservesExactOuterParameters(t *testing.T) {
 		calls := 0
 		base := serializedWindowBase(func(context.Context, *types.WindowTarget) (json.RawMessage, error) { calls++; return linkedBytes, nil })
 		binding := windowloader.ResourceBinding{WindowKey: "linked", URI: "window://test/linked"}
-		snapshot, err := resources.NewNativeAssetSnapshot(context.Background(), root, []resources.NativeSnapshotDefinition{{URI: binding.URI, FormatVersion: 2, File: "extension/forge", Load: resources.NativeComposedWindowLoader(binding, base, nil)}}, resources.NativeSnapshotOptions{ImmutableUntilRestart: true})
+		snapshot, err := resources.NewNativeAssetSnapshot(context.Background(), root, []resources.NativeSnapshotDefinition{{URI: binding.URI, FormatVersion: 2, File: "extension/forge", Load: resources.NativeComposedWindowLoader(binding, base, nil)}}, resources.NativeSnapshotOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -1,6 +1,7 @@
 package agently
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -312,7 +313,14 @@ func TestNativeNewDeliveryRejectsTamperingAndRevokedMappingsBeforeDispatch(t *te
 			case "source drift":
 				p := filepath.Join(f.root, "extension/forge/windows/edit.yaml")
 				raw, _ := os.ReadFile(p)
-				if err := os.WriteFile(p, append(raw, []byte("\n# drift\n")...), 0600); err != nil {
+				if err := os.WriteFile(p, bytes.Replace(raw, []byte("id: original"), []byte("id: drifted"), 1), 0600); err != nil {
+					t.Fatal(err)
+				}
+				reloader, ok := f.host.source.(interface{ Reload(context.Context) error })
+				if !ok {
+					t.Fatal("owning source does not support explicit reload")
+				}
+				if err := reloader.Reload(ctx); err != nil {
 					t.Fatal(err)
 				}
 			}
