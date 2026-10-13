@@ -205,6 +205,15 @@ describe('reportExportService', () => {
     );
   });
 
+  it('binds inline export submission to its conversation', async () => {
+    client.executeTool.mockResolvedValue({ jobId: 'inline-job', status: 'queued' });
+    const request = { kind: 'reportExportRequest', version: 1 };
+    await submitReportExportRequest({ request, source: 'inline', conversationId: ' conversation-1 ' });
+    expect(client.executeTool).toHaveBeenCalledWith('reporting:submit_export', {
+      reportExportRequest: request,
+    }, { conversationId: 'conversation-1' });
+  });
+
   it('submits canonical reportExportRequest through reporting:submit_export', async () => {
     client.executeTool.mockResolvedValue(JSON.stringify({
       jobId: 'job-1',
