@@ -6,7 +6,7 @@ const openWindow = vi.fn();
 const getAuthMeSilently = vi.fn();
 
 vi.mock('../services/agentlyClient', () => ({ getAuthMeSilently }));
-vi.mock('./MenuBar', () => ({ openWindow }));
+vi.mock('./menuBarHelpers', () => ({ openWindow }));
 vi.mock('./Sidebar', () => ({ default: () => <div data-testid="conversation-sidebar" /> }));
 
 let WorkspaceSidebar;

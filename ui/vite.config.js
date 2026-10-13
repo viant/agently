@@ -108,6 +108,8 @@ export default defineConfig(({ mode, command }) => {
   const coreRoot = resolve(env.AGENTLY_CORE_SOURCE_ROOT || resolve(__dirname, '../../agently-core'));
   const forgeNodeModules = resolve(uiRoot, 'node_modules/forge');
   const appNodeModules = resolve(uiRoot, 'node_modules');
+  const sharedDependency = name => fs.existsSync(resolve(appNodeModules, name))
+    ? resolve(appNodeModules, name) : resolve(forgeRoot, 'node_modules', name);
 
   return {
     base: '/',
@@ -129,6 +131,9 @@ export default defineConfig(({ mode, command }) => {
         react: resolve(appNodeModules, 'react'),
         'react-dom': resolve(appNodeModules, 'react-dom'),
         '@preact/signals-react': resolve(appNodeModules, '@preact/signals-react'),
+        'react-rnd': sharedDependency('react-rnd'),
+        're-resizable': sharedDependency('re-resizable'),
+        'react-draggable': sharedDependency('react-draggable'),
         '@phosphor-icons/react': resolve(appNodeModules, '@phosphor-icons/react'),
         '@uiw/react-codemirror': resolve(__dirname, 'node_modules/@uiw/react-codemirror'),
         '@codemirror/state': resolve(__dirname, 'node_modules/@codemirror/state'),
@@ -191,6 +196,9 @@ export default defineConfig(({ mode, command }) => {
       exclude: ['forge']
     },
     test: {
+      // Prebundle linked CJS UI dependencies with the same React runtime as
+      // the app; native Node require would resolve Forge's second React copy.
+      deps: { optimizer: { web: { enabled: true, include: ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'react-dom', '@blueprintjs/core', 'react-rnd', 're-resizable', 'react-draggable'] } } },
       exclude: [
         '**/node_modules/**',
         '**/dist/**',
@@ -198,7 +206,8 @@ export default defineConfig(({ mode, command }) => {
         'src/services/forgeFenceContract.test.mjs',
         'src/components/lookups/chipEditing.test.mjs',
         'src/components/lookups/forgeBridge.test.mjs',
-        'src/components/lookups/tokens.test.mjs'
+        'src/components/lookups/tokens.test.mjs',
+        'src/styles/workspaceDialogLayer.test.mjs'
       ]
     },
     build: {
