@@ -95,7 +95,7 @@ func snapshotWorkspaceReports(ctx context.Context, root string, options catalogr
 		definitions = append(definitions, resources.NativeSnapshotDefinition{URI: row.URI, Title: row.Title, FormatVersion: 1, File: files[row.URI], Load: resources.NativeReportLoader(row.URI, options, nil)})
 		metadata = append(metadata, catalogruntime.ReportCatalogCandidate{URI: row.URI, Title: row.Title, Description: row.Description, OwnerID: row.OwnerID, BuilderRef: row.BuilderRef, BuilderWindow: row.BuilderWindow, ReportID: row.ReportID})
 	}
-	snapshot, err := resources.NewNativeAssetSnapshot(ctx, root, definitions, resources.NativeSnapshotOptions{ImmutableUntilRestart: true})
+	snapshot, err := resources.NewNativeAssetSnapshot(ctx, root, definitions, resources.NativeSnapshotOptions{})
 	if err != nil {
 		return ReportResourceProviders{}, err
 	}

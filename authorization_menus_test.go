@@ -161,10 +161,10 @@ func TestHostConfiguredMenuMCPReaderPreservesActionsAndRevalidates(t *testing.T)
 	got, err = reader(ctx)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(layoutPath, append(raw, []byte("# unchanged authored content\n")...), 0600))
-	require.Error(t, got.Revalidate(ctx), "startup source generation changes require explicit restart")
+	require.NoError(t, got.Revalidate(ctx), "filesystem edits do not replace captured source")
 	_ = got.Close()
 	_, err = reader(ctx)
-	require.Error(t, err, "changed source cannot hot reload through a warm reader")
+	require.NoError(t, err, "warm reader retains captured content until explicit publication")
 	// Explicit restart compiles the new authored generation; original actors,
 	// policies and action visibility remain unchanged.
 	refreshed, err := configuredMenuBindings("internal", config, prepared)
@@ -185,7 +185,7 @@ func TestHostConfiguredMenuMCPReaderPreservesActionsAndRevalidates(t *testing.T)
 	got, err = freshReader(ctx)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(layoutPath, []byte("version: 1\nid: steward\napplications: []\n"), 0600))
-	require.Error(t, got.Revalidate(ctx))
+	require.NoError(t, got.Revalidate(ctx), "mere file edits cannot replace captured source generation")
 	_ = got.Close()
 
 }

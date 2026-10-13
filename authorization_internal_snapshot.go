@@ -43,7 +43,7 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 		if _, err := newEmbeddedWindowSource(config.FrameworkWindowResources); err != nil {
 			return nil, err
 		}
-		declaredMenus, _, err := configuredNativeMenuDefinitions(root, config.MenuSources)
+		declaredMenus, err := configuredNativeMenuDefinitions(root, config.MenuSources)
 		if err != nil {
 			return nil, err
 		}
@@ -66,7 +66,7 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 		}
 		return result, nil
 	}
-	menuDefinitions, menuAssets, err := configuredNativeMenuDefinitions(root, config.MenuSources)
+	menuDefinitions, err := configuredNativeMenuDefinitions(root, config.MenuSources)
 	if err != nil {
 		return nil, err
 	}
@@ -103,30 +103,16 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 			// are process-owned while dependency imports use this same reader.
 			definitions = append(definitions, resources.NativeSnapshotDefinition{URI: binding.URI, Title: binding.WindowKey, FormatVersion: 2, File: "extension/forge", Load: resources.NativeComposedWindowLoader(binding, base, resources.StaticWorkspaceWindowEnricher(enrich))})
 		}
-		assetPaths := append([]string(nil), menuAssets...)
-		if len(config.WindowResources)+len(config.FrameworkWindowResources) > 0 {
-			assetPaths = append(assetPaths, "extension/forge")
-		}
-		seenAssets := map[string]bool{}
 		var feedDirectories []resources.ExtensionDirectory
 		for _, source := range config.ToolfeedSources {
 			feedDirectories = append(feedDirectories, resources.ToolfeedDirectory(source.Namespace, source.Directory))
-			if !seenAssets[source.Directory] {
-				assetPaths = append(assetPaths, source.Directory)
-				seenAssets[source.Directory] = true
-			}
+
 		}
 		authoredDirs, compilers, e := configuredAuthoredDirectories(config)
 		if e != nil {
 			return nil, e
 		}
 		feedDirectories = append(feedDirectories, authoredDirs...)
-		for _, d := range authoredDirs {
-			if !seenAssets[d.Directory] {
-				assetPaths = append(assetPaths, d.Directory)
-				seenAssets[d.Directory] = true
-			}
-		}
 		defer func() {
 			for _, c := range compilers {
 				c.Release()
@@ -139,7 +125,7 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 			}
 			definitions = append(definitions, feeds...)
 		}
-		result.workspace, err = resources.NewNativeAssetSnapshot(ctx, root, definitions, resources.NativeSnapshotOptions{AssetPaths: assetPaths, ImmutableUntilRestart: true, BeforeCompile: func(ctx context.Context, reader *resources.ExtensionReader) error {
+		result.workspace, err = resources.NewNativeAssetSnapshot(ctx, root, definitions, resources.NativeSnapshotOptions{BeforeCompile: func(ctx context.Context, reader *resources.ExtensionReader) error {
 			for _, c := range compilers {
 				if err := c.Prepare(ctx, reader); err != nil {
 					return err
