@@ -257,7 +257,7 @@ export function conversationDeleteErrorMessage(err) {
   if (status === 409) {
     return message || 'Conversation cannot be deleted because it is still in use.';
   }
-  if (status === 403 || /permission denied|forbidden/i.test(message)) {
+  if (status === 403) {
     return 'Only the conversation owner can delete this conversation.';
   }
   if (status === 404 || /not found/i.test(message)) {
