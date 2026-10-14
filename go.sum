@@ -2184,6 +2184,8 @@ github.com/dop251/goja v0.0.0-20261007200356-e2ea74d3d210 h1:2dQN2WIE7J8+Zhc5AR+
 github.com/dop251/goja v0.0.0-20261007200356-e2ea74d3d210/go.mod h1:GrCNKUrVplXZj0juFue0Cj2Xt/eL2Nuu2+y3UTanEo8=
 github.com/go-sourcemap/sourcemap v2.1.3+incompatible h1:W1iEw64niKVGogNgBN3ePyLFfuisuzeidWPMPWmECqU=
 github.com/go-sourcemap/sourcemap v2.1.3+incompatible/go.mod h1:F8jJfvm2KbVjc5NqelyYJmf/v5J0dwNLS2mL4sNA1Jg=
+github.com/viant/agently-core v0.1.57-0.20261014175803-7cb43d8878d1 h1:uDxY18LVsveKuuVOY4QSUk1LRcEkMBNx3wl/YFMrDk8=
+github.com/viant/agently-core v0.1.57-0.20261014175803-7cb43d8878d1/go.mod h1:Kyn+mvXr452BFH7+hpfyIXGi29Xil10NPnlnwua1Z4Y=
 github.com/viant/agently-core/protocol/primitive v0.0.0-20261009053852-916a91954e26 h1:XfLqp9d75+cU7cGP73bcTZxAXa3MnEwd1nKpqIrc3pg=
 github.com/viant/agently-core/protocol/primitive v0.0.0-20261009053852-916a91954e26/go.mod h1:pcpWZNbdGBtblVO92SVADwD27y4orEHqtuL7S1fG0Rw=
 github.com/viant/agently-core/protocol/primitive v0.0.0-20261014170051-3064cfcf1124 h1:GYRTbr+2DejbWldyNcODAWK0nsHOdi4c/DnUYrLaTxs=
