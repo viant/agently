@@ -2,7 +2,7 @@ import React, { forwardRef } from 'react';
 
 export const MCP_UI_SANDBOX = 'allow-scripts';
 
-const AppFrame = forwardRef(function AppFrame({ srcDoc, src = '', sandbox = MCP_UI_SANDBOX, title = 'MCP UI Resource', onLoad }, ref) {
+const AppFrame = forwardRef(function AppFrame({ srcDoc, src = '', sandbox = MCP_UI_SANDBOX, title = 'MCP UI Resource', onLoad, style = {} }, ref) {
   return (
     <iframe
       ref={ref}
@@ -17,6 +17,7 @@ const AppFrame = forwardRef(function AppFrame({ srcDoc, src = '', sandbox = MCP_
         border: '1px solid #d8dde6',
         borderRadius: '10px',
         background: '#fff',
+        ...style,
       }}
     />
   );

@@ -160,7 +160,7 @@ export function resolveMCPUIHostPresentation(payload = null, { allowWorkspace = 
   };
 }
 
-export async function readMCPUIResource(uri, fetchImpl = globalThis.fetch) {
+export async function readMCPUIResource(uri, fetchImpl = globalThis.fetch, resourceContext = null) {
   const normalized = String(uri || '').trim();
   if (!normalized) {
     throw new Error('uri is required');
@@ -168,11 +168,13 @@ export async function readMCPUIResource(uri, fetchImpl = globalThis.fetch) {
   if (typeof fetchImpl !== 'function') {
     throw new Error('fetch implementation is required');
   }
-  const response = await fetchImpl(`${MCP_UI_READ_PATH}?uri=${encodeURIComponent(normalized)}`, {
-    method: 'GET',
+  const response = await fetchImpl(resourceContext ? MCP_UI_READ_PATH : `${MCP_UI_READ_PATH}?uri=${encodeURIComponent(normalized)}`, {
+    method: resourceContext ? 'POST' : 'GET',
+    ...(resourceContext ? {body: JSON.stringify({uri: normalized, resource: resourceContext.resource, resourceTarget: resourceContext.resourceTarget})} : {}),
     credentials: 'include',
     headers: {
       Accept: 'application/json',
+      ...(resourceContext ? {'Content-Type': 'application/json'} : {}),
     },
   });
   if (!response.ok) {
