@@ -9,6 +9,7 @@ import {
   MCP_UI_CSP_NONCE_TOKEN,
   MCP_UI_DEFAULT_SANDBOX,
   MCP_UI_HTML_MIME,
+  MCP_UI_READ_PATH,
   readMCPUIResource,
   normalizeMCPUICSPPolicy,
   resolveMCPUICSP,
@@ -203,6 +204,23 @@ describe('mcpApps/resourceLoader', () => {
       json: async () => payload,
     }));
     expect(result).toEqual(payload);
+  });
+
+  it('sends only opened-window references for a hosted resource read', async () => {
+    const uri = 'ui://studio/window';
+    const resource = { uri: 'window://studio/window', providerIdentity: 'studio' };
+    const resourceTarget = { selectionToken: 'selected-window' };
+    const fetcher = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ uri, mimeType: MCP_UI_HTML_MIME, text: '<main>ready</main>' }),
+    }));
+    await readMCPUIResource(uri, fetcher, { resource, resourceTarget, ignoredCredential: 'never-send' });
+
+    expect(fetcher).toHaveBeenCalledWith(MCP_UI_READ_PATH, expect.objectContaining({
+      method: 'POST',
+      credentials: 'include',
+    }));
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ uri, resource, resourceTarget });
   });
 
   it('rejects non-mcp-ui mime payloads', async () => {
