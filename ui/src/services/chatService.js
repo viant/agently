@@ -588,6 +588,7 @@ export async function onInit({ context }) {
             // Preserve internal-role filtering and durable Forge workspace
             // attachments while metadata authorization remains lazy.
             includeExecutionDetails: true,
+            includeFeeds: false,
           },
           restoreWorkspace: false,
           autoRestoreWorkspace: true,

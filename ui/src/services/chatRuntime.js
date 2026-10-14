@@ -2694,6 +2694,7 @@ export async function switchConversation(context, conversationID = '') {
         // Canonical execution pages carry internal-role visibility and the
         // ui/view:open result used to restore report workspace attachments.
         includeExecutionDetails: true,
+        includeFeeds: false,
       },
       restoreWorkspace: false,
       autoRestoreWorkspace: true,
@@ -2737,6 +2738,7 @@ export async function switchConversation(context, conversationID = '') {
     allowLiveHydration: true,
     transcript: {
       includeExecutionDetails: true,
+      includeFeeds: false,
     },
     restoreWorkspace: false,
     autoRestoreWorkspace: true,
