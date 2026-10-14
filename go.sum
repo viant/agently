@@ -1187,6 +1187,8 @@ github.com/viant/agently-core v0.1.57-0.20261013193442-958f76671f1c h1:k1bWgRp6p
 github.com/viant/agently-core v0.1.57-0.20261013193442-958f76671f1c/go.mod h1:hdIfFnaCrKhHEDgRojEzfH+sQm1yvOkPm0ezPQx5NKA=
 github.com/viant/agently-core v0.1.57-0.20261014003436-1030b8c8314c h1:gWNa1AigKqVzAhvsB4keO1UbZIZujzyb9md1f4lXLZw=
 github.com/viant/agently-core v0.1.57-0.20261014003436-1030b8c8314c/go.mod h1:hdIfFnaCrKhHEDgRojEzfH+sQm1yvOkPm0ezPQx5NKA=
+github.com/viant/agently-core v0.1.57-0.20261014173247-8014dff2bd19 h1:wLWQclesquGNHEsGsfcOBHrtks4XgET3zxiupD7NlSQ=
+github.com/viant/agently-core v0.1.57-0.20261014173247-8014dff2bd19/go.mod h1:kvHJV0DMq08avYNmM2CCFpqjUCV6xWDU0e8e8u7PxiQ=
 github.com/viant/agently-core v0.1.57-0.20261014171138-af32c41b2f14 h1:Udjd4/GlqdCFYrFN5bg4pIR8+MQAhxPjZMbW44Njafo=
 github.com/viant/agently-core v0.1.57-0.20261014171138-af32c41b2f14/go.mod h1:HhpkKOiV/axgUUZIbQW9OWjgVjGpKol+sVDsc9Mga6E=
 github.com/viant/agently-core v0.1.57-0.20261014162939-11322c7da048 h1:6WGTmEGYTQ1EYu/K70uEK9RPW7Wp/ErQ8i46FVHni7c=
@@ -2208,6 +2210,8 @@ github.com/viant/mcp v0.24.1-0.20261014040242-8f88e1cc31d0 h1:xSsM2qp1hntt7VpRg/
 github.com/viant/mcp v0.24.1-0.20261014040242-8f88e1cc31d0/go.mod h1:mai8mGglqTpL+h/efOg+FNjG+Um4ngOykXpdYi01bwQ=
 github.com/viant/mcp v0.24.1-0.20261014055918-4cd46ac44865 h1:U2cNBdnNNSO7FtDuvYrCyB6x0w/wMC0TRi5zxvgJBpU=
 github.com/viant/mcp v0.24.1-0.20261014055918-4cd46ac44865/go.mod h1:Pi8Kru6Aj1xuVkWeDnZuSTVtOt76C1cj6ncIYpAdJ4I=
+github.com/viant/mcp-protocol v0.19.1-0.20261014173008-af92f34f304b h1:0VPbrlB8gbHLc1zrwbFW+f3IowORM5MmqpldnWm0+eY=
+github.com/viant/mcp-protocol v0.19.1-0.20261014173008-af92f34f304b/go.mod h1:8h2yGk/LjWpyLqQEZYOGuNZQPohCr1vtM8IvtcNcEIQ=
 github.com/viant/mcp-protocol v0.19.1-0.20261014011736-cc52f4b7738c h1:hdftllQezOybRdshy6ELeILNkgYh8In1DDZUfzrDFCo=
 github.com/viant/mcp-protocol v0.19.1-0.20261014011736-cc52f4b7738c/go.mod h1:8h2yGk/LjWpyLqQEZYOGuNZQPohCr1vtM8IvtcNcEIQ=
 github.com/viant/sqlx v0.26.1-0.20261013010041-718390a26adf h1:r5RB+A3BhNCQ4cz7hol5b/xczDJSW0uJ0tUVdCV5n+8=
