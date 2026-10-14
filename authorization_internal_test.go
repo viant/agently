@@ -105,6 +105,8 @@ func TestInternalHostPreloadsNativeWindowsAndUsesMetadataOnlyList(t *testing.T) 
 	require.Greater(t, resolveCalls, 0, "direct get must retain resource admission")
 	require.EqualValues(t, 20, snapshot.CompileCount())
 	principal.principal.Facts.Roles = nil
+	_, err = mgr.Reconnect(ctx, "", "internal")
+	require.NoError(t, err)
 	_, err = rt.UIBridge.WindowDefinitionGet(ctx, &forge.WindowDefinitionGetInput{WindowID: "window0", ResolvedResource: got.Definition.Resource, Target: got.Definition.ResourceTarget})
 	require.Error(t, err, "direct read must deny revoked role even though ungrouped metadata remains listed")
 	rows, err := rt.UIBridge.WindowDefinitionsList(ctx, nil)
@@ -168,6 +170,8 @@ func TestInternalHostReportReaderUsesManagingProviderAndControlVisibility(t *tes
 	_, err = rt.Reporting.Compile(ctx, &reporting.CompileRequest{ResolvedResource: entry.Resource})
 	require.NoError(t, err)
 	principal.principal.Facts.Roles = nil
+	_, err = mgr.Reconnect(ctx, "", "internal")
+	require.NoError(t, err)
 	_, err = rt.Reporting.GetReport(ctx, &reporting.GetReportInput{ResolvedResource: entry.Resource})
 	require.Error(t, err)
 }

@@ -25,29 +25,29 @@ func (f nativePermissionExecutor) Execute(ctx context.Context, name string, args
 	return f(ctx, name, args)
 }
 
-func TestNativeBusinessAdmissionOccursOnlyAtOriginalWindowOpen(t *testing.T) {
+func TestNativeWindowProjectionDoesNotAuthorizeDataDispatch(t *testing.T) {
 	f := newNativeDeliveryFixture(t)
 	f.window.Authorization = &types.AuthorizationSpec{Scope: "principal", ResourceType: "widget", RequestedGlobalCapabilities: []string{"write"}}
 	openCalls := 0
-	resolver := &permittedview.MCPResolver{ToolName: "window:BusinessOpen", Executor: nativePermissionExecutor(func(context.Context, string, map[string]any) (string, error) {
+	resolver := &permittedview.MCPResolver{ToolName: "window:Principal", Executor: nativePermissionExecutor(func(context.Context, string, map[string]any) (string, error) {
 		openCalls++
 		raw, _ := json.Marshal(&permittedview.Snapshot{AuthorizationVersion: "open-business", ExpiresAt: time.Now().Add(time.Minute), GlobalCapabilities: map[string]bool{"write": false}})
 		return string(raw), nil
 	})}
 	f.business = resolver
-	admission := &permittedview.OpenAdmission{Runtime: permittedview.NewRuntime(resolver)}
-	bridge := forge.NewService(&forge.Config{WindowDefinitions: f.host.catalog, WindowSelectionEmitter: f.host.delivery.emitSelection, WindowOpenAdmission: func(ctx context.Context, pin identity.ResolvedResource, window *types.Window, parameters map[string]any) (*forge.WindowOpenDecision, error) {
-		result, err := admission.ApplyDecision(ctx, pin, window, parameters)
+	projection := permittedview.NewRuntime(resolver)
+	bridge := forge.NewService(&forge.Config{WindowDefinitions: f.host.catalog, WindowSelectionEmitter: f.host.delivery.emitSelection, WindowUIProjection: func(ctx context.Context, input *permittedview.BoundView) (*types.Window, error) {
+		result, err := projection.Project(ctx, input.Window, input)
 		if err != nil {
 			return nil, err
 		}
-		return &forge.WindowOpenDecision{Window: result.Window, ValidUntil: result.ExpiresAt}, nil
+		return result.Window, nil
 	}})
-	admitted, err := bridge.AdmitWindowOpenDecision(f.ctx, f.window, f.parameters)
+	projected, err := bridge.ProjectWindow(f.ctx, f.window)
 	if err != nil {
 		t.Fatal(err)
 	}
-	emitted, err := bridge.EmitWindowSelection(f.ctx, admitted.Window, f.parameters)
+	emitted, err := bridge.EmitWindowSelection(f.ctx, projected, f.parameters)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,8 +66,8 @@ func TestNativeBusinessAdmissionOccursOnlyAtOriginalWindowOpen(t *testing.T) {
 	if _, err = service.Fetch(f.ctx, "change", map[string]any{"Objects": []map[string]any{{"Id": 42}}}, fetchNativeOptions(emitted, f.parameters)); err != nil {
 		t.Fatal(err)
 	}
-	if dispatches != 3 || openCalls != 1 {
-		t.Fatalf("open business calls=%d managing dispatch=%d err=%v", openCalls, dispatches, err)
+	if dispatches != 3 || openCalls != 0 {
+		t.Fatalf("unused UI fact calls=%d managing dispatch=%d err=%v", openCalls, dispatches, err)
 	}
 }
 

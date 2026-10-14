@@ -863,7 +863,8 @@ export default function NamedLookupInput({
 
   const openLookupSurface = useCallback(
     async (entry, options = {}) => {
-      if (!entry?.dialogId && !entry?.windowId) return false;
+      console.debug('[named-lookup][picker.route]', JSON.stringify({hasDialog:!!entry?.dialogId,hasWindow:!!entry?.windowId,hasResource:!!entry?.pickerResource?.uri,hasHandlers:!!context?.handlers?.window}));
+      if (!entry?.dialogId && !entry?.windowId && !entry?.pickerResource?.uri) return false;
       const windowHandlers = context?.handlers?.window;
       if (!windowHandlers) {
         console.error('lookup window handlers unavailable', { entry });
@@ -882,6 +883,7 @@ export default function NamedLookupInput({
       try {
         let record;
         const invocation = lookupSurfaceInvocation(entry, context, paramDefs);
+        console.debug('[named-lookup][picker.invoke]', JSON.stringify({handler:invocation.handler,handlerType:typeof windowHandlers[invocation.handler]}));
         record = await windowHandlers[invocation.handler]({
           execution: {args: invocation.args, parameters: paramDefs},
           parameters: initialParameters,
