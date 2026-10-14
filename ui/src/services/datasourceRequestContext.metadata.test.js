@@ -72,3 +72,16 @@ it('forwards a complete top-level signed window without changing datasource inpu
   expect(body.selectionBinding.opaque).not.toBe(selectionBinding.opaque);
   expect(body.windowParameters.nested).not.toBe(parameters.nested);
 });
+
+
+it('transports the server-admitted frame from current workspace metadata when the window store contains navigation only', () => {
+ const resource={uri:'window://example/Orders',contentFingerprint:'opened'};
+ const resourceTarget={selectionToken:'original-target'};
+ const selectionBinding={token:'signed-original',instanceId:'opened',parametersDigest:'digest',actor:{subject:'original-actor'}};
+ const parameters={AdOrderId:[2702590],CampaignId:[562914]};
+ findMetadataSignal.mockReturnValue({peek:()=>({resource,resourceTarget,selectionBinding})});
+ const body={inputs:{Name:'edited-name'}};
+ prepareAgentlyDataConnectorRequest({url:'/v1/api/datasources/order_patch/fetch',body,windowState:{windowId:'workspace-order',parameters}});
+ expect(body).toEqual({inputs:{Name:'edited-name'},resource,target:resourceTarget,selectionBinding,windowParameters:parameters});
+ expect(body.selectionBinding).not.toBe(selectionBinding);
+});

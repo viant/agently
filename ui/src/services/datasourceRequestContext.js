@@ -37,7 +37,8 @@ export function prepareAgentlyDataConnectorRequest({
   if (body && typeof body === 'object' && !Array.isArray(body)) {
     // A server-issued binding is provenance, never a UI grant. Keep its
     // complete original admission frame together; the backend verifies it.
-    const admitted = [windowState?.inlineMetadata, windowState, windowState?.metadata]
+    const currentMetadata = (windowState?.windowId ? findMetadataSignal(windowState.windowId)?.peek?.() : null) || windowState?.metadata;
+    const admitted = [windowState?.inlineMetadata, windowState, currentMetadata]
       .find(candidate => isObject(candidate?.selectionBinding));
     if (admitted) {
       body.windowParameters = detached(windowState?.openedWindowParameters || windowState?.parameters || {});
@@ -51,7 +52,7 @@ export function prepareAgentlyDataConnectorRequest({
     }
     if (windowState?.parameters && typeof windowState.parameters === 'object') body.windowParameters = {...windowState.parameters};
     if (convID && !body.conversationId) body.conversationId = convID;
-    const metadata = (windowState?.windowId ? findMetadataSignal(windowState.windowId)?.peek?.() : null) || windowState?.metadata;
+    const metadata = currentMetadata;
     const resource = metadata?.resource || windowState?.resource;
     if (resource && typeof resource === 'object' && !Array.isArray(resource)) {
       // The backend independently verifies the transported pin.
