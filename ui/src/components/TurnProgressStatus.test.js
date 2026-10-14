@@ -148,6 +148,44 @@ describe('TurnProgressStatus helpers', () => {
     expect(html).not.toContain('Stop current request');
   });
 
+  it('shows client execution as working while requested tools with approvals or unknown waits stay waiting', () => {
+    for (const waitKind of ['client_tool', 'approval', 'elicitation', 'unknown', undefined]) {
+      projectedRows = [{kind: 'iteration', turnId: 'current', lifecycle: 'running', waitKind,
+        rounds: [{pageId: 'page', status: 'waiting_for_user', phase: 'main', toolCalls: [{toolCallId: 'call', toolName: 'Fixture tool', status: 'requested'}]}]}];
+      const html = renderToStaticMarkup(React.createElement(TurnProgressStatus, {conversationId: 'c'}));
+      if (waitKind === 'client_tool') {
+        expect(html).toContain('Working on your request');expect(html).toContain('Executing local tool');expect(html).toContain('bp6-spinner');expect(html).not.toContain('Needs your input');
+      } else {
+        // Includes approval with an associated requested tool and no elicitation.
+        expect(html).toContain('Needs your input');expect(html).not.toContain('Executing local tool');
+      }
+    }
+  });
+  it('keeps open and legacy human elicitations waiting alongside a client-tool hint', () => {
+    for (const status of ['pending', 'open', 'waiting_for_user', 'running', undefined, ' OPEN ']) {
+      for (const field of ['elicitation', 'elicitations']) {
+        const item={elicitationId:'approval', ...(status === undefined ? {} : {status})};
+        projectedRows=[{kind:'iteration',turnId:'current',lifecycle:'running',waitKind:'client_tool',
+          [field]:field==='elicitation'?item:[item],rounds:[{pageId:'page',status:'waiting_for_user'}]}];
+        const html=renderToStaticMarkup(React.createElement(TurnProgressStatus,{conversationId:'c'}));
+        expect(html).toContain('Needs your input');expect(html).not.toContain('Executing local tool');
+      }
+    }
+  });
+  it('does not let resolved elicitation history hide current client-tool work', () => {
+    for (const status of ['accepted', 'declined', 'canceled', 'failed']) {
+      projectedRows=[{kind:'iteration',turnId:'current',lifecycle:'running',waitKind:'client_tool',elicitation:{status},rounds:[{pageId:'page',status:'waiting_for_user'}]}];
+      const html=renderToStaticMarkup(React.createElement(TurnProgressStatus,{conversationId:'c'}));
+      expect(html).toContain('Executing local tool');expect(html).not.toContain('Needs your input');
+    }
+  });
+  it('does not carry client execution into another turn or a terminal turn', () => {
+    projectedRows = [{kind: 'iteration', turnId: 'old', lifecycle: 'completed', waitKind: 'client_tool', rounds: []},
+      {kind: 'iteration', turnId: 'new', lifecycle: 'running', rounds: [{pageId: 'page', status: 'waiting_for_user'}]}];
+    const html = renderToStaticMarkup(React.createElement(TurnProgressStatus, {conversationId: 'c'}));
+    expect(html).toContain('Needs your input');expect(html).not.toContain('Executing local tool');
+    projectedRows = projectedRows.slice(0, 1);expect(renderToStaticMarkup(React.createElement(TurnProgressStatus, {conversationId: 'c'}))).toBe('');
+  });
   it('renders aggregate and per-model token breakdowns with unavailable fields explicit', () => {
     const html = renderToStaticMarkup(React.createElement(TokenDetails, {
       usage: {
