@@ -2250,3 +2250,7 @@ rsc.io/quote/v3 v3.1.0/go.mod h1:yEA65RcK8LyAZtP9Kv3t0HmxON59tX3rD+tICJqUlj0=
 rsc.io/sampler v1.3.0/go.mod h1:T1hPZKmBbMNahiBKFy5HrXp6adAjACjK9JXDnKaTXpA=
 sourcegraph.com/sourcegraph/go-diff v0.5.0/go.mod h1:kuch7UrkMzY0X+p9CRK03kfuPQ2zzQcaEFbx8wA8rck=
 sourcegraph.com/sqs/pbtypes v0.0.0-20180604144634-d3ebe8f20ae4/go.mod h1:ketZ/q3QxT9HOBeFhu6RdvsftgpsbFHBF5Cas6cDKZ0=
+github.com/viant/agently-core v0.1.57-0.20261014230749-e0911f27e924 h1:B/qMui4HT4tXH7FnB7Z6v8o/uSao1xZ5qIAzHsQNf7Y=
+github.com/viant/agently-core v0.1.57-0.20261014230749-e0911f27e924/go.mod h1:tUqvPYRsO9496Q7sjNFk7gtNCy4AHU+gCRBDOFRxVBI=
+github.com/viant/jsonrpc v0.25.1-0.20261014230436-c7e03c1c46eb h1:xZ/QTDNgUOhn/MMmUHOtYA57l0lZW5cQ0gLQFQeS2Yw=
+github.com/viant/jsonrpc v0.25.1-0.20261014230436-c7e03c1c46eb/go.mod h1:b214Lo4zBwLqbu6Tf2bRlgQkFfPMBW5ap4qS+I3zcJ8=
