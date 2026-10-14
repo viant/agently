@@ -190,7 +190,7 @@ func (f *nativeDeliveryFixture) service(t *testing.T, execute datasources.ToolEx
 			return nil, identity.ErrResourceDenied
 		}
 		return &definition, nil
-	}, AuthorizeDefinition: f.host.authorize, DenialRootRead: f.host.authorizeRootRead, Executor: execute})
+	}, AuthorizeDefinition: f.host.authorize, Executor: execute})
 }
 
 func TestNativeNewDeliveryValidAndExpiredSelection(t *testing.T) {
