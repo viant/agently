@@ -2387,3 +2387,5 @@ github.com/viant/xdatly v1.0.1-0.20261013192427-164ca1782574 h1:3YoJRRyGgZx2invf
 github.com/viant/xdatly v1.0.1-0.20261013192427-164ca1782574/go.mod h1:t085YqeJeRWQzuzio1Th4Jkfcb6E35n/XSw3ltCAkrI=
 github.com/viant/datly v1.1.1-0.20261014035505-59523a9a6c21 h1:LOoHHcGrV3kZ77k8X+VaAspPKjypB9JjjkLMFY4bqvg=
 github.com/viant/datly v1.1.1-0.20261014035505-59523a9a6c21/go.mod h1:c11e73XwmQyFd+GjjX3mcHtu2TUdaoWbNJfx6rmZbqk=
+github.com/viant/mcp v0.24.1-0.20261014040242-8f88e1cc31d0 h1:xSsM2qp1hntt7VpRg/RC8PfR24IKeeF9zw2WQUnmck8=
+github.com/viant/mcp v0.24.1-0.20261014040242-8f88e1cc31d0/go.mod h1:mai8mGglqTpL+h/efOg+FNjG+Um4ngOykXpdYi01bwQ=
