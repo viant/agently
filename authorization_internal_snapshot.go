@@ -44,7 +44,7 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 		if _, err := newEmbeddedWindowSource(config.FrameworkWindowResources); err != nil {
 			return nil, err
 		}
-		declaredMenus, err := configuredNativeMenuDefinitions(root, config.MenuSources)
+		declaredMenus, err := configuredNativeMenuDefinitions(root, config.NavigationSources)
 		if err != nil {
 			return nil, err
 		}
@@ -67,7 +67,7 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 		}
 		return result, nil
 	}
-	menuDefinitions, err := configuredNativeMenuDefinitions(root, config.MenuSources)
+	menuDefinitions, err := configuredNativeMenuDefinitions(root, config.NavigationSources)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +132,7 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 					return err
 				}
 			}
-			if len(config.MenuSources) > 0 {
+			if len(config.NavigationSources) > 0 {
 				layoutFile := "ui/layout.yaml"
 				workspaceConfig, loadErr := workspaceconfig.Load(root)
 				if loadErr != nil {

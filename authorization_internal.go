@@ -185,7 +185,7 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 		localConfig.Validators["intent"] = resources.ValidateIntentDefinition
 	}
 	if len(menus) > 0 {
-		localConfig.Validators["menu"] = resources.ValidateMenu
+		localConfig.Validators["navigation"] = resources.ValidateMenu
 		localConfig.MenuActionVisibility, err = configuredMenuVisibility(config, principals, authorize)
 		if err != nil {
 			return nil, err
