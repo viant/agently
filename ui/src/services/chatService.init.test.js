@@ -242,6 +242,10 @@ describe('onInit', () => {
 
     await onInit({ context });
 
+    expect(dsTickMock).toHaveBeenCalledWith(context, expect.objectContaining({
+      transcript: expect.objectContaining({ includeExecutionDetails: true, includeFeeds: false }),
+    }));
+
     expect(publishConversationMetaUpdatedMock).toHaveBeenCalledWith('conv-1', {
       title: 'Creative rendering test request',
       stage: 'done',

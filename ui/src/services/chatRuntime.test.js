@@ -1839,7 +1839,7 @@ describe('switchConversation', () => {
       expect.objectContaining({
         conversationId: 'conv-target',
         since: undefined,
-        includeFeeds: true
+        includeFeeds: false
       }),
       undefined
     );
