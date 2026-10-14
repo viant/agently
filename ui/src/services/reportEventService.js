@@ -39,6 +39,12 @@ export async function emitReportUIEvent({ kind = '', detail = {}, windowId = '',
   }
   const normalizedWindowId = String(windowId || '').trim();
   const normalizedWindowKey = String(windowKey || '').trim();
+  if ((normalizedKind === 'report.run_start' || normalizedKind === 'report.run')
+    && (!normalizedWindowId || !normalizedWindowKey)) {
+    // Standalone report workspaces persist runs through reportRuns. They have
+    // no admitted bridge window to attach durable chat telemetry to.
+    return { recorded: false };
+  }
   // A report builder may retain its local window id after the browser bridge
   // has reconnected and replaced the registry snapshot. Context updates are
   // advisory conversation telemetry, so an unpaired local id must not turn a
