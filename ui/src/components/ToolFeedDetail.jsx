@@ -451,6 +451,8 @@ function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = '
         ? (row) => String(readFirst(row, [descriptionField]) || '')
         : undefined,
       loadRows: ({ query = '', signal } = {}) => context.handlers.lookup.search({
+        dataSourceResource: lookup?.dataSourceResource,
+        providerIdentity: lookup?.providerIdentity,
         dataSourceRef,
         query,
         queryInput: lookup?.queryInput,

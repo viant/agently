@@ -56,6 +56,8 @@ export async function listLookupRegistry(contextKind, contextID, owning = null) 
  */
 export async function fetchDatasource(id, inputs, options) {
   const body = { inputs: inputs || {} };
+  if (options?.reference) body.reference = options.reference;
+  if (options?.providerIdentity) body.providerIdentity = options.providerIdentity;
   if (options && (options.bypassCache || options.writeThrough)) {
     body.cache = {};
     if (options.bypassCache) body.cache.bypassCache = true;

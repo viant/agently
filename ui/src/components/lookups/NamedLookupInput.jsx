@@ -1,4 +1,5 @@
 import './skillHints.css';
+import {lookupSurfaceInvocation} from './surface.js';
 import {client as skillClient} from '../../services/agentlyClient';
 import {skillHintQuery, matchingSkills, insertSkillPrefix} from './skillHints.js';
 import {useSignals} from '@preact/signals-react/runtime';
@@ -701,7 +702,7 @@ export default function NamedLookupInput({
           const input = {};
           const qKey = entry?.token?.queryInput || 'q';
           input[qKey] = q;
-          const res = await fetchDatasource(entry.dataSource, input);
+          const res = await fetchDatasource(entry.dataSource, input, { reference: entry.dataSourceResource, providerIdentity: entry.providerIdentity });
           setRows(res?.rows || []);
         } catch (e) {
           console.error('datasource fetch failed', e);
@@ -880,25 +881,12 @@ export default function NamedLookupInput({
       setRowsLoading(true);
       try {
         let record;
-        if (entry.dialogId) {
-          record = await windowHandlers.openDialog({
-            execution: {
-              args: [entry.dialogId, { awaitResult: true, parameters: paramDefs }],
-              parameters: paramDefs,
-            },
-            parameters: initialParameters,
-            context,
-          });
-        } else {
-          record = await windowHandlers.openWindow({
-            execution: {
-              args: [entry.windowId, '', '', false, { awaitResult: true, parameters: paramDefs, modal: true }],
-              parameters: paramDefs,
-            },
-            parameters: initialParameters,
-            context,
-          });
-        }
+        const invocation = lookupSurfaceInvocation(entry, context, paramDefs);
+        record = await windowHandlers[invocation.handler]({
+          execution: {args: invocation.args, parameters: paramDefs},
+          parameters: initialParameters,
+          context,
+        });
         const selected = unwrapSelection(record);
         if (!selected) return true;
 
