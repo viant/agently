@@ -37,7 +37,7 @@ type HostAuthoredSource = host.DirectorySource
 type HostToolfeedSource = host.DirectorySource
 
 type hostAuthorizationFile struct {
-	MenuSources               []HostMenuSource               `json:"menuSources,omitempty"`
+	NavigationSources               []HostNavigationSource               `json:"navigationSources,omitempty"`
 	HostedApps                []resourcesvc.HostedAppBinding `json:"hostedApps,omitempty"`
 	TemplateSources           []HostAuthoredSource           `json:"templateSources,omitempty"`
 	IntentSources             []HostAuthoredSource           `json:"intentSources,omitempty"`
@@ -186,7 +186,7 @@ func readHostAuthorization(path string) (*hostAuthorizationFile, error) {
 			return nil, fmt.Errorf("invalid window resource manifest")
 		}
 	}
-	if err := validateHostMenuSources(&config, path); err != nil {
+	if err := validateHostNavigationSources(&config, path); err != nil {
 		return nil, err
 	}
 	return &config, nil
@@ -420,11 +420,11 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 		}
 		internal[0].hostedAppReader = configureHostedAppReader(config.HostedApps, prepared)
 	}
-	if len(config.MenuSources) > 0 {
+	if len(config.NavigationSources) > 0 {
 		if len(internal) != 1 || internal[0] == nil {
 			return nil, fmt.Errorf("menu sources require standard runtime registration")
 		}
-		internal[0].menuReader = configureLayoutMenuReader(config.MenuSources, options.InternalResourceProviderIdentity, prepared)
+		internal[0].menuReader = configureLayoutMenuReader(config.NavigationSources, options.InternalResourceProviderIdentity, prepared)
 	}
 	var metadataScope forgeservice.MetadataReadScope
 	if providers.MetadataScope != nil {
@@ -561,7 +561,7 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 		reportCatalog.BeginMetadataRead = metadataScope.BeginMetadataRead
 	}
 	var internalProvider *resourcesvc.LocalProvider
-	for _, source := range config.MenuSources {
+	for _, source := range config.NavigationSources {
 		if source.LocalLayoutPath != "" && options.InternalResourceProviderIdentity == "" {
 			return nil, fmt.Errorf("local menu sources require explicit internal provider")
 		}
@@ -580,7 +580,7 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 		}
 	}
 	return func(ctx context.Context, builder *executor.Builder) error {
-		if internalProvider == nil && (len(config.MenuSources) > 0 || reportingEnabled) {
+		if internalProvider == nil && (len(config.NavigationSources) > 0 || reportingEnabled) {
 			actor := resourcesvc.ActorResolver(prepared.ResourceActor)
 			builder.WithPrimitiveAuthority(actor, verifyActor(actor), "")
 		}

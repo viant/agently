@@ -19,24 +19,24 @@ import (
 	"github.com/viant/authz/gating"
 )
 
-const hostMenuOperation = "menu.view"
+const hostNavigationOperation = "navigation.view"
 
-// HostMenuSource is explicit trusted publication/consumption configuration.
+// HostNavigationSource is explicit trusted publication/consumption configuration.
 // An external source has an owner and no local path. Local paths publish only
 // through the explicitly configured internal provider; authoring alone is inert.
-type HostMenuSource struct {
+type HostNavigationSource struct {
 	URI              string `json:"uri"`
 	LocalLayoutPath  string `json:"localLayoutPath,omitempty"`
 	ProviderIdentity string `json:"providerIdentity,omitempty"`
 	Revision         string `json:"revision,omitempty"`
 }
 
-func validateHostMenuSources(config *hostAuthorizationFile, path string) error {
+func validateHostNavigationSources(config *hostAuthorizationFile, path string) error {
 	seen := map[string]bool{}
-	for i := range config.MenuSources {
-		source := &config.MenuSources[i]
+	for i := range config.NavigationSources {
+		source := &config.NavigationSources[i]
 		uri, err := identity.ParseResourceURI(source.URI)
-		if err != nil || uri.Kind != "menu" || uri.Namespace == "users" && source.LocalLayoutPath != "" {
+		if err != nil || uri.Kind != "navigation" || uri.Namespace == "users" && source.LocalLayoutPath != "" {
 			return fmt.Errorf("menu source requires explicit supported logical menu URI")
 		}
 		if source.LocalLayoutPath == "" && source.ProviderIdentity == "" {
@@ -66,7 +66,7 @@ func configuredMenuBindings(owner string, config *hostAuthorizationFile, prepare
 	// mechanism. Authored bytes are compiled once; actors and menu policy stay
 	// request-scoped in the unchanged resolver and visibility callbacks.
 	definitions := map[string][]resources.NativeSnapshotDefinition{}
-	for _, source := range config.MenuSources {
+	for _, source := range config.NavigationSources {
 		if source.LocalLayoutPath == "" {
 			continue
 		}
@@ -82,7 +82,7 @@ func configuredMenuBindings(owner string, config *hostAuthorizationFile, prepare
 				if err := internalActorVerifier(prepared)(ctx, a); err != nil {
 					return nil, err
 				}
-				resolver, err := prepared.ResourceResolver(hostMenuOperation, shared[0], nil)
+				resolver, err := prepared.ResourceResolver(hostNavigationOperation, shared[0], nil)
 				if err != nil {
 					return nil, err
 				}
@@ -113,7 +113,7 @@ func configuredMenuBindings(owner string, config *hostAuthorizationFile, prepare
 			if err := internalActorVerifier(prepared)(ctx, actor); err != nil {
 				return nil, err
 			}
-			resolver, err := prepared.ResourceResolver(hostMenuOperation, candidateSource{}, nil)
+			resolver, err := prepared.ResourceResolver(hostNavigationOperation, candidateSource{}, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -178,11 +178,11 @@ func configuredMenuVisibility(config *hostAuthorizationFile, principals gating.P
 	}, nil
 }
 
-func configureLayoutMenuReader(sources []HostMenuSource, localOwner string, prepared *executor.PreparedAuthorization) func(*executor.Runtime) (workspaceui.LayoutMenuReader, error) {
+func configureLayoutMenuReader(sources []HostNavigationSource, localOwner string, prepared *executor.PreparedAuthorization) func(*executor.Runtime) (workspaceui.LayoutMenuReader, error) {
 	if len(sources) == 0 {
 		return nil
 	}
-	configured := append([]HostMenuSource(nil), sources...)
+	configured := append([]HostNavigationSource(nil), sources...)
 	return func(rt *executor.Runtime) (workspaceui.LayoutMenuReader, error) {
 		if rt == nil || rt.PrimitiveProviders == nil || prepared == nil {
 			return nil, identity.ErrResourceDenied
@@ -229,7 +229,7 @@ func configureLayoutMenuReader(sources []HostMenuSource, localOwner string, prep
 			selected := make([]selectedMenu, 0, len(configured))
 			applications := make([]json.RawMessage, 0)
 			admit := func(ctx context.Context, ref identity.ResourceRef, pin identity.ResolvedResource) (identity.ResourceDecision, error) {
-				resolver, err := prepared.ResourceResolver(hostMenuOperation, candidateSource{}, nil)
+				resolver, err := prepared.ResourceResolver(hostNavigationOperation, candidateSource{}, nil)
 				if err != nil {
 					return identity.ResourceDecision{}, err
 				}
@@ -331,7 +331,7 @@ func configureLayoutMenuReader(sources []HostMenuSource, localOwner string, prep
 // configuredNativeMenuDefinitions joins only explicitly declared local files
 // confined to the already trusted workspace snapshot root. External trusted
 // roots are handled separately by the same native snapshot mechanism.
-func configuredNativeMenuDefinitions(root string, sources []HostMenuSource) ([]resources.NativeSnapshotDefinition, error) {
+func configuredNativeMenuDefinitions(root string, sources []HostNavigationSource) ([]resources.NativeSnapshotDefinition, error) {
 	if root == "" {
 		return nil, nil
 	}

@@ -1,7 +1,7 @@
 # Optional bounded navigation menus
 
 The host keeps its existing `/v1/workspace/layout` endpoint. Optional trusted
-`menuSources` in the authorization configuration replace only its `applications`
+`navigationSources` in the authorization configuration replace only its `applications`
 array with visible MCP menu projections. Topbar, history, sidebar sizing and other
 layout chrome retain the existing layout processing. No browser-side menu
 transport, special Datly server or producer URL inference is required.
@@ -10,9 +10,9 @@ A current Steward publication can be configured explicitly:
 
 ```json
 {
-  "menuSources": [
+  "navigationSources": [
     {
-      "uri": "menu://steward/navigation",
+      "uri": "navigation://steward/navigation",
       "localLayoutPath": "ui/layout.yaml"
     }
   ]
@@ -27,18 +27,18 @@ chosen in `uri`; it never denotes a server URL. Source YAML remains unchanged.
 This local source supports the exact working candidate.
 
 The menu's resource family needs the same explicit revision authority as other
-resources. Its operation is `menu.view`; there is no implicit allow or invented
+resources. Its operation is `navigation.view`; there is no implicit allow or invented
 ACL. For example, add a family mapping and an authorized selection:
 
 ```json
 {
   "resourceRevisionBindings": [
     {
-      "operation": "menu.view",
-      "uri": "menu://steward/navigation",
+      "operation": "navigation.view",
+      "uri": "navigation://steward/navigation",
       "resource": {
-        "kind": "menu",
-        "id": "menu://steward/navigation",
+        "kind": "navigation",
+        "id": "navigation://steward/navigation",
         "tenant": "YOUR_VERIFIED_TENANT"
       },
       "action": "read"
@@ -47,8 +47,8 @@ ACL. For example, add a family mapping and an authorized selection:
   "resourceSelections": [
     {
       "resource": {
-        "kind": "menu",
-        "id": "menu://steward/navigation",
+        "kind": "navigation",
+        "id": "navigation://steward/navigation",
         "tenant": "YOUR_VERIFIED_TENANT"
       },
       "revision": 1,
@@ -74,10 +74,10 @@ An arbitrary external MCP source uses an explicit owner and logical URI:
 
 ```json
 {
-  "menuSources": [
+  "navigationSources": [
     {
       "providerIdentity": "YOUR_CONFIGURED_MCP_PROVIDER_IDENTITY",
-      "uri": "menu://platform/navigation",
+      "uri": "navigation://platform/navigation",
       "revision": "release-7"
     }
   ]
@@ -91,7 +91,7 @@ contract and may use a provider-owned users namespace when explicitly authorized
 Local users publication requires a trusted ownership adapter and is deliberately
 not supported by this platform layout adapter.
 
-The producer exposes ordinary registered `menus/list` and `menus/get` tools only
+The producer exposes ordinary registered `navigations/list` and `navigations/get` tools only
 when menu bindings are installed. Source metadata/pin and filtered projection
 bytes have distinct fingerprints; unfiltered source bytes are never sent.
 Consumer `Gateway.GetMenu` validates that separation and forces fresh reads.
@@ -103,7 +103,7 @@ projection before release. Changes to account, credentials, owner, revision,
 content, visibility or authority reject the response. The optional injected
 `LayoutMenuRead.Close` releases its scope on all layout failure paths.
 
-With no `menuSources`, legacy layout behavior remains. Once configured, a failed,
+With no `navigationSources`, legacy layout behavior remains. Once configured, a failed,
 expired, revoked, changed or empty menu never resurrects raw layout applications.
 An empty permitted menu returns `applications: []`; failures return a generic
 navigation-unavailable response. The composed layout revision includes the source

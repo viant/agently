@@ -25,15 +25,15 @@ import (
 func TestHostMenuConfigurationIsExplicitAndConfinedToTrustedPaths(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "authorization.json")
-	require.NoError(t, os.WriteFile(path, []byte(`{"schemaVersion":1,"catalogPath":"catalog.yaml","menuSources":[{"uri":"menu://steward/navigation","localLayoutPath":"layout.yaml"}]}`), 0600))
+	require.NoError(t, os.WriteFile(path, []byte(`{"schemaVersion":1,"catalogPath":"catalog.yaml","navigationSources":[{"uri":"navigation://steward/navigation","localLayoutPath":"layout.yaml"}]}`), 0600))
 	config, err := readHostAuthorization(path)
 	require.NoError(t, err)
-	require.Equal(t, filepath.Join(root, "layout.yaml"), config.MenuSources[0].LocalLayoutPath)
-	for _, source := range []HostMenuSource{{URI: "menu://platform/navigation"}, {URI: "https://example.com/navigation", ProviderIdentity: "external"}, {URI: "menu://users/navigation", LocalLayoutPath: "layout.yaml"}, {URI: "menu://platform/navigation", ProviderIdentity: "external", Revision: "../escape"}} {
-		require.Error(t, validateHostMenuSources(&hostAuthorizationFile{MenuSources: []HostMenuSource{source}}, path))
+	require.Equal(t, filepath.Join(root, "layout.yaml"), config.NavigationSources[0].LocalLayoutPath)
+	for _, source := range []HostNavigationSource{{URI: "navigation://platform/navigation"}, {URI: "https://example.com/navigation", ProviderIdentity: "external"}, {URI: "navigation://users/navigation", LocalLayoutPath: "layout.yaml"}, {URI: "navigation://platform/navigation", ProviderIdentity: "external", Revision: "../escape"}} {
+		require.Error(t, validateHostNavigationSources(&hostAuthorizationFile{NavigationSources: []HostNavigationSource{source}}, path))
 	}
 	require.Nil(t, configureLayoutMenuReader(nil, "", nil))
-	_, err = configuredMenuBindings("internal", &hostAuthorizationFile{MenuSources: []HostMenuSource{{URI: "menu://platform/navigation", LocalLayoutPath: filepath.Join(root, "layout.yaml"), ProviderIdentity: "foreign"}}}, nil)
+	_, err = configuredMenuBindings("internal", &hostAuthorizationFile{NavigationSources: []HostNavigationSource{{URI: "navigation://platform/navigation", LocalLayoutPath: filepath.Join(root, "layout.yaml"), ProviderIdentity: "foreign"}}}, nil)
 	require.Error(t, err)
 }
 
@@ -50,7 +50,7 @@ func TestHostMenuVisibilityUsesOnlyDeclaredCatalogAndNamespace(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	menuURI, _ := identity.ParseResourceURI("menu://steward/navigation")
+	menuURI, _ := identity.ParseResourceURI("navigation://steward/navigation")
 	ok, err := visible(context.Background(), actor, menuURI, json.RawMessage(`{"type":"window","windowKey":"plain","parameters":{"foreignBusinessId":7}}`))
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -76,19 +76,19 @@ func TestHostConfiguredMenuMCPReaderPreservesActionsAndRevalidates(t *testing.T)
 	ctx := context.Background()
 	root := t.TempDir()
 	layoutPath := filepath.Join(root, "layout.yaml")
-	uri := "menu://steward/navigation"
+	uri := "navigation://steward/navigation"
 	raw := []byte("version: 1\nid: steward\ntopbar: {actions: [{id: automation, title: Automation, action: {type: window, windowKey: schedule}}]}\napplications:\n  - id: steward\n    title: Workspace\n    icon: applications\n    menus:\n      - id: advertisers\n        title: Advertisers\n        icon: office\n        action: {type: window, windowKey: advertiserList, parameters: {selected: 9}}\n      - id: campaigns\n        title: Campaigns\n        icon: timeline-events\n        action: {type: window, windowKey: campaignList}\n      - id: denied\n        title: Denied group\n        children:\n          - id: secret\n            title: Secret\n            action: {type: window, windowKey: secretWindow}\n")
 	require.NoError(t, os.WriteFile(layoutPath, raw, 0600))
 	catalogPath := filepath.Join(root, "catalog.yaml")
 	require.NoError(t, os.WriteFile(catalogPath, []byte("windows:\n  - windowId: secretWindow\n    roles: [admin]\n"), 0600))
-	config := &hostAuthorizationFile{CatalogPath: catalogPath, MenuSources: []HostMenuSource{{URI: uri, LocalLayoutPath: layoutPath}}}
+	config := &hostAuthorizationFile{CatalogPath: catalogPath, NavigationSources: []HostNavigationSource{{URI: uri, LocalLayoutPath: layoutPath}}}
 	lease := time.Now().Add(time.Minute)
 	principal := &reportHostIdentity{gating.Principal{Facts: authz.Facts{Subject: "alice", Issuer: "issuer", Tenant: "tenant", Roles: []string{"reader"}, ValidUntil: lease}, AccountID: "account", IdentityRevision: "one"}}
-	resource := authz.Resource{Kind: "menu", ID: uri, Tenant: "tenant", Version: "working"}
-	family := authz.ResourceFamily{Kind: "menu", ID: uri, Tenant: "tenant"}
+	resource := authz.Resource{Kind: "navigation", ID: uri, Tenant: "tenant", Version: "working"}
+	family := authz.ResourceFamily{Kind: "navigation", ID: uri, Tenant: "tenant"}
 	config.Policies = []authz.Document{{Resource: resource, Revision: 1, Policies: map[string]authz.Policy{"read": {Mode: "protected", Rule: &authz.Rule{Kind: "role", Value: "reader"}}}}}
 	config.Requirements = []gating.Binding{{Resource: resource, Action: "read", Document: gating.RequirementsDocument{Revision: "one", Requirements: gating.Requirements{SchemaVersion: 1}}}}
-	config.ResourceRevisionBindings = []policy.ResourceRevisionBinding{{Operation: hostMenuOperation, URI: uri, Resource: family, Action: "read"}}
+	config.ResourceRevisionBindings = []policy.ResourceRevisionBinding{{Operation: hostNavigationOperation, URI: uri, Resource: family, Action: "read"}}
 	for _, key := range []string{"advertiserList", "campaignList", "secretWindow"} {
 		windowURI := "window://steward/" + key
 		config.WindowResources = append(config.WindowResources, windowloader.ResourceBinding{WindowKey: key, URI: windowURI})
@@ -100,7 +100,7 @@ func TestHostConfiguredMenuMCPReaderPreservesActionsAndRevalidates(t *testing.T)
 	require.NoError(t, err)
 	prepared, err := executor.PrepareStaticAuthorization(executor.StaticAuthorizationRegistration{ProviderRef: "identity", CapabilityMappingRef: "mapping", PolicyVersion: "one", Service: bundle.ACL, Account: principal.Account, AuthorityRevision: principal.AuthorityRevision, AuthoritySnapshot: principal.ResolvePrincipal, GateEvaluator: bundle.Gates, ResourceRevisionBindings: config.ResourceRevisionBindings, ResourceRevisionMappings: mappings})
 	require.NoError(t, err)
-	sharedSnapshot, err := newInternalWindowSnapshot(ctx, root, "", &hostAuthorizationFile{MenuSources: config.MenuSources})
+	sharedSnapshot, err := newInternalWindowSnapshot(ctx, root, "", &hostAuthorizationFile{NavigationSources: config.NavigationSources})
 	require.NoError(t, err)
 	bindings, err := configuredMenuBindings("internal", config, prepared, sharedSnapshot)
 	require.NoError(t, err)
@@ -115,7 +115,7 @@ func TestHostConfiguredMenuMCPReaderPreservesActionsAndRevalidates(t *testing.T)
 	visible, err := configuredMenuVisibility(config, principal, namespace)
 	require.NoError(t, err)
 	actor := resources.ActorResolver(prepared.ResourceActor)
-	provider, err := resources.NewLocalProvider(resources.LocalConfig{ProviderIdentity: "internal", Actor: actor, Verify: verifyActor(actor), Authorize: namespace, Bindings: bindings, Validators: map[string]resources.LocalResourceValidator{"menu": resources.ValidateMenu}, MenuActionVisibility: visible})
+	provider, err := resources.NewLocalProvider(resources.LocalConfig{ProviderIdentity: "internal", Actor: actor, Verify: verifyActor(actor), Authorize: namespace, Bindings: bindings, Validators: map[string]resources.LocalResourceValidator{"navigation": resources.ValidateMenu}, MenuActionVisibility: visible})
 	require.NoError(t, err)
 	mgr, err := manager.New(nil)
 	require.NoError(t, err)
@@ -124,7 +124,7 @@ func TestHostConfiguredMenuMCPReaderPreservesActionsAndRevalidates(t *testing.T)
 	gateway := resources.NewGateway(mgr, actor, verifyActor(actor), "consumer")
 	defer gateway.Close()
 	runtime := &executor.Runtime{PrimitiveProviders: gateway}
-	factory := configureLayoutMenuReader(config.MenuSources, "internal", prepared)
+	factory := configureLayoutMenuReader(config.NavigationSources, "internal", prepared)
 	reader, err := factory(runtime)
 	require.NoError(t, err)
 	got, err := reader(ctx)
@@ -137,7 +137,7 @@ func TestHostConfiguredMenuMCPReaderPreservesActionsAndRevalidates(t *testing.T)
 	require.NotContains(t, text, "Denied group")
 	require.NotContains(t, text, "automation")
 	require.NoError(t, got.Revalidate(ctx))
-	external, err := configureLayoutMenuReader([]HostMenuSource{{URI: uri, ProviderIdentity: "internal"}}, "", prepared)(runtime)
+	external, err := configureLayoutMenuReader([]HostNavigationSource{{URI: uri, ProviderIdentity: "internal"}}, "", prepared)(runtime)
 	require.NoError(t, err)
 	externalRead, err := external(ctx)
 	require.NoError(t, err, "explicit external owner is supported without transport URL inference")
@@ -169,7 +169,7 @@ func TestHostConfiguredMenuMCPReaderPreservesActionsAndRevalidates(t *testing.T)
 	// policies and action visibility remain unchanged.
 	refreshed, err := configuredMenuBindings("internal", config, prepared)
 	require.NoError(t, err)
-	restarted, err := resources.NewLocalProvider(resources.LocalConfig{ProviderIdentity: "internal", Actor: actor, Verify: verifyActor(actor), Authorize: namespace, Bindings: refreshed, Validators: map[string]resources.LocalResourceValidator{"menu": resources.ValidateMenu}, MenuActionVisibility: visible})
+	restarted, err := resources.NewLocalProvider(resources.LocalConfig{ProviderIdentity: "internal", Actor: actor, Verify: verifyActor(actor), Authorize: namespace, Bindings: refreshed, Validators: map[string]resources.LocalResourceValidator{"navigation": resources.ValidateMenu}, MenuActionVisibility: visible})
 	require.NoError(t, err)
 	freshManager, err := manager.New(nil)
 	require.NoError(t, err)
