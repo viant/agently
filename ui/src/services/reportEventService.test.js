@@ -50,6 +50,35 @@ describe('reportEventService', () => {
       detail: { reportId: 'report-1' },
     }, { conversationId: 'conversation-1' });
   });
+
+  it('keeps standalone durable runs out of the bridge-window event endpoint', async () => {
+    for (const kind of ['report.run_start', 'report.run']) {
+      await expect(emitReportUIEvent({
+        kind,
+        conversationId: 'conversation-1',
+        windowId: 'metricReportBuilder_local',
+        detail: { reportRunId: 'run-1', revision: 1, status: 'running' },
+      })).resolves.toEqual({ recorded: false });
+    }
+    expect(executeTool).not.toHaveBeenCalled();
+  });
+
+  it('still records durable runs for an admitted bridge window', async () => {
+    executeTool.mockResolvedValue({ recorded: true });
+    await emitReportUIEvent({
+      kind: 'report.run_start',
+      conversationId: 'conversation-1',
+      windowId: 'window-1',
+      windowKey: 'report-builder',
+      detail: { reportRunId: 'run-1', revision: 1, status: 'running' },
+    });
+    expect(executeTool).toHaveBeenCalledWith('ui/events:record', {
+      kind: 'report.run_start',
+      windowId: 'window-1',
+      windowKey: 'report-builder',
+      detail: { reportRunId: 'run-1', revision: 1, status: 'running' },
+    }, { conversationId: 'conversation-1' });
+  });
 });
 
 describe('admitted framework frame report events', () => {
