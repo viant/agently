@@ -221,7 +221,6 @@ func configureNativeWindowHost(options ServeOptions) (ServeOptions, error) {
 
 		b.WithPinnedDatasourceDefinitions(revalidate, definition, host.authorize)
 		b.WithNewDatasourceDeliveryPreparer(delivery.prepare)
-		b.WithDatasourceDenialRootRead(host.authorizeRootRead)
 		return nil
 	}
 	options.nativeWindowRuntimeBinder = func(rt *executor.Runtime) error {
@@ -234,12 +233,6 @@ func configureNativeWindowHost(options ServeOptions) (ServeOptions, error) {
 }
 
 func (h *nativeWindowHost) authorize(ctx context.Context, descriptor *ds.DataSource, inputs map[string]interface{}) error {
-	return h.authorizeMode(ctx, descriptor, inputs, false)
-}
-func (h *nativeWindowHost) authorizeRootRead(ctx context.Context, descriptor *ds.DataSource, inputs map[string]interface{}) error {
-	return h.authorizeMode(ctx, descriptor, inputs, true)
-}
-func (h *nativeWindowHost) authorizeMode(ctx context.Context, descriptor *ds.DataSource, inputs map[string]interface{}, _ bool) error {
 	if h == nil || h.delivery == nil || descriptor == nil {
 		return identity.ErrResourceDenied
 	}
