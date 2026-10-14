@@ -109,7 +109,7 @@ describe('forgeHostServices', () => {
   it('exposes the hosted Forge service bundle including reporting services', async () => {
     expect(forgeHostServices.chat).toBe(chatService);
     expect(typeof forgeHostServices.applyPermission).toBe('function');
-    expect(forgeHostServices).not.toHaveProperty('authorizationRefresh');
+    expect(forgeHostServices.authorizationRefresh).toEqual({mode: 'opening'});
     expect(forgeHostServices.schedule).toBe(scheduleService);
     expect(forgeHostServices.prepareDataConnectorRequest).toBe(prepareAgentlyDataConnectorRequest);
     expect(typeof forgeHostServices.reportExport.submitRequest).toBe('function');

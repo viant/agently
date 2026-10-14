@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 
-import { isLoopbackPeer, loopbackOnlyDevPlugin, resolveDevHost, resolveDevPort, resolveProxyTarget } from './vite.config.js';
+import { isForgeReportingModule, isLoopbackPeer, loopbackOnlyDevPlugin, resolveDevHost, resolveDevPort, resolveProxyTarget } from './vite.config.js';
+
+for (const root of ['/tmp/forge', '/tmp/forge-opening-clean']) {
+  assert.equal(isForgeReportingModule(`${root}/src/components/dashboard/ReportBuilder.jsx`, root), true);
+  assert.equal(isForgeReportingModule(`${root}/src/reporting/reportFillModel.js`, root), true);
+  assert.equal(isForgeReportingModule(`${root}/src/components/WindowContent.jsx`, root), false);
+}
 
 assert.equal(
   resolveProxyTarget({ APPSERVER_URL: 'http://127.0.0.1:9191' }, { requireExplicit: true }),
