@@ -94,6 +94,13 @@ export const resolveDevPort = (env = {}) => {
   return Number(env.VITE_PORT || env.PORT || LOCAL_DEV_PORT) || LOCAL_DEV_PORT;
 };
 
+export const isForgeReportingModule = (id = '', sourceRoot = '') => {
+  const root = resolve(sourceRoot).replaceAll('\\', '/').replace(/\/+$/, '');
+  const moduleId = String(id).replaceAll('\\', '/');
+  return moduleId.includes(`${root}/src/reporting/`)
+    || moduleId.includes(`${root}/src/components/dashboard/`);
+};
+
 export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const safeEnv = pickEnv(env, ['AUTH_URL', 'DATA_URL', 'APP_URL', 'APPSERVER_URL', 'VITE_FORGE_LOG_LEVEL']);
@@ -222,7 +229,7 @@ export default defineConfig(({ mode, command }) => {
           manualChunks(id) {
             if (id.includes('/node_modules/mermaid/')) return 'mermaid';
             if (id.includes('/node_modules/@codemirror/') || id.includes('/node_modules/codemirror/')) return 'code-editor';
-            if (id.includes('/forge/src/reporting/') || id.includes('/forge/src/components/dashboard/')) return 'forge-reporting';
+            if (isForgeReportingModule(id, forgeRoot)) return 'forge-reporting';
             return undefined;
           }
         }
