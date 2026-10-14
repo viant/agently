@@ -253,7 +253,11 @@ func Serve(options ServeOptions) error {
 	if rt.PrimitiveProviders != nil {
 		forgeWindowRepo = forgewindowrepo.NewWithReader(resources.NewWindowViewReader(rt.PrimitiveProviders))
 	}
-	logLoadedForgeWindows(ctx, forgeWindowRepo)
+	// A provider-backed catalog is scoped to an authenticated request. Startup
+	// has no user identity, so probing it here can only produce a false denial.
+	if rt.PrimitiveProviders == nil {
+		logLoadedForgeWindows(ctx, forgeWindowRepo)
+	}
 	// Capture native immutable sources only after constructor and original
 	// window-loader startup reads finish normalizing their filesystem.
 	if err := internal.Bind(ctx, rt); err != nil {

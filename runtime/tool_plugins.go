@@ -82,6 +82,11 @@ func ConfigureRegistry(ctx context.Context, rt *executor.Runtime, workspaceRoot 
 	go func() {
 		<-done
 		log.Printf("agently-app: registry warmup finished")
+		// Primitive catalogs can be user-scoped. The first authenticated request
+		// warms its own catalog; a background startup context has no authority.
+		if rt.PrimitiveProviders != nil {
+			return
+		}
 		warmCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 		if rt.Agent != nil {
