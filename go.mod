@@ -13,13 +13,13 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
-	github.com/viant/agently-core v0.1.57-0.20261014003436-1030b8c8314c
+	github.com/viant/agently-core v0.1.57-0.20261014062336-9e04bd0e9fb3
 	github.com/viant/datly v1.1.1-0.20261014035505-59523a9a6c21
 	github.com/viant/embedius v0.5.6 // indirect
-	github.com/viant/forge v0.3.45-0.20261013212634-b5ad723c543e
+	github.com/viant/forge v0.3.45-0.20261014055339-711acf436cbe
 	github.com/viant/jsonrpc v0.25.1-0.20261010000858-1444533d5a7e
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
-	github.com/viant/mcp v0.24.1-0.20261014040242-8f88e1cc31d0
+	github.com/viant/mcp v0.24.1-0.20261014055918-4cd46ac44865
 	github.com/viant/mcp-protocol v0.19.1-0.20261014011736-cc52f4b7738c
 	github.com/viant/mcp-ui v0.2.1-0.20261011073152-8f30de0c7bc3 // indirect
 	github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726
@@ -32,9 +32,9 @@ require (
 
 require (
 	github.com/google/gops v0.3.28
-	github.com/viant/agently-core/protocol/primitive v0.0.0-20261009053852-916a91954e26
-	github.com/viant/agently-core/protocol/resource v0.0.0-20261008223520-8ba096a165a0
-	github.com/viant/authz v0.0.0-20261008202630-c983c9e64ee5
+	github.com/viant/agently-core/protocol/primitive v0.0.0-20261014061041-1f9a58166259
+	github.com/viant/agently-core/protocol/resource v0.0.0-20261014060740-664c53d5a109
+	github.com/viant/authz v0.0.0-20261012005207-7814ee919e44
 	github.com/viant/bigquery v0.5.4-0.20260927120042-a47888f8d2cc
 )
 
@@ -141,7 +141,7 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
-	github.com/viant/agently-core/protocol/window v0.0.0-20261008230757-163b77505d6a // indirect
+	github.com/viant/agently-core/protocol/window v0.0.0-20261014061347-bbbdb0ee25d5 // indirect
 	github.com/viant/agently-core/service/reportdefinition/materializer v0.0.0-20261008231612-4e2d839e8f05 // indirect
 	github.com/viant/bindly v0.4.1-0.20261011212616-2c051ae6bd9e // indirect
 	github.com/viant/bintly v0.2.0 // indirect
