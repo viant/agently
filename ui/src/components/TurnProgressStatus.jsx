@@ -181,9 +181,19 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
     );
   }
   const latestRound = groups[groups.length - 1] || {};
+  // Requested tools can also belong to a real approval. Only the scoped
+  // SDK interruption hint identifies automatic client execution.
+  const pendingElicitations = [row.elicitation, ...(Array.isArray(row.elicitations) ? row.elicitations : [])];
+  const executingClientTool = !stopping && row.waitKind === 'client_tool'
+    && !pendingElicitations.some(item => {
+      if (!item) return false;
+      // Match ElicitationOverlay's unresolved legacy and canonical statuses.
+      const status = String(item.status || '').trim().toLowerCase();
+      return !status || ['pending', 'open', 'waiting_for_user', 'running'].includes(status);
+    });
   const status = stopping
     ? 'stopping'
-    : String(latestRound?.status || row?.lifecycle || (stage?.phase === 'waiting' ? 'waiting_for_user' : '')).trim();
+    : executingClientTool ? 'running' : String(latestRound?.status || row?.lifecycle || (stage?.phase === 'waiting' ? 'waiting_for_user' : '')).trim();
   const progress = resolveActiveTurnProgress({
     turnId: row?.turnId || '',
     status,
@@ -200,7 +210,7 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
 
   const operationalNarration = publicTaskNarration(rows, row.turnId)
     || (typeof row.operationalNarration === 'string' ? row.operationalNarration.trim() : '');
-  const rawActivity = progress.activity.label || ACTIVITY_LABELS[progress.activity.kind] || 'Working';
+  const rawActivity = executingClientTool ? 'Executing local tool' : progress.activity.label || ACTIVITY_LABELS[progress.activity.kind] || 'Working';
   const activity = /\berror\b|\bfailed\b/i.test(rawActivity) ? 'Continuing' : rawActivity;
   const toolText = toolProgressText(progress);
   const tokenText = progress.tokenUsage?.totalTokens > 0
