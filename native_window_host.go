@@ -38,7 +38,6 @@ type NativeWindowHostConfig struct {
 	Identity          oauth.HTTPIdentityConfig       `json:"identity"`
 	Windows           []windowloader.ResourceBinding `json:"windows"`
 	FrameworkWindows  []windowloader.ResourceBinding `json:"frameworkWindows,omitempty"`
-	Bootstrap         []WindowBootstrapBinding       `json:"bootstrap"`
 	ToolCapabilities  map[string]string              `json:"toolCapabilities"`
 	ExecutionBindings []NativeWindowExecutionBinding `json:"executionBindings"`
 }
@@ -82,12 +81,11 @@ func newNativeWindowHostSnapshot(ctx context.Context, root string, config Native
 }
 
 type nativeWindowHost struct {
-	config     NativeWindowHostConfig
-	source     identity.ResourceSource
-	authority  *nativeWindowAuthority
-	catalog    *forge.MetadataWindowCatalog
-	delivery   *nativeWindowDelivery
-	datasource WindowBootstrapDatasource
+	config    NativeWindowHostConfig
+	source    identity.ResourceSource
+	authority *nativeWindowAuthority
+	catalog   *forge.MetadataWindowCatalog
+	delivery  *nativeWindowDelivery
 }
 
 func configureNativeWindowHost(options ServeOptions) (ServeOptions, error) {
@@ -123,26 +121,6 @@ func configureNativeWindowHost(options ServeOptions) (ServeOptions, error) {
 	}
 	var source identity.ResourceSource = snapshot
 	bindings := append(append([]windowloader.ResourceBinding(nil), config.Windows...), config.FrameworkWindows...)
-	// Validate declared bootstrap against the immutable original web variant
-	// before serving. This reads trusted static bytes, never entity data.
-	for _, binding := range config.Bootstrap {
-		uri, err := identity.ParseResourceURI(binding.URI)
-		if err != nil {
-			return options, err
-		}
-		candidates, err := snapshot.Candidates(context.Background(), uri)
-		if err != nil || len(candidates) != 1 {
-			return options, fmt.Errorf("native bootstrap candidate unavailable")
-		}
-		raw, err := snapshot.ReadCandidate(context.Background(), uri, candidates[0])
-		if err != nil {
-			return options, err
-		}
-		variant, err := types.SelectWindowResource(raw, &types.WindowTarget{Platform: "web"})
-		if err != nil || !matchesDeclaredBootstrap(variant.Window, binding) {
-			return options, fmt.Errorf("native bootstrap does not match authored window %s", binding.WindowKey)
-		}
-	}
 	authority := &nativeWindowAuthority{principal: func(ctx context.Context) (p gating.Principal, err error) {
 		p, err = providers.NativeWindowIdentity(auth.AuthzIDTokenContext(ctx))
 		if err != nil {
@@ -252,17 +230,6 @@ func configureNativeWindowHost(options ServeOptions) (ServeOptions, error) {
 		}
 		return delivery.bindUsers(auth.NewDatlyUserService(rt.Native))
 	}
-	factory := ConfiguredWindowBootstrap(config.Bootstrap)
-	options.WindowOpenBootstrapFactory = func(ctx context.Context, source WindowBootstrapDatasource) (permittedview.OpenBootstrap, permittedview.OpenSelectionCheck, error) {
-		host.datasource = source
-		load, match, err := factory(ctx, &nativeBootstrapDatasource{host: host, source: source})
-		if err != nil {
-			return nil, nil, err
-		}
-		return func(ctx context.Context, pin identity.ResolvedResource, window *types.Window, parameters map[string]any) (map[string]any, error) {
-			return load(requestctx.WithWindowParameters(ctx, parameters), pin, window, parameters)
-		}, match, nil
-	}
 	return options, nil
 }
 
@@ -320,20 +287,12 @@ func nativeWindowAuthorityError(err error) error {
 }
 
 func validateNativeWindowConfig(config NativeWindowHostConfig) error {
-	if err := validateWindowBootstrapBindings(config.Bootstrap); err != nil {
-		return err
-	}
 	windows := map[string]string{}
 	for _, w := range append(append([]windowloader.ResourceBinding(nil), config.Windows...), config.FrameworkWindows...) {
 		if previous, ok := windows[w.URI]; ok && previous != w.WindowKey {
 			return fmt.Errorf("ambiguous native window")
 		}
 		windows[w.URI] = w.WindowKey
-	}
-	for _, b := range config.Bootstrap {
-		if windows[b.URI] != b.WindowKey {
-			return fmt.Errorf("bootstrap outside native catalog")
-		}
 	}
 	return nil
 }

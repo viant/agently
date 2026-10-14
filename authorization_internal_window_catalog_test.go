@@ -18,6 +18,9 @@ import (
 	resources "github.com/viant/agently-core/service/resource"
 	windowloader "github.com/viant/agently-core/service/ui/window"
 	"github.com/viant/forge/backend/types"
+	"github.com/viant/jsonrpc"
+	protoclient "github.com/viant/mcp-protocol/client"
+	namespaces "github.com/viant/mcp-protocol/extension/namespaces"
 	"github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 )
@@ -37,22 +40,43 @@ func (p internalWindowTestOptions) Names(context.Context) ([]string, error) {
 
 type internalWindowTestProvider struct {
 	mcpclient.Interface
-	owner      string
-	definition map[string]json.RawMessage
-	lease      time.Time
-	mu         sync.Mutex
-	getCalls   int
-	listCalls  int
-	denied     bool
+	owner         string
+	definition    map[string]json.RawMessage
+	lease         time.Time
+	mu            sync.Mutex
+	getCalls      int
+	listCalls     int
+	denied        bool
+	notifications protoclient.Handler
+}
+
+func (p *internalWindowTestProvider) SetNotificationHandler(handler protoclient.Handler) {
+	p.mu.Lock()
+	p.notifications = handler
+	p.mu.Unlock()
+}
+
+func (p *internalWindowTestProvider) resourceChanged(t *testing.T) {
+	t.Helper()
+	p.mu.Lock()
+	handler := p.notifications
+	p.mu.Unlock()
+	require.NotNil(t, handler)
+	handler.OnNotification(context.Background(), &jsonrpc.Notification{Jsonrpc: jsonrpc.Version, Method: "notifications/resources/list_changed"})
 }
 
 func (p *internalWindowTestProvider) ListTools(context.Context, *string, ...mcpclient.RequestOption) (*schema.ListToolsResult, error) {
+	var input schema.ToolInputSchema
+	if err := input.Load(&namespaces.GetRequest{}); err != nil {
+		return nil, err
+	}
 	meta := map[string]any{primitive.AuthoringExtension: map[string]any{"version": 1, "providerIdentity": p.owner, "transport": "tools/call"}}
 	return &schema.ListToolsResult{Tools: []schema.Tool{
 		{Name: "namespaces/list", Meta: meta},
-		{Name: "namespaces/get", Meta: meta},
+		{Name: "namespaces/get", Meta: meta, InputSchema: input},
 		{Name: "windows/list", Meta: meta},
 		{Name: "windows/get", Meta: meta},
+		{Name: namespaces.ResourceGetToolName, Meta: meta},
 	}}, nil
 }
 
@@ -69,9 +93,18 @@ func (p *internalWindowTestProvider) CallTool(_ context.Context, request *schema
 	var result any
 	switch request.Name {
 	case "namespaces/list":
-		result = primitive.NamespaceListResult{ProviderIdentity: p.owner, Namespaces: []primitive.Namespace{{Name: "platform", Kinds: []string{"window"}}}, Complete: true}
+		nsURI, _ := namespaces.URI("platform")
+		result = namespaces.ListResult{Namespaces: []namespaces.Namespace{{URI: nsURI, Name: "Platform windows"}}}
 	case "namespaces/get":
-		result = primitive.NamespaceCapabilities{ProviderIdentity: p.owner, Namespace: "platform", Kinds: []primitive.KindSupport{{Kind: "window", FormatVersions: []int64{2}, Operations: []string{"list", "get"}, Methods: primitive.Methods("window", []string{"list", "get"})}}}
+		nsURI, _ := namespaces.URI("platform")
+		if arguments["uri"] != nsURI {
+			return nil, identity.ErrResource
+		}
+		rows := []namespaces.Resource{}
+		for uri := range p.definition {
+			rows = append(rows, namespaces.Resource{URI: uri, Kind: "window", Name: uri, MimeType: "application/json"})
+		}
+		result = namespaces.GetResult{Namespace: &namespaces.Namespace{URI: nsURI, Name: "Platform windows"}, Resources: rows}
 	case "windows/list":
 		p.listCalls++
 		rows := make([]*primitive.ResourceState, 0, len(p.definition))
@@ -80,12 +113,15 @@ func (p *internalWindowTestProvider) CallTool(_ context.Context, request *schema
 			rows = append(rows, &primitive.ResourceState{URI: uri, Kind: "window", Namespace: parsed.Namespace, Name: parsed.Name, Title: parsed.Name})
 		}
 		result = primitive.ListResult{Resources: rows, Complete: true}
-	case "windows/get":
+	case namespaces.ResourceGetToolName, "windows/get":
 		p.getCalls++
 		uri, _ := arguments["uri"].(string)
 		raw := p.definition[uri]
 		if len(raw) == 0 {
 			return nil, identity.ErrResourceDenied
+		}
+		if request.Name == namespaces.ResourceGetToolName {
+			return &schema.CallToolResult{StructuredContent: raw}, nil
 		}
 		candidate := identity.ResourceCandidate{Kind: identity.WorkingCandidate, ContentFingerprint: identity.ContentFingerprint(raw)}
 		result = primitive.GetResult{
@@ -101,7 +137,7 @@ func (p *internalWindowTestProvider) CallTool(_ context.Context, request *schema
 func newInternalWindowTestCatalog(t *testing.T, definitions map[string]json.RawMessage, offline ...bool) (*internalWindowCatalog, *internalWindowTestProvider) {
 	t.Helper()
 	provider := &internalWindowTestProvider{owner: "studio-provider", definition: definitions, lease: time.Now().Add(time.Minute)}
-	options := internalWindowTestOptions{"studio": &corecfg.MCPClient{}}
+	options := internalWindowTestOptions{"studio": &corecfg.MCPClient{PrimitiveProviderIdentity: provider.owner}}
 	if len(offline) != 0 && offline[0] {
 		options["studio"].PrimitiveProviderIdentity = provider.owner
 		options["offline"] = &corecfg.MCPClient{PrimitiveProviderIdentity: "unrelated-owner"}
@@ -163,11 +199,11 @@ func TestInternalWindowCatalogMapsAliasesToExactGatewayResources(t *testing.T) {
 	require.Equal(t, byAlias.Definition.Resource.ContentFingerprint, canonical.Definition.Resource.ContentFingerprint)
 	require.Equal(t, byAlias.Definition.Resource.ProviderIdentity, canonical.Definition.Resource.ProviderIdentity)
 	require.Equal(t, byAlias.Definition.ResourceTarget.SelectionToken, canonical.Definition.ResourceTarget.SelectionToken)
-	require.Equal(t, 4, provider.getCalls, "each alias and canonical read revalidates through the delegated Gateway")
+	require.Equal(t, 1, provider.getCalls, "alias and canonical request reuse the same cached definition")
 
 	_, err = catalog.Get(context.Background(), &primitiveprovider.WindowDefinitionGetInput{WindowID: "window://platform/not-registered/orders"})
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
-	require.Equal(t, 4, provider.getCalls, "unregistered URI must be denied before provider dispatch")
+	require.Equal(t, 1, provider.getCalls, "unregistered URI must be denied before provider dispatch")
 	_, err = catalog.Get(context.Background(), &primitiveprovider.WindowDefinitionGetInput{WindowID: "deliver/orders/../../hidden/other"})
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
 }
@@ -196,7 +232,12 @@ func TestInternalWindowCatalogRejectsPinAndTargetDrift(t *testing.T) {
 	_, err = catalog.RevalidateResource(context.Background(), "orders", pin)
 	require.NoError(t, err)
 
+	provider.mu.Lock()
 	provider.definition[pin.URI] = json.RawMessage(`{"schemaVersion":2,"view":{"title":"Changed","content":{"id":"orders"}}}`)
+	provider.mu.Unlock()
+	_, err = catalog.RevalidateResource(context.Background(), "orders", pin)
+	require.NoError(t, err, "captured metadata stays stable before the owning notification")
+	provider.resourceChanged(t)
 	_, err = catalog.RevalidateResource(context.Background(), "orders", pin)
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
 }

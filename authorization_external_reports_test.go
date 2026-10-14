@@ -15,8 +15,8 @@ import (
 	"github.com/viant/agently-core/app/executor"
 	execconfig "github.com/viant/agently-core/app/executor/config"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
+	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	identity "github.com/viant/agently-core/protocol/resource"
-	requestctx "github.com/viant/agently-core/runtime/requestctx"
 	authsvc "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/service/policy"
 	reporting "github.com/viant/agently-core/service/reporting"
@@ -30,6 +30,12 @@ import (
 )
 
 func TestHostedReportControlVisibilityPreservesForeignProviderPin(t *testing.T) {
+	newManager := func() *mcpmgr.Manager {
+		value, err := mcpmgr.New(reportCompositionConnections{}, mcpmgr.WithUserIDExtractor(authsvc.EffectiveUserID))
+		require.NoError(t, err)
+		return value
+	}
+
 	ctx := authsvc.InjectUser(context.Background(), "alice")
 	uri := "report://host/local"
 	owner := "internal"
@@ -66,23 +72,7 @@ func TestHostedReportControlVisibilityPreservesForeignProviderPin(t *testing.T) 
 	foreignPin.URI = "report://external/foreign"
 	foreignPin.ProviderIdentity = "external"
 	foreignPin.AuthorityBinding = "foreign-provider-binding"
-	called := 0
-	hostPolicy := func(ctx context.Context, op, id string) error {
-		called++
-		pin, ok := requestctx.ResolvedResourceFromContext(ctx)
-		require.True(t, ok)
-		require.Equal(t, foreignPin.URI, pin.URI)
-		require.Equal(t, foreignPin.ProviderIdentity, pin.ProviderIdentity)
-		require.Equal(t, foreignPin.ResourceCandidate, pin.ResourceCandidate)
-		require.Equal(t, foreignPin.AuthorityBinding, pin.AuthorityBinding)
-		require.True(t, foreignPin.ValidUntil.Equal(pin.ValidUntil))
-		require.Equal(t, foreignPin.URI, id)
-		if op == "report.export" {
-			return identity.ErrResourceDenied
-		}
-		return nil
-	}
-	caps := hostedReportCapabilities(prepared, owner, hostPolicy)
+	caps := hostedReportCapabilities(prepared, owner)
 	localCaps, err := caps(ctx, identity.VerifiedActor{}, catalog.ReportCatalogCandidate{}, *localPin)
 	require.NoError(t, err)
 	require.True(t, localCaps.Open)
@@ -92,7 +82,7 @@ func TestHostedReportControlVisibilityPreservesForeignProviderPin(t *testing.T) 
 	require.NoError(t, err)
 	require.True(t, foreignCaps.Open)
 	require.True(t, foreignCaps.Run)
-	require.False(t, foreignCaps.Export)
+	require.True(t, foreignCaps.Export)
 	require.False(t, foreignCaps.Edit)
 	require.False(t, foreignCaps.Delete)
 
@@ -110,7 +100,7 @@ func TestHostedReportControlVisibilityPreservesForeignProviderPin(t *testing.T) 
 	}}}}
 	local, err := configureInternalHostResources(owner, config, prepared, nil, nil, reportRegistration, localCatalog, nil, nil, principal, registration)
 	require.NoError(t, err)
-	runtime, err := executor.NewBuilder().WithModelFinder(reportCompositionModelFinder{}).WithAgentFinder(reportCompositionAgentFinder{}).WithLocalPrimitiveProvider(local).WithPrimitiveAuthority(prepared.ResourceActor, internalActorVerifier(prepared), owner).WithReportResources(localCatalog, func(context.Context, string) (*identity.ResourceResolver, error) { return resolver, nil }).WithReportingService(reporting.New(reporting.Options{Store: reporting.NewMemoryStore(), Compiler: reporting.NewReportSpecCompiler(time.Now), Exporter: reporting.NewForgeExporter(nil)})).WithDefaults(&execconfig.Defaults{Reporting: execconfig.ReportingDefaults{Enabled: true, QueueIntervalMs: 60000}}).Build(ctx)
+	runtime, err := executor.NewBuilder().WithMCPManager(newManager()).WithModelFinder(reportCompositionModelFinder{}).WithAgentFinder(reportCompositionAgentFinder{}).WithLocalPrimitiveProvider(local).WithPrimitiveAuthority(prepared.ResourceActor, internalActorVerifier(prepared), owner).WithReportResources(localCatalog, func(context.Context, string) (*identity.ResourceResolver, error) { return resolver, nil }).WithReportingService(reporting.New(reporting.Options{Store: reporting.NewMemoryStore(), Compiler: reporting.NewReportSpecCompiler(time.Now), Exporter: reporting.NewForgeExporter(nil)})).WithDefaults(&execconfig.Defaults{Reporting: execconfig.ReportingDefaults{Enabled: true, QueueIntervalMs: 60000}}).Build(ctx)
 	require.NoError(t, err)
 	defer runtime.Close(ctx)
 	foreignURI, _ := identity.ParseResourceURI(foreignPin.URI)
@@ -125,7 +115,6 @@ func TestHostedReportControlVisibilityPreservesForeignProviderPin(t *testing.T) 
 	}}}})
 	require.NoError(t, err)
 	require.NoError(t, runtime.MCPManager.RegisterLocal(ctx, "foreign-reports", &mcpcfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: "external"}, func(context.Context) (mcpclient.Interface, error) { return resources.NewLocalMCPClient(foreign) }))
-	runtime.ReportAuthorizer = hostPolicy
 	require.NoError(t, registration.Bind(ctx, runtime))
 	foreignLocated, lookupErr := runtime.PrimitiveProviders.GetForProvider(ctx, "external", identity.ResourceRef{URI: foreignPin.URI}, nil)
 	require.NoError(t, lookupErr, "actual external provider retrieval")
@@ -142,7 +131,7 @@ func TestHostedReportControlVisibilityPreservesForeignProviderPin(t *testing.T) 
 	require.Len(t, reportList.Reports, 1)
 	require.True(t, reportList.Reports[0].Capabilities.Open)
 	require.True(t, reportList.Reports[0].Capabilities.Run)
-	require.False(t, reportList.Reports[0].Capabilities.Export)
+	require.True(t, reportList.Reports[0].Capabilities.Export)
 	require.False(t, reportList.Reports[0].Capabilities.Edit)
 	localRun, err := runtime.Reporting.ExecuteResource(ctx, &reporting.ExecuteResourceRequest{ResolvedResource: localPin})
 	require.NoError(t, err, "a hidden Run control must not become a consumer-side resource denial")
@@ -151,7 +140,10 @@ func TestHostedReportControlVisibilityPreservesForeignProviderPin(t *testing.T) 
 	_, err = runtime.Reporting.ExecuteResource(ctx, &reporting.ExecuteResourceRequest{Resource: &identity.ResourceRef{URI: uri}})
 	require.Error(t, err, "the managing provider's read denial must still reach the caller")
 	principal.principal.Facts.Roles = []string{"reader"}
-	legacy, err := executor.NewBuilder().WithModelFinder(reportCompositionModelFinder{}).WithAgentFinder(reportCompositionAgentFinder{}).WithPrimitiveAuthority(prepared.ResourceActor, internalActorVerifier(prepared), owner).WithReportResources(localCatalog, func(_ context.Context, operation string) (*identity.ResourceResolver, error) {
+	legacyRegistration := &internalHostRegistration{}
+	legacyLocal, err := configureInternalHostResources(owner, config, prepared, nil, nil, reportRegistration, localCatalog, nil, nil, principal, legacyRegistration)
+	require.NoError(t, err)
+	legacy, err := executor.NewBuilder().WithMCPManager(newManager()).WithLocalPrimitiveProvider(legacyLocal).WithModelFinder(reportCompositionModelFinder{}).WithAgentFinder(reportCompositionAgentFinder{}).WithPrimitiveAuthority(prepared.ResourceActor, internalActorVerifier(prepared), owner).WithReportResources(localCatalog, func(_ context.Context, operation string) (*identity.ResourceResolver, error) {
 		r, e := prepared.ResourceResolver(operation, source, nil)
 		if r != nil {
 			r.ProviderIdentity = owner
@@ -161,8 +153,10 @@ func TestHostedReportControlVisibilityPreservesForeignProviderPin(t *testing.T) 
 	require.NoError(t, err)
 	defer legacy.Close(ctx)
 	require.NoError(t, legacy.MCPManager.RegisterLocal(ctx, "foreign-reports", &mcpcfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: "external"}, func(context.Context) (mcpclient.Interface, error) { return resources.NewLocalMCPClient(foreign) }))
+	principal.principal.Facts.Roles = nil
 	_, err = legacy.Reporting.ExecuteResource(ctx, &reporting.ExecuteResourceRequest{Resource: &identity.ResourceRef{URI: uri}})
 	require.Error(t, err, "legacy local denial must not fall through to a foreign source")
+	principal.principal.Facts.Roles = []string{"reader"}
 	legacyForeign, err := legacy.Reporting.ExecuteResource(ctx, &reporting.ExecuteResourceRequest{Resource: &identity.ResourceRef{URI: foreignPin.URI}})
 	require.NoError(t, err)
 	require.Equal(t, "external", legacyForeign.Resource.ProviderIdentity)
@@ -182,11 +176,15 @@ func TestHostedReportControlVisibilityPreservesForeignProviderPin(t *testing.T) 
 	}}}})
 	require.NoError(t, err)
 	require.NoError(t, legacy.MCPManager.RegisterLocal(ctx, "shadow-reports", &mcpcfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: "shadow"}, func(context.Context) (mcpclient.Interface, error) { return resources.NewLocalMCPClient(shadow) }))
+	principal.principal.Facts.Roles = nil
 	_, err = legacy.Reporting.ExecuteResource(ctx, &reporting.ExecuteResourceRequest{Resource: &identity.ResourceRef{URI: uri}})
 	require.Error(t, err)
 	require.Zero(t, shadowGets, "denied local ownership must never become foreign same-URI dispatch")
+	principal.principal.Facts.Roles = []string{"reader"}
+	_, err = legacy.MCPManager.Reconnect(ctx, "", "internal")
+	require.NoError(t, err)
 	_, err = legacy.Reporting.ListReports(ctx, &reporting.ListReportsInput{})
-	require.Error(t, err, "ambiguous local/gateway ownership must not publish a merged alias")
+	require.ErrorIs(t, err, resources.ErrCollision, "two visible managing sources cannot publish an ambiguous report URI")
 
 }
 
@@ -212,4 +210,13 @@ func (p externalHostReportPolicy) SelectRevision(_ context.Context, _ identity.R
 		return identity.ResourceDecision{}, identity.ErrResourceDenied
 	}
 	return identity.ResourceDecision{Candidate: c[0], AuthorityBinding: p.binding, ValidUntil: p.until}, nil
+}
+
+// This test owns its synthetic local endpoints and registers them incrementally;
+// it is not the standard workspace definition repository bound at startup.
+type reportCompositionConnections struct{}
+
+func (reportCompositionConnections) Names(context.Context) ([]string, error) { return nil, nil }
+func (reportCompositionConnections) Options(context.Context, string) (*mcpcfg.MCPClient, error) {
+	return nil, identity.ErrResourceDenied
 }

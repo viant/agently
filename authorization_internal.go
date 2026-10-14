@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/app/executor"
+	"github.com/viant/agently-core/app/host"
 	identity "github.com/viant/agently-core/protocol/resource"
-	requestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/policy"
 	forge "github.com/viant/agently-core/service/primitiveprovider"
 	reportcatalog "github.com/viant/agently-core/service/reporting/catalog"
@@ -155,12 +155,13 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 			return nil, snapshotErr
 		}
 	}
-	toolfeeds, err := configuredToolfeedBindings(context.Background(), registration.workspaceRoot, owner, config.ToolfeedSources, prepared, snapshot)
+	sourcePolicy := internalSourceRevisionPolicy(prepared)
+	toolfeeds, err := host.BindToolfeedSources(context.Background(), registration.workspaceRoot, owner, config.ToolfeedSources, sourcePolicy, snapshot)
 	if err != nil {
 		return nil, err
 	}
 	bindings = append(bindings, toolfeeds...)
-	authored, err := configuredAuthoredBindings(context.Background(), registration.workspaceRoot, owner, config, prepared, snapshot)
+	authored, err := host.BindAuthoredSources(context.Background(), registration.workspaceRoot, owner, config.TemplateSources, config.IntentSources, sourcePolicy, snapshot)
 	if err != nil {
 		return nil, err
 	}
@@ -209,6 +210,18 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 				return fmt.Errorf("internal windows require the host bridge and target proof")
 			}
 			remote := &resources.WindowCatalog{Gateway: rt.PrimitiveProviders, TargetProof: proof}
+			// These bindings are captured from host-owned workspace/framework
+			// assets. Preserve their native HTTP services on this exact source;
+			// an external provider cannot enable host HTTP transport this way.
+			var nativeURIs []string
+			for _, group := range [][]windowloader.ResourceBinding{config.WindowResources, config.FrameworkWindowResources} {
+				for _, binding := range group {
+					nativeURIs = append(nativeURIs, binding.URI)
+				}
+			}
+			if err := remote.RegisterNativeHTTPWindows(resources.Connection{Name: "internal", ProviderIdentity: owner}, nativeURIs); err != nil {
+				return err
+			}
 
 			if snapshot != nil {
 				remote.ContentCurrent = map[string]resources.WindowContentCheck{
@@ -242,7 +255,7 @@ func configureInternalHostResources(owner string, config *hostAuthorizationFile,
 		if rt.Reporting == nil {
 			return fmt.Errorf("internal report runtime missing")
 		}
-		gatewayCatalog := &resources.ReportGatewayCatalog{Gateway: rt.PrimitiveProviders, BuilderWindows: catalog.BuilderWindows, Capabilities: hostedReportCapabilities(prepared, owner, rt.ReportAuthorizer)}
+		gatewayCatalog := &resources.ReportGatewayCatalog{Gateway: rt.PrimitiveProviders, BuilderWindows: catalog.BuilderWindows, Capabilities: hostedReportCapabilities(prepared, owner)}
 		if scope != nil {
 			gatewayCatalog.BeginMetadataRead = scope.BeginMetadataRead
 		}
@@ -285,7 +298,7 @@ func internalReportCapabilities(prepared *executor.PreparedAuthorization, owner 
 	}
 }
 
-func hostedReportCapabilities(prepared *executor.PreparedAuthorization, owner string, authorize func(context.Context, string, string) error) func(context.Context, identity.VerifiedActor, reportcatalog.ReportCatalogCandidate, identity.ResolvedResource) (reportcatalog.ReportCapabilities, error) {
+func hostedReportCapabilities(prepared *executor.PreparedAuthorization, owner string) func(context.Context, identity.VerifiedActor, reportcatalog.ReportCatalogCandidate, identity.ResolvedResource) (reportcatalog.ReportCapabilities, error) {
 	local := internalReportCapabilities(prepared, owner)
 	return func(ctx context.Context, actor identity.VerifiedActor, candidate reportcatalog.ReportCatalogCandidate, pin identity.ResolvedResource) (reportcatalog.ReportCapabilities, error) {
 		if pin.ProviderIdentity == owner {
@@ -296,17 +309,27 @@ func hostedReportCapabilities(prepared *executor.PreparedAuthorization, owner st
 			operation string
 			allowed   *bool
 		}{{"report.retrieve", &result.Open}, {"report.execute", &result.Run}, {"report.export", &result.Export}} {
-			if authorize != nil {
-				err := authorize(requestctx.WithResolvedResource(ctx, pin), check.operation, pin.URI)
-				if err != nil {
-					if errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, authz.ErrDenied) || errors.Is(err, policy.ErrDenied) {
-						continue
-					}
-					return reportcatalog.ReportCapabilities{}, err
-				}
-			}
+
 			*check.allowed = true
 		}
 		return result, nil
+	}
+}
+
+// This callback belongs to the managing in-memory provider, not a consumer.
+func internalSourceRevisionPolicy(prepared *executor.PreparedAuthorization) resources.LocalRevisionPolicyFactory {
+	if prepared == nil {
+		return nil
+	}
+	verify := internalActorVerifier(prepared)
+	return func(ctx context.Context, actor identity.VerifiedActor, _ identity.ResourceURI, operation string) (identity.ResourceRevisionPolicy, error) {
+		if err := verify(ctx, actor); err != nil {
+			return nil, err
+		}
+		resolver, err := prepared.ResourceResolver(operation, candidateSource{}, nil)
+		if err != nil {
+			return nil, err
+		}
+		return resolver.Policy, nil
 	}
 }

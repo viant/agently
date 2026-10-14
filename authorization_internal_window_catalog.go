@@ -297,10 +297,10 @@ func (c *internalWindowCatalog) get(ctx context.Context, input *primitiveprovide
 		return nil, err
 	}
 	resolved := delegated.Definition.Resource
-	if resolved.URI != binding.uri || input.ResolvedResource != nil && (!sameInternalResource(*input.ResolvedResource, *resolved) || resolved.ValidUntil.After(input.ResolvedResource.ValidUntil)) {
+	if resolved.URI != binding.uri || input.ResolvedResource != nil && (!sameInternalResource(*input.ResolvedResource, *resolved) || identity.MetadataExpiryExtends(resolved.ValidUntil, input.ResolvedResource.ValidUntil)) {
 		return nil, identity.ErrResourceDenied
 	}
-	if !resolved.ValidUntil.After(time.Now()) {
+	if !identity.MetadataExpiryValid(resolved.ValidUntil, time.Now()) {
 		return nil, identity.ErrResourceDenied
 	}
 	delegated.WindowID = binding.alias
@@ -335,7 +335,7 @@ func (c *internalWindowCatalog) RevalidateResource(ctx context.Context, key stri
 		return nil, identity.ErrResourceDenied
 	}
 	binding, err := c.binding(key)
-	if err != nil || pin.URI != binding.uri || !pin.ValidUntil.After(time.Now()) {
+	if err != nil || pin.URI != binding.uri || !identity.MetadataExpiryValid(pin.ValidUntil, time.Now()) {
 		return nil, identity.ErrResourceDenied
 	}
 	if c.native != nil {
@@ -350,7 +350,7 @@ func (c *internalWindowCatalog) RevalidateResource(ctx context.Context, key stri
 	// Gateway.Get rechecks the exact supplied candidate and current authority;
 	// it cannot select or substitute the provider's current working version.
 	result, err := c.remote.Gateway.Get(ctx, connection, identity.ResourceRef{URI: binding.uri, Revision: pin.Selector()}, &pin)
-	if err != nil || result == nil || result.ResolvedResource == nil || !sameInternalResource(pin, *result.ResolvedResource) || result.ResolvedResource.ValidUntil.After(pin.ValidUntil) {
+	if err != nil || result == nil || result.ResolvedResource == nil || !sameInternalResource(pin, *result.ResolvedResource) || identity.MetadataExpiryExtends(result.ResolvedResource.ValidUntil, pin.ValidUntil) {
 		return nil, identity.ErrResourceDenied
 	}
 	return result.ResolvedResource, nil
@@ -363,7 +363,7 @@ func (c *internalWindowCatalog) CheckWindowContent(ctx context.Context, key stri
 		return identity.ErrResourceDenied
 	}
 	binding, err := c.binding(key)
-	if err != nil || pin.URI != binding.uri || !pin.ValidUntil.After(time.Now()) {
+	if err != nil || pin.URI != binding.uri || !identity.MetadataExpiryValid(pin.ValidUntil, time.Now()) {
 		return identity.ErrResourceDenied
 	}
 	return c.remote.CheckWindowContent(ctx, binding.uri, pin, target)

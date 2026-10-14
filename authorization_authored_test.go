@@ -94,6 +94,8 @@ func TestConfiguredHostRegistersPrivateAuthoredSourcesOnOneGateway(t *testing.T)
 	parent, _ := json.Marshal(prof)
 	require.NotContains(t, string(parent), "ResourceProviderIdentity")
 	principal.principal.Facts.Roles = nil
+	_, err = rt.MCPManager.Reconnect(ctx, "", "internal")
+	require.NoError(t, err)
 	got, err = backend.(sdk.Client).GetTemplate(ctx, &sdk.GetTemplateInput{Name: "Original Template"})
 	require.Error(t, err)
 	require.Nil(t, got)

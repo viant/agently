@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/executor"
 	execconfig "github.com/viant/agently-core/app/executor/config"
+	"github.com/viant/agently-core/app/host"
 	appserver "github.com/viant/agently-core/app/server"
 	corecfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/protocol/mcp/manager"
@@ -102,15 +103,19 @@ func TestHostToolfeedsThroughMCPUseOperatorPolicyAndCurrentPins(t *testing.T) {
 	held, err := prepared.ResourceActor(ctx)
 	require.NoError(t, err)
 	principal.principal.IdentityRevision = "two"
-	_, err = configuredToolfeedBindings(ctx, root, "host-resources", config.ToolfeedSources, prepared)
+	_, err = mgr.Reconnect(ctx, "", "host-resources")
+	require.NoError(t, err)
+	_, err = host.BindToolfeedSources(ctx, root, "host-resources", config.ToolfeedSources, internalSourceRevisionPolicy(prepared), nil)
 	require.NoError(t, err)
 	_, err = gateway.Get(ctx, namespaces[0].Connection, identity.ResourceRef{URI: uri}, got.ResolvedResource)
 	require.Error(t, err)
-	bindings, err := configuredToolfeedBindings(ctx, root, "host-resources", config.ToolfeedSources, prepared)
+	bindings, err := host.BindToolfeedSources(ctx, root, "host-resources", config.ToolfeedSources, internalSourceRevisionPolicy(prepared), nil)
 	require.NoError(t, err)
 	_, err = bindings[0].Resolver(ctx, held, "resource.get")
 	require.Error(t, err)
 	principal.principal.IdentityRevision = "one"
+	_, err = mgr.Reconnect(ctx, "", "host-resources")
+	require.NoError(t, err)
 	expired := *got.ResolvedResource
 	expired.ValidUntil = time.Now().Add(-time.Second)
 	_, err = gateway.Get(ctx, namespaces[0].Connection, identity.ResourceRef{URI: uri}, &expired)
@@ -127,8 +132,14 @@ func TestHostToolfeedsThroughMCPUseOperatorPolicyAndCurrentPins(t *testing.T) {
 	_, err = gateway.Get(ctx, namespaces[0].Connection, identity.ResourceRef{URI: uri}, nil)
 	require.Error(t, err)
 	principal.principal.Facts.Tenant = "tenant"
+	_, err = mgr.Reconnect(ctx, "", "host-resources")
+	require.NoError(t, err)
+	namespaces, err = gateway.Discover(ctx)
+	require.NoError(t, err)
+	current, err := gateway.Get(ctx, namespaces[0].Connection, identity.ResourceRef{URI: uri}, nil)
+	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(file, []byte("id: legacy-terminal\ntitle: Changed\n"), 0600))
-	retained, err := gateway.Get(ctx, namespaces[0].Connection, identity.ResourceRef{URI: uri}, got.ResolvedResource)
+	retained, err := gateway.Get(ctx, namespaces[0].Connection, identity.ResourceRef{URI: uri}, current.ResolvedResource)
 	require.NoError(t, err)
 	require.Equal(t, got.Resource.ContentFingerprint, retained.Resource.ContentFingerprint)
 	fresh, err := gateway.Get(ctx, namespaces[0].Connection, identity.ResourceRef{URI: uri}, nil)
@@ -139,21 +150,12 @@ func TestHostToolfeedsThroughMCPUseOperatorPolicyAndCurrentPins(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestHostToolfeedSourcesFailClosed(t *testing.T) {
-	ctx := context.Background()
+func TestHostToolfeedProviderRequiresExplicitTenantMapping(t *testing.T) {
 	root, config, prepared, principal := toolfeedHostFixture(t)
-	for _, source := range []HostToolfeedSource{{Directory: "feeds"}, {Namespace: "team"}, {Namespace: "../team", Directory: "feeds"}, {Namespace: "users", Directory: "feeds"}, {Namespace: "team", Directory: "../feeds"}, {Namespace: "team", Directory: root}, {Namespace: "team", Directory: "missing"}} {
-		_, err := configuredToolfeedBindings(ctx, root, "internal", []HostToolfeedSource{source}, prepared)
-		require.Error(t, err)
-	}
-	_, err := configuredToolfeedBindings(ctx, "", "internal", config.ToolfeedSources, prepared)
-	require.Error(t, err)
 	config.ResourceRevisionBindings = nil
-	_, err = configureInternalHostResources("internal", config, prepared, nil, nil, nil, nil, nil, nil, principal, &internalHostRegistration{workspaceRoot: root})
+	_, err := configureInternalHostResources("internal", config, prepared, nil, nil, nil, nil, nil, nil, principal, &internalHostRegistration{workspaceRoot: root})
 	require.ErrorContains(t, err, "explicit tenant mapping")
-	require.NoError(t, os.Symlink(filepath.Join(root, "feeds", "nested", "terminal.yaml"), filepath.Join(root, "feeds", "alias.yaml")))
-	_, err = configuredToolfeedBindings(ctx, root, "internal", config.ToolfeedSources, prepared)
-	require.Error(t, err)
+
 }
 
 func TestConfiguredHostRuntimeRegistersToolfeedSources(t *testing.T) {

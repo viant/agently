@@ -2,6 +2,7 @@ package agently
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	forgeservice "github.com/viant/agently-core/service/primitiveprovider"
@@ -26,6 +27,7 @@ import (
 	appserver "github.com/viant/agently-core/app/server"
 	mcpexpose "github.com/viant/agently-core/protocol/mcp/expose"
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	"github.com/viant/agently-core/protocol/tool"
 	uicontext "github.com/viant/agently-core/protocol/tool/service/ui/context"
 	uicontrol "github.com/viant/agently-core/protocol/tool/service/ui/control"
@@ -67,8 +69,6 @@ type ServeOptions struct {
 	nativeWindowRuntimeBinder        func(*executor.Runtime) error
 	InternalResourceProviderIdentity string
 	NativeWindowConfigPath           string
-	WindowOpenBootstrapFactory       WindowOpenBootstrapFactory
-	WindowBootstrapBindings          []WindowBootstrapBinding
 	// WindowTargetProof may provide shared verification across host replicas.
 	// Nil uses an ephemeral process key; outstanding short leases require the
 	// same process and are invalidated by restart.
@@ -171,11 +171,6 @@ func Serve(options ServeOptions) error {
 	if err != nil {
 		return fmt.Errorf("native window configuration: %w", err)
 	}
-	options, err = configuredWindowBootstrapOptions(options)
-	if err != nil {
-		return fmt.Errorf("window bootstrap configuration: %w", err)
-	}
-	options, bindWindowBootstrap := prepareWindowBootstrap(options)
 	internal := &internalHostRegistration{}
 	configureBuilder, err := configureHostAuthorization(options, workspace.Root(), wsConfig, workspaceReportingEnricher(reportingRuntime.loader), internal)
 	if err != nil {
@@ -214,9 +209,6 @@ func Serve(options ServeOptions) error {
 	defer rt.Close(context.Background())
 	if err := bindNativeWindowRuntime(options, rt); err != nil {
 		return fmt.Errorf("native window identity startup: %w", err)
-	}
-	if err := bindWindowBootstrap(ctx, client); err != nil {
-		return fmt.Errorf("window bootstrap startup: %w", err)
 	}
 	if err := agentlyrt.ConfigureForecastEvidence(ctx, rt, workspace.Root()); err != nil {
 		return fmt.Errorf("forecast evidence startup: %w", err)
@@ -469,13 +461,20 @@ func Serve(options ServeOptions) error {
 
 func withForgeMetadataAuth(next http.Handler, authRuntime *svcauthctx.Runtime) http.Handler {
 	protected := svcauthctx.WithAuthProtection(next, authRuntime)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !forgeWindowMetadataRequiresAuth(r) {
 			w.Header().Set("Cache-Control", "private, max-age=60")
 			next.ServeHTTP(w, r)
 			return
 		}
 		protected.ServeHTTP(w, r)
+	})
+	if os.Getenv("AGENTLY_PRIMITIVE_TRACE") != "1" {
+		return handler
+	}
+	return observe.HTTP(handler, func(totals map[string]float64) {
+		encoded, _ := json.Marshal(totals)
+		log.Printf("primitive metadata timing (nested spans overlap): %s", encoded)
 	})
 }
 

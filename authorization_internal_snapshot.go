@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/viant/agently-core/app/host"
 	"github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	resources "github.com/viant/agently-core/service/resource"
@@ -108,7 +109,7 @@ func newInternalWindowSnapshot(ctx context.Context, root, reportingRoot string, 
 			feedDirectories = append(feedDirectories, resources.ToolfeedDirectory(source.Namespace, source.Directory))
 
 		}
-		authoredDirs, compilers, e := configuredAuthoredDirectories(config)
+		authoredDirs, compilers, e := host.AuthoredDirectories(config.TemplateSources, config.IntentSources)
 		if e != nil {
 			return nil, e
 		}

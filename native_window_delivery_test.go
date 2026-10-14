@@ -101,7 +101,7 @@ dataSource:
 	uri := "window://tenant/edit"
 	f := &nativeDeliveryFixture{root: root, principal: gating.Principal{Facts: authz.Facts{Subject: "external-subject", Issuer: "https://issuer.example", Tenant: "tenant", ValidUntil: time.Now().Add(time.Hour)}, AccountID: "account", IdentityRevision: "credential-1"}, users: &nativeDeliveryUsers{record: &auth.User{ID: "canonical-user", Subject: "external-subject", Provider: "configured-oauth"}}, parameters: map[string]any{"Selected": []int{42}, "Context": map[string]any{"opaque": "item:alpha", "exact": json.Number("9007199254740993")}}}
 	f.ctx = context.WithValue(context.WithValue(context.Background(), nativeDeliveryIngress{}, "canonical-user"), nativeDeliveryOperation{}, "original-operation")
-	config := NativeWindowHostConfig{ProviderIdentity: "native", Windows: []windowloader.ResourceBinding{{WindowKey: "edit", URI: uri}}, Bootstrap: []WindowBootstrapBinding{{URI: uri, WindowKey: "edit", ResourceType: "widget", Parameter: "Selected", DataSource: "details", Input: "Object", RowIdentity: "wireKey", IdentityType: "integer"}}, ToolCapabilities: map[string]string{"arbitrary:Read": "read", "arbitrary:Patch": "write", "arbitrary:ById": "read"}, ExecutionBindings: []NativeWindowExecutionBinding{{URI: uri, DataSource: "change", IdentitySelectors: []string{"Objects.*.Id"}}}}
+	config := NativeWindowHostConfig{ProviderIdentity: "native", Windows: []windowloader.ResourceBinding{{WindowKey: "edit", URI: uri}}, ToolCapabilities: map[string]string{"arbitrary:Read": "read", "arbitrary:Patch": "write", "arbitrary:ById": "read"}, ExecutionBindings: []NativeWindowExecutionBinding{{URI: uri, DataSource: "change", IdentitySelectors: []string{"Objects.*.Id"}}}}
 	snapshot, err := newNativeWindowHostSnapshot(f.ctx, root, config)
 	if err != nil {
 		t.Fatal(err)
@@ -364,7 +364,6 @@ func TestNativeRuntimeBinderFailsClosedAndBindsActualRuntimeDirectoryOnce(t *tes
 	// verifier is configured, but this test never fetches a token or user record.
 	config := f.host.config
 	config.SchemaVersion = 1
-	config.Bootstrap = nil
 	config.Identity = oauth.HTTPIdentityConfig{Kind: "oidc-userinfo", Issuer: "https://issuer.example", Audience: "workspace", Algorithms: []string{"RS256"}, UserInfoURL: "https://issuer.example/identity", JWKSURL: "https://issuer.example/keys", JWKSRefreshInterval: "1m", FactLease: "30s", TenantForAllAccounts: "tenant", Mapping: oauth.HTTPIdentityMapping{Subject: "sub", AccountID: "account"}}
 	raw, err := json.Marshal(config)
 	if err != nil {
@@ -378,7 +377,7 @@ func TestNativeRuntimeBinderFailsClosedAndBindsActualRuntimeDirectoryOnce(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if options.nativeWindowRuntimeBinder == nil || options.ConfigureBuilder == nil || options.WindowOpenBootstrapFactory == nil {
+	if options.nativeWindowRuntimeBinder == nil || options.ConfigureBuilder == nil {
 		t.Fatal("native startup seams missing")
 	}
 	if err := bindNativeWindowRuntime(options, nil); !errors.Is(err, identity.ErrResourceDenied) {
@@ -475,7 +474,6 @@ func TestNativeManagingMCPOwnsMutableArgumentsAndAccountAuthorization(t *testing
 	binding := f.bind(t)
 	manager := &nativeManagingAccountExecutor{account: "account", owners: map[string]string{"owned-other": "account", "owned-parent": "account", "foreign": "other-account"}}
 	service := f.service(t, manager)
-	f.host.datasource = nativeDeliverySDKBackend{service: service}
 	opts := datasources.FetchOptions{Resource: f.window.Resource, Target: f.window.ResourceTarget, SelectionBinding: binding, WindowParameters: f.parameters}
 	for _, tc := range []struct {
 		id   string

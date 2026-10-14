@@ -13,6 +13,10 @@ describe('lookup picker source routing',()=>{
   expect(invocation.handler).toBe('openWindow');expect(invocation.args[0]).toBe('window://external/picker');
   expect(invocation.args[4]).toMatchObject({resourceRef:entry.pickerResource,providerIdentity:'external',pickerDialogId:'picker',awaitResult:true,modal:true,parameters:[{name:'id'}]});
  });
+ it('supports a canonical picker resource without legacy IDs',()=>{
+  const value=lookupSurfaceInvocation({pickerResource:entry.pickerResource,providerIdentity:'external'},{});
+  expect(value.handler).toBe('openWindow');expect(value.args[0]).toBe('window://external/picker');
+ });
  it('keeps legacy bundled dialog IDs and rejects missing canonical picker',()=>{
   expect(lookupSurfaceInvocation({dialogId:'original'},{}).args[0]).toBe('original');
   expect(()=>lookupSurfaceInvocation({},{})).toThrow(/unavailable/);

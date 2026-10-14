@@ -7,7 +7,6 @@ import (
 
 	"github.com/viant/agently-core/app/executor"
 	identity "github.com/viant/agently-core/protocol/resource"
-	"github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/sdk"
 	resources "github.com/viant/agently-core/service/resource"
 )
@@ -21,9 +20,7 @@ func configureHostedAppReader(bindings []resources.HostedAppBinding, prepared *e
 			return nil, nil, fmt.Errorf("hosted apps require configured primitive windows")
 		}
 		actor := resources.ActorResolver(prepared.ResourceActor)
-		reader, err := resources.NewHostedAppReader(bindings, rt.PrimitiveProviders, rt.MCPManager, rt.PrimitiveWindows, actor, verifyActor(actor), func(ctx context.Context, pin identity.ResolvedResource) error {
-			return prepared.AuthorizeResolvedWindow(requestctx.WithResolvedResource(ctx, pin), pin, "ui.window.open", nil)
-		})
+		reader, err := resources.NewHostedAppReader(bindings, rt.PrimitiveProviders, rt.MCPManager, rt.PrimitiveWindows, actor, verifyActor(actor))
 		if err != nil {
 			return nil, nil, err
 		}

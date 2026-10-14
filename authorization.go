@@ -32,6 +32,10 @@ import (
 type AuthorizationProviders = host.Providers
 type AuthorizationProviderFactory = host.ProviderFactory
 
+// Preserve embedding names while sharing one Core source declaration.
+type HostAuthoredSource = host.DirectorySource
+type HostToolfeedSource = host.DirectorySource
+
 type hostAuthorizationFile struct {
 	MenuSources               []HostMenuSource               `json:"menuSources,omitempty"`
 	HostedApps                []resourcesvc.HostedAppBinding `json:"hostedApps,omitempty"`
@@ -40,7 +44,6 @@ type hostAuthorizationFile struct {
 	ToolfeedSources           []HostToolfeedSource           `json:"toolfeedSources,omitempty"`
 	nativeWindows             bool
 	FrameworkWindowResources  []windowloader.ResourceBinding   `json:"frameworkWindowResources,omitempty"`
-	WindowBootstrapBindings   []WindowBootstrapBinding         `json:"windowBootstrapBindings,omitempty"`
 	ResourceSelectionProvider json.RawMessage                  `json:"resourceSelectionProvider,omitempty"`
 	ReportResources           json.RawMessage                  `json:"reportResources,omitempty"`
 	WindowResourcesPath       string                           `json:"windowResourcesPath,omitempty"`
@@ -80,10 +83,6 @@ func ValidateHostAuthorizationConfiguration(options ServeOptions) error {
 		return fmt.Errorf("authorization validation requires an explicit authz config")
 	}
 	settings, err := wscfg.Load(root)
-	if err != nil {
-		return err
-	}
-	options, err = configuredWindowBootstrapOptions(options)
 	if err != nil {
 		return err
 	}
@@ -545,7 +544,7 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 		}
 		catalogOptions = append(catalogOptions, forgeservice.WithWindowResourceResolver(resolve))
 	} else {
-		catalogOptions = append(catalogOptions, forgeservice.WithWindowAuthorizer(prepared.WindowAuthorizer), forgeservice.WithWindowDefinitionLoader(func(ctx context.Context, id string) (*forgetypes.Window, error) {
+		catalogOptions = append(catalogOptions, forgeservice.WithWindowDefinitionLoader(func(ctx context.Context, id string) (*forgetypes.Window, error) {
 			return windowloader.LoadWorkspaceWindowWithEnricherAt(ctx, workspaceRoot, id, nil, enrich)
 		}))
 	}
@@ -603,7 +602,7 @@ func configureHostAuthorization(options ServeOptions, workspaceRoot string, work
 			builder.WithReportResources(reportCatalog, reportResolver)
 			builder.WithReportResourceService(reportWriter)
 		}
-		builder.WithUIBridge(forgeservice.NewService(&forgeservice.Config{MetadataScope: windowMetadataScope, WindowDefinitions: catalog, DynamicWindowAuthorizer: prepared.WindowAuthorizer}))
+		builder.WithUIBridge(forgeservice.NewService(&forgeservice.Config{MetadataScope: windowMetadataScope, WindowDefinitions: catalog}))
 		if err := prepared.Register(builder); err != nil {
 			return err
 		}
