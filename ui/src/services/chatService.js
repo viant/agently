@@ -73,7 +73,7 @@ import { connectForgeUIActionsToCallbacksOrChat } from './forgeUIActions';
 import { openCodeDiffDialog, openFileViewDialog, updateCodeDiffDialog, updateFileViewDialog } from '../utils/dialogBus';
 import { derivePreviousTextFromUnifiedDiff } from 'forge/utils/unifiedDiff';
 import ChatFeedFromChatStore from '../components/chat/ChatFeedFromChatStore.jsx';
-import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore, onSSE as applyEventToChatStore } from './chatStore.js';
+import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore, onSSE as applyEventToChatStore, getActiveTurnId } from './chatStore.js';
 import { conversationIDFromPath } from './chatRuntime';
 import { getScopedConversationSelection, MAIN_CHAT_WINDOW_ID, openConversationInMainWindow, syncHydratedWorkspaceStateFromTranscriptTurns } from './conversationWindow';
 
@@ -865,7 +865,9 @@ export async function submitMessage({ context, message, model, agent }) {
   }
 
   clearSettledConversationBootstrapSnapshot(conversationID);
-  const activeTurnID = String(chatState?.runningTurnId || chatState?.activeStreamTurnId || '').trim();
+  // The transcript projection owns turn lifecycle. Runtime stream hints can
+  // outlive a terminal event and must not steer a completed turn.
+  const activeTurnID = String(getActiveTurnId(conversationID) || '').trim();
   const steeringDuringActiveTurn = !!activeTurnID;
   const queueingDuringActiveTurn = !steeringDuringActiveTurn && !!chatState?.lastHasRunning;
   const submittedAt = Date.now();
@@ -890,10 +892,6 @@ export async function submitMessage({ context, message, model, agent }) {
       attachments: queryAttachments.length > 0 ? queryAttachments : undefined,
     });
     setStage({ phase: 'executing', text: 'Steering…', startedAt: submittedAt, completedAt: 0 });
-    const steering = await client.steerTurn(conversationID, activeTurnID, { content: query, role: 'user', clientRequestId });
-    if (steering?.messageId) {
-      applyEventToChatStore(conversationID, { type:'message_appended', conversationId:conversationID, turnId:activeTurnID, messageId:steering.messageId, userMessageId:steering.messageId, clientRequestId, content:query, contentMode:'snapshot', patch:{role:'user'} });
-    }
   } else if (!queueingDuringActiveTurn) {
     submitToChatStore({
       conversationId: conversationID,
@@ -926,10 +924,23 @@ export async function submitMessage({ context, message, model, agent }) {
   }
   let queryResult = {};
   try {
-    queryResult = steeringDuringActiveTurn ? {} : await client.query(payload);
+    if (steeringDuringActiveTurn) {
+      const steering = await client.steerTurn(conversationID, activeTurnID, { content: query, role: 'user', clientRequestId });
+      if (steering?.messageId) {
+        applyEventToChatStore(conversationID, { type:'message_appended', conversationId:conversationID, turnId:activeTurnID, messageId:steering.messageId, userMessageId:steering.messageId, clientRequestId, content:query, contentMode:'snapshot', patch:{role:'user'} });
+      }
+    } else {
+      queryResult = await client.query(payload);
+    }
   } catch (err) {
     const error = String(err?.message || err || 'Submission failed');
-    if (!steeringDuringActiveTurn) {
+    if (steeringDuringActiveTurn) {
+      // A rejected steer is not a failed agent turn. Drop the local projection
+      // and restore the server transcript before another submission.
+      resetChatStoreConversation(conversationID);
+      renderMergedRowsForContext(context);
+      void dsTick(context, { conversationID }).catch(() => {});
+    } else {
       // Fail only the optimistic submission identified by this request; a
       // concurrent native turn must retain its own execution state.
       applyEventToChatStore(conversationID, {
