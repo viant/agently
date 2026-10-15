@@ -121,6 +121,10 @@ export async function beginReportRun(input = {}) {
     if (error?.status === 404 && typeof error?.payload === 'string') {
       return { enabled: false };
     }
+    if (error?.status === 404 && normalizeId(input.conversationId)
+      && error?.payload?.error === 'report run: not found') {
+      error.message = 'This conversation is unavailable for report runs. Only its owner can start reports here.';
+    }
     throw error;
   }
 }
