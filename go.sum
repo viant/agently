@@ -2284,3 +2284,7 @@ github.com/viant/forge v0.3.45-0.20261015211427-4e084aae8004 h1:CV2VRsKMbN7Wmn3u
 github.com/viant/forge v0.3.45-0.20261015211427-4e084aae8004/go.mod h1:58JlyxeMR/WET8tzeHgVJI4ub/KP3Da5KSCqStW7QQY=
 github.com/viant/mcp v0.24.1-0.20261015210604-ea8543a12c53 h1:yrs4lIW1+CD0PO4PLb8mOnsRD9fWcgohn6DUYG3sArE=
 github.com/viant/mcp v0.24.1-0.20261015210604-ea8543a12c53/go.mod h1:Yn0ypkLtyn531y0pQTGBdNU8mFtEJlW+r76YoFaOAY0=
+github.com/viant/agently-core v0.1.57-0.20261015232555-450759f77706 h1:48MSSusc9Pu3W6lPy1kSp7mXzPs/DC5QRq3L9D5yeL4=
+github.com/viant/agently-core v0.1.57-0.20261015232555-450759f77706/go.mod h1:56Cma09MzwgIPDg6hhtvS76JH7UEBeIGTAVWoliJJjY=
+github.com/viant/forge v0.3.45-0.20261015232234-7d1976ea7d8f h1:aHTaIR0NLG0R5h5Mzqp7nVpHO7bo8enR+7AcN9crCB8=
+github.com/viant/forge v0.3.45-0.20261015232234-7d1976ea7d8f/go.mod h1:58JlyxeMR/WET8tzeHgVJI4ub/KP3Da5KSCqStW7QQY=
