@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -371,6 +372,12 @@ func Serve(options ServeOptions) error {
 	if err != nil {
 		return fmt.Errorf("failed to create api handler: %w", err)
 	}
+	if os.Getenv("AGENTLY_PRIMITIVE_TRACE") == "1" {
+		apiHandler = withPrimitiveAPITiming(apiHandler, func(id uint64, method, route string, totals map[string]float64) {
+			encoded, _ := json.Marshal(totals)
+			log.Printf("primitive api timing request=%d method=%s route=%s (nested spans overlap): %s", id, method, route, encoded)
+		})
+	}
 	metaRoot := "embed://localhost/"
 	rawMetaHandler := ui.NewEmbeddedHandler(metaRoot, &coremeta.FS)
 	if rt.PermittedResolver != nil || uiBridge.UsesWindowResourceResolution() {
@@ -480,6 +487,55 @@ func withForgeMetadataAuth(next http.Handler, authRuntime *svcauthctx.Runtime) h
 		encoded, _ := json.Marshal(totals)
 		log.Printf("primitive metadata timing (nested spans overlap): %s", encoded)
 	})
+}
+
+// withPrimitiveAPITiming keeps the existing streaming response writer intact.
+// Only a fixed route class enters diagnostics; resource IDs and query values do not.
+func withPrimitiveAPITiming(next http.Handler, sink func(uint64, string, string, map[string]float64)) http.Handler {
+	if sink == nil {
+		return next
+	}
+	var sequence atomic.Uint64
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := sequence.Add(1)
+		observe.HTTP(next, func(totals map[string]float64) {
+			sink(id, r.Method, primitiveAPIRouteClass(r.URL.Path), totals)
+		}).ServeHTTP(w, r)
+	})
+}
+
+func primitiveAPIRouteClass(path string) string {
+	switch {
+	case path == "/v1/ui/rpc":
+		return "ui.rpc"
+	case path == "/v1/ag-ui/run":
+		return "agui.run"
+	case path == "/v1/application-events":
+		return "application.events"
+	case strings.HasPrefix(path, "/v1/conversations/") && strings.HasSuffix(path, "/transcript"):
+		return "conversation.transcript"
+	case strings.HasPrefix(path, "/v1/conversations/") && strings.HasSuffix(path, "/live-state"):
+		return "conversation.live-state"
+	case path == "/v1/conversations" || strings.HasPrefix(path, "/v1/conversations/"):
+		return "conversation"
+	case path == "/v1/feeds" || strings.HasPrefix(path, "/v1/feeds/"):
+		return "feed"
+
+	case strings.HasPrefix(path, "/v1/api/datasources/"):
+		return "datasource"
+	case strings.HasPrefix(path, "/v1/api/reports/"), strings.HasPrefix(path, "/v1/api/report-runs/"):
+		return "report"
+	case strings.HasPrefix(path, "/v1/api/mcp/"):
+		return "mcp"
+	case strings.HasPrefix(path, "/v1/api/conversations/"):
+		return "conversation"
+	case strings.HasPrefix(path, "/v1/api/windows/"):
+		return "window"
+	case strings.HasPrefix(path, "/v1/api/layout/"):
+		return "layout"
+	default:
+		return "api"
+	}
 }
 
 func forgeWindowMetadataRequiresAuth(r *http.Request) bool {
