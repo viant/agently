@@ -63,6 +63,20 @@ describe('RichContent fence parsing', () => {
     expect(result).toMatchObject({ status: 'succeeded', artifactId: 'artifact-1' });
     expect(statuses).toHaveLength(0);
   });
+  it('reports a pending export distinctly when the polling budget expires', async () => {
+    const getStatus = vi.fn().mockResolvedValue({ jobId: 'job-pending', status: 'running' });
+    await expect(waitForInlineReportExport({ jobId: 'job-pending', status: 'queued' }, {
+      intervalMs: 0, maxAttempts: 2, getStatus,
+    })).rejects.toThrow('PDF export is still running (job job-pending). No artifact is available yet.');
+    expect(getStatus).toHaveBeenCalledTimes(2);
+  });
+  it('accepts completion returned by the final permitted status read', async () => {
+    const getStatus = vi.fn().mockResolvedValue({ jobId: 'job-final', status: 'succeeded', artifactId: 'artifact-final' });
+    await expect(waitForInlineReportExport({ jobId: 'job-final', status: 'queued' }, {
+      intervalMs: 0, maxAttempts: 1, getStatus,
+    })).resolves.toMatchObject({ status: 'succeeded', artifactId: 'artifact-final' });
+    expect(getStatus).toHaveBeenCalledTimes(1);
+  });
   it('propagates conversation context through inline export status polling', async () => {
     const getStatus = vi.fn().mockResolvedValue({
       jobId: 'job-1',
