@@ -59,6 +59,16 @@ describe('reportRunService', () => {
     });
   });
 
+  it('explains the owner-only scope when beginning a conversation report is denied', async () => {
+    const fetchMock = vi.fn(async () => response(404, { error: 'report run: not found' }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(beginReportRun({ uiRunRequestId: 'request-1', conversationId: 'conversation-1', origin: 'manual' })).rejects.toMatchObject({
+      status: 404,
+      message: 'This conversation is unavailable for report runs. Only its owner can start reports here.',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('surfaces enabled persistence failures instead of reporting legacy success', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => response(500, { error: 'database unavailable' })));
 

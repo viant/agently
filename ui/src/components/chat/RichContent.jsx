@@ -1481,6 +1481,10 @@ export async function waitForInlineReportExport(initialJob = {}, {
     if (attempt > 0 || intervalMs > 0) await delay(intervalMs);
     job = await getStatus(withReportExportConversation({ jobId }, conversationId));
   }
+  const status = String(job?.status || '').trim().toLowerCase();
+  if (!INLINE_EXPORT_TERMINAL_STATES.has(status)) {
+    throw new Error(`PDF export is still ${status || 'pending'} (job ${String(job?.jobId || '').trim()}). No artifact is available yet.`);
+  }
   return job;
 }
 
