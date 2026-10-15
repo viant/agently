@@ -2268,3 +2268,7 @@ rsc.io/quote/v3 v3.1.0/go.mod h1:yEA65RcK8LyAZtP9Kv3t0HmxON59tX3rD+tICJqUlj0=
 rsc.io/sampler v1.3.0/go.mod h1:T1hPZKmBbMNahiBKFy5HrXp6adAjACjK9JXDnKaTXpA=
 sourcegraph.com/sourcegraph/go-diff v0.5.0/go.mod h1:kuch7UrkMzY0X+p9CRK03kfuPQ2zzQcaEFbx8wA8rck=
 sourcegraph.com/sqs/pbtypes v0.0.0-20180604144634-d3ebe8f20ae4/go.mod h1:ketZ/q3QxT9HOBeFhu6RdvsftgpsbFHBF5Cas6cDKZ0=
+github.com/viant/agently-core v0.1.57-0.20261015132405-66cff93405c5 h1:8T35O7crWapWKgyogusLOm9Anq5UzAJ75nqnZClJVVw=
+github.com/viant/agently-core v0.1.57-0.20261015132405-66cff93405c5/go.mod h1:icGK3CMlq31/I0hA/ps6tTAx/HzuXTlIY92IH0sHIck=
+github.com/viant/forge v0.3.45-0.20261015132040-31450cc20703 h1:vCMsEqD4Oi5QvnkWUQynKr0Lt0yM1te6byv5qLzUBXc=
+github.com/viant/forge v0.3.45-0.20261015132040-31450cc20703/go.mod h1:asQHHCMbgC0d3pc0dm+GFFQ5cDyzjG0qN86vrW85rCY=
