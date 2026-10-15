@@ -13,13 +13,13 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
-	github.com/viant/agently-core v0.1.57-0.20261014230749-e0911f27e924
+	github.com/viant/agently-core v0.1.57-0.20261015022014-f37abfaf76a7
 	github.com/viant/datly v1.1.1-0.20261014171954-a220d43fa66b
 	github.com/viant/embedius v0.5.6 // indirect
-	github.com/viant/forge v0.3.45-0.20261014210907-b8a3c8f91b4a
+	github.com/viant/forge v0.3.45-0.20261015011117-38bb1cf13641
 	github.com/viant/jsonrpc v0.25.1-0.20261014230436-c7e03c1c46eb
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
-	github.com/viant/mcp v0.24.1-0.20261014183435-4ede589f52da
+	github.com/viant/mcp v0.24.1-0.20261015005417-1d6bc8f12751
 	github.com/viant/mcp-protocol v0.19.1-0.20261014173008-af92f34f304b
 	github.com/viant/mcp-ui v0.2.1-0.20261011073152-8f30de0c7bc3 // indirect
 	github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726
@@ -32,9 +32,9 @@ require (
 
 require (
 	github.com/google/gops v0.3.28
-	github.com/viant/agently-core/protocol/primitive v0.0.0-20261014170051-3064cfcf1124
-	github.com/viant/agently-core/protocol/resource v0.0.0-20261014060740-664c53d5a109
-	github.com/viant/authz v0.0.0-20261012005207-7814ee919e44
+	github.com/viant/agently-core/protocol/primitive v0.0.0-20261015021722-e84334ca688f
+	github.com/viant/agently-core/protocol/resource v0.0.0-20261015021722-e84334ca688f
+	github.com/viant/authz v0.0.0-20261014234113-96042135a76f
 	github.com/viant/bigquery v0.5.4-0.20260927120042-a47888f8d2cc
 )
 
@@ -136,13 +136,12 @@ require (
 	github.com/sourcegraph/go-diff v0.7.0 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
 	github.com/tdewolff/parse/v2 v2.8.16 // indirect
-	github.com/tidwall/gjson v1.19.0 // indirect
+	github.com/tidwall/gjson v1.20.0 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
-	github.com/viant/agently-core/protocol/window v0.0.0-20261014061347-bbbdb0ee25d5 // indirect
-	github.com/viant/agently-core/service/reportdefinition/materializer v0.0.0-20261008231612-4e2d839e8f05 // indirect
+	github.com/viant/agently-core/protocol/window v0.0.0-20261015021722-e84334ca688f // indirect
 	github.com/viant/bindly v0.4.1-0.20261011212616-2c051ae6bd9e // indirect
 	github.com/viant/bintly v0.2.0 // indirect
 	github.com/viant/gds v0.6.0 // indirect
