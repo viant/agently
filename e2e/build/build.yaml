@@ -1,5 +1,5 @@
 init:
-  repoPath: $WorkingDirectory(../..)
+  repoPath: '$repoPath ? $repoPath : $WorkingDirectory(../..)'
 
 pipeline:
   buildUI:
