@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+// Load the linked SDK/Forge graph during collection, not a timed behavior test.
+import * as mod from './toolFeedBus';
 
 vi.mock('./agentlyClient', () => ({
   client: {
@@ -8,7 +10,6 @@ vi.mock('./agentlyClient', () => ({
 
 describe('toolFeedBus conversation scoping', () => {
   it('retains content while clearing activation knowledge only in the addressed conversation', async () => {
-    const mod = await import('./toolFeedBus');
     for (const conversationId of ['a', 'b']) mod.applyFeedEvent({
       type: 'tool_feed_active', feedId: 'feed', conversationId, feedData: { rows: [conversationId] },
     });
@@ -19,12 +20,10 @@ describe('toolFeedBus conversation scoping', () => {
     expect(mod.isFeedInactive('feed', 'a')).toBe(false);
   });
   afterEach(async () => {
-    const mod = await import('./toolFeedBus');
     mod.clearFeedState();
   });
 
   it('keeps same feed ids isolated across conversations', async () => {
-    const mod = await import('./toolFeedBus');
 
     mod.applyFeedEvent({
       type: 'tool_feed_active',
@@ -63,7 +62,6 @@ describe('toolFeedBus conversation scoping', () => {
   });
 
   it('moves preview updates to the new turn and resists stale transcript replay', async () => {
-    const mod = await import('./toolFeedBus');
     const { getFormSignal } = await import('forge/core');
     mod.applyFeedEvent({
       type: 'tool_feed_active', feedId: 'editable-record', conversationId: 'conv-record', turnId: 'turn-1',
@@ -101,7 +99,6 @@ describe('toolFeedBus conversation scoping', () => {
   });
 
   it('maps form, collection, and selection view paths onto one canonical feed datasource', async () => {
-    const mod = await import('./toolFeedBus');
     const { getCollectionSignal } = await import('forge/core');
     mod.applyFeedEvent({
       type: 'tool_feed_active', feedId: 'view-paths', conversationId: 'conv-view', turnId: 'turn-1',
@@ -137,7 +134,6 @@ describe('toolFeedBus conversation scoping', () => {
   });
 
   it('patches first, middle, and last collection items without shifting indices', async () => {
-    const mod = await import('./toolFeedBus');
     const items = [
       { id: 'a', value: 1 },
       { id: 'b', value: 2 },
@@ -179,7 +175,6 @@ describe('toolFeedBus conversation scoping', () => {
   });
 
   it('does not let a delayed backend fetch overwrite a newer dirty preview', async () => {
-    const mod = await import('./toolFeedBus');
     const { client } = await import('./agentlyClient');
     let resolveFetch;
     client.getFeedData.mockReturnValueOnce(new Promise((resolve) => { resolveFetch = resolve; }));
@@ -215,7 +210,6 @@ describe('toolFeedBus conversation scoping', () => {
   it('applies cached array removals exactly once before Forge rewiring', async () => {
     vi.useFakeTimers();
     try {
-      const mod = await import('./toolFeedBus');
       const { getCollectionSignal, getFormSignal, getFormStatusSignal } = await import('forge/core');
       mod.applyFeedEvent({
         type: 'tool_feed_active', feedId: 'editable-array', conversationId: 'conv-array', turnId: 'turn-1',
@@ -254,7 +248,6 @@ describe('toolFeedBus conversation scoping', () => {
   });
 
   it('unwraps feed payload envelopes that place ui and data under a nested data object', async () => {
-    const mod = await import('./toolFeedBus');
 
     mod.updateFeedData('goal', {
       data: {
@@ -281,7 +274,6 @@ describe('toolFeedBus conversation scoping', () => {
   });
 
   it('resolves scoped feed ids without double-scoping lookups or fetches', async () => {
-    const mod = await import('./toolFeedBus');
     const { client } = await import('./agentlyClient');
 
     client.getFeedData.mockResolvedValueOnce({
@@ -311,7 +303,6 @@ describe('toolFeedBus conversation scoping', () => {
   });
 
   it('preserves inline feed data when a spec fetch returns ui without data', async () => {
-    const mod = await import('./toolFeedBus');
     const { client } = await import('./agentlyClient');
 
     client.getFeedData.mockResolvedValueOnce({
@@ -340,7 +331,6 @@ describe('toolFeedBus conversation scoping', () => {
   });
 
   it('preserves fetched UI metadata across later live feed updates', async () => {
-    const mod = await import('./toolFeedBus');
     mod.applyFeedEvent({
       type: 'tool_feed_active', feedId: 'changes', conversationId: 'conv-live',
       feedTitle: 'Changes', feedItemCount: 1, feedData: { output: { changes: [{ url: '/tmp/a' }] } },
@@ -359,7 +349,6 @@ describe('toolFeedBus conversation scoping', () => {
   });
 
   it('remembers inactive feeds until a fresh active event arrives', async () => {
-    const mod = await import('./toolFeedBus');
 
     mod.applyFeedEvent({
       type: 'tool_feed_active',
@@ -397,7 +386,6 @@ describe('toolFeedBus conversation scoping', () => {
   });
 
   it('clears shared feed selection when feed state is cleared', async () => {
-    const mod = await import('./toolFeedBus');
     const selection = await import('./toolFeedSelection');
 
     mod.applyFeedEvent({
@@ -419,7 +407,6 @@ describe('toolFeedBus conversation scoping', () => {
   });
 
   it('does not refetch feed spec when the scoped feed already has ui and dataSources', async () => {
-    const mod = await import('./toolFeedBus');
     const { client } = await import('./agentlyClient');
 
     client.getFeedData.mockReset();
@@ -459,7 +446,6 @@ describe('toolFeedBus conversation scoping', () => {
   });
 
   it('clears feed state only for the targeted conversation', async () => {
-    const mod = await import('./toolFeedBus');
     const selection = await import('./toolFeedSelection');
 
     mod.applyFeedEvent({
