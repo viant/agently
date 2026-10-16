@@ -12,6 +12,7 @@ import {windowMetadataEndpoint} from 'forge/components/windowMetadataEndpoint.js
 import * as canonicalDelivery from 'forge/runtime/canonicalDelivery.js';
 import * as permittedView from 'forge/runtime/permittedView.js';
 import * as forgeSignals from 'forge/core/store/signals.js';
+import * as tablePagingMetadata from 'forge/runtime/tablePagingMetadata.js';
 const esbuild = require('esbuild');
 const parser = require('@babel/parser');
 const dir = path.dirname(fileURLToPath(import.meta.url));
@@ -45,7 +46,7 @@ function windowHarness(events,options={}) {
  const metadata=options.protected?{authorization:{scope:'resource'},view:{content:{id:'ready'}}}:{view:{content:{id:'ready'}}};
  const services={applyPermission:async value=>{permissions++;if(options.denyPermission)throw Object.assign(new Error('denied'),{status:403});return{view:value.completeMetadata.view}}};
  const auth={};const settings={endpoints:{},connectorConfig:{window:{service:{uri:'/window'}}},services,targetContext:{},useAuth:()=>auth};
- const runner=hooks({...forgeSignals,...canonicalDelivery,...permittedView,useSignals(){},findMetadataSignal:()=>signal,getMetadataSignal:()=>signal,useSetting:()=>settings,
+ const runner=hooks({...forgeSignals,...canonicalDelivery,...permittedView,...tablePagingMetadata,useSignals(){},findMetadataSignal:()=>signal,getMetadataSignal:()=>signal,useSetting:()=>settings,
   useDataConnector:()=>({get:async()=>{calls++;if(!healthy)throw Object.assign(new Error('GET error 500'),{status:options.status||500});return{data:metadata}}}),
   buildReportBuilderHostServices:()=>services,activeWindows:{peek:()=>[]},primeWindowSignals(){},injectActions(){},
   windowMetadataEndpoint,resolveMetadataForTarget:value=>value,SoftSkeleton:'skeleton',SoftBlock:'block',
