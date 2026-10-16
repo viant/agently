@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import './typography.js';
 import './index.css';
+import './components/mcpApps/HostedWindowApp.jsx';
 
 // Browser-side network request logger (dev only)
 if (import.meta.env.DEV) {

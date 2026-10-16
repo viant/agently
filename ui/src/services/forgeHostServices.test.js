@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
+vi.mock('./chatStore', () => ({getProjection: vi.fn(), subscribe: vi.fn()}));
+
+vi.mock('./agentlyClient', () => ({client: {}, getAuthMeSilently: vi.fn(), getReportRestoreScope: vi.fn()}));
+
+vi.mock('./permissionService', () => ({applyPermission: vi.fn()}));
+
 vi.mock('./chatService', () => ({
   chatService: {
     explorerRead: vi.fn(),
@@ -17,6 +23,7 @@ vi.mock('./datasourceRequestContext', () => ({
 }));
 
 vi.mock('./reportExportService', () => ({
+  submitReportExportResource: vi.fn(async (request) => ({ ok: true, request })),
   submitReportExportRequest: vi.fn(async ({ request, source }) => ({
     ok: true,
     source,
@@ -54,6 +61,7 @@ vi.mock('./reportExportService', () => ({
 }));
 
 vi.mock('./reportStoreService', () => ({
+  runReport: vi.fn(async (request) => ({ ok: true, ...request })),
   saveReport: vi.fn(async (request) => ({ ok: true, artifactId: 'report-1', ...request })),
   getReport: vi.fn(async ({ artifactId }) => ({ artifactId, title: 'Stored Report' })),
   listReports: vi.fn(async ({ limit }) => ({ reports: [{ artifactId: 'report-1', title: 'Stored Report' }], totalCount: limit || 1 })),
@@ -100,6 +108,8 @@ import { forgeHostServices } from './forgeHostServices';
 describe('forgeHostServices', () => {
   it('exposes the hosted Forge service bundle including reporting services', async () => {
     expect(forgeHostServices.chat).toBe(chatService);
+    expect(typeof forgeHostServices.applyPermission).toBe('function');
+    expect(forgeHostServices.authorizationRefresh).toEqual({mode: 'opening'});
     expect(forgeHostServices.schedule).toBe(scheduleService);
     expect(forgeHostServices.prepareDataConnectorRequest).toBe(prepareAgentlyDataConnectorRequest);
     expect(typeof forgeHostServices.reportExport.submitRequest).toBe('function');

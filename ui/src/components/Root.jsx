@@ -1,3 +1,4 @@
+import SplitShellFloatingWindows from './SplitShellFloatingWindows.jsx';
 import { feedTracker, getActiveFeeds } from '../services/toolFeedBus.js';
 import { useWorkspaceAdapters, setWorkspaceLifecycle } from '../services/useWorkspaceAdapters.js';
 import { getWorkspaceHistory, reopenWorkspaceObject } from '../services/conversationWindow.js';
@@ -1517,6 +1518,7 @@ export default function Root() {
               ) : null}
               {mainConversationId ? <TurnProgressStatus conversationId={mainConversationId} developerMode={developerMode} connectionResumePending={mcpResumePending} /> : null}
               {shouldRenderSplitShell ? (
+                <>
                 <ConversationWorkspaceSurface
                   activeSurface={activeSurface}
                   unreadCount={unreadChatCount}
@@ -1537,6 +1539,8 @@ export default function Root() {
                   onCloseWorkspace={closeActiveWorkspaceWindow}
                   onSelectWorkspaceTab={focusWorkspaceWindow}
                 />
+                <SplitShellFloatingWindows />
+                </>
               ) : (
                 <WindowManager
                   isTabVisible={(windowEntry) => String(windowEntry?.windowId || '').trim() !== MAIN_CHAT_WINDOW_ID}

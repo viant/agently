@@ -9,5 +9,6 @@ export const forgeHostServices = {
   schedule: scheduleService,
   prepareDataConnectorRequest: prepareAgentlyDataConnectorRequest,
   applyPermission,
+  authorizationRefresh: {mode: 'opening'},
   ...reportingHostServices,
 };

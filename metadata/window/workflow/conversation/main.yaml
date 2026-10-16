@@ -23,5 +23,5 @@ view:
 
 # Data sources – reuse existing chat datasources
 dataSource:
-  conversations: $import('../../../chat/conversations/datasource/conversations.yaml')
-  messages: $import('../../../chat/conversations/datasource/messages.yaml')
+  conversations: $import('../../chat/conversations/datasource/conversations.yaml')
+  messages: $import('../../chat/conversations/datasource/messages.yaml')

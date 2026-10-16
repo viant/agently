@@ -25,6 +25,7 @@ vi.mock('./chatStore', () => ({
   submit: vi.fn(),
   steer: vi.fn(),
   onSSE: vi.fn(),
+  getActiveTurnId: vi.fn(),
 }));
 
 vi.mock('./chatRuntime', () => ({
@@ -93,7 +94,7 @@ vi.mock('../utils/dialogBus', () => ({
 
 import { client } from './agentlyClient';
 import { setStage } from './stageBus';
-import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore, onSSE as applyEventToChatStore } from './chatStore';
+import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore, onSSE as applyEventToChatStore, getActiveTurnId } from './chatStore';
 import { onInit, prepareUpload, submitMessage } from './chatService';
 import { listLookupRegistry } from '../components/lookups/client.js';
 import {
@@ -119,6 +120,7 @@ import {
 describe('submitMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getActiveTurnId.mockReturnValue('');
     getSettledConversationBootstrapSnapshot.mockReturnValue(null);
     hydrateConversationFromBootstrapSnapshot.mockReturnValue(false);
   });
@@ -858,6 +860,7 @@ describe('submitMessage', () => {
   });
 
   it('steers into the active running turn instead of queueing a follow-up turn', async () => {
+    getActiveTurnId.mockReturnValue('turn-1');
     client.query.mockResolvedValue({});
     client.steerTurn = vi.fn().mockResolvedValue({ status: 'accepted', turnId: 'turn-1', messageId:'native-steering-user' });
     ensureConversation.mockResolvedValue('conv-steer');
@@ -925,6 +928,73 @@ describe('submitMessage', () => {
     expect(applyEventToChatStore).toHaveBeenCalledWith('conv-steer',expect.objectContaining({messageId:'native-steering-user',clientRequestId:requestId,turnId:'turn-1',patch:{role:'user'}}));
     expect(client.query).not.toHaveBeenCalled();
     expect(submitToChatStore).not.toHaveBeenCalled();
+  });
+
+  it('queues a follow-up when a stream hint outlives the canonical running turn', async () => {
+    client.query.mockResolvedValue({});
+    client.steerTurn = vi.fn();
+    ensureConversation.mockResolvedValue('conv-stale-turn');
+    resolveUserID.mockReturnValue('');
+    ensureContextResources.mockReturnValue({
+      runningTurnId: 'terminal-turn',
+      activeStreamTurnId: 'terminal-turn',
+      lastHasRunning: true,
+      activeConversationID: '',
+      liveOwnedConversationID: '',
+    });
+    dsTick.mockResolvedValue({ conversationID: 'conv-stale-turn', hasRunning: true });
+    const convForm = {};
+    const context = {
+      Context(name) {
+        if (name === 'conversations') return { handlers: { dataSource: {
+          peekFormData: () => convForm,
+          setFormData: vi.fn(({ values }) => Object.assign(convForm, values)),
+        } } };
+        if (name === 'meta') return { handlers: { dataSource: {
+          peekFormData: () => ({ defaults: { model: 'openai_gpt-5_4' } }),
+        } } };
+        return null;
+      },
+    };
+
+    await submitMessage({ context, message: 'Give me more details.', model: 'openai_gpt-5_4', agent: 'steward' });
+
+    expect(getActiveTurnId).toHaveBeenCalledWith('conv-stale-turn');
+    expect(client.steerTurn).not.toHaveBeenCalled();
+    expect(steerToChatStore).not.toHaveBeenCalled();
+    expect(client.query).toHaveBeenCalledWith(expect.objectContaining({ query: 'Give me more details.' }));
+    expect(setStage).toHaveBeenCalledWith(expect.objectContaining({ text: 'Queued follow-up…' }));
+  });
+
+  it('clears the optimistic steering row when acceptance times out', async () => {
+    getActiveTurnId.mockReturnValue('turn-1');
+    client.steerTurn = vi.fn().mockRejectedValue(Object.assign(new Error('Steering timed out'), { status: 504 }));
+    ensureConversation.mockResolvedValue('conv-steer-timeout');
+    resolveUserID.mockReturnValue('');
+    ensureContextResources.mockReturnValue({
+      runningTurnId: 'turn-1',
+      activeStreamTurnId: 'turn-1',
+      lastHasRunning: true,
+    });
+    dsTick.mockResolvedValue({ conversationID: 'conv-steer-timeout', hasRunning: true });
+    const context = {
+      Context(name) {
+        if (name === 'conversations') return { handlers: { dataSource: {
+          peekFormData: () => ({}), setFormData: vi.fn(),
+        } } };
+        if (name === 'meta') return { handlers: { dataSource: {
+          peekFormData: () => ({ defaults: { model: 'openai_gpt-5_4' } }),
+        } } };
+        return null;
+      },
+    };
+
+    await expect(submitMessage({ context, message: 'More detail', model: 'openai_gpt-5_4', agent: 'steward' }))
+      .rejects.toMatchObject({ status: 504 });
+
+    expect(resetChatStoreConversation).toHaveBeenCalledWith('conv-steer-timeout');
+    expect(setStage).toHaveBeenCalledWith(expect.objectContaining({ phase: 'error' }));
+    expect(client.query).not.toHaveBeenCalled();
   });
 
   it('submits canonical attachments even when the resolved prompt is empty', async () => {
@@ -1033,6 +1103,7 @@ describe('submitMessage', () => {
 
     const convForm = {};
     const context = {
+      metadata: {resource:{uri:"window://owned/chat",kind:"working",providerIdentity:"owned-provider",authorityBinding:"owned-actor"}},
       Context(name) {
         if (name === 'conversations') {
           return {
@@ -1066,6 +1137,9 @@ describe('submitMessage', () => {
       agent: 'steward',
     });
 
+    expect(listLookupRegistry).toHaveBeenCalledWith('chat-composer','steward',{
+      owner:{uri:'window://owned/chat',revision:'working'},providerIdentity:'owned-provider',authorityBinding:'owned-actor',
+    });
     expect(client.query).toHaveBeenCalledWith(expect.objectContaining({
       query: 'Troubleshoot /order order for delivery issues.',
     }));

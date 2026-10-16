@@ -1144,6 +1144,7 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     // Initial history needs execution summaries and workspace ACKs, not the
     // full model prompts/provider bodies. Detail expansion fetches those later.
     includeModelPayloads: options?.includeModelPayloads === true,
+    includeToolPayloads: options?.includeToolPayloads === true,
     includeFeeds,
     since: since || undefined,
   };
@@ -1290,7 +1291,22 @@ function applyConversationFormSnapshot(base = {}, conversation = null) {
 const conversationComposerSelections = new Map();
 const draftComposerSelections = new Map();
 let conversationComposerGeneration=0;
-if (typeof window !== 'undefined') window.addEventListener?.('agently:session-reset', () => {conversationComposerSelections.clear();draftComposerSelections.clear();conversationComposerGeneration++;goalFeedGeneration++;goalFeedRefreshes.clear();});
+export function resetConversationSessionRuntime() {
+  conversationComposerSelections.clear();
+  draftComposerSelections.clear();
+  conversationComposerGeneration++;
+  goalFeedGeneration++;
+  goalFeedRefreshes.clear();
+  for (const owner of streamSubscriptionOwners.values()) {
+    owner.active = false;
+    clearPendingStreamReconnect(owner.chatState);
+    if (owner.chatState.stream === owner.subscription) owner.chatState.stream = null;
+    try { owner.subscription?.close?.(); } catch (_) {}
+  }
+  streamSubscriptionOwners.clear();
+  for (const context of Array.from(pollingOwnersByWindowId.values())) stopPolling(context);
+}
+if (typeof window !== 'undefined') window.addEventListener?.('agently:session-reset', resetConversationSessionRuntime);
 /** Keep the composer metadata and the conversation selection in sync. Metadata
  * defaults describe a fresh draft; they must not replace an owned selection. */
 function composerConversationID(context,form={}) {
@@ -2678,6 +2694,7 @@ export async function switchConversation(context, conversationID = '') {
         // Canonical execution pages carry internal-role visibility and the
         // ui/view:open result used to restore report workspace attachments.
         includeExecutionDetails: true,
+        includeFeeds: false,
       },
       restoreWorkspace: false,
       autoRestoreWorkspace: true,
@@ -2721,6 +2738,7 @@ export async function switchConversation(context, conversationID = '') {
     allowLiveHydration: true,
     transcript: {
       includeExecutionDetails: true,
+      includeFeeds: false,
     },
     restoreWorkspace: false,
     autoRestoreWorkspace: true,

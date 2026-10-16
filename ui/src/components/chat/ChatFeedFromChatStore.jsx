@@ -62,7 +62,7 @@ export function resolveStarterTaskPresentation(metaForm = {}, workspaceMetadata 
   };
 }
 
-function UserBubble({ row, conversationId = '' }) {
+function UserBubble({ row, conversationId = '', context }) {
   return (
     <div
       data-render-key={row.renderKey}
@@ -70,6 +70,7 @@ function UserBubble({ row, conversationId = '' }) {
       data-client-request-id={row.clientRequestId || ''}
     >
       <BubbleMessage
+        context={context}
         conversationId={conversationId}
         message={{
           id: row.renderKey,
@@ -85,13 +86,14 @@ function UserBubble({ row, conversationId = '' }) {
   );
 }
 
-function AssistantBubble({ row, conversationId = '', attachment = null }) {
+function AssistantBubble({ row, conversationId = '', attachment = null, context }) {
   return (
     <div
       data-render-key={row.renderKey}
       data-message-id={row.messageId || ''}
     >
       <BubbleMessage
+        context={context}
         conversationId={conversationId}
         attachment={attachment}
         message={{
@@ -114,12 +116,12 @@ function AssistantBubble({ row, conversationId = '', attachment = null }) {
 function renderRow(row, context, conversationId = '', attachment = null) {
   switch (row.kind) {
     case 'user':
-      return <UserBubble key={row.renderKey} row={row} conversationId={conversationId} />;
+      return <UserBubble key={row.renderKey} row={row} conversationId={conversationId} context={context} />;
     case 'assistant':
-      return <AssistantBubble key={row.renderKey} row={row} conversationId={conversationId} attachment={attachment} />;
+      return <AssistantBubble key={row.renderKey} row={row} conversationId={conversationId} attachment={attachment} context={context} />;
     case 'mcpui':
       if (row.hostEffectsAllowed === false || row.connectionProfile === 'standard') return <div key={row.renderKey}>{String(row.toolName || 'Tool result')}</div>;
-      return <MCPUIBubble key={row.renderKey} row={row} conversationId={conversationId} />;
+      return <MCPUIBubble key={row.renderKey} row={row} conversationId={conversationId} context={context} />;
     case 'iteration':
       return <IterationRowBlock key={row.renderKey} iterationRow={row} context={context} />;
     default:

@@ -30,6 +30,7 @@ import (
 	svca2a "github.com/viant/agently-core/service/a2a"
 	svcauth "github.com/viant/agently-core/service/auth"
 	goalsys "github.com/viant/agently-core/service/goal"
+	primitiveResources "github.com/viant/agently-core/service/resource"
 	wscfg "github.com/viant/agently-core/workspace/config"
 	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	templaterepo "github.com/viant/agently-core/workspace/repository/template"
@@ -81,6 +82,11 @@ func ConfigureRegistry(ctx context.Context, rt *executor.Runtime, workspaceRoot 
 	go func() {
 		<-done
 		log.Printf("agently-app: registry warmup finished")
+		// Primitive catalogs can be user-scoped. The first authenticated request
+		// warms its own catalog; a background startup context has no authority.
+		if rt.PrimitiveProviders != nil {
+			return
+		}
 		warmCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 		if rt.Agent != nil {
@@ -195,6 +201,9 @@ func internalServiceFactory(rt *executor.Runtime, workspaceRoot, name string) sv
 			return nil
 		}
 		pRepo := intakerepo.NewWithStore(rt.Store)
+		if rt.PrimitiveProviders != nil {
+			pRepo = intakerepo.NewWithReader(primitiveResources.NewIntentReader(rt.PrimitiveProviders))
+		}
 		opts := []llmagents.Option{
 			llmagents.WithConversationClient(rt.Conversation),
 			llmagents.WithDirectoryProvider(agentDirectoryProvider(rt, workspaceRoot)),
@@ -247,14 +256,23 @@ func internalServiceFactory(rt *executor.Runtime, workspaceRoot, name string) sv
 		if rt.Agent != nil {
 			finder = rt.Agent.Finder()
 		}
+		templates := templaterepo.NewWithStore(rt.Store)
+		bundles := templatebundlerepo.NewWithStore(rt.Store)
+		if rt.PrimitiveProviders != nil {
+			templates = templaterepo.NewWithReader(primitiveResources.NewTemplateReader(rt.PrimitiveProviders))
+			bundles = templatebundlerepo.NewWithReader(primitiveResources.NewTemplateBundleReader(rt.PrimitiveProviders))
+		}
 		return templatesvc.New(
-			templaterepo.NewWithStore(rt.Store),
-			templatebundlerepo.NewWithStore(rt.Store),
+			templates,
+			bundles,
 			templatesvc.WithConversationClient(rt.Conversation),
 			templatesvc.WithAgentFinder(finder),
 		)
 	case "prompt":
 		pRepo := intakerepo.NewWithStore(rt.Store)
+		if rt.PrimitiveProviders != nil {
+			pRepo = intakerepo.NewWithReader(primitiveResources.NewIntentReader(rt.PrimitiveProviders))
+		}
 		var finder agentmdl.Finder
 		if rt.Agent != nil {
 			finder = rt.Agent.Finder()

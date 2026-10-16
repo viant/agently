@@ -268,13 +268,13 @@ func (w *conversationCleanupWorker) runPass(ctx context.Context) (conversationCl
 
 	leaseCtx, cancelLease := context.WithCancel(ctx)
 	heartbeatDone := make(chan error, 1)
-	go func() {
-		err := w.renewConversationCleanupLease(leaseCtx, lease)
+	go func(renewCtx context.Context) {
+		err := w.renewConversationCleanupLease(renewCtx, lease)
 		if err != nil {
 			cancelLease()
 		}
 		heartbeatDone <- err
-	}()
+	}(leaseCtx)
 
 	result.ExpiredLeasesDeleted, err = w.data.DeleteExpiredMaintenanceLeases(leaseCtx, lease)
 	if err == nil {

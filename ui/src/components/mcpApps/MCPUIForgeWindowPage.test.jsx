@@ -11,7 +11,7 @@ describe('MCPUIForgeWindowPage current helpers', () => {
 
   it('builds the hosted Forge window identity consumed by WindowContent', () => {
     expect(buildWindowPayload('metricReportBuilder', {
-      data: { namespace: 'Performance Metrics', presentation: 'hosted', region: 'chat.top' },
+      data: { namespace: 'platform', title: 'Performance Metrics', presentation: 'hosted', region: 'chat.top' },
     }, { conversationId: 'conv-1' })).toMatchObject({
       windowId: 'mcpui:metricReportBuilder',
       windowKey: 'metricReportBuilder',
@@ -23,6 +23,25 @@ describe('MCPUIForgeWindowPage current helpers', () => {
       parameters: { conversationId: 'conv-1' },
       isInTab: true,
     });
+  });
+
+  it('shows the authored title without source prefixes while retaining routing identity', () => {
+    const key = 'window://platform/deliver/orders';
+    expect(buildWindowPayload(key, { data: {
+      namespace: 'AI Studio', title: 'Orders', resource: { providerIdentity: 'aistudio' },
+    } }, {})).toMatchObject({
+      windowKey: key, namespace: 'AI Studio', windowTitle: 'Orders',
+      resource: { providerIdentity: 'aistudio' },
+    });
+  });
+
+  it('uses the original window title or a neutral fallback instead of source or panel labels', () => {
+    expect(buildWindowPayload('window://platform/reports', {
+      data: { namespace: 'AI Studio', viewMetadata: { title: 'Reports' } },
+    }, {}).windowTitle).toBe('Reports');
+    expect(buildWindowPayload('window://platform/reports', {
+      data: { namespace: 'AI Studio', windowTitle: 'AI Studio: Reports', view: { content: { title: 'Panel' } } },
+    }, {}).windowTitle).toBe('Workspace');
   });
 
   it('adds target context and repeated capabilities to the request query', () => {

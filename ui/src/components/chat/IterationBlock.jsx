@@ -743,6 +743,7 @@ export function mapCanonicalExecutionGroups(groups = []) {
             : title)));
     return {
       id: String(group?.parentMessageId || group?.ParentMessageID || group?.modelMessageId || group?.ModelMessageID || `group:${index}`),
+      pageId: String(group?.pageId || ''),
       groupKind: lifecycleOnly
         ? 'lifecycle'
         : (groupPhase === 'intake'
@@ -2304,7 +2305,17 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
           || String(phaseBadgeLabel(group) || '').trim() !== ''
         );
       return (
-        <div className="app-iteration-group" key={`${group.id}:${groupIndex}`}>
+        <div
+          className="app-iteration-group"
+          key={`${group.id}:${groupIndex}`}
+          data-group-id={group.id}
+          data-page-id={group.pageId || undefined}
+          data-group-kind={group.groupKind}
+          data-group-status={group.status || undefined}
+          data-model-call-id={modelStep?.modelCallId || undefined}
+          data-tool-call-ids={JSON.stringify(group.toolSteps.map((step) => step.toolCallId).filter(Boolean))}
+          data-tool-message-ids={JSON.stringify(group.toolSteps.map((step) => step.toolMessageId).filter(Boolean))}
+        >
       {modelStep ? (
         <div className="app-iteration-model-row">
           <div className="app-iteration-tool-row-main">
@@ -2816,7 +2827,7 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
                   <summary className="app-iteration-summary-head">Summary</summary>
                   <div className="app-iteration-summary-body">
                     <div className="app-iteration-summary-content">
-                      <RichContent content={summaryContent} generatedFiles={generatedFiles} conversationId={iterationConversationId} messageId={String(message?.id || '').trim()} />
+                      <RichContent context={context} content={summaryContent} generatedFiles={generatedFiles} conversationId={iterationConversationId} messageId={String(message?.id || '').trim()} />
                     </div>
                   </div>
                 </details>
@@ -2830,6 +2841,7 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
       ) : null}
       {(developerMode || !isActiveIteration || hasPublicTypedPendingReport) && !showTerminalNotice && !suppressBubble && !hasPendingVisibleElicitation && !hasPendingExecutionElicitation && (hasPublicTypedReport || shouldShowNarrationBubble(visibleGroups, displayContinuousRenderedText, stripSuppressedForgeReports(data?.response?.content, suppressedReportIds))) ? (
         <BubbleMessage
+          context={context}
           conversationId={iterationConversationId}
           attachment={attachment}
           message={{

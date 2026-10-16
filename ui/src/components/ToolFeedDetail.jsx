@@ -18,6 +18,7 @@ import {
   wireFeedSignals
 } from '../services/feedForgeWiring';
 import { createFeedContext } from '../services/feedForgeContext';
+import {getWindowContext, setWindowContext, clearWindowContext} from 'forge/core/context/registry.js';
 import { normalizeFeedPayload } from '../services/toolFeedBus';
 import { normalizeToolFeedTarget, toolFeedTargetsPlacement } from '../services/toolFeedTarget';
 import { buildFeedExportTitle, exportFeedReportPDF } from '../services/feedReportExport';
@@ -415,6 +416,11 @@ function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = '
     }),
     [container, conversationId, dataMap, dataSources, exportTitle, feedId, normalized, openLookup]
   );
+  useFeedLayoutEffect(() => {
+    const id = context.identity.windowId;
+    setWindowContext(id, context);
+    return () => { if (getWindowContext(id) === context) clearWindowContext(id); };
+  }, [context]);
   const lookupDialog = useMemo(() => {
     if (!lookupRequest?.request) return null;
     const request = lookupRequest.request;
@@ -445,6 +451,8 @@ function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = '
         ? (row) => String(readFirst(row, [descriptionField]) || '')
         : undefined,
       loadRows: ({ query = '', signal } = {}) => context.handlers.lookup.search({
+        dataSourceResource: lookup?.dataSourceResource,
+        providerIdentity: lookup?.providerIdentity,
         dataSourceRef,
         query,
         queryInput: lookup?.queryInput,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http/httptest"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,18 +17,24 @@ import (
 	"github.com/viant/agently-core/protocol/mcp/manager"
 	"github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/workspace"
+	"github.com/viant/jsonrpc"
+	"github.com/viant/jsonrpc/transport"
 	"github.com/viant/mcp"
+	protocolclient "github.com/viant/mcp-protocol/client"
+	"github.com/viant/mcp-protocol/logger"
 	schema "github.com/viant/mcp-protocol/schema"
+	protocolserver "github.com/viant/mcp-protocol/server"
 	mcpclient "github.com/viant/mcp/client"
+	mcpserver "github.com/viant/mcp/server"
 )
 
-type publicForecastProvider struct{}
+type publicForecastProvider struct{ url string }
 
 func (publicForecastProvider) Names(context.Context) ([]string, error) {
 	return []string{"steward"}, nil
 }
-func (publicForecastProvider) Options(context.Context, string) (*mcpcfg.MCPClient, error) {
-	return &mcpcfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, ToolsListVisibility: mcpcfg.ToolsListVisibilityPublic}, nil
+func (p publicForecastProvider) Options(context.Context, string) (*mcpcfg.MCPClient, error) {
+	return &mcpcfg.MCPClient{ClientOptions: &mcp.ClientOptions{Name: "forecast-warmup", Version: "1", ProtocolVersion: "2025-11-25", Transport: mcp.ClientTransport{Type: "streamable", ClientTransportHTTP: mcp.ClientTransportHTTP{URL: p.url}}}, ToolsListVisibility: mcpcfg.ToolsListVisibilityPublic}, nil
 }
 
 type delayedForecastCatalog struct {
@@ -48,7 +55,33 @@ func (c *delayedForecastCatalog) ListTools(ctx context.Context, _ *string, _ ...
 	if c.failure != nil {
 		return nil, c.failure
 	}
-	return &schema.ListToolsResult{Tools: []schema.Tool{c.tool}}, nil
+	return &schema.ListToolsResult{Tools: []schema.Tool{c.tool}, CacheScope: schema.ListToolsResultCacheScopePublic, TtlMs: 60000}, nil
+}
+
+// Exercise the public catalog through the actual SDK transport. Custom client
+// factories intentionally remain private regardless of a visibility hint.
+type delayedForecastHandler struct {
+	*protocolserver.DefaultHandler
+	catalog *delayedForecastCatalog
+}
+
+func (h *delayedForecastHandler) Implements(method string) bool {
+	return method == "tools/list" || h.DefaultHandler.Implements(method)
+}
+func (h *delayedForecastHandler) Initialize(ctx context.Context, in *schema.InitializeRequestParams, out *schema.InitializeResult) {
+	h.DefaultHandler.Initialize(ctx, in, out)
+	out.Capabilities.Tools = &schema.ServerCapabilitiesTools{}
+}
+func (h *delayedForecastHandler) Discover(ctx context.Context, out *schema.DiscoverResult) {
+	h.DefaultHandler.Discover(ctx, out)
+	out.Capabilities.Tools = &schema.ServerCapabilitiesTools{}
+}
+func (h *delayedForecastHandler) ListTools(ctx context.Context, _ *jsonrpc.TypedRequest[*schema.ListToolsRequest]) (*schema.ListToolsResult, *jsonrpc.Error) {
+	result, err := h.catalog.ListTools(ctx, nil)
+	if err != nil {
+		return nil, jsonrpc.NewInternalError(err.Error(), nil)
+	}
+	return result, nil
 }
 
 type countedForecastRegistry struct {
@@ -78,8 +111,16 @@ func realDelayedForecastRegistry(t *testing.T, failure error) (*executor.Runtime
 	var entry schema.Tool
 	require.NoError(t, json.Unmarshal(raw, &entry))
 	catalog := &delayedForecastCatalog{started: make(chan struct{}), release: make(chan struct{}), tool: entry, failure: failure}
-	mgr, err := manager.New(publicForecastProvider{}, manager.WithClientFactory(func(context.Context, string, string) (mcpclient.Interface, error) { return catalog, nil }))
+	server, err := mcpserver.New(mcpserver.WithImplementation(schema.Implementation{Name: "forecast-catalog", Version: "1"}), mcpserver.WithStreamableURI("/mcp"), mcpserver.WithRootRedirect(false), mcpserver.WithNewHandler(func(_ context.Context, n transport.Notifier, l logger.Logger, c protocolclient.Operations) (protocolserver.Handler, error) {
+		return &delayedForecastHandler{DefaultHandler: protocolserver.NewDefaultHandler(n, l, c), catalog: catalog}, nil
+	}))
 	require.NoError(t, err)
+	peer := httptest.NewServer(server.HTTP(context.Background(), "").Handler)
+	t.Cleanup(func() { peer.CloseClientConnections(); peer.Close() })
+	mgr, err := manager.New(publicForecastProvider{url: peer.URL + "/mcp"})
+	require.NoError(t, err)
+	t.Cleanup(func() { mgr.CloseConversation(""); mgr.CloseConversation("mcp-discovery:steward:background") })
+	require.True(t, mgr.IsToolsListPublic(context.Background(), "steward"), "normal explicitly public HTTP catalog must be eligible for eager initialization")
 	registry, err := tool.NewDefaultRegistry(mgr)
 	require.NoError(t, err)
 	counted := &countedForecastRegistry{Registry: registry}

@@ -2,8 +2,11 @@ package agently
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	forgeservice "github.com/viant/agently-core/service/primitiveprovider"
+	forgetypes "github.com/viant/forge/backend/types"
 	iofs "io/fs"
 	"log"
 	"net"
@@ -13,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -23,6 +27,8 @@ import (
 	execconfig "github.com/viant/agently-core/app/executor/config"
 	appserver "github.com/viant/agently-core/app/server"
 	mcpexpose "github.com/viant/agently-core/protocol/mcp/expose"
+	primitive "github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	"github.com/viant/agently-core/protocol/tool"
 	uicontext "github.com/viant/agently-core/protocol/tool/service/ui/context"
 	uicontrol "github.com/viant/agently-core/protocol/tool/service/ui/control"
@@ -35,7 +41,10 @@ import (
 	"github.com/viant/agently-core/sdk"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauthctx "github.com/viant/agently-core/service/auth"
+	resources "github.com/viant/agently-core/service/resource"
 	svcscheduler "github.com/viant/agently-core/service/scheduler"
+	"github.com/viant/agently-core/service/ui/permittedview"
+	workspaceui "github.com/viant/agently-core/service/workspace"
 	"github.com/viant/agently-core/workspace"
 	wscfg "github.com/viant/agently-core/workspace/config"
 	forgewindowrepo "github.com/viant/agently-core/workspace/repository/forgewindow"
@@ -58,13 +67,33 @@ type servedUIBundle struct {
 }
 
 type ServeOptions struct {
-	Addr              string
-	WorkspacePath     string
-	ScratchpadRootURI string
-	UIDist            string
-	Debug             bool
-	Policy            string // tool policy: auto|ask|deny
-	ExposeMCP         bool   // expose tools over MCP HTTP server
+	nativeWindowRuntimeBinder        func(*executor.Runtime) error
+	InternalResourceProviderIdentity string
+	NativeWindowConfigPath           string
+	// WindowTargetProof may provide shared verification across host replicas.
+	// Nil uses an ephemeral process key; outstanding short leases require the
+	// same process and are invalidated by restart.
+	WindowTargetProof         forgetypes.WindowTargetProof
+	WindowLegacyTargetSupport forgeservice.WindowLegacyTargetSupport
+	// DisableBackgroundWorkers is for dedicated interactive validation hosts.
+	// It suppresses scheduled/autonomous work without changing authorization.
+	DisableBackgroundWorkers bool
+	// ConfigureBuilder installs trusted host providers before Core constructs
+	// workspace authorization. It is never supplied by a browser request.
+	ConfigureBuilder func(context.Context, *executor.Builder) error
+	// AuthorizationProviderFactory optionally overrides the configured authz HTTP
+	// adapter for trusted embedders. The ordinary CLI needs no custom factory.
+	AuthorizationProviderFactory     AuthorizationProviderFactory
+	ReportResourceProviderFactory    ReportResourceProviderFactory
+	ResourceSelectionProviderFactory ResourceSelectionProviderFactory
+	AuthzConfigPath                  string
+	Addr                             string
+	WorkspacePath                    string
+	ScratchpadRootURI                string
+	UIDist                           string
+	Debug                            bool
+	Policy                           string // tool policy: auto|ask|deny
+	ExposeMCP                        bool   // expose tools over MCP HTTP server
 }
 
 const (
@@ -138,11 +167,39 @@ func Serve(options ServeOptions) error {
 		return fmt.Errorf("invalid reporting orchestration configuration: %w", err)
 	}
 	orchestrationEnabled := defaults.Reporting.OrchestrationEnabled()
+	options.WorkspacePath = workspace.Root()
+	options, err = configureNativeWindowHost(options)
+	if err != nil {
+		return fmt.Errorf("native window configuration: %w", err)
+	}
+	internal := &internalHostRegistration{}
+	configureBuilder, err := configureHostAuthorization(options, workspace.Root(), wsConfig, workspaceReportingEnricher(reportingRuntime.loader), internal)
+	if err != nil {
+		return err
+	}
+
+	layoutDefault, err := coremeta.FS.ReadFile("workspace-layout.yaml")
+	if err != nil {
+		return fmt.Errorf("read embedded workspace layout: %w", err)
+	}
+	frameworkDefaults, err := defaultFrameworkWindows()
+	if err != nil {
+		return fmt.Errorf("framework source declarations: %w", err)
+	}
+	originalConfigureBuilder := configureBuilder
+	configureBuilder = func(ctx context.Context, builder *executor.Builder) error {
+		builder.WithNativeLayoutDefault(layoutDefault).WithNativeWindowDefaults(frameworkDefaults)
+		if originalConfigureBuilder != nil {
+			return originalConfigureBuilder(ctx, builder)
+		}
+		return nil
+	}
 
 	rt, client, agentFndr, err := appserver.BuildWorkspaceRuntime(ctx, appserver.RuntimeOptions{
 		WorkspaceRoot:          workspace.Root(),
 		SkipRegistryInitialize: true,
 		Defaults:               defaults,
+		ConfigureBuilder:       configureBuilder,
 		ConfigureRuntime: func(ctx context.Context, rt *executor.Runtime, workspaceRoot string) {
 			agentlyrt.ConfigureRegistry(ctx, rt, workspaceRoot)
 		},
@@ -151,6 +208,9 @@ func Serve(options ServeOptions) error {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
 	}
 	defer rt.Close(context.Background())
+	if err := bindNativeWindowRuntime(options, rt); err != nil {
+		return fmt.Errorf("native window identity startup: %w", err)
+	}
 	if err := agentlyrt.ConfigureForecastEvidence(ctx, rt, workspace.Root()); err != nil {
 		return fmt.Errorf("forecast evidence startup: %w", err)
 	}
@@ -191,7 +251,19 @@ func Serve(options ServeOptions) error {
 		return fmt.Errorf("runtime Forge UI bridge is not configured")
 	}
 	forgeWindowRepo := forgewindowrepo.NewWithStore(rt.Store)
-	logLoadedForgeWindows(ctx, forgeWindowRepo)
+	if rt.PrimitiveProviders != nil {
+		forgeWindowRepo = forgewindowrepo.NewWithReader(resources.NewWindowViewReader(rt.PrimitiveProviders))
+	}
+	// A provider-backed catalog is scoped to an authenticated request. Startup
+	// has no user identity, so probing it here can only produce a false denial.
+	if rt.PrimitiveProviders == nil {
+		logLoadedForgeWindows(ctx, forgeWindowRepo)
+	}
+	// Capture native immutable sources only after constructor and original
+	// window-loader startup reads finish normalizing their filesystem.
+	if err := internal.Bind(ctx, rt); err != nil {
+		return fmt.Errorf("internal resource startup: %w", err)
+	}
 	if rt.Registry != nil {
 		if err := tool.AddInternalService(rt.Registry, uiview.New(forgeWindowRepo, uiBridge, uiview.WithListItemEnricher(reportingRuntime.EnrichView))); err != nil {
 			log.Printf("agently-app: failed to register internal UI view service: %v", err)
@@ -202,7 +274,17 @@ func Serve(options ServeOptions) error {
 		if err := tool.AddInternalService(rt.Registry, uicontrol.New(uiBridge)); err != nil {
 			log.Printf("agently-app: failed to register internal UI control service: %v", err)
 		}
-		if err := tool.AddInternalService(rt.Registry, uifeed.New(uiBridge)); err != nil {
+		var feedOptions []uifeed.Option
+		if rt.PrimitiveProviders != nil {
+			feedOptions = append(feedOptions, uifeed.WithIdentityResolver(func(ctx context.Context, requested string) (string, error) {
+				got, err := resources.ResolveDefinition[primitive.ToolfeedDefinition](ctx, rt.PrimitiveProviders, primitive.ToolfeedKind, requested, func(definition primitive.ToolfeedDefinition) string { return definition.ID })
+				if err != nil {
+					return "", err
+				}
+				return got.Resource.URI, nil
+			}))
+		}
+		if err := tool.AddInternalService(rt.Registry, uifeed.New(uiBridge, feedOptions...)); err != nil {
 			log.Printf("agently-app: failed to register internal UI feed service: %v", err)
 		}
 		if err := tool.AddInternalService(rt.Registry, uidatasource.New(uiBridge)); err != nil {
@@ -234,39 +316,73 @@ func Serve(options ServeOptions) error {
 		watchdogOptions = append(watchdogOptions, agentsvc.WithWatchdogProtocolRecovery(reconciler.ReconcileAGUIApprovals, reconciler.IsAGUIApprovalRecoveryOwnedTurn))
 	}
 	agentWatchdog := agentsvc.NewWatchdog(rt.Data, rt.Agent, watchdogOptions...)
-	go func() {
-		if err := rt.Agent.ReconcileRunningConversationStatuses(ctx, 500); err != nil {
-			log.Printf("conversation status reconcile error: %v", err)
-		}
-	}()
-	startConversationCleanup(ctx, rt.Data, cleanupOptions)
+	if !options.DisableBackgroundWorkers {
+		go func() {
+			if err := rt.Agent.ReconcileRunningConversationStatuses(ctx, 500); err != nil {
+				log.Printf("conversation status reconcile error: %v", err)
+			}
+		}()
+		startConversationCleanup(ctx, rt.Data, cleanupOptions)
+	}
 	schedulerOpts := agentlyrt.SchedulerOptionsFromEnv()
-	layoutDefault, err := coremeta.FS.ReadFile("workspace-layout.yaml")
-	if err != nil {
-		return fmt.Errorf("read embedded workspace layout: %w", err)
+	if options.DisableBackgroundWorkers {
+		schedulerOpts.EnableAPI = false
+		schedulerOpts.EnableRunNow = false
+		schedulerOpts.EnableWatchdog = false
+	}
+	agentIDs := appserver.DiscoverWorkspaceAgentIDs(workspace.Root())
+	if options.DisableBackgroundWorkers {
+		agentIDs = nil
 	}
 	demoBackends, err := configuredAGUIDemoBackends(wsConfig)
 	if err != nil {
 		return err
 	}
+	var hostedAppReader sdk.MCPUIResourceReader
+	var hostedAppBinder sdk.MCPUIResourceContextBinder
+	if internal.hostedAppReader != nil {
+		hostedAppReader, hostedAppBinder, err = internal.hostedAppReader(rt, client)
+		if err != nil {
+			return err
+		}
+	}
+	var menuReader workspaceui.LayoutMenuReader
+	if internal.menuReader != nil {
+		menuReader, err = internal.menuReader(rt)
+		if err != nil {
+			return fmt.Errorf("configure navigation menu: %w", err)
+		}
+	}
 	apiHandler, err := appserver.NewAPIHandler(ctx, appserver.APIOptions{
-		Version:          firstNonEmpty(strings.TrimSpace(Version), "agently-v1"),
-		LayoutDefault:    layoutDefault,
-		Runtime:          rt,
-		Client:           client,
-		AgentFinder:      agentFndr,
-		AgentIDs:         appserver.DiscoverWorkspaceAgentIDs(workspace.Root()),
-		AuthRuntime:      authRuntime,
-		SchedulerService: schedulerSvc,
-		SchedulerOptions: schedulerOpts,
-		UIBridgeHandler:  http.HandlerFunc(uiBridge.Hub().ServeHTTPRPC),
-		AGUIDemoBackends: demoBackends,
+		MenuReader:                 menuReader,
+		MCPUIResourceReader:        hostedAppReader,
+		MCPUIResourceContextBinder: hostedAppBinder,
+		Version:                    firstNonEmpty(strings.TrimSpace(Version), "agently-v1"),
+		LayoutDefault:              layoutDefault,
+		Runtime:                    rt,
+		Client:                     client,
+		AgentFinder:                agentFndr,
+		AgentIDs:                   agentIDs,
+		AuthRuntime:                authRuntime,
+		SchedulerService:           schedulerSvc,
+		SchedulerOptions:           schedulerOpts,
+		UIBridgeHandler:            http.HandlerFunc(uiBridge.Hub().ServeHTTPRPC),
+		AGUIDemoBackends:           demoBackends,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create api handler: %w", err)
 	}
+	if os.Getenv("AGENTLY_PRIMITIVE_TRACE") == "1" {
+		apiHandler = withPrimitiveAPITiming(apiHandler, func(id uint64, method, route string, totals map[string]float64) {
+			encoded, _ := json.Marshal(totals)
+			log.Printf("primitive api timing request=%d method=%s route=%s (nested spans overlap): %s", id, method, route, encoded)
+		})
+	}
 	metaRoot := "embed://localhost/"
 	rawMetaHandler := ui.NewEmbeddedHandler(metaRoot, &coremeta.FS)
+	if rt.PermittedResolver != nil || uiBridge.UsesWindowResourceResolution() {
+		rawMetaHandler = ui.NewEmbeddedHandlerWithAuthorization(metaRoot, &coremeta.FS, rt.AuthorizationPolicy, permittedview.NewRuntime(rt.PermittedResolver), ui.WithWindowResourceProvider(uiBridge))
+	}
 	// Forge metadata contains workspace-owned datasource contracts, schemas,
 	// dialogs, and internal endpoint mappings. Protect the complete metadata
 	// surface whenever workspace authentication is enabled.
@@ -346,7 +462,9 @@ func Serve(options ServeOptions) error {
 	}
 	// Recovery may perform Datly reads immediately. Start it only after the
 	// primary listener is bound so recovery can never delay API availability.
-	go agentWatchdog.Start(ctx)
+	if !options.DisableBackgroundWorkers {
+		go agentWatchdog.Start(ctx)
+	}
 	log.Printf("agently serve listening on %s (workspace=%s ui=%s)", addr, workspace.Root(), uiBundle.Name)
 	serveErr := srv.Serve(listener)
 	return finalizeServeResult(cancel, &shutdownWG, serveErr, mcpSrv)
@@ -354,7 +472,7 @@ func Serve(options ServeOptions) error {
 
 func withForgeMetadataAuth(next http.Handler, authRuntime *svcauthctx.Runtime) http.Handler {
 	protected := svcauthctx.WithAuthProtection(next, authRuntime)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !forgeWindowMetadataRequiresAuth(r) {
 			w.Header().Set("Cache-Control", "private, max-age=60")
 			next.ServeHTTP(w, r)
@@ -362,6 +480,62 @@ func withForgeMetadataAuth(next http.Handler, authRuntime *svcauthctx.Runtime) h
 		}
 		protected.ServeHTTP(w, r)
 	})
+	if os.Getenv("AGENTLY_PRIMITIVE_TRACE") != "1" {
+		return handler
+	}
+	return observe.HTTP(handler, func(totals map[string]float64) {
+		encoded, _ := json.Marshal(totals)
+		log.Printf("primitive metadata timing (nested spans overlap): %s", encoded)
+	})
+}
+
+// withPrimitiveAPITiming keeps the existing streaming response writer intact.
+// Only a fixed route class enters diagnostics; resource IDs and query values do not.
+func withPrimitiveAPITiming(next http.Handler, sink func(uint64, string, string, map[string]float64)) http.Handler {
+	if sink == nil {
+		return next
+	}
+	var sequence atomic.Uint64
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := sequence.Add(1)
+		observe.HTTP(next, func(totals map[string]float64) {
+			sink(id, r.Method, primitiveAPIRouteClass(r.URL.Path), totals)
+		}).ServeHTTP(w, r)
+	})
+}
+
+func primitiveAPIRouteClass(path string) string {
+	switch {
+	case path == "/v1/ui/rpc":
+		return "ui.rpc"
+	case path == "/v1/ag-ui/run":
+		return "agui.run"
+	case path == "/v1/application-events":
+		return "application.events"
+	case strings.HasPrefix(path, "/v1/conversations/") && strings.HasSuffix(path, "/transcript"):
+		return "conversation.transcript"
+	case strings.HasPrefix(path, "/v1/conversations/") && strings.HasSuffix(path, "/live-state"):
+		return "conversation.live-state"
+	case path == "/v1/conversations" || strings.HasPrefix(path, "/v1/conversations/"):
+		return "conversation"
+	case path == "/v1/feeds" || strings.HasPrefix(path, "/v1/feeds/"):
+		return "feed"
+
+	case strings.HasPrefix(path, "/v1/api/datasources/"):
+		return "datasource"
+	case strings.HasPrefix(path, "/v1/api/reports/"), strings.HasPrefix(path, "/v1/api/report-runs/"):
+		return "report"
+	case strings.HasPrefix(path, "/v1/api/mcp/"):
+		return "mcp"
+	case strings.HasPrefix(path, "/v1/api/conversations/"):
+		return "conversation"
+	case strings.HasPrefix(path, "/v1/api/windows/"):
+		return "window"
+	case strings.HasPrefix(path, "/v1/api/layout/"):
+		return "layout"
+	default:
+		return "api"
+	}
 }
 
 func forgeWindowMetadataRequiresAuth(r *http.Request) bool {
@@ -543,4 +717,12 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// Native binding runs after runtime construction and before bootstrap or serving.
+func bindNativeWindowRuntime(options ServeOptions, runtime *executor.Runtime) error {
+	if options.nativeWindowRuntimeBinder == nil {
+		return nil
+	}
+	return options.nativeWindowRuntimeBinder(runtime)
 }

@@ -1,0 +1,80 @@
+{
+  "title": "Owned media plan",
+  "dataSource": {
+    "editDraft": {
+      "source": "output.plan"
+    },
+    "channels": {
+      "source": "output.channels"
+    }
+  },
+  "ui": {
+    "renderMode": "forge",
+    "layout": {
+      "orientation": "vertical",
+      "columns": 1,
+      "itemStretch": false
+    },
+    "containers": [
+      {
+        "id": "summary",
+        "dataSourceRef": "editDraft",
+        "items": [
+          {
+            "id": "advertiser-label",
+            "widget": "label",
+            "dataField": "advertiserName",
+            "dataSourceRef": "editDraft",
+            "scope": "form"
+          }
+        ]
+      },
+      {
+        "id": "budget-editor",
+        "dataSourceRef": "editDraft",
+        "schemaBasedForm": {
+          "id": "media-plan-budget",
+          "showSubmit": false,
+          "fields": [
+            {
+              "id": "advertiserName",
+              "name": "advertiserName",
+              "label": "Advertiser",
+              "widget": "text"
+            },
+            {
+              "id": "totalBudget",
+              "name": "totalBudget",
+              "label": "Total budget",
+              "widget": "number"
+            }
+          ],
+          "dataSourceRef": "editDraft"
+        }
+      }
+    ]
+  },
+  "output": {
+    "plan": {
+      "advertiserName": "Coca-Cola",
+      "totalBudget": 100000
+    },
+    "channels": [
+      {
+        "id": "ctv",
+        "name": "CTV",
+        "budget": 50000
+      },
+      {
+        "id": "display",
+        "name": "Display",
+        "budget": 30000
+      },
+      {
+        "id": "audio",
+        "name": "Audio",
+        "budget": 20000
+      }
+    ]
+  }
+}
