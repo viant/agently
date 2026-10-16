@@ -13,10 +13,10 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
-	github.com/viant/agently-core v0.1.57-0.20261016131842-4c1a85f4e01a
+	github.com/viant/agently-core v0.1.57-0.20261016200036-3b8566ee7872
 	github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4
 	github.com/viant/embedius v0.5.6 // indirect
-	github.com/viant/forge v0.3.45-0.20261016131512-de57f20cc7a2
+	github.com/viant/forge v0.3.45-0.20261016190759-f1959a7a0d10
 	github.com/viant/jsonrpc v0.25.1-0.20261014230436-c7e03c1c46eb
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
 	github.com/viant/mcp v0.24.1-0.20261016035016-dc29fe9112e9
@@ -25,7 +25,7 @@ require (
 	github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726
 	github.com/viant/structology v0.10.1-0.20261015025741-5750986d416b // indirect
 	github.com/viant/velty v0.4.1-0.20260915052314-fca47c0595f8 // indirect
-	github.com/viant/x v0.5.1-0.20260915043005-1bc42b9eef47 // indirect
+	github.com/viant/x v0.5.1-0.20261011035805-d5b69cd4d43c // indirect
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect; indirect -- replaced with internal stub, see below
 	gopkg.in/yaml.v3 v3.0.1
 )
