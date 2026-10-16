@@ -2288,3 +2288,7 @@ github.com/viant/agently-core v0.1.57-0.20261015232555-450759f77706 h1:48MSSusc9
 github.com/viant/agently-core v0.1.57-0.20261015232555-450759f77706/go.mod h1:56Cma09MzwgIPDg6hhtvS76JH7UEBeIGTAVWoliJJjY=
 github.com/viant/forge v0.3.45-0.20261015232234-7d1976ea7d8f h1:aHTaIR0NLG0R5h5Mzqp7nVpHO7bo8enR+7AcN9crCB8=
 github.com/viant/forge v0.3.45-0.20261015232234-7d1976ea7d8f/go.mod h1:58JlyxeMR/WET8tzeHgVJI4ub/KP3Da5KSCqStW7QQY=
+github.com/viant/agently-core v0.1.57-0.20261016000118-958bec65a0e8 h1:92Jj2+xCPkNCJEQbnzq1k3KQAr1VnhkTmfhV8qA60KI=
+github.com/viant/agently-core v0.1.57-0.20261016000118-958bec65a0e8/go.mod h1:F8BtCHgcP+mAaUI6RNOJt1JHwBG0+9X7ks5SBlHvUfo=
+github.com/viant/forge v0.3.45-0.20261016000831-41e1d78bf76a h1:gUwiqUgPwlcCepR82+p/Ja/8asPrWdjDM4A5ziSCPGo=
+github.com/viant/forge v0.3.45-0.20261016000831-41e1d78bf76a/go.mod h1:58JlyxeMR/WET8tzeHgVJI4ub/KP3Da5KSCqStW7QQY=
