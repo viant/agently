@@ -854,8 +854,9 @@ export async function submitMessage({ context, message, model, agent }) {
     reasoningEffort: metaForm?.reasoningEffort || undefined,
     context: {
       ...buildWebQueryContext(),
+      // A prior turn's caller context must not replace the current UI selection.
+      ...Object.fromEntries(Object.entries(extraContext || {}).filter(([key]) => key !== 'workspace')),
       ...buildWorkspaceQueryContext(conversationID),
-      ...(extraContext || {}),
     },
     attachments: queryAttachments.length > 0 ? queryAttachments : undefined
   };

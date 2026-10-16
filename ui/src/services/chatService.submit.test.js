@@ -92,6 +92,8 @@ vi.mock('../utils/dialogBus', () => ({
   updateFileViewDialog: vi.fn(),
 }));
 
+import {activeWindows, getMetadataSignal, getViewSignal, getSelectionSignal} from 'forge/core';
+import {setScopedActiveSurface, setScopedWorkspaceSelection} from './conversationWindow';
 import { client } from './agentlyClient';
 import { setStage } from './stageBus';
 import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore, onSSE as applyEventToChatStore, getActiveTurnId } from './chatStore';
@@ -232,6 +234,31 @@ describe('submitMessage', () => {
     expect(resetChatStoreConversation).not.toHaveBeenCalled();
     expect(dsTick).not.toHaveBeenCalled();
     expect(disconnectStream).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads workspace hints at submit and ignores stale caller workspace on later conversation', async () => {
+    const previousWindow=global.window;
+    const values=new Map();
+    global.window={sessionStorage:{getItem:key=>values.get(key),setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)}};
+    activeWindows.value=[{windowId:'orders',title:'Orders',conversationId:'current',workspaceObject:{lifecycle:{state:'ready'}}}];
+    setScopedActiveSurface('current','workspace');setScopedWorkspaceSelection('current','orders');
+    getMetadataSignal('orders').value={dataSource:{items:{uniqueKey:['id']}}};
+    getViewSignal('orders').value={tabs:{details:'overview'}};
+    getSelectionSignal('ordersDSitems').value={selected:{id:123,secret:'private'}};
+    client.query.mockResolvedValue({});
+    ensureConversation.mockResolvedValue('current');resolveUserID.mockReturnValue('');
+    ensureContextResources.mockReturnValue({});dsTick.mockResolvedValue({});
+    const form={id:'current'};
+    const context={Context:name=>name==='conversations'?{handlers:{dataSource:{peekFormData:()=>form,setFormData:({values})=>Object.assign(form,values)}}}:null};
+    const message={content:'Inspect this',context:{workspace:{windowId:'stale'},customHint:'keep'}};
+    await submitMessage({context,message});
+    expect(client.query.mock.calls.at(-1)[0].context).toMatchObject({customHint:'keep',workspace:{windowId:'orders',title:'Orders',internalTabs:{details:'overview'},dataSources:{items:{selectedKeys:{id:123}}}}});
+    expect(JSON.stringify(client.query.mock.calls.at(-1)[0].context)).not.toContain('private');
+    ensureConversation.mockResolvedValue('other');form.id='other';
+    await submitMessage({context,message});
+    expect(client.query.mock.calls.at(-1)[0].context).not.toHaveProperty('workspace');
+    activeWindows.value=[];
+    global.window=previousWindow;
   });
 
   it('reports rejected queued requests without clearing the active execution', async () => {
