@@ -3,6 +3,7 @@ package agently
 import (
 	"context"
 	"encoding/json"
+	hostruntime "github.com/viant/agently-core/app/host/runtime"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -27,7 +28,7 @@ func TestEmbeddedChatMetaDatasourcePreservesDeclaredHTTPDelivery(t *testing.T) {
 	}
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "extension/forge"), 0700))
-	entries, err := defaultFrameworkWindows()
+	entries, err := hostruntime.DefaultFrameworkWindows(&metadata.FS)
 	require.NoError(t, err)
 	rt, _, _, err := appserver.BuildWorkspaceRuntime(context.Background(), appserver.RuntimeOptions{WorkspaceRoot: root, Defaults: &config.Defaults{}, SkipRegistryInitialize: true, ConfigureBuilder: func(_ context.Context, b *executor.Builder) error { b.WithNativeWindowDefaults(entries); return nil }})
 	require.NoError(t, err)

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/viant/agently-core/service/maintenance"
 )
 
 const (
@@ -21,39 +23,16 @@ const (
 
 // ConversationCleanupMode controls whether a cleanup policy is disabled,
 // validates and reports candidates, or executes its configured mutations.
-type ConversationCleanupMode string
+type ConversationCleanupMode = maintenance.Mode
 
 const (
-	ConversationCleanupModeOff     ConversationCleanupMode = "off"
-	ConversationCleanupModeDryRun  ConversationCleanupMode = "dry-run"
-	ConversationCleanupModeExecute ConversationCleanupMode = "execute"
+	ConversationCleanupModeOff     = maintenance.ModeOff
+	ConversationCleanupModeDryRun  = maintenance.ModeDryRun
+	ConversationCleanupModeExecute = maintenance.ModeExecute
 )
 
-func (m ConversationCleanupMode) Enabled() bool {
-	return m == ConversationCleanupModeDryRun || m == ConversationCleanupModeExecute
-}
-
-func (m ConversationCleanupMode) Executes() bool {
-	return m == ConversationCleanupModeExecute
-}
-
 // ConversationCleanupOptions controls the maintenance worker and its policies.
-// Cleanup passes are coordinated across application instances by a database
-// maintenance lease. A local guard additionally prevents in-process overlap.
-type ConversationCleanupOptions struct {
-	Enabled              bool
-	Interval             time.Duration
-	BatchSize            int
-	Timeout              time.Duration
-	RunOnStart           bool
-	Debug                bool
-	InteractiveMode      ConversationCleanupMode
-	InteractiveRetention time.Duration
-	ScheduledMode        ConversationCleanupMode
-	ScheduledRetention   time.Duration
-	OrphanMode           ConversationCleanupMode
-	OrphanMinAge         time.Duration
-}
+type ConversationCleanupOptions = maintenance.Options
 
 // ConversationCleanupOptionsFromEnv returns safe defaults for absent values
 // and an error for every explicitly configured invalid value. It deliberately
