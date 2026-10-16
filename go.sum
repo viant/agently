@@ -1249,6 +1249,10 @@ github.com/viant/agently-core v0.1.57-0.20261016062832-70a1e2ff8176 h1:S6jG6c/v2
 github.com/viant/agently-core v0.1.57-0.20261016062832-70a1e2ff8176/go.mod h1:phkArT9P0AnYnKIpPN59Wd179az78RjeTwGOcianUk0=
 github.com/viant/agently-core v0.1.57-0.20261016070527-b439b108c5a1 h1:v0T02cIOm1VEVWm4Q26dOPOarF8CCxHrjTUK3KxU1zE=
 github.com/viant/agently-core v0.1.57-0.20261016070527-b439b108c5a1/go.mod h1:jAnvUAvFcNUNjKYZknX8VCwPfQNV5T5YsH9kd2bfNBE=
+github.com/viant/agently-core v0.1.57-0.20261016081318-bfd884a0d11f h1:+j1Q6Mp8r0sIxEO6bj6s5A4c+WnE/ygOn1vZ+kG/0lw=
+github.com/viant/agently-core v0.1.57-0.20261016081318-bfd884a0d11f/go.mod h1:jAnvUAvFcNUNjKYZknX8VCwPfQNV5T5YsH9kd2bfNBE=
+github.com/viant/agently-core v0.1.57-0.20261016082329-3086f9b1da02 h1:Dy8XT+9evmC7hLUnApENQKW/NvJdK7xQn7NMUZFS748=
+github.com/viant/agently-core v0.1.57-0.20261016082329-3086f9b1da02/go.mod h1:DS/P6MUXj6+FNnBzsgrL4lS+ZOD/L8CGcccZejCX/38=
 github.com/viant/agently-core/protocol/primitive v0.0.0-20261009053852-916a91954e26 h1:XfLqp9d75+cU7cGP73bcTZxAXa3MnEwd1nKpqIrc3pg=
 github.com/viant/agently-core/protocol/primitive v0.0.0-20261009053852-916a91954e26/go.mod h1:pcpWZNbdGBtblVO92SVADwD27y4orEHqtuL7S1fG0Rw=
 github.com/viant/agently-core/protocol/primitive v0.0.0-20261014061041-1f9a58166259 h1:nvUsFLOr6GMSSdDWDOK6R1coFgoUH7SGsgsjzQ1n1c8=
@@ -1341,6 +1345,8 @@ github.com/viant/forge v0.3.45-0.20261016055550-ae06120a40e3 h1:mtOLqQGDucM8Ws+/
 github.com/viant/forge v0.3.45-0.20261016055550-ae06120a40e3/go.mod h1:58JlyxeMR/WET8tzeHgVJI4ub/KP3Da5KSCqStW7QQY=
 github.com/viant/forge v0.3.45-0.20261016065959-5ccf0b3a514d h1:fpc5WQjiZraIkwSqwiSNoZ033PtcMnsZCBXkovaSTgg=
 github.com/viant/forge v0.3.45-0.20261016065959-5ccf0b3a514d/go.mod h1:58JlyxeMR/WET8tzeHgVJI4ub/KP3Da5KSCqStW7QQY=
+github.com/viant/forge v0.3.45-0.20261016082028-a03c69dc86b5 h1:60PkoX6gHunNjjFZEkJX2n3tO7isXNItnu2S2kXlHTE=
+github.com/viant/forge v0.3.45-0.20261016082028-a03c69dc86b5/go.mod h1:58JlyxeMR/WET8tzeHgVJI4ub/KP3Da5KSCqStW7QQY=
 github.com/viant/gds v0.6.0 h1:HdjogZeJrs5X0aR8yNCep7TxlhkhrH/lrSFW02RZzOI=
 github.com/viant/gds v0.6.0/go.mod h1:oLW99/zRR67jOhDj4qnVoquDMtQd1z2mWxVc9KRvOs4=
 github.com/viant/gmetric v0.3.2 h1:zTdW9QrPk2P0i/do9fokxtHesFQCvYqIc5Yktzmyxtg=
