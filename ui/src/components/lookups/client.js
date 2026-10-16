@@ -21,10 +21,15 @@ function baseURL() {
  * @param {string} contextID    e.g. "profile_editor"
  * @returns {Promise<Array<LookupRegistryEntry>>}
  */
-export async function listLookupRegistry(contextKind, contextID) {
-  const ctxParam = encodeURIComponent(`${contextKind}:${contextID}`);
+export async function listLookupRegistry(contextKind, contextID, owning = null) {
+  const params = new URLSearchParams({context: `${contextKind}:${contextID}`});
+  if (owning?.owner?.uri) {
+    params.set('owner', owning.owner.uri);
+    if (owning.owner.revision) params.set('revision', owning.owner.revision);
+    if (owning.providerIdentity) params.set('providerIdentity', owning.providerIdentity);
+  }
   const res = await fetch(
-    `${baseURL()}/v1/api/lookups/registry?context=${ctxParam}`,
+    `${baseURL()}/v1/api/lookups/registry?${params}`,
     { credentials: 'include' }
   );
   if (res.status === 501) return [];
@@ -51,6 +56,8 @@ export async function listLookupRegistry(contextKind, contextID) {
  */
 export async function fetchDatasource(id, inputs, options) {
   const body = { inputs: inputs || {} };
+  if (options?.reference) body.reference = options.reference;
+  if (options?.providerIdentity) body.providerIdentity = options.providerIdentity;
   if (options && (options.bypassCache || options.writeThrough)) {
     body.cache = {};
     if (options.bypassCache) body.cache.bypassCache = true;

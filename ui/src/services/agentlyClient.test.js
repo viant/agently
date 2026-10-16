@@ -116,6 +116,64 @@ describe('recoverSessionSilently', () => {
 });
 
 describe('getAuthMeSilently', () => {
+  it('resets protocol state when the same subject receives a changed server session binding', async () => {
+    vi.resetModules();
+    const events = [];
+    globalThis.window = { dispatchEvent: event => events.push(event.type) };
+    globalThis.CustomEvent = class extends Event {};
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({ status: 200, json: async () => ({ provider: 'session', subject: 'same-user', sessionBinding: 'binding-A' }) })
+      .mockResolvedValueOnce({ status: 200 })
+      .mockResolvedValueOnce({ status: 200, json: async () => ({ provider: 'session', subject: 'same-user', sessionBinding: 'binding-B' }) });
+    const { getAuthMeSilently, recoverSessionSilently, getReportRestoreScope } = await import('./agentlyClient.js');
+    await getAuthMeSilently();
+    const original = getReportRestoreScope();
+    await recoverSessionSilently();
+    await getAuthMeSilently();
+    expect(events.filter(type => type === 'agently:session-reset')).toHaveLength(1);
+    expect(getReportRestoreScope()).not.toBe(original);
+  });
+
+  it('does not publish an old in-flight identity after cache recovery supersedes it', async () => {
+    vi.resetModules();
+    const events = [];
+    globalThis.window = { dispatchEvent: event => events.push(event.type) };
+    globalThis.CustomEvent = class extends Event {};
+    let releaseOld;
+    globalThis.fetch = vi.fn()
+      .mockReturnValueOnce(new Promise(resolve => { releaseOld = resolve; }))
+      .mockResolvedValueOnce({ status: 200 })
+      .mockResolvedValueOnce({ status: 200, json: async () => ({ subject: 'current-user', sessionBinding: 'current-binding' }) });
+    const { getAuthMeSilently, recoverSessionSilently } = await import('./agentlyClient.js');
+    const old = getAuthMeSilently();
+    await recoverSessionSilently();
+    expect(await getAuthMeSilently()).toMatchObject({ subject: 'current-user' });
+    releaseOld({ status: 200, json: async () => ({ subject: 'old-user', sessionBinding: 'old-binding' }) });
+    expect(await old).toBeNull();
+    expect(await getAuthMeSilently()).toMatchObject({ subject: 'current-user' });
+    expect(events.filter(type => type === 'agently:session-reset')).toHaveLength(0);
+  });
+
+  it('does not clear the current identity when an old response body fails late', async () => {
+    vi.resetModules();
+    globalThis.window = { dispatchEvent: vi.fn() };
+    globalThis.CustomEvent = class extends Event {};
+    let rejectOldBody;
+    const oldBody = vi.fn(() => new Promise((_resolve, reject) => { rejectOldBody = reject; }));
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({ status: 200, json: oldBody })
+      .mockResolvedValueOnce({ status: 200 })
+      .mockResolvedValueOnce({ status: 200, json: async () => ({ subject: 'current-user', sessionBinding: 'current-binding' }) });
+    const { getAuthMeSilently, recoverSessionSilently } = await import('./agentlyClient.js');
+    const old = getAuthMeSilently();
+    await vi.waitFor(() => expect(oldBody).toHaveBeenCalledOnce());
+    await recoverSessionSilently();
+    await getAuthMeSilently();
+    rejectOldBody(new Error('old response body closed'));
+    expect(await old).toBeNull();
+    expect(await getAuthMeSilently()).toMatchObject({ subject: 'current-user' });
+  });
+
   beforeEach(() => {
     vi.resetModules();
     vi.restoreAllMocks();

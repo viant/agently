@@ -90,4 +90,3 @@ describe("real producer public report stream in both modes", () => {
     expect(html).not.toContain("app-forge-fence-loading");
   });
 });
-

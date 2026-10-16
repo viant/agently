@@ -20,7 +20,7 @@ vi.mock('./elicitationBus', () => ({
   replacePendingElicitationsForConversation: replacePendingElicitationsForConversationMock,
 }));
 
-import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, clearPendingConversationBootstrap, connectStream, createNewConversation, dsTick, enqueueConversationSwitch, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, getSettledConversationBootstrapSnapshot, handleStreamEvent, hasPendingConversationBootstrap, hydrateMeta, hydrateConversationComposerSelection, recordConversationComposerSelection, refreshGoalFeed, refreshAfterElicitationResolution, syncConversationComposerSelection, hydrateConversationFromBootstrapSnapshot, installChatStoreMirror, isConversationLiveish, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolvePollingConversationSelection, resolveStarterTaskCategories, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
+import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, clearPendingConversationBootstrap, connectStream, createNewConversation, dsTick, enqueueConversationSwitch, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, getSettledConversationBootstrapSnapshot, handleStreamEvent, hasPendingConversationBootstrap, hydrateMeta, hydrateConversationComposerSelection, recordConversationComposerSelection, refreshGoalFeed, resetConversationSessionRuntime, refreshAfterElicitationResolution, syncConversationComposerSelection, hydrateConversationFromBootstrapSnapshot, installChatStoreMirror, isConversationLiveish, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolvePollingConversationSelection, resolveStarterTaskCategories, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
 import { client } from './agentlyClient';
 import { getAgUiHostActivities, replaceAgUiHostActivities } from './aguiHostActivities';
 import { applyFeedEvent, clearFeedState, getFeedData, getActiveFeeds } from './toolFeedBus';
@@ -1839,7 +1839,7 @@ describe('switchConversation', () => {
       expect.objectContaining({
         conversationId: 'conv-target',
         since: undefined,
-        includeFeeds: true
+        includeFeeds: false
       }),
       undefined
     );
@@ -1922,6 +1922,7 @@ describe('switchConversation', () => {
         includeModelCalls: true,
         includeToolCalls: true,
         includeModelPayloads: false,
+        includeToolPayloads: false,
       }),
       undefined,
     );
@@ -3533,6 +3534,41 @@ describe('iframe-mounted SSE reconnect stability', () => {
 });
 
 describe('SSE subscription fencing', () => {
+  it('closes old account subscriptions and rejects their already queued events', () => {
+    const originalWindow = global.window;
+    const subscriptions = [];
+    client.streamEvents = vi.fn((_id, handlers) => {
+      const subscription = { handlers, close: vi.fn() };
+      subscriptions.push(subscription);
+      return subscription;
+    });
+    global.window = { setTimeout, clearTimeout, localStorage: createStorage(), location: { pathname: '/conversation/account-switch' } };
+    const context = {
+      resources: { chat: { lastHasRunning: false } },
+      Context(name) {
+        if (name === 'conversations') return { handlers: { dataSource: { peekFormData: () => ({ id: 'account-switch', running: true }), setFormData: vi.fn() } } };
+        if (name === 'messages') return { handlers: { dataSource: { setCollection: vi.fn(), setError: vi.fn() } } };
+        return null;
+      }
+    };
+    try {
+      connectStream(context, 'account-switch');
+      resetConversationSessionRuntime();
+      expect(subscriptions[0].close).toHaveBeenCalledOnce();
+      expect(context.resources.chat.stream).toBeNull();
+      subscriptions[0].handlers.onEvent({ type: 'reasoning_delta', conversationId: 'account-switch', turnId: 'old-account' });
+      expect(context.resources.chat.lastHasRunning).toBe(false);
+      connectStream(context, 'account-switch');
+      subscriptions[0].handlers.onEvent({ type: 'reasoning_delta', conversationId: 'account-switch', turnId: 'old-account' });
+      expect(context.resources.chat.lastHasRunning).toBe(false);
+      subscriptions[1].handlers.onEvent({ type: 'reasoning_delta', conversationId: 'account-switch', turnId: 'current-account' });
+      expect(context.resources.chat.lastHasRunning).toBe(true);
+    } finally {
+      resetConversationSessionRuntime();
+      global.window = originalWindow;
+    }
+  });
+
   it('ignores events queued by a replaced subscription', () => {
     const originalWindow = global.window;
     const subscriptions = [];

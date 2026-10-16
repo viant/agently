@@ -1518,7 +1518,7 @@ export function createInlineReportArtifactDownload(artifact = {}, {
   };
 }
 
-function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = '', messageId = '' }) {
+function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = '', messageId = '', context = null }) {
 
   const [lifecycleState, setLifecycleState] = React.useState({ action: '', message: '', error: '' });
   const [artifactDownload, setArtifactDownload] = React.useState(null);
@@ -1593,12 +1593,13 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
     emittedContextRevisionRef.current = eventKey;
     emitReportUIEvent({
       kind: 'report.context_updated',
+      context,
       conversationId: normalizedConversationId,
       detail: buildInlineReportEventDetail({ assembly, compiled: compiledSource, conversationId: normalizedConversationId, messageId }),
     }).catch(() => {
       emittedContextRevisionRef.current = '';
     });
-  }, [assembly, compiledSource, conversationId, messageId, reportDiagnostics.length]);
+  }, [assembly, compiledSource, conversationId, messageId, reportDiagnostics.length, context]);
   const lifecycleReady = assembly?.authoritative === true
     && assembly?.status === 'committed'
     && reportDiagnostics.length === 0
@@ -1629,6 +1630,7 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
         extra: { exportId, format: 'pdf' },
       });
       await emitReportUIEvent({
+        context,
         kind: 'report.export_start',
         conversationId,
         detail: eventDetail,
@@ -1646,6 +1648,7 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
       });
       setArtifactDownload(download);
       await emitReportUIEvent({
+        context,
         kind: 'report.export_complete',
         conversationId,
         detail: {
@@ -2386,7 +2389,7 @@ function stripLeadingTemplateDescriptor(content = '') {
 
 // ── Main component ──
 
-function NativeRichContent({ content = '', renderedContent = null, generatedFiles = [], messageId = '', conversationId = '' }) {
+function NativeRichContent({ content = '', renderedContent = null, generatedFiles = [], messageId = '', conversationId = '', context = null }) {
   const entityAliasVersion = React.useSyncExternalStore(subscribeFeedEntityAliases, getFeedEntityAliasVersion, getFeedEntityAliasVersion);
   const textNorm = React.useMemo(() => normalizeBrokenMarkdownLayout(
     normalizeLegacyForgeFenceBlocks(stripLeadingTemplateDescriptor(rewriteFeedEntityAliases(String(content || ''), conversationId)))
@@ -2534,7 +2537,7 @@ function NativeRichContent({ content = '', renderedContent = null, generatedFile
         if (assembly?.status === 'orphaned' || (assembly?.status === 'incomplete' && !assembly?.source?.blocks?.length)) {
           out.push(<ForgeReportAssemblyDiagnostic key={`forge-report-diagnostic-${assembly.scope}-${assembly.id}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} />);
         } else {
-          out.push(<ForgeReportFence key={`forge-report-${assembly.scope}-${assembly.id}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} conversationId={conversationId} messageId={messageId} />);
+          out.push(<ForgeReportFence context={context} key={`forge-report-${assembly.scope}-${assembly.id}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} conversationId={conversationId} messageId={messageId} />);
         }
       }
       continue;
@@ -2599,7 +2602,7 @@ function NativeRichContent({ content = '', renderedContent = null, generatedFile
     if (assembly?.status === 'orphaned' || (assembly?.status === 'incomplete' && !assembly?.source?.blocks?.length)) {
       out.push(<ForgeReportAssemblyDiagnostic key={`forge-report-diagnostic-${key}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} />);
     } else {
-      out.push(<ForgeReportFence key={`forge-report-${key}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} conversationId={conversationId} messageId={messageId} />);
+      out.push(<ForgeReportFence context={context} key={`forge-report-${key}`} assembly={assembly} diagnostics={progressiveReports.diagnostics} conversationId={conversationId} messageId={messageId} />);
     }
   });
 
@@ -2615,7 +2618,8 @@ function RichContent(props) {
 }
 
 export default React.memo(RichContent, (a, b) => (
-  a.allowHostEffects === b.allowHostEffects
+  a.context === b.context
+  && a.allowHostEffects === b.allowHostEffects
   && a.connectionProfile === b.connectionProfile
   && (a.content || '') === (b.content || '')
   && a.renderedContent === b.renderedContent

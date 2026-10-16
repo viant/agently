@@ -177,6 +177,8 @@ export function createFeedContext(feedId, dataSources = {}, conversationId = '',
   };
 
   const identity = {
+    feedId,
+    conversationId,
     conversationId: String(conversationId || '').trim(),
     windowId,
     dataSourceRef: firstDS,
@@ -203,7 +205,7 @@ export function createFeedContext(feedId, dataSources = {}, conversationId = '',
       }
       return options.openLookup(request);
     },
-    search: async ({ dataSourceRef = '', query = '', queryInput = '', inputs = {}, inputBindings = {}, timeoutMs = 15000, signal } = {}) => {
+    search: async ({ dataSourceResource, providerIdentity, dataSourceRef = '', query = '', queryInput = '', inputs = {}, inputBindings = {}, timeoutMs = 15000, signal } = {}) => {
       const ref = String(dataSourceRef || '').trim();
       if (!ref) throw new Error('Lookup datasource is required.');
       let requestInputs = { ...(inputs && typeof inputs === 'object' ? inputs : {}) };
@@ -211,7 +213,7 @@ export function createFeedContext(feedId, dataSources = {}, conversationId = '',
         requestInputs = setPathValue(requestInputs, path, value);
       }
       if (String(queryInput || '').trim()) requestInputs = setPathValue(requestInputs, queryInput, String(query || '').trim());
-      const response = await fetchDatasource(ref, requestInputs, { timeoutMs, signal });
+      const response = await fetchDatasource(ref, requestInputs, { timeoutMs, signal, reference: dataSourceResource, providerIdentity });
       return Array.isArray(response?.rows) ? response.rows : (Array.isArray(response?.data) ? response.data : []);
     },
   };

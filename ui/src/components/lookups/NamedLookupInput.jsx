@@ -1,6 +1,8 @@
 import './skillHints.css';
+import {lookupSurfaceInvocation} from './surface.js';
 import {client as skillClient} from '../../services/agentlyClient';
 import {skillHintQuery, matchingSkills, insertSkillPrefix} from './skillHints.js';
+import {useSignals} from '@preact/signals-react/runtime';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Popover,
@@ -20,6 +22,7 @@ import {
   isValidMoney,
 } from './tokens.js';
 import { listLookupRegistry, fetchDatasource } from './client.js';
+import {lookupOwnerFromContext} from './owner.js';
 import { resolveComposerPromptMacros } from '../chat/starterPromptMacros.js';
 import { applyResolvedChipToken, createEditingChipState, shouldSkipEditorSync, unwrapLookupSelection as unwrapSelection, draftWithEditedChip, lookupPlaceholderAtTrigger } from './chipEditing.js';
 import { DEFAULT_LOOKUP_TRIGGER, filterLookupRegistry, findLookupTriggerStart, shouldClearSoleLookupTrigger } from './lookupTrigger.js';
@@ -476,7 +479,10 @@ export default function NamedLookupInput({
   'aria-label': ariaLabel,
   ...rest
 }) {
+  useSignals();
   const [registry, setRegistry] = useState([]);
+  const owningLookup = lookupOwnerFromContext(context, {reactive: true});
+  const owningLookupKey = JSON.stringify(owningLookup);
   const [activeTrigger, setActiveTrigger] = useState(null);
   const skillMenuID = React.useId();
   const dismissedSkillValue = useRef(null);
@@ -535,7 +541,8 @@ export default function NamedLookupInput({
 
   useEffect(() => {
     let cancelled = false;
-    listLookupRegistry(contextKind, contextID)
+    setRegistry([]);
+    listLookupRegistry(contextKind, contextID, owningLookup)
       .then((entries) => {
         if (cancelled) return;
         emitNamedLookupDebug('registry.loaded', {
@@ -547,6 +554,9 @@ export default function NamedLookupInput({
         onRegistryLoaded?.(entries);
       })
       .catch((e) => {
+        if (cancelled) return;
+        setRegistry([]);
+        onRegistryLoaded?.([]);
         emitNamedLookupDebug('registry.error', {
           context: `${contextKind}:${contextID}`,
           reason: String(e?.message || e || 'unknown'),
@@ -556,7 +566,7 @@ export default function NamedLookupInput({
     return () => {
       cancelled = true;
     };
-  }, [contextKind, contextID, onRegistryLoaded]);
+  }, [contextKind, contextID, owningLookupKey, onRegistryLoaded]);
 
   useEffect(() => {
     const expandedValue = resolveComposerPromptMacros(value);
@@ -638,15 +648,18 @@ export default function NamedLookupInput({
 
   useEffect(() => {
     if (!editingChip || !chipEditInputRef.current || disabled) return;
-    requestAnimationFrame(() => {
+    const target = chipEditInputRef.current;
+    const frame = requestAnimationFrame(() => {
+      // Do not steal a later editor or a selection the user already controls.
+      if (chipEditInputRef.current !== target || document.activeElement === target) return;
       try {
-        chipEditInputRef.current?.focus();
-        const nextValue = String(editingChip.value || '');
-        const end = nextValue.length;
-        chipEditInputRef.current?.setSelectionRange?.(end, end);
+        target.focus();
+        const end = String(target.value || '').length;
+        target.setSelectionRange?.(end, end);
       } catch (_) {}
     });
-  }, [disabled, editingChip]);
+    return () => cancelAnimationFrame(frame);
+  }, [disabled, editingChip?.raw]);
 
   useLayoutEffect(() => {
     const previous = previousInlineModeRef.current;
@@ -689,7 +702,7 @@ export default function NamedLookupInput({
           const input = {};
           const qKey = entry?.token?.queryInput || 'q';
           input[qKey] = q;
-          const res = await fetchDatasource(entry.dataSource, input);
+          const res = await fetchDatasource(entry.dataSource, input, { reference: entry.dataSourceResource, providerIdentity: entry.providerIdentity });
           setRows(res?.rows || []);
         } catch (e) {
           console.error('datasource fetch failed', e);
@@ -850,7 +863,8 @@ export default function NamedLookupInput({
 
   const openLookupSurface = useCallback(
     async (entry, options = {}) => {
-      if (!entry?.dialogId && !entry?.windowId) return false;
+      console.debug('[named-lookup][picker.route]', JSON.stringify({hasDialog:!!entry?.dialogId,hasWindow:!!entry?.windowId,hasResource:!!entry?.pickerResource?.uri,hasHandlers:!!context?.handlers?.window}));
+      if (!entry?.dialogId && !entry?.windowId && !entry?.pickerResource?.uri) return false;
       const windowHandlers = context?.handlers?.window;
       if (!windowHandlers) {
         console.error('lookup window handlers unavailable', { entry });
@@ -868,25 +882,13 @@ export default function NamedLookupInput({
       setRowsLoading(true);
       try {
         let record;
-        if (entry.dialogId) {
-          record = await windowHandlers.openDialog({
-            execution: {
-              args: [entry.dialogId, { awaitResult: true, parameters: paramDefs }],
-              parameters: paramDefs,
-            },
-            parameters: initialParameters,
-            context,
-          });
-        } else {
-          record = await windowHandlers.openWindow({
-            execution: {
-              args: [entry.windowId, '', '', false, { awaitResult: true, parameters: paramDefs, modal: true }],
-              parameters: paramDefs,
-            },
-            parameters: initialParameters,
-            context,
-          });
-        }
+        const invocation = lookupSurfaceInvocation(entry, context, paramDefs);
+        console.debug('[named-lookup][picker.invoke]', JSON.stringify({handler:invocation.handler,handlerType:typeof windowHandlers[invocation.handler]}));
+        record = await windowHandlers[invocation.handler]({
+          execution: {args: invocation.args, parameters: paramDefs},
+          parameters: initialParameters,
+          context,
+        });
         const selected = unwrapSelection(record);
         if (!selected) return true;
 
@@ -1174,9 +1176,10 @@ export default function NamedLookupInput({
     });
     lastSyncedValueRef.current = value;
     if (editingChip && !disabled) {
-      requestAnimationFrame(() => {
+      const target = chipEditInputRef.current;
+      const frame = requestAnimationFrame(() => {
+        if (!target || chipEditInputRef.current !== target || document.activeElement === target) return;
         try {
-          const target = editorRef.current?.querySelector?.('[data-chip-editor="true"] input');
           try {
             editorRef.current?.blur?.();
           } catch (_) {}
@@ -1189,9 +1192,8 @@ export default function NamedLookupInput({
             found: !!target,
           });
           target?.focus?.({ preventScroll: true });
-          const nextValue = String(editingChip.value || '');
-          const end = nextValue.length;
-          target?.setSelectionRange?.(end, end);
+          const end = String(target.value || '').length;
+          target.setSelectionRange?.(end, end);
           emitNamedLookupDebug('chip.input.focus-state', {
             raw: editingChip.raw,
             name: editingChip.name,
@@ -1200,6 +1202,7 @@ export default function NamedLookupInput({
           });
         } catch (_) {}
       });
+      return () => cancelAnimationFrame(frame);
     }
   }, [disabled, editingChip, openEditingChipLookup, resolveEditingChip, segments, useInlineEditor, value]);
 
