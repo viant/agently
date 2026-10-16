@@ -25,6 +25,8 @@ import (
 	"github.com/viant/agently-core/adapter/http/ui"
 	"github.com/viant/agently-core/app/executor"
 	execconfig "github.com/viant/agently-core/app/executor/config"
+	hostreporting "github.com/viant/agently-core/app/host/reporting"
+	hostruntime "github.com/viant/agently-core/app/host/runtime"
 	appserver "github.com/viant/agently-core/app/server"
 	mcpexpose "github.com/viant/agently-core/protocol/mcp/expose"
 	primitive "github.com/viant/agently-core/protocol/primitive"
@@ -41,10 +43,10 @@ import (
 	"github.com/viant/agently-core/sdk"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauthctx "github.com/viant/agently-core/service/auth"
+	"github.com/viant/agently-core/service/maintenance"
 	resources "github.com/viant/agently-core/service/resource"
 	svcscheduler "github.com/viant/agently-core/service/scheduler"
 	"github.com/viant/agently-core/service/ui/permittedview"
-	workspaceui "github.com/viant/agently-core/service/workspace"
 	"github.com/viant/agently-core/workspace"
 	wscfg "github.com/viant/agently-core/workspace/config"
 	forgewindowrepo "github.com/viant/agently-core/workspace/repository/forgewindow"
@@ -149,7 +151,7 @@ func Serve(options ServeOptions) error {
 	if err != nil {
 		return fmt.Errorf("failed to load workspace config: %w", err)
 	}
-	reportingRuntime, err := configureWorkspaceReporting(ctx, workspace.Root(), wsConfig, debugEnabled)
+	reportingRuntime, err := hostreporting.Configure(ctx, workspace.Root(), wsConfig, debugEnabled)
 	if err != nil {
 		return err
 	}
@@ -168,12 +170,12 @@ func Serve(options ServeOptions) error {
 	}
 	orchestrationEnabled := defaults.Reporting.OrchestrationEnabled()
 	options.WorkspacePath = workspace.Root()
-	options, err = configureNativeWindowHost(options)
+	hostOptions, err := hostruntime.ConfigureNativeWindows(options.hostOptions())
 	if err != nil {
 		return fmt.Errorf("native window configuration: %w", err)
 	}
-	internal := &internalHostRegistration{}
-	configureBuilder, err := configureHostAuthorization(options, workspace.Root(), wsConfig, workspaceReportingEnricher(reportingRuntime.loader), internal)
+	internal := &hostruntime.Registration{}
+	configureBuilder, err := hostruntime.ConfigureAuthorization(hostOptions, workspace.Root(), wsConfig, reportingRuntime.WindowEnricher(), internal)
 	if err != nil {
 		return err
 	}
@@ -182,7 +184,7 @@ func Serve(options ServeOptions) error {
 	if err != nil {
 		return fmt.Errorf("read embedded workspace layout: %w", err)
 	}
-	frameworkDefaults, err := defaultFrameworkWindows()
+	frameworkDefaults, err := hostruntime.DefaultFrameworkWindows(&coremeta.FS)
 	if err != nil {
 		return fmt.Errorf("framework source declarations: %w", err)
 	}
@@ -208,7 +210,7 @@ func Serve(options ServeOptions) error {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
 	}
 	defer rt.Close(context.Background())
-	if err := bindNativeWindowRuntime(options, rt); err != nil {
+	if err := hostruntime.BindNativeWindowRuntime(hostOptions, rt); err != nil {
 		return fmt.Errorf("native window identity startup: %w", err)
 	}
 	if err := agentlyrt.ConfigureForecastEvidence(ctx, rt, workspace.Root()); err != nil {
@@ -322,7 +324,7 @@ func Serve(options ServeOptions) error {
 				log.Printf("conversation status reconcile error: %v", err)
 			}
 		}()
-		startConversationCleanup(ctx, rt.Data, cleanupOptions)
+		maintenance.Start(ctx, rt.Data, cleanupOptions)
 	}
 	schedulerOpts := agentlyrt.SchedulerOptionsFromEnv()
 	if options.DisableBackgroundWorkers {
@@ -334,24 +336,17 @@ func Serve(options ServeOptions) error {
 	if options.DisableBackgroundWorkers {
 		agentIDs = nil
 	}
-	demoBackends, err := configuredAGUIDemoBackends(wsConfig)
+	demoBackends, err := appserver.ConfiguredAGUIDemoBackends(wsConfig)
 	if err != nil {
 		return err
 	}
-	var hostedAppReader sdk.MCPUIResourceReader
-	var hostedAppBinder sdk.MCPUIResourceContextBinder
-	if internal.hostedAppReader != nil {
-		hostedAppReader, hostedAppBinder, err = internal.hostedAppReader(rt, client)
-		if err != nil {
-			return err
-		}
+	hostedAppReader, hostedAppBinder, err := internal.HostedAppReader(rt, client)
+	if err != nil {
+		return fmt.Errorf("configure hosted applications: %w", err)
 	}
-	var menuReader workspaceui.LayoutMenuReader
-	if internal.menuReader != nil {
-		menuReader, err = internal.menuReader(rt)
-		if err != nil {
-			return fmt.Errorf("configure navigation menu: %w", err)
-		}
+	menuReader, err := internal.MenuReader(rt)
+	if err != nil {
+		return fmt.Errorf("configure navigation menu: %w", err)
 	}
 	apiHandler, err := appserver.NewAPIHandler(ctx, appserver.APIOptions{
 		MenuReader:                 menuReader,
@@ -717,12 +712,4 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-// Native binding runs after runtime construction and before bootstrap or serving.
-func bindNativeWindowRuntime(options ServeOptions, runtime *executor.Runtime) error {
-	if options.nativeWindowRuntimeBinder == nil {
-		return nil
-	}
-	return options.nativeWindowRuntimeBinder(runtime)
 }

@@ -13,17 +13,17 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
-	github.com/viant/agently-core v0.1.57-0.20261016044755-6a6944afc1a3
-	github.com/viant/datly v1.1.1-0.20261014171954-a220d43fa66b
+	github.com/viant/agently-core v0.1.57-0.20261016060422-e6ae49961b73
+	github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4
 	github.com/viant/embedius v0.5.6 // indirect
-	github.com/viant/forge v0.3.45-0.20261016043929-c07d4e231069
+	github.com/viant/forge v0.3.45-0.20261016055550-ae06120a40e3
 	github.com/viant/jsonrpc v0.25.1-0.20261014230436-c7e03c1c46eb
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
 	github.com/viant/mcp v0.24.1-0.20261016035016-dc29fe9112e9
 	github.com/viant/mcp-protocol v0.19.1-0.20261014173008-af92f34f304b
 	github.com/viant/mcp-ui v0.2.1-0.20261011073152-8f30de0c7bc3 // indirect
 	github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726
-	github.com/viant/structology v0.10.1-0.20261014122805-e37281ec0f50 // indirect
+	github.com/viant/structology v0.10.1-0.20261015025741-5750986d416b // indirect
 	github.com/viant/velty v0.4.1-0.20260915052314-fca47c0595f8 // indirect
 	github.com/viant/x v0.5.1-0.20260915043005-1bc42b9eef47 // indirect
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect; indirect -- replaced with internal stub, see below
@@ -153,12 +153,12 @@ require (
 	github.com/viant/parsly v0.3.3 // indirect
 	github.com/viant/sqlite-vec v0.3.1-0.20260220164201-136574510a3f // indirect
 	github.com/viant/sqlparser v0.13.1-0.20261012001419-edea4bd5d9c1 // indirect
-	github.com/viant/sqlx v0.26.1-0.20261013010041-718390a26adf // indirect
+	github.com/viant/sqlx v0.26.1-0.20261014054800-54a7a6e2e31d // indirect
 	github.com/viant/structql v0.5.5-0.20261012183420-6a47e96ff5b5 // indirect
 	github.com/viant/tagly v0.4.1-0.20261007173811-969600917520 // indirect
 	github.com/viant/toolbox v0.39.0 // indirect
 	github.com/viant/vec v0.2.4-0.20250819200643-7e16b6ea443c // indirect
-	github.com/viant/xdatly v1.0.1-0.20261013192427-164ca1782574 // indirect
+	github.com/viant/xdatly v1.0.1-0.20261015075741-94be032b69bb // indirect
 	github.com/viant/xlsy v0.3.1 // indirect
 	github.com/viant/xmlify v0.1.2-0.20260914155716-e525a8788fd0 // indirect
 	github.com/viant/xreflect v0.7.5-0.20260314170600-13f09f37d46e // indirect

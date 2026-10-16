@@ -73,15 +73,16 @@ func TestTerminalQueryKnowledgeSystem(t *testing.T) {
 
 func TestTerminalQueryToolUsage(t *testing.T) {
 	skipIfNoAPIKey(t)
+	t.Setenv("AGENTLY_E2E_TOOL_SENTINEL", "fixture-tool-value-54517")
 	baseURL, workspace := setupGroup(t)
 	out := harness.RunChat(t, workspace, baseURL, []string{
 		"--agent-id", "tool_user",
-		"--query", "What is the value of the OPENAI_API_KEY environment variable? Just tell me if it exists or not and the first 10 characters.",
+		"--query", "Use the environment tool to read only AGENTLY_E2E_TOOL_SENTINEL and report its value.",
 		"--user", "e2e-test",
 	}, "")
 	lower := strings.ToLower(out)
 	assert.Contains(t, out, "[conversation-id]")
-	assert.True(t, strings.Contains(lower, "openai") || strings.Contains(lower, "environment") || strings.Contains(lower, "sk-"), out)
+	assert.Contains(t, lower, "fixture-tool-value-54517")
 }
 
 func TestTerminalQueryMultiTurn(t *testing.T) {
@@ -129,7 +130,13 @@ func TestTerminalQueryStreamingOutput(t *testing.T) {
 	require.Greater(t, conversationMarker, 0, out)
 	prefix := strings.TrimSpace(out[:conversationMarker])
 	require.NotEmpty(t, prefix, out)
-	assert.NotContains(t, prefix, "[conversation-id]")
+	// The initial identity diagnostic lets interrupted CLI runs be recovered.
+	// Streamed answer text must still precede the final identity marker.
+	runMarker := strings.LastIndex(prefix, "[ag-ui-run-id]")
+	require.GreaterOrEqual(t, runMarker, 0, out)
+	answerStart := strings.Index(prefix[runMarker:], "\n")
+	require.GreaterOrEqual(t, answerStart, 0, out)
+	require.NotEmpty(t, strings.TrimSpace(prefix[runMarker+answerStart:]), out)
 
 	events := readTraceEvents(t)
 	assertTraceHasEvent(t, events, "core", "stream_request")
@@ -203,9 +210,10 @@ func TestTerminalQueryJWTAuthorized(t *testing.T) {
 
 func TestTerminalQueryImageAttachment(t *testing.T) {
 	skipIfNoAPIKey(t)
-	baseURL, workspace := setupGroup(t)
+	baseURL, workspace, token := setupJWTAuthGroup(t)
 	imagePath := writeTempAttachment(t, "red-dot.png", mustCreatePNG(t, color.RGBA{R: 255, A: 255}))
 	out := harness.RunChat(t, workspace, baseURL, []string{
+		"--token", token,
 		"--agent-id", "simple",
 		"--attach", imagePath,
 		"--query", "What is the dominant color in the attached image? Answer with one word.",
@@ -216,7 +224,7 @@ func TestTerminalQueryImageAttachment(t *testing.T) {
 	assert.Contains(t, lower, "red")
 
 	conversationID := extractConversationID(t, out)
-	client, err := coresdk.NewHTTP(baseURL)
+	client, err := coresdk.NewHTTP(baseURL, coresdk.WithAuthToken(token))
 	require.NoError(t, err)
 	transcript, err := client.GetTranscript(harness.Context(t), &coresdk.GetTranscriptInput{ConversationID: conversationID})
 	require.NoError(t, err)
@@ -236,9 +244,10 @@ func TestTerminalQueryImageAttachment(t *testing.T) {
 
 func TestTerminalQueryPDFAttachment(t *testing.T) {
 	skipIfNoAPIKey(t)
-	baseURL, workspace := setupGroup(t)
+	baseURL, workspace, token := setupJWTAuthGroup(t)
 	pdfPath := writeTempAttachment(t, "token.pdf", mustCreatePDF(t))
 	out := harness.RunChat(t, workspace, baseURL, []string{
+		"--token", token,
 		"--agent-id", "pdf_inline",
 		"--attach", pdfPath,
 		"--query", "What exact token appears in the attached PDF? Answer only with the token.",
@@ -248,7 +257,7 @@ func TestTerminalQueryPDFAttachment(t *testing.T) {
 	assert.Contains(t, out, "PDF_TEST_TOKEN_4729")
 
 	conversationID := extractConversationID(t, out)
-	client, err := coresdk.NewHTTP(baseURL)
+	client, err := coresdk.NewHTTP(baseURL, coresdk.WithAuthToken(token))
 	require.NoError(t, err)
 	transcript, err := client.GetTranscript(harness.Context(t), &coresdk.GetTranscriptInput{ConversationID: conversationID})
 	require.NoError(t, err)
@@ -267,9 +276,10 @@ func TestTerminalQueryPDFAttachment(t *testing.T) {
 
 func TestTerminalQueryPDFRefAttachment(t *testing.T) {
 	skipIfNoAPIKey(t)
-	baseURL, workspace := setupGroup(t)
+	baseURL, workspace, token := setupJWTAuthGroup(t)
 	pdfPath := writeTempAttachment(t, "token.pdf", mustCreatePDF(t))
 	out := harness.RunChat(t, workspace, baseURL, []string{
+		"--token", token,
 		"--agent-id", "pdf_ref",
 		"--attach", pdfPath,
 		"--query", "What exact token appears in the attached PDF? Answer only with the token.",
@@ -279,7 +289,7 @@ func TestTerminalQueryPDFRefAttachment(t *testing.T) {
 	assert.Contains(t, out, "PDF_TEST_TOKEN_4729")
 
 	conversationID := extractConversationID(t, out)
-	client, err := coresdk.NewHTTP(baseURL)
+	client, err := coresdk.NewHTTP(baseURL, coresdk.WithAuthToken(token))
 	require.NoError(t, err)
 	transcript, err := client.GetTranscript(harness.Context(t), &coresdk.GetTranscriptInput{ConversationID: conversationID})
 	require.NoError(t, err)
@@ -308,8 +318,9 @@ func TestTerminalQueryMultiAttachment(t *testing.T) {
 
 func TestTerminalQueryGeneratedImageOutput(t *testing.T) {
 	skipIfNoAPIKey(t)
-	baseURL, workspace := setupGroup(t)
+	baseURL, workspace, token := setupJWTAuthGroup(t)
 	out := harness.RunChat(t, workspace, baseURL, []string{
+		"--token", token,
 		"--agent-id", "image_generator",
 		"--query", "Generate a tiny red square PNG image and reply with only the filename.",
 		"--user", "e2e-file",
@@ -318,7 +329,7 @@ func TestTerminalQueryGeneratedImageOutput(t *testing.T) {
 	assert.Contains(t, out, "[conversation-id]")
 
 	conversationID := extractConversationID(t, out)
-	client, err := coresdk.NewHTTP(baseURL)
+	client, err := coresdk.NewHTTP(baseURL, coresdk.WithAuthToken(token))
 	require.NoError(t, err)
 	files, err := client.ListFiles(harness.Context(t), &coresdk.ListFilesInput{ConversationID: conversationID})
 	require.NoError(t, err)
