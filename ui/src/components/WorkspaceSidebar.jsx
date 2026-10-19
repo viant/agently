@@ -24,7 +24,7 @@ export function resolveLayoutWindowOptions(action = {}, conversationId = '', cur
   const id = String(conversationId || '').trim();
   const {parameters, missing} = resolveNavigationParameters(action, current);
   if (missing) return null;
-  return { parameters, conversationId: id || undefined, parentKey: MAIN_CHAT_WINDOW_ID, presentation: 'hosted', region: 'chat.top' };
+  return { parameters, conversationId: id || undefined, parentKey: MAIN_CHAT_WINDOW_ID, presentation: 'hosted', region: 'chat.top', ...(action.providerIdentity ? {providerIdentity: action.providerIdentity} : {}) };
 }
 
 function selectedWindowInputs() {
