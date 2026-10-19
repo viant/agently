@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const openWindow = vi.fn();
 const getAuthMeSilently = vi.fn();
@@ -8,11 +8,17 @@ const getAuthMeSilently = vi.fn();
 vi.mock('../services/agentlyClient', () => ({ getAuthMeSilently }));
 vi.mock('./menuBarHelpers', () => ({ openWindow }));
 vi.mock('./Sidebar', () => ({ default: () => <div data-testid="conversation-sidebar" /> }));
+vi.mock('forge/core', async () => {
+  const {signal} = await import('@preact/signals-react');
+  return {activeWindows: signal([]), selectedWindowId: signal(null), getWindowContext: vi.fn()};
+});
 
 let WorkspaceSidebar;
+let windowSignals;
 
 beforeAll(async () => {
   ({ default: WorkspaceSidebar } = await import('./WorkspaceSidebar.jsx'));
+  windowSignals = await import('forge/core');
 });
 
 afterAll(() => {
@@ -24,6 +30,9 @@ beforeEach(() => {
   cleanup?.();
   window.localStorage.clear();
   openWindow.mockReset();
+  windowSignals.activeWindows.value = [];
+  windowSignals.selectedWindowId.value = null;
+  windowSignals.getWindowContext.mockReset();
   getAuthMeSilently.mockReset().mockResolvedValue({ subject: 'menu-test-user' });
   vi.stubGlobal('fetch', vi.fn());
 });
@@ -64,6 +73,33 @@ const menuApplications = [
 ];
 
 describe('WorkspaceSidebar menu delivery from the workspace layout', () => {
+  it('binds typed report inputs from the selected window and reacts to changes without mutating the catalog', async () => {
+    const {signal} = await import('@preact/signals-react');
+    const form = signal({AdvertiserId: 83611});
+    const action = {type: 'window', resourceUri: 'window://ar/report', parameters: {ViewId: 1294}, parameterBindings: {
+      AdvertiserIds: {from: ['AdvertiserId', 'advertiserId'], array: true},
+      CampaignId: {from: 'CampaignId', optional: true},
+    }};
+    const original = JSON.stringify(action);
+    windowSignals.activeWindows.value = [{windowId: 'advertiser', parameters: {AdvertiserId: 1}}];
+    windowSignals.selectedWindowId.value = 'advertiser';
+    windowSignals.getWindowContext.mockImplementation(id => id === 'advertiser' ? {Context: () => ({handlers: {dataSource: {getWindowFormData: () => form.value}}})} : undefined);
+    fetch.mockResolvedValue(response(layoutPayload({applications: [{id: 'ar', title: 'Reports', menus: [{id: 'overview', title: 'Overview', action}]}]})));
+    render(<WorkspaceSidebar conversationId="conversation" />);
+    const report = await screen.findByRole('button', {name: 'Overview'});
+    fireEvent.click(report);
+    expect(openWindow).toHaveBeenLastCalledWith('window://ar/report', 'Overview', [], expect.objectContaining({parameters: {ViewId: 1294, AdvertiserIds: [83611]}}));
+    act(() => { form.value = {AdvertiserId: 0}; });
+    fireEvent.click(report);
+    expect(openWindow).toHaveBeenLastCalledWith('window://ar/report', 'Overview', [], expect.objectContaining({parameters: {ViewId: 1294, AdvertiserIds: [0]}}));
+    act(() => { windowSignals.selectedWindowId.value = 'chat'; });
+    await waitFor(() => expect(report.disabled).toBe(true));
+    openWindow.mockClear();
+    fireEvent.click(report);
+    expect(openWindow).not.toHaveBeenCalled();
+    expect(JSON.stringify(action)).toBe(original);
+  });
+
   it('renders Advertisers and Campaigns from layout.applications and preserves their window actions', async () => {
     const topbarActions = [{ id: 'help', title: 'Help' }];
     fetch.mockResolvedValueOnce(response(layoutPayload({ applications: menuApplications, topbarActions })));
@@ -138,4 +174,34 @@ describe('WorkspaceSidebar menu delivery from the workspace layout', () => {
       parameters: { legacy: true }, conversationId: undefined, parentKey: 'chat/new', presentation: 'hosted', region: 'chat.top',
     });
   });
+});
+
+it('defers discovery until session confirmation and clears menus when the session ends', async () => {
+  fetch.mockResolvedValue(response(layoutPayload({ applications: menuApplications })));
+  const topbar = vi.fn();
+  const mounted = render(<WorkspaceSidebar discoveryReady={false} onTopbarActionsChange={topbar} />);
+  expect(fetch).not.toHaveBeenCalled();
+  mounted.rerender(<WorkspaceSidebar discoveryReady={true} onTopbarActionsChange={topbar} />);
+  await screen.findByRole('button', { name: 'Advertisers' });
+  expect(fetch).toHaveBeenCalledTimes(1);
+  mounted.rerender(<WorkspaceSidebar discoveryReady={false} onTopbarActionsChange={topbar} />);
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Advertisers' })).toBeNull());
+  expect(topbar).toHaveBeenLastCalledWith([]);
+});
+
+it('opens management URL menus in an isolated browser tab', async () => {
+  fetch.mockResolvedValue(response(layoutPayload({applications:[{id:'management', title:'Management', menus:[{id:'models',title:'Models', action:{type:'url',url:'https://studio.example/?section=models'}}]}]})));
+  const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+  render(<WorkspaceSidebar />);
+  fireEvent.click(await screen.findByRole('button',{name:'Models'}));
+  expect(open).toHaveBeenCalledWith('https://studio.example/?section=models','_blank','noopener,noreferrer');
+  expect(openWindow).not.toHaveBeenCalled();
+  open.mockRestore();
+});
+
+it('opens canonical remote window resources through the existing window host', async () => {
+  fetch.mockResolvedValue(response(layoutPayload({applications:[{id:'studio', title:'Studio', menus:[{id:'models',title:'Models', action:{type:'window',resourceUri:'window://studio/Models',parameters:{section:'active'}}}]}]})));
+  render(<WorkspaceSidebar discoveryReady />);
+  fireEvent.click(await screen.findByRole('button',{name:'Models'}));
+  expect(openWindow).toHaveBeenCalledWith('window://studio/Models','Models',[],expect.objectContaining({parameters:{section:'active'}}));
 });

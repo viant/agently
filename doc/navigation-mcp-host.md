@@ -1,113 +1,74 @@
-# Optional bounded navigation menus
+# Workspace applications from MCP
 
-The host keeps its existing `/v1/workspace/layout` endpoint. Optional trusted
-`navigationSources` in the authorization configuration replace only its `applications`
-array with visible MCP menu projections. Topbar, history, sidebar sizing and other
-layout chrome retain the existing layout processing. No browser-side menu
-transport, special Datly server or producer URL inference is required.
+Agently hosts the workspace shell. Configured MCP connections publish their
+applications, navigation, windows, reports, and dependencies. The managing MCP
+selects resources for the authenticated user and authorizes its data operations.
+Application ordering is workspace presentation configuration.
 
-A current Steward publication can be configured explicitly:
+Configure the existing `ui/layout.yaml` with trusted application sources:
 
-```json
-{
-  "navigationSources": [
-    {
-      "uri": "navigation://steward/navigation",
-      "localLayoutPath": "ui/layout.yaml"
-    }
-  ]
-}
+```yaml
+applicationSources:
+  - connection: aistudio-dsp
+    resource: navigation://dspui/main
+    applicationId: dspui
+  - connection: ar
+    resource: navigation://ar/main
+    applicationId: advanced-reporting
+  - connection: aistudio-management
+    resource: navigation://aistudio/main
+    applicationId: aistudio
+  - connection: datastudio-management
+    resource: navigation://datastudio/main
+    applicationId: datastudio
+includeUnlistedApplications: false
+applications: []
 ```
 
-`localLayoutPath` is resolved relative to the trusted authorization file, not
-relative to an MCP request. It publishes the source's existing applications
-through the configured `InternalResourceProviderIdentity`. An optional
-`providerIdentity` must match that internal owner. The logical namespace is
-chosen in `uri`; it never denotes a server URL. Source YAML remains unchanged.
-This local source supports the exact working candidate.
+Enable namespace-published MCP definitions through the existing trusted catalog
+selection in workspace `config.yaml`:
 
-The menu's resource family needs the same explicit revision authority as other
-resources. Its operation is `navigation.view`; there is no implicit allow or invented
-ACL. For example, add a family mapping and an authorized selection:
-
-```json
-{
-  "resourceRevisionBindings": [
-    {
-      "operation": "navigation.view",
-      "uri": "navigation://steward/navigation",
-      "resource": {
-        "kind": "navigation",
-        "id": "navigation://steward/navigation",
-        "tenant": "YOUR_VERIFIED_TENANT"
-      },
-      "action": "read"
-    }
-  ],
-  "resourceSelections": [
-    {
-      "resource": {
-        "kind": "navigation",
-        "id": "navigation://steward/navigation",
-        "tenant": "YOUR_VERIFIED_TENANT"
-      },
-      "revision": 1,
-      "defaultVersion": "working"
-    }
-  ]
-}
+```yaml
+mcpCatalogs:
+  - mcp://workspace/aistudio-dsp
+  - mcp://workspace/ar
 ```
 
-The corresponding `policies` and `requirements` must explicitly authorize the
-chosen version/action. The host uses `PreparedAuthorization.ResourceResolver`
-for producer selection and consumer admission. Existing window namespace
-bindings remain required. Menu publication grants no window execution authority.
+Each connection name refers to its normal workspace MCP definition. Applications
+retain the published ID, title, icon, menu hierarchy, and window titles. Topbar,
+history, sidebar sizing, and conversation behavior use the existing layout APIs.
+Without application sources, the existing authored applications remain supported.
 
-Local action visibility resolves `windowKey` only through the declared workspace
-or framework window bindings. It applies their namespace admission and existing
-catalog role/feature visibility checks. Missing window mappings disappear;
-roleless and featureless metadata does not trigger entity permission lookups.
-Nested groups retain the existing `children` structure and disappear when all
-children are denied. Window opening continues through the existing backend guards.
+After sign-in the shared gateway discovers `namespaces/list`, lists navigation
+with standard `resources/list`, and reads it with `resources/read`. Where the
+server advertises filtering, the existing `io.viant/resources/filter` metadata
+selects namespace and kind. Generic MCP servers retain unfiltered discovery.
+`namespaces/get` is unnecessary for this application flow. The existing shared
+connection pool and public/user/conversation caches remain in use; resource
+notifications invalidate the corresponding cached entries.
 
-An arbitrary external MCP source uses an explicit owner and logical URI:
+Window list/get/open remain the primary host UI APIs. Their implementation uses
+the same gateway as the navigation reader. Published windows render without an
+additional host resource-access decision. Authored role and capability conditions
+still control UI presentation; business authorization belongs to the managing MCP.
+Namespace-published datasource and MCP definitions are consumed through the shared
+readers and pool, preserving the selected window representation during dispatch.
 
-```json
-{
-  "navigationSources": [
-    {
-      "providerIdentity": "YOUR_CONFIGURED_MCP_PROVIDER_IDENTITY",
-      "uri": "navigation://platform/navigation",
-      "revision": "release-7"
-    }
-  ]
-}
-```
+A window action supplies `resourceUri: window://namespace/path` or the existing
+local `windowKey`/optional `provider`. Relative links inside a published window
+resolve within its namespace; explicit destination URIs remain explicit.
+`parameters` supplies literal inputs. `parameterBindings` resolves explicitly
+named active-window inputs, preserving types and arrays. Missing required inputs
+disable the destination; optional bindings may be absent.
 
-Its connection is resolved by registered provider identity. Omit `revision` to
-allow source and host policy selection; an explicit revision is exact and must
-be authorized by both. External working/stamped menus use the same neutral
-contract and may use a provider-owned users namespace when explicitly authorized.
-Local users publication requires a trusted ownership adapter and is deliberately
-not supported by this platform layout adapter.
+Report-builder windows use their published window URI and the normal reporting
+engine. A `report://` reference is a report identity, not a window-key alias.
 
-The producer exposes ordinary registered `navigations/list` and `navigations/get` tools only
-when menu bindings are installed. Source metadata/pin and filtered projection
-bytes have distinct fingerprints; unfiltered source bytes are never sent.
-Consumer `Gateway.GetMenu` validates that separation and forces fresh reads.
+A `type: url` action opens its HTTPS destination with `noopener,noreferrer`;
+plain HTTP is supported for loopback development hosts. Executable schemes, URL
+credentials, relative URLs, and mixed window/URL actions are rejected.
 
-An aggregate layout read holds one verified actor and gateway read association
-across every source. It retains each original provider/source pin and host
-admission decision, constrains all leases, and rereads the exact source and
-projection before release. Changes to account, credentials, owner, revision,
-content, visibility or authority reject the response. The optional injected
-`LayoutMenuRead.Close` releases its scope on all layout failure paths.
-
-With no `navigationSources`, legacy layout behavior remains. Once configured, a failed,
-expired, revoked, changed or empty menu never resurrects raw layout applications.
-An empty permitted menu returns `applications: []`; failures return a generic
-navigation-unavailable response. The composed layout revision includes the source
-pins and visible fingerprints, without representing a projection as source bytes.
-
-Authoring or enabling an AI Studio publish flag does not install these host
-bindings. Operators must configure publication and consumer authority explicitly.
+Navigation discovery starts after the initial session probe settles or after an
+`agently:authorized` event. Confirmed authentication denial clears navigation.
+Transient probe failures preserve the optimistic shell and allow layout retry.
+Credentials remain in the existing server-side authentication transport.
