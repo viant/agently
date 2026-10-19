@@ -175,7 +175,11 @@ function resolveActivatedWorkspaceHeight() {
   return clampWorkspaceHeight(Math.round(shellHeight * (2 / 3)));
 }
 
-export function resolveInitialAuthState(providers, me) {
+export function resolveInitialAuthState(providers, me, probeError = null) {
+  if (probeError) {
+    const status = Number(probeError.status || 0);
+    return status === 401 || status === 403 ? 'required' : 'ready';
+  }
   const normalized = Array.isArray(providers) ? providers : [];
   const hasLocalProvider = normalized.some((entry) => {
     const type = String(entry?.type || '').trim().toLowerCase();
@@ -589,6 +593,7 @@ export default function Root() {
   // Render the shell optimistically. Protected endpoints still emit the
   // authoritative unauthorized event; auth discovery must not gate chat.
   const [authState, setAuthState] = useState('ready');
+  const [navigationReady, setNavigationReady] = useState(false);
   const [mcpResumePending, setMCPResumePending] = useState(() => currentPendingMCPAuth());
   const [oauthProviderLabel, setOAuthProviderLabel] = useState('');
   const developerMode = useDeveloperMode();
@@ -925,21 +930,27 @@ export default function Root() {
         // Only an explicit unauthenticated auth/me response should replace the
         // shell. Transient failures stay optimistic until a protected request
         // emits agently:unauthorized.
-        if (authProbeSucceeded) setAuthState(resolveInitialAuthState(providers, me));
+        const state = resolveInitialAuthState(providers, me, authProbeSucceeded ? null : (results[1]?.reason || {}));
+        setAuthState(state);
+        setNavigationReady(state === 'ready');
       })
       .catch((err) => {
         if (!mounted) return;
         const status = Number(err?.status || 0);
         if (status === 401 || status === 403) {
+          setNavigationReady(false);
           setAuthState('required');
           return;
         }
         setAuthState('ready');
+        setNavigationReady(true);
       });
     const onUnauthorized = () => {
+      setNavigationReady(false);
       setAuthState('required');
     };
     const onAuthorized = () => {
+      setNavigationReady(true);
       setAuthState('ready');
     };
     window.addEventListener('agently:unauthorized', onUnauthorized);
@@ -1451,6 +1462,7 @@ export default function Root() {
           ) : null}
           {(!isCompactShell || isSidebarOpen) ? (
             <WorkspaceSidebar
+              discoveryReady={navigationReady}
               conversationId={mainConversationId}
               onOpenWorkspace={() => {
                 backendSelection.select('agently');

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  resolveInitialAuthState,
   isCompactShellViewport,
   isConversationOwnedWorkspaceWindow,
   isConversationHostedWorkspaceChild,
@@ -38,6 +39,20 @@ import {
   shouldScrollConversationAfterTurn,
   shouldUseConversationWorkspaceFallback
 } from './Root.jsx';
+
+describe('initial authentication discovery', () => {
+  const providers = [{name: 'oauth', type: 'bff'}];
+  it('allows navigation discovery to recover after a transient auth probe failure', () => {
+    expect(resolveInitialAuthState(providers, null, {status: 503})).toBe('ready');
+    expect(resolveInitialAuthState(providers, null, new TypeError('connection unavailable'))).toBe('ready');
+  });
+  it('waits for sign-in after confirmed authentication denial', () => {
+    expect(resolveInitialAuthState(providers, null, {status: 401})).toBe('required');
+    expect(resolveInitialAuthState(providers, null, {status: 403})).toBe('required');
+    expect(resolveInitialAuthState(providers, null)).toBe('required');
+    expect(resolveInitialAuthState(providers, {subject: 'signed-in'})).toBe('ready');
+  });
+});
 
 describe('landing-page workspace ownership', () => {
   it('renders menu windows without a conversation and isolates conversation-owned windows', () => {

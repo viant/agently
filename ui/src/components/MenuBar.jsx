@@ -1,3 +1,4 @@
+import { openLayoutURL } from './layoutNavigation';
 import { resolveBrandLogoSrc, resolveBrandMonogram, resolveStartupAuthAction, openWindow, APPROVALS_PAGE_SIZE, paginateApprovalItems, normalizeQueueApprovalDialog, extractSchemaDefaultValues, findApprovalItemById, resolveReturnFocusTarget, restoreReturnFocusTarget, nextApprovalDialogFocusReturn } from './menuBarHelpers';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Dialog, Spinner, Tooltip } from '@blueprintjs/core';
@@ -304,10 +305,11 @@ export default function MenuBar({
                 className={`app-topbar-icon-btn${entry.className ? ` ${entry.className}` : ''}`} data-testid={`topbar-${entry.id}`}
                 onClick={() => {
                   const action = entry.action;
+                  if (openLayoutURL(action)) return;
                   if (action?.type !== 'window') return;
                   onNativeAction?.();
-                  const key = action.provider && action.provider !== 'workspace'
-                    ? `provider:${action.provider}:${action.windowKey}` : action.windowKey;
+                  const key = action.resourceUri || (action.provider && action.provider !== 'workspace'
+                    ? `provider:${action.provider}:${action.windowKey}` : action.windowKey);
                   openWindow(key, entry.title, action.refreshDataSources || [], { parameters: action.parameters || {} });
                 }} />
             </Tooltip>

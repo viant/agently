@@ -1,26 +1,42 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Icon } from '@blueprintjs/core';
+import { useSignals } from '@preact/signals-react/runtime';
+import { activeWindows, selectedWindowId, getWindowContext } from 'forge/core';
+import { resolveNavigationParameters } from 'forge/utils/navigationParameters';
 import { sdkBaseURL } from '../endpoint';
 import { getAuthMeSilently } from '../services/agentlyClient';
 import Sidebar from './Sidebar';
 import { openWindow } from './menuBarHelpers';
 import { MAIN_CHAT_WINDOW_ID } from '../services/conversationWindow';
 
+import { openLayoutURL } from './layoutNavigation';
+
 const DEFAULT_SPLIT = 0.5;
 
 export function resolveLayoutWindowKey(action = {}) {
+  if (action.resourceUri) return action.resourceUri;
   if (!action?.windowKey) return '';
   return action.provider && action.provider !== 'workspace'
     ? `provider:${action.provider}:${action.windowKey}` : action.windowKey;
 }
 
-export function resolveLayoutWindowOptions(action = {}, conversationId = '') {
+export function resolveLayoutWindowOptions(action = {}, conversationId = '', current = {}) {
   const id = String(conversationId || '').trim();
-  const parameters = action.parameters || {};
+  const {parameters, missing} = resolveNavigationParameters(action, current);
+  if (missing) return null;
   return { parameters, conversationId: id || undefined, parentKey: MAIN_CHAT_WINDOW_ID, presentation: 'hosted', region: 'chat.top' };
 }
 
-export default function WorkspaceSidebar({ conversationId = '', collapsed = false, onNavigate, onExpand, onOpenWorkspace, onTopbarActionsChange }) {
+function selectedWindowInputs() {
+  const id = selectedWindowId.value;
+  const opened = activeWindows.value.find(entry => entry.windowId === id);
+  const form = getWindowContext(id)?.Context()?.handlers?.dataSource?.getWindowFormData?.();
+  return {...opened?.parameters, ...form};
+}
+
+export default function WorkspaceSidebar({ discoveryReady = true, conversationId = '', collapsed = false, onNavigate, onExpand, onOpenWorkspace, onTopbarActionsChange }) {
+  useSignals();
+  const windowInputs = selectedWindowInputs();
   const [layout, setLayout] = useState(null);
   const [activeApp, setActiveApp] = useState('');
   const [fraction, setFraction] = useState(DEFAULT_SPLIT);
@@ -41,6 +57,7 @@ export default function WorkspaceSidebar({ conversationId = '', collapsed = fals
 
   useEffect(() => {
     let live = true;
+    if (!discoveryReady) { setLayout(null); onTopbarActionsChange?.([]); return undefined; }
     const load = async () => {
       try {
         const response = await fetch(`${sdkBaseURL}/workspace/layout`, { credentials: 'include', headers: { Accept: 'application/json' } });
@@ -88,7 +105,7 @@ export default function WorkspaceSidebar({ conversationId = '', collapsed = fals
     const onAuthorized = () => { setLayout(null); void load(); };
     window.addEventListener('agently:authorized', onAuthorized);
     return () => { live = false; window.removeEventListener('agently:authorized', onAuthorized); };
-  }, [reloadVersion]);
+  }, [reloadVersion, discoveryReady]);
 
   useEffect(() => {
     if (!preferenceKey) return;
@@ -122,12 +139,16 @@ export default function WorkspaceSidebar({ conversationId = '', collapsed = fals
         {menu.children.map(renderMenu)}
       </div>;
     }
-    return <Button key={menu.id} minimal fill alignText="left" className={`app-layout-menu ${menu.className || ''}`} icon={menu.icon ? <Icon icon={menu.icon} className="app-layout-menu-icon" /> : undefined} disabled={menu.disabled || active?.disabled}
+    const missingInputs = menu.action?.type === 'window' && resolveNavigationParameters(menu.action, windowInputs).missing;
+    return <Button key={menu.id} minimal fill alignText="left" className={`app-layout-menu ${menu.className || ''}`} icon={menu.icon ? <Icon icon={menu.icon} className="app-layout-menu-icon" /> : undefined} disabled={menu.disabled || active?.disabled || missingInputs}
       onClick={() => {
         const action = menu.action;
+        if (openLayoutURL(action)) { onNavigate?.(); return; }
         if (action?.type === 'window') {
           const windowKey = resolveLayoutWindowKey(action);
-          openWindow(windowKey, menu.title, action.refreshDataSources || [], resolveLayoutWindowOptions(action, conversationId));
+          const options = resolveLayoutWindowOptions(action, conversationId, selectedWindowInputs());
+          if (!options) return;
+          openWindow(windowKey, menu.title, action.refreshDataSources || [], options);
           onOpenWorkspace?.();
           onNavigate?.();
         }
