@@ -78,6 +78,9 @@ func RunScheduler(options SchedulerRunOptions) error {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
 	}
 	defer rt.Close(context.Background())
+	if err := registerSchedulerUIServices(rt); err != nil {
+		return fmt.Errorf("failed to register scheduler UI tools: %w", err)
+	}
 	if err := agentlyrt.ConfigureForecastEvidence(ctx, rt, workspace.Root()); err != nil {
 		return fmt.Errorf("forecast evidence startup: %w", err)
 	}
