@@ -39,12 +39,36 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
   const windowInputs = selectedWindowInputs();
   const [layout, setLayout] = useState(null);
   const [activeApp, setActiveApp] = useState('');
+  const [collapsedGroups, setCollapsedGroups] = useState({});
   const [fraction, setFraction] = useState(DEFAULT_SPLIT);
   const [error, setError] = useState('');
   const [reloadVersion, setReloadVersion] = useState(0);
   const [preferenceKey, setPreferenceKey] = useState('');
   const [sidebarHeight, setSidebarHeight] = useState(0);
   const shellRef = useRef(null);
+  const tabsRef = useRef(null);
+  const [tabScroll, setTabScroll] = useState({left: false, right: false});
+  const updateTabScroll = () => {
+    const node = tabsRef.current;
+    if (!node) return;
+    const next = {left: node.scrollLeft > 1, right: node.scrollLeft + node.clientWidth < node.scrollWidth - 1};
+    setTabScroll(previous => previous.left === next.left && previous.right === next.right ? previous : next);
+  };
+  const scrollTabs = direction => tabsRef.current?.scrollBy({left: direction * Math.max(100, tabsRef.current.clientWidth * 0.75), behavior: 'smooth'});
+
+  useEffect(() => {
+    const node = tabsRef.current;
+    if (!node) return undefined;
+    updateTabScroll();
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateTabScroll) : null;
+    observer?.observe(node);
+    return () => observer?.disconnect();
+  }, [layout, collapsed]);
+
+  useEffect(() => {
+    tabsRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView?.({block: 'nearest', inline: 'nearest'});
+    updateTabScroll();
+  }, [layout, activeApp, collapsed]);
 
   useEffect(() => {
     const element = shellRef.current;
@@ -132,15 +156,20 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
     return Math.min(1 - minHeight / available, Math.max(minHeight / available, value));
   };
 
-  const renderMenu = (menu) => {
+  const renderMenu = (menu, parentPath = '') => {
+    const groupKey = JSON.stringify([active?.id, parentPath, menu.id]);
     if (Array.isArray(menu.children) && menu.children.length) {
+      const expanded = !collapsedGroups[groupKey];
       return <div className={`app-layout-menu-group ${menu.className || ''}`} key={menu.id}>
-        <span className="app-layout-menu-group-title">{menu.title}</span>
-        {menu.children.map(renderMenu)}
+        <Button minimal fill alignText="left" className="app-layout-menu-group-title" aria-expanded={expanded}
+          icon={<Icon icon={menu.icon || 'folder-close'} size={14} className="app-layout-group-icon" />}
+          endIcon={<Icon icon={expanded ? 'minus' : 'plus'} size={12} />}
+          onClick={() => setCollapsedGroups(previous => ({...previous, [groupKey]: !previous[groupKey]}))}>{menu.title}</Button>
+        {expanded ? <div className="app-layout-menu-children">{menu.children.map(child => renderMenu(child, groupKey))}</div> : null}
       </div>;
     }
     const missingInputs = menu.action?.type === 'window' && resolveNavigationParameters(menu.action, windowInputs).missing;
-    return <Button key={menu.id} minimal fill alignText="left" className={`app-layout-menu ${menu.className || ''}`} icon={menu.icon ? <Icon icon={menu.icon} className="app-layout-menu-icon" /> : undefined} disabled={menu.disabled || active?.disabled || missingInputs}
+    return <Button key={menu.id} minimal fill alignText="left" className={`app-layout-menu ${menu.className || ''}`} icon={menu.icon ? <Icon icon={menu.icon} size={14} className="app-layout-menu-icon" /> : undefined} disabled={menu.disabled || active?.disabled || missingInputs}
       onClick={() => {
         const action = menu.action;
         if (openLayoutURL(action)) { onNavigate?.(); return; }
@@ -173,12 +202,16 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
     </div> : null}
     {!collapsed && navigationEnabled && applications.length > 0 ? <>
       <section className={`app-layout-navigation ${active?.className || ''}`} style={canSplit ? { '--app-navigation-basis': `calc((100% - 8px) * ${clampFraction(fraction)})`, '--app-navigation-min-height': `${minHeight}px` } : undefined} aria-label="Applications">
-        {applications.length > 1 ? <div className="app-layout-tabs" role="tablist" aria-label="Applications">
+        {applications.length > 1 ? <div className="app-layout-tabbar">
+          {tabScroll.left || tabScroll.right ? <Button minimal small icon="chevron-left" aria-label="Scroll applications left" disabled={!tabScroll.left} onClick={() => scrollTabs(-1)} /> : null}
+          <div className="app-layout-tabs" role="tablist" aria-label="Applications" ref={tabsRef} onScroll={updateTabScroll}>
           {applications.map((app) => <Button key={app.id} minimal small role="tab" aria-selected={app.id === active?.id} icon={app.icon || undefined} className={app.className || undefined}
             active={app.id === active?.id} disabled={app.disabled} onClick={() => setActiveApp(app.id)}>{app.title}</Button>)}
+          </div>
+          {tabScroll.left || tabScroll.right ? <Button minimal small icon="chevron-right" aria-label="Scroll applications right" disabled={!tabScroll.right} onClick={() => scrollTabs(1)} /> : null}
           <Button minimal small icon="refresh" aria-label="Reload navigation" title="Reload navigation" onClick={() => setReloadVersion((value) => value + 1)} />
         </div> : <div className="app-layout-heading"><span>{active?.icon ? <Icon icon={active.icon} /> : null}{active?.title}</span><Button minimal small icon="refresh" aria-label="Reload navigation" title="Reload navigation" onClick={() => setReloadVersion((value) => value + 1)} /></div>}
-        <div className="app-layout-menus">{active?.menus?.map(renderMenu)}</div>
+        <div className="app-layout-menus">{active?.menus?.map(menu => renderMenu(menu))}</div>
       </section>
       {canSplit && layout?.left?.split?.resizable !== false ? <div className="app-layout-divider" role="separator" aria-orientation="horizontal" aria-label="Resize navigation and conversations"
         tabIndex={0} onPointerDown={startResize}
