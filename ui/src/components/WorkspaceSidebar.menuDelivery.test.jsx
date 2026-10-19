@@ -45,6 +45,48 @@ function response(payload, status = 200) {
   };
 }
 
+it('collapses nested menu groups independently and preserves leaf actions', async () => {
+  fetch.mockResolvedValue(response(layoutPayload({applications: [{id: 'dsp', title: 'DSP', menus: [
+    {id: 'management', title: 'Management', children: [
+      {id: 'accounts', title: 'Accounts', children: [
+        {id: 'advertisers', title: 'Advertisers', action: {type: 'window', windowKey: 'advertiserList'}},
+      ]},
+    ]},
+  ]}]})));
+  render(<WorkspaceSidebar />);
+  const parent = await screen.findByRole('button', {name: 'Management'});
+  const nested = screen.getByRole('button', {name: 'Accounts'});
+  expect(parent.getAttribute('aria-expanded')).toBe('true');
+  fireEvent.click(nested);
+  expect(screen.queryByRole('button', {name: 'Advertisers'})).toBeNull();
+  fireEvent.click(parent);
+  expect(parent.getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByRole('button', {name: 'Accounts'})).toBeNull();
+  fireEvent.click(parent);
+  expect(screen.getByRole('button', {name: 'Accounts'}).getAttribute('aria-expanded')).toBe('false');
+  fireEvent.click(screen.getByRole('button', {name: 'Accounts'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Advertisers'}));
+  expect(openWindow).toHaveBeenCalledWith('advertiserList', 'Advertisers', [], expect.any(Object));
+});
+
+it('shows directional scroll controls only when application tabs overflow', async () => {
+  fetch.mockResolvedValue(response(layoutPayload({applications: [
+    {id: 'dsp', title: 'DSP', menus: []}, {id: 'studio', title: 'Studio', menus: []},
+  ]})));
+  render(<WorkspaceSidebar />);
+  const tabs = await screen.findByRole('tablist', {name: 'Applications'});
+  const scrollBy = vi.fn();
+  Object.defineProperties(tabs, {clientWidth: {value: 200}, scrollWidth: {value: 400}, scrollLeft: {value: 0, writable: true}, scrollBy: {value: scrollBy}});
+  fireEvent.scroll(tabs);
+  expect(screen.getByRole('button', {name: 'Scroll applications left'}).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', {name: 'Scroll applications right'}));
+  expect(scrollBy).toHaveBeenCalledWith({left: 150, behavior: 'smooth'});
+  tabs.scrollLeft = 200;
+  fireEvent.scroll(tabs);
+  expect(screen.getByRole('button', {name: 'Scroll applications right'}).disabled).toBe(true);
+  expect(screen.getByRole('button', {name: 'Scroll applications left'}).disabled).toBe(false);
+});
+
 function layoutPayload({ applications, topbarActions = [], layoutId = 'test-layout' }) {
   return {
     workspaceId: 'menu-test-workspace',

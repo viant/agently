@@ -518,14 +518,31 @@ body {
   box-shadow: none;
 }
 .app-layout-navigation { flex-basis: var(--app-navigation-basis, auto); min-height: var(--app-navigation-min-height, 120px); display: flex; flex-direction: column; overflow: hidden; padding: 12px; }
-.app-layout-tabs { display: flex; overflow-x: auto; gap: 4px; flex: 0 0 auto; }
+.app-layout-tabbar { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; margin-bottom: 10px; }
+.app-layout-tabbar > button { flex: 0 0 auto; }
+.app-layout-tabs { display: flex; flex-wrap: nowrap; align-items: center; overflow-x: auto; gap: 4px; flex: 1 1 auto; min-width: 0; scrollbar-width: none; padding: 4px 0; }
+.app-layout-tabs::-webkit-scrollbar { display: none; }
+.app-layout-tabs > button { flex: 0 0 auto; white-space: nowrap; font-size: 12px; gap: 5px; }
+.app-layout-tabs > button > .bp6-icon, .app-layout-tabs > button > .bp6-icon svg { width: 14px; height: 14px; flex: 0 0 14px; }
+.app-layout-tabs > [role="tab"]:nth-child(4n + 1) > .bp6-icon { color: #719bb8; }
+.app-layout-tabs > [role="tab"]:nth-child(4n + 2) > .bp6-icon { color: #a18aba; }
+.app-layout-tabs > [role="tab"]:nth-child(4n + 3) > .bp6-icon { color: #78a99b; }
+.app-layout-tabs > [role="tab"]:nth-child(4n + 4) > .bp6-icon { color: #bc957b; }
 .app-layout-heading, .app-layout-menu-group-title { font-weight: 600; padding: 6px; }
 .app-layout-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .app-layout-heading > span { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.app-layout-menu { min-height: 40px; }
+.app-layout-menu { min-height: 34px; font-size: 12px; gap: 8px; }
 .app-layout-menu:focus-visible { outline: 2px solid var(--app-accent); outline-offset: -2px; }
 .app-layout-menus { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; }
 .app-layout-menu-group { display: flex; flex-direction: column; }
+.app-layout-menu-group-title { font-size: 12px; gap: 8px; }
+.app-layout-menu-group { --navigation-icon-color: #719bb8; }
+.app-layout-menu-group:nth-child(4n + 2) { --navigation-icon-color: #a18aba; }
+.app-layout-menu-group:nth-child(4n + 3) { --navigation-icon-color: #78a99b; }
+.app-layout-menu-group:nth-child(4n + 4) { --navigation-icon-color: #bc957b; }
+.app-layout-menu-group-title > .app-layout-group-icon, .app-layout-menu .app-layout-menu-icon { color: var(--navigation-icon-color, #8b9eb8); }
+.app-layout-menu-children { display: flex; flex-direction: column; margin-left: 12px; padding-left: 8px; border-left: 1px solid var(--app-border); }
+.app-layout-menu .app-layout-menu-icon, .app-layout-menu .app-layout-menu-icon svg { width: 14px; height: 14px; flex: 0 0 14px; }
 .app-layout-divider { height: 8px; flex: 0 0 8px; cursor: row-resize; background: var(--app-border); touch-action: none; }
 .app-layout-divider:focus-visible { outline: 2px solid var(--app-accent); }
 .app-main.is-compact-shell .app-layout-sidebar { overflow-y: auto; }
