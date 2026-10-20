@@ -1515,17 +1515,11 @@ export const scheduleService = {
       const scheduleID = String(selected?.id || '').trim();
       if (!scheduleID) return false;
       const scheduleName = String(selected?.name || '').trim() || 'Automation';
-      const openWindow = context?.handlers?.window?.openWindow;
-      if (typeof openWindow !== 'function') return false;
-      openWindow({
-        execution: {
-          args: [
-            'schedule/history',
-            'Run History',
-            { presentation: 'conversationHistory' }
-          ]
-        },
-        parameters: { scheduleId: scheduleID, scheduleName },
+      const openTarget = context?.handlers?.window?.openTarget;
+      if (typeof openTarget !== 'function') return false;
+      openTarget({
+        target: {kind: 'window', windowKey: 'schedule/history', windowTitle: 'Run History',
+          presentation: 'conversationHistory', parameters: {scheduleId: scheduleID, scheduleName}},
         context
       });
       return true;

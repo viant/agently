@@ -12,7 +12,12 @@ export function prepareAgentlyDataConnectorRequest({
   windowState = null,
   headers = null,
 } = {}) {
-  const convID = String(windowState?.conversationId || '').trim();
+  // Native workspace data uses the authenticated UI session. The chat ID is
+  // presentation state and can refer to an unsaved or deleted conversation.
+  const workspaceData = windowState?.presentation === 'hosted' && windowState?.region === 'chat.top'
+    && !windowState?.workspaceObject?.origin?.turnId && !windowState?.mcpUI
+    && windowState?.workspaceObject?.content?.renderer !== 'toolFeed';
+  const convID = workspaceData ? '' : String(windowState?.conversationId || '').trim();
   const requestURL = String(url || '');
   const metadataRequest = WINDOW_METADATA_ROUTE.test(requestURL);
   if (!metadataRequest && !DATASOURCE_FETCH_ROUTE.test(requestURL)) return;
@@ -33,6 +38,10 @@ export function prepareAgentlyDataConnectorRequest({
   // Bind the definition already selected by the server to the browser instance.
   // This is transport routing only, without another authorization/OPEN request.
   if (metadataRequest) return;
+  if (workspaceData) {
+    queryParams?.delete?.('conversationId');
+    if (isObject(body)) delete body.conversationId;
+  }
   if (convID && queryParams && typeof queryParams.append === 'function' && !queryParams.has('conversationId')) {
     queryParams.append('conversationId', convID);
   }

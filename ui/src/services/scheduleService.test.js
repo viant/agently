@@ -256,7 +256,7 @@ describe('scheduleService SDK lookups', () => {
   })
 
   it('opens conversation history filtered to the selected schedule', () => {
-    const openWindow = vi.fn()
+    const openTarget = vi.fn()
     const schedulesDS = {
       peekSelection() {
         return { selected: { id: 'sched-1', name: 'Nightly' }, rowIndex: 0 }
@@ -264,7 +264,7 @@ describe('scheduleService SDK lookups', () => {
     }
     const context = {
       identity: { windowId: 'schedule-window-test', dataSourceRef: 'schedules' },
-      handlers: { dataSource: schedulesDS, window: { openWindow } },
+      handlers: { dataSource: schedulesDS, window: { openTarget } },
       Context(name) {
         if (name === 'schedules') return { handlers: { dataSource: schedulesDS } }
         return null
@@ -272,15 +272,9 @@ describe('scheduleService SDK lookups', () => {
     }
 
     expect(scheduleService.openHistory({ context })).toBe(true)
-    expect(openWindow).toHaveBeenCalledWith({
-      execution: {
-        args: [
-          'schedule/history',
-          'Run History',
-          { presentation: 'conversationHistory' }
-        ]
-      },
-      parameters: { scheduleId: 'sched-1', scheduleName: 'Nightly' },
+    expect(openTarget).toHaveBeenCalledWith({
+      target: {kind: 'window', windowKey: 'schedule/history', windowTitle: 'Run History',
+        presentation: 'conversationHistory', parameters: {scheduleId: 'sched-1', scheduleName: 'Nightly'}},
       context
     })
   })

@@ -7,6 +7,7 @@ import { updateWorkspaceSession } from './workspaceSession.js';
 import {
   CHAT_WINDOW_KEY,
   bindLandingWorkspaceWindows,
+  detachWorkspaceWindowsFromConversation,
   deriveWorkspaceStateFromTranscriptTurns,
   hydrateWorkspaceTranscriptTurns,
   ensureWorkspaceWindowForConversation,
@@ -16,6 +17,7 @@ import {
   resolveWorkspaceWindowForConversation,
   resolveWorkspaceWindowsForConversation,
   getScopedWorkspaceSelection,
+  getScopedConversationSelection,
   getScopedWorkspaceState,
   getScopedActiveSurface,
   isLinkedChildWindow,
@@ -84,6 +86,18 @@ describe('conversationWindow', () => {
         this.detail = init.detail;
       }
     };
+  });
+
+  it('starting fresh after deletion preserves detached workspace content and drafts', () => {
+    const entry={windowId:'marketplace',windowKey:'marketplaceDeals',conversationId:'deleted',parentKey:MAIN_CHAT_WINDOW_ID,presentation:'hosted',region:'chat.top',inTab:true,parameters:{}};
+    activeWindows.value=[entry];
+    getFormSignal('marketplace:windowForm').value={search:'unsaved filter'};
+    detachWorkspaceWindowsFromConversation('deleted');
+    requestNewConversationInMainWindow();
+    expect(activeWindows.peek().find(win=>win.windowId==='marketplace')).toMatchObject({windowKey:'marketplaceDeals',parentKey:MAIN_CHAT_WINDOW_ID});
+    expect(activeWindows.peek().find(win=>win.windowId==='marketplace').conversationId).toBeUndefined();
+    expect(getFormSignal('marketplace:windowForm').peek()).toEqual({search:'unsaved filter'});
+    expect(getScopedConversationSelection(MAIN_CHAT_WINDOW_ID)).toBe('');
   });
 
   it('persists Conversation/Workspace surface selection independently per conversation', () => {
@@ -2011,4 +2025,16 @@ describe('conversationWindow', () => {
 
     expect(deriveWorkspaceStateFromTranscriptTurns(hydrated)?.windows?.[0]?.workspaceObject?.lifecycle?.state).toBe('ready');
   });
+});
+
+it('retains native workspace windows and parameter identity after detaching deleted history',()=>{
+ const parameters={DealId:[123]};
+ const workspace={windowId:'marketplace',windowKey:'marketplaceDeals',conversationId:'deleted',parentKey:MAIN_CHAT_WINDOW_ID,presentation:'hosted',region:'chat.top',inTab:true,parameters};
+ const other={...workspace,windowId:'other',conversationId:'other'};
+ const feed={...workspace,windowId:'feed',workspaceObject:{content:{renderer:'toolFeed'}}};
+ activeWindows.value=[workspace,other,feed];
+ detachWorkspaceWindowsFromConversation('deleted');
+ expect(activeWindows.peek()[0]).toEqual({...workspace,conversationId:undefined});
+ expect(activeWindows.peek()[0].parameters).toBe(parameters);
+ expect(activeWindows.peek()[1]).toBe(other);expect(activeWindows.peek()[2]).toBe(feed);
 });
