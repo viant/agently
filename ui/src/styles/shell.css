@@ -3379,10 +3379,9 @@ td[data-col="enabled"] {
   flex-direction: column;
 }
 
-/* Focus mode owns the browser viewport, including the space normally used
-   by the application header, conversation sidebar, and status bar. */
+/* Focus mode fills the chat pane. Application navigation stays reachable. */
 .app-summary-surface-shell.is-workspace:not(.is-split) {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 100;
   background: var(--app-bg, #f6f8fc);
