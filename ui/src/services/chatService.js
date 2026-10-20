@@ -823,6 +823,7 @@ export async function submitMessage({ context, message, model, agent }) {
     markPendingConversationBootstrap(conversationID);
     publishActiveConversation(conversationID, context);
   }
+  const workspaceQueryContext = buildWorkspaceQueryContext(conversationID);
   try {
     await publishUIBridgeSnapshotNow();
   } catch (_) {}
@@ -856,7 +857,7 @@ export async function submitMessage({ context, message, model, agent }) {
       ...buildWebQueryContext(),
       // A prior turn's caller context must not replace the current UI selection.
       ...Object.fromEntries(Object.entries(extraContext || {}).filter(([key]) => key !== 'workspace')),
-      ...buildWorkspaceQueryContext(conversationID),
+      ...workspaceQueryContext,
     },
     attachments: queryAttachments.length > 0 ? queryAttachments : undefined
   };

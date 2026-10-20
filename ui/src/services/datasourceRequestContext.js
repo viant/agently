@@ -14,10 +14,8 @@ export function prepareAgentlyDataConnectorRequest({
 } = {}) {
   const convID = String(windowState?.conversationId || '').trim();
   const requestURL = String(url || '');
-  if (WINDOW_METADATA_ROUTE.test(requestURL)) {
-    return;
-  }
-  if (!DATASOURCE_FETCH_ROUTE.test(requestURL)) return;
+  const metadataRequest = WINDOW_METADATA_ROUTE.test(requestURL);
+  if (!metadataRequest && !DATASOURCE_FETCH_ROUTE.test(requestURL)) return;
   const transport = getActiveUIBridgeTransportContext();
   if (transport?.sessionId && headers) {
     try {
@@ -26,11 +24,15 @@ export function prepareAgentlyDataConnectorRequest({
       const destination = new URL(requestURL, pageURL);
       if (destination.origin === new URL(pageURL).origin && bridgeURL.origin === destination.origin) {
         if (windowState?.windowId && queryParams && !queryParams.has('windowId')) queryParams.append('windowId',String(windowState.windowId));
+        if (metadataRequest && windowState?.windowId && queryParams && !queryParams.has('clientId')) queryParams.append('clientId', transport.clientId);
         if (typeof headers.set === 'function') headers.set(transport.sessionHeader, transport.sessionId);
         else headers[transport.sessionHeader] = transport.sessionId;
       }
     } catch (_) { /* Invalid/foreign destinations receive no UI session. */ }
   }
+  // Bind the definition already selected by the server to the browser instance.
+  // This is transport routing only, without another authorization/OPEN request.
+  if (metadataRequest) return;
   if (convID && queryParams && typeof queryParams.append === 'function' && !queryParams.has('conversationId')) {
     queryParams.append('conversationId', convID);
   }
