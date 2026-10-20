@@ -33,7 +33,7 @@ export default function AppWorkspaceStyles({children}) {
       authorized.current = false; generation.current++;
       getWorkspaceStyleManager().clear(); setMetadata(null); setAccountKey('');
     };
-    const recover = () => { authorized.current = true; refresh(); };
+    const recover = () => { getWorkspaceStyleManager().clear(); authorized.current = true; refresh(); };
     const detachBridge = installWorkspaceThemeBridge(getWorkspaceStyleManager(), refresh);
     refresh();
     // A datasource metadata refresh is a trigger; always fetch fresh bytes using

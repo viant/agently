@@ -11,6 +11,8 @@ import { MAIN_CHAT_WINDOW_ID } from '../services/conversationWindow';
 
 import { openLayoutURL } from './layoutNavigation';
 import { workspaceResources } from '../services/workspaceResources';
+import { getWorkspaceStyleManager } from '../services/workspaceStyles';
+import { request } from '../services/httpClient';
 
 const DEFAULT_SPLIT = 0.5;
 
@@ -82,22 +84,31 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
 
   useEffect(() => {
     let live = true;
+    let requestSequence = 0;
     if (!discoveryReady) { setLayout(null); onTopbarActionsChange?.([]); return undefined; }
     const load = async () => {
+      const sequence = ++requestSequence;
       try {
         if (reloadVersion > 0) workspaceResources.clear();
         const response = await fetch(`${sdkBaseURL}/workspace/layout`, { credentials: 'include', headers: { Accept: 'application/json' } });
-        if (!live) return;
+        if (!live || sequence !== requestSequence) return;
         if (!response.ok) throw new Error(`Workspace layout unavailable (${response.status})`);
         const payload = await response.json();
-        if (!live) return;
+        if (!live || sequence !== requestSequence) return;
         const applications = Array.isArray(payload?.layout?.applications) ? payload.layout.applications : [];
-		const archives = payload?.layout?.resourceArchives || [];
-		if (archives.length) {
-		  const principal = await getAuthMeSilently();
-		  if (!live) return;
-		  workspaceResources.configure(JSON.stringify([payload.workspaceId, principal]), archives);
-		} else workspaceResources.clear();
+        const archives = payload?.layout?.resourceArchives || [];
+        if (archives.length || applications.some(app => app.styleResources?.length)) {
+          const principal = await getAuthMeSilently();
+          if (!live || sequence !== requestSequence) return;
+          const scope = JSON.stringify([payload.workspaceId, principal]);
+          workspaceResources.configure(scope, archives);
+          void getWorkspaceStyleManager().loadApplicationStyles(applications, {
+            accountKey: scope, force: reloadVersion > 0,
+            readResource: ({server, uri}) => request(`/api/mcp/resources/read?${new URLSearchParams({server, uri})}`, {retries: 0}),
+          });
+        } else {
+          workspaceResources.clear(); getWorkspaceStyleManager().clearApplicationStyles();
+        }
         onTopbarActionsChange?.(payload?.layout?.topbar?.actions || []);
         const widthSpec = payload?.layout?.left?.width || {};
         const initialWidth = Number(widthSpec.default) || 320;
@@ -114,7 +125,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
           return;
         }
         const me = await getAuthMeSilently().catch(() => null);
-        if (!live) return;
+        if (!live || sequence !== requestSequence) return;
         const principalId = String(me?.subject || me?.username || me?.email || me?.id || 'anonymous');
         const key = `agently.layoutPreferences.v1:${JSON.stringify([payload.workspaceId, principalId, payload.layout?.id || 'main'])}`;
         let prefs = {};
@@ -130,7 +141,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         setError('');
         if (error) window.dispatchEvent(new CustomEvent('forge:retry-window-metadata'));
       } catch (cause) {
-        if (live) { setLayout(null); onTopbarActionsChange?.([]); setError(String(cause?.message || cause)); }
+        if (live && sequence === requestSequence) { setLayout(null); onTopbarActionsChange?.([]); setError(String(cause?.message || cause)); }
       }
     };
     void load();
