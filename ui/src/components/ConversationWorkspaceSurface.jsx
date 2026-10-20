@@ -4,7 +4,7 @@ import { WorkspacePresentationProvider, findMetadataSignal } from 'forge/core';
 import ToolFeedDetail from './ToolFeedDetail.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import { Button, Icon, Tooltip } from '@blueprintjs/core';
-import { WindowContent } from 'forge/components';
+import { WindowContent, RetainedWindowContent } from 'forge/components';
 import AppRenderer from './mcpApps/AppRenderer.jsx';
 
 const ICONS = new Set(['application', 'chart', 'dashboard', 'document', 'folder-open', 'grid-view']);
@@ -264,6 +264,7 @@ export default function ConversationWorkspaceSurface({
             {(workspaceWindows.length ? workspaceWindows : [workspaceWindow]).map((entry) => {
               const visible = workspaceActive && entry.windowId === workspaceWindow?.windowId;
               return <WorkspacePresentationProvider key={entry.windowId} value={{label: resolveWorkspaceNavigation(entry).label, kind: entry.workspaceObject?.kind || 'resource'}}><div data-workspace-renderer-id={entry.windowId} hidden={!visible} inert={!visible ? '' : undefined} className="app-workspace-renderer">
+                <RetainedWindowContent active={visible}>
                 {entry.workspaceObject?.content?.renderer === 'toolFeed' ? <ToolFeedDetail
                   variant="rail" placement="workspace"
                   hostedFeedId={entry.workspaceObject.content.feedId} conversationId={entry.conversationId}
@@ -271,6 +272,7 @@ export default function ConversationWorkspaceSurface({
                   : entry.mcpUI?.uri ? <AppRenderer uri={entry.mcpUI.uri} title={entry.mcpUI.title || navigation.label}
                   conversationId={entry.conversationId || ''} hosted onLifecycle={(state) => onWorkspaceLifecycle?.(entry.windowId, state)} />
                   : <WindowContent window={entry} isInTab />}
+                </RetainedWindowContent>
               </div></WorkspacePresentationProvider>;
             })}
           </div>
