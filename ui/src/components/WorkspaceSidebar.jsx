@@ -10,6 +10,7 @@ import { openWindow } from './menuBarHelpers';
 import { MAIN_CHAT_WINDOW_ID } from '../services/conversationWindow';
 
 import { openLayoutURL } from './layoutNavigation';
+import { workspaceResources } from '../services/workspaceResources';
 
 const DEFAULT_SPLIT = 0.5;
 
@@ -90,6 +91,12 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         const payload = await response.json();
         if (!live) return;
         const applications = Array.isArray(payload?.layout?.applications) ? payload.layout.applications : [];
+		const archives = payload?.layout?.resourceArchives || [];
+		if (archives.length) {
+		  const principal = await getAuthMeSilently();
+		  if (!live) return;
+		  workspaceResources.configure(JSON.stringify([payload.workspaceId, principal]), archives);
+		} else workspaceResources.clear();
         onTopbarActionsChange?.(payload?.layout?.topbar?.actions || []);
         const widthSpec = payload?.layout?.left?.width || {};
         const initialWidth = Number(widthSpec.default) || 320;
