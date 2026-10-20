@@ -13,7 +13,6 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
-	github.com/viant/agently-core v0.1.57-0.20261020005528-915ebfd9bc24
 	github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4
 	github.com/viant/embedius v0.5.6 // indirect
 	github.com/viant/forge v0.3.45-0.20261020004321-72e8a35b5c97
@@ -141,6 +140,7 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
+	github.com/viant/agently-core v0.1.57-0.20261020194351-bc1952ffe4dc // indirect
 	github.com/viant/agently-core/protocol/window v0.0.0-20261015021722-e84334ca688f // indirect
 	github.com/viant/bindly v0.4.1-0.20261011212616-2c051ae6bd9e // indirect
 	github.com/viant/bintly v0.2.0 // indirect
