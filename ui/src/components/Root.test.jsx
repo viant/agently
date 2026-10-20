@@ -510,6 +510,14 @@ describe('Root window selection helpers', () => {
     expect(shouldShowMainWindowHeader({ windowTitle: '', windowKey: '' })).toBe(false);
   });
 
+  it('uses authored labels instead of resource URIs for hosted tabs', () => {
+    for (const title of ['window://workspace/creative', 'Window: Workspace Creative', '']) {
+      expect(resolveHostedWorkspaceTabLabel({windowKey:'window://workspace/creative',windowTitle:title,navigation:{chipName:'Creative'}})).toBe('Creative');
+    }
+    expect(resolveHostedWorkspaceTabLabel({windowKey:'window://workspace/siteList',windowTitle:'window://workspace/siteList'})).toBe('Site List');
+    expect(resolveHostedWorkspaceTabLabel({windowKey:'window://workspace/creative',windowTitle:'Summer Campaign Video',navigation:{chipName:'Creative'}})).toBe('Summer Campaign Video');
+  });
+
   it('uses the current window title for hosted workspace tabs', () => {
     expect(resolveHostedWorkspaceTabLabel({
       windowKey: 'order',

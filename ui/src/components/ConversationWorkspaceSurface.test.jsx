@@ -34,6 +34,11 @@ describe('ConversationWorkspaceSurface', () => {
     expect(shouldShowWorkspaceTabs(2, 'never')).toBe(false);
   });
 
+  it('uses a readable workspace header for URI-backed windows', () => {
+    expect(resolveWorkspaceNavigation({windowKey:'window://workspace/creative',windowTitle:'Window: Workspace Creative',navigation:{chipName:'Creative'}})).toMatchObject({label:'Creative',chipName:'Creative'});
+    expect(resolveWorkspaceNavigation({windowKey:'window://workspace/siteList',windowTitle:'window://workspace/siteList'})).toMatchObject({label:'Site List'});
+  });
+
   it('resolves explicit navigation with deterministic fallbacks', () => {
     expect(resolveWorkspaceNavigation({
       windowKey: 'reportBuilder',

@@ -1,5 +1,6 @@
+import {resolveWorkspaceWindowTitle} from '../services/workspaceWindowTitle.js';
 import {useWorkspaceScroll} from '../services/useWorkspaceScroll.js';
-import { WorkspacePresentationProvider } from 'forge/core';
+import { WorkspacePresentationProvider, findMetadataSignal } from 'forge/core';
 import ToolFeedDetail from './ToolFeedDetail.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import { Button, Icon, Tooltip } from '@blueprintjs/core';
@@ -22,7 +23,8 @@ export function resolveWorkspaceNavigation(windowEntry = null) {
     ? windowEntry.navigation
     : {};
   const windowKey = String(windowEntry?.windowKey || '').trim();
-  const windowTitle = String(windowEntry?.windowTitle || '').trim();
+  const metadata = findMetadataSignal(String(windowEntry?.windowId || '').trim())?.value;
+  const windowTitle = resolveWorkspaceWindowTitle(windowEntry, metadata);
   const explicitLabel = String(navigation?.label || '').trim();
   const label = explicitLabel
     || (windowTitle && windowTitle.toLowerCase() !== windowKey.toLowerCase() ? windowTitle : '')
