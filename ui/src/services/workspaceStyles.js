@@ -107,6 +107,7 @@ export class WorkspaceStyleManager {
     this.onSystemChange = () => this.publish({...this.state, ...(this.externalSelection || resolveThemeSelection(this.state.catalog, this.preference, this.systemMode()))});
     this.onStorage = event => { if (this.storageKey && event.key === this.storageKey) { this.preference = this.readPreference(); this.onSystemChange(); } };
     this.observer = null;
+    this.applicationStyles = new Map(); this.applicationStyleGeneration = 0; this.applicationStyleKey = ''; this.applicationStyleAccount = '';
   }
   retain() { this.references++; this.connect(); }
   release() { if (this.references > 0 && --this.references === 0) this.dispose(); }
@@ -139,10 +140,50 @@ export class WorkspaceStyleManager {
     try { if (this.storageKey) this.storage?.setItem(this.storageKey, JSON.stringify(this.preference)); } catch { /* session selection still works */ }
     this.onSystemChange();
   }
-  clear() {
+  clear({preserveApplicationStyles = false} = {}) {
+    if (!preserveApplicationStyles) this.clearApplicationStyles();
     this.sequence++; this.style?.remove(); this.style = null;
     this.identity = ''; this.workspaceId = ''; this.externalSelection = null; this.storageKey = ''; this.preference = null; this.pending = null;
     this.publish({catalog: null, revision: '', themeId: '', mode: 'light', modePreference: 'system', diagnostics: []});
+  }
+  clearApplicationStyles() {
+    this.applicationStyleGeneration++;
+    for (const style of this.applicationStyles.values()) style.remove();
+    this.applicationStyles.clear(); this.applicationStyleKey = ''; this.applicationStyleAccount = ''; this.applicationStylePending = null;
+  }
+  loadApplicationStyles(applications, {accountKey = '', readResource, force = false} = {}) {
+    const entries = applications.flatMap(app => (app.styleResources || []).map(uri => ({uri, server: app.resourceConnection, providerIdentity: app.providerIdentity, namespace: app.resourceNamespace})))
+      .filter(entry => entry.server && entry.providerIdentity && entry.namespace);
+    const key = JSON.stringify([accountKey, entries]);
+    if (!force && key === this.applicationStyleKey) return this.applicationStylePending || Promise.resolve();
+    if (accountKey !== this.applicationStyleAccount) this.clearApplicationStyles();
+    this.applicationStyleAccount = accountKey; this.applicationStyleKey = key;
+    const generation = ++this.applicationStyleGeneration;
+    const wanted = new Set(entries.map(entry => JSON.stringify(entry)));
+    for (const [id, style] of this.applicationStyles) if (!wanted.has(id)) { style.remove(); this.applicationStyles.delete(id); }
+    this.applicationStylePending = Promise.all(entries.map(async entry => {
+      const id = JSON.stringify(entry);
+      try {
+        if (!entry.uri.startsWith('style://') || typeof readResource !== 'function') throw new Error('Invalid application style reference');
+        const response = await readResource(entry);
+        const result = response?.result || response;
+        if (result?.contents?.length !== 1 || result.contents[0].uri !== entry.uri || typeof result.contents[0].text !== 'string') throw new Error('Invalid application style response');
+        const definition = JSON.parse(result.contents[0].text);
+        const {compileResourceCSS} = await import('forge/resources/scopedStyles');
+        const css = await compileResourceCSS(definition, entry);
+        if (generation !== this.applicationStyleGeneration) return;
+        const style = this.doc.createElement('style');
+        style.dataset.applicationResourceStyle = entry.uri;
+        if (this.nonce) style.nonce = this.nonce;
+        style.textContent = css; this.doc.head.appendChild(style);
+        if ('sheet' in style && (!style.sheet || !style.sheet.cssRules.length)) { style.remove(); throw new Error('Scoped CSS was rejected by this browser'); }
+        const previous = this.applicationStyles.get(id);
+        this.applicationStyles.set(id, style); previous?.remove();
+      } catch (error) {
+        if (generation === this.applicationStyleGeneration) this.publish({...this.state, diagnostics: [...this.state.diagnostics, `${entry.uri}: ${error.message}`]});
+      }
+    }));
+    return this.applicationStylePending;
   }
   refresh(metadata, options = {}) {
     this.latestDiagnostics = Array.isArray(metadata?.uiStyleDiagnostics) ? metadata.uiStyleDiagnostics.filter(value => typeof value === 'string') : [];
@@ -160,7 +201,7 @@ export class WorkspaceStyleManager {
     this.connect();
     const identity = JSON.stringify([accountKey, metadata?.workspaceId || workspaceKey || metadata?.workspaceRoot || 'session']);
     if (identity !== this.identity) {
-      this.clear(); this.identity = identity;
+      this.clear({preserveApplicationStyles: !this.identity}); this.identity = identity;
       this.storageKey = accountKey && metadata?.workspaceId ? `agently.theme.v1:${JSON.stringify([accountKey, metadata.workspaceId])}` : '';
       this.preference = this.readPreference();
     }

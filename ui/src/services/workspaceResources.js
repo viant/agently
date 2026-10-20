@@ -49,5 +49,6 @@ export class WorkspaceResources {
 export const workspaceResources = new WorkspaceResources();
 if (typeof window !== 'undefined') {
   window.addEventListener('agently:unauthorized', () => workspaceResources.clear());
+  window.addEventListener('agently:logout', () => workspaceResources.clear());
   window.addEventListener('agently:authorized', () => workspaceResources.clear());
 }

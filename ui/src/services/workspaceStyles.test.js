@@ -167,3 +167,37 @@ describe('workspace style lifecycle', () => {
     expect(calls).toBe(0); expect(elements).toHaveLength(0); manager.dispose();
   });
 });
+
+describe('provider-scoped application resources', () => {
+  const app = namespace => ({providerIdentity: 'studio', resourceNamespace: namespace, resourceConnection: 'studio-mcp', styleResources: [`style://${namespace}/workspace`]});
+  const response = (uri, css = '.shared { color: red; }') => ({contents: [{uri, text: JSON.stringify({schemaVersion: 1, css, tokens: {'--edge': 'red'}})}]});
+  it('installs separate scoped sheets and reuses the authenticated snapshot', async () => {
+    const {manager, elements} = fixture(); let reads = 0;
+    const readResource = async ({uri}) => { reads++; return response(uri, '@keyframes fade{to{opacity:0}}.shared{animation:fade 1s;color:red}'); };
+    await manager.loadApplicationStyles([app('one'), app('two')], {accountKey: 'alice', readResource});
+    expect(elements).toHaveLength(2);
+    expect(elements[0].textContent).toContain('data-forge-resource-namespace="one"');
+    expect(elements[1].textContent).toContain('data-forge-resource-namespace="two"');
+    expect(elements[0].textContent).not.toBe(elements[1].textContent);
+    await manager.loadApplicationStyles([app('one'), app('two')], {accountKey: 'alice', readResource});
+    expect(reads).toBe(2);
+    await manager.refresh(metadata(), {accountKey: 'alice', workspaceKey: 'root'});
+    expect(elements).toHaveLength(3);
+    manager.clear(); expect(elements).toHaveLength(0);
+  });
+  it('drops pending sheets on logout and allows explicit refresh', async () => {
+    const {manager, elements} = fixture(); let release;
+    const pending = manager.loadApplicationStyles([app('one')], {accountKey: 'alice', readResource: ({uri}) => new Promise(resolve => {release = () => resolve(response(uri));})});
+    manager.clear(); release(); await pending; expect(elements).toHaveLength(0);
+    let reads = 0; const readResource = async ({uri}) => {reads++; return response(uri);};
+    await manager.loadApplicationStyles([app('one')], {accountKey: 'bob', readResource});
+    await manager.loadApplicationStyles([app('one')], {accountKey: 'bob', readResource, force: true});
+    expect(reads).toBe(2); expect(elements).toHaveLength(1);
+  });
+  it('keeps other resources usable when one stylesheet is invalid', async () => {
+    const {manager, elements} = fixture();
+    await manager.loadApplicationStyles([app('one'), app('two')], {accountKey: 'alice', readResource: async ({uri}) => response(uri, uri.startsWith('style://one/') ? '@import "unscoped.css";' : '.valid {color:blue}')});
+    expect(elements).toHaveLength(1);
+    expect(manager.getSnapshot().diagnostics.some(message => message.includes('unsupported global'))).toBe(true);
+  });
+});
