@@ -85,6 +85,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
     if (!discoveryReady) { setLayout(null); onTopbarActionsChange?.([]); return undefined; }
     const load = async () => {
       try {
+        if (reloadVersion > 0) workspaceResources.clear();
         const response = await fetch(`${sdkBaseURL}/workspace/layout`, { credentials: 'include', headers: { Accept: 'application/json' } });
         if (!live) return;
         if (!response.ok) throw new Error(`Workspace layout unavailable (${response.status})`);
