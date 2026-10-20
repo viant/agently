@@ -25,6 +25,7 @@ export class WorkspaceResources {
       const adapter = this.createFS({
         namespace: entry.namespace, scopeKey,
         archiveFormat: entry.format || 'tar.gz',
+        preloadKinds: entry.kinds,
         readResource: ({uri}) => this.read(`/api/mcp/resources/read?${new URLSearchParams({server: entry.server, uri})}`, {retries: 0}),
         prepareDataSource: (source, {id}) => {
           const {backend, ...definition} = source;
