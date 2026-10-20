@@ -7,6 +7,7 @@ import { client } from '../services/agentlyClient';
 import { openConfirmDialog } from '../utils/dialogBus';
 import {
   getWindowById,
+  detachWorkspaceWindowsFromConversation,
   getScopedConversationSelection,
   MAIN_CHAT_WINDOW_ID,
   isLinkedChildWindow,
@@ -401,6 +402,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
         setDeletingID(id);
         try {
           await deleteConversationWithTermination(client, id);
+          detachWorkspaceWindowsFromConversation(id);
           const beforeRows = rowsRef.current;
           const remainingRows = removeConversationRow(beforeRows, id);
           const hadNewer = !!prevCursorRef.current;
@@ -408,7 +410,8 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
           setRows(remainingRows);
           setError('');
           setDeleteError('');
-          if (selectedID === id) {
+          if (selectedID === id || getScopedConversationSelection(MAIN_CHAT_WINDOW_ID) === id
+            || window.location.pathname === `/conversation/${encodeURIComponent(id)}`) {
             setSelectedID('');
             requestNewConversationInMainWindow();
           }

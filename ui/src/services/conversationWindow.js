@@ -1034,6 +1034,18 @@ export function openConversationInMainWindow(conversationId = '') {
   return mainWindow;
 }
 
+// Conversation deletion removes chat history, not native workspace windows.
+export function detachWorkspaceWindowsFromConversation(conversationId = '') {
+  const id = String(conversationId || '').trim();
+  if (!id) return;
+  activeWindows.value = activeWindows.peek().map(entry => {
+    if (entry.conversationId !== id || entry.presentation !== 'hosted' || entry.region !== 'chat.top'
+      || entry.mcpUI || entry.workspaceObject?.content?.renderer === 'toolFeed') return entry;
+    return {...entry, conversationId: undefined, parentKey: MAIN_CHAT_WINDOW_ID,
+      ...(entry.workspaceObject ? {workspaceObject: {...entry.workspaceObject, conversationId: undefined}} : {})};
+  });
+}
+
 export function requestNewConversationInMainWindow() {
   removeWindowsForConversationChange('');
   const mainWindow = ensureMainChatWindow();

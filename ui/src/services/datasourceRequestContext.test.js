@@ -45,3 +45,19 @@ it('forwards the signed target with the exact opened pin', () => {
  expect(body.target).not.toBe(resourceTarget);
  expect(body.resource.validUntil).toBe(resource.validUntil);
 });
+
+it('routes native workspace data independently of deleted or unsaved chat without altering resource authorization',()=>{
+ const resource={uri:'window://workspace/marketplaceDeals',contentFingerprint:'server-selected'};
+ const body={inputs:{Ids:[123]},conversationId:'deleted',resource};
+ const queryParams=new URLSearchParams('conversationId=deleted');
+ prepareAgentlyDataConnectorRequest({url:'/v1/api/datasources/marketplace_deals/fetch',body,queryParams,
+  windowState:{...windowState,presentation:'hosted',region:'chat.top',metadata:{resource}}});
+ expect(body.conversationId).toBeUndefined();expect(queryParams.has('conversationId')).toBe(false);
+ expect(body.inputs).toEqual({Ids:[123]});expect(body.resource).toEqual(resource);
+});
+it('retains conversation routing for conversation-origin workspace apps',()=>{
+ const body={inputs:{}};
+ prepareAgentlyDataConnectorRequest({url:'/v1/api/datasources/records/fetch',body,
+  windowState:{...windowState,presentation:'hosted',region:'chat.top',workspaceObject:{origin:{turnId:'turn-one'}}}});
+ expect(body.conversationId).toBe('conv-1');
+});
