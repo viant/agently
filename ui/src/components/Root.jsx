@@ -1,3 +1,4 @@
+import {resolveWorkspaceWindowTitle} from '../services/workspaceWindowTitle.js';
 import SplitShellFloatingWindows from './SplitShellFloatingWindows.jsx';
 import { feedTracker, getActiveFeeds } from '../services/toolFeedBus.js';
 import { useWorkspaceAdapters, setWorkspaceLifecycle } from '../services/useWorkspaceAdapters.js';
@@ -482,9 +483,8 @@ export function resolveHostedWorkspaceTabs(workspaceWindows = [], activeWindowId
 export function resolveMainWindowHeaderTitle(windowEntry = null) {
   const boundTitle = resolveMetadataBoundWindowTitle(windowEntry);
   if (boundTitle) return boundTitle;
-  const explicitTitle = String(windowEntry?.windowTitle || '').trim();
-  if (explicitTitle) return explicitTitle;
-  return String(windowEntry?.windowKey || '').trim();
+  const metadata = findMetadataSignal(String(windowEntry?.windowId || '').trim())?.value;
+  return resolveWorkspaceWindowTitle(windowEntry, metadata);
 }
 
 export function shouldShowMainWindowHeader(windowEntry = null) {
