@@ -117,6 +117,16 @@ export default defineConfig(({ mode, command }) => {
   const appNodeModules = resolve(uiRoot, 'node_modules');
   const sharedDependency = name => fs.existsSync(resolve(appNodeModules, name))
     ? resolve(appNodeModules, name) : resolve(forgeRoot, 'node_modules', name);
+  const forgeExports = JSON.parse(fs.readFileSync(resolve(forgeRoot, 'package.json'), 'utf8')).exports || {};
+  const forgePublicAliases = Object.entries(forgeExports).flatMap(([key, entry]) => {
+    const target = typeof entry === 'string' ? entry : entry.default;
+    if (!key.startsWith('./') || !target?.startsWith('./src/')) return [];
+    const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const extension = path.extname(target);
+    const wildcard = '(.+?)' + (extension ? '(?:' + escape(extension) + ')?' : '');
+    const suffix = key.slice(2).split('*').map(escape).join(wildcard);
+    return [{find: new RegExp('^forge/' + suffix + '$'), replacement: resolve(forgeRoot, target).replace('*', '$1')}];
+  });
 
   return {
     base: '/',
@@ -132,7 +142,7 @@ export default defineConfig(({ mode, command }) => {
         '@codemirror/view',
         '@codemirror/language'
       ],
-      alias: {
+      alias: [...forgePublicAliases, ...Object.entries({
         'agently-core-ui-sdk': resolve(coreRoot, 'sdk/ts/src'),
         forge: resolve(forgeRoot, 'src'),
         react: resolve(appNodeModules, 'react'),
@@ -146,7 +156,7 @@ export default defineConfig(({ mode, command }) => {
         '@codemirror/state': resolve(__dirname, 'node_modules/@codemirror/state'),
         '@codemirror/view': resolve(__dirname, 'node_modules/@codemirror/view'),
         '@codemirror/language': resolve(__dirname, 'node_modules/@codemirror/language')
-      }
+      }).map(([find, replacement]) => ({find, replacement}))]
     },
     define: {
       'process.env': prodEnv,
