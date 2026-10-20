@@ -1,10 +1,45 @@
 import {beforeEach, expect, it, vi} from 'vitest';
 
 vi.mock('forge/core', () => ({findMetadataSignal: vi.fn(), getActiveUIBridgeTransportContext: vi.fn(() => null)}));
-import {findMetadataSignal} from 'forge/core';
+import {findMetadataSignal, getActiveUIBridgeTransportContext} from 'forge/core';
 import {prepareAgentlyDataConnectorRequest} from './datasourceRequestContext.js';
 
-beforeEach(() => findMetadataSignal.mockReset());
+beforeEach(() => {
+  findMetadataSignal.mockReset();
+  getActiveUIBridgeTransportContext.mockReturnValue(null);
+});
+
+it('associates a metadata delivery with its negotiated client and concrete window instance', () => {
+  getActiveUIBridgeTransportContext.mockReturnValue({
+    url: 'http://fixture.local/v1/ui/rpc', clientId: 'client-one',
+    sessionHeader: 'Mcp-Session-Id', sessionId: 'negotiated-session',
+  });
+  const headers = {};
+  const queryParams = new URLSearchParams();
+  prepareAgentlyDataConnectorRequest({
+    url: '/v1/api/agently/forge/window/records', headers, queryParams,
+    windowState: {windowId: 'records-instance', parameters: {RecordId: [321]}},
+  });
+  expect(headers['Mcp-Session-Id']).toBe('negotiated-session');
+  expect(Object.fromEntries(queryParams)).toEqual({windowId: 'records-instance', clientId: 'client-one'});
+  expect(queryParams.has('applyPermission')).toBe(false);
+  expect(findMetadataSignal).not.toHaveBeenCalled();
+});
+
+it('does not send bridge session routing to a foreign metadata endpoint', () => {
+  getActiveUIBridgeTransportContext.mockReturnValue({
+    url: 'http://fixture.local/v1/ui/rpc', clientId: 'client-one',
+    sessionHeader: 'Mcp-Session-Id', sessionId: 'negotiated-session',
+  });
+  const headers = {};
+  const queryParams = new URLSearchParams();
+  prepareAgentlyDataConnectorRequest({
+    url: 'http://foreign.local/v1/api/agently/forge/window/records', headers, queryParams,
+    windowState: {windowId: 'records-instance'},
+  });
+  expect(headers).toEqual({});
+  expect(queryParams.toString()).toBe('');
+});
 
 it('carries the opened metadata signal pin and dependency target for a delegated datasource', () => {
   const resource = {providerIdentity: 'owned-provider', uri: 'window://example/StudioRecords', kind: 'working', contentFingerprint: 'window', authorityBinding: 'actor'};
