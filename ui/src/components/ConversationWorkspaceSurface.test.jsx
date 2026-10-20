@@ -7,7 +7,8 @@ vi.mock('@blueprintjs/core', () => ({
   Icon: ({ icon = '', size = 16 }) => React.createElement('span', { 'data-icon': icon, 'data-size': size }),
   Tooltip: ({ content = '', children }) => React.createElement('span', { 'data-tooltip': content }, children),
 }));
-vi.mock('forge/components', () => ({
+vi.mock('forge/components', async () => ({
+  RetainedWindowContent: (await import('../../../../forge/src/components/WindowContentMount.jsx')).RetainedWindowContent,
   WindowContent: ({ window }) => React.createElement('div', { 'data-window-id': window?.windowId || '' }),
 }));
 vi.mock('./mcpApps/AppRenderer.jsx', () => ({
@@ -96,7 +97,7 @@ describe('ConversationWorkspaceSurface', () => {
     expect(html).not.toContain('>Advertiser</span>');
   });
 
-  it('shows a workspace link from Conversation while keeping workspace mounted and hidden', () => {
+  it('shows a workspace link from Conversation without loading an unvisited workspace', () => {
     const html = renderToStaticMarkup(<ConversationWorkspaceSurface
       activeSurface="conversation"
       chatWindow={{ windowId: 'chat' }}
@@ -104,7 +105,7 @@ describe('ConversationWorkspaceSurface', () => {
     />);
     expect(html).toContain('Reports');
     expect(html).toContain('data-window-id="chat"');
-    expect(html).toContain('data-window-id="report"');
+    expect(html).not.toContain('data-window-id="report"');
     expect(html).toContain('is-surface-hidden');
     expect(html).toContain('inert=""');
   });
@@ -148,7 +149,7 @@ describe('ConversationWorkspaceSurface', () => {
     />);
     expect(html).not.toContain('app-summary-surface-navigation');
     expect(html).not.toContain('Return to Reports');
-    expect(html).toContain('data-window-id="report"');
+    expect(html).not.toContain('data-window-id="report"');
   });
 
   it('does not create Workspace navigation without an eligible hosted window', () => {
