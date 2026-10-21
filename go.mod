@@ -17,7 +17,7 @@ require (
 	github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4
 	github.com/viant/embedius v0.5.6 // indirect
 	github.com/viant/forge v0.3.45-0.20261020151228-1458ea3c5ee3
-	github.com/viant/jsonrpc v0.25.1-0.20261017043720-5809a36c92af
+	github.com/viant/jsonrpc v0.25.1-0.20261021031150-a24a3b9ae218
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
 	github.com/viant/mcp v0.24.1-0.20261019131854-bc54c4ac748a
 	github.com/viant/mcp-protocol v0.19.1-0.20261014173008-af92f34f304b
