@@ -111,6 +111,46 @@ function finalizeRuntimeLiveTurn(chatState = {}, payload = {}) {
   if (chatState.liveOwnedTurnIds.length === 0) chatState.liveOwnedConversationID = '';
 }
 
+function settleTerminalSnapshotStage(chatState, context, conversation) {
+  const conversationID = String(conversation?.conversationId || '').trim();
+  const turns = Array.isArray(conversation?.turns) ? conversation.turns : [];
+  const terminal = turns.filter((turn) => (
+    ['completed', 'succeeded', 'success', 'done', 'failed', 'error', 'canceled', 'cancelled', 'terminated']
+      .includes(String(turn?.status || '').trim().toLowerCase())
+  ));
+  chatState.terminalTurns = chatState.terminalTurns || {};
+  for (const turn of terminal) {
+    if (turn.turnId) chatState.terminalTurns[turn.turnId] = turn.completedAt || turn.updatedAt || turn.createdAt || turn.status;
+  }
+  // Snapshot hydration can settle a turn without replaying its terminal SSE.
+  // Keep its exact identity fenced, but never settle a newer active request.
+  const hasPendingTurn = turns.some((turn) => {
+    const status = String(turn?.status || '').trim().toLowerCase();
+    return RUNNING_STATUSES.has(status) || status === 'queued' || status === 'pending';
+  });
+  if (!conversationID || terminal.length === 0 || hasPendingTurn) return;
+  const trackedTurnID = String(chatState.activeStreamTurnId || chatState.runningTurnId || '').trim();
+  if (trackedTurnID && !terminal.some((turn) => turn.turnId === trackedTurnID)) return;
+  const activeTurn = _chatStoreRef()?.getActiveTurn?.(conversationID);
+  if (activeTurn && !terminal.some((turn) => turn.turnId === activeTurn.turnId)) return;
+  const visibleConversationID = getCurrentConversationID(context)
+    || getScopedConversationSelection(getContextWindowId(context));
+  if (!shouldProcessStreamEvent({
+    payload: {conversationId: conversationID},
+    subscribedConversationID: conversationID,
+    visibleConversationID,
+    switchingConversationID: chatState.switchingConversationID,
+  })) return;
+  const latest = terminal.find((turn) => turn.turnId === trackedTurnID) || terminal[terminal.length - 1];
+  finalizeRuntimeLiveTurn(chatState, {turnId: latest.turnId});
+  chatState.lastHasRunning = false;
+  chatState.runningTurnId = '';
+  chatState.activeTurnAgentId = '';
+  chatState.activeTurnAgentName = '';
+  applyStreamConversationState(context, 'terminal', {turnId: latest.turnId, status: latest.status});
+  setStage({phase: 'ready', text: 'Ready'});
+}
+
 function normalizeGeneratedFiles(raw = null) {
   const list = Array.isArray(raw)
     ? raw
@@ -1775,6 +1815,7 @@ export function connectStream(context, conversationID) {
         if (!canonical || String(canonical.conversationId || '') !== String(conversationID)) return;
         if (!hasPendingConversationBootstrap(conversationID)) {
           _chatStoreRef()?.onTranscript?.(conversationID, canonical);
+          settleTerminalSnapshotStage(chatState, context, canonical);
         }
         const feeds = Array.isArray(snapshot?.feeds) ? snapshot.feeds : (Array.isArray(canonical.feeds) ? canonical.feeds : []);
         chatState.lastTranscriptFeedsByConversation = {
@@ -1867,6 +1908,14 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
     const type = String(payload?.type || '').toLowerCase();
     const turnId = String(payload?.turnId || payload?.patch?.turnId || '').trim();
     chatState.terminalTurns = chatState.terminalTurns || {};
+    const canonicalConversationID = String(payload?.conversationId || conversationID || '').trim();
+    const canonicalTurn = turnId
+      ? _chatStoreRef()?.getState?.(canonicalConversationID)?.turns?.find((turn) => turn.turnId === turnId)
+      : null;
+    if (canonicalTurn && ['completed', 'failed', 'cancelled'].includes(canonicalTurn.lifecycle)) {
+      chatState.terminalTurns[turnId] = chatState.terminalTurns[turnId] || canonicalTurn.lifecycle;
+    }
+    const terminalTurnKnown = !!(turnId && chatState.terminalTurns[turnId]);
     if (turnId && chatState.terminalTurns[turnId] && type !== 'turn_completed' && type !== 'turn_failed' && type !== 'turn_canceled') {
       const eventConversationID = resolveStreamEventConversationID(payload, conversationID);
       const contextWindowID = getContextWindowId(context);
@@ -2109,6 +2158,13 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
       || type === 'tool_call_failed'
       || type === 'tool_call_canceled'
     ) {
+      // Final tool payloads can arrive after the turn's terminal snapshot.
+      // The canonical reducer above still owns those results; only progress
+      // side effects must remain settled.
+      if (terminalTurnKnown) {
+        renderMergedRowsForContext(context);
+        return;
+      }
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
       logStreamDebug(chatState, `stream-${type}`, {
@@ -2288,6 +2344,10 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
     }
 
     if (type === 'assistant') {
+      if (terminalTurnKnown) {
+        renderMergedRowsForContext(context);
+        return;
+      }
       chatState.lastStreamEventAt = Date.now();
       chatState.lastHasRunning = true;
       applyStreamConversationState(context, 'thinking', payload);
@@ -2380,11 +2440,12 @@ export function handleStreamEvent(chatState, context, conversationID, payload) {
 
     if (type === 'elicitation_resolved') {
       chatState.lastStreamEventAt = Date.now();
-      chatState.lastHasRunning = true;
       removePendingElicitation({
         conversationId: String(payload?.conversationId || payload?.streamId || conversationID || '').trim(),
         elicitationId: String(payload?.elicitationId || '').trim()
       }, { allConversationsForElicitation: true });
+      if (terminalTurnKnown) return;
+      chatState.lastHasRunning = true;
       applyStreamConversationState(context, 'thinking', payload);
       setStage({ phase: 'executing', text: 'Resuming…' });
       return;
