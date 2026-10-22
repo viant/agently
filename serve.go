@@ -37,6 +37,7 @@ import (
 	uidatasource "github.com/viant/agently-core/protocol/tool/service/ui/datasource"
 	uievents "github.com/viant/agently-core/protocol/tool/service/ui/events"
 	uifeed "github.com/viant/agently-core/protocol/tool/service/ui/feed"
+	uimetadata "github.com/viant/agently-core/protocol/tool/service/ui/metadata"
 	uireport "github.com/viant/agently-core/protocol/tool/service/ui/report"
 	uiview "github.com/viant/agently-core/protocol/tool/service/ui/view"
 	uiwindow "github.com/viant/agently-core/protocol/tool/service/ui/window"
@@ -61,6 +62,24 @@ import (
 // handlers to finish on SIGTERM/SIGINT before returning. Past this deadline we
 // stop waiting and return — a stuck handler should not block process exit.
 const shutdownTimeout = 30 * time.Second
+
+// registerHostUIWindowServices is the common host startup path for window
+// discovery/metadata and interaction. Bundles must resolve these as in-process
+// services, never as externally configured MCP servers.
+func registerHostUIWindowServices(registry tool.Registry, repository *forgewindowrepo.Repository, bridge *forgeservice.Service, enrich uiview.ListItemEnricher) {
+	if err := tool.AddInternalService(registry, uiview.New(repository, bridge, uiview.WithListItemEnricher(enrich))); err != nil {
+		log.Printf("agently-app: failed to register internal UI view service: %v", err)
+	}
+	if err := tool.AddInternalService(registry, uimetadata.New(bridge)); err != nil {
+		log.Printf("agently-app: failed to register internal UI metadata service: %v", err)
+	}
+	if err := tool.AddInternalService(registry, uiwindow.New(bridge)); err != nil {
+		log.Printf("agently-app: failed to register internal UI window service: %v", err)
+	}
+	if err := tool.AddInternalService(registry, uicontrol.New(bridge)); err != nil {
+		log.Printf("agently-app: failed to register internal UI control service: %v", err)
+	}
+}
 
 type servedUIBundle struct {
 	Name  string
@@ -267,15 +286,7 @@ func Serve(options ServeOptions) error {
 		return fmt.Errorf("internal resource startup: %w", err)
 	}
 	if rt.Registry != nil {
-		if err := tool.AddInternalService(rt.Registry, uiview.New(forgeWindowRepo, uiBridge, uiview.WithListItemEnricher(reportingRuntime.EnrichView))); err != nil {
-			log.Printf("agently-app: failed to register internal UI view service: %v", err)
-		}
-		if err := tool.AddInternalService(rt.Registry, uiwindow.New(uiBridge)); err != nil {
-			log.Printf("agently-app: failed to register internal UI window service: %v", err)
-		}
-		if err := tool.AddInternalService(rt.Registry, uicontrol.New(uiBridge)); err != nil {
-			log.Printf("agently-app: failed to register internal UI control service: %v", err)
-		}
+		registerHostUIWindowServices(rt.Registry, forgeWindowRepo, uiBridge, reportingRuntime.EnrichView)
 		var feedOptions []uifeed.Option
 		if rt.PrimitiveProviders != nil {
 			feedOptions = append(feedOptions, uifeed.WithIdentityResolver(func(ctx context.Context, requested string) (string, error) {
