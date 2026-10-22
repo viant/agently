@@ -81,6 +81,8 @@ export function openWindow(windowKey, windowTitle, refreshDataSources = [], opti
   const desiredParentKey = options?.parentKey ?? null;
   const desiredPresentation = String(options?.presentation || '').trim() || null;
   const desiredRegion = String(options?.region || '').trim() || null;
+  const desiredProviderIdentity = String(options?.providerIdentity || '').trim() || null;
+  const desiredResourceIdentity = canonicalWindowParameters(options?.resourceRef || {});
   const desiredParameters = options?.parameters && typeof options.parameters === 'object' && !Array.isArray(options.parameters) ? options.parameters : {};
   const desiredParameterIdentity = canonicalWindowParameters(desiredParameters);
   const matchesDestination = (entry) => entry?.windowKey === windowKey
@@ -88,6 +90,8 @@ export function openWindow(windowKey, windowTitle, refreshDataSources = [], opti
     && (entry?.parentKey ?? null) === desiredParentKey
     && (String(entry?.presentation || '').trim() || null) === desiredPresentation
     && (String(entry?.region || '').trim() || null) === desiredRegion
+    && (String(entry?.providerIdentity || '').trim() || null) === desiredProviderIdentity
+    && canonicalWindowParameters(entry?.resourceRef || {}) === desiredResourceIdentity
     && canonicalWindowParameters(entry?.parameters || {}) === desiredParameterIdentity;
   let existing = windows.find(matchesDestination);
   if (replaceMainChatTree) {
@@ -144,6 +148,8 @@ export function openWindow(windowKey, windowTitle, refreshDataSources = [], opti
       conversationId: desiredConversationId || undefined,
       presentation: desiredPresentation || undefined,
       region: desiredRegion || undefined,
+      providerIdentity: desiredProviderIdentity || undefined,
+      resourceRef: options.resourceRef ? { ...options.resourceRef } : undefined,
     });
   }
   if (existing?.windowId) {

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { windowMetadataEndpoint } from 'forge/components/windowMetadataEndpoint.js';
 
 const activeWindows = {
   value: [],
@@ -69,6 +70,54 @@ describe('MenuBar window reuse', () => {
     addWindow.mockReset();
     removeWindow.mockClear();
     getWindowContext.mockReset();
+  });
+
+  it('preserves discovered navigation ownership and selectors through the metadata request', async () => {
+    const { resolveLayoutWindowOptions } = await import('./WorkspaceSidebar.jsx');
+    const { openWindow } = await import('./menuBarHelpers.js');
+    const action = {resourceUri: 'window://reports/builder', providerIdentity: 'report-owner'};
+    const resourceRef = Object.freeze({uri: action.resourceUri, revision: '5'});
+    const options = {...resolveLayoutWindowOptions(action, 'conversation-1'), resourceRef};
+    addWindow.mockImplementation((_title, parentKey, windowKey, _data, _tab, parameters, windowOptions) => {
+      const entry = {...windowOptions, parentKey, windowKey, parameters};
+      activeWindows.value = [...activeWindows.value, entry];
+      return entry;
+    });
+    openWindow(action.resourceUri, 'Reports', [], options);
+    const entry = activeWindows.value[0];
+    expect(entry.providerIdentity).toBe(action.providerIdentity);
+    expect(entry.resourceRef).toEqual(resourceRef);
+    expect(entry.resourceRef).not.toBe(resourceRef);
+    const request = new URL(windowMetadataEndpoint('/window', entry.windowKey, entry), 'https://fixture.example');
+    expect(request.searchParams.get('providerIdentity')).toBe(action.providerIdentity);
+    expect(JSON.parse(request.searchParams.get('resourceRef'))).toEqual(resourceRef);
+    expect(resourceRef).toEqual({uri: action.resourceUri, revision: '5'});
+  });
+
+  it('keeps owners and resource selectors distinct while retaining legacy reuse', async () => {
+    const { openWindow } = await import('./menuBarHelpers.js');
+    addWindow.mockImplementation((_title, parentKey, windowKey, _data, _tab, parameters, options) => {
+      const entry = {...options, parentKey, windowKey, parameters};
+      activeWindows.value = [...activeWindows.value, entry];
+      return entry;
+    });
+    const uri = 'window://reports/builder';
+    openWindow(uri, 'Reports', [], {providerIdentity: 'owner-a'});
+    openWindow(uri, 'Reports', [], {providerIdentity: 'owner-b'});
+    openWindow(uri, 'Reports', [], {providerIdentity: 'owner-a'});
+    expect(addWindow).toHaveBeenCalledTimes(2);
+    expect(selectedWindowId.value).toBe(activeWindows.value[0].windowId);
+    openWindow(uri, 'Reports', [], {providerIdentity: 'owner-a', resourceRef: {uri, revision: '5'}});
+    openWindow(uri, 'Reports', [], {providerIdentity: 'owner-a', resourceRef: {revision: '5', uri}});
+    openWindow(uri, 'Reports', [], {providerIdentity: 'owner-a', resourceRef: {uri, revision: '6'}});
+    expect(addWindow).toHaveBeenCalledTimes(4);
+    openWindow(uri, 'Reports');
+    openWindow(uri, 'Reports');
+    expect(addWindow).toHaveBeenCalledTimes(5);
+    const legacy = activeWindows.value[4];
+    expect(legacy.providerIdentity).toBeUndefined();
+    expect(legacy.resourceRef).toBeUndefined();
+    expect(new URL(windowMetadataEndpoint('/window', uri, legacy), 'https://fixture.example').search).toBe('');
   });
 
   it('refreshes the existing runs data source when reopening the top-level runs tab', async () => {
