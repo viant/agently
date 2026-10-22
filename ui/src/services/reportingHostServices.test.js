@@ -274,6 +274,17 @@ describe('reportingHostServices report-builder preview adapter', () => {
 });
 
 
+describe('report execution host contract', () => {
+  it('declines optional browser snapshots while retaining canonical resource execution and restore readers', () => {
+    const services = createReportingHostServices();
+    expect(services.reportRuns.capabilities.browserSnapshots).toBe(false);
+    expect(services.reportStore.runReport).toBeTypeOf('function');
+    expect(services.reportRuns.readCompletedRestore).toBeTypeOf('function');
+    expect(services.reportRuns.getContext).toBeTypeOf('function');
+    expect(services.reportRuns.getRun).toBeTypeOf('function');
+  });
+});
+
 describe('completed report restoration reader', () => {
   it('uses only exact scoped read APIs and stops a stale account response', async () => {
     let scope = 'account-1';

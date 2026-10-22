@@ -207,6 +207,9 @@ export function createReportingHostServices() {
       fetchByRef: fetchReportBuilderPreviewByRef,
     },
     reportRuns: {
+      // This host runs saved report resources through reporting:run_report.
+      // Live datasource builders must not attach browser-authored snapshots.
+      capabilities: {browserSnapshots: false},
       readCompletedRestore: readCompletedReportRestore,
       getRestoreScope: () => getReportRestoreScope(),
       subscribeRestoreScope: subscribeReportRestoreScope,
