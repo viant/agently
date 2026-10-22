@@ -11,6 +11,7 @@ export const forgeHostServices = {
   schedule: scheduleService,
   prepareDataConnectorRequest: prepareAgentlyDataConnectorRequest,
   applyPermission,
+  workspaceRefresh: {loadMetadata: ({load}) => load()},
   authorizationRefresh: {mode: 'opening'},
   ...reportingHostServices,
 };

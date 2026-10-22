@@ -1,8 +1,8 @@
 import { request as requestMock } from './httpClient';
 vi.mock('./httpClient', () => ({ request: vi.fn().mockResolvedValue([]) }));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { activeWindows, getFormSignal } from 'forge/core';
-import { getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, MAIN_CHAT_WINDOW_ID } from './conversationWindow';
+import { activeWindows, getFormSignal, Context as ForgeContext } from 'forge/core';
+import { getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, MAIN_CHAT_WINDOW_ID, requestNewConversationInMainWindow } from './conversationWindow';
 
 const {
   setPendingElicitationMock,
@@ -3970,4 +3970,266 @@ describe('draft composer selection ownership', () => {
       global.window = previousWindow;
     }
   });
+});
+
+describe('New Conversation window-instance ownership', () => {
+  beforeEach(() => resetConversationSessionRuntime());
+
+  function deferred() {
+    let resolve;
+    const promise = new Promise(done => { resolve = done; });
+    return { promise, resolve };
+  }
+
+  function fixture(id = 'old-conversation', windowId = MAIN_CHAT_WINDOW_ID) {
+    const form = { id, title: 'Old title' };
+    const messages = { collection: [] };
+    const context = {
+      identity: { windowId },
+      resources: {},
+      Context(name) {
+        if (name === 'conversations') return { handlers: { dataSource: {
+          peekFormData: () => form,
+          setFormData: ({ values }) => Object.assign(form, values),
+        } } };
+        if (name === 'messages') return { handlers: { dataSource: {
+          setCollection: rows => { messages.collection = rows; },
+          setError: vi.fn(),
+        } } };
+        if (name === 'meta') return { handlers: { dataSource: {
+          peekFormData: () => ({ defaults: {} }),
+          setFormData: vi.fn(),
+        } } };
+        return null;
+      },
+    };
+    return { context, form, messages };
+  }
+
+  function browser() {
+    const target = new EventTarget();
+    target.location = {
+      pathname: '/conversation/old-conversation', port: '8098', hostname: '127.0.0.1',
+    };
+    target.history = {
+      state: null,
+      replaceState: vi.fn((_state, _unused, path) => { target.location.pathname = path; }),
+    };
+    target.sessionStorage = createStorage();
+    target.localStorage = createStorage();
+    return target;
+  }
+
+  it('rejects a retired cached switch after reset/remount even though its Context generation is unchanged', async () => {
+    const previous = global.window;
+    global.window = browser();
+    const goal = deferred();
+    const previousGetGoal = client.getGoal;
+    client.getGoal = vi.fn(() => goal.promise);
+    activeWindows.value = [{
+      windowId: MAIN_CHAT_WINDOW_ID, windowKey: 'chat/new', conversationInstanceVersion: 7,
+      parameters: { conversations: { form: { id: 'old-conversation' } } },
+    }];
+    const old = fixture();
+    ensureContextResources(old.context);
+    cacheSettledConversationBootstrapSnapshot('old-conversation', {
+      conversation: { id: 'old-conversation', status: 'succeeded' },
+      turns: [], pendingElicitations: [], generatedFiles: [],
+    });
+    try {
+      const switching = switchConversation(old.context, 'old-conversation');
+      expect(client.getGoal).toHaveBeenCalledWith('old-conversation');
+      const generation = old.context.resources.chat.conversationSelectionGeneration;
+      requestNewConversationInMainWindow();
+      const replacement = fixture('');
+      ensureContextResources(replacement.context);
+      expect(window.location.pathname).toBe('/');
+      expect(old.context.resources.chat.conversationSelectionGeneration).toBe(generation);
+      expect(activeWindows.peek().find(entry => entry.windowId === MAIN_CHAT_WINDOW_ID).conversationInstanceVersion).toBe(8);
+
+      goal.resolve({id: 'late-goal', status: 'active', objective: 'Old conversation goal'});
+      await switching;
+      expect(getActiveFeeds().some(feed => feed.conversationId === 'old-conversation' && feed.feedId === 'goal')).toBe(false);
+      expect(window.location.pathname).toBe('/');
+      expect(replacement.form.id).toBe('');
+      expect(replacement.messages.collection).toEqual([]);
+      expect(activeWindows.peek().find(entry => entry.windowId === MAIN_CHAT_WINDOW_ID).parameters.conversations.form.id).toBe('');
+      expect(window.sessionStorage.getItem('agently.selectedConversationId')).toBeNull();
+      // Observer callbacks from the retired Context cannot publish either.
+      publishActiveConversation('old-conversation', old.context);
+      expect(window.location.pathname).toBe('/');
+    } finally {
+      if (previousGetGoal === undefined) delete client.getGoal;
+      else client.getGoal = previousGetGoal;
+      activeWindows.value = [];
+      global.window = previous;
+    }
+  });
+
+  it('does not hydrate an old transcript after a new instance takes ownership', async () => {
+    const previous = global.window;
+    global.window = browser();
+    const transcript = deferred();
+    client.getTranscript.mockReturnValueOnce(transcript.promise);
+    client.listPendingElicitations.mockResolvedValueOnce([]);
+    activeWindows.value = [{
+      windowId: MAIN_CHAT_WINDOW_ID, windowKey: 'chat/new', conversationInstanceVersion: 11,
+      parameters: { conversations: { form: { id: 'old-conversation' } } },
+    }];
+    const old = fixture();
+    try {
+      const loading = dsTick(old.context, { conversationID: 'old-conversation', allowLiveHydration: true });
+      requestNewConversationInMainWindow();
+      const replacement = fixture('');
+      ensureContextResources(replacement.context);
+      transcript.resolve([{ turnId: 'stale-turn', status: 'completed', messages: [{
+        id: 'stale-message', role: 'assistant', content: 'Old report',
+      }] }]);
+      await loading;
+      expect(old.messages.collection).toEqual([]);
+      expect(replacement.messages.collection).toEqual([]);
+      expect(window.location.pathname).toBe('/');
+    } finally {
+      activeWindows.value = [];
+      global.window = previous;
+    }
+  });
+
+  it('retains valid cached selection and another linked window owner', async () => {
+    const previous = global.window;
+    global.window = browser();
+    const goal = deferred();
+    const previousGetGoal = client.getGoal;
+    client.getGoal = vi.fn(() => goal.promise);
+    activeWindows.value = [
+      { windowId: MAIN_CHAT_WINDOW_ID, windowKey: 'chat/new', conversationInstanceVersion: 2, parameters: {} },
+      { windowId: 'linked-owner', windowKey: 'chat/new', conversationInstanceVersion: 4, parameters: {} },
+    ];
+    const linked = fixture('', 'linked-owner');
+    ensureContextResources(linked.context);
+    cacheSettledConversationBootstrapSnapshot('linked-conversation', {
+      conversation: { id: 'linked-conversation', status: 'succeeded' },
+      turns: [], pendingElicitations: [], generatedFiles: [],
+    });
+    try {
+      const switching = switchConversation(linked.context, 'linked-conversation');
+      requestNewConversationInMainWindow();
+      goal.resolve(null);
+      await switching;
+      expect(linked.form.id).toBe('linked-conversation');
+      expect(window.sessionStorage.getItem('agently.selectedConversationId:linked-owner')).toBe('linked-conversation');
+      expect(window.location.pathname).toBe('/');
+    } finally {
+      if (previousGetGoal === undefined) delete client.getGoal;
+      else client.getGoal = previousGetGoal;
+      activeWindows.value = [];
+      global.window = previous;
+    }
+  });
+
+  it('completes cached and full main-window switches while their stamped instance stays current', async () => {
+    const previous = global.window;
+    const previousGetGoal = client.getGoal;
+    global.window = browser();
+    window.location.pathname = '/';
+    client.getGoal = vi.fn().mockResolvedValue({id: 'current-goal', status: 'paused'});
+    try {
+      for (const cached of [true, false]) {
+        const id = cached ? 'valid-cached-instance' : 'valid-full-instance';
+        window.location.pathname = '/';
+        activeWindows.value = [{windowId: MAIN_CHAT_WINDOW_ID, windowKey: 'chat/new', conversationInstanceVersion: 13, parameters: {}}];
+        const current = fixture('');
+        ensureContextResources(current.context);
+        if (cached) {
+          cacheSettledConversationBootstrapSnapshot(id, {conversation: {id, status: 'succeeded'}, turns: [], pendingElicitations: [], generatedFiles: []});
+        } else {
+          client.getConversation.mockResolvedValueOnce({id, status: 'succeeded'});
+          client.getTranscript.mockResolvedValueOnce([]);
+          client.listPendingElicitations.mockResolvedValueOnce([]);
+        }
+        await switchConversation(current.context, id);
+        expect(current.form.id).toBe(id);
+        expect(window.location.pathname).toBe(`/conversation/${id}`);
+        expect(window.sessionStorage.getItem('agently.selectedConversationId')).toBe(id);
+      }
+    } finally {
+      if (previousGetGoal === undefined) delete client.getGoal;
+      else client.getGoal = previousGetGoal;
+      activeWindows.value = [];
+      global.window = previous;
+    }
+  });
+
+  it('binds late-initialized real Forge Contexts to their construction-time window state', () => {
+    const previous = global.window;
+    global.window = browser();
+    window.location.pathname = '/';
+    try {
+      const oldWindow = {windowId: MAIN_CHAT_WINDOW_ID, windowKey: 'chat/new', conversationInstanceVersion: 20};
+      // No entry exists and resources have not yet been touched when this
+      // genuine Forge Context is constructed for the old window instance.
+      activeWindows.value = [];
+      const old = ForgeContext(MAIN_CHAT_WINDOW_ID, {dataSource: {}, view: {}}, '', {windowState: oldWindow});
+      activeWindows.value = [{...oldWindow, conversationInstanceVersion: 21}];
+      publishActiveConversation('retired-before-first-call', old);
+      expect(window.location.pathname).toBe('/');
+      const current = ForgeContext(MAIN_CHAT_WINDOW_ID, {dataSource: {}, view: {}}, '', {windowState: activeWindows.peek()[0]});
+      expect(old.resources).not.toBe(current.resources);
+      publishActiveConversation('new-instance', current);
+      expect(window.location.pathname).toBe('/conversation/new-instance');
+    } finally {
+      activeWindows.value = [];
+      global.window = previous;
+    }
+  });
+
+  it('does not adopt a later entry when an explicit window Context was initially unbound', () => {
+    const previous = global.window;
+    global.window = browser();
+    window.location.pathname = '/';
+    activeWindows.value = [];
+    try {
+      const unbound = fixture('old-unbound');
+      ensureContextResources(unbound.context);
+      activeWindows.value = [{windowId: MAIN_CHAT_WINDOW_ID, windowKey: 'chat/new', conversationInstanceVersion: 23}];
+      publishActiveConversation('old-unbound', unbound.context);
+      expect(window.location.pathname).toBe('/');
+      // Identity-less non-window callers keep their legacy behavior. A
+      // display fallback must not silently bind them to a window instance.
+      const headless = {resources: {}};
+      ensureContextResources(headless);
+      activeWindows.value = [{windowId: MAIN_CHAT_WINDOW_ID, windowKey: 'chat/new', conversationInstanceVersion: 24}];
+      publishActiveConversation('legacy-non-window', headless);
+      expect(window.location.pathname).toBe('/conversation/legacy-non-window');
+    } finally {
+      activeWindows.value = [];
+      global.window = previous;
+    }
+  });
+
+  it('discards a linked-window completion after that actual window is closed', async () => {
+    const previous = global.window;
+    const previousGetGoal = client.getGoal;
+    global.window = browser();
+    window.location.pathname = '/';
+    const goal = deferred();
+    client.getGoal = vi.fn(() => goal.promise);
+    activeWindows.value = [{windowId: 'closed-linked', windowKey: 'chat/new', conversationInstanceVersion: 1}];
+    const linked = fixture('', 'closed-linked');
+    cacheSettledConversationBootstrapSnapshot('closed-linked-conversation', {conversation: {id: 'closed-linked-conversation', status: 'succeeded'}, turns: [], pendingElicitations: [], generatedFiles: []});
+    try {
+      const switching = switchConversation(linked.context, 'closed-linked-conversation');
+      activeWindows.value = [];
+      goal.resolve({id: 'closed-linked-goal', status: 'active'});
+      await switching;
+      expect(window.sessionStorage.getItem('agently.selectedConversationId:closed-linked')).toBeNull();
+      expect(getActiveFeeds().some(feed => feed.conversationId === 'closed-linked-conversation')).toBe(false);
+    } finally {
+      if (previousGetGoal === undefined) delete client.getGoal;
+      else client.getGoal = previousGetGoal;
+      activeWindows.value = [];
+      global.window = previous;
+    }
+  });
+
 });

@@ -92,7 +92,7 @@ vi.mock('../utils/dialogBus', () => ({
   updateFileViewDialog: vi.fn(),
 }));
 
-import {activeWindows, getMetadataSignal, getViewSignal, getSelectionSignal} from 'forge/core';
+import {activeWindows, buildUISnapshot, selectedWindowId, selectedTabId, getMetadataSignal, getViewSignal, getSelectionSignal} from 'forge/core';
 import {setScopedActiveSurface, setScopedWorkspaceSelection} from './conversationWindow';
 import { client } from './agentlyClient';
 import { setStage } from './stageBus';
@@ -125,6 +125,34 @@ describe('submitMessage', () => {
     getActiveTurnId.mockReturnValue('');
     getSettledConversationBootstrapSnapshot.mockReturnValue(null);
     hydrateConversationFromBootstrapSnapshot.mockReturnValue(false);
+  });
+
+  it('preserves the selected landing workspace before flushing the first-message snapshot', async () => {
+    const previousWindow = global.window;
+    const values = new Map();
+    const storage = {getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key)};
+    global.window = {location: {pathname: '/conversation/new'}, history: {replaceState() {}}, sessionStorage: storage, localStorage: storage, dispatchEvent() {}};
+    const workspace = {windowId: 'landing-submit', windowKey: 'record', parentKey: 'chat/new', presentation: 'hosted', region: 'chat.top', parameters: {RecordId: [7]}};
+    activeWindows.value = [{windowId: 'chat/new', windowKey: 'chat/new'}, workspace];
+    selectedWindowId.value = selectedTabId.value = workspace.windowId;
+    getMetadataSignal(workspace.windowId).value = {dataSource: {records: {uniqueKey: ['id']}}};
+    getViewSignal(workspace.windowId).value = {tabs: {details: 'properties'}};
+    client.query.mockResolvedValue({});
+    ensureConversation.mockResolvedValue('first-chat');
+    ensureContextResources.mockReturnValue({});
+    resolveUserID.mockReturnValue('');
+    dsTick.mockResolvedValue({});
+    const form = {};
+    const context = {identity: {windowId: 'chat/new'}, Context: name => name === 'conversations' ? {handlers: {dataSource: {peekFormData: () => form, setFormData: ({values}) => Object.assign(form, values)}}} : null};
+    try {
+      await submitMessage({context, message: 'Read the current UI'});
+      expect(buildUISnapshot().selected.windowId).toBe(workspace.windowId);
+      expect(client.query.mock.calls.at(-1)[0].context.workspace).toMatchObject({windowId: workspace.windowId, internalTabs: {details: 'properties'}});
+    } finally {
+      activeWindows.value = [];
+      selectedWindowId.value = selectedTabId.value = null;
+      global.window = previousWindow;
+    }
   });
 
   it('attaches SSE before the query promise resolves for a new active turn', async () => {

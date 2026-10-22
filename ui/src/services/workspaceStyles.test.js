@@ -1,7 +1,12 @@
 import {describe, it, expect} from 'vitest';
 import fs from 'node:fs';
+import path from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {applyApplicationThemeBoundary, clearApplicationThemeBoundary, WorkspaceStyleManager, resolveThemeSelection, validateThemeCatalog} from './workspaceStyles';
-const catalog = JSON.parse(fs.readFileSync(new URL('../../../../agently-core/protocol/ui/theme/testdata/baseline.json', import.meta.url)));
+const baselineURL = process.env.AGENTLY_CORE_SOURCE_ROOT
+  ? pathToFileURL(path.resolve(process.env.AGENTLY_CORE_SOURCE_ROOT, 'protocol/ui/theme/testdata/baseline.json'))
+  : new URL('../../../../agently-core/protocol/ui/theme/testdata/baseline.json', import.meta.url);
+const catalog = JSON.parse(fs.readFileSync(baselineURL));
 const revision = 'a'.repeat(64);
 const metadata = (rev = revision, id = 'workspace') => ({workspaceId: id,
   uiStyles: {version: 1, revision: rev, themeRevision: rev, href: `/v1/workspace/ui/styles/${rev}.css`},

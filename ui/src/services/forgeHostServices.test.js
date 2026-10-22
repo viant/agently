@@ -235,3 +235,7 @@ describe('forgeHostServices', () => {
     expect(sharedItem).toMatchObject({ artifactId: 'shared-1', kind: 'reportBuilder.savedView' });
   });
 });
+
+it('workspace metadata refresh calls the normal fresh loader and exposes no automatic data refresh',async()=>{
+ const load=vi.fn(async()=>({view:{content:{id:'fresh'}}}));expect(await forgeHostServices.workspaceRefresh.loadMetadata({load})).toEqual({view:{content:{id:'fresh'}}});expect(load).toHaveBeenCalledTimes(1);expect(forgeHostServices.workspaceRefresh).not.toHaveProperty('data');
+});

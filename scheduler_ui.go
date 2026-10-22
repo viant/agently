@@ -11,6 +11,7 @@ import (
 	uidatasource "github.com/viant/agently-core/protocol/tool/service/ui/datasource"
 	uievents "github.com/viant/agently-core/protocol/tool/service/ui/events"
 	uifeed "github.com/viant/agently-core/protocol/tool/service/ui/feed"
+	uimetadata "github.com/viant/agently-core/protocol/tool/service/ui/metadata"
 	uireport "github.com/viant/agently-core/protocol/tool/service/ui/report"
 	uiview "github.com/viant/agently-core/protocol/tool/service/ui/view"
 	uiwindow "github.com/viant/agently-core/protocol/tool/service/ui/window"
@@ -25,6 +26,7 @@ func registerSchedulerUIServices(rt *executor.Runtime) error {
 	}
 	services := []toolservice.Service{
 		uiview.New(forgewindowrepo.NewWithStore(rt.Store), rt.UIBridge),
+		uimetadata.New(rt.UIBridge),
 		uiwindow.New(rt.UIBridge),
 		uicontrol.New(rt.UIBridge),
 		uifeed.New(rt.UIBridge),

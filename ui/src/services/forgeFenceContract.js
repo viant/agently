@@ -337,7 +337,7 @@ function collectProgressiveReportBlocks(blocks = [], grammar = '') {
   return result;
 }
 
-function validateProgressiveReportState(state) {
+function validateProgressiveReportState(state, final = state?.committed) {
   const blocks = Array.isArray(state?.source?.blocks) ? state.source.blocks : [];
   const allBlocks = collectProgressiveReportBlocks(blocks, state?.grammar);
   if (allBlocks.length > FORGE_REPORT_LIMITS.blocks) throw new Error(`An inline report may contain at most ${FORGE_REPORT_LIMITS.blocks} blocks.`);
@@ -374,6 +374,8 @@ function validateProgressiveReportState(state) {
     ['childBlockIds', 'sectionIds'].forEach((key) => {
       (Array.isArray(block?.[key]) ? block[key] : []).forEach((refValue) => {
         const ref = String(refValue || '').trim();
+        // Canonical sections may arrive later; unresolved targets fail at commit.
+        if (key === 'sectionIds' && state?.grammar === 'report-document-v1' && !final && ref && !blockIds.has(ref)) return;
         if (!ref || !blockIds.has(ref)) throw new Error(`Block "${block?.id || ''}" references unknown block "${ref}" in ${key}.`);
         if (key === 'sectionIds' && blockKinds.get(ref) !== 'sectionBlock') throw new Error(`Block "${block?.id || ''}" sectionIds references non-section block "${ref}".`);
       });
@@ -659,6 +661,13 @@ export function assembleForgeReportEvents(events = []) {
       const missing = Array.from({ length: state.maxSequence }, (_, index) => index + 1).find((sequence) => !state.seen.has(sequence));
       state.status = missing ? 'incomplete' : 'committed';
       if (missing) diagnostics.push({ code: 'REPORT_SEQUENCE_GAP', message: `Report sequence is missing transaction ${missing}.`, reportId: state.id, sequence: missing, fence: FORGE_REPORT_FENCE, path: 'sequence', suggestedFix: `Replay the missing transaction ${missing} before committing the report.` });
+      else {
+        try { validateProgressiveReportState(state, true); }
+        catch (error) {
+          state.status = 'incomplete';
+          diagnostics.push({ code: 'REPORT_TRANSACTION_INVALID', message: error.message, reportId: state.id, fence: FORGE_REPORT_FENCE, path: 'mode' });
+        }
+      }
     }
     return {
       scope: state.scope,

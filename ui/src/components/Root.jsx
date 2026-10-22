@@ -32,7 +32,6 @@ import { useAgUiBackendSelection } from '../hooks/useAgUiBackendSelection';
 import AgUiRemoteConversation from './AgUiRemoteConversation';
 import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, dismissWorkspaceWindowForConversation, ensureWorkspaceWindowForConversation, getScopedActiveSurface, getScopedConversationSelection, getScopedWorkspacePresentationMode, getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, restoreWorkspaceNavigationTrailEntry, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
-import { bindLandingWorkspaceWindows } from '../services/conversationWindow';
 import { conversationIDFromPath, publishActiveConversation } from '../services/chatRuntime';
 import { beginLogin, getAuthMeSilently, getAuthProvidersSilently } from '../services/agentlyClient';
 import { onGoalDraftOpen } from '../services/goalDraftBus';
@@ -644,11 +643,6 @@ export default function Root() {
     || ''
   ).trim();
   const projectedConversationRows = useChatProjection(mainConversationId);
-  useEffect(() => {
-    const windows = activeWindows.peek();
-    const bound = bindLandingWorkspaceWindows(windows,mainConversationId);
-    if (bound !== windows) activeWindows.value = bound;
-  }, [mainConversationId]);
   const chatRunning = useChatIsRunning(mainConversationId);
   const [readChatRows, setReadChatRows] = useState({conversationId: '', keys: []});
   const assistantRows = projectedConversationRows.filter((row) => row.kind === 'assistant' || row.kind === 'iteration');

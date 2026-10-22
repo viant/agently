@@ -24,7 +24,7 @@ func TestRegisterSchedulerUIServices(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{
-		"ui/view:open", "ui/window:list", "ui/control:setValue", "ui/feed:get",
+		"ui/view:open", "ui/metadata:list", "ui/metadata:get", "ui/window:list", "ui/control:setValue", "ui/feed:get",
 		"ui/datasource:peek", "ui/context:get", "ui/events:list", "ui/report:run",
 	} {
 		if _, ok := registry.GetDefinition(name); !ok {

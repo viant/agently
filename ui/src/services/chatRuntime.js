@@ -872,10 +872,29 @@ export function clearPendingConversationBootstrap(conversationID = '') {
 export function ensureContextResources(context) {
   context.resources = context.resources || {};
   context.resources.chat = context.resources.chat || {};
+  // The Context's windowState is captured by Forge at construction. A reset
+  // replaces that instance even while its old async Context is still alive.
+  if (!Object.prototype.hasOwnProperty.call(context.resources.chat, 'windowInstanceVersion')) {
+    const windowId = String(context?.identity?.windowId || '').trim();
+    const source = windowId && (context.windowState?.windowId === windowId
+      ? context.windowState : getWindowById(windowId));
+    context.resources.chat.windowInstanceVersion = source
+      ? Math.max(0, Number(source.conversationInstanceVersion || 0)) : null;
+    context.resources.chat.windowInstanceID = windowId;
+  }
   context.resources.chat.liveOwnedConversationID = String(context.resources.chat.liveOwnedConversationID || '').trim();
   context.resources.chat.liveOwnedTurnIds = Array.isArray(context.resources.chat.liveOwnedTurnIds) ? context.resources.chat.liveOwnedTurnIds : [];
   context.resources.chat.generatedFiles = Array.isArray(context.resources.chat.generatedFiles) ? context.resources.chat.generatedFiles : [];
   return context.resources.chat;
+}
+
+function ownsCurrentWindowInstance(context, resources = ensureContextResources(context)) {
+  // Non-window callers retain their existing behavior; never bind them to the
+  // main window just because getContextWindowId supplies a display fallback.
+  if (!resources.windowInstanceID) return true;
+  const owner = getWindowById(resources.windowInstanceID);
+  if (resources.windowInstanceVersion === null) return !owner;
+  return !!owner && Math.max(0, Number(owner.conversationInstanceVersion || 0)) === resources.windowInstanceVersion;
 }
 
 function queuePostTurnConversationRefresh(context, conversationID = '', turnID = '') {
@@ -892,12 +911,14 @@ function queuePostTurnConversationRefresh(context, conversationID = '', turnID =
   }
     chatState.postTurnRefreshTimer = scheduleTimeout(async () => {
     chatState.postTurnRefreshTimer = null;
+    if (!ownsCurrentWindowInstance(context, chatState)) return;
     if (String(chatState.postTurnRefreshKey || '').trim() !== refreshKey) return;
     if (String(getCurrentConversationID(context) || '').trim() !== targetConversationID) return;
     const activeTurnID = String(chatState.runningTurnId || chatState.activeStreamTurnId || '').trim();
     if (activeTurnID && activeTurnID !== targetTurnID) return;
     try {
       await switchConversation(context, targetConversationID);
+      if (!ownsCurrentWindowInstance(context, chatState) || String(getCurrentConversationID(context) || '').trim() !== targetConversationID) return;
       publishConversationActivity(targetConversationID, {
         type: 'turn_refreshed',
         turnId: targetTurnID,
@@ -1061,6 +1082,7 @@ function getContextWindowId(context) {
 export function publishActiveConversation(conversationID = '', context = null) {
   const id = String(conversationID || '').trim();
   const chatState = ensureContextResources(context);
+  if (!ownsCurrentWindowInstance(context, chatState)) return;
   const contextWindowId = getContextWindowId(context);
   const contextWindow = getWindowById(contextWindowId);
   const targetWindowId = String(contextWindow?.windowKey || '').trim() === 'chat/new'
@@ -1260,27 +1282,30 @@ export async function fetchConversation(conversationID = '') {
 
 const goalFeedRefreshes = new Map();
 let goalFeedGeneration = 0;
-export async function refreshGoalFeed(conversationID = '') {
-  const id=String(conversationID || '').trim();
+export async function refreshGoalFeed(conversationID = '', context = null) {
+  const id = String(conversationID || '').trim();
   if (!id) return;
-  if (goalFeedRefreshes.has(id)) return goalFeedRefreshes.get(id);
-  const generation=goalFeedGeneration;
-  const operation=(async()=>{
-    try {
-      const goal=await client.getGoal(id);
-      if (generation!==goalFeedGeneration) return;
-      if (!goal || typeof goal!=='object') {
-        applyFeedEvent({type:'tool_feed_inactive',feedId:'goal',conversationId:id});return;
-      }
-      // The spec is loaded separately. Repeated reads retain raw datasource
-      // shape instead of nesting another UI/data envelope inside cached data.
-      applyFeedEvent({type:'tool_feed_active',feedId:'goal',feedTitle:'Goal',feedItemCount:1,conversationId:id,feedData:{goal},localOnly:true});
-    } catch (_) {
-      if (generation===goalFeedGeneration) applyFeedEvent({type:'tool_feed_inactive',feedId:'goal',conversationId:id});
-    }
-  })().finally(()=>{if(goalFeedRefreshes.get(id)===operation)goalFeedRefreshes.delete(id);});
-  goalFeedRefreshes.set(id,operation);
-  return operation;
+  const resources = context ? ensureContextResources(context) : null;
+  const selectionGeneration = Number(resources?.conversationSelectionGeneration || 0);
+  const generation = goalFeedGeneration;
+  let operation = goalFeedRefreshes.get(id);
+  if (!operation) {
+    operation = (async () => { try { return await client.getGoal(id); } catch (_) { return null; } })()
+      .finally(() => { if (goalFeedRefreshes.get(id) === operation) goalFeedRefreshes.delete(id); });
+    goalFeedRefreshes.set(id, operation);
+  }
+  const goal = await operation;
+  if (generation !== goalFeedGeneration) return;
+  if (context && (!ownsCurrentWindowInstance(context, resources)
+    || Number(resources.conversationSelectionGeneration || 0) !== selectionGeneration
+    || !matchesSelectedConversationOrRouteBootstrap(context, id))) return;
+  if (!goal || typeof goal !== 'object') {
+    applyFeedEvent({type: 'tool_feed_inactive', feedId: 'goal', conversationId: id});
+    return;
+  }
+  // Keep raw datasource shape; this store is conversational, not window authority.
+  applyFeedEvent({type: 'tool_feed_active', feedId: 'goal', feedTitle: 'Goal', feedItemCount: 1,
+    conversationId: id, feedData: {goal}, localOnly: true});
 }
 
 export function hydrateConversationFromBootstrapSnapshot(context, snapshot = null) {
@@ -1540,8 +1565,9 @@ function shouldDeferTranscriptToLiveStream(context, conversationID = '') {
 export async function dsTick(context, options = {}) {
   const requestedConversationID = String(options?.conversationID || getCurrentConversationID(context) || '').trim();
   const chatState = ensureContextResources(context);
+  if (!ownsCurrentWindowInstance(context, chatState)) return;
   const generation = Number(chatState.conversationSelectionGeneration || 0);
-  const isCurrent = () => Number(chatState.conversationSelectionGeneration || 0) === generation && matchesSelectedConversationOrRouteBootstrap(context, requestedConversationID);
+  const isCurrent = () => ownsCurrentWindowInstance(context, chatState) && Number(chatState.conversationSelectionGeneration || 0) === generation && matchesSelectedConversationOrRouteBootstrap(context, requestedConversationID);
   const recoveringElicitation = chatState.elicitationRecoveryConversationID === requestedConversationID;
   const allowLiveHydration = options?.allowLiveHydration || recoveringElicitation;
   if (typeof window !== 'undefined') {
@@ -2623,6 +2649,10 @@ export async function ensureConversation(context, options = {}) {
     const id = String(created?.id || created?.Id || '').trim();
     if (!id) throw new Error('conversation create returned empty id');
 
+    // Establish an explicit local adoption intent before publishing the first
+    // chat id can trigger protected window admission effects.
+    options?.onCreated?.(id);
+
     conversationsDS.setFormData?.({
       values: {
         ...form,
@@ -2661,9 +2691,10 @@ export async function switchConversation(context, conversationID = '') {
   const targetID = String(conversationID || '').trim();
   if (!targetID) return;
   const chatState = ensureContextResources(context);
+  if (!ownsCurrentWindowInstance(context, chatState)) return;
   const generation = advanceConversationSelectionGeneration(chatState);
   chatState.requestedConversationID = targetID;
-  const isCurrentRequest = () => Number(chatState.conversationSelectionGeneration || 0) === generation && String(chatState.requestedConversationID || '').trim() === targetID;
+  const isCurrentRequest = () => ownsCurrentWindowInstance(context, chatState) && Number(chatState.conversationSelectionGeneration || 0) === generation && String(chatState.requestedConversationID || '').trim() === targetID;
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const messagesDS = context?.Context?.('messages')?.handlers?.dataSource;
   if (!conversationsDS || !messagesDS) return;
@@ -2704,7 +2735,8 @@ export async function switchConversation(context, conversationID = '') {
       conversationId: targetID,
       cachedTurnCount: Array.isArray(cachedSettledSnapshot?.turns) ? cachedSettledSnapshot.turns.length : 0
     });
-    await refreshGoalFeed(targetID);
+    await refreshGoalFeed(targetID, context);
+    if (!isCurrentRequest()) return;
     publishActiveConversation(targetID, context);
     return;
   }
@@ -2787,7 +2819,7 @@ export async function switchConversation(context, conversationID = '') {
       disconnectStream(context);
     }
     publishActiveConversation(targetID, context);
-    void refreshGoalFeed(targetID);
+    void refreshGoalFeed(targetID, context);
     return;
   }
 
@@ -2832,7 +2864,7 @@ export async function switchConversation(context, conversationID = '') {
     disconnectStream(context);
   }
   publishActiveConversation(targetID, context);
-  void refreshGoalFeed(targetID);
+  void refreshGoalFeed(targetID, context);
 }
 
 export function enqueueConversationSwitch(context, conversationID = '') {
