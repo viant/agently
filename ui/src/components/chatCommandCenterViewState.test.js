@@ -5,7 +5,7 @@ import {
   buildUsageTooltip,
   buildToolsLabel,
   clearCommandCenterChip,
-} from '../../../../forge/src/components/chatCommandCenterViewState.js';
+} from 'forge/components/chatCommandCenterViewState.js';
 
 describe('chatCommandCenterViewState', () => {
   it('builds compact usage summary and tooltip text', () => {

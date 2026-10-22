@@ -10,7 +10,7 @@ import {
   formatTokensCompact,
   formatCostCompact,
   shouldKeepLocalQueuedPreview,
-} from '../../../../forge/src/components/chatLegacyHelpers.js';
+} from 'forge/components/chatLegacyHelpers.js';
 
 describe('chatLegacyHelpers', () => {
   it('defaultNormalizeMessages clones rows', () => {

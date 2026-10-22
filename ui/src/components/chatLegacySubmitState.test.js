@@ -10,7 +10,7 @@ import {
   shouldShowStarterTasks,
   effectiveShowAbortWhileRunning,
   retainLocalQueuedTurns,
-} from '../../../../forge/src/components/chatLegacySubmitState.js';
+} from 'forge/components/chatLegacySubmitState.js';
 
 describe('chatLegacySubmitState', () => {
   it('disables local optimistic running on the canonical external path', () => {
