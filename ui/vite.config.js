@@ -219,6 +219,7 @@ export default defineConfig(({ mode, command }) => {
       exclude: [
         '**/node_modules/**',
         '**/dist/**',
+        '**/.cache/**',
         'vite.config.test.mjs',
         'src/services/forgeFenceContract.test.mjs',
         'src/components/lookups/chipEditing.test.mjs',

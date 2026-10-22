@@ -22,10 +22,11 @@ it('the real mounted owned feed exposes only its own declared conversation state
  element=document.createElement('div');document.body.append(element);root=createRoot(element);
  await act(async()=>root.render(<SettingProvider><ToolFeedDetail conversationId={conversationId} turnId="turn-fixture"/></SettingProvider>));await flush();
  expect(element.textContent).toContain('Coca-Cola');expect(element.textContent).toContain('Total budget');
- expect(element.querySelector('#totalBudget')?.value).toBe('100000');
+ const budget=()=>element.querySelector('input[data-forge-control-id="totalBudget"], [data-forge-control-id="totalBudget"] input');
+ expect(budget()?.value).toBe('100000');
  expect(getWindowContext(windowId)?.identity).toMatchObject({feedId:'media-plan',conversationId});
  await act(async()=>{getFormSignal(`${windowId}DSeditDraft`).value={...getFormSignal(`${windowId}DSeditDraft`).peek(),totalBudget:120000}});await flush();
- expect(element.querySelector('#totalBudget')?.value).toBe('120000');
+ expect(budget()?.value).toBe('120000');
  const result=await runUICommand({method:'ui.feed.get',params:{feedId:'media-plan',conversationId,dataSourceRefs:['editDraft','channels']}});
  expect(result.dataSources.editDraft.form.totalBudget).toBe(120000);expect(result.dataSources.channels.collection).toHaveLength(3);
  await expect(runUICommand({method:'ui.feed.get',params:{feedId:'unknown',conversationId,dataSourceRefs:['editDraft']}})).rejects.toThrow('active conversation feed');

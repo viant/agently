@@ -1,11 +1,12 @@
 import {describe,expect,it,vi} from 'vitest';
+import React from 'react';
 import WindowContent from 'forge/components/WindowContent.jsx';
 import {openWindowPickerDialog} from 'forge/components/windowPickerDialog.js';
 import {windowMetadataEndpoint} from 'forge/components/windowMetadataEndpoint.js';
 
 describe('canonical lookup picker window transport',()=>{
  it('compiles the normal window component and forwards exact owning metadata refs',()=>{
-  expect(typeof WindowContent).toBe('function');
+  expect(React.isValidElement(React.createElement(WindowContent,{window:{windowId:'picker',windowKey:'picker'}}))).toBe(true);
   const resourceRef={uri:'window://external/picker',revision:'working'};
   const uri=new URL(windowMetadataEndpoint('/window',resourceRef.uri,{resourceRef,providerIdentity:'source'}),'http://fixture.local');
   expect(JSON.parse(uri.searchParams.get('resourceRef'))).toEqual(resourceRef);

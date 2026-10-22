@@ -13,6 +13,7 @@ import MCPUIForgeWindowPage, {buildWindowPayload} from './MCPUIForgeWindowPage.j
 import StandaloneForgeWindowSurface from './StandaloneForgeWindowSurface.jsx';
 import WindowManager from 'forge/components/WindowManager.jsx';
 
+const fixtureKey=value=>decodeURIComponent(String(value || '')).split('/').pop();
 const parameters={EntityID:['9007199254740993'],nested:{selection:{region:'west'}},Limit:7};
 let root,element;
 const contexts=new Map();
@@ -20,7 +21,7 @@ const mounts=new Map();
 registerContainerRenderer('test.native-navigation',({context})=>{
  contexts.set(context.identity.windowId,context);
  React.useEffect(()=>{ mounts.set(context.identity.windowId,(mounts.get(context.identity.windowId)||0)+1); },[]);
- const key=context.windowState.windowKey;
+ const key=fixtureKey(context.windowState.windowKey);
  return <section data-native-window={key}>
    <span>{key} native content</span>
    {key==='Root' ? <><button onClick={()=>context.handlers.window.openWindow({context,execution:{args:['Child','Child',null,true]},parameters})}>Open original child</button><button onClick={()=>context.handlers.window.openWindow({context,execution:{args:['ChildFloat','Child floating',null,false]},parameters})}>Open original floating child</button></> : null}
@@ -48,9 +49,10 @@ it.each(['signed','unsigned'])('opens an authored child, returns without remount
  const opens={Root:0,Child:0,ChildFloat:0},posts=[];
  vi.stubGlobal('fetch',vi.fn(async(url,options={})=>{
   const request=new URL(String(url),'http://localhost');
-  const key=request.pathname.split('/').pop();
+  const key=fixtureKey(request.pathname.split('/').pop());
   if(request.pathname.includes('/agently/forge/window/')){
    expect(opens).toHaveProperty(key);
+   expect(decodeURIComponent(request.pathname.split('/').pop())).toBe(key==='Root'?'Root':`window://example/${key}`);
    opens[key]++;
    expect(opens[key]).toBe(1);
    expect(request.searchParams.get('applyPermission')).toBe('true');
@@ -122,17 +124,17 @@ it('disposes children and rejects late admission when the same root key/paramete
  await act(async()=>Array.from(element.querySelectorAll('button')).find(button=>button.textContent==='Open original child').click());await flush();
  expect(loadWindow).toHaveBeenCalledTimes(1);expect(posts).toHaveLength(1);
  expect(element.querySelector('[data-native-window="Child"]')).toBeNull();expect(element.textContent).toContain('Loading workspace window');
- const pendingChild=activeWindows.peek().find(entry=>entry.windowKey==='Child');
+ const pendingChild=activeWindows.peek().find(entry=>fixtureKey(entry.windowKey)==='Child');
  await act(async()=>removeWindow(pendingChild.windowId));await flush();
  expect(element.querySelector('[data-native-window="Child"]')).toBeNull();expect(posts).toHaveLength(1);
  const updated=buildWindowPayload('Root',{data:{...admitted('Root'),resource:{...admitted('Root').resource,contentFingerprint:'revision-two'},selectionBinding:{...admitted('Root').selectionBinding,token:'new-root-binding',instanceId:'new-root-instance'}}},parameters);
  await act(async()=>render(updated,{platform:'web',formFactor:'tablet'}));await flush();
  const newRoot=activeWindows.peek().find(entry=>entry.windowKey==='Root');
  expect(newRoot.windowId).not.toBe(oldRoot.windowId);expect(newRoot.id).toBe(original.id);expect(newRoot.stateKey).toBe(original.stateKey);
- expect(activeWindows.peek().some(entry=>entry.windowKey==='Child')).toBe(false);
+ expect(activeWindows.peek().some(entry=>fixtureKey(entry.windowKey)==='Child')).toBe(false);
  expect(posts).toHaveLength(2);expect(posts[1].selectionBinding).toEqual(updated.selectionBinding);expect(posts[1].resource).toEqual(updated.resource);
  await act(async()=>resolveChild(buildWindowPayload('Child',{data:admitted('Child')},parameters)));await flush();
- expect(activeWindows.peek().some(entry=>entry.windowKey==='Child')).toBe(false);expect(posts).toHaveLength(2);
+ expect(activeWindows.peek().some(entry=>fixtureKey(entry.windowKey)==='Child')).toBe(false);expect(posts).toHaveLength(2);
 });
 
 it('retains the default manager behavior for ordinary tabs and floating windows',async()=>{
@@ -155,7 +157,7 @@ it('shows a child HTTP admission error without mounting its content or fetching 
  const posted=[];
  vi.stubGlobal('fetch',vi.fn(async(url,options={})=>{
   const request=new URL(String(url),'http://localhost');
-  if(request.pathname==='/v1/api/agently/forge/window/Child')return new Response('child unavailable',{status:403});
+  if(request.pathname.startsWith('/v1/api/agently/forge/window/') && fixtureKey(request.pathname.split('/').pop())==='Child')return new Response('child unavailable',{status:403});
   if(request.pathname==='/v1/api/agently/forge/window/Root'){
    const value=admitted('Root');delete value.selectionBinding;delete value.authorization;delete value.authorizationSnapshot;
    return new Response(JSON.stringify({data:value}),{status:200,headers:{'Content-Type':'application/json'}});
