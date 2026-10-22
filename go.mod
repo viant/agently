@@ -13,10 +13,10 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
-	github.com/viant/agently-core v0.1.57-0.20261022061537-32a406e85ce6
+	github.com/viant/agently-core v0.1.57-0.20261022071718-0d7ccc4cba73
 	github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4
 	github.com/viant/embedius v0.5.6 // indirect
-	github.com/viant/forge v0.3.45-0.20261022060638-05901de0f867
+	github.com/viant/forge v0.3.45-0.20261022070907-7ab42af75e50
 	github.com/viant/jsonrpc v0.25.1-0.20261021031150-a24a3b9ae218
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
 	github.com/viant/mcp v0.24.1-0.20261019131854-bc54c4ac748a
@@ -34,7 +34,7 @@ require (
 	github.com/google/gops v0.3.28
 	github.com/viant/agently-core/protocol/primitive v0.0.0-20261015021722-e84334ca688f
 	github.com/viant/agently-core/protocol/resource v0.0.0-20261015021722-e84334ca688f
-	github.com/viant/authz v0.0.0-20261014234113-96042135a76f
+	github.com/viant/authz v0.0.0-20261022071048-a58b1851761a
 	github.com/viant/bigquery v0.5.4-0.20260927120042-a47888f8d2cc
 )
 
