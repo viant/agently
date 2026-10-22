@@ -1,10 +1,11 @@
+import {WorkspaceRuntimeTabs,WorkspaceRuntimePanels,shouldShowWorkspaceTabs as sharedShouldShowWorkspaceTabs} from 'forge/components/WorkspaceRuntimeSurface.jsx';
 import {resolveWorkspaceWindowTitle} from '../services/workspaceWindowTitle.js';
 import {useWorkspaceScroll} from '../services/useWorkspaceScroll.js';
-import { WorkspacePresentationProvider, findMetadataSignal } from 'forge/core';
+import { findMetadataSignal } from 'forge/core';
 import ToolFeedDetail from './ToolFeedDetail.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import { Button, Icon, Tooltip } from '@blueprintjs/core';
-import { WindowContent, RetainedWindowContent } from 'forge/components';
+import { WindowContent } from 'forge/components';
 import AppRenderer from './mcpApps/AppRenderer.jsx';
 
 const ICONS = new Set(['application', 'chart', 'dashboard', 'document', 'folder-open', 'grid-view']);
@@ -74,10 +75,7 @@ export function resolveChatWindowRenderKey(chatWindow = null) {
   return `${windowId}:${instanceVersion}`;
 }
 
-export function shouldShowWorkspaceTabs(count, visibility = 'auto') {
-  if (count < 1 || visibility === 'never') return false;
-  return visibility === 'always' || count > 1;
-}
+export const shouldShowWorkspaceTabs=sharedShouldShowWorkspaceTabs;
 
 export default function ConversationWorkspaceSurface({
   activeSurface = 'conversation',
@@ -231,50 +229,21 @@ export default function ConversationWorkspaceSurface({
               </div>
             </div>
           </header>
-          {showObjectTabs ? (
-            <div className="app-window-split-workspace-tabs" role="tablist" aria-label="Open workspaces">
-              {workspaceTabs.map((tab, index) => (
-                <span key={tab.windowId} className="app-workspace-object-chip">
-                <button
-                  key={tab.windowId}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab.isActive}
-                  tabIndex={tab.isActive ? 0 : -1}
-                  onKeyDown={(event) => {
-                    const delta = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
-                    if (!delta && event.key !== 'Home' && event.key !== 'End') return;
-                    event.preventDefault();
-                    const next = event.key === 'Home' ? 0 : event.key === 'End' ? workspaceTabs.length - 1 : (index + delta + workspaceTabs.length) % workspaceTabs.length;
-                    keyboardNavigationRef.current = true;
-                    onSelectWorkspaceTab?.(workspaceTabs[next].windowId);
-                    event.currentTarget.closest('[role="tablist"]')?.querySelectorAll('[role="tab"]')[next]?.focus();
-                  }}
-                  className={`app-window-split-workspace-tab${tab.isActive ? ' is-active' : ''}`}
-                  onClick={() => onSelectWorkspaceTab?.(tab.windowId)}
-                >
-                  <Icon icon="application" size={12} /> {tab.label}
-                </button>
-                <button type="button" disabled={workspaceWindows.find((entry) => entry.windowId === tab.windowId)?.workspaceObject?.capabilities?.close === false} aria-label={`Close ${tab.label}`} onClick={() => onCloseWorkspaceTab?.(tab.windowId)}>×</button>
-                </span>
-              ))}
-            </div>
-          ) : null}
+          <WorkspaceRuntimeTabs id="conversation-workspace" entries={workspaceTabs.map(tab=>({...tab,closable:workspaceWindows.find(entry=>entry.windowId===tab.windowId)?.workspaceObject?.capabilities?.close!==false}))}
+            selectedId={workspaceWindow?.windowId} onSelect={onSelectWorkspaceTab} onClose={onCloseWorkspaceTab}
+            visibility={workspaceTabsVisibility} className="app-window-split-workspace-tabs" itemClassName="app-workspace-object-chip" tabClassName="app-window-split-workspace-tab"
+            onKeyboardSelect={()=>{keyboardNavigationRef.current=true;}}
+            renderLabel={tab=><><Icon icon="application" size={12}/> {tab.label}</>}/>
           <div ref={contentRef} className="app-summary-workspace-content">
-            {(workspaceWindows.length ? workspaceWindows : [workspaceWindow]).map((entry) => {
-              const visible = workspaceActive && entry.windowId === workspaceWindow?.windowId;
-              return <WorkspacePresentationProvider key={entry.windowId} value={{label: resolveWorkspaceNavigation(entry).label, kind: entry.workspaceObject?.kind || 'resource'}}><div data-workspace-renderer-id={entry.windowId} hidden={!visible} inert={!visible ? '' : undefined} className="app-workspace-renderer">
-                <RetainedWindowContent active={visible}>
-                {entry.workspaceObject?.content?.renderer === 'toolFeed' ? <ToolFeedDetail
-                  variant="rail" placement="workspace"
-                  hostedFeedId={entry.workspaceObject.content.feedId} conversationId={entry.conversationId}
-                  onLifecycle={(state) => onWorkspaceLifecycle?.(entry.windowId, state)} />
-                  : entry.mcpUI?.uri ? <AppRenderer uri={entry.mcpUI.uri} title={entry.mcpUI.title || navigation.label}
-                  conversationId={entry.conversationId || ''} hosted onLifecycle={(state) => onWorkspaceLifecycle?.(entry.windowId, state)} />
-                  : <WindowContent window={entry} isInTab />}
-                </RetainedWindowContent>
-              </div></WorkspacePresentationProvider>;
-            })}
+            <WorkspaceRuntimePanels id="conversation-workspace" entries={workspaceWindows.length?workspaceWindows:[workspaceWindow]} selectedId={workspaceWindow?.windowId} active={workspaceActive}
+              preloadContent={entry=>entry.hostOpenState==='fresh' && entry.workspaceObject?.lifecycle?.state==='opening'}
+              className="app-workspace-renderer" panelProps={entry=>({'data-workspace-renderer-id':entry.windowId})}
+              getPresentation={entry=>({label:resolveWorkspaceNavigation(entry).label,kind:entry.workspaceObject?.kind || 'resource'})}
+              renderContent={entry=>entry.workspaceObject?.content?.renderer==='toolFeed'?<ToolFeedDetail variant="rail" placement="workspace"
+                hostedFeedId={entry.workspaceObject.content.feedId} conversationId={entry.conversationId} onLifecycle={state=>onWorkspaceLifecycle?.(entry.windowId,state)}/>
+                :entry.mcpUI?.uri?<AppRenderer uri={entry.mcpUI.uri} title={entry.mcpUI.title || navigation.label} conversationId={entry.conversationId || ''} hosted onLifecycle={state=>onWorkspaceLifecycle?.(entry.windowId,state)}/>
+                :<WindowContent window={entry} isInTab/>}/>
+
           </div>
         </section>
       ) : null}
