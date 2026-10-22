@@ -250,6 +250,27 @@ test('assembleForgeReportEvents rejects unknown kinds and dangling canonical ref
   assert.equal(dangling.diagnostics.some((entry) => entry.code === 'REPORT_TRANSACTION_INVALID'), true);
 });
 
+test('tabbed report start declares its sections before progressive content', () => {
+  const report = (sequence, mode, rest = {}) => ({kind:'report', index:sequence-1,
+    payload:{version:1,scope:'test',id:'tabbed',sequence,mode,grammar:'report-document-v1',...rest}});
+  const tabs={id:'tabs',kind:'tabGroupBlock',sectionIds:['performance']};
+  const section={id:'performance',kind:'sectionBlock',title:'Performance'};
+  const rejected=assembleForgeReportEvents([
+    report(1,'start',{blocks:[tabs]}), report(2,'append',{blocks:[section]}), report(3,'patch',{title:'Report'}),
+  ]);
+  assert.ok(rejected.diagnostics.some(item=>item.message.includes('unknown block "performance"')));
+  assert.ok(rejected.diagnostics.some(item=>item.message.includes('append requires an accepted start')));
+  assert.ok(rejected.diagnostics.some(item=>item.message.includes('patch requires an accepted start')));
+  const accepted=assembleForgeReportEvents([
+    report(1,'start',{blocks:[tabs,section]}),
+    report(2,'append',{blocks:[{id:'summary',kind:'markdownBlock',markdown:'Observed evidence.'}]}),
+    report(3,'patch',{layout:{items:[{blockId:'tabs'}]}}), report(4,'commit'),
+  ]);
+  assert.deepEqual(accepted.diagnostics,[]);
+  assert.equal(accepted.assemblies[0].status,'committed');
+  assert.equal(accepted.assemblies[0].source.blocks.length,3);
+});
+
 test('applyForgeDataBlocks supports replace and append', () => {
   const store = applyForgeDataBlocks([
     {

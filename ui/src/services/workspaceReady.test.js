@@ -3,6 +3,20 @@ import { signal } from '@preact/signals-react';
 import { waitForWorkspaceReady } from '../../../../forge/src/core/ui/workspaceReady.js';
 const entry = (state) => ({ windowId: 'resource-1', workspaceObject: { objectId: 'workspace:resource-1', lifecycle: { state } } });
 describe('workspace renderer acknowledgment', () => {
+  it('allows metadata to finish within its deadline before reporting an open failure', async () => {
+    vi.useFakeTimers();
+    try {
+      const windows=signal([entry('opening')]);
+      const resolved=vi.fn(), rejected=vi.fn();
+      const pending=waitForWorkspaceReady(windows,'resource-1').then(resolved,rejected);
+      await vi.advanceTimersByTimeAsync(15000);
+      expect(rejected).not.toHaveBeenCalled();
+      windows.value=[entry('ready')];
+      await pending;
+      expect(resolved).toHaveBeenCalledWith(entry('ready').workspaceObject);
+      expect(rejected).not.toHaveBeenCalled();
+    } finally {vi.useRealTimers();}
+  });
   it('does not resolve before readiness, then returns the canonical object', async () => {
     const windows = signal([entry('opening')]);
     const resolved = vi.fn();
