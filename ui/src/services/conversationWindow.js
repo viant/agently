@@ -6,6 +6,7 @@ import {
   findInputSignal, findSelectionSignal, findMetadataSignal, getInputSignal, getSelectionSignal,
   getViewSignal,
   publishUIBridgeSnapshotNow,
+  captureWindowStateAdoption,
   removeWindow,
   selectedTabId,
   selectedWindowId
@@ -219,6 +220,12 @@ function removeWindowsForConversationChange(nextConversationId = '') {
   for (const win of windows) {
     const windowId = String(win?.windowId || '').trim();
     if (!windowId) continue;
+    // Native menu workspaces have no conversation owner. History selection
+    // must preserve them without adopting them into the selected chat.
+    if (!String(win?.conversationId || '').trim()
+      && String(win?.presentation || '').trim().toLowerCase() === 'hosted'
+      && String(win?.region || '').trim().toLowerCase() === 'chat.top'
+      && !win.mcpUI && win.workspaceObject?.content?.renderer !== 'toolFeed') continue;
     if (
       String(win?.presentation || '').trim().toLowerCase() === 'hosted'
       && String(win?.region || '').trim().toLowerCase() === 'chat.top'
@@ -232,11 +239,12 @@ function removeWindowsForConversationChange(nextConversationId = '') {
   }
 }
 
-export function bindLandingWorkspaceWindows(windows = [], conversationId = '') {
+export function bindLandingWorkspaceWindows(windows = [], conversationId = '', capturedWindowId = '') {
   const id = String(conversationId || '').trim();
   if (!id) return windows;
   let changed = false;
   const next = windows.map(entry => {
+    if (capturedWindowId && entry?.windowId !== capturedWindowId) return entry;
     if (String(entry?.conversationId || '').trim()
       || entry?.parentKey !== MAIN_CHAT_WINDOW_ID || entry?.inTab === false
       || entry?.presentation !== 'hosted' || entry?.region !== 'chat.top') return entry;
@@ -244,6 +252,42 @@ export function bindLandingWorkspaceWindows(windows = [], conversationId = '') {
     return {...entry, conversationId: id};
   });
   return changed ? next : windows;
+}
+
+// A first message may create its chat while a native workspace composer is
+// open. Keep this in-memory intent separate from saved conversation history.
+export function captureLandingWorkspaceSelection() {
+  const entry = getSelectedWindow();
+  if (!entry || String(entry.conversationId || '').trim()
+    || entry.parentKey !== MAIN_CHAT_WINDOW_ID || entry.inTab === false
+    || entry.presentation !== 'hosted' || entry.region !== 'chat.top'
+    || entry.windowKey === CHAT_WINDOW_KEY) return null;
+  let adoption = null;
+  try {
+    const onDiagnostic = import.meta.env?.VITE_UI_ADOPTION_DIAGNOSTICS === 'true'
+      ? code => window.dispatchEvent(new CustomEvent('forge:adoption-diagnostic',{detail:{code}})) : undefined;
+    adoption = captureWindowStateAdoption(entry.windowId,{getContextKey:window=>String(window?.conversationId||''),onDiagnostic});
+  } catch (_) {}
+  return {windowId: entry.windowId, entry, adoption};
+}
+
+function preserveLandingWorkspaceSelection(conversationId, captured, windows) {
+  if (!captured?.entry || String(captured.entry.conversationId || '').trim()) return;
+  const current = getSelectedWindow();
+  const entry = windows.find(window => window.windowId === captured.windowId);
+  // Do not restore an old selection after navigation, close/reopen, a pin
+  // replacement, or a switch to another chat while creation was pending.
+  if (!entry || current?.windowId !== captured.windowId
+    || entry.parameters !== captured.entry.parameters
+    || entry.resource !== captured.entry.resource
+    || entry.resourceTarget !== captured.entry.resourceTarget
+    || entry.parentKey !== MAIN_CHAT_WINDOW_ID || entry.inTab === false
+    || entry.presentation !== 'hosted' || entry.region !== 'chat.top'
+    || (entry.conversationId && entry.conversationId !== conversationId)) return;
+  setScopedWorkspaceSelection(conversationId, entry.windowId);
+  setScopedActiveSurface(conversationId, 'workspace');
+  captured.adoption?.commit(conversationId);
+  return true;
 }
 
 export function clearWorkspaceWindowsForNewConversation() {
@@ -435,11 +479,19 @@ export function resolveWorkspaceWindowForConversation(conversationId = '') {
   const convID = String(conversationId || '').trim();
   if (!convID) return null;
   const liveOwnedWindows = resolveWorkspaceWindowsForConversation(convID);
+  const storedWindowId = getScopedWorkspaceSelection(convID);
+  const savedWindows = getScopedWorkspaceWindowsState(convID);
+  if (storedWindowId && savedWindows.some(entry => entry.windowId === storedWindowId)
+    && !getWindowById(storedWindowId)) {
+    // Restore the selected descriptor even while another workspace is live.
+    // Returning that other window here would suppress restoration entirely.
+    return null;
+  }
   if (liveOwnedWindows.length > 0) {
     const preferredIds = [
+      storedWindowId,
       String(selectedWindowId.peek?.() || selectedWindowId.value || '').trim(),
       String(selectedTabId.peek?.() || selectedTabId.value || '').trim(),
-      getScopedWorkspaceSelection(convID),
     ].filter(Boolean);
     for (const preferredId of preferredIds) {
       const matched = liveOwnedWindows.find((entry) => String(entry?.windowId || '').trim() === preferredId);
@@ -449,14 +501,12 @@ export function resolveWorkspaceWindowForConversation(conversationId = '') {
     }
     return liveOwnedWindows[liveOwnedWindows.length - 1] || null;
   }
-  const storedWindowId = getScopedWorkspaceSelection(convID);
   if (storedWindowId) {
     const win = getWindowById(storedWindowId);
     if (win && String(win?.windowKey || '').trim() !== CHAT_WINDOW_KEY) {
       return win;
     }
   }
-  const savedWindows = getScopedWorkspaceWindowsState(convID);
   for (const saved of savedWindows) {
     const expectedWindowId = String(saved.windowId || '').trim()
       || computeWorkspaceWindowId(saved.windowKey, saved.parameters || {});
@@ -993,10 +1043,13 @@ export function publishConversationSelection(windowId = '', conversationId = '',
   } catch (_) {}
 }
 
-export function openConversationInMainWindow(conversationId = '') {
+export function openConversationInMainWindow(conversationId = '', {landingWorkspaceSelection = null} = {}) {
   const targetID = String(conversationId || '').trim();
   const windows = activeWindows.peek();
-  const bound = bindLandingWorkspaceWindows(windows, targetID);
+  const preservedLanding = targetID && preserveLandingWorkspaceSelection(targetID, landingWorkspaceSelection, windows);
+  const bound = preservedLanding
+    ? bindLandingWorkspaceWindows(windows, targetID, landingWorkspaceSelection.windowId)
+    : windows;
   if (bound !== windows) activeWindows.value = bound;
   const conversationSurface = getScopedActiveSurface(targetID) !== 'workspace';
   removeWindowsForConversationChange(targetID);
@@ -1018,6 +1071,7 @@ export function openConversationInMainWindow(conversationId = '') {
     syncPath: true,
     eventType: 'agently:conversation-select'
   });
+  if (preservedLanding) dispatchWorkspaceStateEvent(targetID);
   // A history/chat selection must not mount a saved hosted workspace. Its
   // metadata, applyPermission call, and auto-fetch datasources stay dormant
   // until the user explicitly selects the workspace surface.

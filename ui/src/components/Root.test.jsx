@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { activeWindows, selectedWindowId, selectedTabId } from 'forge/core';
+import { MAIN_CHAT_WINDOW_ID, CHAT_WINDOW_KEY, openConversationInMainWindow, setScopedActiveSurface, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow.js';
 
 import {
   resolveInitialAuthState,
@@ -608,4 +610,36 @@ describe('Root window selection helpers', () => {
       hasWorkspace: false,
     })).toBe(false);
   });
+});
+
+it('selects the restored conversation workspace for Root without adopting the standalone shell workspace', () => {
+  const previousWindow = globalThis.window;
+  const previousWindows = activeWindows.peek();
+  const previousSelected = selectedWindowId.peek();
+  const previousTab = selectedTabId.peek();
+  const values = new Map();
+  const storage = { getItem: key => values.get(key) || null, setItem: (key, value) => values.set(key, String(value)), removeItem: key => values.delete(key) };
+  globalThis.window = { sessionStorage: storage, localStorage: storage, location: { pathname: '/' }, history: { replaceState() {} }, dispatchEvent() {} };
+  try {
+    const standalone = { windowId: 'shell-records', windowKey: 'records', parentKey: MAIN_CHAT_WINDOW_ID, presentation: 'hosted', region: 'chat.top', inTab: true };
+    const saved = { ...standalone, windowId: 'history-detail', windowKey: 'recordDetail', conversationId: 'selected-history', parameters: { RecordId: [17] } };
+    activeWindows.value = [{ windowId: MAIN_CHAT_WINDOW_ID, windowKey: CHAT_WINDOW_KEY, parameters: {} }, standalone];
+    selectedWindowId.value = selectedTabId.value = standalone.windowId;
+    setScopedWorkspaceState('selected-history', saved);
+    setScopedWorkspaceSelection('selected-history', saved.windowId);
+    setScopedActiveSurface('selected-history', 'workspace');
+
+    openConversationInMainWindow('selected-history');
+
+    const windows = activeWindows.peek();
+    expect(resolveShellWorkspaceWindows(windows).map(entry => entry.windowId)).toEqual([standalone.windowId]);
+    expect(resolveShellWorkspaceWindows(windows, 'selected-history').map(entry => entry.windowId)).toEqual([saved.windowId]);
+    expect(resolveSelectedMainWindow(windows, selectedTabId.peek(), selectedWindowId.peek())?.windowId).toBe(saved.windowId);
+    expect(standalone.conversationId).toBeUndefined();
+  } finally {
+    globalThis.window = previousWindow;
+    activeWindows.value = previousWindows;
+    selectedWindowId.value = previousSelected;
+    selectedTabId.value = previousTab;
+  }
 });

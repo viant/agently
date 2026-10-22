@@ -7,6 +7,7 @@ import { updateWorkspaceSession } from './workspaceSession.js';
 import {
   CHAT_WINDOW_KEY,
   bindLandingWorkspaceWindows,
+  captureLandingWorkspaceSelection,
   detachWorkspaceWindowsFromConversation,
   deriveWorkspaceStateFromTranscriptTurns,
   hydrateWorkspaceTranscriptTurns,
@@ -262,6 +263,48 @@ describe('conversationWindow', () => {
     expect(selected?.windowId).toBe('orderPerformance_1');
     expect(selectedWindowId.value).toBe('orderPerformance_1');
     expect(selectedTabId.value).toBe('orderPerformance_1');
+  });
+
+  it.each([false, true])('restores and focuses the selected historical descriptor (already open: %s) while preserving standalone windows', alreadyOpen => {
+    const standalone = { windowId: 'standalone-list', windowKey: 'records', parentKey: MAIN_CHAT_WINDOW_ID,
+      presentation: 'hosted', region: 'chat.top', inTab: true, parameters: { query: 'retained' } };
+    const earlier = { ...standalone, windowId: 'earlier-history', conversationId: 'history' };
+    const saved = { ...earlier, windowId: 'detail-history', windowKey: 'recordDetail', windowTitle: 'Record',
+      parameters: { RecordId: [17], executeOnOpen: true }, workspaceObject: { lifecycle: { state: 'ready', restorePolicy: 'conversation', refreshPolicy: 'explicit' } } };
+    activeWindows.value = [{ windowId: MAIN_CHAT_WINDOW_ID, windowKey: CHAT_WINDOW_KEY, parameters: {} },
+      standalone, earlier, ...(alreadyOpen ? [saved] : [])];
+    selectedWindowId.value = selectedTabId.value = earlier.windowId;
+    setScopedWorkspaceState('history', [earlier, saved]);
+    setScopedWorkspaceSelection('history', saved.windowId);
+    setScopedActiveSurface('history', 'workspace');
+
+    expect(resolveWorkspaceWindowForConversation('history')?.windowId || null).toBe(alreadyOpen ? saved.windowId : null);
+    const restored = openConversationInMainWindow('history');
+    expect(restored.windowId).toBe(saved.windowId);
+    expect(selectedWindowId.value).toBe(saved.windowId);
+    expect(selectedTabId.value).toBe(saved.windowId);
+    expect(restored.parameters).toEqual({ RecordId: [17], executeOnOpen: true });
+    if (!alreadyOpen) {
+      expect(restored.hostOpenState).toBe('historical_replay');
+      expect(resolveHostedExecuteOnOpenHostAction({ executeOnOpen: true, windowState: restored })).toBe('restore');
+    }
+    expect(activeWindows.peek().find(entry => entry.windowId === standalone.windowId)).toBe(standalone);
+    expect(standalone.conversationId).toBeUndefined();
+  });
+
+  it('adopts only the explicitly captured new-draft workspace and preserves unrelated standalone windows', () => {
+    const selected = { windowId: 'selected-landing', windowKey: 'records', parentKey: MAIN_CHAT_WINDOW_ID,
+      presentation: 'hosted', region: 'chat.top', inTab: true, parameters: { RecordId: [17] } };
+    const background = { ...selected, windowId: 'background-landing', parameters: { RecordId: [23] } };
+    activeWindows.value = [{ windowId: MAIN_CHAT_WINDOW_ID, windowKey: CHAT_WINDOW_KEY, parameters: {} }, selected, background];
+    selectedWindowId.value = selectedTabId.value = selected.windowId;
+    const captured = captureLandingWorkspaceSelection();
+    const opened = openConversationInMainWindow('created-chat', { landingWorkspaceSelection: captured });
+    expect(opened.windowId).toBe(selected.windowId);
+    expect(opened.conversationId).toBe('created-chat');
+    expect(getScopedActiveSurface('created-chat')).toBe('workspace');
+    expect(activeWindows.peek().find(entry => entry.windowId === background.windowId)).toBe(background);
+    expect(background.conversationId).toBeUndefined();
   });
 
   it('restores an ancestor workspace and truncates breadcrumb ancestry', () => {

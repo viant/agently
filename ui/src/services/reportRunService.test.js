@@ -69,6 +69,14 @@ describe('reportRunService', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('preserves canonical-only rejection instead of silently downgrading a mounted begin request', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response(400, {error: 'canonical reports require server run_report execution'})));
+    await expect(beginReportRun({uiRunRequestId: 'request-1'})).rejects.toMatchObject({
+      status: 400,
+      message: 'canonical reports require server run_report execution',
+    });
+  });
+
   it('surfaces enabled persistence failures instead of reporting legacy success', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => response(500, { error: 'database unavailable' })));
 

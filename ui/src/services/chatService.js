@@ -1,6 +1,6 @@
 import { buildWorkspaceQueryContext } from './workspaceQueryContext.js';
 import React from 'react';
-import { publishUIBridgeSnapshotNow } from 'forge/core';
+import { publishUIBridgeSnapshotNow, waitForWindowStateAdoption } from 'forge/core';
 import {
   normalizeString,
   normalizeBool,
@@ -75,7 +75,7 @@ import { derivePreviousTextFromUnifiedDiff } from 'forge/utils/unifiedDiff';
 import ChatFeedFromChatStore from '../components/chat/ChatFeedFromChatStore.jsx';
 import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore, onSSE as applyEventToChatStore, getActiveTurnId } from './chatStore.js';
 import { conversationIDFromPath } from './chatRuntime';
-import { getScopedConversationSelection, MAIN_CHAT_WINDOW_ID, openConversationInMainWindow, syncHydratedWorkspaceStateFromTranscriptTurns } from './conversationWindow';
+import { captureLandingWorkspaceSelection, getScopedConversationSelection, MAIN_CHAT_WINDOW_ID, openConversationInMainWindow, syncHydratedWorkspaceStateFromTranscriptTurns } from './conversationWindow';
 
 const ITERATION_STEP = 1;
 const DEFAULT_REASONING_OPTIONS = [
@@ -797,10 +797,14 @@ export async function submitMessage({ context, message, model, agent }) {
     }
     return selectedModel;
   })();
+  const landingWorkspaceSelection = !String(convForm?.id || '').trim()
+    && String(context?.identity?.windowId || '').trim() === MAIN_CHAT_WINDOW_ID
+    ? captureLandingWorkspaceSelection() : null;
   const conversationID = await ensureConversation(context, {
     agent: selectedAgent,
     model: effectiveModel || selectedModel,
-    immediateSubmit: true
+    immediateSubmit: true,
+    onCreated: id => landingWorkspaceSelection?.adoption?.commit(id)
   });
   const chatState = ensureContextResources(context);
   const clientRequestId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
@@ -818,11 +822,12 @@ export async function submitMessage({ context, message, model, agent }) {
   });
   if (String(context?.identity?.windowId || '').trim() === MAIN_CHAT_WINDOW_ID) {
     markPendingConversationBootstrap(conversationID);
-    openConversationInMainWindow(conversationID);
+    openConversationInMainWindow(conversationID, {landingWorkspaceSelection});
   } else {
     markPendingConversationBootstrap(conversationID);
     publishActiveConversation(conversationID, context);
   }
+  if (landingWorkspaceSelection?.adoption) await waitForWindowStateAdoption(landingWorkspaceSelection.windowId);
   const workspaceQueryContext = buildWorkspaceQueryContext(conversationID);
   try {
     await publishUIBridgeSnapshotNow();
