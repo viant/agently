@@ -1,6 +1,6 @@
 import {expect,it,vi} from 'vitest';
 vi.mock('./agentlyClient',()=>({client:{applyPermission:vi.fn().mockResolvedValue({admitted:true})}}));
-vi.mock('forge/core',()=>({ensureUIBridgeClientId:vi.fn(()=> 'current-client')}));
+vi.mock('forge/core',()=>({ensureUIBridgeClientId:vi.fn(()=> 'current-client'),getActiveUIBridgeTransportContext:vi.fn(()=>null)}));
 import {client} from './agentlyClient';
 import {applyPermission} from './permissionService';
 it('forwards only exact local framework routing with the admitted definition',async()=>{
