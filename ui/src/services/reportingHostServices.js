@@ -26,6 +26,7 @@ import {
 } from './reportSharedArtifactService';
 import { emitReportUIEvent } from './reportEventService';
 import { fetchDatasource } from '../components/lookups/client';
+import { prepareAgentlyDataConnectorRequest } from './datasourceRequestContext';
 import { getProjection, subscribe as subscribeToChatStore } from './chatStore';
 import {
   activateReportRun,
@@ -102,17 +103,36 @@ export async function fetchReportBuilderPreviewByRef({
   dataSourceRef = '',
   parameters = {},
   signal = null,
+  builderContext = null,
+  omitConversationId = false,
 } = {}) {
   const normalizedDataSourceRef = String(dataSourceRef || '').trim();
   if (!normalizedDataSourceRef) {
     throw new Error('Report preview requires a data source reference.');
+  }
+  const sourceWindow = builderContext?.windowState || builderContext?.services?.windowState;
+  const metadata = builderContext?.metadata || sourceWindow?.metadata;
+  const options = {...(signal ? {signal} : {})};
+  if (sourceWindow || metadata?.resource) {
+    const windowState = {
+      ...(sourceWindow || {}),
+      windowId: sourceWindow?.windowId || builderContext?.identity?.windowId || '',
+      ...(metadata ? {metadata} : {}),
+    };
+    options.prepareRequest = request => {
+      prepareAgentlyDataConnectorRequest({...request, windowState});
+      if (omitConversationId) {
+        request.queryParams.delete('conversationId');
+        delete request.body.conversationId;
+      }
+    };
   }
   return fetchDatasource(
     normalizedDataSourceRef,
     parameters && typeof parameters === 'object' && !Array.isArray(parameters)
       ? parameters
       : {},
-    ...(signal ? [{signal}] : []),
+    ...(Object.keys(options).length ? [options] : []),
   );
 }
 
