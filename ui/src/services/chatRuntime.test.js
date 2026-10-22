@@ -549,7 +549,9 @@ describe('handleStreamEvent', () => {
 
 
 
-  it('updates conversation form live state from stream lifecycle events', () => {
+  it('updates conversation form live state from stream lifecycle events', async () => {
+    const store = await import('./chatStore.js');
+    store.__resetAll();
     const originalWindow = globalThis.window;
     globalThis.window = {
       setTimeout: globalThis.setTimeout.bind(globalThis),
