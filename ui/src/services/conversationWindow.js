@@ -11,7 +11,7 @@ import {
   selectedWindowId
 } from 'forge/core';
 import { deriveHostedWorkspaceRestoreStateFromTranscriptTurns, deriveWorkspaceHistoryFromTranscriptTurns } from 'agently-core-ui-sdk/workspaceRestore';
-import { generateIntHash } from '../../../../forge/src/utils/hash.js';
+import { generateIntHash } from 'forge/utils/hash.js';
 import { client } from './agentlyClient';
 
 export const CHAT_WINDOW_KEY = 'chat/new';

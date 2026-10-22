@@ -10,7 +10,7 @@ vi.mock('@blueprintjs/core', () => {const components={
   Tooltip: ({ content = '', children }) => React.createElement('span', { 'data-tooltip': content }, children),
 };return {...components,default:components};});
 vi.mock('forge/components', async () => ({
-  RetainedWindowContent: (await import('../../../../forge/src/components/WindowContentMount.jsx')).RetainedWindowContent,
+  RetainedWindowContent: (await import('forge/components/WindowContentMount.jsx')).RetainedWindowContent,
   WindowContent: ({ window }) => {
     React.useEffect(() => { window?.onRendererReady?.(); }, [window?.windowId]);
     return React.createElement('div', { 'data-window-id': window?.windowId || '' });

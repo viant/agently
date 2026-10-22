@@ -9,7 +9,7 @@ import {
   resolveCurrentModel,
   resolveQueuedCount,
   mergeQueuedTurns,
-} from '../../../../forge/src/components/chatCommandCenterHelpers.js';
+} from 'forge/components/chatCommandCenterHelpers.js';
 
 describe('chatCommandCenterHelpers', () => {
   it('normalizes primitive values consistently', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { computeChatDerivedState, computeEffectiveQueuedTurns, effectiveBackendConversationRunning } from '../../../../forge/src/components/chatDerivedState.js';
+import { computeChatDerivedState, computeEffectiveQueuedTurns, effectiveBackendConversationRunning } from 'forge/components/chatDerivedState.js';
 
 describe('chatDerivedState', () => {
   it('does not let a stale running flag override explicit terminal conversation state', () => {

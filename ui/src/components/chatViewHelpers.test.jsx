@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-vi.mock('../../../../forge/src/components/table/basic/Toolbar.jsx', () => ({
+vi.mock('forge/components/table/basic/Toolbar.jsx', () => ({
   default: ({ toolbarItems = [] }) => React.createElement(
     'div',
     { 'data-testid': 'mock-toolbar' },
@@ -10,7 +10,7 @@ vi.mock('../../../../forge/src/components/table/basic/Toolbar.jsx', () => ({
   ),
 }));
 
-import { computeAbortVisibility, renderChatToolbar } from '../../../../forge/src/components/chatViewHelpers.js';
+import { computeAbortVisibility, renderChatToolbar } from 'forge/components/chatViewHelpers.js';
 
 describe('chatViewHelpers', () => {
   it('computes abort visibility from selector + when', () => {

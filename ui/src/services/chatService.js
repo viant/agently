@@ -8,14 +8,14 @@ import {
   defaultAgentTools,
   defaultAgentModel,
   resolveCurrentModel,
-} from '../../../../forge/src/components/chatCommandCenterHelpers.js';
+} from 'forge/components/chatCommandCenterHelpers.js';
 import {
   applyAgentSelection,
   applyModelSelection,
   applyReasoningSelection,
   applyToolsSelection,
   applyAutoSelectToolsSelection,
-} from '../../../../forge/src/components/chatCommandCenterActions.js';
+} from 'forge/components/chatCommandCenterActions.js';
 import { setStage } from './stageBus';
 import { client } from './agentlyClient';
 import { showToast } from './httpClient';

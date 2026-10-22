@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatWindowMetadataError, windowMetadataFetchKey, withWindowPermissionDeadline } from '../../../../forge/src/components/WindowContent.jsx';
+import { formatWindowMetadataError, windowMetadataFetchKey, withWindowPermissionDeadline } from 'forge/components/WindowContent.jsx';
 
 describe('Forge window permission feedback', () => {
   it('shows an actionable timeout instead of a permanent loading state', () => {

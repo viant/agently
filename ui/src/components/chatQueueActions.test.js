@@ -5,7 +5,7 @@ import {
   moveQueuedTurn,
   editQueuedTurn,
   steerQueuedTurn,
-} from '../../../../forge/src/components/chatQueueActions.js';
+} from 'forge/components/chatQueueActions.js';
 
 describe('chatQueueActions', () => {
   it('cancels and moves queued turns through chatService helpers', () => {

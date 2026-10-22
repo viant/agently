@@ -6,7 +6,7 @@ import {
   applyReasoningSelection,
   applyToolsSelection,
   applyAutoSelectToolsSelection,
-} from '../../../../forge/src/components/chatCommandCenterActions.js';
+} from 'forge/components/chatCommandCenterActions.js';
 
 function makeDataSource(initial = {}) {
   const state = { ...initial };

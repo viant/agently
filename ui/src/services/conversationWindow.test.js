@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { activeWindows, getFormSignal, getInputSignal, selectedTabId, selectedWindowId } from 'forge/core';
-import { resolveHostedExecuteOnOpenHostAction } from '../../../../forge/src/components/dashboard/reportBuilderHooks.js';
+import { resolveHostedExecuteOnOpenHostAction } from 'forge/components/dashboard/reportBuilderHooks.js';
 import { updateWorkspaceSession } from './workspaceSession.js';
 
 import {

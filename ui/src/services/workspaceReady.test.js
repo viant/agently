@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { signal } from '@preact/signals-react';
-import { waitForWorkspaceReady } from '../../../../forge/src/core/ui/workspaceReady.js';
+import { waitForWorkspaceReady } from 'forge/core/ui/workspaceReady.js';
 const entry = (state) => ({ windowId: 'resource-1', workspaceObject: { objectId: 'workspace:resource-1', lifecycle: { state } } });
 describe('workspace renderer acknowledgment', () => {
   it('allows metadata to finish within its deadline before reporting an open failure', async () => {

@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {workspaceToolbarItem} from '../../../../forge/src/core/context/WorkspacePresentation.jsx';
+import {workspaceToolbarItem} from 'forge/core/context/WorkspacePresentation.jsx';
 
 describe('workspace action icons',()=>{
  it('uses icon-only filter/refresh/export actions while preserving accessible names',()=>{
