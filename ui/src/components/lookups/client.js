@@ -63,6 +63,13 @@ export async function fetchDatasource(id, inputs, options) {
     if (options.bypassCache) body.cache.bypassCache = true;
     if (options.writeThrough) body.cache.writeThrough = true;
   }
+  const url = `${baseURL()}/v1/api/datasources/${encodeURIComponent(id)}/fetch`;
+  const headers = { 'Content-Type': 'application/json' };
+  const queryParams = new URLSearchParams();
+  // Hosts can retain the same selected window/provenance frame as ordinary
+  // Forge datasource requests without mutating a shared datasource collection.
+  options?.prepareRequest?.({url, headers, queryParams, body});
+  const query = queryParams.toString();
   const timeoutMs = Math.max(0, Number(options?.timeoutMs || 0));
   const externalSignal = options?.signal;
   const controller = (timeoutMs > 0 || externalSignal) && typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -71,10 +78,10 @@ export async function fetchDatasource(id, inputs, options) {
   else externalSignal?.addEventListener('abort',abort,{once:true});
   const timer = controller && timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
-    const res = await fetch(`${baseURL()}/v1/api/datasources/${encodeURIComponent(id)}/fetch`, {
+    const res = await fetch(query ? `${url}?${query}` : url, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
       signal: controller?.signal,
     });
