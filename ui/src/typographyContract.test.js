@@ -26,3 +26,17 @@ describe('shared typography delivery', () => {
     expect(executionWorkspace).toMatch(/\.app-execution-toolbar h2[\s\S]*?font-family: var\(--app-font-family\);/);
   });
 });
+
+describe('role adoption in the shared settings pilot', () => {
+  it('takes workspace-specific proof content and expectations from external fixtures', () => {
+    for (const file of ['./typographyComponentsProof.jsx', '../scripts/test-typography-browser.mjs']) {
+      expect(read(file)).not.toMatch(/(?:IBM Plex|Steward|Viant|media-plan|planDisplayName)/i);
+    }
+  });
+  it('uses semantic roles and does not introduce inline typography', () => {
+    const source = read('./components/WorkspaceAppearanceSettings.jsx');
+    for (const role of ['section', 'body', 'label', 'metadata']) expect(source).toContain(`text('${role}')`);
+    expect(source).not.toMatch(/(?:fontSize|fontWeight|lineHeight|letterSpacing|fontFamily)\s*:/);
+    expect(source).toContain('typography.${role}.weight');
+  });
+});
