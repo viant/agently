@@ -8,6 +8,9 @@ for (const root of ['/tmp/forge', '/tmp/forge-opening-clean']) {
   assert.equal(isForgeReportingModule(`${root}/src/components/WindowContent.jsx`, root), false);
 }
 
+import createConfig from './vite.config.js';
+import fs from 'node:fs';
+
 assert.equal(
   resolveProxyTarget({ APPSERVER_URL: 'http://127.0.0.1:9191' }, { requireExplicit: true }),
   'http://127.0.0.1:9191'
@@ -40,3 +43,12 @@ assert.throws(
 );
 
 console.log('vite.config proxy target contract ✓ explicit backend target required for dev');
+
+const config = createConfig({mode:'production',command:'build'});
+for (const name of ['forge/theme', 'forge/editor', 'forge/window-editor']) {
+  const alias = config.resolve.alias.find(entry => entry.find instanceof RegExp && entry.find.test(name));
+  assert.ok(alias, `missing public export ${name}`);
+  assert.ok(fs.existsSync(alias.replacement), `public export ${name} must resolve to source`);
+}
+assert.ok(config.resolve.alias.some(entry => entry.find === 'forge'), 'legacy deep source imports must remain supported');
+console.log('Forge public exports and legacy source aliases passed');

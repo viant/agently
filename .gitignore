@@ -18,6 +18,7 @@ package-lock.json
 *.log
 agently/agently
 AGENTS.md
+!/AGENTS.md
 node_modules/
 dist/
 local/

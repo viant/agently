@@ -1,0 +1,8 @@
+---
+description: Shared design-system usage and contribution path
+alwaysApply: true
+---
+
+Before UI or theme changes, read @doc/workspace-typography.md. Reuse its supported components and
+semantic roles, extend the owning shared component when necessary, and run its
+checks. Keep workspace branding in the workspace owner.

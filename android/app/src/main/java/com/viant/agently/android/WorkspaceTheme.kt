@@ -28,8 +28,6 @@ internal data class WorkspaceThemeCatalog(
             "control.radius" to 0.0..64.0,
             "control.paddingInline" to 0.0..64.0,
         )
-        private val roleDimensions = listOf("caption", "small", "body", "section", "heading", "title", "metric", "display", "code")
-            .flatMap { role -> listOf("typography.$role.size" to 8.0..96.0, "typography.$role.lineHeight" to 8.0..144.0) }.toMap()
         private val colors = setOf("surface", "text", "control.background", "control.foreground",
             "control.border", "focus.color", "button.background", "button.foreground",
             "disabled.background", "disabled.foreground", "validation.border")
@@ -42,10 +40,34 @@ internal data class WorkspaceThemeCatalog(
             "status.warning.background", "status.warning.foreground", "status.warning.border",
             "status.danger.background", "status.danger.foreground", "status.danger.border",
             "data.categorical.1", "data.categorical.2", "data.categorical.3",
-            "data.categorical.4", "data.categorical.5", "data.categorical.6", "data.categorical.7", "data.categorical.8",
+            "data.categorical.4", "data.categorical.5", "data.categorical.6", "data.categorical.7", "data.categorical.8", "data.categorical.7", "data.categorical.8",
             "data.sequential.1", "data.sequential.2", "data.sequential.3",
             "data.sequential.4", "data.sequential.5",
         )
+
+        private val typeRoles = listOf("caption","small","body","section","heading","title","metric","display","code","label","metadata")
+        private val optionalDimensions = buildMap<String, ClosedFloatingPointRange<Double>> {
+            put("spacing.1", 0.0..64.0)
+            put("spacing.2", 0.0..64.0)
+            put("spacing.3", 0.0..64.0)
+            put("spacing.4", 0.0..64.0)
+            put("spacing.5", 0.0..64.0)
+            put("spacing.6", 0.0..64.0)
+            put("border.width", 0.0..4.0)
+            put("radius.surface", 0.0..32.0)
+            put("radius.pill", 0.0..999.0)
+            put("focus.width", 1.0..4.0)
+            put("focus.offset", 0.0..8.0)
+            put("motion.fast", 0.0..500.0)
+            put("icon.size", 12.0..32.0)
+            typeRoles.forEach { role ->
+                put("typography.$role.size", 8.0..96.0)
+                put("typography.$role.lineHeight", 8.0..144.0)
+                put("typography.$role.weight", 100.0..900.0)
+                put("typography.$role.letterSpacing", -0.04..0.2)
+            }
+        }
+        private val roleFamilies = typeRoles.map { "typography.$it.family" }.toSet()
 
         fun load(source: String): WorkspaceThemeCatalog {
             require(source.toByteArray(Charsets.UTF_8).size <= 512 * 1024)
@@ -66,16 +88,17 @@ internal data class WorkspaceThemeCatalog(
                 require(modes.isNotEmpty() && modes.keys.all { it == "light" || it == "dark" } && fallback in modes)
                 modes.values.forEach { tokens ->
                     val required = colors + dimensions.keys + "typography.family"
-                    require(tokens.keys.containsAll(required) && (tokens.keys - required).all { it in optionalColors || it in roleDimensions })
+                    require(tokens.keys.containsAll(required) && (tokens.keys - required).all { it in optionalColors || it in optionalDimensions || it in roleFamilies })
                     tokens.forEach { (key, value) ->
                         val primitive = value.jsonPrimitive
                         when {
-                            key in dimensions || key in roleDimensions -> {
+                            key in dimensions || key in optionalDimensions -> {
                                 require(!primitive.isString)
                                 val number = primitive.double
-                                require(number.isFinite() && number in (dimensions[key] ?: roleDimensions.getValue(key)))
+                                require(number.isFinite() && number in (dimensions[key] ?: optionalDimensions.getValue(key)))
+                                require(!key.endsWith(".weight") || number % 1.0 == 0.0)
                             }
-                            key == "typography.family" -> require(primitive.isString && primitive.content in setOf("system", "workspace-primary"))
+                            key == "typography.family" || key in roleFamilies -> require(primitive.isString && primitive.content in setOf("system", "workspace-primary", "workspace-secondary", "monospace"))
                             else -> require(primitive.isString && primitive.content.matches(Regex("^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$")))
                         }
                     }

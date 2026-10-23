@@ -244,3 +244,48 @@ func TestMCPFailureNoFixtureFallback(t *testing.T) {
 		t.Fatal("MCP failure fell back to fixtures")
 	}
 }
+
+// Exercise the host loader, including its pinned Forge model dependency.
+func TestFoundationMetadataSurvivesHostLoading(t *testing.T) {
+	a := example(t)
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.root = directory
+	a.config.MetadataRoot = directory
+	a.workspace.Windows["foundation"] = Window{File: "foundation.yaml"}
+	source := `namespace: Example
+window: {title: Foundation}
+view:
+  content:
+    id: foundationTable
+    kind: dashboard.editableTable
+    tablePresentation: {variant: document, removeIcon: 'lucide:x'}
+    columns:
+      - {key: name, label: Name, flex: true, minWidth: 240, editor: {type: text}}
+      - {key: count, label: Count, width: 104, align: right, editor: {type: number}}
+    items:
+      - id: title
+        widget: label
+        properties: {typographyRole: heading}
+`
+	if err := os.WriteFile(filepath.Join(directory, "foundation.yaml"), []byte(source), 0600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := a.LoadWindow(context.Background(), "foundation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := loaded.View.Content
+	if content.TablePresentation == nil || content.TablePresentation.Variant != "document" || content.TablePresentation.RemoveIcon != "lucide:x" || !content.Columns[0].Flex || content.Columns[0].MinWidth != 240 || content.Columns[1].Width != 104 || content.Columns[1].Align != "right" {
+		t.Fatal("host loader dropped shared table presentation")
+	}
+	encoded, err := json.Marshal(loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"typographyRole":"heading"`) {
+		t.Fatal("host serialization dropped the semantic role")
+	}
+}

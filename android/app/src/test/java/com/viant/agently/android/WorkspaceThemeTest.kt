@@ -28,6 +28,17 @@ class WorkspaceThemeTest {
         assertThrows(IllegalArgumentException::class.java) { WorkspaceThemeCatalog.load(source.replace("workspace-primary", "unregistered-font")) }
         assertThrows(IllegalArgumentException::class.java) { WorkspaceThemeCatalog.load(source.replace("\"typography.body.lineHeight\": 20", "\"typography.body.lineHeight\": 200")) }
     }
+
+    @Test fun completeRolesRemainValidated() {
+        val source = fixture()
+        val catalog = WorkspaceThemeCatalog.load(source)
+        assertEquals("400", catalog.themes.single().modes.getValue("light").getValue("typography.label.weight").toString())
+        listOf(source.replace("\"typography.body.weight\": 400", "\"typography.body.weight\": 400.5"),
+            source.replace("\"typography.body.letterSpacing\": 0", "\"typography.body.letterSpacing\": -0.05"),
+            source.replace("\"typography.body.family\": \"system\"", "\"typography.body.family\": \"url(evil)\"")).forEach {
+            assertThrows(IllegalArgumentException::class.java) { WorkspaceThemeCatalog.load(it) }
+        }
+    }
     @Test fun rejectsInvalidValues() {
         val source = fixture()
         listOf(source.replace("\"version\": 1", "\"version\": 2"),

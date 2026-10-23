@@ -68,10 +68,37 @@ public struct WorkspaceTheme: Decodable, Sendable {
         "status.warning.background", "status.warning.foreground", "status.warning.border",
         "status.danger.background", "status.danger.foreground", "status.danger.border",
         "data.categorical.1", "data.categorical.2", "data.categorical.3",
-        "data.categorical.4", "data.categorical.5", "data.categorical.6",
+        "data.categorical.4", "data.categorical.5", "data.categorical.6", "data.categorical.7", "data.categorical.8",
         "data.sequential.1", "data.sequential.2", "data.sequential.3",
         "data.sequential.4", "data.sequential.5",
     ]
+
+    private static let typeRoles = ["caption","small","body","section","heading","title","metric","display","code","label","metadata"]
+    private static let optionalDimensions: [String: ClosedRange<Double>] = {
+        var values: [String: ClosedRange<Double>] = [
+            "spacing.1": 0...64,
+            "spacing.2": 0...64,
+            "spacing.3": 0...64,
+            "spacing.4": 0...64,
+            "spacing.5": 0...64,
+            "spacing.6": 0...64,
+            "border.width": 0...4,
+            "radius.surface": 0...32,
+            "radius.pill": 0...999,
+            "focus.width": 1...4,
+            "focus.offset": 0...8,
+            "motion.fast": 0...500,
+            "icon.size": 12...32,
+        ]
+        for role in typeRoles {
+            values["typography.\(role).size"] = 8...96
+            values["typography.\(role).lineHeight"] = 8...144
+            values["typography.\(role).weight"] = 100...900
+            values["typography.\(role).letterSpacing"] = -0.04...0.2
+        }
+        return values
+    }()
+    private static let roleFamilies = Set(typeRoles.map { "typography.\($0).family" })
 
     fileprivate func validate() throws {
         guard id.range(of: "^[a-z][a-z0-9-]{0,63}$", options: .regularExpression) != nil,
@@ -84,16 +111,16 @@ public struct WorkspaceTheme: Decodable, Sendable {
         let expected = Self.colors.union(requiredDimensions).union(["typography.family"])
         for tokens in modes.values {
             let keys = Set(tokens.keys)
-            guard expected.isSubset(of: keys), keys.isSubset(of: expected.union(Self.optionalColors).union(Self.dimensions.keys)) else {
+            guard expected.isSubset(of: keys), keys.isSubset(of: expected.union(Self.optionalColors).union(Self.optionalDimensions.keys).union(Self.roleFamilies)) else {
                 throw WorkspaceThemeError.invalidTokens
             }
             for (key, token) in tokens {
-                if let range = Self.dimensions[key] {
-                    guard case .number(let n) = token, n.isFinite, range.contains(n) else {
+                if let range = Self.dimensions[key] ?? Self.optionalDimensions[key] {
+                    guard case .number(let n) = token, n.isFinite, range.contains(n), !key.hasSuffix(".weight") || n.rounded() == n else {
                         throw WorkspaceThemeError.invalidTokens
                     }
-                } else if key == "typography.family" {
-                    guard token == .text("system") || token == .text("workspace-primary") else { throw WorkspaceThemeError.invalidTokens }
+                } else if key == "typography.family" || Self.roleFamilies.contains(key) {
+                    guard token == .text("system") || token == .text("workspace-primary") || token == .text("workspace-secondary") || token == .text("monospace") else { throw WorkspaceThemeError.invalidTokens }
                 } else {
                     guard case .text(let color) = token,
                           color.range(of: "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$", options: .regularExpression) != nil else {
