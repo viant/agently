@@ -2,6 +2,7 @@ import { resolve } from 'path';
 import path from 'path';
 import fs from 'fs';
 import { isIP } from 'node:net';
+import {fileURLToPath} from 'node:url';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -110,9 +111,9 @@ export default defineConfig(({ mode, command }) => {
     : resolveProxyTarget(env);
   const devHost = resolveDevHost(env);
   const devPort = resolveDevPort(env);
-  const uiRoot = __dirname;
-  const forgeRoot = resolve(env.FORGE_SOURCE_ROOT || resolve(__dirname, '../../forge'));
-  const coreRoot = resolve(env.AGENTLY_CORE_SOURCE_ROOT || resolve(__dirname, '../../agently-core'));
+  const uiRoot = fileURLToPath(new URL('.', import.meta.url));
+  const forgeRoot = resolve(env.FORGE_SOURCE_ROOT || resolve(uiRoot, '../../forge'));
+  const coreRoot = resolve(env.AGENTLY_CORE_SOURCE_ROOT || resolve(uiRoot, '../../agently-core'));
   const forgeNodeModules = resolve(uiRoot, 'node_modules/forge');
   const appNodeModules = resolve(uiRoot, 'node_modules');
   const sharedDependency = name => fs.existsSync(resolve(appNodeModules, name))
@@ -152,10 +153,10 @@ export default defineConfig(({ mode, command }) => {
         're-resizable': sharedDependency('re-resizable'),
         'react-draggable': sharedDependency('react-draggable'),
         '@phosphor-icons/react': resolve(appNodeModules, '@phosphor-icons/react'),
-        '@uiw/react-codemirror': resolve(__dirname, 'node_modules/@uiw/react-codemirror'),
-        '@codemirror/state': resolve(__dirname, 'node_modules/@codemirror/state'),
-        '@codemirror/view': resolve(__dirname, 'node_modules/@codemirror/view'),
-        '@codemirror/language': resolve(__dirname, 'node_modules/@codemirror/language')
+        '@uiw/react-codemirror': resolve(uiRoot, 'node_modules/@uiw/react-codemirror'),
+        '@codemirror/state': resolve(uiRoot, 'node_modules/@codemirror/state'),
+        '@codemirror/view': resolve(uiRoot, 'node_modules/@codemirror/view'),
+        '@codemirror/language': resolve(uiRoot, 'node_modules/@codemirror/language')
       }).map(([find, replacement]) => ({find, replacement}))]
     },
     define: {

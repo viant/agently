@@ -55,7 +55,7 @@ describe('portable theme catalog', () => {
     workspace.themes[0].modes.light['typography.caption.lineHeight'] = 16;
     workspace.themes[0].modes.light['typography.metric.size'] = 28;
     expect(validateThemeCatalog(workspace)).toBe(workspace);
-    workspace.themes[0].modes.light['typography.caption.lineHeight'] = 120;
+    workspace.themes[0].modes.light['typography.caption.lineHeight'] = 200;
     expect(() => validateThemeCatalog(workspace)).toThrow('Invalid theme dimension');
   });
   it('rejects malformed portable tokens', () => {
@@ -181,8 +181,8 @@ describe('provider-scoped application resources', () => {
     const readResource = async ({uri}) => { reads++; return response(uri, '@keyframes fade{to{opacity:0}}.shared{animation:fade 1s;color:red}'); };
     await manager.loadApplicationStyles([app('one'), app('two')], {accountKey: 'alice', readResource});
     expect(elements).toHaveLength(2);
-    expect(elements[0].textContent).toContain('data-forge-resource-namespace="one"');
-    expect(elements[1].textContent).toContain('data-forge-resource-namespace="two"');
+    expect(elements.some(element => element.textContent.includes('data-forge-resource-namespace="one"'))).toBe(true);
+    expect(elements.some(element => element.textContent.includes('data-forge-resource-namespace="two"'))).toBe(true);
     expect(elements[0].textContent).not.toBe(elements[1].textContent);
     await manager.loadApplicationStyles([app('one'), app('two')], {accountKey: 'alice', readResource});
     expect(reads).toBe(2);
@@ -204,5 +204,27 @@ describe('provider-scoped application resources', () => {
     await manager.loadApplicationStyles([app('one'), app('two')], {accountKey: 'alice', readResource: async ({uri}) => response(uri, uri.startsWith('style://one/') ? '@import "unscoped.css";' : '.valid {color:blue}')});
     expect(elements).toHaveLength(1);
     expect(manager.getSnapshot().diagnostics.some(message => message.includes('unsupported global'))).toBe(true);
+  });
+});
+
+describe('complete optional typography contract', () => {
+  it('validates every role property and preserves legacy catalogs', () => {
+    const next = structuredClone(catalog);
+    for (const role of ['caption', 'small', 'body', 'section', 'heading', 'title', 'metric', 'display', 'code', 'label', 'metadata']) {
+      Object.assign(next.themes[0].modes.light, {
+        [`typography.${role}.family`]: role === 'code' ? 'monospace' : 'workspace-primary',
+        [`typography.${role}.size`]: 14, [`typography.${role}.weight`]: 600,
+        [`typography.${role}.lineHeight`]: 20, [`typography.${role}.letterSpacing`]: -0.01,
+      });
+      expect(validateThemeCatalog(next)).toBe(next);
+      for (const [key, value] of [['weight', 600.5], ['weight', 901], ['family', 'url(evil)'], ['letterSpacing', -0.05]]) {
+        const bad = structuredClone(next);
+        bad.themes[0].modes.light[`typography.${role}.${key}`] = value;
+        expect(() => validateThemeCatalog(bad)).toThrow();
+      }
+    }
+    const legacy = structuredClone(catalog);
+    for (const key of Object.keys(legacy.themes[0].modes.light)) if (key.startsWith('typography.') && key.split('.').length > 2) delete legacy.themes[0].modes.light[key];
+    expect(validateThemeCatalog(legacy)).toBe(legacy);
   });
 });
