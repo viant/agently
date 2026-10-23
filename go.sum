@@ -1189,6 +1189,8 @@ github.com/viant/afsc v1.18.0 h1:9GxdDyMlhNhFc+Sdciclymn8/gV+PI8VPER/zEZUdno=
 github.com/viant/afsc v1.18.0/go.mod h1:BJr1JBeM6bYfBwSBEfy4bCx3mgZJqxTScKBA9seuShM=
 github.com/viant/agently-core v0.1.57-0.20261022134242-4393e69b6aa0 h1:l22ntKg7Ejh4dVsdyZVc5LpO/mRotBv5D/tttJsfR7Q=
 github.com/viant/agently-core v0.1.57-0.20261022134242-4393e69b6aa0/go.mod h1:bZ05ZOdlW6C3o9UMer+YB//2MkMuMefoD0QgNEc/o20=
+github.com/viant/agently-core v0.1.57-0.20261023021229-43dff0269461 h1:66iqB9EOHE34eWdE8w/uxXgrRD+MlAkMSvGerQxodUs=
+github.com/viant/agently-core v0.1.57-0.20261023021229-43dff0269461/go.mod h1:bZ05ZOdlW6C3o9UMer+YB//2MkMuMefoD0QgNEc/o20=
 github.com/viant/agently-core/protocol/primitive v0.0.0-20261015021722-e84334ca688f h1:vicIL6CVXcAJlo1Q1s+iYRenpUvJNF5b5768B8nwmAU=
 github.com/viant/agently-core/protocol/primitive v0.0.0-20261015021722-e84334ca688f/go.mod h1:V5+VS29h2HmsAlxbWi0Xm9G/5K8A3v4HVYF1ovcMOlM=
 github.com/viant/agently-core/protocol/resource v0.0.0-20261015021722-e84334ca688f h1:pq1Q4ZweltMhq8DU5xFaFYNQ1pWYMB9OMV2K00b6Vew=
@@ -1215,6 +1217,8 @@ github.com/viant/forge v0.3.45-0.20261022110753-0d575809dd5c h1:VN8CUQBTyM534i0Q
 github.com/viant/forge v0.3.45-0.20261022110753-0d575809dd5c/go.mod h1:33k4rfSc1sHfBUGuvsTRAskhulnlABsMfTUnTCmMtkk=
 github.com/viant/forge v0.3.45-0.20261022164434-d35f5dd674e3 h1:BOP5Ls4qKDWYPQ8megNufL8ku/zd/x0lrpxoUpjW9n4=
 github.com/viant/forge v0.3.45-0.20261022164434-d35f5dd674e3/go.mod h1:33k4rfSc1sHfBUGuvsTRAskhulnlABsMfTUnTCmMtkk=
+github.com/viant/forge v0.3.45-0.20261023023001-47b990cd8cc7 h1:L5uY2kS+juIvSItYmpjqLsHSfHAJD+KS1pJL0fjb3Jo=
+github.com/viant/forge v0.3.45-0.20261023023001-47b990cd8cc7/go.mod h1:33k4rfSc1sHfBUGuvsTRAskhulnlABsMfTUnTCmMtkk=
 github.com/viant/gds v0.6.0 h1:HdjogZeJrs5X0aR8yNCep7TxlhkhrH/lrSFW02RZzOI=
 github.com/viant/gds v0.6.0/go.mod h1:oLW99/zRR67jOhDj4qnVoquDMtQd1z2mWxVc9KRvOs4=
 github.com/viant/gmetric v0.3.2 h1:zTdW9QrPk2P0i/do9fokxtHesFQCvYqIc5Yktzmyxtg=

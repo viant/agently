@@ -20,8 +20,10 @@
   background: var(--forge-control-bg, var(--app-surface));
 }
 .app-ui-settings-card > div { flex: 1; min-width: 0; }
-.app-ui-settings-title { margin: 0; font-size: 16px; line-height: 1.4; font-weight: 650; }
-.app-ui-settings-card p { margin: 4px 0 0; color: var(--forge-text-muted, var(--app-muted)); font-size: 13px; line-height: 1.5; }
+.app-ui-settings-title { margin: 0; }
+/* Legacy settings retain their appearance until a complete role is supplied. */
+.app-ui-settings-title:not([data-forge-type]) { font-size: 16px; line-height: 1.4; font-weight: 650; }
+.app-ui-settings-card p:not([data-forge-type]) { margin: 4px 0 0; color: var(--forge-text-muted, var(--app-muted)); font-size: 13px; line-height: 1.5; }
 .app-ui-settings-state { margin-top: 6px; color: var(--forge-text-muted, var(--app-muted)); font-size: 12px; }
 .app-ui-settings .app-workspace-appearance-controls {
   display: grid;
@@ -34,16 +36,12 @@
   display: grid;
   gap: 6px;
   min-width: 0;
-  font-size: 13px;
-  font-weight: 600;
 }
 .app-ui-settings .app-workspace-appearance-controls select {
   width: 100%;
   min-width: 0;
   height: 38px;
   padding: 0 32px 0 10px;
-  font: inherit;
-  font-weight: 400;
   color: var(--forge-text, var(--app-text));
   background-color: var(--forge-control-bg, var(--app-surface));
   border: 1px solid var(--forge-control-border, var(--app-border));
@@ -58,7 +56,6 @@
 .app-ui-settings .app-workspace-appearance-controls select:disabled { opacity: .6; cursor: not-allowed; }
 .app-ui-settings .app-workspace-appearance-controls > span {
   grid-column: 1 / -1;
-  font-size: 12px;
   color: var(--forge-text-muted, var(--app-muted));
 }
 .app-ui-settings-developer .bp6-switch { flex: 0 0 auto; margin: 0; }
@@ -68,3 +65,7 @@
   .app-ui-settings .app-workspace-appearance-controls { grid-template-columns: minmax(0, 1fr); }
   .app-ui-settings .app-workspace-appearance-controls select { height: 44px; }
 }
+
+.app-ui-settings .app-workspace-appearance-controls label:not([data-forge-type]) { font-size: 13px; font-weight: 600; }
+.app-ui-settings .app-workspace-appearance-controls select:not([data-forge-type]) { font: inherit; font-weight: 400; }
+.app-ui-settings .app-workspace-appearance-controls > span:not([data-forge-type]) { font-size: 12px; }
