@@ -102,3 +102,12 @@
   .app-shell.has-section-navigation .app-layout-sidebar { width: min(300px, calc(100vw - 44px)); }
   .app-section-navigation input[data-forge-type] { font-size: var(--app-navigation-touch-font-size); }
 }
+
+/* Unmigrated destination bodies retain the selected theme inside the document shell. */
+.app-section-page[data-agently-presentation="legacy"] {
+  font-family: var(--agently-theme-type-body-family, inherit);
+  font-size: var(--agently-theme-type-body-size, var(--app-font-size));
+  font-weight: var(--agently-theme-type-body-weight, 400);
+  line-height: var(--agently-theme-type-body-line-height, normal);
+  letter-spacing: var(--agently-theme-type-body-letter-spacing, normal);
+}

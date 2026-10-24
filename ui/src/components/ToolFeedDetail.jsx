@@ -510,7 +510,7 @@ function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = '
       ? { height: 'auto', maxHeight: 'none', minHeight: 0, overflowY: 'visible' }
       : { height: 'min(18vh, 220px)', maxHeight:'min(18vh, 220px)', minHeight:0, overflowY: 'auto', display:'flex', flexDirection:'column' };
   return (
-    <ForgeThemeBoundary windowKey={`tool-feed-${feedId}`}>
+    <ForgeThemeBoundary presentation={container.appearance === 'document' ? 'document' : undefined} windowKey={`tool-feed-${feedId}`}>
       <div className="app-tool-feed-detail-forge" data-tool-feed-id={feedId} data-forge-appearance={container.appearance} style={railStyle}>
         <Container context={context} container={container} isActive suppressTitle={!container?.title} />
       </div>

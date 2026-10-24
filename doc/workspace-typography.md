@@ -492,3 +492,20 @@ No CI workflow or private palette/font dependency is added. Actual-App local
 examples use synthetic transcript/API responses, not live business execution.
 Live stream reconnect/cancellation receipts, queue/steering visual integration,
 real approval/provider schemas and permissions remain separate verification.
+
+## Authored activation and existing reports
+
+The sections shell marks its application root as document presentation. Unmigrated
+app destination bodies explicitly restore the selected theme with `legacy`.
+Core's optional `presentations.document` mapping supplies a workspace-owned profile
+without changing global theme or stored preferences. Native document chat,
+authored document Tool Feeds, report viewers and review content mark their owned
+Forge boundaries; content and owned dropdown portals use the same role values.
+
+In the opted-in document workspace viewer, a saved canonical report without an
+explicit appearance receives `viewer.appearance: document` in a shallow render
+copy. Its title, blocks, data, query references, identity and permission checks
+remain unchanged. Nothing is persisted or backfilled. Explicit appearances and
+legacy shell viewers remain authoritative. Fresh-read, account fencing and report
+version selection still precede rendering. The existing hosted-report suite
+checks actual rendering, untouched saved content and retained viewer options.

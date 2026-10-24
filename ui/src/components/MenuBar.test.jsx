@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { windowMetadataEndpoint } from 'forge/components/windowMetadataEndpoint.js';
+const {renderedHeaderButtons}=vi.hoisted(()=>({renderedHeaderButtons:[]}));
 
 const activeWindows = {
   value: [],
@@ -26,7 +27,7 @@ vi.mock('forge/core', () => ({
 }));
 
 vi.mock('@blueprintjs/core', () => ({
-  Button: () => null,
+  Button: (props) => {renderedHeaderButtons.push(props);return null;},
   Dialog: () => null,
   Spinner: () => null,
   Switch: () => null,
@@ -537,4 +538,12 @@ describe('MenuBar component boundary', () => {
     expect(Object.keys(component)).toEqual(['default']);
     expect(() => renderToStaticMarkup(React.createElement(component.default, {}))).not.toThrow();
   });
+});
+
+it('renders authored Lucide header actions through the shared icon renderer',async()=>{
+  const React=await import('react');const {renderToStaticMarkup}=await import('react-dom/server');
+  const {default:MenuBar}=await import('./MenuBar.jsx');renderedHeaderButtons.length=0;
+  renderToStaticMarkup(React.createElement(MenuBar,{topbarActions:[{id:'history',title:'History',icon:'lucide:clock-3'},{id:'legacy',title:'Legacy time',icon:'time'}]}));
+  expect(renderedHeaderButtons.find(button=>button['aria-label']==='History').icon.props.name).toBe('lucide:clock-3');
+  expect(renderedHeaderButtons.find(button=>button['aria-label']==='Legacy time').icon).toBe('time');
 });

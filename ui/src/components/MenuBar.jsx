@@ -4,7 +4,7 @@ import { openLayoutURL } from './layoutNavigation';
 import { resolveBrandLogoSrc, resolveBrandMonogram, resolveStartupAuthAction, openWindow, APPROVALS_PAGE_SIZE, paginateApprovalItems, normalizeQueueApprovalDialog, extractSchemaDefaultValues, findApprovalItemById, resolveReturnFocusTarget, restoreReturnFocusTarget, nextApprovalDialogFocusReturn } from './menuBarHelpers';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {createPortal} from 'react-dom';
-import {Icon as SharedIcon, Typography, SelectControl, typographyProps} from 'forge/components';
+import {Icon as SharedIcon, iconNames, Typography, SelectControl, typographyProps} from 'forge/components';
 import {ShellIconButton, ShellLocation} from './ShellHeader.jsx';
 import { Button, Dialog, Spinner, Tooltip } from '@blueprintjs/core';
 import { activeWindows, getWindowContext, selectedTabId, selectedWindowId } from 'forge/core';
@@ -310,7 +310,7 @@ export default function MenuBar({
           </Tooltip> : null}
           {topbarActions.map((entry) => (
             <Tooltip key={entry.id} content={entry.title} placement="bottom">
-              <Button minimal icon={entry.icon || 'application'} aria-label={entry.title} disabled={entry.disabled}
+              <Button minimal icon={iconNames.includes(entry.icon) ? <SharedIcon name={entry.icon}/> : entry.icon || 'application'} aria-label={entry.title} disabled={entry.disabled}
                 className={`app-topbar-icon-btn${entry.className ? ` ${entry.className}` : ''}`} data-testid={`topbar-${entry.id}`}
                 {...(sectionNavigation ? typographyProps('label') : {})} role={inMenu ? 'menuitem' : undefined} text={inMenu ? entry.title : undefined}
                 onClick={() => {

@@ -65,3 +65,17 @@ it('retains local review choices and exports them without a real save',async()=>
     expect(choices()[1].checked).toBe(true);
   } finally {await act(async()=>root.unmount());node.remove();}
 });
+
+it('upgrades only legacy presentation in the opted-in viewer without modifying saved content',async()=>{
+ const {normalizeCanonicalReportAssembly}=await import('../../services/workspaceAdapters.js');
+ const source={title:'Saved report',viewer:{allowChartTableSwitch:false},blocks:[{id:'total',kind:'kpiBlock',datasetRef:'records',valueField:'count',valueLabel:'Records'}]};
+ const saved={id:'saved',status:'committed',grammar:'report-document-v1',source,dataSources:{records:{format:'json',data:[{count:12345}]}}};
+ const before=JSON.stringify(saved),documentAssembly=normalizeCanonicalReportAssembly(saved,'document');
+ expect(documentAssembly.source.viewer).toEqual({appearance:'document',allowChartTableSwitch:false});
+ expect(documentAssembly.source.blocks).toBe(source.blocks);expect(documentAssembly.dataSources.records.data).toBe(saved.dataSources.records.data);
+ expect(JSON.stringify(saved)).toBe(before);expect(normalizeCanonicalReportAssembly(saved).source).toBe(source);
+ expect(renderToStaticMarkup(<HostedInlineReport assembly={documentAssembly}/>)).toContain('data-forge-report-appearance="document"');
+ const explicit={...saved,source:{...source,viewer:{appearance:'future'}}};
+ expect(normalizeCanonicalReportAssembly(explicit,'document').source).toBe(explicit.source);
+ expect(normalizeCanonicalReportAssembly({...saved,source:JSON.stringify(source)},'document').source.viewer.appearance).toBe('document');
+});

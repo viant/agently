@@ -190,6 +190,17 @@ try {
     await review.getByRole('button',{name:'Close example',exact:true}).click();
     const selected = await page.getByRole('combobox',{name:'Workspace theme',exact:true}).inputValue();
     const roleTokens = catalog.themes.find(theme => theme.id === selected).modes.light;
+    const selectedTheme=catalog.themes.find(theme=>theme.id===selected);
+    const profileTheme=catalog.themes.find(theme=>theme.id===selectedTheme.presentations?.document)||selectedTheme;
+    const profileTokens=profileTheme.modes.light||profileTheme.modes[profileTheme.fallbackMode];
+    for(const [key,tokens] of [['profile-legacy',roleTokens],['profile-document',profileTokens]]) {
+      const text=page.locator(`#foundation-presentation-profile [data-forge-window-key="${key}"] p`);
+      const type=await text.evaluate(node=>{const s=getComputedStyle(node);return {size:s.fontSize,weight:s.fontWeight,leading:s.lineHeight};});
+      if(tokens['typography.body.size']!=null) assert.equal(type.size,`${tokens['typography.body.size']}px`);
+      if(tokens['typography.body.weight']!=null) assert.equal(type.weight,String(tokens['typography.body.weight']));
+      if(tokens['typography.body.lineHeight']!=null) assert.equal(type.leading,`${tokens['typography.body.lineHeight']}px`);
+    }
+
     for (const label of ['Workspace theme', 'Workspace color mode']) {
       const select = page.getByRole('combobox', {name:label,exact:true});
       const geometry = await select.evaluate(node => {

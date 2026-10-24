@@ -21,6 +21,6 @@ export default function RequestReviewDialog({appearance, busy = false, title, ch
     canEscapeKeyClose={!busy} canOutsideClickClose={!busy} isCloseButtonShown={false}
     title={<div className="app-request-review-title"><Typography typeRole="section">{title}</Typography>
       <Button variant="ghost" size="compact" icon="lucide:x" hideLabel aria-label="Close review" disabled={busy} onClick={props.onClose}/></div>}>
-    <ForgeThemeBoundary windowKey="request-review">{children}</ForgeThemeBoundary>
+    <ForgeThemeBoundary presentation="document" windowKey="request-review">{children}</ForgeThemeBoundary>
   </Dialog>;
 }

@@ -1456,6 +1456,7 @@ export default function Root() {
         onOpenWorkspace: activateWorkspaceAttachment,
       }}>
         <div
+          data-agently-presentation={sectionNavigation ? 'document' : undefined}
           className={`app-shell${isCompactShell ? ' is-compact-shell' : ''}${sectionNavigation ? ' has-section-navigation' : ''}`}
           style={{
             '--app-sidebar-width': `${isCompactShell ? 0 : (isSidebarOpen ? clampSidebarWidth(sidebarWidth, sidebarBoundsRef.current.min, sidebarBoundsRef.current.max) : sectionNavigation ? 48 : 64)}px`
@@ -1539,7 +1540,7 @@ export default function Root() {
             />
           ) : null}
           <main className={`app-chat-pane${showChatChrome ? ' is-chat-main-window' : ''}`} inert={sectionNavigation && isCompactShell && isSidebarOpen ? '' : undefined}>
-            {showAppSection ? <section className="app-section-page" aria-label={appSectionTitle}>
+            {showAppSection ? <section className="app-section-page" data-agently-presentation="legacy" aria-label={appSectionTitle}>
               {sectionWindow ? <WindowContent key={sectionWindow.windowId} window={sectionWindow} isInTab/> : <div className="app-section-empty">
                 <Typography as="h1" typeRole="heading">{currentSectionView?.error ? 'Destination unavailable' : appSectionTitle}</Typography>
                 <Typography as="p" typeRole="body" role={currentSectionView?.error ? 'alert' : undefined}>{currentSectionView?.error || 'Choose a destination from the menu.'}</Typography>

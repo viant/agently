@@ -59,6 +59,10 @@ createRoot(document.getElementById('root')).render(<WorkspaceStyleProvider metad
     <WorkspaceAppearanceSettings/>
     <ForgeThemeBoundary windowKey="typography-proof">
       <FoundationSpecimen iconExamples={fixture.pilot?.iconExamples}/>
+      <section id="foundation-presentation-profile" aria-label="Scoped presentation profiles">
+        <ForgeThemeBoundary windowKey="profile-legacy"><Typography as="p" typeRole="body">Selected theme body</Typography></ForgeThemeBoundary>
+        <ForgeThemeBoundary presentation="document" windowKey="profile-document"><Typography as="p" typeRole="body">Document profile body</Typography></ForgeThemeBoundary>
+      </section>
       <TypographySpecimen/>
       <ChartSpecimen/>
       <NavigationSpecimen/>
