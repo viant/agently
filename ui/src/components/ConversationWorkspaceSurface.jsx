@@ -5,7 +5,7 @@ import { findMetadataSignal } from 'forge/core';
 import ToolFeedDetail from './ToolFeedDetail.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import { Button, Icon, Tooltip } from '@blueprintjs/core';
-import { WindowContent } from 'forge/components';
+import WindowContent from './WorkspaceWindowContent.jsx';
 import AppRenderer from './mcpApps/AppRenderer.jsx';
 
 const ICONS = new Set(['application', 'chart', 'dashboard', 'document', 'folder-open', 'grid-view']);
