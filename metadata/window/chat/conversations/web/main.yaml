@@ -18,6 +18,7 @@ view:
         table: $import('table/conversations.yaml')
       - id: conversationSection
         chat:
+          appearance: document
           dataSourceRef: messages
           showSettings: false
           showTools: false

@@ -17,3 +17,20 @@ export function openLayoutURL(action) {
   window.open(url, '_blank', 'noopener,noreferrer');
   return true;
 }
+
+// Route identities come from catalog IDs, never executable window keys or inputs.
+export function layoutWindowDestinations(layout = {}) {
+  const destinations = [];
+  for (const app of layout.applications || []) {
+    const visit = (menus, path = [], disabled = app.disabled) => {
+      for (const menu of menus || []) {
+        const ids = [...path, menu.id];
+        if (menu.children?.length) visit(menu.children, ids, disabled || menu.disabled);
+        else if (menu.action?.type === 'window') destinations.push({...menu, applicationId: app.id,
+          destination: JSON.stringify([app.id, ...ids]), disabled: !!(disabled || menu.disabled)});
+      }
+    };
+    visit(app.menus);
+  }
+  return destinations;
+}

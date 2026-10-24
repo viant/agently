@@ -1,3 +1,5 @@
+import {projectedWorkspaceEntries} from '../services/workspaceAttachment.js';
+import {resolveSavedOutputs} from './SavedOutputInventory.jsx';
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 import React,{act} from 'react';
@@ -10,6 +12,9 @@ vi.mock('@blueprintjs/core', () => {const components={
   Tooltip: ({ content = '', children }) => React.createElement('span', { 'data-tooltip': content }, children),
 };return {...components,default:components};});
 vi.mock('forge/components', async () => ({
+  Icon: ({name}) => <span data-shared-icon={name}/>,
+  typographyProps: role => ({'data-forge-type': role}),
+  SelectControl: ({children, ...props}) => <select {...props}>{children}</select>,
   RetainedWindowContent: (await import('forge/components/WindowContentMount.jsx')).RetainedWindowContent,
   WindowContent: ({ window }) => {
     React.useEffect(() => { window?.onRendererReady?.(); }, [window?.windowId]);
@@ -249,4 +254,65 @@ it('mounts a hidden fresh opening renderer for readiness while restored windows 
   expect(ready.mock.calls).toEqual([['fresh'],['restored']]);
   expect(host.querySelector('[data-window-id="fresh-pending-readiness"]')).toBe(renderer);
  }finally{await act(async()=>root.unmount());host.remove();}
+});
+
+
+it('uses the same retained viewer with separate hide, expand and tab-close actions in document headers', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  window.matchMedia = () => ({matches: false, addEventListener(){}, removeEventListener(){}});
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host), close = vi.fn(), split = vi.fn();
+  function App() {
+    const [mount, setMount] = React.useState(null);
+    const [surface, setSurface] = React.useState('workspace');
+    return <><header ref={setMount}/><ConversationWorkspaceSurface presentation="document" headerMount={mount} activeSurface={surface} workspaceMode="split" unreadCount={2}
+      workspaceWindow={{windowId: 'doc-output', windowTitle: 'Output'}} workspaceWindows={[{windowId: 'doc-output', windowTitle: 'Output'}]}
+      onOpenWorkspace={() => setSurface('workspace')} onBackToConversation={() => setSurface('conversation')} onChangeWorkspaceMode={split} onCloseWorkspaceTab={close}
+      renderConversation={() => <textarea aria-label="Draft" defaultValue="Keep draft"/>} renderWorkspace={() => <input aria-label="Local edit" defaultValue="Keep edit"/>}/></>;
+  }
+  try {
+    await act(async () => root.render(<App/>));
+    const draft = host.querySelector('textarea'), input = host.querySelector('input');
+    input.value = 'Changed edit';
+    expect(host.querySelectorAll('[role="tab"]')).toHaveLength(1);
+    const header = host.querySelector('header');
+    expect(header.querySelector('.app-shell-viewer-tabs').compareDocumentPosition(header.querySelector('.app-shell-viewer-controls')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(host.querySelector('[role="status"]').textContent).toBe('2 new');
+    expect(host.querySelector('header [data-shared-icon="lucide:panel-right"]')).not.toBeNull();
+    await act(async () => host.querySelector('[aria-label="Expand workspace"]').click());
+    expect(split).toHaveBeenCalledWith('focus');
+    expect(close).not.toHaveBeenCalled();
+    await act(async () => host.querySelector('[aria-label="Hide workspace"]').click());
+    expect(input.closest('[role="tabpanel"]').hidden).toBe(true);
+    expect(input.closest('[role="tabpanel"]').hasAttribute('inert')).toBe(true);
+    expect(host.querySelectorAll('[role="tab"]')).toHaveLength(0);
+    expect(close).not.toHaveBeenCalled();
+    await act(async () => host.querySelector('[aria-label="Show workspace"]').click());
+    expect(host.querySelector('input')).toBe(input);
+    expect(input.value).toBe('Changed edit');
+    expect(host.querySelector('textarea')).toBe(draft);
+    await act(async () => host.querySelector('[aria-label="Close Output"]').click());
+    expect(close).toHaveBeenCalledWith('doc-output', expect.anything());
+  } finally {await act(async () => root.unmount()); host.remove();}
+});
+
+
+describe('saved-output identity inventory', () => {
+  it('retains closed output access, chooses the latest revision and isolates conversations', () => {
+    const entry = (windowId, objectId, revision, conversationId = 'a') => ({windowId, conversationId, workspaceObject: {objectId, conversationId, revision}});
+    const old = entry('r', 'report', 1), current = entry('r', 'report', 2), second = entry('s', 'separate', 1);
+    current.workspaceObject.lifecycle = {state: 'closed'};
+    expect(resolveSavedOutputs([old, current, second, entry('other', 'private', 1, 'b'), {windowId: 'empty'}], 'a')).toEqual([current, second]);
+    expect(resolveSavedOutputs([], 'a')).toEqual([]);
+  });
+});
+
+
+it('inventories actual structured outputs before their first open and ignores ordinary or foreign answers', () => {
+  const object = {version: 1, objectId: 'object', conversationId: 'a', revision: 2, content: {windowId: 'view', windowKey: 'resource'}};
+  const attachment = {kind: 'workspaceObject', objectId: 'object', label: 'Report', workspaceObject: object};
+  const rows = [{kind: 'assistant', content: 'Ordinary answer'}, {kind: 'assistant', attachments: [attachment]}];
+  expect(projectedWorkspaceEntries(rows, 'a').map(entry => entry.windowId)).toEqual(['view']);
+  expect(projectedWorkspaceEntries(rows, 'b')).toEqual([]);
+  expect(projectedWorkspaceEntries([{connectionProfile: 'standard', attachments: [attachment]}], 'a')).toEqual([]);
 });

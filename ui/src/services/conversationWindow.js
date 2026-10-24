@@ -53,8 +53,16 @@ function syncMainConversationPath(conversationId = '') {
   if (typeof window === 'undefined') return;
   const target = conversationPathForID(conversationId);
   const current = String(window.location?.pathname || '').trim();
-  if (current === target) return;
-  if (current.startsWith('/v1/api/')) return;
+  if (current.startsWith('/v1/api/') || current === target) return;
+  // Optional section shell owns its native Back/Forward trail. Legacy hosts
+  // retain replaceState and do not adopt this presentation contract.
+  if (window.history?.state?.agentlyShell) {
+    const navigation = new CustomEvent('agently:conversation-path', {
+      cancelable: true, detail: {pathname: target, conversationId: String(conversationId || '').trim()},
+    });
+    window.dispatchEvent(navigation);
+    if (navigation.defaultPrevented) return;
+  }
   try {
     window.history.replaceState(window.history.state, '', target);
   } catch (_) {}
@@ -117,6 +125,10 @@ export function getScopedActiveSurface(conversationId = '') {
   const id = String(conversationId || '').trim();
   if (!storage || !id) return 'conversation';
   return readWorkspaceSession(storage, id).activeSurface;
+}
+
+export function hasScopedActiveSurfaceSelection(conversationId = '') {
+  return !!readWorkspaceSession(uiStateStorage(), String(conversationId || '').trim()).hasSurfaceSelection;
 }
 
 export function setScopedActiveSurface(conversationId = '', surface = 'conversation') {
@@ -220,12 +232,13 @@ function removeWindowsForConversationChange(nextConversationId = '') {
   for (const win of windows) {
     const windowId = String(win?.windowId || '').trim();
     if (!windowId) continue;
+    if (win.region === 'app.section' && !String(win.conversationId || '').trim()) continue;
     // Native menu workspaces have no conversation owner. History selection
     // must preserve them without adopting them into the selected chat.
     if (!String(win?.conversationId || '').trim()
       && String(win?.presentation || '').trim().toLowerCase() === 'hosted'
       && String(win?.region || '').trim().toLowerCase() === 'chat.top'
-      && !win.mcpUI && win.workspaceObject?.content?.renderer !== 'toolFeed') continue;
+      && !win.mcpUI && !['toolFeed', 'inlineReport'].includes(win.workspaceObject?.content?.renderer)) continue;
     if (
       String(win?.presentation || '').trim().toLowerCase() === 'hosted'
       && String(win?.region || '').trim().toLowerCase() === 'chat.top'
@@ -1094,13 +1107,20 @@ export function detachWorkspaceWindowsFromConversation(conversationId = '') {
   if (!id) return;
   activeWindows.value = activeWindows.peek().map(entry => {
     if (entry.conversationId !== id || entry.presentation !== 'hosted' || entry.region !== 'chat.top'
-      || entry.mcpUI || entry.workspaceObject?.content?.renderer === 'toolFeed') return entry;
+      || entry.mcpUI || ['toolFeed', 'inlineReport'].includes(entry.workspaceObject?.content?.renderer)) return entry;
     return {...entry, conversationId: undefined, parentKey: MAIN_CHAT_WINDOW_ID,
       ...(entry.workspaceObject ? {workspaceObject: {...entry.workspaceObject, conversationId: undefined}} : {})};
   });
 }
 
-export function requestNewConversationInMainWindow() {
+export function requestNewConversationInMainWindow({resetStarter = false} = {}) {
+  // A prepared task is a sublocation of New Chat, not the next chat's prompt.
+  if (resetStarter && typeof window !== 'undefined' && window.location?.search) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('starter');
+    url.searchParams.delete('starterFrom');
+    window.history.replaceState(window.history.state, '', url);
+  }
   removeWindowsForConversationChange('');
   const mainWindow = ensureMainChatWindow();
   updateMainChatWindowParameters('', { resetInstance: true });
@@ -1167,6 +1187,9 @@ export function returnToParentConversation(win = null, { closeCurrent = false } 
 
 // Historical markers survive closing an object. The descriptor is presentation
 // data only; reopening still uses WindowContent's fresh authorization preflight.
+export function rememberWorkspaceObjects(conversationId, entries) {
+  return updateWorkspaceSession(uiStateStorage(), conversationId, state => mergeWorkspaceSessionWindows(state, entries));
+}
 export function getWorkspaceHistory(conversationId) {
   return workspaceHistory(readWorkspaceSession(uiStateStorage(), conversationId));
 }
@@ -1174,13 +1197,17 @@ export function reopenWorkspaceObject(conversationId, windowId) {
   const storage = uiStateStorage();
   const state = readWorkspaceSession(storage, conversationId);
   const saved = state.windows.find((entry) => entry.windowId === windowId);
-  if (!saved) return null;
+  if (!saved || saved.workspaceObject?.capabilities?.reopen === false) return null;
   updateWorkspaceSession(storage, conversationId, (current) => ({ ...current,
     closedWindowIds: current.closedWindowIds.filter((id) => id !== windowId), activeWindowId: windowId,
     openWindowIds: [...new Set([...(current.openWindowIds || current.windows.map((entry) => entry.windowId)), windowId])],
   }));
   const existing = activeWindows.peek().find((entry) => entry.windowId === windowId && entry.conversationId === conversationId);
-  if (existing) return focusWindow(existing);
+  if (existing) {
+    if (existing.workspaceObject?.lifecycle?.state === 'failed') activeWindows.value = activeWindows.peek().map(entry => entry.windowId === windowId ? {...entry,
+      workspaceObject: {...entry.workspaceObject, lifecycle: {...entry.workspaceObject.lifecycle, state: 'opening', attempt: Number(entry.workspaceObject.lifecycle.attempt || 0) + 1}}} : entry);
+    return focusWindow(activeWindows.peek().find(entry => entry.windowId === windowId) || existing);
+  }
   const restored = addWindow(saved.windowTitle, saved.parentKey || MAIN_CHAT_WINDOW_ID, saved.windowKey,
     null, true, saved.parameters || {}, { ...saved, inlineMetadata: undefined, hostOpenState: 'historical_replay',
       workspaceObject: saved.workspaceObject ? { ...saved.workspaceObject,

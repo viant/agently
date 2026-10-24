@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { attachHistoryScroll } from './historyScroll.js';
 
-function fixture() {
+function fixture(conversationId = '') {
   const listeners = new Map();
   const frames = new Map();
   let sequence = 0;
@@ -21,7 +21,7 @@ function fixture() {
       disconnect = disconnect;
     },
   };
-  const dispose = attachHistoryScroll({}, viewport, environment);
+  const dispose = attachHistoryScroll({}, viewport, environment, conversationId);
   const flush = () => {
     const pending = [...frames.values()]; frames.clear();
     for (const callback of pending) callback();
@@ -66,4 +66,14 @@ describe('history viewport scrolling', () => {
     expect(next.viewport.scrollTop).toBe(800);
     next.dispose();
   });
+});
+
+
+it('restores a chat reading position and does not pull it down on late rendering', () => {
+  const first = fixture('saved-reading'); first.flush();
+  first.listeners.get('wheel')({deltaY: -100}); first.viewport.scrollTop = 400;
+  first.listeners.get('scroll')({}); first.dispose();
+  const second = fixture('saved-reading'); second.flush(); expect(second.viewport.scrollTop).toBe(400);
+  second.viewport.scrollHeight = 2400; second.resize(); second.flush(); expect(second.viewport.scrollTop).toBe(400);
+  second.dispose();
 });

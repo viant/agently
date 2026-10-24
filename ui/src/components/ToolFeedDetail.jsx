@@ -1,3 +1,4 @@
+import WorkspaceOutputState from './WorkspaceOutputState.jsx';
 import { normalizeQueueEditorBinding } from '../services/queueFeedSpec';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CompactFeedList, Container, ForgeThemeBoundary, LookupPickerDialog, Terminal } from 'forge/components';
@@ -64,9 +65,10 @@ function resolveFeedDetailConversationId(explicitConversationId = '', context = 
  * Uses Forge Container to render feed UI specs from YAML.
  * Falls back to generic InlineRenderer when no UI spec is present.
  */
-export default function ToolFeedDetail({ context, variant = 'inline', conversationId = '', turnId = '', placement = 'inline', includeAuto = true, includeConversationFeeds = true, hostedFeedId = '', onLifecycle }) {
+export default function ToolFeedDetail({ context, variant = 'inline', conversationId = '', turnId = '', placement = 'inline', includeAuto = true, includeConversationFeeds = true, hostedFeedId = '', onLifecycle, onReturn }) {
   const [feeds, setFeeds] = useState(getActiveFeeds);
   const [dataVersion, setDataVersion] = useState(0);
+  const [hostedAttempt, setHostedAttempt] = useState(0);
   const [hostedLoad, setHostedLoad] = useState({loading: !!hostedFeedId, error: ''});
   const [expandedFeeds, setExpandedFeeds] = useState(() => getExpandedFeedIds());
   const scopedConversationId = resolveFeedDetailConversationId(conversationId, context);
@@ -93,10 +95,10 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
     let active = true;
     setHostedLoad({loading: true, error: ''});
     Promise.resolve(fetchFeedDataNow(hostedFeedId, scopedConversationId, {rethrow: true})).then((data) => {
-      if (active) setHostedLoad({loading: false, error: data ? '' : 'Tool output is unavailable.'});
-    }).catch(() => { if (active) setHostedLoad({loading: false, error: 'Tool output is unavailable or access was denied.'}); });
+      if (active) setHostedLoad({loading: false, error: data ? null : {status: 404}});
+    }).catch(error => { if (active) setHostedLoad({loading: false, error}); });
     return () => { active = false; };
-  }, [hostedFeedId, scopedConversationId]);
+  }, [hostedFeedId, scopedConversationId, hostedAttempt]);
 
   // Collect expanded feeds that have data.
   const scopedFeeds = hostedFeedId && !(feeds || []).some((entry) => entry.feedId === hostedFeedId)
@@ -173,12 +175,13 @@ export default function ToolFeedDetail({ context, variant = 'inline', conversati
   }, [collapsedHeight, dataVersion, selectedFeedId, visibleFeeds.map((feed) => feed.feedId).join('|')]);
 
   useEffect(() => {
-    if (hostedFeedId && hostedLoad.error) onLifecycle?.('failed');
-    else if (hostedFeedId && !hostedLoad.loading && renderableFeeds.length > 0) onLifecycle?.('ready');
+    if (hostedFeedId && hostedLoad.loading) onLifecycle?.('opening');
+    else if (hostedFeedId && hostedLoad.error) onLifecycle?.('failed');
+    else if (hostedFeedId && !hostedLoad.loading) onLifecycle?.(renderableFeeds.length > 0 ? 'ready' : 'failed');
   }, [hostedFeedId, renderableFeeds.length, hostedLoad.loading, hostedLoad.error, onLifecycle]);
 
-  if (hostedFeedId && hostedLoad.loading) return <div role="status">Loading tool output…</div>;
-  if (hostedFeedId && hostedLoad.error) return <div role="alert">{hostedLoad.error}</div>;
+  if (hostedFeedId && (hostedLoad.loading || hostedLoad.error)) return <WorkspaceOutputState loading={hostedLoad.loading} error={hostedLoad.error} onRetry={() => setHostedAttempt(value => value + 1)} onReturn={onReturn}/>;
+  if (hostedFeedId && renderableFeeds.length === 0) return <WorkspaceOutputState error={{status:404}} onRetry={() => setHostedAttempt(value => value + 1)} onReturn={onReturn}/>;
   if (renderableFeeds.length === 0) {
     // Inline feed details share the assistant response surface. An empty or
     // workspace-targeted selection must not leave a misleading placeholder
@@ -299,13 +302,14 @@ function buildForgeFeedContainer(feedId = '', payload = {}, dataMap = {}) {
   const defaultDataSourceRef = dsRefs[0] || '';
 
   let container = null;
-  const hasTopLevelVisuals = !!(ui.toolbar || ui.table || ui.chart || ui.chat || ui.terminal || ui.fileBrowser || ui.treeBrowser || ui.editor || ui.schemaBasedForm || ui.layout || rootItems.length > 0);
+  const hasTopLevelVisuals = !!(ui.appearance || ui.toolbar || ui.table || ui.chart || ui.chat || ui.terminal || ui.fileBrowser || ui.treeBrowser || ui.editor || ui.schemaBasedForm || ui.layout || rootItems.length > 0);
   if (rootContainers.length === 1 && !hasTopLevelVisuals) {
     container = rootContainers[0];
   } else {
     container = {
       id: `${feedId || 'feed'}-root`,
       title: ui.title || payload?.title || '',
+      appearance: ui.appearance,
       dataSourceRef: defaultDataSourceRef,
       layout: ui.layout || { orientation: 'vertical', columns: 1 },
       items: rootItems,
@@ -507,7 +511,7 @@ function ForgeFeedRenderer({ data, feedId = '', conversationId = '', variant = '
       : { height: 'min(18vh, 220px)', maxHeight:'min(18vh, 220px)', minHeight:0, overflowY: 'auto', display:'flex', flexDirection:'column' };
   return (
     <ForgeThemeBoundary windowKey={`tool-feed-${feedId}`}>
-      <div className="app-tool-feed-detail-forge" data-tool-feed-id={feedId} style={railStyle}>
+      <div className="app-tool-feed-detail-forge" data-tool-feed-id={feedId} data-forge-appearance={container.appearance} style={railStyle}>
         <Container context={context} container={container} isActive suppressTitle={!container?.title} />
       </div>
       <FeedLookupPicker

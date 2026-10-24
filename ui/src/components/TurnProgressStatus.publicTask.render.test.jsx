@@ -45,12 +45,26 @@ async function initialState(){
  state=applyEvent(state,{type:'assistant',conversationId,turnId,patch:{role:'assistant'},messageId:'report',createdAt:'2026-10-11T20:00:02Z',pageId:'report-page',mode:'task',content:'[Interactive content]',renderedContent:{schemaVersion:'1',parts:[],reports:[{scope:'message',id:'pending-report',status:'rendering',grammar:'report-document-v1',progress:{phase:'data',message:'Building report',elapsedSeconds:1},source:{blocks:[]}}]}});
  return state;
 }
-async function mount(state,developerMode){
+async function mount(state,developerMode,documentPresentation=false){
  rows=projectConversation(state);
  if(!root){container=document.createElement('div');document.body.append(container);root=createRoot(container);}
- await act(async()=>root.render(<ConversationViewContext.Provider value={{developerMode,toolFeedDock:'inline'}}><DetailContext.Provider value={{showDetail:()=>{}}}><TurnProgressStatus conversationId={conversationId} developerMode={developerMode}/><ChatFeed conversationId={conversationId} rowsOverride={rows}/></DetailContext.Provider></ConversationViewContext.Provider>));
+ await act(async()=>root.render(<ConversationViewContext.Provider value={{developerMode,toolFeedDock:'inline',presentation:documentPresentation?'document':undefined}}><DetailContext.Provider value={{showDetail:()=>{}}}>{!documentPresentation?<TurnProgressStatus conversationId={conversationId} developerMode={developerMode}/>:null}<ChatFeed conversationId={conversationId} rowsOverride={rows}/></DetailContext.Provider></ConversationViewContext.Provider>));
 }
 describe('public task narration in mounted turn status',()=>{
+ it('renders admitted AG-UI narration once in document chat while retaining progress and reports',async()=>{
+  let state=await initialState();await mount(state,false,true);
+  expect(container.textContent.split(task).length-1).toBe(1);
+  const progress=container.querySelector('[data-testid="turn-progress-status"]');
+  expect(progress).not.toBeNull();expect(progress.textContent).toContain('elapsed');
+  expect([...progress.querySelectorAll('button')].some(button=>button.textContent==='Stop request')).toBe(true);
+  expect(progress.textContent).not.toContain(task);
+  expect(container.textContent).toContain(highlight);expect(container.textContent).toContain('Building report');
+  expect(container.textContent).not.toMatch(/PRIVATE_REASONING_CREDENTIAL|PRIVATE_TASK_MODEL_CONTENT|BINARY_TOOL_SECRET/);
+  state=applyEvent(state,{type:'turn_completed',conversationId,turnId,status:'completed'});await mount(state,false,true);
+  expect(container.querySelector('[data-testid="turn-progress-status"]')).toBeNull();
+  expect(container.textContent.split(task).length-1).toBe(1);
+  expect(container.textContent).toContain(highlight);expect(container.textContent).toContain('Building report');
+ });
  for(const developerMode of [false,true])it(`shows task before tool completion and preserves highlights after refresh (${developerMode})`,async()=>{
   let state=await initialState();await mount(state,developerMode);
   expect(container.querySelector('[data-testid="turn-progress-narration"]')?.textContent).toBe(task);

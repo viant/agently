@@ -1,6 +1,11 @@
+import RequestReviewDialog, {ReviewAction,reviewDecisionError} from './RequestReviewDialog.jsx';
+import {ReviewTable} from 'forge/components';
 import { openLayoutURL } from './layoutNavigation';
 import { resolveBrandLogoSrc, resolveBrandMonogram, resolveStartupAuthAction, openWindow, APPROVALS_PAGE_SIZE, paginateApprovalItems, normalizeQueueApprovalDialog, extractSchemaDefaultValues, findApprovalItemById, resolveReturnFocusTarget, restoreReturnFocusTarget, nextApprovalDialogFocusReturn } from './menuBarHelpers';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {createPortal} from 'react-dom';
+import {Icon as SharedIcon, Typography, SelectControl, typographyProps} from 'forge/components';
+import {ShellIconButton, ShellLocation} from './ShellHeader.jsx';
 import { Button, Dialog, Spinner, Tooltip } from '@blueprintjs/core';
 import { activeWindows, getWindowContext, selectedTabId, selectedWindowId } from 'forge/core';
 import SchemaBasedForm from 'forge/widgets/SchemaBasedForm.jsx';
@@ -38,6 +43,18 @@ export default function MenuBar({
   activeBackendId = 'agently',
   onBackendChange,
   onNativeAction,
+  brandMount = null,
+  profileMount = null,
+  sidebarToggleRef,
+  inert = false,
+  sectionNavigation = false,
+  heading = 'New Chat',
+  history,
+  viewerHeaderRef,
+  viewerVisible = false,
+  viewerExpanded = false,
+  sidebarCollapsed = false,
+  compactNavigation = false,
 }) {
   const {
     items = [],
@@ -259,11 +276,11 @@ export default function MenuBar({
     try {
       await decide(item, action, payload);
     } catch (err) {
-      setApprovalError(String(err?.message || err || 'Failed to decide approval'));
+      setApprovalError(sectionNavigation ? reviewDecisionError(err) : String(err?.message || err || 'Failed to decide approval'));
     } finally {
       setApprovalSubmitting(false);
     }
-  }, [decide, selectedQueueArguments, selectedQueuePlannerMeta]);
+  }, [decide, selectedQueueArguments, selectedQueuePlannerMeta, sectionNavigation]);
 
   const toggleQueuePlannerRow = useCallback((rowIndex) => {
     if (!selectedQueuePlannerMeta?.field) return;
@@ -283,26 +300,19 @@ export default function MenuBar({
     setSelected?.((current) => current ? { ...current } : current);
   }, [selectedQueuePlannerMeta, setSelected]);
 
-  return (
-    <header className="app-topbar">
-      <div className="app-topbar-left">
-        <div className="app-brand">
-          {appIconSrc ? (
-            <img src={appIconSrc} alt={`${appName} logo`} className="app-brand-logo" />
-          ) : (
-            <span className="app-brand-mark" aria-hidden="true">{appIconMonogram}</span>
-          )}
-          <span className="app-brand-name">{appName}</span>
-        </div>
-        <div className="app-topbar-divider" />
-        <div className="app-topbar-actions">
-          <Tooltip content="Toggle conversations" placement="bottom">
-            <Button minimal icon="menu" aria-label="Toggle conversations" className="app-topbar-icon-btn is-conversations" data-testid="sidebar-toggle" onClick={onToggleSidebar} />
-          </Tooltip>
+  const ActionButton = sectionNavigation ? ShellIconButton : Button;
+  const initials = displayName.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase();
+  const compactViewerUtilities = sectionNavigation && compactNavigation && viewerVisible;
+  const renderUtilityActions = (inMenu = false) => (
+        <div className={`app-topbar-actions${inMenu ? ' is-menu' : ''}`} onClick={event => {if (inMenu && event.target.closest('button')) setUserMenuOpen(false);}}>
+          {!sectionNavigation ? <Tooltip content="Toggle conversations" placement="bottom">
+            <Button ref={sidebarToggleRef} minimal icon="menu" aria-label="Toggle conversations" className="app-topbar-icon-btn is-conversations" data-testid="sidebar-toggle" onClick={onToggleSidebar} />
+          </Tooltip> : null}
           {topbarActions.map((entry) => (
             <Tooltip key={entry.id} content={entry.title} placement="bottom">
               <Button minimal icon={entry.icon || 'application'} aria-label={entry.title} disabled={entry.disabled}
                 className={`app-topbar-icon-btn${entry.className ? ` ${entry.className}` : ''}`} data-testid={`topbar-${entry.id}`}
+                {...(sectionNavigation ? typographyProps('label') : {})} role={inMenu ? 'menuitem' : undefined} text={inMenu ? entry.title : undefined}
                 onClick={() => {
                   const action = entry.action;
                   if (openLayoutURL(action)) return;
@@ -315,41 +325,50 @@ export default function MenuBar({
             </Tooltip>
           ))}
           {backendConnections.length > 1 ? (
-            <select aria-label="Agent backend" value={activeBackendId}
-              className="app-backend-select" onChange={event => onBackendChange?.(event.target.value)}>
+            sectionNavigation ? <SelectControl aria-label="Agent backend" value={activeBackendId}
+              className="app-backend-select" {...typographyProps('label')} onChange={event => {onBackendChange?.(event.target.value);if(inMenu)setUserMenuOpen(false);}}>
+              {backendConnections.map(connection => <option key={connection.id} value={connection.id}>{connection.label}</option>)}
+            </SelectControl> : <select aria-label="Agent backend" value={activeBackendId}
+              className="app-backend-select" onChange={event => {onBackendChange?.(event.target.value);if(inMenu)setUserMenuOpen(false);}}>
               {backendConnections.map(connection => <option key={connection.id} value={connection.id}>{connection.label}</option>)}
             </select>
           ) : null}
           <Tooltip content={pendingCount > 0 ? `${pendingCount} pending approvals` : 'Approvals'} placement="bottom">
-            <Button
+            <ActionButton
               minimal
-              icon="notifications"
+              icon={sectionNavigation ? "lucide:bell" : "notifications"}
               aria-label={pendingCount > 0 ? `${pendingCount} pending approvals` : 'Approvals'}
               intent={pendingCount > 0 ? 'warning' : 'none'}
-              className={pendingCount > 0 ? 'app-topbar-icon-btn app-approval-bell is-pending' : 'app-topbar-icon-btn app-approval-bell'}
+              className={sectionNavigation ? `app-shell-approvals${pendingCount > 0 ? ' is-pending' : ''}` : pendingCount > 0 ? 'app-topbar-icon-btn app-approval-bell is-pending' : 'app-topbar-icon-btn app-approval-bell'}
+              role={inMenu ? "menuitem" : undefined}
               data-testid="approval-bell"
-              onClick={() => setOpen?.(!open)}
-            />
+              onClick={() => {if(inMenu)onNativeAction?.();setOpen?.(!open);}}
+            >{inMenu ? pendingCount > 0 ? `${pendingCount} pending approvals` : 'Approvals' : null}</ActionButton>
           </Tooltip>
           {shouldShowConversationUsage(conversationId) ? (
             <Tooltip content="Conversation usage" placement="bottom">
-              <Button
+              <ActionButton
                 minimal
-                icon="dashboard"
+                icon={sectionNavigation ? "lucide:gauge" : "dashboard"}
                 aria-label="Conversation usage"
-                className="app-topbar-icon-btn is-usage"
+                className={sectionNavigation ? "app-shell-usage" : "app-topbar-icon-btn is-usage"}
+                role={inMenu ? "menuitem" : undefined}
                 data-testid="conversation-usage-nav"
                 onClick={() => { window.location.href = conversationUsageHref(conversationId); }}
-              />
+              >{inMenu ? 'Conversation usage' : null}</ActionButton>
             </Tooltip>
           ) : null}
         </div>
-      </div>
-      <div className="app-topbar-right" style={{ position: 'relative' }} ref={userMenuRef}>
+  );
+  const renderProfile = () => (
+    <div className="app-topbar-right" ref={userMenuRef}>
         <Button
+          {...(sectionNavigation ? typographyProps('label') : {})}
           minimal
-          icon="user"
+          icon={sectionNavigation ? undefined : profileMount ? <SharedIcon name="lucide:user"/> : 'user'}
           className="app-user-btn"
+          aria-label={profileMount ? `Account: ${displayName || "Profile"}` : undefined}
+          title={profileMount ? displayName || "Profile" : undefined}
           data-testid="user-menu-btn"
           aria-haspopup="menu"
           aria-expanded={userMenuOpen}
@@ -358,14 +377,19 @@ export default function MenuBar({
             setUserMenuOpen((v) => !v);
           }}
         >
-          {displayName}
+          {sectionNavigation ? <Typography as="span" typeRole="caption" className="app-account-initials">{initials || <SharedIcon name="lucide:user"/>}</Typography> : profileMount ? null : displayName}
         </Button>
         {userMenuOpen ? (
-          <div className="app-user-menu" id="app-user-menu" data-testid="user-menu" role="menu">
+          <div className={`app-user-menu${sectionNavigation ? ' is-document' : ''}`} {...(sectionNavigation ? typographyProps('body') : {})} id="app-user-menu" data-testid="user-menu" role="menu">
             {user?.email ? <div className="app-user-menu-email">{user.email}</div> : null}
+            {compactViewerUtilities ? renderUtilityActions(true) : null}
+            {sectionNavigation && !compactNavigation ? <Button minimal role="menuitem" icon={<SharedIcon name="lucide:menu"/>}
+              {...typographyProps('label')} text={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+              onClick={() => {setUserMenuOpen(false); onToggleSidebar?.();}} className="app-navigation-collapse"/> : null}
             <Button
+              {...(sectionNavigation ? typographyProps('label') : {})}
               minimal
-              icon="cog"
+              icon={sectionNavigation ? <SharedIcon name="lucide:settings"/> : 'cog'}
               text="UI Settings"
               className="app-user-menu-settings"
               data-testid="ui-settings-link"
@@ -374,7 +398,8 @@ export default function MenuBar({
             />
             <Button
               minimal
-              icon="log-out"
+              {...(sectionNavigation ? typographyProps('label') : {})}
+              icon={sectionNavigation ? <SharedIcon name="lucide:log-out"/> : "log-out"}
               text="Logout"
               className="app-user-menu-logout"
               data-testid="logout-btn"
@@ -385,8 +410,31 @@ export default function MenuBar({
         ) : null}
       </div>
 
+  );
+
+  return (
+    <header className={`app-topbar${sectionNavigation ? ' is-document' : ''}${viewerVisible ? ' has-viewer' : ''}${viewerVisible && viewerExpanded ? ' viewer-expanded' : ''}`} inert={inert ? '' : undefined}>
+      <div className="app-topbar-left">
+        {brandMount ? createPortal(<div className="app-brand" title={appName}>
+          {appIconSrc ? <img src={appIconSrc} alt={`${appName} logo`} className="app-brand-logo"/> : <span className="app-brand-mark">{appIconMonogram}</span>}
+          <Typography as="span" typeRole="section" className="app-brand-name">{appName}</Typography>
+        </div>, brandMount) : <div className="app-brand">
+          {appIconSrc ? (
+            <img src={appIconSrc} alt={`${appName} logo`} className="app-brand-logo" />
+          ) : (
+            <span className="app-brand-mark" aria-hidden="true">{appIconMonogram}</span>
+          )}
+          <span className="app-brand-name">{appName}</span>
+        </div>}
+        {!brandMount ? <div className="app-topbar-divider" /> : null}
+        {sectionNavigation ? <ShellLocation title={heading} history={history} onToggleNavigation={onToggleSidebar} navigationRef={sidebarToggleRef}/> : null}
+        {!compactViewerUtilities ? renderUtilityActions() : null}
+      </div>
+      {sectionNavigation ? <div className="app-shell-viewer-header" ref={viewerHeaderRef}/> : null}
+      {profileMount ? createPortal(renderProfile(), profileMount) : renderProfile()}
+
       {open && !selected ? (
-        <div className="app-approval-popover app-approval-popover-left">
+        <div className={sectionNavigation ? "app-request-approval-list" : "app-approval-popover app-approval-popover-left"}>
           {items.length === 0 ? (
             <div className="app-approval-empty">No pending approvals</div>
           ) : (
@@ -401,8 +449,8 @@ export default function MenuBar({
                       setOpen?.(false);
                     }}
                   >
-                    <div className="app-approval-title">{item.title || item.toolName || item.id}</div>
-                    <div className="app-approval-subtitle">{item.status}</div>
+                    <div {...(sectionNavigation ? typographyProps('label') : {})} className="app-approval-title">{item.title || item.toolName || item.id}</div>
+                    <div {...(sectionNavigation ? typographyProps('metadata') : {})} className="app-approval-subtitle">{item.status}</div>
                   </button>
                 ))}
               </div>
@@ -446,7 +494,7 @@ export default function MenuBar({
         </div>
       ) : null}
 
-      <Dialog
+      <RequestReviewDialog appearance={sectionNavigation ? 'document' : undefined} busy={approvalSubmitting}
         isOpen={!!selected}
         onClose={() => {
           if (approvalSubmitting) return;
@@ -456,10 +504,13 @@ export default function MenuBar({
         style={{ width: '70vw', minWidth: '70vw', maxWidth: '95vw' }}
       >
         <div className="app-approval-dialog">
-          <div><strong>Tool:</strong> {selected?.toolName}</div>
+          <div {...(sectionNavigation ? typographyProps('metadata') : {})} className="app-request-review-tool"><strong>Action:</strong> {selected?.toolName}</div>
           {canRenderQueueSchema ? (
-            <div style={{ marginTop: 12 }}>
-              {selectedQueuePlannerMeta ? (
+            <div className={sectionNavigation ? "app-request-review-body" : undefined} style={sectionNavigation ? undefined : { marginTop: 12 }}>
+              {selectedQueuePlannerMeta && sectionNavigation ? <ReviewTable id={`approval-${selected.id}`} title={selectedQueuePlannerMeta.title}
+                rows={queuePlannerRows} columns={selectedQueuePlannerMeta.columns} selectionField={selectedQueuePlannerMeta.selectionField}
+                selectionLabelFields={selectedQueuePlannerMeta.columns.slice(0,2).map(column=>column.key)} disabled={approvalSubmitting} showDownload={false}
+                onRowsChange={next=>{setQueuePlannerRows(next);queueFormValuesRef.current={...queueFormValuesRef.current,[selectedQueuePlannerMeta.field]:next};}}/> : selectedQueuePlannerMeta ? (
                 <div style={{
                   display: 'grid',
                   gap: 14,
@@ -522,6 +573,7 @@ export default function MenuBar({
                 </div>
               ) : null}
               <SchemaBasedForm
+                layout={sectionNavigation ? {kind:'grid',appearance:'field-tracks',columns:1,labels:{mode:'top'}} : undefined}
                 showSubmit={false}
                 schema={selectedQueueSchema}
                 data={selectedQueueDisplayData}
@@ -537,22 +589,22 @@ export default function MenuBar({
               />
             </div>
           ) : (
-            <pre>{JSON.stringify(selected?.arguments || {}, null, 2)}</pre>
+            <pre {...(sectionNavigation ? typographyProps('code') : {})}>{JSON.stringify(selected?.arguments || {}, null, 2)}</pre>
           )}
-          {approvalError ? <p style={{ color: '#ef4444', marginTop: 8 }}>{approvalError}</p> : null}
+          {approvalError ? <p {...(sectionNavigation ? typographyProps('body') : {})} role="alert" className={sectionNavigation ? "app-request-review-error" : undefined} style={sectionNavigation ? undefined : { color: '#ef4444', marginTop: 8 }}>{approvalError}</p> : null}
           <div className="app-approval-dialog-actions">
             {approvalSubmitting ? <Spinner size={16} /> : null}
-            <Button intent="danger" disabled={approvalSubmitting} onClick={() => handleApprovalDecision(selected, 'reject')}>Reject</Button>
-            <Button
+            <ReviewAction appearance={sectionNavigation ? 'document' : undefined} intent="danger" disabled={approvalSubmitting} onClick={() => handleApprovalDecision(selected, 'reject')}>Reject</ReviewAction>
+            <ReviewAction appearance={sectionNavigation ? 'document' : undefined}
               intent="primary"
               disabled={approvalSubmitting}
               onClick={() => handleApprovalDecision(selected, 'approve')}
             >
               {selectedQueueApproval?.acceptLabel || 'Approve'}
-            </Button>
+            </ReviewAction>
           </div>
         </div>
-      </Dialog>
+      </RequestReviewDialog>
     </header>
   );
 }

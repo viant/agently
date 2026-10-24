@@ -477,6 +477,9 @@ export default function NamedLookupInput({
   onKeyDown,
   'data-testid': dataTestId,
   'aria-label': ariaLabel,
+  'aria-describedby': ariaDescribedBy,
+  'data-forge-type': typeRole,
+  appearance,
   ...rest
 }) {
   useSignals();
@@ -1268,7 +1271,7 @@ export default function NamedLookupInput({
     </Menu>
   );
 
-  const editorStyle = {
+  const editorStyle = appearance === 'document' ? {display: 'block', width: '100%', boxSizing: 'border-box', whiteSpace: 'pre-wrap', ...style} : {
     display: 'block',
     width: '100%',
     boxSizing: 'border-box',
@@ -1296,6 +1299,8 @@ export default function NamedLookupInput({
           suppressContentEditableWarning
           role="textbox"
           aria-label={ariaLabel}
+          aria-describedby={ariaDescribedBy}
+          data-forge-type={typeRole}
           aria-multiline="true"
           data-testid={dataTestId || 'chat-composer-input'}
           aria-autocomplete={skillsEnabled ? 'list' : undefined}
@@ -1335,7 +1340,10 @@ export default function NamedLookupInput({
         multiline ? (
           <textarea
             ref={inputRef}
+            rows={appearance === 'document' ? 1 : undefined}
             aria-label={ariaLabel}
+          aria-describedby={ariaDescribedBy}
+          data-forge-type={typeRole}
             value={value}
             placeholder={placeholder}
             disabled={disabled}
@@ -1493,6 +1501,7 @@ export default function NamedLookupInput({
   return (
     <div className="named-lookup-input" style={{ width: '100%' }}>
       <Popover
+          targetProps={appearance === 'document' ? {style: {display: 'block'}} : undefined}
           isOpen={!!activeTrigger}
           disabled={!activeTrigger}
           onClose={() => { if (skillOpen) dismissedSkillValue.current = value; setActiveTrigger(null); }}
