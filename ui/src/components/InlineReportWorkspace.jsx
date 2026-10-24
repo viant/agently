@@ -9,7 +9,7 @@ import WorkspaceOutputState from './WorkspaceOutputState.jsx';
 
 const Report = lazy(() => import('./chat/RichContent.jsx').then(module => ({default: module.HostedInlineReport})));
 
-export default function InlineReportWorkspace({entry, onLifecycle, onReturn}) {
+export default function InlineReportWorkspace({entry, presentation, onLifecycle, onReturn}) {
   const rows = useChatProjection(entry.conversationId);
   const [attempt, setAttempt] = useState(0);
   const [load, setLoad] = useState({});
@@ -30,7 +30,7 @@ export default function InlineReportWorkspace({entry, onLifecycle, onReturn}) {
   const retry = () => setAttempt(value => value + 1);
   if (loading || error) return <WorkspaceOutputState loading={loading} error={error} onRetry={retry} onReturn={onReturn}/>;
   return <Suspense fallback={<WorkspaceOutputState loading/>}>
-    <Report onLifecycle={onLifecycle} onRetry={retry} onReturn={onReturn} assembly={normalizeCanonicalReportAssembly(selected.assembly)} diagnostics={selected.renderedContent.diagnostics || []}
+    <Report onLifecycle={onLifecycle} onRetry={retry} onReturn={onReturn} assembly={normalizeCanonicalReportAssembly(selected.assembly, presentation)} diagnostics={selected.renderedContent.diagnostics || []}
       conversationId={entry.conversationId} messageId={selected.messageId} context={getWindowContext(MAIN_CHAT_WINDOW_ID)}/>
   </Suspense>;
 }

@@ -26,10 +26,13 @@ export function toolFeedWorkspaceDescriptor(feed) {
   }};
 }
 
-export function normalizeCanonicalReportAssembly(assembly = {}) {
+export function normalizeCanonicalReportAssembly(assembly = {}, presentation) {
   let source = assembly.source;
   if (typeof source === 'string') {
     try { source = JSON.parse(source); } catch (_) { source = null; }
+  }
+  if (presentation === 'document' && source && typeof source === 'object' && !Array.isArray(source) && !source.viewer?.appearance) {
+    source = {...source, viewer: {...source.viewer, appearance: 'document'}};
   }
   return {...assembly, authoritative: true,
     source: source && typeof source === 'object' && !Array.isArray(source) ? source : {},

@@ -277,7 +277,7 @@ export default function ConversationWorkspaceSurface({
               getPresentation={entry=>({label:resolveWorkspaceNavigation(entry).label,kind:entry.workspaceObject?.kind || 'resource'})}
               renderContent={entry=>renderWorkspace ? renderWorkspace(entry) : entry.workspaceObject?.content?.renderer==='toolFeed'?<ToolFeedDetail key={`${entry.windowId}:${entry.workspaceObject?.lifecycle?.attempt || 0}`} variant="rail" placement="workspace"
                 hostedFeedId={entry.workspaceObject.content.feedId} conversationId={entry.conversationId} onReturn={onBackToConversation} onLifecycle={state=>onWorkspaceLifecycle?.(entry.windowId,state)}/>
-                :entry.workspaceObject?.content?.renderer==='inlineReport'?<InlineReportWorkspace key={`${entry.windowId}:${entry.workspaceObject?.lifecycle?.attempt || 0}`} entry={entry} onReturn={onBackToConversation} onLifecycle={state=>onWorkspaceLifecycle?.(entry.windowId,state)}/>
+                :entry.workspaceObject?.content?.renderer==='inlineReport'?<InlineReportWorkspace presentation={presentation} key={`${entry.windowId}:${entry.workspaceObject?.lifecycle?.attempt || 0}`} entry={entry} onReturn={onBackToConversation} onLifecycle={state=>onWorkspaceLifecycle?.(entry.windowId,state)}/>
                 :entry.mcpUI?.uri?<AppRenderer uri={entry.mcpUI.uri} title={entry.mcpUI.title || navigation.label} conversationId={entry.conversationId || ''} hosted onLifecycle={state=>onWorkspaceLifecycle?.(entry.windowId,state)}/>
                 :<WindowContent window={entry} isInTab/>}/>
 

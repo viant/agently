@@ -1603,7 +1603,7 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
 export function HostedInlineReport(props) {
   return (
     <ForgeRenderErrorBoundary onError={()=>props.onLifecycle?.('failed')} fallback={props.onLifecycle ? <WorkspaceOutputState error={{code:'render'}} onRetry={props.onRetry} onReturn={props.onReturn}/> : undefined}>
-      {props.assembly?.source?.viewer?.appearance === 'document' ? <ForgeThemeBoundary windowKey={`inline-report-${props.assembly?.scope || 'message'}-${props.assembly?.id || 'report'}`}><ForgeReportFenceInner {...props}/></ForgeThemeBoundary> : <ForgeReportFenceInner {...props}/>}
+      {props.assembly?.source?.viewer?.appearance === 'document' ? <ForgeThemeBoundary presentation="document" windowKey={`inline-report-${props.assembly?.scope || 'message'}-${props.assembly?.id || 'report'}`}><ForgeReportFenceInner {...props}/></ForgeThemeBoundary> : <ForgeReportFenceInner {...props}/>}
     </ForgeRenderErrorBoundary>
   );
 }
