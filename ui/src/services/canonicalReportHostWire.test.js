@@ -26,6 +26,9 @@ it('canonical host Run/export/download uses real SDK routes, exact selected args
   expect(Array.from(artifact.bytes)).toEqual([97,98,99]);
 });
 it('canonical host preserves denied SDK call without a successful result', async()=>{
-  vi.stubGlobal('fetch',async()=>new Response(JSON.stringify({error:'source drift denied'}),{status:403,headers:{'content-type':'application/json'}}));
+  const fetchImpl=vi.fn(async()=>new Response(JSON.stringify({error:'producer denied the selected report'}),{status:403,headers:{'content-type':'application/json'}}));
+  vi.stubGlobal('fetch',fetchImpl);
   await expect(runReport({resource:{uri:'report://owned/widgets'}})).rejects.toMatchObject({status:403});
+  expect(fetchImpl).toHaveBeenCalledOnce();
+  expect(fetchImpl.mock.calls[0][0]).toBe('http://owned/v1/tools/reporting%3Arun_report/execute');
 });

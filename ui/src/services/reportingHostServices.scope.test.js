@@ -35,4 +35,6 @@ it('retains exact server selection provenance and original parameters while leav
 it('preserves the owning datasource error instead of hiding it behind a report message',async()=>{
  fetch.mockResolvedValueOnce(new Response(JSON.stringify({error:'owning datasource denied the selected scope'}),{status:403,headers:{'Content-Type':'application/json'}}));
  await expect(fetchReportBuilderPreviewByRef({dataSourceRef:'metrics',parameters:{},builderContext:{metadata:{resource,resourceTarget:target}}})).rejects.toThrow('owning datasource denied the selected scope');
+ expect(fetch).toHaveBeenCalledOnce();
+ expect(fetch.mock.calls[0][0]).toBe('/v1/api/datasources/metrics/fetch');
 });
