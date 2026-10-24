@@ -48,3 +48,20 @@ it('ignores a late response after selecting another report', async () => {
   resolveFirst({resource: pin});
   await waitFor(() => expect(runtime.mock.calls.at(-1)[0].container.parameters.reportResource.uri).toBe('report://ar/geo'));
 });
+
+it('renders declared inputs, preserves empty/zero/false values, and resets edits on parent parameter changes', async () => {
+  services.reportStore.getReport.mockResolvedValue({resource: pin, resourceDefinition: {builderDefinition: {reportBuilder: {predicates: [
+    {id: 'entityId', label: 'Entity', kind: 'number', paramPath: 'filters.entityId'},
+    {id: 'active', label: 'Active', kind: 'boolean', paramPath: 'filters.active'},
+  ]}}}});
+  const initial = {...entry, parameters: {entityId: 9, active: true}};
+  const view = render(<ReportWindow window={initial}/>);
+  fireEvent.change(await screen.findByLabelText('Entity'), {target: {value: '0'}});
+  fireEvent.click(screen.getByLabelText('Active'));
+  expect(runtime.mock.calls.at(-1)[0].container.parameters.prefill).toEqual({entityId: 0, active: false});
+  fireEvent.change(screen.getByLabelText('Entity'), {target: {value: ''}});
+  expect(runtime.mock.calls.at(-1)[0].container.parameters.prefill.entityId).toBe('');
+  view.rerender(<ReportWindow window={{...initial, parameters: {entityId: 4, active: false}}}/>);
+  expect(screen.getByLabelText('Entity').value).toBe('4');
+  expect(runtime.mock.calls.at(-1)[0].container.parameters.prefill).toEqual({entityId: 4, active: false});
+});
