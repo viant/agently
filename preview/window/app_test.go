@@ -289,3 +289,73 @@ view:
 		t.Fatal("host serialization dropped the semantic role")
 	}
 }
+
+func TestChartPresentationSurvivesHostLoading(t *testing.T) {
+	a := example(t)
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.root = directory
+	a.config.MetadataRoot = directory
+	a.workspace.Windows["chart-foundation"] = Window{File: "chart-foundation.yaml"}
+	source := `namespace: Example
+window: {title: Chart foundation}
+view:
+  content:
+    id: trends
+    kind: dashboard.chart
+    chart:
+      type: line
+      appearance: document
+      layout: small-multiples
+      xAxis: {dataKey: date}
+      series: {values: [{value: amount}]}
+`
+	if err = os.WriteFile(filepath.Join(directory, "chart-foundation.yaml"), []byte(source), 0600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := a.LoadWindow(context.Background(), "chart-foundation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"appearance":"document"`, `"layout":"small-multiples"`, `"dataKey":"date"`} {
+		if !strings.Contains(string(encoded), field) {
+			t.Fatalf("host loader dropped chart contract %s", field)
+		}
+	}
+}
+
+func TestFoundationMetadataSurvivesHostLoadingDocumentChat(t *testing.T) {
+	a := example(t)
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.root, a.config.MetadataRoot = directory, directory
+	a.workspace.Windows["chat-foundation"] = Window{File: "chat.yaml"}
+	source := "namespace: Example\nview:\n  content:\n    chat: {appearance: document, commandCenter: true, showUpload: true, dataSourceRef: messages}\n"
+	if err := os.WriteFile(filepath.Join(directory, "chat.yaml"), []byte(source), 0600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := a.LoadWindow(context.Background(), "chat-foundation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.View.Content.Chat == nil || loaded.View.Content.Chat.Appearance != "document" || !loaded.View.Content.Chat.CommandCenter || !loaded.View.Content.Chat.ShowUpload {
+		t.Fatalf("lost chat appearance or behavior: %#v", loaded.View.Content.Chat)
+	}
+	for _, name := range []string{"new", "conversations"} {
+		content, err := os.ReadFile(filepath.Join("..", "..", "metadata", "window", "chat", name, "web", "main.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(content), "appearance: document") {
+			t.Fatalf("native web chat %s does not select the shared appearance", name)
+		}
+	}
+}

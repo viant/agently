@@ -60,3 +60,21 @@ it('handles corrupt and unavailable preference storage', () => {
     activeSurface: 'workspace', hasSurfaceSelection: true}))).not.toThrow();
   expect(readWorkspaceSession(blocked, 'conversation-1').activeSurface).toBe('workspace');
 });
+
+
+it('restores only open/closed identities after reload and reauthorizes content separately', () => {
+  const local = storage();
+  updateWorkspaceSession(local, 'conversation-1', state => ({...mergeWorkspaceSessionWindows(state, [entry('one'), entry('two')]), closedWindowIds: ['one'], openWindowIds: ['two']}));
+  const reloaded = readWorkspaceSession({...local}, 'conversation-1');
+  expect(reloaded.closedWindowIds).toEqual(['one']); expect(reloaded.openWindowIds).toEqual(['two']);
+  expect(reloaded.windows).toEqual([]);
+  expect(local.getItem('agently.workspacePreferences:conversation-1')).not.toContain('workspaceObject');
+});
+it('replaces a reset report while rejecting late patches from its older reset', () => {
+ const initial=readWorkspaceSession(storage(),'conversation-1');
+ const report=(revision,resetVersion)=>({...entry('report',revision),workspaceObject:{...entry('report',revision).workspaceObject,content:{renderer:'inlineReport',resetVersion}}});
+ const first=mergeWorkspaceSessionWindows(initial,[report(8,0)]);
+ const reset=mergeWorkspaceSessionWindows(first,[report(1,1)]);
+ expect(reset.windows[0].workspaceObject.revision).toBe(1);
+ expect(mergeWorkspaceSessionWindows(reset,[report(9,0)]).windows[0].workspaceObject.content.resetVersion).toBe(1);
+});

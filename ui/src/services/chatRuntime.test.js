@@ -284,9 +284,12 @@ describe('normalizeMetaResponse', () => {
 });
 
 describe('resolveStarterTasks', () => {
+  it('preserves workspace-authored outcome text', () => {
+    expect(resolveStarterTasks({selectedAgent:'example',agentInfos:[{id:'example',starterTasks:[{id:'a',title:'Example',prompt:'Review',resultLabel:'Inline overview'}]}]})[0].resultLabel).toBe('Inline overview');
+  });
   it('preserves an explicit task agent rather than the publishing agent', () => {
     const tasks = resolveStarterTasks({ selectedAgent: 'chatter', agentInfos: [
-      { id: 'chatter', name: 'Chatter', starterTasks: [{ id: 'csv', title: 'Analyze CSV', prompt: 'Analyze attached CSV.', agentId: 'coder' }] }
+      { id: 'chatter', name: 'Chatter', starterTasks: [{ id: 'csv', title: 'Analyze CSV', prompt: 'Analyze attached CSV.', resultLabel: 'Inline overview', agentId: 'coder' }] }
     ] });
     expect(tasks[0].agentId).toBe('coder');
   });

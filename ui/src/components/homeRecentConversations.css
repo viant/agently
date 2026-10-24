@@ -1,0 +1,12 @@
+/* Shared chat landing navigation; workspaces own all visual values. */
+.app-home-recent { margin-top: 38px; }
+.app-home-recent-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 10px; }
+.app-home-recent-heading h2 { margin: 0; }
+.app-home-recent-heading > span, .app-home-recent small, .app-home-recent-note { color: var(--forge-text-muted, var(--agently-theme-text-muted)); }
+.app-home-recent a { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding-block: 12px; border-bottom: var(--forge-border-width, 1px) solid var(--forge-border-color, var(--agently-theme-border)); color: var(--forge-text-secondary, var(--agently-theme-text-secondary)); text-decoration: none; }
+.app-home-recent a:hover { color: var(--forge-interaction-color, var(--agently-theme-interaction)); }
+.app-home-recent a > span { min-width: 0; overflow-wrap: anywhere; }
+.app-home-recent small { white-space: nowrap; }
+.app-home-recent a:focus-visible { outline: var(--forge-focus-width, 2px) solid var(--forge-text-muted); outline-offset: var(--forge-focus-offset, 2px); }
+.app-home-recent-note { padding-top: 28px; margin: 0; }
+@media (max-width: 760px) { .app-home-recent a { align-items: flex-start; gap: 12px; } }

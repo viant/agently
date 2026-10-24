@@ -38,6 +38,7 @@ describe('TurnProgressStatus helpers', () => {
   });
 
   it('selects the latest active iteration only', () => {
+    expect(activeIteration([{kind:'iteration',turnId:'active',lifecycle:'running'},{kind:'iteration',turnId:'queued',lifecycle:'pending'}])?.turnId).toBe('active');
     expect(activeIteration([
       { kind: 'iteration', turnId: 'done', lifecycle: 'completed' },
       { kind: 'iteration', turnId: 'active', lifecycle: 'running' },

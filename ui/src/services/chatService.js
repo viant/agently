@@ -1,3 +1,4 @@
+import { resolveStarterPromptMacros } from '../components/chat/starterPromptMacros.js';
 import { buildWorkspaceQueryContext } from './workspaceQueryContext.js';
 import React from 'react';
 import { publishUIBridgeSnapshotNow, waitForWindowStateAdoption } from 'forge/core';
@@ -72,6 +73,7 @@ import { publishWorkspaceMetadataSnapshot, getWorkspaceMetadataSnapshot } from '
 import { connectForgeUIActionsToCallbacksOrChat } from './forgeUIActions';
 import { openCodeDiffDialog, openFileViewDialog, updateCodeDiffDialog, updateFileViewDialog } from '../utils/dialogBus';
 import { derivePreviousTextFromUnifiedDiff } from 'forge/utils/unifiedDiff';
+import HomeRecentConversations from '../components/HomeRecentConversations.jsx';
 import ChatFeedFromChatStore from '../components/chat/ChatFeedFromChatStore.jsx';
 import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore, onSSE as applyEventToChatStore, getActiveTurnId } from './chatStore.js';
 import { conversationIDFromPath } from './chatRuntime';
@@ -1211,10 +1213,13 @@ export function resolveComposerProps({ context, container, metaCtx: providedMeta
     conversationId: resolveFeedConversationId(context, convForm?.id),
     starterTasks: Array.isArray(metaForm?.starterTasks) ? metaForm.starterTasks : [],
     starterTaskCategories: Array.isArray(metaForm?.starterTaskCategories) ? metaForm.starterTaskCategories : [],
+    assistantName: agentOptions.find(option => option.value === currentAgent)?.label || '',
+    renderHomeRecent: () => React.createElement(HomeRecentConversations),
     inputComponent: NamedLookupInput,
     inputProps: {
       context,
       contextKind: 'chat-composer',
+      ...(getWorkspaceMetadataSnapshot()?.composer?.placeholder ? {placeholder: getWorkspaceMetadataSnapshot().composer.placeholder} : {}),
       contextID: effectiveLookupAgent,
       skillsEnabled: true,
       skillAgentID: currentAgent || effectiveLookupAgent,
@@ -1920,6 +1925,7 @@ export async function executeDeclaredTool(props = {}) {
 }
 
 export const chatService = {
+  resolveStarterPrompt: prompt => resolveStarterPromptMacros(prompt, new Date(), {dateTokens: true}),
   composerPresentation,
   resolveComposerProps,
   renderFeed,

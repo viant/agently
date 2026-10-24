@@ -62,6 +62,10 @@ vi.mock('../viant-logo.png', () => ({
   default: 'logo.png'
 }));
 
+// Load the renderer before timed assertions; a cold module graph is setup.
+const {resolveLayoutWindowOptions} = await import('./WorkspaceSidebar.jsx');
+const {openWindow} = await import('./menuBarHelpers.js');
+
 describe('MenuBar window reuse', () => {
   beforeEach(() => {
     activeWindows.value = [];
@@ -73,8 +77,6 @@ describe('MenuBar window reuse', () => {
   });
 
   it('preserves discovered navigation ownership and selectors through the metadata request', async () => {
-    const { resolveLayoutWindowOptions } = await import('./WorkspaceSidebar.jsx');
-    const { openWindow } = await import('./menuBarHelpers.js');
     const action = {resourceUri: 'window://reports/builder', providerIdentity: 'report-owner'};
     const resourceRef = Object.freeze({uri: action.resourceUri, revision: '5'});
     const options = {...resolveLayoutWindowOptions(action, 'conversation-1'), resourceRef};

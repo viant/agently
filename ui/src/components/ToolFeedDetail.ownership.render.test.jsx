@@ -36,3 +36,15 @@ it('the real mounted owned feed exposes only its own declared conversation state
  await act(async()=>root.unmount());root=null;expect(getWindowContext(windowId)).toBeUndefined();
  await expect(runUICommand({method:'ui.feed.get',params:{feedId:'media-plan',conversationId,dataSourceRefs:['editDraft']}})).rejects.toThrow('active conversation feed');
 });
+
+it('retains a document root when its only child has no layout',async()=>{
+ globalThis.IS_REACT_ACT_ENVIRONMENT=true;vi.stubGlobal('ResizeObserver',class{observe(){}unobserve(){}disconnect(){}});
+ const conversationId='document-root-conversation';
+ updateFeedData('example-document',{data:{output:{state:'sample'}},dataSources:{sample:{source:'output'}},ui:{renderMode:'forge',appearance:'document',containers:[{id:'identity',dataSourceRef:'sample',items:[{id:'document-title',type:'label',value:'Example document',properties:{as:'h1',typographyRole:'title'}}]}]}},conversationId);
+ applyFeedEvent({type:'tool_feed_active',feedId:'example-document',conversationId,turnId:'document-turn',feedTarget:'inline',feedItemCount:1});
+ element=document.createElement('div');document.body.append(element);root=createRoot(element);
+ await act(async()=>root.render(<SettingProvider><ToolFeedDetail conversationId={conversationId} turnId="document-turn"/></SettingProvider>));await flush();
+ expect(element.querySelector('.app-tool-feed-detail-forge')?.dataset.forgeAppearance).toBe('document');
+ expect(element.querySelectorAll('.forge-container[data-forge-appearance="document"]')).toHaveLength(1);
+ expect(element.querySelector('[data-forge-container-id="identity"]')).not.toBeNull();
+});

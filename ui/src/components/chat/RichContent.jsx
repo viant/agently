@@ -1,3 +1,6 @@
+import WorkspaceOutputState from '../WorkspaceOutputState.jsx';
+import {normalizeCanonicalReportAssembly, inlineReportWorkspaceDescriptor} from '../../services/workspaceAdapters.js';
+import {ConversationViewContext} from '../../context/ConversationViewContext.js';
 // RichContent – renders assistant message content with syntax-highlighted code,
 // Blueprint tables, Recharts charts, Mermaid diagrams, and inline markdown.
 // Parsing and classification logic comes from the SDK's pluggable richContent module.
@@ -38,8 +41,8 @@ import {
   describeFence,
 } from 'agently-core-ui-sdk';
 import { getFeedEntityAliasVersion, rewriteFeedEntityAliases, subscribeFeedEntityAliases } from '../../services/feedEntityAliases';
-import { DashboardBlock, ReportRuntime } from 'forge/components';
-import { buildDraftReportExportRequest, compileInlineReport, materializeInlineReport, applyInlineReportFilterValues } from 'forge/reporting';
+import { DashboardBlock, ReportRuntime, ForgeThemeBoundary, Icon as ForgeIcon, Button as ForgeButton, ReviewTable } from 'forge/components';
+import { buildDraftReportExportRequest, compileInlineReport, materializeInlineReport, applyInlineReportTableSelections, applyInlineReportFilterValues } from 'forge/reporting';
 import {
   buildStandaloneDashboardDocument,
   captureDashboardChartSvgs,
@@ -52,7 +55,6 @@ import {
   applyForgeDataBlocks,
   assembleForgeReportEvents,
   createPlannerTableActionPayload,
-  createPlannerTableSubmitPayload,
   materializeForgeData,
   parseForgeFenceBody,
   rowsToCsv,
@@ -95,16 +97,6 @@ function isForgeReportFence(fence = {}) {
   return String(fence?.lang || '').trim().toLowerCase() === FORGE_REPORT_FENCE;
 }
 
-function canonicalReportSource(value) {
-  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
-  if (typeof value !== 'string' || !value.trim()) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch (_) {
-    return {};
-  }
-}
 
 function hasTrailingOpenForgeFence(content = '', lang = '') {
   const source = String(content || '');
@@ -1012,23 +1004,6 @@ function PlannerTableBlock({ ui, block, dataStore }) {
   }, [originalRows]);
 
   const selectionField = String(block?.selection?.field || 'selected').trim() || 'selected';
-  const plannerKindLabel = String(block?.kind || '').trim() === 'planner.table' ? 'planner' : String(block?.kind || '').trim();
-  const changedCount = React.useMemo(
-    () => rows.filter((row, index) => Boolean(row?.[selectionField]) !== Boolean(originalRows[index]?.[selectionField])).length,
-    [rows, originalRows, selectionField]
-  );
-
-  const payload = React.useMemo(
-    () => createPlannerTableSubmitPayload(ui, block, rows, originalRows),
-    [ui, block, rows, originalRows]
-  );
-
-  const toggleRow = (rowIndex) => {
-    setRows((current) => current.map((row, index) => (
-      index === rowIndex ? { ...row, [selectionField]: !row?.[selectionField] } : row
-    )));
-  };
-
   const dispatchAction = (action = null) => {
     const actionPayload = createPlannerTableActionPayload(ui, block, action, rows, originalRows);
     const callback = actionPayload.callback || {};
@@ -1058,155 +1033,16 @@ function PlannerTableBlock({ ui, block, dataStore }) {
     URL.revokeObjectURL(url);
   };
 
-  return (
-    <div style={{
-      display: 'grid',
-      gap: 14,
-      border: '1px solid #d8e1ee',
-      borderRadius: 18,
-      background: '#ffffff',
-      padding: '18px 20px',
-      boxShadow: '0 18px 38px rgba(17, 29, 53, 0.08)',
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start' }}>
-        <div>
-          <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.2 }}>{block?.title || 'Planner table'}</div>
-          {block?.subtitle ? <div style={{ marginTop: 6, color: 'var(--dark-gray3)', fontSize: 13 }}>{block.subtitle}</div> : null}
-        </div>
-        <div style={{
-          borderRadius: 999,
-          padding: '6px 10px',
-          background: '#eef4ff',
-          color: '#2d67c7',
-          fontSize: 11,
-          fontWeight: 700,
-          textTransform: 'uppercase',
-          letterSpacing: '0.04em',
-        }}>{plannerKindLabel}</div>
-      </div>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th style={plannerHeaderStyle}>Review</th>
-              {(Array.isArray(block?.columns) ? block.columns : []).map((column) => (
-                <th key={column?.key || column?.label} style={plannerHeaderStyle}>{column?.label || column?.key}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, rowIndex) => (
-              <tr key={String(row?.id || row?.site_id || rowIndex)}>
-                <td style={plannerCellStyle}>
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
-                    <input
-                      type="checkbox"
-                      data-site-toggle={rowIndex}
-                      checked={Boolean(row?.[selectionField])}
-                      onChange={() => toggleRow(rowIndex)}
-                    />
-                    <span>{row?.[selectionField] ? 'Keep' : 'Drop'}</span>
-                  </label>
-                </td>
-                {(Array.isArray(block?.columns) ? block.columns : []).map((column) => (
-                  <td key={`${column?.key || column?.label}-${rowIndex}`} style={plannerCellStyle}>
-                    {String(row?.[column?.key] ?? '')}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 13, color: 'var(--dark-gray3)' }}>
-          {changedCount > 0 ? `${changedCount} row${changedCount === 1 ? '' : 's'} changed` : 'No changes yet'}
-        </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            onClick={downloadCsv}
-            data-forge-download={String(block?.id || '').trim() || 'planner-table'}
-            style={{
-              border: '1px solid #d8e1ee',
-              borderRadius: 999,
-              padding: '12px 18px',
-              fontSize: 14,
-              fontWeight: 700,
-              cursor: 'pointer',
-              background: '#ffffff',
-              color: '#2d67c7',
-            }}
-          >
-            Download CSV
-          </button>
-          {Array.isArray(block?.actions) && block.actions.length > 0 ? (
-            <>
-              {block.actions[1] ? (
-                <button
-                  type="button"
-                  onClick={handlePreview}
-                  id={`preview-${String(block?.id || '').trim() || 'planner-table'}`}
-                  data-forge-preview={String(block?.id || '').trim() || 'planner-table'}
-                  style={{
-                    border: '1px solid #d8e1ee',
-                    borderRadius: 999,
-                    padding: '12px 18px',
-                    fontSize: 14,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    opacity: 1,
-                    background: '#ffffff',
-                    color: '#2d67c7',
-                  }}
-                >
-                  {block.actions[1]?.label || 'Preview'}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={handleSubmit}
-                id={`submit-${String(block?.id || '').trim() || 'planner-table'}`}
-                data-forge-submit={String(block?.id || '').trim() || 'planner-table'}
-                style={{
-                  border: 'none',
-                  borderRadius: 999,
-                  padding: '12px 18px',
-                  fontSize: 14,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  opacity: 1,
-                  background: '#2d67c7',
-                  color: '#ffffff',
-                  boxShadow: '0 8px 18px rgba(45, 103, 199, 0.24)',
-                }}
-              >
-                {block.actions[0]?.label || 'Submit'}
-              </button>
-            </>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
+  return <ReviewTable id={String(block?.id || 'planner-table')} title={block?.title || 'Planner table'}
+    description={block?.subtitle} rows={rows} originalRows={originalRows} columns={block?.columns || []}
+    selectionField={selectionField} selectionLabelFields={block?.selection?.labelFields} onRowsChange={setRows} onDownload={downloadCsv}
+    actions={Array.isArray(block?.actions) && block.actions.length ? <>
+      {block.actions[1] ? <ForgeButton variant="secondary" size="compact" onClick={handlePreview}
+        id={`preview-${block.id}`} data-forge-preview={block.id}>{block.actions[1].label || 'Preview'}</ForgeButton> : null}
+      <ForgeButton variant="primary" size="compact" onClick={handleSubmit} id={`submit-${block.id}`}
+        data-forge-submit={block.id}>{block.actions[0]?.label || 'Submit'}</ForgeButton>
+    </> : null}/>;
 }
-
-const plannerHeaderStyle = {
-  textAlign: 'left',
-  color: '#6b7688',
-  fontSize: 12,
-  letterSpacing: '0.06em',
-  textTransform: 'uppercase',
-  padding: '0 0 10px',
-  borderBottom: '1px solid #d8e1ee',
-};
-
-const plannerCellStyle = {
-  padding: '14px 0',
-  borderBottom: '1px solid #eef2f8',
-  verticalAlign: 'top',
-  fontSize: 14,
-};
 
 // ForgeRenderErrorBoundary isolates a forge-ui fence render failure so a single
 // malformed block can't crash the whole chat transcript. It shows a friendly
@@ -1222,9 +1058,11 @@ class ForgeRenderErrorBoundary extends React.Component {
   componentDidCatch(error, info) {
     // eslint-disable-next-line no-console
     console.warn('forge-ui render failed', error?.message || error, info);
+    this.props.onError?.(error);
   }
   render() {
     if (this.state.error) {
+      if (this.props.fallback) return this.props.fallback;
       const msg = this.state.error?.message || String(this.state.error);
       return (
         <div
@@ -1518,11 +1356,15 @@ export function createInlineReportArtifactDownload(artifact = {}, {
   };
 }
 
-function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = '', messageId = '', context = null }) {
+function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = '', messageId = '', context = null, onLifecycle, onRetry, onReturn }) {
 
   const [lifecycleState, setLifecycleState] = React.useState({ action: '', message: '', error: '' });
   const [artifactDownload, setArtifactDownload] = React.useState(null);
   React.useEffect(() => () => artifactDownload?.revoke?.(), [artifactDownload]);
+  // Parent history refreshes may recreate the same assembly. Reset review state
+  // only when the report content or its authored revision actually changes.
+  const compilationKey = JSON.stringify({id:assembly?.id,scope:assembly?.scope,sequence:assembly?.sequence,
+    grammar:assembly?.grammar,source:assembly?.source,dataSources:assembly?.dataSources});
   const compiledSource = React.useMemo(() => {
     const materializedDataSources = Object.fromEntries(Object.entries(assembly?.dataSources || {}).map(([id, source]) => {
       const materialized = materializeForgeData(source);
@@ -1534,7 +1376,7 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
       source: assembly?.source || {},
       dataSources: materializedDataSources,
     });
-  }, [assembly]);
+  }, [compilationKey]);
 	const [materialization, setMaterialization] = React.useState({
 		compiled: compiledSource,
 		loading: Array.isArray(compiledSource?.workspaceDatasetRequests) && compiledSource.workspaceDatasetRequests.length > 0,
@@ -1555,17 +1397,24 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
 		}).then((compiled) => {
 			if (active) setMaterialization({ compiled, loading: false, error: '' });
 		}).catch((error) => {
-			if (active) setMaterialization({ compiled: compiledSource, loading: false, error: error?.message || 'Live report data could not be loaded.' });
+			if (active) setMaterialization({ compiled: compiledSource, loading: false, error });
 		});
 		return () => { active = false; };
 	}, [compiledSource]);
 	const [filterValues, setFilterValues] = React.useState({});
   React.useEffect(() => setFilterValues({}), [assembly?.scope, assembly?.id]);
   React.useEffect(() => setArtifactDownload(null), [filterValues]);
+  const reviewSource = materialization.compiled || compiledSource;
+  const [reviewState, setReviewState] = React.useState(null);
+  const reviewSelections = reviewState?.source === reviewSource ? reviewState.selections : {};
+  React.useEffect(() => setArtifactDownload(null), [reviewState]);
   const compiled = React.useMemo(() => applyInlineReportFilterValues(
-    materialization.compiled || compiledSource, filterValues,
-  ), [materialization.compiled, compiledSource, filterValues]);
+    applyInlineReportTableSelections(reviewSource, reviewSelections), filterValues,
+  ), [reviewSource, reviewState, filterValues]);
   const runtimeHandlers = {
+    onTableReviewChange: ({blockId, selection}) => setReviewState(current => ({source:reviewSource,
+      selections:{...(current?.source === reviewSource ? current.selections : {}),[blockId]:selection},
+    })),
     toggleScopeParamOption: (param, value) => setFilterValues((current) => {
       const previous = Object.prototype.hasOwnProperty.call(current, param.id)
         ? current[param.id] : param.value;
@@ -1605,6 +1454,7 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
     && reportDiagnostics.length === 0
 		&& !materialization.loading
 		&& !materialization.error;
+  React.useEffect(() => {onLifecycle?.(materialization.loading ? 'opening' : lifecycleReady ? 'ready' : 'failed');}, [materialization.loading, lifecycleReady, onLifecycle]);
   const exportRequest = React.useMemo(() => buildDraftReportExportRequest({
     reportDocument: compiled?.reportDocument,
     reportSpec: compiled?.reportSpec,
@@ -1669,18 +1519,58 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
     }
   };
 
+  const documentPresentation = compiled.reportDocument?.viewer?.appearance === 'document';
+  const ExportButton = documentPresentation ? ForgeButton : Button;
+  const reportActions = lifecycleReady ? (
+          <div className={documentPresentation ? "forge-report-document-actions" : "app-rich-inline-report__actions"}>
+            {artifactDownload?.url ? (
+              <a
+                className={documentPresentation ? "forge-button forge-report-document-download" : "app-rich-inline-report__export-button app-rich-inline-report__download-link"}
+                data-forge-variant={documentPresentation ? "secondary" : undefined}
+                data-forge-type={documentPresentation ? "label" : undefined}
+                href={artifactDownload.url}
+                download={artifactDownload.filename}
+                title={`Download ${artifactDownload.filename}`}
+              >
+                {documentPresentation ? <ForgeIcon name="lucide:file-down"/> : <span className="bp6-icon bp6-icon-cloud-download" aria-hidden="true"/>}
+                Download PDF
+              </a>
+            ) : (
+              <ExportButton
+                className={documentPresentation ? undefined : "app-rich-inline-report__export-button"}
+                variant={documentPresentation ? "secondary" : undefined}
+                intent="success"
+                icon={documentPresentation ? "lucide:file-down" : "download"}
+                loading={lifecycleState.action === 'export'}
+                disabled={!exportReady || !!lifecycleState.action}
+                title={!exportReady ? 'Resolve the report validation issues before exporting.' : 'Export this report as PDF.'}
+                onClick={handleExport}
+              >
+                <span>Export PDF</span>
+              </ExportButton>
+            )}
+            {!exportReady ? (
+              <span role="alert" data-forge-type={documentPresentation ? "metadata" : undefined} data-forge-status="danger" className="forge-report-document-notice" style={documentPresentation ? undefined : { color: "#b42318", fontSize: 12 }}>Resolve the report validation issues before exporting.</span>
+            ) : null}
+            {lifecycleState.message ? <span data-forge-type={documentPresentation ? "metadata" : undefined} data-forge-status="success" className="forge-report-document-notice" style={documentPresentation ? undefined : { color: "#32704f", fontSize: 12 }}>{lifecycleState.message}</span> : null}
+            {lifecycleState.error ? <span role="alert" data-forge-type={documentPresentation ? "metadata" : undefined} data-forge-status="danger" className="forge-report-document-notice" style={documentPresentation ? undefined : { color: "#b42318", fontSize: 12 }}>{lifecycleState.error}</span> : null}
+          </div>
+        ) : null;
+
+  if (onLifecycle && materialization.error) return <WorkspaceOutputState error={materialization.error} onRetry={onRetry} onReturn={onReturn}/>;
   return (
       <section
-        className="app-rich-inline-report"
+        className={`app-rich-inline-report${documentPresentation ? " forge-container" : ""}`}
+        data-forge-appearance={documentPresentation ? "document" : undefined}
         data-forge-report-id={assembly?.id || ''}
         data-forge-report-status={assembly?.status || ''}
-        style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+        style={documentPresentation ? undefined : { display: 'flex', flexDirection: 'column', gap: 12 }}
       >
-        {compiled.reportDocument?.title || assembly?.source?.title ? (
+        {!documentPresentation && (compiled.reportDocument?.title || assembly?.source?.title) ? (
           <h3 className="app-rich-inline-report__title" style={{ margin: 0 }}>{compiled.reportDocument?.title || assembly?.source?.title}</h3>
         ) : null}
         {reportDiagnostics.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '8px 10px', border: '1px solid #d8e1ee', borderRadius: 10, background: '#f7faff', fontSize: 12, color: '#48607a' }}>
+          <div data-forge-type={documentPresentation ? 'metadata' : undefined} data-forge-status='warning' className='forge-report-document-notice' style={documentPresentation ? undefined : { display: 'flex', flexDirection: 'column', gap: 4, padding: '8px 10px', border: '1px solid #d8e1ee', borderRadius: 10, background: '#f7faff', fontSize: 12, color: '#48607a' }}>
             <strong>Report assembled with diagnostics</strong>
             {reportDiagnostics.slice(0, 3).map((entry, index) => (
               <span key={`${entry.code || 'diagnostic'}-${index}`}>{entry.message || entry.code}</span>
@@ -1688,45 +1578,15 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
           </div>
         ) : null}
 				{materialization.loading ? (
-					<div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#48607a', fontSize: 12 }}>
+					<div role="status" data-forge-type={documentPresentation ? 'metadata' : undefined} className='forge-report-document-notice' style={documentPresentation ? undefined : { display: 'flex', alignItems: 'center', gap: 8, color: '#48607a', fontSize: 12 }}>
 						<Spinner size={14} /> Loading live report data…
 					</div>
 				) : null}
-				{materialization.error ? <div role="alert" style={{ color: '#b42318', fontSize: 12 }}>{materialization.error}</div> : null}
-        {lifecycleReady ? (
-          <div className="app-rich-inline-report__actions">
-            {artifactDownload?.url ? (
-              <a
-                className="app-rich-inline-report__export-button app-rich-inline-report__download-link"
-                href={artifactDownload.url}
-                download={artifactDownload.filename}
-                title={`Download ${artifactDownload.filename}`}
-              >
-                <span className="bp6-icon bp6-icon-cloud-download" aria-hidden="true" />
-                Download PDF
-              </a>
-            ) : (
-              <Button
-                className="app-rich-inline-report__export-button"
-                intent="success"
-                icon="download"
-                loading={lifecycleState.action === 'export'}
-                disabled={!exportReady || !!lifecycleState.action}
-                title={!exportReady ? 'Resolve the report validation issues before exporting.' : 'Export this report as PDF.'}
-                onClick={handleExport}
-              >
-                <span>Export PDF</span>
-              </Button>
-            )}
-            {!exportReady ? (
-              <span role="alert" style={{ color: '#b42318', fontSize: 12 }}>Resolve the report validation issues before exporting.</span>
-            ) : null}
-            {lifecycleState.message ? <span style={{ color: '#32704f', fontSize: 12 }}>{lifecycleState.message}</span> : null}
-            {lifecycleState.error ? <span role="alert" style={{ color: '#b42318', fontSize: 12 }}>{lifecycleState.error}</span> : null}
-          </div>
-        ) : null}
+				{materialization.error ? <div role="alert" data-forge-type={documentPresentation ? "metadata" : undefined} data-forge-status="danger" className="forge-report-document-notice" style={documentPresentation ? undefined : { color: "#b42318", fontSize: 12 }}>{materialization.error?.message || String(materialization.error)}</div> : null}
+        {!documentPresentation ? reportActions : null}
         <ReportRuntime
           key={inlineReportRuntimeKey(assembly)}
+          reportActions={documentPresentation ? reportActions : null}
           runtimeHandlers={runtimeHandlers}
           reportDocument={compiled.reportDocument}
           reportSpec={compiled.reportSpec}
@@ -1740,12 +1600,20 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
   );
 }
 
-function ForgeReportFence(props) {
+export function HostedInlineReport(props) {
   return (
-    <ForgeRenderErrorBoundary>
-      <ForgeReportFenceInner {...props} />
+    <ForgeRenderErrorBoundary onError={()=>props.onLifecycle?.('failed')} fallback={props.onLifecycle ? <WorkspaceOutputState error={{code:'render'}} onRetry={props.onRetry} onReturn={props.onReturn}/> : undefined}>
+      {props.assembly?.source?.viewer?.appearance === 'document' ? <ForgeThemeBoundary windowKey={`inline-report-${props.assembly?.scope || 'message'}-${props.assembly?.id || 'report'}`}><ForgeReportFenceInner {...props}/></ForgeThemeBoundary> : <ForgeReportFenceInner {...props}/>}
     </ForgeRenderErrorBoundary>
   );
+}
+
+function ForgeReportFence(props) {
+  const view = React.useContext(ConversationViewContext);
+  const entry = props.assembly?.authoritative && inlineReportWorkspaceDescriptor(props);
+  if (view?.reportsInWorkspace && view?.presentation === 'document' && typeof view.onOpenWorkspace === 'function' && entry
+    && !(props.diagnostics || []).some(item => item.reportId === props.assembly.id)) return null;
+  return <HostedInlineReport {...props}/>;
 }
 
 function ForgeReportAssemblyDiagnostic({ assembly, diagnostics = [] }) {
@@ -2434,14 +2302,7 @@ function NativeRichContent({ content = '', renderedContent = null, generatedFile
       });
       return {
         assemblies: canonicalReports.map((assembly) => ({
-          ...assembly,
-          authoritative: true,
-          source: canonicalReportSource(assembly?.source),
-          dataSources: Object.fromEntries(Object.entries(assembly?.dataSources || {}).map(([id, source]) => [id, {
-            ...source,
-            id,
-            data: source?.data ?? source?.payload,
-          }])),
+          ...normalizeCanonicalReportAssembly(assembly),
           lastIndex: lastIndexByKey.get(`${assembly?.scope || 'message'}:${assembly?.id || ''}`) ?? -1,
         })),
         diagnostics: Array.isArray(renderedContent?.diagnostics) ? renderedContent.diagnostics : [],

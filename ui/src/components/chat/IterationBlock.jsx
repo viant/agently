@@ -1,5 +1,7 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@blueprintjs/core';
+import {Button as SharedButton} from 'forge/components';
+import {RunNotice} from '../RunProgressView.jsx';
 import {
   summarizeLinkedConversationTranscript as sdkSummarizeLinkedConversationTranscript,
   shouldShowNarrationBubble as sdkShouldShowNarrationBubble,
@@ -1685,8 +1687,8 @@ export function buildIterationDataFromCanonicalRow(canonicalRow = null, message 
   }));
   const firstNarration = rounds.map((round) => String(round?.narration || '').trim()).find(Boolean) || '';
   const finalRound = [...rounds].reverse().find((round) => String(round?.content || '').trim()) || null;
-  const finalContent = String(finalRound?.content || '').trim();
-  const finalRenderedContent = finalRound?.renderedContent || null;
+  const finalContent = String(finalRound?.content || canonicalRow?.assistantFinal?.content || '').trim();
+  const finalRenderedContent = finalRound?.renderedContent || canonicalRow?.assistantFinal?.renderedContent || null;
   return {
     ...(message?._iterationData || {}),
     connectionProfile: canonicalRow?.connectionProfile,
@@ -1795,7 +1797,8 @@ export function resolveCanonicalDetailStep(canonicalRow = null, step = {}) {
 
 function NativeIterationBlock({ message, canonicalRow = null, context, showToolFeedDetail = true, suppressBubble = false, retryPrompt = '', attachment = null }) {
   const { showDetail } = useContext(DetailContext);
-  const { developerMode = false, showIntakeDetails = false, toolFeedDock = 'inline' } = useContext(ConversationViewContext);
+  const { developerMode = false, showIntakeDetails = false, toolFeedDock = 'inline', presentation } = useContext(ConversationViewContext);
+  const ReviewRequestButton = presentation === 'document' ? SharedButton : Button;
   const data = buildIterationDataFromCanonicalRow(canonicalRow, message);
   const iterationConversationId = String(canonicalRow?.conversationId || data?.conversationId || message?.conversationId || '').trim() || currentConversationId();
   const [activeFeeds, setActiveFeeds] = useState(getActiveFeeds);
@@ -2679,7 +2682,14 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
 
   return (
     <>
-      {showTerminalNotice ? (
+      {showTerminalNotice && presentation === 'document' ? <RunNotice data-testid="turn-terminal-notice"
+        tone={normalizedTerminalStatus.startsWith('cancel') || mcpConnectionReady ? 'neutral' : 'danger'}
+        title={mcpConnectionReady ? 'Connection ready' : normalizedTerminalStatus.startsWith('cancel') ? 'Request canceled' : 'Request couldn’t be completed'}
+        message={normalizedTerminalStatus.startsWith('cancel') ? 'The current request was stopped.' : mcpConnectionReady ? 'Connection is ready. Retry this request to continue.' : terminalFailureMessage}>
+        {mcpLinkRequired && !mcpConnectionReady ? <SharedButton variant="primary" size="compact" icon="lucide:link" loading={mcpConnectPending} onClick={connectRequiredMCP}>Connect {mcpLinkRequired.server}</SharedButton> : null}
+        {String(retryPrompt || '').trim() ? <SharedButton variant="secondary" size="compact" icon="lucide:rotate-ccw" onClick={prefillRetry}>Review and retry</SharedButton> : null}
+        {mcpConnectError ? <span role="alert">{mcpConnectError}</span> : null}
+      </RunNotice> : showTerminalNotice ? (
         <section className={`app-turn-terminal-notice${normalizedTerminalStatus.startsWith('cancel') ? ' is-canceled' : ''}${mcpConnectionReady ? ' is-connected' : ''}`} data-testid="turn-terminal-notice">
           <div>
             <div className="app-turn-terminal-title">{mcpConnectionReady
@@ -2716,10 +2726,10 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
         </section>
       ) : null}
       {!developerMode && hasPendingExecutionElicitation ? (
-        <Button text="Review request" icon="help" onClick={() => {
+        <ReviewRequestButton variant={presentation === 'document' ? 'secondary' : undefined} icon={presentation === 'document' ? 'lucide:circle-help' : 'help'} onClick={() => {
           const step = visibleGroups.flatMap(group => group.toolSteps || []).find(step => String(step?.kind || '').toLowerCase() === 'elicitation' && isPendingElicitationStatus(step?.status));
           if (step) openElicitationReview(step);
-        }} />
+        }}>Review request</ReviewRequestButton>
       ) : null}
       {developerMode ? (
         <section className={`app-iteration-card tone-${statusTone(iterationDisplayStatus)}`}>

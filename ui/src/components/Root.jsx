@@ -1,13 +1,12 @@
 import {resolveWorkspaceWindowTitle} from '../services/workspaceWindowTitle.js';
 import SplitShellFloatingWindows from './SplitShellFloatingWindows.jsx';
-import { feedTracker, getActiveFeeds } from '../services/toolFeedBus.js';
 import { useWorkspaceAdapters, setWorkspaceLifecycle } from '../services/useWorkspaceAdapters.js';
 import { getWorkspaceHistory, reopenWorkspaceObject } from '../services/conversationWindow.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSignals } from '@preact/signals-react/runtime';
 import { Button, Dialog } from '@blueprintjs/core';
 import { useSetting, activeWindows, addWindow, findCollectionSignal, findFormSignal, findMetadataSignal, findMetricsSignal, findViewSignal, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
-import { WindowManager, WindowContent } from 'forge/components';
+import { WindowManager, WindowContent, Typography } from 'forge/components';
 import { DetailContext } from '../context/DetailContext';
 import { ConversationViewContext } from '../context/ConversationViewContext';
 import DetailPanel from './DetailPanel';
@@ -30,15 +29,17 @@ import ElicitationOverlay from './ElicitationOverlay';
 import { useApprovalQueue } from '../hooks/useApprovalQueue';
 import { useAgUiBackendSelection } from '../hooks/useAgUiBackendSelection';
 import AgUiRemoteConversation from './AgUiRemoteConversation';
-import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, dismissWorkspaceWindowForConversation, ensureWorkspaceWindowForConversation, getScopedActiveSurface, getScopedConversationSelection, getScopedWorkspacePresentationMode, getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, restoreWorkspaceNavigationTrailEntry, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
+import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, dismissWorkspaceWindowForConversation, ensureWorkspaceWindowForConversation, getScopedActiveSurface, hasScopedActiveSurfaceSelection, getScopedConversationSelection, getScopedWorkspacePresentationMode, getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, restoreWorkspaceNavigationTrailEntry, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
 import { conversationIDFromPath, publishActiveConversation } from '../services/chatRuntime';
 import { beginLogin, getAuthMeSilently, getAuthProvidersSilently } from '../services/agentlyClient';
 import { onGoalDraftOpen } from '../services/goalDraftBus';
 import { useDeveloperMode } from '../services/uiPreferences';
 import { useChatProjection, useChatIsRunning } from '../services/chatStore.js';
-import { resolveWorkspaceAttachmentOwnerIndex } from '../services/workspaceAttachment.js';
+import { resolveWorkspaceAttachmentOwnerIndex, projectedWorkspaceEntries } from '../services/workspaceAttachment.js';
 import { currentPendingMCPAuth, resumePendingMCPAuth } from '../services/mcpAuth';
+import {useShellNavigation} from '../hooks/useShellNavigation';
+import {useConversationHeading} from '../hooks/useConversationHeading';
 
 const SIDEBAR_DEFAULT_WIDTH = 320;
 const SIDEBAR_MIN_WIDTH = 220;
@@ -92,7 +93,7 @@ export function shouldScrollConversationAfterTurn({
 
 export function scrollConversationFeedToEnd(root = null) {
   const stage = root?.querySelector?.('[data-testid="chat-feed-stage"]') || null;
-  if (!stage) return false;
+  if (!stage || stage.dataset?.following === 'false') return false;
   if (typeof stage.scrollTo === 'function') {
     stage.scrollTo({ top: Number(stage.scrollHeight || 0), behavior: 'smooth' });
     return true;
@@ -109,9 +110,9 @@ function clampSidebarWidth(value, min = SIDEBAR_MIN_WIDTH, max = SIDEBAR_MAX_WID
   return Math.min(max, Math.max(min, Math.round(next)));
 }
 
-export function isCompactShellViewport(width) {
+export function isCompactShellViewport(width, sections = false) {
   const next = Number(width || 0);
-  return Number.isFinite(next) && next > 0 && next <= COMPACT_SHELL_BREAKPOINT;
+  return Number.isFinite(next) && next > 0 && next <= (sections ? 760 : COMPACT_SHELL_BREAKPOINT);
 }
 
 export function shouldForceWorkspaceFull({
@@ -226,8 +227,10 @@ export function resolveSelectedMainWindow(windows = [], selectedTabWindowId = ''
   const primaryId = String(selectedTabWindowId || selectedFocusedWindowId || '').trim();
   if (primaryId) {
     const matched = list.find((entry) => String(entry?.windowId || '').trim() === primaryId);
+    if (matched?.region === 'app.section') return list.find(entry => entry.windowId === MAIN_CHAT_WINDOW_ID) || null;
     if (matched) return matched;
   }
+  if (fallbackWindow?.region === 'app.section') return list.find(entry => entry.windowId === MAIN_CHAT_WINDOW_ID) || null;
   return fallbackWindow || null;
 }
 
@@ -582,6 +585,14 @@ export default function Root() {
     return !isCompactShellViewport(window.innerWidth);
   });
   const [layoutTopbarActions, setLayoutTopbarActions] = useState([]);
+  const [sectionNavigation, setSectionNavigation] = useState(false);
+  const [appSection, setAppSection] = useState('chat');
+  const [sectionDestination, setSectionDestination] = useState('');
+  const [sectionView, setSectionView] = useState(null);
+  const [brandMount, setBrandMount] = useState(null);
+  const [profileMount, setProfileMount] = useState(null);
+  const navigationTriggerRef = useRef(null);
+  const [viewerHeaderMount, setViewerHeaderMount] = useState(null);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     return SIDEBAR_DEFAULT_WIDTH;
   });
@@ -619,6 +630,11 @@ export default function Root() {
     selectedWindowId.value,
     getSelectedWindow()
   );
+  const currentSectionView = sectionView?.section === appSection && sectionView?.destination === sectionDestination ? sectionView : null;
+  const sectionWindow = activeWindows.value.find(entry => entry.windowId === currentSectionView?.windowId);
+  const showAppSection = sectionNavigation && appSection !== 'chat';
+  const appSectionTitle = appSection === 'workspaces' ? 'Workspaces'
+    : layoutTopbarActions.find(entry => `action:${entry.id}` === appSection)?.title || 'Workspace';
   const selectedWindowForTitle = attachResolvedMetrics(selectedWindow);
   const mainChatWindow = useMemo(
     () => (Array.isArray(activeWindows.value)
@@ -642,6 +658,18 @@ export default function Root() {
     resolveConversationSelection(MAIN_CHAT_WINDOW_ID)
     || ''
   ).trim();
+  const conversationHeading = useConversationHeading(mainConversationId, sectionNavigation);
+  const shellNavigation = useShellNavigation({enabled: sectionNavigation, section: appSection, destination: sectionDestination, conversationId: mainConversationId,
+    onRestore: entry => {
+      setAppSection(entry.section);
+      setSectionDestination(entry.destination || '');
+      if (entry.section === 'chat') {
+        selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
+        selectedTabId.value = MAIN_CHAT_WINDOW_ID;
+      }
+      if (!entry.selectionInProgress && entry.conversationId !== mainConversationId) openConversationInMainWindow(entry.conversationId);
+      if (isCompactShell) setIsSidebarOpen(false);
+    }});
   const projectedConversationRows = useChatProjection(mainConversationId);
   const chatRunning = useChatIsRunning(mainConversationId);
   const [readChatRows, setReadChatRows] = useState({conversationId: '', keys: []});
@@ -763,9 +791,9 @@ export default function Root() {
     if (!activeWorkspaceWindow?.windowId) return;
     selectedWindowId.value = activeWorkspaceWindow.windowId;
     selectedTabId.value = activeWorkspaceWindow.windowId;
-    setWorkspacePresentationMode('full');
+    if (!sectionNavigation) setWorkspacePresentationMode('full');
     setActiveSurface('workspace');
-  }, [activeWorkspaceWindow?.windowId, setActiveSurface, setWorkspacePresentationMode]);
+  }, [activeWorkspaceWindow?.windowId, setActiveSurface, setWorkspacePresentationMode, sectionNavigation]);
 
   const activateWorkspaceAttachment = React.useCallback((requested) => {
     const targetId = requested?.windowId || activeWorkspaceWindow?.windowId;
@@ -777,9 +805,9 @@ export default function Root() {
     if (!restored) return;
     selectedWindowId.value = restored.windowId;
     selectedTabId.value = restored.windowId;
-    setWorkspacePresentationMode('full');
+    setWorkspacePresentationMode(sectionNavigation ? 'split' : 'full');
     setActiveSurface('workspace');
-  }, [activeWorkspaceWindow?.windowId, mainConversationId, setActiveSurface, setWorkspacePresentationMode]);
+  }, [activeWorkspaceWindow?.windowId, mainConversationId, setActiveSurface, setWorkspacePresentationMode, sectionNavigation]);
 
   const returnToConversationSurface = React.useCallback(() => {
     const chatWindowId = String(effectiveMainChatWindow?.windowId || MAIN_CHAT_WINDOW_ID).trim() || MAIN_CHAT_WINDOW_ID;
@@ -795,7 +823,7 @@ export default function Root() {
     setActiveSurface('workspace');
   }, [activeWorkspaceWindow, mainConversationId, setActiveSurface, setWorkspacePresentationMode]);
 
-  useWorkspaceAdapters({mainConversationId, workspaceWindows, setActiveSurface, setWorkspacePresentationMode});
+  useWorkspaceAdapters({mainConversationId, workspaceWindows, projectedRows: projectedConversationRows, documentPresentation: sectionNavigation, active: !showAppSection, setActiveSurface, setWorkspacePresentationMode});
 
   const setActiveWorkspaceCollapsed = (collapsed) => {
     const targetWindowId = String(activeWorkspaceWindow?.windowId || '').trim();
@@ -815,7 +843,7 @@ export default function Root() {
     if (!target) return;
     selectedWindowId.value = target.windowId;
     selectedTabId.value = target.windowId;
-    if (activeSurface !== 'workspace') setWorkspacePresentationMode('full');
+    if (activeSurface !== 'workspace' && !sectionNavigation) setWorkspacePresentationMode('full');
     setActiveSurface('workspace');
     if (mainConversationId) {
       setScopedWorkspaceSelection(mainConversationId, target.windowId);
@@ -837,11 +865,7 @@ export default function Root() {
     const remaining = workspaceWindows.filter((entry) => String(entry?.windowId || '').trim() !== activeWindowId);
     setWorkspacePresentationModeState('split');
     setScopedWorkspacePresentationMode(restoreConversationId, 'split');
-    const closingWindow = workspaceWindows.find((entry) => entry.windowId === activeWindowId);
-    if (closingWindow?.workspaceObject?.content?.renderer === 'toolFeed') {
-      const feed = getActiveFeeds().find((entry) => entry.feedId === closingWindow.workspaceObject.content.feedId && entry.conversationId === mainConversationId);
-      if (feed) feedTracker.setActive({...feed, presentation: {...feed.presentation, workspaceObjectId: undefined}});
-    }
+
     dismissWorkspaceWindowForConversation(restoreConversationId, activeWindowId);
     removeWindow(activeWindowId);
     if (remaining.length > 0) {
@@ -997,12 +1021,12 @@ export default function Root() {
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
     const syncViewport = () => {
-      setIsCompactShell(isCompactShellViewport(window.innerWidth));
+      setIsCompactShell(isCompactShellViewport(window.innerWidth, sectionNavigation));
     };
     syncViewport();
     window.addEventListener('resize', syncViewport);
     return () => window.removeEventListener('resize', syncViewport);
-  }, []);
+  }, [sectionNavigation]);
 
   useEffect(() => {
     if (isCompactShell) {
@@ -1325,9 +1349,10 @@ export default function Root() {
     const key = JSON.stringify([mainConversationId, activeWorkspaceWindow.windowId, descriptor.lastActivatedBy?.turnId || descriptor.origin?.turnId]);
     if (activatedWorkspaceIntents.current.has(key)) return;
     activatedWorkspaceIntents.current.add(key);
-    setWorkspacePresentationMode('full');
+    if (sectionNavigation && (window.innerWidth < 1180 || document.activeElement?.matches('textarea, [contenteditable="true"]') || (hasScopedActiveSurfaceSelection(mainConversationId) && getScopedActiveSurface(mainConversationId) === 'conversation'))) return;
+    setWorkspacePresentationMode(sectionNavigation ? 'split' : 'full');
     setActiveSurface('workspace');
-  }, [activeSurface, activeWorkspaceWindow, developerMode, mainConversationId, selectedWindow?.windowId, setActiveSurface, projectedConversationRows, chatRunning]);
+  }, [sectionNavigation, activeSurface, activeWorkspaceWindow, developerMode, mainConversationId, selectedWindow?.windowId, setActiveSurface, projectedConversationRows, chatRunning]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
@@ -1415,6 +1440,8 @@ export default function Root() {
     <DetailContext.Provider value={value}>
       <ConversationViewContext.Provider value={{
         developerMode,
+        presentation: sectionNavigation ? 'document' : undefined,
+        reportsInWorkspace: sectionNavigation,
         showIntakeDetails: false,
         toolFeedDock: showChatChrome ? 'right' : 'inline',
         workspaceWindow: showWorkspacePane ? activeWorkspaceWindow : null,
@@ -1429,9 +1456,9 @@ export default function Root() {
         onOpenWorkspace: activateWorkspaceAttachment,
       }}>
         <div
-          className={`app-shell${isCompactShell ? ' is-compact-shell' : ''}`}
+          className={`app-shell${isCompactShell ? ' is-compact-shell' : ''}${sectionNavigation ? ' has-section-navigation' : ''}`}
           style={{
-            '--app-sidebar-width': `${isCompactShell ? 0 : (isSidebarOpen ? clampSidebarWidth(sidebarWidth, sidebarBoundsRef.current.min, sidebarBoundsRef.current.max) : 64)}px`
+            '--app-sidebar-width': `${isCompactShell ? 0 : (isSidebarOpen ? clampSidebarWidth(sidebarWidth, sidebarBoundsRef.current.min, sidebarBoundsRef.current.max) : sectionNavigation ? 48 : 64)}px`
           }}
         >
           <MenuBar
@@ -1440,7 +1467,19 @@ export default function Root() {
             activeBackendId={backendSelection.selectedId}
             onBackendChange={backendSelection.select}
             onNativeAction={() => backendSelection.select('agently')}
-            topbarActions={layoutTopbarActions}
+            topbarActions={sectionNavigation ? [] : layoutTopbarActions}
+            brandMount={sectionNavigation ? brandMount : null}
+            profileMount={sectionNavigation ? profileMount : null}
+            sidebarToggleRef={navigationTriggerRef}
+            sectionNavigation={sectionNavigation}
+            heading={showAppSection ? (sectionWindow ? resolveMainWindowHeaderTitle(sectionWindow) : appSectionTitle) : linkedChildWindow ? activeWindowTitle : conversationHeading}
+            history={shellNavigation}
+            viewerHeaderRef={setViewerHeaderMount}
+            viewerVisible={!showAppSection && !backendSelection.isRemote && activeSurface === 'workspace' && showWorkspacePane}
+            viewerExpanded={workspacePresentationMode === 'full'}
+            sidebarCollapsed={!isSidebarOpen}
+            compactNavigation={isCompactShell}
+            inert={sectionNavigation && isCompactShell && isSidebarOpen}
             onToggleSidebar={() => setIsSidebarOpen((open) => !open)}
             conversationId={backendSelection.isRemote ? '' : conversationIDFromPath(typeof window !== 'undefined' ? window.location.pathname : '')}
           />
@@ -1454,9 +1493,21 @@ export default function Root() {
               onClick={() => setIsSidebarOpen(false)}
             />
           ) : null}
-          {(!isCompactShell || isSidebarOpen) ? (
             <WorkspaceSidebar
               discoveryReady={navigationReady}
+              drawerHidden={isCompactShell && !isSidebarOpen}
+              drawerMode={isCompactShell}
+              onDismiss={() => setIsSidebarOpen(false)}
+              returnFocusRef={navigationTriggerRef}
+              section={appSection}
+              destination={sectionDestination}
+              onSectionChange={shellNavigation.selectSection}
+              onSectionPresentationChange={setSectionNavigation}
+              onSectionWindow={(entry, title, section, destination, error) => {
+                setSectionView({windowId: entry?.windowId, title, section, destination, error});
+              }}
+              brandRef={setBrandMount}
+              profileRef={setProfileMount}
               conversationId={mainConversationId}
               onOpenWorkspace={() => {
                 backendSelection.select('agently');
@@ -1471,7 +1522,6 @@ export default function Root() {
                 if (isCompactShell) setIsSidebarOpen(false);
               }}
             />
-          ) : null}
           {!isCompactShell && isSidebarOpen ? (
             <div
               className="app-sidebar-resizer"
@@ -1488,13 +1538,19 @@ export default function Root() {
               }}
             />
           ) : null}
-          <main className={`app-chat-pane${showChatChrome ? ' is-chat-main-window' : ''}`}>
+          <main className={`app-chat-pane${showChatChrome ? ' is-chat-main-window' : ''}`} inert={sectionNavigation && isCompactShell && isSidebarOpen ? '' : undefined}>
+            {showAppSection ? <section className="app-section-page" aria-label={appSectionTitle}>
+              {sectionWindow ? <WindowContent key={sectionWindow.windowId} window={sectionWindow} isInTab/> : <div className="app-section-empty">
+                <Typography as="h1" typeRole="heading">{currentSectionView?.error ? 'Destination unavailable' : appSectionTitle}</Typography>
+                <Typography as="p" typeRole="body" role={currentSectionView?.error ? 'alert' : undefined}>{currentSectionView?.error || 'Choose a destination from the menu.'}</Typography>
+              </div>}
+            </section> : null}
             {backendSelection.visited.map(connection => (
-              <div key={connection.id} style={{ display: backendSelection.selectedId === connection.id ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
+              <div key={connection.id} style={{ display: !showAppSection && backendSelection.selectedId === connection.id ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
                 <AgUiRemoteConversation connection={connection} active={backendSelection.selectedId === connection.id} />
               </div>
             ))}
-            <div className={`app-chat-layout${showChatChrome ? ' has-tool-workspace' : ''}`} style={backendSelection.isRemote ? { display: 'none' } : undefined}>
+            <div className={`app-chat-layout${showChatChrome ? ' has-tool-workspace' : ''}`} style={backendSelection.isRemote || showAppSection ? { display: 'none' } : undefined}>
             <div className="app-chat-content-column" style={{ flex: 1, minHeight: 0, overflow: 'visible', display: 'flex', flexDirection: 'column' }}>
               {shouldShowMainWindowHeader(selectedWindow) && !activeWorkspaceWindow ? (
                 <div className="app-main-window-header">
@@ -1522,10 +1578,13 @@ export default function Root() {
                   <div className="app-main-window-header-title">{linkedChildWindow ? 'Linked conversation' : activeWindowTitle}</div>
                 </div>
               ) : null}
-              {mainConversationId ? <TurnProgressStatus conversationId={mainConversationId} developerMode={developerMode} connectionResumePending={mcpResumePending} /> : null}
+              {mainConversationId && (!sectionNavigation || (mcpResumePending && !projectedConversationRows.some(row=>row.kind==='iteration' && ['pending','running'].includes(row.lifecycle)))) ? <TurnProgressStatus appearance={sectionNavigation ? 'document' : undefined} conversationId={mainConversationId} developerMode={developerMode} connectionResumePending={mcpResumePending} /> : null}
               {shouldRenderSplitShell ? (
                 <>
                 <ConversationWorkspaceSurface
+                  presentation={sectionNavigation ? 'document' : undefined}
+                  headerMount={viewerHeaderMount}
+                  headerActive={!showAppSection && !backendSelection.isRemote}
                   activeSurface={activeSurface}
                   unreadCount={unreadChatCount}
                   chatRunning={chatRunning}
@@ -1533,6 +1592,9 @@ export default function Root() {
                   onChangeWorkspaceMode={(mode) => setWorkspacePresentationMode(mode === 'focus' ? 'full' : 'split')}
                   chatWindow={hostedBottomWindow}
                   workspaceWindow={showWorkspacePane ? activeWorkspaceWindow : null}
+                  savedOutputs={resolveConversationWorkspaceAttachmentWindows(getWorkspaceHistory(mainConversationId), projectedWorkspaceEntries(projectedConversationRows, mainConversationId, {includeInlineReports: sectionNavigation}), workspaceWindows)}
+                  conversationId={mainConversationId}
+                  onOpenSavedOutput={activateWorkspaceAttachment}
                   workspaceTabs={workspaceTabs}
                   workspaceTabsVisibility={hostConfig?.workspace?.tabs || 'auto'}
                   workspaceWindows={workspaceWindows}
@@ -1549,7 +1611,7 @@ export default function Root() {
                 </>
               ) : (
                 <WindowManager
-                  isTabVisible={(windowEntry) => String(windowEntry?.windowId || '').trim() !== MAIN_CHAT_WINDOW_ID}
+                  isTabVisible={(windowEntry) => windowEntry?.region !== 'app.section' && String(windowEntry?.windowId || '').trim() !== MAIN_CHAT_WINDOW_ID}
                   renderWindowContent={({ window: windowEntry, defaultContent }) => (
                     String(windowEntry?.presentation || '').trim().toLowerCase() === 'conversationhistory'
                       ? <ScheduleConversationHistory window={windowEntry} />
@@ -1612,7 +1674,7 @@ export default function Root() {
         initialDraft={goalDraftState.initialDraft}
         onClose={() => setGoalDraftState((state) => ({ ...state, isOpen: false, initialDraft: '' }))}
       />
-      <ElicitationOverlay context={null} />
+      <ElicitationOverlay context={null} appearance={sectionNavigation ? 'document' : undefined} />
     </DetailContext.Provider>
   );
 }

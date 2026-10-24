@@ -5,7 +5,10 @@ function readPreferences(storage, id) {
   try {
     const value = JSON.parse(storage?.getItem(preferenceKey(id)) || 'null');
     if (!value || value.version !== 1) return {};
+    const ids = list => Array.isArray(list) ? [...new Set(list.filter(id => typeof id === 'string' && id.length <= 512))].slice(0, 100) : undefined;
     return {
+      closedWindowIds: ids(value.closedWindowIds) || [],
+      ...(ids(value.openWindowIds) ? {openWindowIds: ids(value.openWindowIds)} : {}),
       ...(typeof value.activeWindowId === 'string' ? {activeWindowId: value.activeWindowId} : {}),
       workspaceMode: value.workspaceMode === 'split' ? 'split' : 'focus',
       ...(['conversation', 'workspace'].includes(value.activeSurface)
@@ -36,6 +39,7 @@ export function updateWorkspaceSession(storage, conversationId, change) {
   try {
     storage?.setItem(preferenceKey(conversationId), JSON.stringify({
       version: 1, activeWindowId: next.activeWindowId, workspaceMode: next.workspaceMode,
+      closedWindowIds: next.closedWindowIds, openWindowIds: next.openWindowIds,
       ...(next.hasSurfaceSelection ? {activeSurface: next.activeSurface} : {}),
     }));
   } catch (_) { /* Storage may be unavailable; retain the in-memory preference. */ }
@@ -57,7 +61,8 @@ export function mergeWorkspaceSessionWindows(state, incoming = []) {
     const previous = windows[index];
     const before = previous.workspaceObject;
     const after = candidate.workspaceObject;
-    if (Number(before?.revision || 0) > Number(after?.revision || 0)) continue;
+    const beforeReset = Number(before?.content?.resetVersion || 0), afterReset = Number(after?.content?.resetVersion || 0);
+    if (beforeReset > afterReset || (beforeReset === afterReset && Number(before?.revision || 0) > Number(after?.revision || 0))) continue;
     windows[index] = { ...previous, ...candidate,
       windowForm: mergeViewState(previous.windowForm, candidate.windowForm),
       dataSourceState: mergeViewState(previous.dataSourceState, candidate.dataSourceState),

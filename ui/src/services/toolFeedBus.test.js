@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as mod from './toolFeedBus';
 
 vi.mock('./agentlyClient', () => ({
+  getReportRestoreScope: vi.fn(()=> 'same-account'),
   client: {
     getFeedData: vi.fn(() => Promise.resolve(null)),
   },
@@ -474,5 +475,29 @@ describe('toolFeedBus conversation scoping', () => {
     expect(mod.getActiveFeeds().map((feed) => feed.feedId)).toEqual(['conv-b::changes']);
     expect(selection.getSelectedFeedId('conv-a')).toBe('');
     expect(selection.getSelectedFeedId('conv-b')).toBe('conv-b::changes');
+  });
+});
+
+describe('fresh hosted feed reads',()=>{
+  afterEach(()=>mod.clearFeedState());
+  it('removes cached data after an authoritative denial or empty hosted read',async()=>{
+    const {client}=await import('./agentlyClient');
+    mod.updateFeedData('private',{data:{value:'cached'}},'owned');
+    client.getFeedData.mockRejectedValueOnce(Object.assign(new Error('Denied'),{status:403}));
+    await mod.fetchFeedDataNow('private','owned');
+    expect(mod.getFeedData('private','owned')).toBeNull();
+    mod.updateFeedData('private',{data:{value:'cached'}},'owned');
+    client.getFeedData.mockResolvedValueOnce(null);
+    await mod.fetchFeedDataNow('private','owned',{rethrow:true});
+    expect(mod.getFeedData('private','owned')).toBeNull();
+  });
+  it('discards a read resolved after its account scope changes',async()=>{
+    const {client,getReportRestoreScope}=await import('./agentlyClient');
+    getReportRestoreScope.mockReturnValue('account-A');
+    let release;client.getFeedData.mockReturnValueOnce(new Promise(resolve=>{release=resolve;}));
+    const pending=mod.fetchFeedDataNow('private','owned',{rethrow:true});
+    getReportRestoreScope.mockReturnValue('account-B');release({data:{value:'old-account'}});
+    await pending;expect(mod.getFeedData('private','owned')).toBeNull();
+    getReportRestoreScope.mockReturnValue('same-account');
   });
 });

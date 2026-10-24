@@ -1,11 +1,15 @@
+import InlineReportWorkspace from './InlineReportWorkspace.jsx';
 import {WorkspaceRuntimeTabs,WorkspaceRuntimePanels,shouldShowWorkspaceTabs as sharedShouldShowWorkspaceTabs} from 'forge/components/WorkspaceRuntimeSurface.jsx';
 import {resolveWorkspaceWindowTitle} from '../services/workspaceWindowTitle.js';
 import {useWorkspaceScroll} from '../services/useWorkspaceScroll.js';
 import { findMetadataSignal } from 'forge/core';
 import ToolFeedDetail from './ToolFeedDetail.jsx';
 import React, { useState, useEffect, useRef } from 'react';
+import {createPortal} from 'react-dom';
+import SavedOutputInventory from './SavedOutputInventory.jsx';
+import {ShellIconButton} from './ShellHeader.jsx';
 import { Button, Icon, Tooltip } from '@blueprintjs/core';
-import { WindowContent } from 'forge/components';
+import { WindowContent, Icon as SharedIcon, SelectControl, typographyProps } from 'forge/components';
 import AppRenderer from './mcpApps/AppRenderer.jsx';
 
 const ICONS = new Set(['application', 'chart', 'dashboard', 'document', 'folder-open', 'grid-view']);
@@ -78,6 +82,12 @@ export function resolveChatWindowRenderKey(chatWindow = null) {
 export const shouldShowWorkspaceTabs=sharedShouldShowWorkspaceTabs;
 
 export default function ConversationWorkspaceSurface({
+  presentation,
+  savedOutputs = [],
+  conversationId,
+  onOpenSavedOutput,
+  headerMount,
+  headerActive = true,
   activeSurface = 'conversation',
   unreadCount = 0,
   chatRunning = false,
@@ -85,6 +95,7 @@ export default function ConversationWorkspaceSurface({
   onChangeWorkspaceMode,
   chatWindow = null,
   renderConversation,
+  renderWorkspace,
   workspaceWindow = null,
   workspaceTabs = [],
   workspaceTabsVisibility = 'auto',
@@ -98,17 +109,18 @@ export default function ConversationWorkspaceSurface({
   onCloseWorkspace,
   onSelectWorkspaceTab,
 }) {
+  const documentPresentation = presentation === 'document';
   const hasWorkspace = !!workspaceWindow;
   const showObjectTabs = shouldShowWorkspaceTabs(workspaceTabs.length, workspaceTabsVisibility);
   const workspaceActive = hasWorkspace && activeSurface === 'workspace';
   const contentRef = useWorkspaceScroll(workspaceWindow?.windowId, workspaceActive);
   const [compact, setCompact] = useState(false);
   useEffect(() => {
-    const query = window.matchMedia('(max-width: 600px)');
+    const query = window.matchMedia(documentPresentation ? '(max-width: 1179px)' : '(max-width: 600px)');
     const update = () => setCompact(query.matches);
     update(); query.addEventListener('change', update);
     return () => query.removeEventListener('change', update);
-  }, []);
+  }, [documentPresentation]);
   const capabilities = workspaceWindow?.workspaceObject?.capabilities || {};
   const effectiveMode = compact || capabilities.split === false ? 'focus' : workspaceMode;
   const navigation = resolveWorkspaceNavigation(workspaceWindow);
@@ -137,8 +149,31 @@ export default function ConversationWorkspaceSurface({
   }, [workspaceActive, effectiveMode, workspaceWindow?.windowId]);
 
   return (
-    <div className={`app-summary-surface-shell${workspaceActive ? ` is-workspace${effectiveMode === 'split' ? ' is-split' : ''}` : ' is-conversation'}`} data-active-surface={workspaceActive ? 'workspace' : 'conversation'}>
-      {!workspaceActive && hasWorkspace && !suppressConversationWorkspaceLink ? (
+    <div className={`app-summary-surface-shell${documentPresentation ? ' is-document' : ''}${workspaceActive ? ` is-workspace${effectiveMode === 'split' ? ' is-split' : ''}` : ' is-conversation'}`} data-active-surface={workspaceActive ? 'workspace' : 'conversation'}>
+      {documentPresentation && headerMount && headerActive && (hasWorkspace || savedOutputs.length > 0) ? createPortal(<>
+        {workspaceActive ? <WorkspaceRuntimeTabs id="conversation-workspace"
+          entries={(workspaceTabs.length ? workspaceTabs : [{windowId: workspaceWindow.windowId, label: navigation.label}]).map(tab => ({...tab, closable: (workspaceWindows.find(entry => entry.windowId === tab.windowId) || workspaceWindow)?.workspaceObject?.capabilities?.close !== false}))}
+          selectedId={workspaceWindow.windowId} onSelect={onSelectWorkspaceTab} onClose={onCloseWorkspaceTab || onCloseWorkspace}
+          visibility={workspaceTabsVisibility === 'never' ? 'never' : 'always'} ariaLabel="Open workspace tabs"
+          className="app-shell-viewer-tabs" itemClassName="app-shell-viewer-tab"
+          onKeyboardSelect={() => {keyboardNavigationRef.current = true;}}
+          renderLabel={tab => <><SharedIcon name="lucide:file-text"/><span {...typographyProps('label')} title={tab.label}>{tab.label}</span></>}
+          renderClose={(tab, {close, disabled}) => <button type="button" className="app-shell-tab-close" aria-label={`Close ${tab.label}`} disabled={disabled} onClick={close}><SharedIcon name="lucide:x"/></button>}/> : null}
+        {workspaceActive && workspaceTabsVisibility === 'never' ? <SelectControl {...typographyProps('label')} aria-label="Choose workspace" value={workspaceWindow.windowId} onChange={event => onSelectWorkspaceTab?.(event.target.value)}>
+          {(workspaceTabs.length ? workspaceTabs : [{windowId: workspaceWindow.windowId, label: navigation.label}]).map(tab => <option key={tab.windowId} value={tab.windowId}>{tab.label}</option>)}
+        </SelectControl> : null}
+        <SavedOutputInventory entries={savedOutputs} conversationId={conversationId} onOpen={onOpenSavedOutput}/>
+        <div className="app-shell-viewer-controls">
+          <span className="app-shell-viewer-status" {...typographyProps('metadata')} role="status" aria-live="polite">{chatRunning ? 'Working…' : unreadCount > 0 ? `${unreadCount} new` : ''}</span>
+          {workspaceActive ? <ShellIconButton icon={effectiveMode === 'focus' ? 'lucide:minimize' : 'lucide:maximize'}
+            className="app-shell-viewer-expand" label={effectiveMode === 'focus' ? 'Restore split view' : 'Expand workspace'}
+            aria-pressed={effectiveMode === 'focus'} disabled={capabilities.split === false}
+            onClick={() => onChangeWorkspaceMode?.(effectiveMode === 'focus' ? 'split' : 'focus')}/> : null}
+          {hasWorkspace ? <ShellIconButton icon="lucide:panel-right" label={workspaceActive ? 'Hide workspace' : 'Show workspace'}
+            aria-expanded={workspaceActive} aria-controls="conversation-workspace-viewer" onClick={workspaceActive ? onBackToConversation : onOpenWorkspace}/> : null}
+        </div>
+      </>, headerMount) : null}
+      {!documentPresentation && !workspaceActive && hasWorkspace && !suppressConversationWorkspaceLink ? (
         <div className="app-summary-surface-navigation">
           <Button
             minimal
@@ -152,8 +187,8 @@ export default function ConversationWorkspaceSurface({
       ) : null}
 
       {hasWorkspace ? (
-        <section className={`app-summary-workspace${workspaceActive ? '' : ' is-surface-hidden'}`} aria-label={`${navigation.label} workspace`} data-workspace-window-id={workspaceWindow?.windowId || ''} aria-hidden={!workspaceActive} inert={!workspaceActive ? '' : undefined}>
-          <header className="app-summary-workspace-header">
+        <section id="conversation-workspace-viewer" className={`app-summary-workspace${workspaceActive ? '' : ' is-surface-hidden'}`} aria-label={`${navigation.label} workspace`} data-workspace-window-id={workspaceWindow?.windowId || ''} aria-hidden={!workspaceActive} inert={!workspaceActive ? '' : undefined}>
+          {!documentPresentation ? <header className="app-summary-workspace-header">
             <div className="app-summary-workspace-header-actions">
               <nav className="app-workspace-breadcrumbs" aria-label="Workspace navigation">
                 <Tooltip content={unreadCount > 0 ? `Chat · ${unreadCount} new` : 'Chat'} placement="bottom" hoverOpenDelay={200}>
@@ -228,19 +263,21 @@ export default function ConversationWorkspaceSurface({
                 </button>
               </div>
             </div>
-          </header>
-          <WorkspaceRuntimeTabs id="conversation-workspace" entries={workspaceTabs.map(tab=>({...tab,closable:workspaceWindows.find(entry=>entry.windowId===tab.windowId)?.workspaceObject?.capabilities?.close!==false}))}
+          </header> : <span ref={headingRef} tabIndex={-1} role="heading" aria-level={2} className="app-shell-focus-heading">{navigation.label}</span>}
+          {documentPresentation && breadcrumbs.length > 1 ? <nav aria-label="Workspace navigation" className="app-shell-ancestor-navigation">{breadcrumbs.filter(entry => !entry.current).map(entry => <button type="button" {...typographyProps('label')} key={entry.windowId} onClick={() => onNavigateWorkspaceBreadcrumb?.(entry.index)}>{entry.label}<SharedIcon name="lucide:chevron-right"/></button>)}</nav> : null}
+          {!documentPresentation ? <WorkspaceRuntimeTabs id="conversation-workspace" entries={workspaceTabs.map(tab=>({...tab,closable:workspaceWindows.find(entry=>entry.windowId===tab.windowId)?.workspaceObject?.capabilities?.close!==false}))}
             selectedId={workspaceWindow?.windowId} onSelect={onSelectWorkspaceTab} onClose={onCloseWorkspaceTab}
             visibility={workspaceTabsVisibility} className="app-window-split-workspace-tabs" itemClassName="app-workspace-object-chip" tabClassName="app-window-split-workspace-tab"
             onKeyboardSelect={()=>{keyboardNavigationRef.current=true;}}
-            renderLabel={tab=><><Icon icon="application" size={12}/> {tab.label}</>}/>
+            renderLabel={tab=><><Icon icon="application" size={12}/> {tab.label}</>}/> : null}
           <div ref={contentRef} className="app-summary-workspace-content">
             <WorkspaceRuntimePanels id="conversation-workspace" entries={workspaceWindows.length?workspaceWindows:[workspaceWindow]} selectedId={workspaceWindow?.windowId} active={workspaceActive}
               preloadContent={entry=>entry.hostOpenState==='fresh' && entry.workspaceObject?.lifecycle?.state==='opening'}
               className="app-workspace-renderer" panelProps={entry=>({'data-workspace-renderer-id':entry.windowId})}
               getPresentation={entry=>({label:resolveWorkspaceNavigation(entry).label,kind:entry.workspaceObject?.kind || 'resource'})}
-              renderContent={entry=>entry.workspaceObject?.content?.renderer==='toolFeed'?<ToolFeedDetail variant="rail" placement="workspace"
-                hostedFeedId={entry.workspaceObject.content.feedId} conversationId={entry.conversationId} onLifecycle={state=>onWorkspaceLifecycle?.(entry.windowId,state)}/>
+              renderContent={entry=>renderWorkspace ? renderWorkspace(entry) : entry.workspaceObject?.content?.renderer==='toolFeed'?<ToolFeedDetail key={`${entry.windowId}:${entry.workspaceObject?.lifecycle?.attempt || 0}`} variant="rail" placement="workspace"
+                hostedFeedId={entry.workspaceObject.content.feedId} conversationId={entry.conversationId} onReturn={onBackToConversation} onLifecycle={state=>onWorkspaceLifecycle?.(entry.windowId,state)}/>
+                :entry.workspaceObject?.content?.renderer==='inlineReport'?<InlineReportWorkspace key={`${entry.windowId}:${entry.workspaceObject?.lifecycle?.attempt || 0}`} entry={entry} onReturn={onBackToConversation} onLifecycle={state=>onWorkspaceLifecycle?.(entry.windowId,state)}/>
                 :entry.mcpUI?.uri?<AppRenderer uri={entry.mcpUI.uri} title={entry.mcpUI.title || navigation.label} conversationId={entry.conversationId || ''} hosted onLifecycle={state=>onWorkspaceLifecycle?.(entry.windowId,state)}/>
                 :<WindowContent window={entry} isInTab/>}/>
 
@@ -248,8 +285,8 @@ export default function ConversationWorkspaceSurface({
         </section>
       ) : null}
 
-      <section className={`app-summary-conversation${workspaceActive && effectiveMode !== 'split' ? ` is-composer-only${composerExpanded ? ' is-composer-expanded' : ''}` : ''}`} aria-label="Conversation">
-        {workspaceActive && effectiveMode === 'focus' ? (
+      <section className={`app-summary-conversation${!documentPresentation && workspaceActive && effectiveMode !== 'split' ? ` is-composer-only${composerExpanded ? ' is-composer-expanded' : ''}` : ''}`} aria-label="Conversation">
+        {!documentPresentation && workspaceActive && effectiveMode === 'focus' ? (
           <Button
             minimal
             small
