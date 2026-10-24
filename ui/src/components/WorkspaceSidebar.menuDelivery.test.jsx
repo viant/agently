@@ -10,6 +10,12 @@ const sidebarRender = vi.fn();
 vi.mock('../services/agentlyClient', () => ({ getAuthMeSilently }));
 vi.mock('./menuBarHelpers', () => ({ openWindow }));
 vi.mock('./Sidebar', () => ({ default: () => {sidebarRender(); return <div data-testid="conversation-sidebar" />;} }));
+// Use real shared primitives without loading unrelated report renderers.
+vi.mock('forge/components', async () => {
+  const {default: Typography, typographyProps} = await import('../../../../forge/src/components/Typography.jsx');
+  const {default: Icon} = await import('../../../../forge/src/components/Icon.jsx');
+  return {Typography, typographyProps, Icon};
+});
 vi.mock('forge/core', async () => {
   const {signal} = await import('@preact/signals-react');
   return {activeWindows: signal([]), selectedWindowId: signal(null), selectedTabId: signal(null), getFormSignal: vi.fn(() => signal({}))};
