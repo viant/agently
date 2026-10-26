@@ -1002,6 +1002,19 @@ export function ensureMainChatWindow() {
 
 function updateMainChatWindowParameters(conversationId = '', { resetInstance = false } = {}) {
   const targetID = String(conversationId || '').trim();
+  // Bootstrap accepts these legacy input shapes too. Keep every existing
+  // alias in sync so an empty new-chat form cannot revive an old selection.
+  const updateInput = (input, key) => {
+    if (!input || typeof input !== 'object') return input;
+    const next = {...input};
+    if (Object.prototype.hasOwnProperty.call(input, key)) next[key] = targetID;
+    for (const container of ['parameters', 'path']) {
+      if (Object.prototype.hasOwnProperty.call(input[container] || {}, key)) {
+        next[container] = {...input[container], [key]: targetID};
+      }
+    }
+    return next;
+  };
   const windows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
   let changed = false;
   const next = windows.map((entry) => {
@@ -1014,8 +1027,10 @@ function updateMainChatWindowParameters(conversationId = '', { resetInstance = f
     changed = true;
     const parameters = {
       ...(entry?.parameters || {}),
+      ...(Object.prototype.hasOwnProperty.call(entry?.parameters || {}, 'conversationId') ? {conversationId: targetID} : {}),
       conversations: {
         ...((entry?.parameters || {}).conversations || {}),
+        ...(entry?.parameters?.conversations?.input ? {input: updateInput(entry.parameters.conversations.input, 'id')} : {}),
         form: {
           ...((((entry?.parameters || {}).conversations || {}).form) || {}),
           id: targetID
@@ -1024,7 +1039,7 @@ function updateMainChatWindowParameters(conversationId = '', { resetInstance = f
       messages: {
         ...((entry?.parameters || {}).messages || {}),
         input: {
-          ...((((entry?.parameters || {}).messages || {}).input) || {}),
+          ...(updateInput(entry?.parameters?.messages?.input, 'convID') || {}),
           parameters: {
             ...(((((entry?.parameters || {}).messages || {}).input || {}).parameters) || {}),
             convID: targetID
