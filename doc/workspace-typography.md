@@ -509,3 +509,26 @@ remain unchanged. Nothing is persisted or backfilled. Explicit appearances and
 legacy shell viewers remain authoritative. Fresh-read, account fencing and report
 version selection still precede rendering. The existing hosted-report suite
 checks actual rendering, untouched saved content and retained viewer options.
+
+## Observable progress in document chat
+
+The progress indicator animates from the existing motion token and respects
+reduced motion. Label, metadata and body roles remain the only text styles.
+Elapsed time stays outside live announcements. Completed/running/queued step
+counts come from identified scoped tool events, not an estimated percentage or a
+claim about the total work remaining. Runtime tool names stay in developer details;
+the public chat and footer use plain activity labels.
+
+RunProgressView observes a stable active-turn progress key. Thirty seconds without
+a changed activity, public update, model step or tool state displays "Waiting for
+an update" and the observed quiet time. A timer tick, unrelated history render or
+elapsed time is not new progress. A real new update restores the current activity;
+input-required and stopping states remain distinct. This is an observation of the
+client's received progress, not a diagnosis of a failed connection or a backend
+timeout. Stop still waits for authoritative cancellation confirmation.
+
+RequestLifecycleSpecimen uses the actual component under a document boundary;
+its local "Complete example step" action demonstrates resuming after a quiet
+period. Existing Root/progress contracts and the existing typography browser
+runner cover quiet-state recovery, normal cancellation, role/bypass guards,
+desktop/narrow layout and reduced motion. No new workflow or backend API is needed.

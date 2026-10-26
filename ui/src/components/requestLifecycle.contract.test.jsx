@@ -4,15 +4,60 @@ import {afterEach, describe, expect, it, vi} from 'vitest';
 import {client} from '../services/agentlyClient.js';
 import {onTranscript} from '../services/chatStore.js';
 import TurnProgressStatus from './TurnProgressStatus.jsx';
+import RunProgressView from './RunProgressView.jsx';
+import StatusBar from './StatusBar.jsx';
+import {setStage} from '../services/stageBus.js';
 import {ElicitationDialog} from './ElicitationOverlay.jsx';
 import ChatFeed from './chat/ChatFeedFromChatStore.jsx';
 import {ConversationViewContext} from '../context/ConversationViewContext.js';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let root, element;
-afterEach(async()=>{if(root)await act(async()=>root.unmount());element?.remove();root=null;vi.restoreAllMocks();});
+afterEach(async()=>{if(root)await act(async()=>root.unmount());element?.remove();root=null;vi.useRealTimers();vi.restoreAllMocks();});
 async function mount(node){if(!root){element=document.createElement('div');document.body.append(element);root=createRoot(element);}await act(async()=>root.render(node));}
 const transcript=(id,status='running')=>({conversationId:id,turns:[{turnId:`${id}-turn`,status,createdAt:new Date(Date.now()-14000).toISOString(),user:{messageId:'question',content:'Review this example.'},execution:{pages:[{pageId:'page',status,phase:'thinking',content:''}]}}]});
 describe('document request lifecycle',()=>{
+ it('keeps technical execution names in developer details instead of public status',async()=>{
+  setStage({phase:'executing',text:'Executing ui/view/open…'});
+  await mount(<StatusBar/>);
+  expect(element.textContent).toContain('Running a step');
+  expect(element.textContent).not.toContain('ui/view/open');
+  await mount(<StatusBar developerMode/>);
+  expect(element.textContent).toContain('Executing ui/view/open');
+  setStage({phase:'executing',text:'Completed tool ui/view/open'});
+  await mount(<StatusBar/>);
+  expect(element.textContent).toContain('Step completed');
+ });
+ it('distinguishes a quiet request from new progress without inventing stages',async()=>{
+  vi.useFakeTimers({toFake:['Date','setInterval','clearInterval']});
+  vi.setSystemTime(new Date('2026-10-26T17:00:00Z'));
+  const startedAt=new Date().toISOString(), stop=vi.fn();
+  const view=(key='one',summary='')=><RunProgressView startedAt={startedAt} progressKey={key} summary={summary} onStop={stop}/>;
+  await mount(view());
+  expect(element.textContent).toContain('Working on your request');
+  expect(element.querySelector('.app-run-progress-spinner')).not.toBeNull();
+  expect(element.textContent).not.toContain('leave this chat');
+  await act(async()=>vi.advanceTimersByTime(31000));
+  expect(element.textContent).toContain('Waiting for an update');
+  expect(element.textContent).toContain('No new progress for 0:31');
+  expect(element.textContent).not.toMatch(/failed|reconnect|%|Thinking/);
+  await mount(view()); // An unrelated render is not evidence of backend progress.
+  await act(async()=>vi.advanceTimersByTime(2000));
+  expect(element.textContent).toContain('No new progress for 0:33');
+  await mount(view('two','1 step completed'));
+  expect(element.textContent).toContain('Working on your request');
+  expect(element.textContent).toContain('1 step completed');
+  expect(element.textContent).not.toContain('No new progress');
+  expect(element.querySelector('.app-run-progress-heading [aria-live=off]').textContent).toContain('0:33 elapsed');
+  await act(async()=>element.querySelector('button').click());expect(stop).toHaveBeenCalledOnce();
+  await mount(<RunProgressView startedAt={startedAt} waiting/>);
+  await act(async()=>vi.advanceTimersByTime(31000));
+  expect(element.textContent).toContain('Needs your input');
+  expect(element.querySelector('.app-run-progress-spinner')).toBeNull();
+  expect(element.textContent).not.toContain('Waiting for an update');
+  await mount(<RunProgressView startedAt={startedAt} stopping onStop={stop}/>);
+  expect(element.querySelector('button').disabled).toBe(true);
+  expect(element.textContent).toContain('Waiting for confirmation');
+ });
  it('uses the actual scoped cancellation, retains failure and resets for the next turn',async()=>{
   const cancel=vi.spyOn(client,'cancelTurn').mockRejectedValue(new Error('private stop diagnostic'));
   onTranscript('run-example',transcript('run-example'));
