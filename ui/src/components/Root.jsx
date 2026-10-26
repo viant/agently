@@ -29,6 +29,7 @@ import ElicitationOverlay from './ElicitationOverlay';
 import { useApprovalQueue } from '../hooks/useApprovalQueue';
 import { useAgUiBackendSelection } from '../hooks/useAgUiBackendSelection';
 import AgUiRemoteConversation from './AgUiRemoteConversation';
+import {trackConversationRestoration} from '../services/conversationRestoration';
 import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, dismissWorkspaceWindowForConversation, ensureWorkspaceWindowForConversation, getScopedActiveSurface, hasScopedActiveSurfaceSelection, getScopedConversationSelection, getScopedWorkspacePresentationMode, getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, restoreWorkspaceNavigationTrailEntry, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
 import { conversationIDFromPath, publishActiveConversation } from '../services/chatRuntime';
@@ -541,10 +542,12 @@ export function shouldReplayRouteConversationBootstrap({
   mainConversationId = '',
   hasChatFeed = false,
   hasWorkspace = false,
+  expectedConversationId = '',
 } = {}) {
   if (authState !== 'ready') return false;
   const routeConversationId = String(conversationIDFromPath(pathname) || '').trim();
   if (!routeConversationId) return false;
+  if (expectedConversationId && routeConversationId !== expectedConversationId) return false;
   const selectedConversationId = String(mainConversationId || '').trim();
   if (selectedConversationId && selectedConversationId !== routeConversationId) return false;
   return !hasChatFeed && !hasWorkspace;
@@ -913,10 +916,11 @@ export default function Root() {
   useEffect(() => {
     if (authState !== 'ready') return () => {};
     let active = true;
+    const ownership = trackConversationRestoration();
     (async () => {
       let restoredConversationId = '';
       const restoreConversation = (pending) => {
-        if (!active || !pending?.conversationId) return;
+        if (!active || !ownership.isCurrent() || !pending?.conversationId) return;
         restoredConversationId = pending.conversationId;
         setMCPResumePending(pending);
         openConversationInMainWindow(pending.conversationId);
@@ -927,7 +931,7 @@ export default function Root() {
         restoreConversation(pending);
       }
     })().catch(() => {});
-    return () => { active = false; };
+    return () => { active = false; ownership.dispose(); };
   }, [authState]);
 
   useEffect(() => {
@@ -1208,6 +1212,7 @@ export default function Root() {
     const replay = () => {
       if (!shouldReplayRouteConversationBootstrap({
         pathname: window.location.pathname,
+        expectedConversationId: routeConversationId,
         authState,
         mainConversationId,
         hasChatFeed: hasRenderedChatContent(document),

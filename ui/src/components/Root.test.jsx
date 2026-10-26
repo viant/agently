@@ -888,3 +888,19 @@ it('offers direct recovery for a denied hosted tool output without showing cache
 
   } finally {await React.act(async()=>root.unmount());host.remove();get.mockRestore();bus.clearFeedState();delete globalThis.IS_REACT_ACT_ENVIRONMENT;}
 });
+
+it('does not let a delayed route bootstrap for A reopen A after navigating to B', () => {
+  const delayedReplay = () => shouldReplayRouteConversationBootstrap({
+    pathname: window.location.pathname, expectedConversationId: 'chat-a',
+    authState: 'ready', mainConversationId: '', hasChatFeed: false, hasWorkspace: false,
+  });
+  const before = window.location.href;
+  try {
+    window.history.replaceState(null, '', '/conversation/chat-a');
+    expect(delayedReplay()).toBe(true);
+    window.history.replaceState(null, '', '/conversation/chat-b');
+    expect(delayedReplay()).toBe(false);
+    window.history.replaceState(null, '', '/');
+    expect(delayedReplay()).toBe(false);
+  } finally { window.history.replaceState(null, '', before); }
+});
