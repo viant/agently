@@ -2,7 +2,7 @@ import React from 'react';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -81,6 +81,9 @@ vi.mock('forge/components', () => ({
   ),
 }));
 
+// Load the shared runtime once during setup; assertion timings exclude module compilation.
+beforeAll(async () => { await import('./ToolFeedDetail.jsx'); }, 30000);
+
 describe('ToolFeedDetail', () => {
   it('preserves authored non-stretch layout and theme styles without clipping the inline editor', async () => {
     const { default: ToolFeedDetail } = await import('./ToolFeedDetail.jsx');
@@ -140,7 +143,7 @@ describe('ToolFeedDetail', () => {
   it('places every Forge-backed feed inside the shared theme boundary', async () => {
     const source = fs.readFileSync(path.join(repoRoot, 'ui/src/components/ToolFeedDetail.jsx'), 'utf8');
     const shellCSS = fs.readFileSync(path.join(repoRoot, 'ui/src/styles/shell.css'), 'utf8');
-    expect(source).toContain('<ForgeThemeBoundary windowKey={`tool-feed-${feedId}`}>');
+    expect(source).toMatch(/<ForgeThemeBoundary\s+[^>]*windowKey=\{`tool-feed-\$\{feedId\}`\}/);
     expect(source).toContain('data-tool-feed-id={feedId}');
     expect(shellCSS).toContain('--app-workspace-section-header-background');
     expect(shellCSS).toContain('--app-workspace-card-background');

@@ -7,6 +7,7 @@ import { useSignals } from '@preact/signals-react/runtime';
 import { Button, Dialog } from '@blueprintjs/core';
 import { useSetting, activeWindows, addWindow, findCollectionSignal, findFormSignal, findMetadataSignal, findMetricsSignal, findViewSignal, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
 import { WindowManager, WindowContent, Typography } from 'forge/components';
+import ReportWindow, {isReportWindow} from './ReportWindow.jsx';
 import { DetailContext } from '../context/DetailContext';
 import { ConversationViewContext } from '../context/ConversationViewContext';
 import DetailPanel from './DetailPanel';
@@ -1621,7 +1622,7 @@ export default function Root() {
                   renderWindowContent={({ window: windowEntry, defaultContent }) => (
                     String(windowEntry?.presentation || '').trim().toLowerCase() === 'conversationhistory'
                       ? <ScheduleConversationHistory window={windowEntry} />
-                      : defaultContent
+                      : isReportWindow(windowEntry) ? <ReportWindow window={windowEntry}/> : defaultContent
                   )}
                 />
               )}
