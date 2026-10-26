@@ -45,7 +45,7 @@ it('renders the shared resource runtime and uses canonical SDK get/run/export ro
   expect(calls.map(call=>call.url)).toEqual(['get_report','run_report','run_report','submit_export','get_export_status','get_artifact'].map(name=>`http://owned/v1/tools/reporting%3A${name}/execute`));
   const selected={resource:{uri:pin.uri,revision:'working'},resolvedResource:pin,parameters:{AdvertiserIds:[0],Search:''}};
   expect(calls[0].args).toEqual({resource:{uri:pin.uri}});
-  expect(calls[2].args).toEqual(selected);
+  expect(calls[2].args).toEqual({...selected,fillOnly:true});
   expect(calls[3].args).toEqual({...selected,format:'csv'});
   expect(calls.every(call=>call.init.credentials==='include')).toBe(true);
   expect(view.container.querySelector('iframe')).toBeNull();
@@ -77,7 +77,7 @@ it('collects published predicate inputs before manual execution and sends typed 
   }
   fireEvent.click(screen.getByRole('button',{name:'Run report'}));
   await screen.findByRole('heading',{name:'Selected scope'});
-  expect(calls[1].args).toEqual({resource:{uri:pin.uri,revision:'working'},resolvedResource:pin,parameters:{advertiserId:42,suiteId:7,campaignIds:[31,32],from:'2026-01-02',to:'2026-01-03'}});
+  expect(calls[1].args).toEqual({resource:{uri:pin.uri,revision:'working'},resolvedResource:pin,parameters:{advertiserId:42,suiteId:7,campaignIds:[31,32],from:'2026-01-02',to:'2026-01-03'},fillOnly:true});
   fireEvent.change(screen.getByLabelText('Advertiser'),{target:{value:'0'}});
   fireEvent.change(screen.getByLabelText('Campaigns'),{target:{value:''}});
   fireEvent.change(screen.getByLabelText('Date Range from'),{target:{value:''}});
