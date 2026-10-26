@@ -1,6 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useContext } from 'react';
 import RichContent from './LazyRichContent';
-import { AvatarIcon } from 'forge/components';
+import {ConversationViewContext} from '../../context/ConversationViewContext.js';
+import './documentMessages.css';
+import { AvatarIcon, typographyProps } from 'forge/components';
 
 const AUTO_SCROLL_THRESHOLD_PX = 96;
 
@@ -27,6 +29,8 @@ export function shouldAutoScrollStreamingRow(rowRect, containerRect, threshold =
 }
 
 export default function BubbleMessage({ message, messageIndex = 0, conversationId = '', attachment = null, context = null }) {
+  const {presentation} = useContext(ConversationViewContext);
+  const documentAppearance = presentation === 'document';
   const rowRef = useRef(null);
   const role = String(message?.role || 'assistant').toLowerCase();
   const isUser = role === 'user';
@@ -83,10 +87,10 @@ export default function BubbleMessage({ message, messageIndex = 0, conversationI
   const avatarWeight = isUser ? 'fill' : 'regular';
 
   return (
-    <div className={rowClass} data-testid={`chat-message-${message?.id || messageIndex}-row`} ref={rowRef}>
-      <div className={avatarClass} data-testid={`chat-message-${message?.id || messageIndex}-avatar`}>
+    <div className={`${rowClass}${documentAppearance ? ' is-document' : ''}`} {...(documentAppearance ? typographyProps('body') : {})} role={documentAppearance ? 'article' : undefined} aria-label={documentAppearance ? (isUser ? 'Your message' : 'Assistant response') : undefined} data-testid={`chat-message-${message?.id || messageIndex}-row`} ref={rowRef}>
+      {!documentAppearance ? <div className={avatarClass} data-testid={`chat-message-${message?.id || messageIndex}-avatar`}>
         <AvatarIcon name={avatarIcon} size={14} weight={avatarWeight} color={avatarColor} />
-      </div>
+      </div> : null}
       <div className={bubbleClass}>
         <div className="app-bubble-content">
           <RichContent

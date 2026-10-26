@@ -158,6 +158,7 @@ export function openWindow(windowKey, windowTitle, refreshDataSources = [], opti
     selectedWindowId.value = existing.windowId;
     refreshWindowDataSources(existing.windowId, refreshDataSources);
   }
+  return existing;
 }
 
 export const APPROVALS_PAGE_SIZE = 8;

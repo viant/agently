@@ -89,6 +89,26 @@ describe('conversationWindow', () => {
     };
   });
 
+  it('keeps a section deep link while the same conversation hydrates', () => {
+    window.location.pathname = '/conversation/existing';
+    window.history.state = {agentlyShell: {section: 'workspaces', destination: '["app","records"]'}};
+    const dispatch = vi.fn();
+    const replace = vi.fn();
+    window.dispatchEvent = dispatch;
+    window.history.replaceState = replace;
+    publishConversationSelection(MAIN_CHAT_WINDOW_ID, 'existing', {syncPath: true});
+    expect(dispatch.mock.calls.map(([event]) => event.type)).not.toContain('agently:conversation-path');
+    expect(replace).not.toHaveBeenCalled();
+    expect(window.history.state.agentlyShell.section).toBe('workspaces');
+  });
+
+  it('preserves independent app destinations when a delayed conversation opens', () => {
+    const section = {windowId:'data-section',windowKey:'records',region:'app.section',presentation:'hosted',parentKey:null};
+    activeWindows.value = [{windowId:MAIN_CHAT_WINDOW_ID,windowKey:CHAT_WINDOW_KEY,inTab:true}, section];
+    openConversationInMainWindow('late-conversation');
+    expect(activeWindows.peek()).toContainEqual(section);
+  });
+
   it('starting fresh after deletion preserves detached workspace content and drafts', () => {
     const entry={windowId:'marketplace',windowKey:'marketplaceDeals',conversationId:'deleted',parentKey:MAIN_CHAT_WINDOW_ID,presentation:'hosted',region:'chat.top',inTab:true,parameters:{}};
     activeWindows.value=[entry];
@@ -1304,6 +1324,19 @@ describe('conversationWindow', () => {
 
     requestNewConversationInMainWindow();
     expect(activeWindows.value[0]?.conversationInstanceVersion).toBe(2);
+  });
+
+  it('clears a prepared task only for explicit New Chat, preserving unrelated query state', () => {
+    const url = new URL('http://localhost/?starter=example&starterFrom=library&keep=yes');
+    window.location = {href: url.href, search: url.search, pathname: '/', hostname: 'localhost'};
+    window.history.replaceState = vi.fn();
+    requestNewConversationInMainWindow();
+    expect(window.history.replaceState).not.toHaveBeenCalled();
+    requestNewConversationInMainWindow({resetStarter: true});
+    const target = new URL(window.history.replaceState.mock.calls[0][2]);
+    expect(target.searchParams.has('starter')).toBe(false);
+    expect(target.searchParams.has('starterFrom')).toBe(false);
+    expect(target.searchParams.get('keep')).toBe('yes');
   });
 
   it('removes top-level non-chat windows when opening a new main chat conversation', () => {

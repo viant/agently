@@ -106,6 +106,8 @@ export function extractPlannerElicitationMeta(requestedSchema = null) {
           return {
             key,
             label: String(entry.label || key).trim() || humanizeFieldLabel(key),
+            ...(typeof entry.flex === 'boolean' ? {flex:entry.flex} : {}),
+            ...Object.fromEntries(['width','minWidth'].filter(name=>Number.isFinite(entry[name]) && entry[name]>=48).map(name=>[name,entry[name]])),
           };
         })
         .filter(Boolean)

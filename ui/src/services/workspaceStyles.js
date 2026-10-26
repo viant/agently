@@ -73,6 +73,11 @@ export function validateThemeCatalog(catalog) {
       }
     }
   }
+  for (const theme of catalog.themes) {
+    if (theme.presentations == null) continue;
+    if (typeof theme.presentations !== 'object' || Array.isArray(theme.presentations)
+      || Object.entries(theme.presentations).some(([appearance, profile]) => appearance !== 'document' || !ids.has(profile))) throw new Error('Invalid presentation profile');
+  }
   if (!ids.has(catalog.defaultTheme)) throw new Error('Missing default theme');
   return catalog;
 }

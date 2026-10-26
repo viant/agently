@@ -18,7 +18,7 @@ describe('ElicitationMessage', () => {
   });
   it('uses the same presentation in both web elicitation surfaces', () => {
     for (const path of ['./ElicitationOverlay.jsx', './chat/ElicitationForm.jsx']) {
-      expect(fs.readFileSync(new URL(path, import.meta.url), 'utf8')).toContain('<ElicitationMessage message={prompt} />');
+      expect(fs.readFileSync(new URL(path, import.meta.url), 'utf8')).toMatch(/<ElicitationMessage message=\{prompt\}/);
     }
   });
 });

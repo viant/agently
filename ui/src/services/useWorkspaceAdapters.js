@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 import { activeWindows, addWindow, selectedWindowId, selectedTabId } from 'forge/core';
-import { MAIN_CHAT_WINDOW_ID } from './conversationWindow.js';
+import { MAIN_CHAT_WINDOW_ID, getWorkspaceHistory, rememberWorkspaceObjects, getScopedActiveSurface, reopenWorkspaceObject } from './conversationWindow.js';
 import { feedTracker, getActiveFeeds, onFeedChange } from './toolFeedBus.js';
+import {projectedWorkspaceEntries} from './workspaceAttachment.js';
 import { mcpWorkspaceDescriptor, toolFeedWorkspaceDescriptor } from './workspaceAdapters.js';
 
 export function setWorkspaceLifecycle(windowId, state) {
@@ -13,7 +14,33 @@ export function setWorkspaceLifecycle(windowId, state) {
   } : item);
 }
 
-export function useWorkspaceAdapters({mainConversationId, workspaceWindows, setActiveSurface, setWorkspacePresentationMode}) {
+export function useWorkspaceAdapters({mainConversationId, workspaceWindows, projectedRows, documentPresentation = false, active = true, setActiveSurface, setWorkspacePresentationMode}) {
+  useEffect(() => {
+    if (!documentPresentation || !mainConversationId) return;
+    const reports = projectedWorkspaceEntries(projectedRows, mainConversationId, {includeInlineReports: true})
+      .filter(entry => entry.workspaceObject?.content?.renderer === 'inlineReport');
+    if (!reports.length) return;
+    const session = rememberWorkspaceObjects(mainConversationId, reports);
+    let changed = false;
+    const updated = activeWindows.peek().map(entry => {
+      const latest = reports.find(report => report.windowId === entry.windowId);
+      if (!latest || (latest.workspaceObject.revision === entry.workspaceObject?.revision
+        && latest.workspaceObject.content.resetVersion === entry.workspaceObject?.content?.resetVersion)) return entry;
+      changed = true;
+      return {...entry, windowTitle: latest.windowTitle, navigation: latest.workspaceObject.navigation, workspaceObject: {...latest.workspaceObject,
+        origin: entry.workspaceObject?.origin || latest.workspaceObject.origin, lifecycle: entry.workspaceObject?.lifecycle || latest.workspaceObject.lifecycle}};
+    });
+    if (changed) activeWindows.value = updated;
+    if (!active || getScopedActiveSurface(mainConversationId) !== 'workspace') return;
+    for (const entry of reports) {
+      if (session.openWindowIds?.includes(entry.windowId) && !session.closedWindowIds.includes(entry.windowId)
+        && !activeWindows.peek().some(window => window.windowId === entry.windowId)) reopenWorkspaceObject(mainConversationId, entry.windowId);
+    }
+    if (reports.some(entry => entry.windowId === session.activeWindowId) && activeWindows.peek().some(entry => entry.windowId === session.activeWindowId)) {
+      selectedWindowId.value = session.activeWindowId; selectedTabId.value = session.activeWindowId;
+    }
+  }, [documentPresentation, mainConversationId, projectedRows, active]);
+
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
     const onOpenMCPUIWorkspace = (event) => {
@@ -64,18 +91,18 @@ export function useWorkspaceAdapters({mainConversationId, workspaceWindows, setA
         navigation: descriptor.workspaceObject.navigation, hostOpenState: 'user_requested',
       });
       feedTracker.setActive({...feed, presentation: {...feed.presentation, workspaceObjectId: descriptor.workspaceObject.objectId}});
-      setWorkspacePresentationMode('full');
+      setWorkspacePresentationMode(documentPresentation ? 'split' : 'full');
       setActiveSurface('workspace');
     };
     window.addEventListener('agently:toolfeed-workspace-open', promote);
     return () => window.removeEventListener('agently:toolfeed-workspace-open', promote);
-  }, [mainConversationId, setActiveSurface, setWorkspacePresentationMode]);
+  }, [mainConversationId, documentPresentation, setActiveSurface, setWorkspacePresentationMode]);
 
   useEffect(() => {
     const reconcileFeedPlacement = () => {
       for (const feed of getActiveFeeds()) {
         if (feed.conversationId !== mainConversationId) continue;
-        const owner = workspaceWindows.find((entry) => entry.workspaceObject?.content?.renderer === 'toolFeed'
+        const owner = [...(documentPresentation ? getWorkspaceHistory(mainConversationId) : []), ...workspaceWindows].find((entry) => entry.workspaceObject?.content?.renderer === 'toolFeed'
           && entry.workspaceObject.content.feedId === feed.feedId);
         const objectId = owner?.workspaceObject?.objectId;
         if (feed.presentation?.workspaceObjectId !== objectId) {
@@ -85,6 +112,6 @@ export function useWorkspaceAdapters({mainConversationId, workspaceWindows, setA
     };
     reconcileFeedPlacement();
     return onFeedChange(reconcileFeedPlacement);
-  }, [workspaceWindows, mainConversationId]);
+  }, [workspaceWindows, mainConversationId, documentPresentation]);
 
 }

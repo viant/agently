@@ -1,5 +1,7 @@
 import ElicitationTiming from './ElicitationTiming';
 import ElicitationMessage from './ElicitationMessage';
+import RequestReviewDialog, {ReviewAction,reviewDecisionError} from './RequestReviewDialog.jsx';
+import {ReviewTable, Typography, typographyProps} from 'forge/components';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Dialog, Classes, Spinner } from '@blueprintjs/core';
 import SchemaBasedForm from 'forge/widgets/SchemaBasedForm.jsx';
@@ -29,7 +31,7 @@ import {
 
 const EMPTY_FORM_DATA = Object.freeze({});
 
-export default function ElicitationOverlay({ context }) {
+export default function ElicitationOverlay({ context, appearance }) {
   const [pendingItems, setPendingItems] = useState(getPendingElicitations);
 
   useEffect(() => {
@@ -54,6 +56,7 @@ export default function ElicitationOverlay({ context }) {
         <ElicitationDialog
           key={`${String(item?.conversationId || '').trim()}::${String(item?.elicitationId || '').trim()}`}
           context={context}
+          appearance={appearance}
           pending={item}
           index={index}
           total={visibleItems.length}
@@ -63,7 +66,8 @@ export default function ElicitationOverlay({ context }) {
   );
 }
 
-export function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
+export function ElicitationDialog({ context, pending, index = 0, total = 1, appearance }) {
+  const documentPresentation = appearance === 'document';
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [plannerRows, setPlannerRows] = useState([]);
@@ -177,11 +181,11 @@ export function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
       removePendingElicitation({ conversationId, elicitationId }, { allConversationsForElicitation: true });
       await refreshAfterElicitationResolution(context, { conversationID: conversationId || resolveConversationId, elicitationID: resolveElicitationId, turnID: pending?.turnId, action: resolvedAction });
     } catch (err) {
-      setError(String(err?.message || err || 'Failed'));
+      setError(documentPresentation ? reviewDecisionError(err) : String(err?.message || err || 'Failed'));
     } finally {
       setSubmitting(false);
     }
-  }, [conversationId, elicitationId, resolveConversationId, resolveElicitationId, context, collectFormValues, plannerMeta, plannerRows]);
+  }, [conversationId, elicitationId, resolveConversationId, resolveElicitationId, context, collectFormValues, plannerMeta, plannerRows, documentPresentation]);
 
   const mcpAuthServer = useMemo(() => {
     if (!isMCPOAuth || !url) return '';
@@ -229,7 +233,7 @@ export function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
   })();
 
   return (
-    <Dialog
+    <RequestReviewDialog appearance={appearance} busy={submitting}
       isOpen={true}
       canEscapeKeyClose={!submitting}
       canOutsideClickClose={!submitting}
@@ -241,9 +245,9 @@ export function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
       style={{ width: 'calc(100vw - 32px)', maxWidth: 680, marginTop: index ? 32 * index : undefined }}
     >
       <div className={Classes.DIALOG_BODY}>
-        <ElicitationMessage message={prompt} />
+        <ElicitationMessage message={prompt} appearance={appearance}/>
         {!approvalMeta && !isOOB && !isResolvedHistory ? <ElicitationTiming source={pending} /> : null}
-        {approvalMeta?.toolName ? (
+        {documentPresentation && approvalMeta?.toolName ? <Typography as="p" typeRole="metadata" className="app-request-review-tool">Action: {approvalMeta.toolName}</Typography> : approvalMeta?.toolName ? (
           <div style={{ marginBottom: 12 }}>
             <strong>Tool:</strong> {approvalMeta.toolName}
           </div>
@@ -255,7 +259,10 @@ export function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
             <span style={{ fontWeight: 600 }}>{displayURL}</span>
           </div>
         ) : null}
-        {plannerMeta ? (
+        {plannerMeta && documentPresentation ? <ReviewTable id={`review-${elicitationId}`} title={plannerMeta.title}
+          rows={plannerRows} columns={plannerMeta.columns} selectionField={plannerMeta.selectionField}
+          selectionLabelFields={plannerMeta.columns.slice(0,2).map(column=>column.key)} disabled={submitting || isResolvedHistory} showDownload={false}
+          onRowsChange={next=>{setPlannerRows(next); formValuesRef.current={...formValuesRef.current,rows:next};}}/> : plannerMeta ? (
           <div style={{
             display: 'grid',
             gap: 14,
@@ -305,6 +312,7 @@ export function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
         {hasPreparedSchemaProps && !isOOB ? (
           <div id={formWrapperId.current}>
             <SchemaBasedForm
+              layout={documentPresentation ? {kind:'grid',appearance:'field-tracks',columns:1,labels:{mode:'top'}} : undefined}
               showSubmit={false}
               schema={preparedSchema}
               data={EMPTY_FORM_DATA}
@@ -324,29 +332,29 @@ export function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
           </div>
         ) : null}
         {isResolvedHistory ? (
-          <p style={{ color: '#5f6b7c', marginTop: 8 }}>
+            <p {...(documentPresentation ? typographyProps('metadata') : {})} style={documentPresentation ? undefined : { color: '#5f6b7c', marginTop: 8 }}>
             Historical review state: {resolvedStatus}.
           </p>
         ) : null}
-        {error ? <p style={{ color: '#ef4444', marginTop: 8 }}>{error}</p> : null}
+        {error ? <p {...(documentPresentation ? typographyProps('body') : {})} role="alert" className={documentPresentation ? 'app-request-review-error' : undefined} style={documentPresentation ? undefined : { color: '#ef4444', marginTop: 8 }}>{error}</p> : null}
       </div>
       <div className={Classes.DIALOG_FOOTER}>
         <div className={Classes.DIALOG_FOOTER_ACTIONS}>
           {submitting ? <Spinner size={16} /> : null}
           {isResolvedHistory ? (
-            <Button onClick={() => removePendingElicitation({ conversationId, elicitationId }, { allConversationsForElicitation: true })}>Close</Button>
+            <ReviewAction appearance={appearance} onClick={() => removePendingElicitation({ conversationId, elicitationId }, { allConversationsForElicitation: true })}>Close</ReviewAction>
           ) : (
             <>
-              <Button minimal onClick={() => resolve('decline', {})} disabled={submitting}>
+              <ReviewAction appearance={appearance} minimal onClick={() => resolve('decline', {})} disabled={submitting}>
                 {approvalMeta?.rejectLabel || (isOOB ? 'Decline' : 'Skip')}
-              </Button>
+              </ReviewAction>
               {!isOOB ? (
-                <Button onClick={() => resolve('cancel', {})} disabled={submitting}>
+                <ReviewAction appearance={appearance} onClick={() => resolve('cancel', {})} disabled={submitting}>
                   {approvalMeta?.cancelLabel || 'Cancel'}
-                </Button>
+                </ReviewAction>
               ) : null}
               {isOOB ? (
-                <Button
+                <ReviewAction appearance={appearance}
                   intent="primary"
                   disabled={submitting}
                   onClick={async () => {
@@ -372,9 +380,9 @@ export function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
                   }}
                 >
                   {isMCPOAuth ? 'Connect' : 'Open'}
-                </Button>
+                </ReviewAction>
               ) : (
-                <Button intent="primary" disabled={submitting} onClick={() => {
+                <ReviewAction appearance={appearance} intent="primary" disabled={submitting} onClick={() => {
                   // Try to trigger SchemaBasedForm's internal submit first (sends schema-keyed values).
                   // If that fails, collect values ourselves.
                   if (!triggerFormSubmit()) {
@@ -382,13 +390,13 @@ export function ElicitationDialog({ context, pending, index = 0, total = 1 }) {
                   }
                 }}>
                   {approvalMeta?.acceptLabel || 'Submit'}
-                </Button>
+                </ReviewAction>
               )}
             </>
           )}
         </div>
       </div>
-    </Dialog>
+    </RequestReviewDialog>
   );
 }
 
