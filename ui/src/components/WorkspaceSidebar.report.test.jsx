@@ -8,7 +8,7 @@ vi.mock('../services/agentlyClient', () => ({getAuthMeSilently:vi.fn(async()=>({
 vi.mock('./Sidebar', () => ({default:()=>null}));
 vi.mock('forge/core', async () => {
   const {signal} = await import('@preact/signals-react');
-  return {activeWindows:signal([{windowId:'selected',parameters:inputs}]), selectedWindowId:signal('selected'),getWindowContext:()=>({signals:{windowForm:{value:inputs}}})};
+  return {activeWindows:signal([{windowId:'selected',parameters:inputs}]), selectedWindowId:signal('selected'),getFormSignal:()=>({value:inputs})};
 });
 import WorkspaceSidebar from './WorkspaceSidebar.jsx';
 afterEach(()=>{cleanup();vi.unstubAllGlobals();vi.clearAllMocks();});
