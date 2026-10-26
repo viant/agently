@@ -26,6 +26,7 @@ import { getAgUiHostActivities, replaceAgUiHostActivities } from './aguiHostActi
 import { applyFeedEvent, clearFeedState, getFeedData, getActiveFeeds } from './toolFeedBus';
 
 vi.mock('./agentlyClient', () => ({
+  getReportRestoreScope: vi.fn().mockReturnValue('test-session'),
   client: {
     getWorkspaceMetadata: vi.fn(),
     createConversation: vi.fn(),
