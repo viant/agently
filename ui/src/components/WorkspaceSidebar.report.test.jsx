@@ -12,14 +12,14 @@ vi.mock('forge/core', async () => {
 });
 import WorkspaceSidebar from './WorkspaceSidebar.jsx';
 afterEach(()=>{cleanup();vi.unstubAllGlobals();vi.clearAllMocks();});
-it('opens a typed report in the hosted workspace using bound current parameters and a report resource ref', async () => {
-  const action={type:'report',resourceUri:'report://ar/overview',providerIdentity:'menu-connection',parameters:{ViewId:1294},parameterBindings:{AdvertiserIds:{from:'AdvertiserId',array:true}}};
+it.each(['report://ar/overview', 'report://ar/group/overview'])('opens %s in the hosted workspace using bound parameters', async (resourceUri) => {
+  const action={type:'report',resourceUri,providerIdentity:'menu-connection',parameters:{ViewId:1294},parameterBindings:{AdvertiserIds:{from:'AdvertiserId',array:true}}};
   const original=JSON.stringify(action);
   vi.stubGlobal('fetch', vi.fn(async()=>({ok:true,json:async()=>({workspaceId:'test',layout:{left:{history:{enabled:false}},applications:[{id:'ar',title:'AR',menus:[{id:'overview',title:'Overview',action}]}]}})})));
   render(<WorkspaceSidebar conversationId="current-chat"/>);
   fireEvent.click(await screen.findByRole('button',{name:'Overview'}));
-  expect(openWindow).toHaveBeenCalledWith('report://ar/overview','Overview',[],{
-    parameters:{ViewId:1294,AdvertiserIds:[42]},conversationId:'current-chat',parentKey:'chat/new',presentation:'hosted',region:'chat.top',resourceRef:{uri:'report://ar/overview'},
+  expect(openWindow).toHaveBeenCalledWith(resourceUri,'Overview',[],{
+    parameters:{ViewId:1294,AdvertiserIds:[42]},conversationId:'current-chat',parentKey:'chat/new',presentation:'hosted',region:'chat.top',resourceRef:{uri:resourceUri},
   });
   expect(JSON.stringify(action)).toBe(original);
 });

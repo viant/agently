@@ -29,7 +29,15 @@ export function resolveLayoutWindowOptions(action = {}, conversationId = '', cur
   const id = String(conversationId || '').trim();
   const {parameters, missing} = resolveNavigationParameters(action, current);
   if (missing) return null;
-  return { parameters, conversationId: id || undefined, parentKey: MAIN_CHAT_WINDOW_ID, presentation: 'hosted', region: 'chat.top', ...(action.providerIdentity ? {providerIdentity: action.providerIdentity} : {}) };
+  return { parameters, conversationId: id || undefined, parentKey: MAIN_CHAT_WINDOW_ID, presentation: 'hosted', region: 'chat.top', ...(action.providerIdentity ? {providerIdentity: action.providerIdentity} : {}), ...(action.providerIdentity && action.resourceUri ? {resourceRef: {uri: action.resourceUri}} : {}) };
+}
+
+export function resolveLayoutReportOptions(action = {}, conversationId = '', current = {}) {
+  if (action.type !== 'report' || !String(action.resourceUri || '').startsWith('report://')) return null;
+  const options = resolveLayoutWindowOptions(action, conversationId, current);
+  if (!options) return null;
+  const {providerIdentity, ...hosted} = options;
+  return {...hosted, resourceRef: {uri: action.resourceUri, ...(action.revision != null ? {revision: String(action.revision)} : {})}};
 }
 
 export function selectedWindowInputs() {
@@ -215,7 +223,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         {expanded ? <div className="app-layout-menu-children">{menu.children.map(child => renderMenu(child, [...parentPath, menu.id]))}</div> : null}
       </div>;
     }
-    const missingInputs = menu.action?.type === 'window' && resolveNavigationParameters(menu.action, windowInputs).missing;
+    const missingInputs = ['window', 'report'].includes(menu.action?.type) && resolveNavigationParameters(menu.action, windowInputs).missing;
     const destinationId = JSON.stringify([active?.id, ...parentPath, menu.id]);
     const unavailable = sections && layoutWindowDestinations(layout).find(entry => entry.destination === destinationId)?.disabled;
     const MenuButton = sections ? SectionDestinationButton : Button;
@@ -223,6 +231,14 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       onClick={() => {
         const action = menu.action;
         if (openLayoutURL(action)) { onNavigate?.(); return; }
+        if (action?.type === 'report') {
+          const options = resolveLayoutReportOptions(action, conversationId, selectedWindowInputs());
+          if (!options) return;
+          openWindow(action.resourceUri, menu.title, [], options);
+          onOpenWorkspace?.();
+          onNavigate?.();
+          return;
+        }
         if (action?.type === 'window') {
           const windowKey = resolveLayoutWindowKey(action);
           const options = resolveLayoutWindowOptions(action, conversationId, selectedWindowInputs());
