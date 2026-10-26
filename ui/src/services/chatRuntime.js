@@ -632,6 +632,7 @@ function normalizeStarterTaskEntries(entries = [], agent = null) {
       title,
       prompt,
       description: String(entry.description || '').trim(),
+      resultLabel: String(entry.resultLabel || '').trim(),
       icon: String(entry.icon || '').trim(),
       agentId: String(entry.agentId || agent?.id || '').trim(),
       agentName: String(entry.agentId && entry.agentId !== agent?.id ? entry.agentId : agent?.name || '').trim()

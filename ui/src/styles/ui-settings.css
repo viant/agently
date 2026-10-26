@@ -37,11 +37,12 @@
   gap: 6px;
   min-width: 0;
 }
+.app-ui-settings .app-workspace-appearance-controls .forge-select-control { width: 100%; }
 .app-ui-settings .app-workspace-appearance-controls select {
   width: 100%;
   min-width: 0;
   height: 38px;
-  padding: 0 32px 0 10px;
+  padding: 0 var(--forge-select-reserved-space, 32px) 0 10px;
   color: var(--forge-text, var(--app-text));
   background-color: var(--forge-control-bg, var(--app-surface));
   border: 1px solid var(--forge-control-border, var(--app-border));

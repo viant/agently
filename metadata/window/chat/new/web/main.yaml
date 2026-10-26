@@ -20,6 +20,7 @@ view:
       - id: conversationSection
         sizingMode: fill
         chat:
+          appearance: document
           dataSourceRef: messages
           showSettings: false
           showTools: false

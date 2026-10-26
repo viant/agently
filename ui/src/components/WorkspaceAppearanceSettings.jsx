@@ -1,5 +1,5 @@
 import React from 'react';
-import {typographyProps, Button as SharedButton} from 'forge/components';
+import {typographyProps, Button as SharedButton, SelectControl} from 'forge/components';
 import {Button} from '@blueprintjs/core';
 import {useWorkspaceStyle} from './WorkspaceStyleProvider';
 
@@ -16,16 +16,16 @@ export default function WorkspaceAppearanceSettings() {
       <h2 {...text('section')} className="app-ui-settings-title">Workspace appearance</h2>
       <p {...text('body')}>Choose how workspace windows and their controls appear.</p>
       {state.catalog ? <div className="app-workspace-appearance-controls">
-        <label {...text('label')}>Theme <select {...text('body')} aria-label="Workspace theme" value={state.themeId || 'forge-default'}
+        <label {...text('label')}>Theme <SelectControl {...text('body')} aria-label="Workspace theme" value={state.themeId || 'forge-default'}
           onChange={event => manager.setPreference(event.target.value, state.modePreference)}>
           <option value="forge-default">Forge default</option>
           {state.catalog.themes.map(theme => <option key={theme.id} value={theme.id}>{theme.label}</option>)}
-        </select></label>
-        <label {...text('label')}>Color mode <select {...text('body')} aria-label="Workspace color mode" value={state.modePreference} disabled={!selected}
+        </SelectControl></label>
+        <label {...text('label')}>Color mode <SelectControl {...text('body')} aria-label="Workspace color mode" value={state.modePreference} disabled={!selected}
           onChange={event => manager.setPreference(state.themeId, event.target.value)}>
           {['system', 'light', 'dark'].map(mode => <option key={mode} value={mode}
             disabled={mode !== 'system' && selected && !selected.modes[mode]}>{mode.charAt(0).toUpperCase() + mode.slice(1)}</option>)}
-        </select></label>
+        </SelectControl></label>
         <span {...text('metadata')} aria-live="polite">Currently {state.mode}</span>
       </div> : <p {...text('body')}>No named themes are configured for this workspace.</p>}
       {state.diagnostics.length > 0 && <div {...text('metadata')} role="status">{state.diagnostics.join(' · ')}</div>}

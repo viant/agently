@@ -1,0 +1,24 @@
+/* Quiet document messages share the same body role as navigation and reports. */
+.app-bubble-row.is-document { margin: 0 0 28px; padding: 0; gap: 0; color: var(--app-text); }
+.app-bubble-row.is-document.app-bubble-row-user { justify-content: flex-end; }
+.app-bubble-row.is-document > .app-bubble { flex: 0 1 auto; width: auto; min-width: 0; padding: 0; border: 0; box-shadow: none; background: transparent; border-radius: 0; }
+.app-bubble-row.is-document > .app-bubble-user { max-width: 88%; padding: 10px 16px; background: var(--agently-theme-surface-subtle, var(--app-surface-soft)); border-radius: var(--agently-theme-radius-surface, 10px); }
+.app-bubble-row.is-document > .app-bubble-assistant { width: 100%; }
+.app-bubble-row.is-document .app-bubble-content, .app-bubble-row.is-document .app-bubble-content :where(p, li, td, span:not([data-forge-type]), a) { font: inherit; letter-spacing: inherit; overflow-wrap: anywhere; }
+.app-bubble-row.is-document .app-bubble-content :where(p) { white-space: pre-wrap; }
+.app-bubble-row.is-document .app-bubble-content > :first-child { margin-top: 0; }
+.app-bubble-row.is-document .app-bubble-content > :last-child { margin-bottom: 0; }
+.app-bubble-row.is-document .app-workspace-attachment { margin-top: var(--agently-theme-spacing-4, 16px); }
+.app-bubble-row.is-document .app-workspace-attachment:hover { background: var(--app-surface-soft); }
+
+.app-bubble-row.is-document .app-bubble-content :is(.app-rich-prose, .app-rich-markdown) { font: inherit; letter-spacing: inherit; white-space: pre-wrap; }
+
+/* Output links use the same compact document attachment in chat and specimens. */
+.app-workspace-attachment.is-document { width: 100%; max-width: 380px; padding: 13px; gap: 10px; border-color: var(--agently-theme-border-strong, var(--app-border)); border-radius: var(--agently-theme-radius-control, 8px); background: var(--app-surface); box-shadow: none; color: var(--app-accent); }
+.app-workspace-attachment.is-document .app-workspace-attachment-icon { width: 18px; height: 18px; flex: none; border-radius: 0; background: transparent; }
+.app-workspace-attachment.is-document .app-workspace-attachment-copy { flex-direction: column; align-items: stretch; gap: 1px; }
+.app-workspace-attachment.is-document .app-workspace-attachment-copy :is(strong, span) { overflow-wrap: anywhere; white-space: normal; }
+.app-workspace-attachment.is-document .app-workspace-attachment-arrow .forge-icon { width: 18px; height: 18px; }
+.app-workspace-attachment.is-document:focus:not(:focus-visible) { outline: 0; }
+.app-workspace-attachment.is-document:focus-visible { outline: var(--agently-theme-focus-width, 2px) solid var(--app-muted); outline-offset: var(--agently-theme-focus-offset, 2px); }
+.app-workspace-attachment.is-document:disabled { cursor: default; color: var(--app-muted); }
