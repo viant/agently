@@ -1,0 +1,59 @@
+name: Design system contracts
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  foundation:
+    name: Design system contracts
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: agently/ui
+    env:
+      PLAYWRIGHT_CHANNEL: chromium
+      APPSERVER_URL: http://127.0.0.1:9191
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: agently
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: viant/agently-core
+          ref: main
+          path: agently-core
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: viant/forge
+          ref: main
+          path: forge
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: agently/ui/package-lock.json
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: agently/go.mod
+          cache-dependency-path: agently/go.sum
+      - name: Verify host metadata and workspace style boundaries
+        working-directory: agently
+        run: go test ./preview/window -run 'TestFoundationMetadataSurvivesHostLoading|TestWorkspaceStylesAreVersionedAndReloaded'
+      - name: Install Core SDK source dependencies
+        working-directory: agently-core/sdk/ts
+        run: npm ci
+      - name: Install Forge source dependencies
+        working-directory: forge
+        run: npm ci
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx vitest run src/services/workspaceStyles.test.js src/typographyContract.test.js
+      - run: node vite.config.test.mjs
+      - run: npm run test:typography
+      - run: npm run build
+      - name: Check contributor entry points
+        working-directory: agently
+        run: test -f AGENTS.md && test -f CLAUDE.md && test -f .cursor/rules/design-system.mdc
