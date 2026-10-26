@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+import './requestLifecycle.contract.test.jsx';
 import { describe, expect, it, vi } from 'vitest';
 import { activeWindows, selectedWindowId, selectedTabId } from 'forge/core';
 import { MAIN_CHAT_WINDOW_ID, CHAT_WINDOW_KEY, openConversationInMainWindow, setScopedActiveSurface, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow.js';
@@ -41,6 +43,21 @@ import {
   shouldScrollConversationAfterTurn,
   shouldUseConversationWorkspaceFallback
 } from './Root.jsx';
+
+describe('section navigation conversation ownership', () => {
+  it('uses the approved phone breakpoint only in the opt-in section shell', () => {
+    expect(isCompactShellViewport(760, true)).toBe(true);
+    expect(isCompactShellViewport(761, true)).toBe(false);
+    expect(isCompactShellViewport(820)).toBe(true);
+  });
+  it('retains the main conversation while an independent app destination is selected', () => {
+    const chat = {windowId: MAIN_CHAT_WINDOW_ID, windowKey: CHAT_WINDOW_KEY, conversationId: 'chat-a'};
+    const destination = {windowId: 'data-view', windowKey: 'accounts', region: 'app.section'};
+    expect(resolveSelectedMainWindow([chat, destination], destination.windowId, destination.windowId, destination)).toBe(chat);
+    expect(resolveSelectedMainWindow([chat], '', '', destination)).toBe(chat);
+    expect(resolveSelectedMainWindow([destination], destination.windowId, '', destination)).toBeNull();
+  });
+});
 
 describe('initial authentication discovery', () => {
   const providers = [{name: 'oauth', type: 'bff'}];
@@ -642,4 +659,232 @@ it('selects the restored conversation workspace for Root without adopting the st
     selectedWindowId.value = previousSelected;
     selectedTabId.value = previousTab;
   }
+});
+
+
+it('loads actual recent conversations, preserves ordering/links, and handles empty/error states', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const React = await import('react');
+  const {createRoot} = await import('react-dom/client');
+  const {default: HomeRecentConversations} = await import('./HomeRecentConversations.jsx');
+  const {client} = await import('../services/agentlyClient');
+  const list = vi.spyOn(client, 'listConversations').mockResolvedValue({data:[{id:'older',title:'Earlier work',createdAt:'2026-10-20T21:15:00Z'},{id:'latest',title:'Recent work',createdAt:'2026-10-21T16:42:00Z'}]});
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  try {
+    await React.act(async () => root.render(React.createElement(HomeRecentConversations)));
+    expect(list).toHaveBeenCalledWith({excludeScheduled:true,page:{limit:3,direction:'latest'}});
+    expect([...host.querySelectorAll('a')].map(n=>n.getAttribute('href'))).toEqual(['/conversation/latest','/conversation/older']);
+    expect(host.textContent).toContain('Pick up where you left off');
+    list.mockResolvedValue({data:[]});
+    await React.act(async () => window.dispatchEvent(new CustomEvent('agently:conversation-meta-updated')));
+    expect(host.textContent).toContain('Your work stays in Conversations');
+    list.mockRejectedValue(new Error('Unavailable'));
+    await React.act(async () => window.dispatchEvent(new CustomEvent('agently:conversation-meta-updated')));
+    expect(host.textContent).toContain('Recent conversations couldn’t load.');
+    list.mockResolvedValue({data:[{id:'retry',title:'Recovered'}]});
+    await React.act(async () => host.querySelector('button').click());
+    expect(host.querySelector('a').textContent).toContain('Recovered');
+  } finally {await React.act(async () => root.unmount());host.remove();list.mockRestore();}
+});
+
+describe('canonical report workspace handoff', () => {
+  const report = (sequence = 1, extra = {}) => ({id:'review',scope:'campaign',grammar:'dashboard-v1',status:'committed',sequence,
+    source:{title:'Delivery review',blocks:[{id:'summary',kind:'dashboard.markdown',content:'Existing report'}]},dataSources:{},...extra});
+  const row = (assembly = report(), extra = {}) => ({kind:'assistant',renderKey:'answer',messageId:'message-1',turnId:'turn-1',renderedContent:{reports:[assembly],diagnostics:[]},...extra});
+  it('creates one output for revisions, different outputs for different turns, and no output for ordinary or foreign answers', async () => {
+    const {projectedWorkspaceEntries} = await import('../services/workspaceAttachment.js');
+    const entries = rows => projectedWorkspaceEntries(rows, 'conversation', {includeInlineReports:true});
+    expect(projectedWorkspaceEntries([row()], 'conversation')).toEqual([]);
+    expect(entries([{kind:'assistant',content:'Ordinary answer',turnId:'plain'}])).toEqual([]);
+    expect(entries([row(report(),{hostEffectsAllowed:false})])).toEqual([]);
+    expect(entries([row(report(),{connectionProfile:'standard'})])).toEqual([]);
+    const revised = entries([row(),row(report(2))]);
+    expect(revised).toHaveLength(1);expect(revised[0].workspaceObject.revision).toBe(2);
+    expect(entries([row(),row(report(),{turnId:'another-turn',messageId:'another-message'})])).toHaveLength(2);
+    expect(entries([row(report(1,{status:'incomplete'}))])).toEqual([]);
+    expect(entries([row(report(1,{grammar:'unsupported'}))])).toEqual([]);
+    expect(entries([row(report(1,{source:'invalid JSON'}))])).toEqual([]);
+    expect(entries([row(report(),{renderedContent:{reports:[report()],diagnostics:[{reportId:'review',message:'Invalid source'}]}})])).toEqual([]);
+  });
+  it('projects persisted execution-page reports, coalesces the final reply, and retains stable identity through a reset', async () => {
+    const {projectedWorkspaceEntries} = await import('../services/workspaceAttachment.js');
+    const execution = {kind:'iteration',turnId:'turn-1',renderKey:'execution',rounds:[{pageId:'page-1',renderedContent:{reports:[report(8)],diagnostics:[]}}]};
+    const entries = projectedWorkspaceEntries([execution,row(report(1,{resetVersion:1}))], 'conversation',{includeInlineReports:true});
+    expect(entries).toHaveLength(1);
+    expect(entries[0].workspaceObject).toMatchObject({revision:1,origin:{turnId:'turn-1'},content:{renderer:'inlineReport',resetVersion:1}});
+    expect(entries[0].workspaceObject.content).not.toHaveProperty('source');
+    expect(entries[0].workspaceObject.content).not.toHaveProperty('dataSources');
+    const other = projectedWorkspaceEntries([row()], 'foreign',{includeInlineReports:true});
+    expect(other[0].windowId).not.toBe(entries[0].windowId);
+  });
+});
+
+it('renders a hosted canonical report from its admitted conversation and retains the original chat frame', async () => {
+  const React = await import('react');
+  const {createRoot} = await import('react-dom/client');
+  const store = await import('../services/chatStore.js');
+  const registry = await import('forge/core/context/registry.js');
+  const rich = await import('./chat/RichContent.jsx');
+  const {default: InlineReportWorkspace} = await import('./InlineReportWorkspace.jsx');
+  const {projectedWorkspaceEntries} = await import('../services/workspaceAttachment.js');
+  const conversationId='owned-report-test';
+  const renderedContent={schemaVersion:'1',parts:[],reports:[{scope:'message',id:'overview',grammar:'dashboard-v1',status:'committed',sequence:0,
+    source:{title:'Delivery overview',blocks:[{id:'rows',kind:'dashboard.table',dataSourceRef:'rows',columns:[{key:'name',label:'Name'}]}]},
+    dataSources:{rows:{id:'rows',version:2,format:'json',mode:'replace',payload:[{name:'Existing row'}]}}}],diagnostics:[]};
+  const api = await import('../services/agentlyClient.js');
+  const {client} = api;
+  const identity=vi.spyOn(api,'getAuthMeSilently').mockResolvedValue({subject:'same-user'});
+  const snapshot={conversationId,turns:[{turnId:'owned-turn',status:'completed',assistant:{final:{messageId:'owned-message',content:'Report ready.',renderedContent}}}]};
+  const read=vi.spyOn(client,'readConversationHistory').mockResolvedValue({conversation:snapshot});
+  const context={identity:{windowId:MAIN_CHAT_WINDOW_ID},metadata:{resource:{uri:'window://agently/chat-new',authorityBinding:'original-owner'}}};
+  const previous=registry.getWindowContext(MAIN_CHAT_WINDOW_ID);
+  registry.setWindowContext(MAIN_CHAT_WINDOW_ID,context);
+  const renderer=vi.spyOn(rich,'HostedInlineReport');
+  const host=document.createElement('div');document.body.append(host);const root=createRoot(host);const lifecycle=vi.fn();
+  globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+  try {
+    store.onTranscript(conversationId,{conversationId,turns:[{turnId:'owned-turn',status:'completed',assistant:{final:{messageId:'owned-message',content:'Report ready.',renderedContent}}}]});
+    const entry=projectedWorkspaceEntries(store.getProjection(conversationId),conversationId,{includeInlineReports:true})[0];
+    expect(entry).toBeDefined();
+    await React.act(async()=>{root.render(React.createElement(InlineReportWorkspace,{entry,onLifecycle:lifecycle}));for(let i=0;i<25;i++)await Promise.resolve();});
+    expect(host.textContent).toContain('Existing row');
+    expect(renderer.mock.calls.at(-1)[0].context).toBe(context);
+    expect(lifecycle).toHaveBeenCalledWith('ready');
+    expect(read).toHaveBeenCalledWith({conversationId,includeModelCalls:true,includeToolCalls:true,includeFeeds:true});
+    read.mockRejectedValueOnce(Object.assign(new Error('Forbidden'),{status:403}));
+    await React.act(async()=>{root.render(React.createElement(InlineReportWorkspace,{key:'denied',entry,onLifecycle:lifecycle}));});
+    expect(host.textContent).toContain('You don’t have access to this output');
+    expect(host.textContent).not.toContain('Existing row');
+    await React.act(async()=>host.querySelector('button').click());
+    expect(host.textContent).toContain('Existing row');
+    read.mockRejectedValueOnce(Object.assign(new Error('Not found'),{status:404}));
+    await React.act(async()=>{root.render(React.createElement(InlineReportWorkspace,{entry:{...entry,conversationId:'missing-report-test'},onLifecycle:lifecycle}));});
+    expect(host.querySelector('[role="alert"]').textContent).toContain('output is unavailable');
+    expect(host.textContent).not.toContain('Existing row');
+    expect(lifecycle).toHaveBeenCalledWith('failed');
+    const invalid = structuredClone(renderedContent);
+    invalid.reports[0].grammar = 'unsupported';
+    invalid.reports[0].source.blocks = [{id:'invalid',kind:'unknownBlock'}];
+    const errors = vi.spyOn(console,'error').mockImplementation(()=>{});
+    try {
+      lifecycle.mockClear();
+      await React.act(async()=>{root.render(React.createElement(rich.HostedInlineReport,{assembly:invalid.reports[0],onLifecycle:lifecycle}));});
+      expect(host.querySelector('[role="alert"]').textContent).toContain('output couldn’t be displayed');
+      expect(lifecycle).toHaveBeenCalledWith('failed');
+      expect(lifecycle).not.toHaveBeenCalledWith('ready');
+    } finally {errors.mockRestore();}
+  } finally {
+    await React.act(async()=>root.unmount());host.remove();renderer.mockRestore();read.mockRestore();identity.mockRestore();store.reset(conversationId);
+    if(previous)registry.setWindowContext(MAIN_CHAT_WINDOW_ID,previous);else registry.clearWindowContext(MAIN_CHAT_WINDOW_ID);
+    delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+  }
+});
+
+it('retries a failed report by remounting its reader and respects an explicit reopen restriction', async () => {
+  const {rememberWorkspaceObjects,reopenWorkspaceObject} = await import('../services/conversationWindow.js');
+  const previous=activeWindows.peek();
+  const report={windowId:'retry-owned-report',conversationId:'retry-owned-chat',workspaceObject:{objectId:'retry-report',content:{renderer:'inlineReport'},capabilities:{reopen:true},lifecycle:{state:'failed',attempt:2}}};
+  rememberWorkspaceObjects(report.conversationId,[report]);activeWindows.value=[report];
+  try {
+    const opened=reopenWorkspaceObject(report.conversationId,report.windowId);
+    expect(opened).toBeTruthy();
+    expect(activeWindows.peek()[0].workspaceObject.lifecycle).toMatchObject({state:'opening',attempt:3});
+    const unavailable={...report,windowId:'restricted-report',workspaceObject:{...report.workspaceObject,objectId:'restricted-report',capabilities:{reopen:false}}};
+    rememberWorkspaceObjects(report.conversationId,[unavailable]);
+    expect(reopenWorkspaceObject(report.conversationId,unavailable.windowId)).toBeNull();
+    expect(activeWindows.peek()).toHaveLength(1);
+  } finally {activeWindows.value=previous;}
+});
+
+it('keeps a closed tool output owned by its saved workspace and leaves other feeds at their authored placement', async () => {
+  const React=await import('react');const {createRoot}=await import('react-dom/client');
+  const {useWorkspaceAdapters}=await import('../services/useWorkspaceAdapters.js');
+  const {rememberWorkspaceObjects}=await import('../services/conversationWindow.js');
+  const {feedTracker,getActiveFeeds,clearFeedState}=await import('../services/toolFeedBus.js');
+  const conversationId='closed-feed-test';const feedId=`${conversationId}::review`;
+  rememberWorkspaceObjects(conversationId,[{windowId:'closed-review',conversationId,workspaceObject:{objectId:'review-object',content:{renderer:'toolFeed',feedId},lifecycle:{state:'closed'}}}]);
+  feedTracker.setActive({feedId,conversationId,presentation:{target:'inline'}});
+  feedTracker.setActive({feedId:'another-feed',conversationId,presentation:{target:'inline'}});
+  function Harness(){useWorkspaceAdapters({mainConversationId:conversationId,workspaceWindows:[],documentPresentation:true,setActiveSurface:()=>{},setWorkspacePresentationMode:()=>{}});return null;}
+  const host=document.createElement('div');document.body.append(host);const root=createRoot(host);globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+  try {
+    await React.act(async()=>root.render(React.createElement(Harness)));
+    expect(getActiveFeeds().find(feed=>feed.feedId===feedId).presentation.workspaceObjectId).toBe('review-object');
+    expect(getActiveFeeds().find(feed=>feed.feedId==='another-feed').presentation.workspaceObjectId).toBeUndefined();
+  }finally{await React.act(async()=>root.unmount());host.remove();clearFeedState();delete globalThis.IS_REACT_ACT_ENVIRONMENT;}
+});
+
+it('keeps phone viewer utilities available in the account menu and dismisses the drawer before approvals', async () => {
+  const React=await import('react');const {createRoot}=await import('react-dom/client');
+  const {default:MenuBar}=await import('./MenuBar.jsx');const {client}=await import('../services/agentlyClient');
+  const auth=vi.spyOn(client,'getAuthMe').mockResolvedValue({displayName:'Example Reviewer'});
+  const providers=vi.spyOn(client,'getAuthProviders').mockResolvedValue([]);
+  const setOpen=vi.fn(),onNativeAction=vi.fn();
+  const host=document.createElement('div');document.body.append(host);const root=createRoot(host);globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+  try {
+    await React.act(async()=>{root.render(React.createElement(MenuBar,{sectionNavigation:true,compactNavigation:true,viewerVisible:true,conversationId:'example-conversation',approvals:{items:[],open:false,setOpen},onNativeAction}));});
+    expect(host.querySelector('[data-testid="approval-bell"]')).toBeNull();
+    await React.act(async()=>host.querySelector('[data-testid="user-menu-btn"]').click());
+    expect(host.querySelector('[data-testid="user-menu"] [data-testid="approval-bell"]').textContent).toBe('Approvals');
+    expect(host.querySelector('[data-testid="user-menu"] [data-testid="conversation-usage-nav"]').textContent).toBe('Conversation usage');
+    await React.act(async()=>host.querySelector('[data-testid="approval-bell"]').click());
+    expect(onNativeAction).toHaveBeenCalledTimes(1);expect(setOpen).toHaveBeenCalledWith(true);
+    expect(host.querySelector('[data-testid="user-menu"]')).toBeNull();
+  }finally{await React.act(async()=>root.unmount());host.remove();auth.mockRestore();providers.mockRestore();delete globalThis.IS_REACT_ACT_ENVIRONMENT;}
+});
+
+it('validates report identity from a fresh owning read and rejects missing, foreign and late-account results', async () => {
+  const api = await import('../services/agentlyClient.js');
+  const {readWorkspaceReport} = await import('../services/workspaceReportSource.js');
+  const identity=vi.spyOn(api,'getAuthMeSilently').mockResolvedValue({subject:'same-user'});
+  const scope=vi.spyOn(api,'getReportRestoreScope').mockReturnValue('account-A');
+  const read=vi.spyOn(api.client,'readConversationHistory');
+  const report={id:'result',scope:'message',grammar:'report-document-v1',status:'committed',sequence:2,source:{title:'Current title',blocks:[{id:'text',kind:'markdownBlock',markdown:'Current source'}]},dataSources:{}};
+  const snapshot={conversationId:'source-test',turns:[{turnId:'turn',status:'completed',assistant:{final:{messageId:'answer',renderedContent:{schemaVersion:'1',parts:[],reports:[report],diagnostics:[]}}}}]};
+  const entry={conversationId:'source-test',workspaceObject:{content:{turnId:'turn',messageId:'answer',reportId:'result',reportScope:'message'}}};
+  try {
+    read.mockResolvedValueOnce({conversation:snapshot});
+    expect((await readWorkspaceReport(entry)).selected.assembly).toMatchObject({sequence:2,source:{title:'Current title'}});
+    read.mockResolvedValueOnce({conversation:{...snapshot,conversationId:'another-chat'}});
+    await expect(readWorkspaceReport(entry)).rejects.toThrow('does not match');
+    read.mockResolvedValueOnce({conversation:{...snapshot,turns:[]}});
+    await expect(readWorkspaceReport(entry)).rejects.toMatchObject({status:404});
+    let release;read.mockReturnValueOnce(new Promise(resolve=>{release=resolve;}));
+    const pending=readWorkspaceReport(entry);await Promise.resolve();scope.mockReturnValue('account-B');release({conversation:snapshot});
+    await expect(pending).rejects.toThrow('account changed');
+  } finally {read.mockRestore();scope.mockRestore();identity.mockRestore();}
+});
+
+it('offers direct recovery for a denied hosted tool output without showing cached data', async () => {
+  const React=await import('react');const {createRoot}=await import('react-dom/client');
+  const {client}=await import('../services/agentlyClient.js');
+  const bus=await import('../services/toolFeedBus.js');
+  const {default:ToolFeedDetail}=await import('./ToolFeedDetail.jsx');
+  const conversationId='feed-recovery-test',feedId=`${conversationId}::review`;
+  bus.updateFeedData('review',{data:{output:{message:'Private cached value'}}},conversationId);
+  const get=vi.spyOn(client,'getFeedData').mockRejectedValueOnce(Object.assign(new Error('Forbidden'),{status:403}));
+  const back=vi.fn(),lifecycle=vi.fn();const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
+  globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+  try {
+    await React.act(async()=>{root.render(React.createElement(ToolFeedDetail,{hostedFeedId:feedId,conversationId,variant:'rail',placement:'workspace',onLifecycle:lifecycle,onReturn:back}));});
+    expect(host.textContent).toContain('You don’t have access');expect(host.textContent).not.toContain('Private cached value');
+    expect(bus.getFeedData('review',conversationId)).toBeNull();
+    expect(lifecycle).toHaveBeenCalledWith('failed');
+    await React.act(async()=>[...host.querySelectorAll('button')].find(node=>node.textContent==='Return to conversation').click());
+    expect(back).toHaveBeenCalledOnce();
+    get.mockResolvedValueOnce({data:{output:{message:'Recovered tool output'}}});
+    await React.act(async()=>[...host.querySelectorAll('button')].find(node=>node.textContent==='Try again').click());
+    expect(host.textContent).toContain('Recovered tool output');expect(lifecycle).toHaveBeenCalledWith('ready');
+    const api=await import('../services/agentlyClient.js');
+    const scope=vi.spyOn(api,'getReportRestoreScope').mockReturnValue('account-A');
+    try {
+      let release;get.mockReturnValueOnce(new Promise(resolve=>{release=resolve;}));
+      await React.act(async()=>root.render(React.createElement(ToolFeedDetail,{key:'pending-other-account',hostedFeedId:feedId,conversationId,onLifecycle:lifecycle})));
+      scope.mockReturnValue('account-B');await React.act(async()=>bus.clearFeedState());
+      await React.act(async()=>release({data:{output:{message:'Previous account response'}}}));
+      expect(host.textContent).not.toContain('Previous account response');
+      expect(bus.getFeedData('review',conversationId)).toBeNull();
+    } finally {scope.mockRestore();}
+
+  } finally {await React.act(async()=>root.unmount());host.remove();get.mockRestore();bus.clearFeedState();delete globalThis.IS_REACT_ACT_ENVIRONMENT;}
 });

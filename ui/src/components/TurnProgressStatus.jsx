@@ -8,6 +8,7 @@ import { useChatProjection } from '../services/chatStore';
 import { client } from '../services/agentlyClient';
 import { getUsage, onUsageChange } from '../services/usageBus';
 import { setStage, useStage } from '../services/stageBus';
+import RunProgressView from './RunProgressView.jsx';
 
 const NUMBER = new Intl.NumberFormat();
 
@@ -23,9 +24,8 @@ const ACTIVITY_LABELS = {
 };
 
 export function activeIteration(rows = []) {
-  return [...(Array.isArray(rows) ? rows : [])]
-    .reverse()
-    .find((row) => row?.kind === 'iteration' && (row?.lifecycle === 'pending' || row?.lifecycle === 'running')) || null;
+  const iterations = [...(Array.isArray(rows) ? rows : [])].reverse().filter(row=>row?.kind === 'iteration');
+  return iterations.find(row=>row.lifecycle === 'running') || iterations.find(row=>row.lifecycle === 'pending') || null;
 }
 
 // Only explicit public assistant messages enter this channel; execution-page
@@ -72,6 +72,22 @@ export function toolProgressText(progress) {
   if (progress.activeToolCount > 0) parts.push(`${progress.activeToolCount} active`);
   if (progress.queuedToolCount > 0) parts.push(`${progress.queuedToolCount} queued`);
   return parts.join(' · ');
+}
+
+export function documentActivityLabel(progress, executingClientTool = false) {
+  if (progress.activity.kind === 'tool' && progress.activity.label === 'ui/view/open') return 'Opening workspace';
+  if (executingClientTool) return 'Continuing your request';
+  return {connecting:'Connecting', planning:'Planning your request', writing:'Preparing response',
+    tool:'Running a step', tools:'Running steps'}[progress.activity.kind] || 'Working on your request';
+}
+
+export function documentStepSummary(progress) {
+  if (!progress.identityComplete) return '';
+  return [
+    progress.completedToolCount > 0 ? `${progress.completedToolCount} step${progress.completedToolCount === 1 ? '' : 's'} completed` : '',
+    progress.activeToolCount > 0 ? `${progress.activeToolCount} step${progress.activeToolCount === 1 ? '' : 's'} running` : '',
+    progress.queuedToolCount > 0 ? `${progress.queuedToolCount} queued` : '',
+  ].filter(Boolean).join(' · ');
 }
 
 export function statusLabel(value = '') {
@@ -145,15 +161,17 @@ function tokenHoverText(usage) {
   ].filter(Boolean).join(' · ') || 'Show token usage breakdown';
 }
 
-export default function TurnProgressStatus({ conversationId = '', developerMode = false, connectionResumePending = null }) {
+export default function TurnProgressStatus({ conversationId = '', developerMode = false, connectionResumePending = null, appearance, publicNarrationInFeed = false }) {
   const rows = useChatProjection(conversationId);
   const stage = useStage();
   const [usage, setUsage] = React.useState(getUsage);
   const [stopping, setStopping] = React.useState(false);
+  const [stopError, setStopError] = React.useState('');
 
   React.useEffect(() => onUsageChange(() => setUsage(getUsage())), []);
 
   const row = React.useMemo(() => activeIteration(rows), [rows]);
+  React.useEffect(() => {setStopping(false); setStopError('');}, [conversationId, row?.turnId]);
   const groups = React.useMemo(() => groupsFromRow(row), [row]);
   const turnUsage = React.useMemo(() => summarizeExecutionTokenUsage(groups), [groups]);
   const fallbackUsage = String(usage?.conversationId || '') === String(conversationId || '')
@@ -168,6 +186,7 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
     const pendingConversationId = String(connectionResumePending?.conversationId || '').trim();
     const submitting = !!row && ['pending', 'running'].includes(row.lifecycle);
     if (!submitting && (!pendingConversationId || pendingConversationId !== String(conversationId || '').trim())) return null;
+    if (appearance === 'document') return <RunProgressView activity={submitting ? 'Submitting request' : 'Completing connection'}/>;
     return (
       <section className="app-turn-progress" data-testid="turn-progress-status" aria-live="polite">
         <div className="app-turn-progress-spinner" aria-hidden="true"><Spinner size={18} /></div>
@@ -208,8 +227,12 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
 
   if (!progress) return null;
 
-  const operationalNarration = publicTaskNarration(rows, row.turnId)
-    || (typeof row.operationalNarration === 'string' ? row.operationalNarration.trim() : '');
+  const publicNarration = publicTaskNarration(rows, row.turnId);
+  // The inline document feed already owns public messages and their attachments.
+  // Standalone status retains narration, including the operational fallback.
+  const operationalNarration = publicNarration
+    ? (publicNarrationInFeed ? '' : publicNarration)
+    : (typeof row.operationalNarration === 'string' ? row.operationalNarration.trim() : '');
   const rawActivity = executingClientTool ? 'Executing local tool' : progress.activity.label || ACTIVITY_LABELS[progress.activity.kind] || 'Working';
   const activity = /\berror\b|\bfailed\b/i.test(rawActivity) ? 'Continuing' : rawActivity;
   const toolText = toolProgressText(progress);
@@ -221,14 +244,26 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
   const stop = async () => {
     if (!progress.turnId || stopping) return;
     setStopping(true);
+    setStopError('');
     setStage({ phase: 'executing', text: 'Stopping request…' });
     try {
       await client.cancelTurn(progress.turnId);
     } catch (error) {
       setStopping(false);
+      setStopError('The request could not be stopped. Try again.');
       setStage({ phase: 'error', text: String(error?.message || 'Could not stop request') });
     }
   };
+
+  // Progress changes come from the active turn, never elapsed ticks or unrelated history.
+  const progressKey = JSON.stringify([row.turnId, row.lifecycle, publicNarration, row.operationalNarration, executingClientTool,
+    groups.map(group => [group.pageId, group.status, group.phase, group.content?.length,
+      group.modelSteps.map(step => [step.modelCallId, step.status, step.completedAt, step.usage?.totalTokens]),
+      group.toolSteps.map(step => [step.toolCallId, step.status])])]);
+  if (appearance === 'document') return <RunProgressView activity={documentActivityLabel(progress, executingClientTool)} narration={operationalNarration}
+    progressKey={progressKey} summary={documentStepSummary(progress)}
+    startedAt={progress.startedAt} waiting={waiting} stopping={stopping}
+    onStop={progress.canStop || stopping ? stop : undefined} error={stopError}/>;
 
   return (
     <section className={`app-turn-progress${waiting ? ' is-waiting' : ''}`} data-testid="turn-progress-status" aria-live="polite">

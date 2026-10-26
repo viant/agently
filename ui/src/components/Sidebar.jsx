@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import {createPortal} from 'react-dom';
 import { Button, InputGroup, Spinner } from '@blueprintjs/core';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import {Icon as SharedIcon, typographyProps} from 'forge/components';
 import { resolveConversationSummary, resolveConversationTitle } from '../services/conversationTitle';
 import { isConnectivityError } from '../services/networkError';
 import { client } from '../services/agentlyClient';
@@ -337,7 +339,10 @@ async function fetchPage({ query = '', direction = 'latest', cursor = '' }) {
   return normalizeSidebarPage(page, direction, cursor);
 }
 
-export default function Sidebar({ collapsed = false, onNavigate = null, onExpand = null, showNewConversation = true, history = {} }) {
+export default function Sidebar({ collapsed = false, onNavigate = null, onExpand = null, showNewConversation = true, history = {}, appearance = '', hidden = false, searchMount }) {
+  const documentAppearance = appearance === 'document';
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchButtonRef = React.useRef(null);
   const search = history.search || {};
   const list = history.list || {};
   const pagination = history.pagination || {};
@@ -374,7 +379,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => historyScrollRef.current,
-    estimateSize: () => 64,
+    estimateSize: () => documentAppearance ? 36 : 64,
     overscan: 6,
   });
 
@@ -561,6 +566,8 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const virtualHeight = rowVirtualizer.getTotalSize();
   const content = useMemo(() => {
     if (loading && rows.length === 0) return <div className="app-sidebar-loading"><Spinner size={18} /></div>;
     if (rows.length === 0 && error) return <div className="app-sidebar-error">{error}</div>;
@@ -569,8 +576,8 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
     return (
       <>
         {deleteError ? <div className="app-sidebar-error">{deleteError}</div> : null}
-        <div className="app-conversation-list" style={virtualized ? { display: 'block', position: 'relative', height: rowVirtualizer.getTotalSize() } : undefined}>
-          {(virtualized ? rowVirtualizer.getVirtualItems() : rows.map((_, index) => ({ index }))).map((virtualRow) => {
+        <div className="app-conversation-list" style={virtualized ? { display: 'block', position: 'relative', height: virtualHeight } : undefined}>
+          {(virtualized ? virtualRows : rows.map((_, index) => ({ index }))).map((virtualRow) => {
             const row = rows[virtualRow.index];
             const id = String(row?.Id || row?.id || '').trim();
             const title = resolveConversationTitle(row);
@@ -588,11 +595,12 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
                 ref={virtualized ? rowVirtualizer.measureElement : undefined}
                 style={virtualized ? { position: 'absolute', width: '100%', top: 0, left: 0, transform: `translateY(${virtualRow.start}px)` } : undefined}
               >
-                <span className={`app-conversation-status-dot tone-${tone}`} title={tone} />
+                {!documentAppearance ? <span className={`app-conversation-status-dot tone-${tone}`} title={tone} /> : null}
                 <button
                   className="app-conversation-row-body"
                   title={hoverText}
                   aria-label={hoverText}
+                  aria-current={isSelected ? 'page' : undefined}
                   onClick={() => {
                     setSelectedID(id);
                     openConversationInMainWindow(id);
@@ -601,9 +609,9 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
                 >
                   <div className="app-conversation-topline">
                     <div className="app-conversation-title" title={title}>{title}</div>
-                    {relative ? <div className="app-conversation-meta">{relative}</div> : null}
+                    {!documentAppearance && relative ? <div className="app-conversation-meta">{relative}</div> : null}
                   </div>
-                  {subtitle ? <div className="app-conversation-subtitle" title={subtitle}>{subtitle}</div> : null}
+                  {!documentAppearance && subtitle ? <div className="app-conversation-subtitle" title={subtitle}>{subtitle}</div> : null}
                 </button>
                 <button
                   className="app-conversation-trash"
@@ -615,7 +623,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
                     requestDeleteConversation(row);
                   }}
                 >
-                  🗑
+                  {documentAppearance ? <SharedIcon name="lucide:trash-2"/> : '🗑'}
                 </button>
               </div>
             );
@@ -623,7 +631,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
         </div>
       </>
     );
-  }, [rows, loading, error, deleteError, selectedID, seedVersion, deletingID, navigate, query, rowVirtualizer, virtualized, list.emptyText, list.noMatchesText]);
+  }, [rows, loading, error, deleteError, selectedID, seedVersion, deletingID, navigate, query, rowVirtualizer, virtualized, list.emptyText, list.noMatchesText, documentAppearance, virtualRows, virtualHeight]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
@@ -702,36 +710,53 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
     return () => window.removeEventListener('agently:conversation-title-seed', onSeed);
   }, []);
 
-  return (
-    <aside className={`app-sidebar ${collapsed ? 'is-collapsed' : ''}`}>
-      {showNewConversation ? <Button minimal icon="plus" alignText="left" onClick={() => {
-        requestNewConversationInMainWindow();
-        navigate();
-      }}>
-        {collapsed ? '' : 'New Conversation'}
-      </Button> : null}
-
-      {!collapsed ? (
+  const searchButton = documentAppearance ? <Button minimal small ref={searchButtonRef} icon={<SharedIcon name="lucide:search"/>} aria-label={searchOpen ? 'Close conversation search' : 'Search conversations'} aria-expanded={searchOpen} onClick={() => {setSearchOpen(value => !value); if (searchOpen) setQuery('');}}/> : null;
+  const searchField = (<>
+      {!collapsed && (!documentAppearance || searchOpen) ? (
         <InputGroup
+          autoFocus={documentAppearance}
           leftIcon="search"
           placeholder={search.placeholder || 'Search conversations'}
           aria-label={search.placeholder || 'Search conversations'}
           value={query}
+          {...(documentAppearance ? typographyProps('body') : {})}
           onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={enterToSearch ? (event) => { if (event.key === 'Enter') { if (queryReloadTimerRef.current) clearTimeout(queryReloadTimerRef.current); void reload('latest', '', { force: true }); } } : undefined}
+          onKeyDown={(event) => {
+            if (documentAppearance && event.key === 'Escape') {
+              event.preventDefault(); event.stopPropagation();
+              setSearchOpen(false); setQuery(''); searchButtonRef.current?.focus();
+            } else if (enterToSearch && event.key === 'Enter') {
+              if (queryReloadTimerRef.current) clearTimeout(queryReloadTimerRef.current);
+              void reload('latest', '', { force: true });
+            }
+          }}
           rightElement={showSearchClear && query ? <Button minimal small icon="cross" aria-label="Clear search" onClick={() => setQuery('')} /> : undefined}
           small
         />
       ) : null}
+  </>);
 
+  return (
+    <aside className={`app-sidebar ${collapsed ? 'is-collapsed' : ''}${documentAppearance ? ' is-document' : ''}`} hidden={hidden} inert={hidden ? '' : undefined} {...(documentAppearance ? typographyProps('body') : {})}>
+      {showNewConversation ? <Button className={documentAppearance ? 'app-sidebar-new' : undefined} minimal icon={documentAppearance ? <SharedIcon name="lucide:plus"/> : 'plus'} {...(documentAppearance ? typographyProps('body') : {})} alignText="left" onClick={() => {
+        requestNewConversationInMainWindow({resetStarter: documentAppearance});
+        navigate();
+      }}>
+        {collapsed ? '' : documentAppearance ? 'New Chat' : 'New Conversation'}
+      </Button> : null}
+
+      {searchMount && searchButton ? createPortal(searchButton, searchMount) : null}
+      {!documentAppearance ? searchField : null}
       {!collapsed ? (
         <>
-          <div className="app-sidebar-section" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <div className="app-sidebar-section" style={documentAppearance ? undefined : { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }} {...(documentAppearance ? typographyProps('metadata') : {})}>
             <span>Conversations</span>
-            <Button minimal small icon="refresh" onClick={() => void reload('latest', '')}>
-              Refresh
-            </Button>
+            {documentAppearance ? <div>
+              {!searchMount ? searchButton : null}
+              <Button minimal small icon={<SharedIcon name="lucide:refresh-cw"/>} aria-label="Refresh conversations" onClick={() => void reload('latest', '')}/>
+            </div> : <Button minimal small icon="refresh" onClick={() => void reload('latest', '')}>Refresh</Button>}
           </div>
+          {documentAppearance ? searchField : null}
           <div className="app-sidebar-scroll" ref={historyScrollRef} onScroll={(event) => {
             const element = event.currentTarget;
             if (!autoLoadOlder || !nextCursor || loading || lastAutoCursorRef.current === nextCursor) return;

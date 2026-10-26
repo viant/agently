@@ -150,6 +150,7 @@ export default defineConfig(({ mode, command }) => {
         'react-dom': resolve(appNodeModules, 'react-dom'),
         '@preact/signals-react': resolve(appNodeModules, '@preact/signals-react'),
         'react-rnd': sharedDependency('react-rnd'),
+        'lucide-react': sharedDependency('lucide-react'),
         're-resizable': sharedDependency('re-resizable'),
         'react-draggable': sharedDependency('react-draggable'),
         '@phosphor-icons/react': resolve(appNodeModules, '@phosphor-icons/react'),
@@ -216,7 +217,7 @@ export default defineConfig(({ mode, command }) => {
     test: {
       // Prebundle linked CJS UI dependencies with the same React runtime as
       // the app; native Node require would resolve Forge's second React copy.
-      deps: { optimizer: { web: { enabled: true, include: ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'react-dom', '@blueprintjs/core', 'react-rnd', 're-resizable', 'react-draggable'] } } },
+      deps: { optimizer: { web: { enabled: true, include: ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'react-dom', 'lucide-react', '@blueprintjs/core', 'react-rnd', 're-resizable', 'react-draggable'] } } },
       exclude: [
         '**/node_modules/**',
         '**/dist/**',

@@ -1,16 +1,24 @@
 // @vitest-environment jsdom
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {useState} from 'react';
 
 const openWindow = vi.fn();
 const getAuthMeSilently = vi.fn();
+const sidebarRender = vi.fn();
 
 vi.mock('../services/agentlyClient', () => ({ getAuthMeSilently }));
 vi.mock('./menuBarHelpers', () => ({ openWindow }));
-vi.mock('./Sidebar', () => ({ default: () => <div data-testid="conversation-sidebar" /> }));
+vi.mock('./Sidebar', () => ({ default: () => {sidebarRender(); return <div data-testid="conversation-sidebar" />;} }));
+// Use real shared primitives without loading unrelated report renderers.
+vi.mock('forge/components', async () => {
+  const {default: Typography, typographyProps} = await import('../../../../forge/src/components/Typography.jsx');
+  const {default: Icon} = await import('../../../../forge/src/components/Icon.jsx');
+  return {Typography, typographyProps, Icon};
+});
 vi.mock('forge/core', async () => {
   const {signal} = await import('@preact/signals-react');
-  return {activeWindows: signal([]), selectedWindowId: signal(null), getWindowContext: vi.fn()};
+  return {activeWindows: signal([]), selectedWindowId: signal(null), selectedTabId: signal(null), getFormSignal: vi.fn(() => signal({}))};
 });
 
 let WorkspaceSidebar;
@@ -30,9 +38,10 @@ beforeEach(() => {
   cleanup?.();
   window.localStorage.clear();
   openWindow.mockReset();
+  sidebarRender.mockReset();
   windowSignals.activeWindows.value = [];
   windowSignals.selectedWindowId.value = null;
-  windowSignals.getWindowContext.mockReset();
+  windowSignals.getFormSignal.mockReset().mockReturnValue({value: {}});
   getAuthMeSilently.mockReset().mockResolvedValue({ subject: 'menu-test-user' });
   vi.stubGlobal('fetch', vi.fn());
 });
@@ -125,7 +134,7 @@ describe('WorkspaceSidebar menu delivery from the workspace layout', () => {
     const original = JSON.stringify(action);
     windowSignals.activeWindows.value = [{windowId: 'advertiser', parameters: {AdvertiserId: 1}}];
     windowSignals.selectedWindowId.value = 'advertiser';
-    windowSignals.getWindowContext.mockImplementation(id => id === 'advertiser' ? {Context: () => ({handlers: {dataSource: {getWindowFormData: () => form.value}}})} : undefined);
+    windowSignals.getFormSignal.mockImplementation(id => id === 'advertiser:windowForm' ? form : {value: {}});
     fetch.mockResolvedValue(response(layoutPayload({applications: [{id: 'ar', title: 'Reports', menus: [{id: 'overview', title: 'Overview', action}]}]})));
     render(<WorkspaceSidebar conversationId="conversation" />);
     const report = await screen.findByRole('button', {name: 'Overview'});
@@ -246,4 +255,94 @@ it('opens canonical remote window resources through the existing window host', a
   render(<WorkspaceSidebar discoveryReady />);
   fireEvent.click(await screen.findByRole('button',{name:'Models'}));
   expect(openWindow).toHaveBeenCalledWith('window://studio/Models','Models',[],expect.objectContaining({parameters:{section:'active'}}));
+});
+
+it('keeps conversation history mounted while sections replace its visible menu', async () => {
+  const payload = layoutPayload({applications: [{id: 'business', title: 'Business', menus: [
+    {id: 'accounts', title: 'Accounts', action: {type: 'window', windowKey: 'accounts', parameters: {scope: 'allowed'}}},
+  ]}], topbarActions: [{id: 'schedule', title: 'Scheduled tasks', icon: 'lucide:clock-3', action: {type: 'window', windowKey: 'schedule', refreshDataSources: ['schedules']}}]});
+  payload.layout.left.navigation = {presentation: 'sections'};
+  fetch.mockResolvedValue(response(payload));
+  openWindow.mockReturnValue({windowId: 'section-window'});
+  const onSectionWindow = vi.fn();
+  const onOpenWorkspace = vi.fn();
+  function Shell() {
+    const [route, setRoute] = useState({section: 'chat', destination: ''});
+    return <WorkspaceSidebar {...route} conversationId="chat-a" onSectionWindow={onSectionWindow} onOpenWorkspace={onOpenWorkspace}
+      onSectionChange={(section, destination = '') => setRoute({section, destination})}/>;
+  }
+  render(<Shell/>);
+  const rail = await screen.findByRole('navigation', {name: 'App sections'});
+  expect(rail.querySelector('[aria-current="page"]').getAttribute('aria-label')).toBe('Chat');
+  const history = screen.getByTestId('conversation-sidebar');
+  fireEvent.click(screen.getByRole('button', {name: 'Workspaces', exact: true}));
+  fireEvent.click(await screen.findByRole('button', {name: 'Accounts'}));
+  expect(history.isConnected).toBe(true);
+  expect(history.closest('[hidden]')).not.toBeNull();
+  expect(openWindow).toHaveBeenLastCalledWith('accounts', 'Accounts', [], expect.objectContaining({conversationId: undefined, parentKey: null, region: 'app.section', parameters: {scope: 'allowed'}}));
+  expect(onOpenWorkspace).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', {name: 'Scheduled tasks'}));
+  expect(openWindow).toHaveBeenLastCalledWith('schedule', 'Scheduled tasks', ['schedules'], expect.objectContaining({conversationId: undefined, parentKey: null, region: 'app.section'}));
+  expect(onSectionWindow).toHaveBeenLastCalledWith({windowId: 'section-window'}, 'Scheduled tasks', 'action:schedule', '', '');
+});
+
+it('restores only current catalog destinations and selects the owning application', async () => {
+  const payload = layoutPayload({applications: [
+    {id:'first',title:'First',menus:[{id:'same',title:'First records',action:{type:'window',windowKey:'firstRecords'}}]},
+    {id:'second',title:'Second',menus:[{id:'group',title:'Browse',children:[{id:'same',title:'Second records',action:{type:'window',windowKey:'secondRecords'}}]}]},
+  ]});
+  payload.layout.left.navigation = {presentation:'sections'};
+  fetch.mockResolvedValue(response(payload));
+  openWindow.mockReturnValue({windowId:'restored'});
+  const onSectionWindow=vi.fn();
+  const destination=JSON.stringify(['second','group','same']);
+  const mounted=render(<WorkspaceSidebar section="workspaces" destination={destination} onSectionWindow={onSectionWindow}/>);
+  const selected=await screen.findByRole('button',{name:'Second records'});
+  expect(selected.getAttribute('aria-current')).toBe('page');
+  expect(selected.getAttribute('data-forge-type')).toBe('body');
+  expect(openWindow).toHaveBeenLastCalledWith('secondRecords','Second records',[],expect.objectContaining({region:'app.section',conversationId:undefined}));
+  expect(onSectionWindow).toHaveBeenLastCalledWith({windowId:'restored'},'Second records','workspaces',destination,'');
+  mounted.rerender(<WorkspaceSidebar section="workspaces" destination='["missing","arbitrary-window"]' onSectionWindow={onSectionWindow}/>);
+  await waitFor(()=>expect(onSectionWindow).toHaveBeenLastCalledWith(null,'','workspaces','["missing","arbitrary-window"]',expect.stringContaining('unavailable')));
+  expect(openWindow).toHaveBeenCalledTimes(1);
+});
+
+it('does not reopen disabled destinations or routes without required context', async () => {
+  const payload=layoutPayload({applications:[{id:'example',menus:[
+    {id:'denied',disabled:true,action:{type:'window',windowKey:'denied'}},
+    {id:'scoped',title:'Scoped',action:{type:'window',windowKey:'scoped',parameterBindings:{account:{from:['account']}}}},
+  ]}]});
+  payload.layout.left.navigation={presentation:'sections'};
+  fetch.mockResolvedValue(response(payload));
+  const onSectionWindow=vi.fn();
+  const mounted=render(<WorkspaceSidebar section="workspaces" destination='["example","denied"]' onSectionWindow={onSectionWindow}/>);
+  await waitFor(()=>expect(onSectionWindow).toHaveBeenLastCalledWith(null,'','workspaces','["example","denied"]',expect.stringContaining('unavailable')));
+  mounted.rerender(<WorkspaceSidebar section="workspaces" destination='["example","scoped"]' onSectionWindow={onSectionWindow}/>);
+  await waitFor(()=>expect(onSectionWindow).toHaveBeenLastCalledWith(null,'Scoped','workspaces','["example","scoped"]',expect.stringContaining('required context')));
+  expect(openWindow).not.toHaveBeenCalled();
+});
+
+it('restores an existing action section from current metadata without a rail click', async () => {
+  const payload=layoutPayload({topbarActions:[{id:'schedule',title:'Scheduled tasks',action:{type:'window',windowKey:'schedule',refreshDataSources:['schedules']}}]});
+  payload.layout.left.navigation={presentation:'sections'};
+  fetch.mockResolvedValue(response(payload));
+  openWindow.mockReturnValue({windowId:'schedule-window'});
+  render(<WorkspaceSidebar section="action:schedule"/>);
+  await waitFor(()=>expect(openWindow).toHaveBeenCalledWith('schedule','Scheduled tasks',['schedules'],expect.objectContaining({region:'app.section'})));
+});
+
+it('honors disabled history and reveals section menus from the collapsed rail', async () => {
+  const payload = layoutPayload({applications: [{id: 'example', title: 'Example', menus: []}]});
+  payload.layout.left.navigation = {presentation: 'sections'};
+  payload.layout.left.history = {enabled: false};
+  fetch.mockResolvedValue(response(payload));
+  const expand = vi.fn();
+  const select = vi.fn();
+  render(<WorkspaceSidebar collapsed onExpand={expand} onSectionChange={select}/>);
+  const workspaces = await screen.findByRole('button', {name: 'Workspaces', exact: true});
+  expect(screen.queryByTestId('conversation-sidebar')).toBeNull();
+  expect(sidebarRender).not.toHaveBeenCalled();
+  fireEvent.click(workspaces);
+  expect(expand).toHaveBeenCalledOnce();
+  expect(select).toHaveBeenLastCalledWith('workspaces');
 });

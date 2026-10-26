@@ -1,0 +1,36 @@
+.app-run-progress, .app-run-notice { color: var(--app-text); margin-block: var(--agently-theme-spacing-4); }
+.app-run-progress p, .app-run-notice p { margin: 0; }
+.app-run-progress-heading, .app-run-progress-meta, .app-run-notice-actions { display: flex; align-items: center; gap: var(--agently-theme-spacing-2); flex-wrap: wrap; }
+.app-run-progress-heading { margin-bottom: var(--agently-theme-spacing-2); }
+.app-run-progress-activity { display: inline-flex; align-items: center; gap: var(--agently-theme-spacing-2); min-width: 0; }
+.app-run-progress-heading > [data-forge-type="metadata"] { color: var(--app-muted); font-variant-numeric: tabular-nums; }
+.app-run-progress-heading > .forge-button { margin-inline-start: auto; }
+.app-run-progress-spinner { animation: app-run-progress-spin calc(var(--agently-theme-motion-fast) * 8) linear infinite; }
+@keyframes app-run-progress-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .app-run-progress-spinner { animation: none; } }
+.app-run-progress-meta { color: var(--app-muted); margin-top: var(--agently-theme-spacing-2); }
+.app-run-progress-heading .forge-icon, .app-run-notice > .forge-icon { color: var(--app-accent); flex-shrink: 0; }
+.app-run-progress .forge-icon, .app-run-notice .forge-icon { width: 16px; height: 16px; }
+.app-run-notice { display: flex; align-items: flex-start; gap: var(--agently-theme-spacing-3); padding: var(--agently-theme-spacing-3); border: 1px solid var(--app-border); border-radius: var(--agently-theme-control-radius); background: var(--app-surface-soft); }
+.app-run-notice[data-tone="danger"] > .forge-icon { color: var(--app-status-danger-foreground); }
+.app-run-notice-content { min-width: 0; overflow-wrap: anywhere; }
+.app-run-notice-content > p + p, .app-run-notice-actions { margin-top: var(--agently-theme-spacing-2); }
+.bp6-dialog.app-request-review-dialog { width: calc(100vw - 32px); max-width: 960px; background: var(--app-surface); color: var(--app-text); border: 1px solid var(--app-border); border-radius: var(--agently-theme-control-radius); }
+.app-request-review-dialog .bp6-dialog-header { background: var(--app-surface); box-shadow: none; border-bottom: 1px solid var(--app-border); padding: var(--agently-theme-spacing-3) var(--agently-theme-spacing-4); }
+.app-request-review-title { display: flex; align-items: center; justify-content: space-between; gap: var(--agently-theme-spacing-3); min-width: 0; }
+.app-request-review-title > span { overflow-wrap: anywhere; }
+.app-request-review-dialog .app-approval-dialog, .app-request-review-dialog .bp6-dialog-body { padding: var(--agently-theme-spacing-4); margin: 0; }
+.app-request-review-dialog .app-approval-dialog-actions, .app-request-review-dialog .bp6-dialog-footer-actions { display: flex; flex-wrap: wrap; gap: var(--agently-theme-spacing-2); margin-top: var(--agently-theme-spacing-4); }
+.app-request-review-dialog .bp6-dialog-footer { padding-inline: var(--agently-theme-spacing-4); }
+.app-request-review-dialog .app-approval-dialog pre { background: var(--app-surface-soft); color: var(--app-text); border: 1px solid var(--app-border); }
+.app-request-review-body { margin-top: var(--agently-theme-spacing-3); }
+.app-request-review-error { color: var(--app-status-danger-foreground); margin-top: var(--agently-theme-spacing-2); }
+.app-request-review-tool { color: var(--app-muted); overflow-wrap: anywhere; }
+.app-request-review-dialog .elicitation-message { margin-bottom: var(--agently-theme-spacing-3); }
+.app-request-review-message { overflow-wrap: anywhere; max-height: 280px; overflow: auto; }
+.app-request-approval-list { position: absolute; right: var(--agently-theme-spacing-4); top: 100%; max-width: calc(100vw - 32px); width: 360px; padding: var(--agently-theme-spacing-2); background: var(--app-surface); border: 1px solid var(--app-border); border-radius: var(--agently-theme-control-radius); z-index: 30; }
+.app-request-approval-list button { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: var(--app-text); padding: var(--agently-theme-spacing-3); border-radius: var(--agently-theme-control-radius); }
+.app-request-approval-list button:hover { background: var(--app-surface-soft); }
+.app-request-approval-list button:focus { outline: none; }
+.app-request-approval-list button:focus-visible { outline: 2px solid var(--agently-theme-focus); outline-offset: 1px; }
+.app-request-approval-list .app-approval-subtitle { color: var(--app-muted); }

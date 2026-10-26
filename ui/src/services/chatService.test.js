@@ -175,6 +175,7 @@ describe('resolveComposerProps', () => {
     });
 
     expect(state.commandCenter).toBe(true);
+    expect(state.inputProps).not.toHaveProperty('placeholder');
     expect(state.agentValue).toBe('coder');
     expect(state.modelValue).toBe('openai_gpt-5-mini');
     expect(state.reasoningValue).toBe('medium');

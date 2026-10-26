@@ -10,6 +10,11 @@ export function endUserProgressMessage(message = '') {
 export function progressStatusPresentation(stage = {}, developerMode = false, backendUnavailable = false) {
   const phase = backendUnavailable ? 'offline' : String(stage.phase || 'ready');
   const text = backendUnavailable ? 'Service temporarily unavailable. Reconnecting…' : String(stage.text || 'Ready');
-  if (developerMode || !['error', 'failed', 'offline'].includes(phase)) return {phase, text};
-  return {phase: 'attention', text: backendUnavailable ? text : endUserProgressMessage(text)};
+  if (developerMode) return {phase, text};
+  if (['error', 'failed', 'offline'].includes(phase)) return {phase: 'attention', text: backendUnavailable ? text : endUserProgressMessage(text)};
+  if (/^Completed tool\b/i.test(text)) return {phase, text:'Step completed'};
+  if (/^Executing\b|^Building .+ arguments/i.test(text)) return {phase, text:'Running a step'};
+  if (/^Planning tool calls/i.test(text)) return {phase, text:'Preparing the next step'};
+  if (/^Assistant (thinking|reasoning|executing|responding)/i.test(text)) return {phase, text:'Working on your request'};
+  return {phase, text};
 }
