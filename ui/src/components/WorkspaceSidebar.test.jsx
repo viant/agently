@@ -31,6 +31,12 @@ describe('workspace layout window actions', () => {
       parentKey: 'chat/new', presentation: 'hosted', region: 'chat.top',
     });
   });
+
+  it('carries the provider and canonical root selector for a published window', () => {
+    const options = resolveLayoutWindowOptions({resourceUri: 'window://studio/Connectors', providerIdentity: 'studio'}, 'conv-1');
+    expect(options).toMatchObject({providerIdentity: 'studio', resourceRef: {uri: 'window://studio/Connectors'}});
+    expect(resolveLayoutWindowOptions({resourceUri: 'window://studio/Connectors'}, 'conv-1').resourceRef).toBeUndefined();
+  });
 });
 
 it('identifies nested destinations by catalog path and inherits disabled state', () => {

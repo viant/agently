@@ -151,6 +151,19 @@ describe('WorkspaceSidebar menu delivery from the workspace layout', () => {
     expect(JSON.stringify(action)).toBe(original);
   });
 
+  it('reads local window form inputs without resolving an undeclared placeholder datasource', async () => {
+    windowSignals.activeWindows.value=[{windowId:'local',parameters:{RecordId:7}}];
+    windowSignals.selectedWindowId.value='local';
+    const resolveDatasource=vi.fn(()=>{throw new Error('DataSource not found: EMPTY');});
+    windowSignals.getFormSignal.mockImplementation(id => id === 'local:windowForm' ? {value:{Status:'active'}} : {value:{}});
+    fetch.mockResolvedValue(response(layoutPayload({applications:[{id:'reports',title:'Reports',menus:[{id:'open',title:'Open',
+      action:{type:'window',windowKey:'report',parameterBindings:{Status:{from:'Status'},RecordId:{from:'RecordId'}}}}]}]})));
+    render(<WorkspaceSidebar />);
+    fireEvent.click(await screen.findByRole('button',{name:'Open'}));
+    expect(resolveDatasource).not.toHaveBeenCalled();
+    expect(openWindow).toHaveBeenCalledWith('report','Open',[],expect.objectContaining({parameters:{Status:'active',RecordId:7}}));
+  });
+
   it('renders Advertisers and Campaigns from layout.applications and preserves their window actions', async () => {
     const topbarActions = [{ id: 'help', title: 'Help' }];
     fetch.mockResolvedValueOnce(response(layoutPayload({ applications: menuApplications, topbarActions })));
@@ -251,10 +264,26 @@ it('opens management URL menus in an isolated browser tab', async () => {
 });
 
 it('opens canonical remote window resources through the existing window host', async () => {
-  fetch.mockResolvedValue(response(layoutPayload({applications:[{id:'studio', title:'Studio', menus:[{id:'models',title:'Models', action:{type:'window',resourceUri:'window://studio/Models',parameters:{section:'active'}}}]}]})));
+  fetch.mockResolvedValue(response(layoutPayload({applications:[{id:'studio', title:'Studio', menus:[{id:'models',title:'Models', action:{type:'window',resourceUri:'window://studio/Models',providerIdentity:'studio',parameters:{section:'active'}}}]}]})));
   render(<WorkspaceSidebar discoveryReady />);
   fireEvent.click(await screen.findByRole('button',{name:'Models'}));
-  expect(openWindow).toHaveBeenCalledWith('window://studio/Models','Models',[],expect.objectContaining({parameters:{section:'active'}}));
+  expect(openWindow).toHaveBeenCalledWith('window://studio/Models','Models',[],expect.objectContaining({parameters:{section:'active'},providerIdentity:'studio',resourceRef:{uri:'window://studio/Models'}}));
+});
+
+it('keeps unrelated window navigation enabled while an earlier open is pending', async () => {
+  fetch.mockResolvedValue(response(layoutPayload({applications:[{id:'studio',title:'Studio',menus:[
+    {id:'slow',title:'Slow window',action:{type:'window',resourceUri:'window://studio/slow',providerIdentity:'studio'}},
+    {id:'connectors',title:'Connectors',action:{type:'window',resourceUri:'window://studio/connectors',providerIdentity:'studio'}},
+  ]}]})));
+  openWindow.mockImplementationOnce(()=>new Promise(()=>{}));
+  render(<WorkspaceSidebar discoveryReady />);
+  const slow=await screen.findByRole('button',{name:'Slow window'});
+  const connectors=screen.getByRole('button',{name:'Connectors'});
+  fireEvent.click(slow);
+  expect(connectors.disabled).toBe(false);
+  fireEvent.click(connectors);
+  expect(openWindow).toHaveBeenCalledTimes(2);
+  expect(openWindow.mock.calls[1][0]).toBe('window://studio/connectors');
 });
 
 it('keeps conversation history mounted while sections replace its visible menu', async () => {
