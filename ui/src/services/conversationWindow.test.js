@@ -1326,6 +1326,26 @@ describe('conversationWindow', () => {
     expect(activeWindows.value[0]?.conversationInstanceVersion).toBe(2);
   });
 
+  it('clears all supported bootstrap ID aliases without mutating the previous window', () => {
+    const parameters = {
+      conversationId: 'old',
+      conversations: {form: {id: 'old'}, input: {id: 'old', path: {id: 'old'}, parameters: {id: 'old', keep: 'value'}}},
+      messages: {input: {convID: 'old', path: {convID: 'old'}, parameters: {convID: 'old'}}},
+    };
+    activeWindows.value = [{windowId: MAIN_CHAT_WINDOW_ID, windowKey: CHAT_WINDOW_KEY, parameters}];
+    requestNewConversationInMainWindow();
+    const next = activeWindows.value[0].parameters;
+    expect(next.conversationId).toBe('');
+    for (const [binding, key] of [[next.conversations.input, 'id'], [next.messages.input, 'convID']]) {
+      expect(binding[key]).toBe('');
+      expect(binding.path[key]).toBe('');
+      expect(binding.parameters[key]).toBe('');
+    }
+    expect(next.conversations.input.parameters.keep).toBe('value');
+    expect(parameters.conversations.input.path.id).toBe('old');
+    expect(parameters.messages.input.parameters.convID).toBe('old');
+  });
+
   it('clears a prepared task only for explicit New Chat, preserving unrelated query state', () => {
     const url = new URL('http://localhost/?starter=example&starterFrom=library&keep=yes');
     window.location = {href: url.href, search: url.search, pathname: '/', hostname: 'localhost'};
