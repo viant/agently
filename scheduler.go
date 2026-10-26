@@ -81,9 +81,6 @@ func RunScheduler(options SchedulerRunOptions) error {
 	if err := registerSchedulerUIServices(rt); err != nil {
 		return fmt.Errorf("failed to register scheduler UI tools: %w", err)
 	}
-	if err := agentlyrt.ConfigureForecastEvidence(ctx, rt, workspace.Root()); err != nil {
-		return fmt.Errorf("forecast evidence startup: %w", err)
-	}
 	authCfg, err := svcauth.LoadWorkspaceConfig(workspace.Root())
 	if err != nil {
 		return fmt.Errorf("failed to load workspace auth config: %w", err)
