@@ -74,6 +74,22 @@ export function toolProgressText(progress) {
   return parts.join(' · ');
 }
 
+export function documentActivityLabel(progress, executingClientTool = false) {
+  if (progress.activity.kind === 'tool' && progress.activity.label === 'ui/view/open') return 'Opening workspace';
+  if (executingClientTool) return 'Continuing your request';
+  return {connecting:'Connecting', planning:'Planning your request', writing:'Preparing response',
+    tool:'Running a step', tools:'Running steps'}[progress.activity.kind] || 'Working on your request';
+}
+
+export function documentStepSummary(progress) {
+  if (!progress.identityComplete) return '';
+  return [
+    progress.completedToolCount > 0 ? `${progress.completedToolCount} step${progress.completedToolCount === 1 ? '' : 's'} completed` : '',
+    progress.activeToolCount > 0 ? `${progress.activeToolCount} step${progress.activeToolCount === 1 ? '' : 's'} running` : '',
+    progress.queuedToolCount > 0 ? `${progress.queuedToolCount} queued` : '',
+  ].filter(Boolean).join(' · ');
+}
+
 export function statusLabel(value = '') {
   const text = String(value || 'unknown').trim().replace(/_/g, ' ');
   return /error|failed|failure/i.test(text) ? 'Failed' : text;
@@ -239,7 +255,13 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
     }
   };
 
-  if (appearance === 'document') return <RunProgressView activity={activity} narration={operationalNarration}
+  // Progress changes come from the active turn, never elapsed ticks or unrelated history.
+  const progressKey = JSON.stringify([row.turnId, row.lifecycle, publicNarration, row.operationalNarration, executingClientTool,
+    groups.map(group => [group.pageId, group.status, group.phase, group.content?.length,
+      group.modelSteps.map(step => [step.modelCallId, step.status, step.completedAt, step.usage?.totalTokens]),
+      group.toolSteps.map(step => [step.toolCallId, step.status])])]);
+  if (appearance === 'document') return <RunProgressView activity={documentActivityLabel(progress, executingClientTool)} narration={operationalNarration}
+    progressKey={progressKey} summary={documentStepSummary(progress)}
     startedAt={progress.startedAt} waiting={waiting} stopping={stopping}
     onStop={progress.canStop || stopping ? stop : undefined} error={stopError}/>;
 

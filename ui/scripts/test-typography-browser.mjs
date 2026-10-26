@@ -76,6 +76,7 @@ try {
   await auditViewport(baseURL, {width: 390, height: 844});
   for (const viewport of [{width:1440,height:900},{width:390,height:844}]) {
     const page = await browser.newPage({viewport, ...(viewport.width<500 ? {hasTouch:true,isMobile:true} : {})});
+    await page.clock.install();
     const failures = [];
     page.on('pageerror', error => failures.push(error.message));
     await page.goto(`${baseURL}/typography-components-proof.html`);
@@ -175,6 +176,27 @@ try {
     const size = selector => page.locator(selector).first().evaluate(node => getComputedStyle(node).fontSize);
     await verifyDocumentChat(page, {touch: viewport.width < 500});
     const lifecycle=page.getByRole('region',{name:'Request lifecycle specimen'});
+    const spinner=lifecycle.locator('.app-run-progress-spinner');
+    assert.equal(await spinner.evaluate(node=>getComputedStyle(node).animationName),'app-run-progress-spin');
+    assert.ok(parseFloat(await spinner.evaluate(node=>getComputedStyle(node).animationDuration))>0);
+    await page.emulateMedia({reducedMotion:'reduce'});
+    assert.equal(await spinner.evaluate(node=>getComputedStyle(node).animationName),'none');
+    await page.emulateMedia({reducedMotion:'no-preference'});
+    const advance=lifecycle.getByRole('button',{name:'Complete example step',exact:true});
+    await advance.click();
+    assert.match(await lifecycle.getByTestId('turn-progress-summary').textContent(),/3 steps completed/);
+    if(process.env.AGENTLY_TYPOGRAPHY_SCREENSHOTS) {
+      mkdirSync(process.env.AGENTLY_TYPOGRAPHY_SCREENSHOTS,{recursive:true});
+      await lifecycle.screenshot({path:path.join(process.env.AGENTLY_TYPOGRAPHY_SCREENSHOTS,`progress-active-${viewport.width}.png`)});
+    }
+    await page.clock.fastForward(31000);
+    assert.match(await lifecycle.textContent(),/Waiting for an update/);
+    assert.match(await lifecycle.textContent(),/No new progress/);
+    assert.equal(await lifecycle.locator('.app-run-progress').evaluate(node=>node.scrollWidth<=node.clientWidth),true);
+    if(process.env.AGENTLY_TYPOGRAPHY_SCREENSHOTS) await lifecycle.screenshot({path:path.join(process.env.AGENTLY_TYPOGRAPHY_SCREENSHOTS,`progress-quiet-${viewport.width}.png`)});
+    await advance.click();
+    await lifecycle.getByText('Reviewing evidence',{exact:true}).waitFor();
+    assert.doesNotMatch(await lifecycle.textContent(),/No new progress/);
     await lifecycle.getByRole('button',{name:'Stop request',exact:true}).click();
     assert.match(await lifecycle.textContent(),/Request canceled/);
     await lifecycle.getByRole('button',{name:'Review and retry',exact:true}).click();

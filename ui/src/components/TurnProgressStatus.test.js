@@ -1,8 +1,9 @@
+// @vitest-environment jsdom
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { activeIteration, conversationTokenFallback, groupsFromRow, TokenDetails, toolProgressText, statusLabel } from './TurnProgressStatus';
+import { activeIteration, conversationTokenFallback, groupsFromRow, TokenDetails, toolProgressText, statusLabel, documentStepSummary } from './TurnProgressStatus';
 
 let projectedRows = [];
 
@@ -223,4 +224,18 @@ it('places narration only in the scoped active turn status card', () => {
   expect(html).toContain('Preparing current report data');expect(html).not.toContain('Old completed narration');
   projectedRows=[{...projectedRows[1],lifecycle:'completed'}];
   expect(renderToStaticMarkup(React.createElement(TurnProgressStatus,{conversationId:'current-conversation'}))).toBe('');
+});
+
+it('shows real step progress and a plain activity label in document chat', () => {
+  projectedRows = [{kind:'iteration',turnId:'active',lifecycle:'running',rounds:[{
+    pageId:'page',status:'running',content:'PRIVATE_MODEL_TEXT',
+    toolCalls:[{toolCallId:'one',toolName:'PRIVATE_TOOL_NAME',status:'completed'},
+      {toolCallId:'two',toolName:'ui/view/open',status:'running'}],
+  }]}];
+  const html=renderToStaticMarkup(React.createElement(TurnProgressStatus,{conversationId:'c',appearance:'document'}));
+  expect(html).toContain('Opening workspace');
+  expect(html).toContain('1 step completed');
+  expect(html).toContain('1 step running');
+  expect(html).not.toMatch(/Thinking|ui\/view\/open|PRIVATE_TOOL_NAME|PRIVATE_MODEL_TEXT|tokens/);
+  expect(documentStepSummary({identityComplete:false,completedToolCount:4})).toBe('');
 });

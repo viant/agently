@@ -1,17 +1,20 @@
 import React from 'react';
-import {Button, Typography, ReviewTable} from 'forge/components';
+import {Button, Typography, ReviewTable, ForgeThemeBoundary} from 'forge/components';
 import RunProgressView, {RunNotice} from './RunProgressView.jsx';
 import RequestReviewDialog, {ReviewAction} from './RequestReviewDialog.jsx';
 
 export default function RequestLifecycleSpecimen() {
   const [state, setState] = React.useState('running');
   const [open, setOpen] = React.useState(false);
-  const [startedAt] = React.useState(()=>new Date(Date.now()-14000).toISOString());
+  const [startedAt,setStartedAt] = React.useState(()=>new Date(Date.now()-14000).toISOString());
+  const [completed,setCompleted] = React.useState(2);
   const [rows,setRows] = React.useState([{name:'Example item',rationale:'Keep the evidence with this decision.',selected:true}]);
-  return <section id="foundation-request-lifecycle" aria-label="Request lifecycle specimen">
+  return <ForgeThemeBoundary presentation="document" windowKey="request-lifecycle-specimen"><section id="foundation-request-lifecycle" aria-label="Request lifecycle specimen">
     <Typography as="h2" typeRole="section">Request lifecycle</Typography>
-    {state === 'running' ? <RunProgressView activity="Reviewing evidence" narration="Checking the selected scope." startedAt={startedAt} onStop={()=>setState('canceled')}/>
-      : <RunNotice title="Request canceled" message="The current request was stopped."><Button variant="secondary" onClick={()=>setState('running')}>Review and retry</Button></RunNotice>}
+    <Typography as="p" typeRole="body">Illustrative progress. Leave this example unchanged for 30 seconds to see the waiting-for-update state.</Typography>
+    {state === 'running' ? <><RunProgressView activity="Reviewing evidence" narration="Checking the selected scope." summary={`${completed} steps completed · 1 step running`} progressKey={completed} startedAt={startedAt} onStop={()=>setState('canceled')}/>
+      <Button variant="ghost" size="compact" onClick={()=>setCompleted(value=>value+1)}>Complete example step</Button></>
+      : <RunNotice title="Request canceled" message="The current request was stopped."><Button variant="secondary" onClick={()=>{setStartedAt(new Date().toISOString());setCompleted(0);setState('running');}}>Review and retry</Button></RunNotice>}
     <RunNotice tone="danger" title="Request couldn’t be completed" message="Check your connection and review the request before retrying."/>
     <Button variant="secondary" onClick={()=>setOpen(true)}>Open example review</Button>
     <RequestReviewDialog appearance="document" isOpen={open} title="Review example action" onClose={()=>setOpen(false)}>
@@ -21,5 +24,5 @@ export default function RequestLifecycleSpecimen() {
         <div className="app-approval-dialog-actions"><ReviewAction appearance="document" onClick={()=>setOpen(false)}>Close example</ReviewAction></div>
       </div>
     </RequestReviewDialog>
-  </section>;
+  </section></ForgeThemeBoundary>;
 }

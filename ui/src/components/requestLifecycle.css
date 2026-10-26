@@ -2,6 +2,12 @@
 .app-run-progress p, .app-run-notice p { margin: 0; }
 .app-run-progress-heading, .app-run-progress-meta, .app-run-notice-actions { display: flex; align-items: center; gap: var(--agently-theme-spacing-2); flex-wrap: wrap; }
 .app-run-progress-heading { margin-bottom: var(--agently-theme-spacing-2); }
+.app-run-progress-activity { display: inline-flex; align-items: center; gap: var(--agently-theme-spacing-2); min-width: 0; }
+.app-run-progress-heading > [data-forge-type="metadata"] { color: var(--app-muted); font-variant-numeric: tabular-nums; }
+.app-run-progress-heading > .forge-button { margin-inline-start: auto; }
+.app-run-progress-spinner { animation: app-run-progress-spin calc(var(--agently-theme-motion-fast) * 8) linear infinite; }
+@keyframes app-run-progress-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .app-run-progress-spinner { animation: none; } }
 .app-run-progress-meta { color: var(--app-muted); margin-top: var(--agently-theme-spacing-2); }
 .app-run-progress-heading .forge-icon, .app-run-notice > .forge-icon { color: var(--app-accent); flex-shrink: 0; }
 .app-run-progress .forge-icon, .app-run-notice .forge-icon { width: 16px; height: 16px; }
