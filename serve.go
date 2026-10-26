@@ -232,9 +232,6 @@ func Serve(options ServeOptions) error {
 	if err := hostruntime.BindNativeWindowRuntime(hostOptions, rt); err != nil {
 		return fmt.Errorf("native window identity startup: %w", err)
 	}
-	if err := agentlyrt.ConfigureForecastEvidence(ctx, rt, workspace.Root()); err != nil {
-		return fmt.Errorf("forecast evidence startup: %w", err)
-	}
 	if orchestrationEnabled {
 		switch {
 		case rt.Registry == nil:
