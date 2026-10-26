@@ -61,7 +61,7 @@ export default function ReportWindow({window: entry}) {
     }).catch(error => { if (active) setState({error, identity}); });
     return () => { active = false; };
   }, [identity, store, attempt]);
-  if (state.identity === identity && state.error) return <Callout intent="danger" title="Report unavailable">{state.error.message} <Button onClick={() => setAttempt(value => value + 1)}>Retry</Button></Callout>;
+  if (state.identity === identity && state.error) return <Callout intent="danger" title="Report unavailable">This report could not be loaded. Please try again. <Button onClick={() => setAttempt(value => value + 1)}>Retry</Button></Callout>;
   if (state.identity !== identity || !state.report) return <Spinner aria-label="Loading report" size={24}/>;
   const fields = reportParameterFields(state.report);
   return <>

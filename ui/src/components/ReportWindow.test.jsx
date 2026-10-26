@@ -28,9 +28,10 @@ it('resolves through the existing host and mounts the shared runtime with its op
 });
 
 it('shows a backend failure and retries the same selected resource', async () => {
-  services.reportStore.getReport.mockRejectedValueOnce(new Error('Producer denied report')).mockResolvedValueOnce({resource: pin});
+  services.reportStore.getReport.mockRejectedValueOnce(new Error('automatic MCP protocol attempts failed: internal server details')).mockResolvedValueOnce({resource: pin});
   render(<ReportWindow window={entry}/>);
-  await screen.findByText('Producer denied report');
+  await screen.findByText('This report could not be loaded. Please try again.');
+  expect(screen.queryByText(/automatic MCP protocol/)).toBeNull();
   expect(runtime).not.toHaveBeenCalled();
   fireEvent.click(screen.getByText('Retry'));
   await screen.findByText('Shared report runtime');
