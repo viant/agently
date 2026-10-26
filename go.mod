@@ -13,11 +13,11 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
-	github.com/viant/agently-core v0.1.57-0.20261023212226-f24c1339a90d
+	github.com/viant/agently-core v0.1.57-0.20261026183957-139c2d047267
 	github.com/viant/datly v1.1.1-0.20261016055322-cb93264907d4
 	github.com/viant/embedius v0.5.6 // indirect
-	github.com/viant/forge v0.3.45-0.20261023023001-47b990cd8cc7
-	github.com/viant/jsonrpc v0.25.1-0.20261021031150-a24a3b9ae218
+	github.com/viant/forge v0.3.45-0.20261026183523-5a14d008dc68
+	github.com/viant/jsonrpc v0.25.1-0.20261026172601-4b8c890b957f
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99 // indirect
 	github.com/viant/mcp v0.24.1-0.20261019131854-bc54c4ac748a
 	github.com/viant/mcp-protocol v0.19.1-0.20261014173008-af92f34f304b
@@ -141,7 +141,7 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
 	github.com/viant/agently-core/protocol/window v0.0.0-20261015021722-e84334ca688f // indirect
-	github.com/viant/authz v0.0.0-20261022071048-a58b1851761a // indirect
+	github.com/viant/authz v0.0.0-20261022171511-cc9325165338 // indirect
 	github.com/viant/bindly v0.4.1-0.20261011212616-2c051ae6bd9e // indirect
 	github.com/viant/bintly v0.2.0 // indirect
 	github.com/viant/gds v0.6.0 // indirect

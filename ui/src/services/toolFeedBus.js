@@ -8,7 +8,7 @@
  */
 import { FeedTracker, applyFeedPatchOperation } from 'agently-core-ui-sdk';
 import { getCollectionSignal, getFormSignal, getFormStatusSignal } from 'forge/core';
-import { client } from './agentlyClient';
+import { client, getReportRestoreScope as getAccountScope } from './agentlyClient';
 import { cleanupFeedSignals, normalizeDataSources, wireFeedSignals } from './feedForgeWiring';
 import { clearFeedSelection, clearFeedSelectionForConversation, registerFeedDataLoader } from './toolFeedSelection';
 import { clearFeedEntityAliases, registerFeedEntityAlias } from './feedEntityAliases';
@@ -266,12 +266,15 @@ export function onFeedDataChange(fn) {
 export function fetchFeedDataNow(feedId, conversationId, {rethrow = false} = {}) {
   const { feedId: normalizedFeedId, conversationId: normalizedConversationId, scopedKey } = normalizeScopedFeedIdentity(feedId, conversationId);
   if (!scopedKey || !normalizedConversationId) return;
+  const ownerScope = getAccountScope();
   const existing = feedDataCache[scopedKey] || null;
   // Clear stale cache entry before fetch unless we already have inline/local data.
   if (!existing?.data) {
     delete feedDataCache[scopedKey];
   }
   return client.getFeedData(normalizedFeedId, normalizedConversationId).then((data) => {
+    if (ownerScope !== getAccountScope()) return undefined;
+    if (!data && rethrow) delete feedDataCache[scopedKey];
     if (data) {
       syncFeedPresentation(scopedKey, data.presentation);
       const latest = feedDataCache[scopedKey] || existing || {};
@@ -290,7 +293,11 @@ export function fetchFeedDataNow(feedId, conversationId, {rethrow = false} = {})
     notifyDataChange();
     return data;
   }).catch((error) => {
-    if (rethrow) delete feedDataCache[scopedKey];
+    if (ownerScope !== getAccountScope()) return undefined;
+    if (rethrow || [401,403,404].includes(Number(error?.status))) {
+      if (existing?.dataSources) cleanupFeedSignals(scopedKey, Object.keys(existing.dataSources), normalizedConversationId);
+      delete feedDataCache[scopedKey];
+    }
     notifyDataChange();
     if (rethrow) throw error;
   });
@@ -396,7 +403,9 @@ export function applyFeedEvent(payload) {
     // queue/local feeds and transcript/live replays of the same feed.
     const needsSpecFetch = !existing?.ui || !existing?.dataSources;
     if (conversationId && needsSpecFetch) {
+      const ownerScope = getAccountScope();
       client.getFeedData(feedId, conversationId).then((data) => {
+        if (ownerScope !== getAccountScope()) return;
         if (data) {
           syncFeedPresentation(scopedKey, data.presentation);
           const latest = feedDataCache[scopedKey] || existing || {};

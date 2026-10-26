@@ -3,6 +3,8 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 vi.mock('forge/components', () => ({
+  Icon: ({name = ''}) => React.createElement('span', {'data-icon': name}),
+  typographyProps: role => ({'data-forge-type': role}),
   AvatarIcon: ({ name = '' }) => React.createElement('span', { 'data-avatar-icon': name }),
 }));
 
@@ -532,4 +534,14 @@ describe('native conversation-level feed ownership',()=>{
     renderToStaticMarkup(h(ChatFeedFromChatStore,{conversationId:'',rowsOverride:[{kind:'assistant',renderKey:'standard',turnId:'foreign',content:'Foreign',connectionProfile:'standard',hostEffectsAllowed:false}]}));
     expect(toolFeedDetailSpy).not.toHaveBeenCalled();
   });
+});
+
+
+it('keeps the original reply link when the same output is revised later', () => {
+  const object = {version: 1, objectId: 'report', conversationId: 'c', origin: {turnId: 'first'}, lastActivatedBy: {turnId: 'revision'}, revision: 2, content: {windowId: 'report-view', windowKey: 'resource'}};
+  const attachment = {kind: 'workspaceObject', objectId: 'report', label: 'Report', workspaceObject: object};
+  const rows = [{kind: 'assistant', renderKey: 'first', turnId: 'first', content: 'Original reply', attachments: [attachment]}, {kind: 'assistant', renderKey: 'revision', turnId: 'revision', content: 'Updated reply', attachments: [attachment]}];
+  const html = renderToStaticMarkup(h(ConversationViewContext.Provider, {value: {workspaceWindows: []}}, h(ChatFeedFromChatStore, {conversationId: 'c', rowsOverride: rows})));
+  expect(html.match(/data-workspace-object-id="report"/g)).toHaveLength(1);
+  expect(html.indexOf('data-workspace-object-id="report"')).toBeLessThan(html.indexOf('data-render-key="revision"'));
 });

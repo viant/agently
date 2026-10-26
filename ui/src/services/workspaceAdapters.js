@@ -25,3 +25,46 @@ export function toolFeedWorkspaceDescriptor(feed) {
     capabilities: {close: true, focus: true, split: true},
   }};
 }
+
+export function normalizeCanonicalReportAssembly(assembly = {}, presentation) {
+  let source = assembly.source;
+  if (typeof source === 'string') {
+    try { source = JSON.parse(source); } catch (_) { source = null; }
+  }
+  if (presentation === 'document' && source && typeof source === 'object' && !Array.isArray(source) && !source.viewer?.appearance) {
+    source = {...source, viewer: {...source.viewer, appearance: 'document'}};
+  }
+  return {...assembly, authoritative: true,
+    source: source && typeof source === 'object' && !Array.isArray(source) ? source : {},
+    dataSources: Object.fromEntries(Object.entries(assembly.dataSources || {}).map(([id, value]) =>
+      [id, {...value, id, data: value?.data ?? value?.payload}]))};
+}
+
+// Conversation, turn (or message), scope and report ID distinguish outputs from revisions.
+export function inlineReportWorkspaceDescriptor({assembly, conversationId, messageId, turnId = ''}) {
+  if (!conversationId || !messageId || !assembly?.id || assembly.status !== 'committed') return null;
+  const normalized = normalizeCanonicalReportAssembly(assembly);
+  if (!Object.keys(normalized.source).length || !['dashboard-v1', 'report-document-v1'].includes(assembly.grammar || 'dashboard-v1')) return null;
+  const scope = assembly.scope || 'message';
+  const windowId = `report:${[conversationId, turnId || messageId, scope, assembly.id].map(encodeURIComponent).join(':')}`;
+  return {windowId, windowKey: 'report/workspace', windowTitle: normalized.source.title || 'Report',
+    conversationId, presentation: 'hosted', region: 'chat.top', hostOpenState: 'historical_replay',
+    workspaceObject: {version: 1, objectId: `workspace:${windowId}`, conversationId, kind: 'report',
+      revision: Number(assembly.sequence || 0), origin: {turnId, messageId},
+      content: {renderer: 'inlineReport', windowId, windowKey: 'report/workspace', messageId, turnId, reportId: assembly.id, reportScope: scope, resetVersion: Number(assembly.resetVersion || 0)},
+      navigation: {label: normalized.source.title || 'Report', icon: 'document'},
+      placement: {preferred: 'workspace', allowed: ['workspace'], initialWorkspaceMode: 'split'},
+      lifecycle: {state: 'ready', restorePolicy: 'conversation', refreshPolicy: 'explicit'},
+      capabilities: {close: true, focus: true, split: true, reopen: true}}};
+}
+
+export function canonicalReportSources(rows = []) {
+  return rows.flatMap(row => {
+    if (row.hostEffectsAllowed === false || row.connectionProfile === 'standard') return [];
+    if (row.kind === 'assistant') return [{row, messageId: row.messageId || row.renderKey, renderedContent: row.renderedContent}];
+    if (row.kind !== 'iteration') return [];
+    const rounds = (row.rounds || []).filter(round => round.hostEffectsAllowed !== false && round.connectionProfile !== 'standard')
+      .map(round => ({row, messageId: round.modelSteps?.[0]?.assistantMessageId || round.pageId || round.renderKey, renderedContent: round.renderedContent}));
+    return [...rounds, ...(row.assistantFinal ? [{row, messageId: row.assistantFinal.messageId || row.assistantFinal.renderKey, renderedContent: row.assistantFinal.renderedContent}] : [])];
+  });
+}

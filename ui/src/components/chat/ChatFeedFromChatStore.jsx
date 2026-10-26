@@ -20,6 +20,7 @@ import { useChatProjection } from '../../services/chatStore.js';
 import { attachHistoryScroll } from './historyScroll.js';
 import { isStreamDebugEnabled } from '../../services/debugFlags';
 import IterationRowBlock from './IterationRowBlock.jsx';
+import TurnProgressStatus, {activeIteration} from '../TurnProgressStatus.jsx';
 import ToolFeedDetail from '../ToolFeedDetail.jsx';
 import BubbleMessage from './BubbleMessage.jsx';
 import MCPUIBubble from './MCPUIBubble.jsx';
@@ -28,7 +29,7 @@ import { useAgUiHostActivities } from '../../services/aguiHostActivities.js';
 import StarterTasks from './StarterTasks.jsx';
 import WorkspaceAttachmentCard from './WorkspaceAttachmentCard.jsx';
 import { ConversationViewContext } from '../../context/ConversationViewContext.js';
-import { resolveWorkspaceAttachmentOwnerIndex } from '../../services/workspaceAttachment.js';
+import { resolveWorkspaceAttachmentOwnerIndex, projectedWorkspaceEntries } from '../../services/workspaceAttachment.js';
 import {
   getWorkspaceMetadataSnapshot,
   subscribeWorkspaceMetadata,
@@ -78,6 +79,7 @@ function UserBubble({ row, conversationId = '', context }) {
           connectionProfile: row.connectionProfile,
           hostEffectsAllowed: row.hostEffectsAllowed,
           content: row.content,
+          renderedContent: row.renderedContent,
           createdAt: row.createdAt || '',
           turnId: row.turnId || '',
         }}
@@ -102,6 +104,7 @@ function AssistantBubble({ row, conversationId = '', attachment = null, context 
           connectionProfile: row.connectionProfile,
           hostEffectsAllowed: row.hostEffectsAllowed,
           content: row.content,
+          renderedContent: row.renderedContent,
           createdAt: row.createdAt || '',
           turnId: row.turnId || '',
           status: row.status || '',
@@ -163,7 +166,7 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
     const feed = feedRef.current;
     const viewport = feed?.closest('.chat-feed-stage');
     if (!viewport) return undefined;
-    return attachHistoryScroll(feed, viewport, window);
+    return attachHistoryScroll(feed, viewport, window, conversationId);
   }, [conversationId, hasRows]);
   const conversationForm = context?.Context?.('conversations')?.handlers?.dataSource?.peekFormData?.() || {};
   const metaForm = context?.Context?.('meta')?.handlers?.dataSource?.peekFormData?.() || {};
@@ -207,28 +210,18 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
     );
   }
   const lastIndexByTurn = latestTurnRowIndex(rows);
+  const progressRow = activeIteration(rows);
   const attachmentsByOwner = new Map();
   const workspaceEntries = viewContext?.workspaceWindows || (viewContext?.workspaceWindow ? [viewContext.workspaceWindow] : []);
   const projectedObjectIds = new Set();
-  rows.map((row, index) => ({row, index})).reverse().forEach(({row, index}) => {
-    for (const attachment of row.attachments || []) {
-      if (attachment.kind !== 'workspaceObject' || projectedObjectIds.has(attachment.objectId)) continue;
-      const known = workspaceEntries.find((entry) => entry.workspaceObject?.objectId === attachment.objectId);
-      const descriptor = attachment.workspaceObject;
-      const attachmentTurnId = descriptor?.lastActivatedBy?.turnId || descriptor?.origin?.turnId;
-      if (attachmentTurnId && attachmentTurnId !== row.turnId) continue;
-      const entry = known || (descriptor?.content?.windowId && descriptor?.content?.windowKey ? {
-        windowId: descriptor.content.windowId, windowKey: descriptor.content.windowKey,
-        conversationId: descriptor.conversationId || conversationId, presentation: 'hosted', region: 'chat.top',
-        parameters: descriptor.content.parameters || {}, workspaceObject: descriptor,
-        navigation: { label: attachment.label, icon: attachment.icon },
-      } : null);
-      if (!entry) continue;
-      projectedObjectIds.add(attachment.objectId);
-      if (!attachmentsByOwner.has(index)) attachmentsByOwner.set(index, []);
-      attachmentsByOwner.get(index).push(entry);
-    }
-  });
+  for (const projected of projectedWorkspaceEntries(rows, conversationId, {includeInlineReports: viewContext?.reportsInWorkspace === true})) {
+    const entry = workspaceEntries.find(entry => entry.workspaceObject?.objectId === projected.workspaceObject.objectId && Number(entry.workspaceObject.revision || 0) >= Number(projected.workspaceObject.revision || 0)) || projected;
+    const owner = resolveWorkspaceAttachmentOwnerIndex(rows, entry);
+    if (owner < 0) continue;
+    projectedObjectIds.add(entry.workspaceObject.objectId);
+    if (!attachmentsByOwner.has(owner)) attachmentsByOwner.set(owner, []);
+    attachmentsByOwner.get(owner).push(entry);
+  }
   for (const entry of workspaceEntries) {
     if (projectedObjectIds.has(entry.workspaceObject?.objectId)) continue;
     const owner = resolveWorkspaceAttachmentOwnerIndex(rows, entry);
@@ -293,6 +286,8 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
         const suppressBubble = !!turnId && (lastIndexByTurn.get(turnId) ?? index) > index;
         return [
           <React.Fragment key={row.renderKey}>
+            {allowHostEffects && viewContext?.presentation === 'document' && row === progressRow
+              ? <TurnProgressStatus appearance="document" publicNarrationInFeed conversationId={conversationId} developerMode={viewContext.developerMode}/> : null}
             <IterationRowBlock
               iterationRow={row}
               context={context}

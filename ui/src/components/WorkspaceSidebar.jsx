@@ -1,15 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Icon } from '@blueprintjs/core';
 import { useSignals } from '@preact/signals-react/runtime';
-import { activeWindows, selectedWindowId, getWindowContext } from 'forge/core';
+import { activeWindows, selectedWindowId, selectedTabId, getFormSignal } from 'forge/core';
 import { resolveNavigationParameters } from 'forge/utils/navigationParameters';
 import { sdkBaseURL } from '../endpoint';
 import { getAuthMeSilently } from '../services/agentlyClient';
 import Sidebar from './Sidebar';
+import SectionNavigation, {SectionDestinationButton} from './SectionNavigation.jsx';
+import {Icon as SharedIcon, Typography, typographyProps} from 'forge/components';
 import { openWindow } from './menuBarHelpers';
 import { MAIN_CHAT_WINDOW_ID } from '../services/conversationWindow';
 
-import { openLayoutURL } from './layoutNavigation';
+import { openLayoutURL, layoutWindowDestinations } from './layoutNavigation';
 import { workspaceResources } from '../services/workspaceResources';
 import { getWorkspaceStyleManager } from '../services/workspaceStyles';
 import { request } from '../services/httpClient';
@@ -30,17 +32,18 @@ export function resolveLayoutWindowOptions(action = {}, conversationId = '', cur
   return { parameters, conversationId: id || undefined, parentKey: MAIN_CHAT_WINDOW_ID, presentation: 'hosted', region: 'chat.top', ...(action.providerIdentity ? {providerIdentity: action.providerIdentity} : {}) };
 }
 
-function selectedWindowInputs() {
+export function selectedWindowInputs() {
   const id = selectedWindowId.value;
   const opened = activeWindows.value.find(entry => entry.windowId === id);
-  const form = getWindowContext(id)?.Context()?.handlers?.dataSource?.getWindowFormData?.();
+  const form = id ? getFormSignal(`${id}:windowForm`).value : {};
   return {...opened?.parameters, ...form};
 }
 
-export default function WorkspaceSidebar({ discoveryReady = true, conversationId = '', collapsed = false, onNavigate, onExpand, onOpenWorkspace, onTopbarActionsChange }) {
+export default function WorkspaceSidebar({ discoveryReady = true, conversationId = '', collapsed = false, onNavigate, onExpand, onOpenWorkspace, onTopbarActionsChange, section = 'chat', destination = '', onSectionChange, onSectionWindow, onSectionPresentationChange, brandRef, profileRef, drawerHidden = false, drawerMode = false, onDismiss, returnFocusRef }) {
   useSignals();
   const windowInputs = selectedWindowInputs();
   const [layout, setLayout] = useState(null);
+  const [searchMount, setSearchMount] = useState(null);
   const [activeApp, setActiveApp] = useState('');
   const [collapsedGroups, setCollapsedGroups] = useState({});
   const [fraction, setFraction] = useState(DEFAULT_SPLIT);
@@ -160,10 +163,35 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
 
   const applications = layout?.applications || [];
   const navigationEnabled = layout?.left?.navigation?.enabled !== false;
-  const historyEnabled = layout?.left?.history?.enabled !== false;
+  const historyEnabled = layout ? layout.left?.history?.enabled !== false : !!error;
   const history = layout?.left?.history || {};
+  const sections = navigationEnabled && layout?.left?.navigation?.presentation === 'sections';
+  useEffect(() => { onSectionPresentationChange?.(sections); }, [sections, onSectionPresentationChange]);
+  const sectionWindowRef = useRef(onSectionWindow);
+  sectionWindowRef.current = onSectionWindow;
+  useEffect(() => {
+    if (!sections || section === 'chat') return;
+    const selected = section === 'workspaces'
+      ? layoutWindowDestinations(layout).find(entry => entry.destination === destination)
+      : layout.topbar?.actions?.find(entry => `action:${entry.id}` === section);
+    const publish = (entry, title = '', error = '') => sectionWindowRef.current?.(entry, title, section, destination, error);
+    if (section === 'workspaces' && !destination) { publish(null); return; }
+    if (!selected || selected.disabled || selected.action?.type !== 'window') {
+      publish(null, '', 'This destination is unavailable. Choose another destination from the menu.');
+      return;
+    }
+    const options = resolveLayoutWindowOptions(selected.action, '', selectedWindowInputs());
+    if (!options) {
+      publish(null, selected.title, 'Select the required context before opening this destination.');
+      return;
+    }
+    if (selected.applicationId) setActiveApp(selected.applicationId);
+    const entry = openWindow(resolveLayoutWindowKey(selected.action), selected.title, selected.action.refreshDataSources || [],
+      {...options, parentKey: null, region: 'app.section'});
+    publish(entry, selected.title);
+  }, [sections, layout, section, destination]);
   if (layout && !navigationEnabled && historyEnabled) {
-    return <Sidebar history={history} collapsed={collapsed} onNavigate={onNavigate} onExpand={onExpand} showNewConversation={history.newConversation !== false} />;
+    return <Sidebar hidden={drawerHidden} history={history} collapsed={collapsed} onNavigate={onNavigate} onExpand={onExpand} showNewConversation={history.newConversation !== false} />;
   }
   const active = applications.find((app) => app.id === activeApp) || applications[0];
   const minHeight = Number(layout?.left?.split?.minSectionHeight) || 160;
@@ -175,20 +203,23 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
     return Math.min(1 - minHeight / available, Math.max(minHeight / available, value));
   };
 
-  const renderMenu = (menu, parentPath = '') => {
+  const renderMenu = (menu, parentPath = []) => {
     const groupKey = JSON.stringify([active?.id, parentPath, menu.id]);
     if (Array.isArray(menu.children) && menu.children.length) {
       const expanded = !collapsedGroups[groupKey];
       return <div className={`app-layout-menu-group ${menu.className || ''}`} key={menu.id}>
-        <Button minimal fill alignText="left" className="app-layout-menu-group-title" aria-expanded={expanded}
-          icon={<Icon icon={menu.icon || 'folder-close'} size={14} className="app-layout-group-icon" />}
+        <Button minimal fill alignText="left" className="app-layout-menu-group-title" aria-expanded={expanded} {...(sections ? typographyProps('label') : {})}
+          icon={sections ? <SharedIcon name={menu.icon || 'lucide:layout-grid'}/> : <Icon icon={menu.icon || 'folder-close'} size={14} className="app-layout-group-icon" />}
           endIcon={<Icon icon={expanded ? 'minus' : 'plus'} size={12} />}
           onClick={() => setCollapsedGroups(previous => ({...previous, [groupKey]: !previous[groupKey]}))}>{menu.title}</Button>
-        {expanded ? <div className="app-layout-menu-children">{menu.children.map(child => renderMenu(child, groupKey))}</div> : null}
+        {expanded ? <div className="app-layout-menu-children">{menu.children.map(child => renderMenu(child, [...parentPath, menu.id]))}</div> : null}
       </div>;
     }
     const missingInputs = menu.action?.type === 'window' && resolveNavigationParameters(menu.action, windowInputs).missing;
-    return <Button key={menu.id} minimal fill alignText="left" className={`app-layout-menu ${menu.className || ''}`} icon={menu.icon ? <Icon icon={menu.icon} size={14} className="app-layout-menu-icon" /> : undefined} disabled={menu.disabled || active?.disabled || missingInputs}
+    const destinationId = JSON.stringify([active?.id, ...parentPath, menu.id]);
+    const unavailable = sections && layoutWindowDestinations(layout).find(entry => entry.destination === destinationId)?.disabled;
+    const MenuButton = sections ? SectionDestinationButton : Button;
+    return <MenuButton key={menu.id} minimal fill alignText="left" className={`app-layout-menu ${menu.className || ''}`} {...(sections ? {selected: section === 'workspaces' && destination === destinationId} : {})} icon={menu.icon ? sections ? <SharedIcon name={menu.icon}/> : <Icon icon={menu.icon} size={14} className="app-layout-menu-icon" /> : undefined} disabled={menu.disabled || active?.disabled || unavailable || missingInputs}
       onClick={() => {
         const action = menu.action;
         if (openLayoutURL(action)) { onNavigate?.(); return; }
@@ -196,11 +227,15 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
           const windowKey = resolveLayoutWindowKey(action);
           const options = resolveLayoutWindowOptions(action, conversationId, selectedWindowInputs());
           if (!options) return;
-          openWindow(windowKey, menu.title, action.refreshDataSources || [], options);
-          onOpenWorkspace?.();
+          if (sections) {
+            onSectionChange?.('workspaces', destinationId);
+          } else {
+            openWindow(windowKey, menu.title, action.refreshDataSources || [], options);
+            onOpenWorkspace?.();
+          }
           onNavigate?.();
         }
-      }}>{menu.title}</Button>;
+      }}>{menu.title}</MenuButton>;
   };
 
   const startResize = (event) => {
@@ -213,7 +248,43 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
     window.addEventListener('pointerup', stop, { once: true });
   };
 
-  return <div className={`app-layout-sidebar${collapsed ? ' is-collapsed' : ''}${shortSidebar ? ' is-short' : ''}`} ref={shellRef}>
+  if (sections) {
+    const actions = (layout?.topbar?.actions || []).map(entry => ({...entry, disabled: entry.disabled || (entry.action?.type === 'window' && resolveNavigationParameters(entry.action, windowInputs).missing)}));
+    const action = actions.find(entry => `action:${entry.id}` === section);
+    const selectSection = next => {
+      const destination = actions.find(entry => `action:${entry.id}` === next);
+      if (destination?.disabled) return;
+      if (destination && openLayoutURL(destination.action)) return;
+      if (collapsed) onExpand?.();
+      onSectionChange?.(next);
+      if (next === 'chat') {
+        selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
+        selectedTabId.value = MAIN_CHAT_WINDOW_ID;
+      }
+      if (next !== 'workspaces') onNavigate?.();
+    };
+    return <div className={`app-layout-sidebar is-sections${collapsed ? ' is-collapsed' : ''}`} hidden={drawerHidden} inert={drawerHidden ? '' : undefined}>
+      <SectionNavigation section={section} actions={actions} onSelect={selectSection} brandRef={brandRef} headingActionsRef={setSearchMount} profileRef={profileRef} drawerOpen={drawerMode && !drawerHidden} onDismiss={onDismiss} returnFocusRef={returnFocusRef}>
+        <div className="app-section-history" hidden={section !== 'chat'} data-section-hidden={section !== 'chat' ? '' : undefined}>
+          {historyEnabled ? <Sidebar appearance="document" searchMount={searchMount} history={history} onNavigate={onNavigate} showNewConversation={history.newConversation !== false}/> : null}
+        </div>
+        {section !== 'chat' ? <>
+          <div className="app-section-menu-heading"><Typography as="h2" typeRole="section">{action?.title || 'Workspaces'}</Typography>
+            <Button minimal small icon={<SharedIcon name="lucide:refresh-cw"/>} aria-label="Reload navigation" onClick={() => setReloadVersion(value => value + 1)}/>
+          </div>
+          {section === 'workspaces' ? <>
+            <SectionDestinationButton icon={<SharedIcon name="lucide:layout-grid"/>} selected={!destination}
+              onClick={() => {onSectionChange?.('workspaces'); onNavigate?.();}}>Overview</SectionDestinationButton>
+            {applications.length > 1 ? <div className="app-layout-tabs" role="tablist" aria-label="Applications">{applications.map(app => <Button key={app.id} minimal role="tab" aria-selected={app.id === active?.id} disabled={app.disabled} onClick={() => setActiveApp(app.id)}>{app.title}</Button>)}</div> : null}
+            <div className="app-layout-menus">{active?.menus?.map(menu => renderMenu(menu))}</div>
+          </> : null}
+        </> : null}
+        {error ? <div role="alert">{error}<Button minimal onClick={() => setReloadVersion(value => value + 1)}>Retry</Button></div> : null}
+      </SectionNavigation>
+    </div>;
+  }
+
+  return <div className={`app-layout-sidebar${collapsed ? ' is-collapsed' : ''}${shortSidebar ? ' is-short' : ''}`} ref={shellRef} hidden={drawerHidden} inert={drawerHidden ? '' : undefined}>
     {collapsed && navigationEnabled && applications.length > 0 ? <div className="app-layout-rail" aria-label="Applications">
       {applications.map((app) => <Button key={app.id} minimal small disabled={app.disabled} icon={app.icon || undefined} className={app.className || undefined}
         aria-label={`Open ${app.title} application menu`} title={app.title}

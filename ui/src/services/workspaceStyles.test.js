@@ -228,3 +228,12 @@ describe('complete optional typography contract', () => {
     expect(validateThemeCatalog(legacy)).toBe(legacy);
   });
 });
+
+it('accepts bounded presentation references without changing selection and rejects invalid profiles',()=>{
+ const scoped=structuredClone(catalog);scoped.themes[0].presentations={document:scoped.themes[0].id};
+ expect(validateThemeCatalog(scoped)).toBe(scoped);expect(resolveThemeSelection(scoped,null,'light').themeId).toBe(catalog.defaultTheme);
+ for(const presentations of [{document:'missing'},{other:scoped.themes[0].id},[], 'document']) {
+  const invalid=structuredClone(scoped);invalid.themes[0].presentations=presentations;
+  expect(()=>validateThemeCatalog(invalid)).toThrow('Invalid presentation profile');
+ }
+});
