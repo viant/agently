@@ -293,3 +293,11 @@ Configured captures become owned artifacts before model-visible output. `resourc
 **Library Authors:**
 
 - Adrian Witas
+
+## Design-system contributions
+
+Start with [the canonical usage guide](doc/workspace-typography.md) before changing appearance,
+components or workspace theme contracts. The guide identifies the supported
+roles, real examples, extension path and existing checks. Include the reused
+components/roles, specimen and integration evidence, checks and remaining
+legacy limits in the pull request for shared-owner review.

@@ -8,18 +8,22 @@ const optionalColors = ['canvas', 'surface.subtle', 'surface.raised', 'text.seco
   'status.success.background', 'status.success.foreground', 'status.success.border',
   'status.warning.background', 'status.warning.foreground', 'status.warning.border',
   'status.danger.background', 'status.danger.foreground', 'status.danger.border',
-  ...Array.from({length: 6}, (_, index) => `data.categorical.${index + 1}`),
+  ...Array.from({length: 8}, (_, index) => `data.categorical.${index + 1}`),
   ...Array.from({length: 5}, (_, index) => `data.sequential.${index + 1}`)];
 const requiredDimensions = {'typography.size': [8, 72], 'control.minHeight': [16, 128], 'control.radius': [0, 64], 'control.paddingInline': [0, 64]};
-const typographyRoles = ['caption', 'small', 'body', 'section', 'heading', 'title', 'metric', 'display', 'code'];
+const typographyRoles = ['caption', 'small', 'body', 'section', 'heading', 'title', 'metric', 'display', 'code', 'label', 'metadata'];
 const optionalDimensions = Object.fromEntries(typographyRoles.flatMap(role => [
-  [`typography.${role}.size`, [8, 72]],
-  [`typography.${role}.lineHeight`, [8, 96]],
+  [`typography.${role}.size`, [8, 96]],
+  [`typography.${role}.lineHeight`, [8, 144]],
+  [`typography.${role}.weight`, [100, 900]],
+  [`typography.${role}.letterSpacing`, [-0.04, 0.2]],
 ]));
-const dimensions = {...requiredDimensions, ...optionalDimensions};
+const foundationDimensions = {"spacing.1": [0, 64], "spacing.2": [0, 64], "spacing.3": [0, 64], "spacing.4": [0, 64], "spacing.5": [0, 64], "spacing.6": [0, 64], "border.width": [0, 4], "radius.surface": [0, 32], "radius.pill": [0, 999], "focus.width": [1, 4], "focus.offset": [0, 8], "motion.fast": [0, 500], "icon.size": [12, 32]};
+const dimensions = {...requiredDimensions, ...optionalDimensions, ...foundationDimensions};
 const requiredTokenNames = new Set([...requiredColors, ...Object.keys(requiredDimensions), 'typography.family']);
-const tokenNames = new Set([...requiredTokenNames, ...optionalColors, ...Object.keys(optionalDimensions)]);
-const fontFamilies = new Set(['system', 'workspace-primary']);
+const roleFamilies = typographyRoles.map(role => `typography.${role}.family`);
+const tokenNames = new Set([...requiredTokenNames, ...optionalColors, ...Object.keys(optionalDimensions), ...roleFamilies, ...Object.keys(foundationDimensions)]);
+const fontFamilies = new Set(['system', 'workspace-primary', 'workspace-secondary', 'monospace']);
 const identifier = /^[a-z][a-z0-9-]{0,63}$/;
 export const APPLICATION_THEME_CLASS = 'agently-application';
 const APPLICATION_THEME_ATTRIBUTE = 'data-agently-theme';
@@ -61,10 +65,10 @@ export function validateThemeCatalog(catalog) {
       if (![...requiredTokenNames].every(key => Object.hasOwn(tokens, key)) || keys.some(key => !tokenNames.has(key))) throw new Error('Invalid theme mode');
       for (const [key, value] of Object.entries(tokens)) {
         if (!tokenNames.has(key)) throw new Error(`Unknown theme token: ${key}`);
-        if (key === 'typography.family') { if (!fontFamilies.has(value)) throw new Error('Invalid theme font'); }
+        if (key === 'typography.family' || roleFamilies.includes(key)) { if (!fontFamilies.has(value)) throw new Error('Invalid theme font'); }
         else if (dimensions[key]) {
           const [min, max] = dimensions[key];
-          if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) throw new Error(`Invalid theme dimension: ${key}`);
+          if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max || (key.endsWith('.weight') && !Number.isInteger(value))) throw new Error(`Invalid theme dimension: ${key}`);
         } else if (typeof value !== 'string' || !/^#[\da-f]{6}([\da-f]{2})?$/i.test(value)) throw new Error(`Invalid theme color: ${key}`);
       }
     }

@@ -32,6 +32,16 @@ final class WorkspaceThemeTests: XCTestCase {
         XCTAssertThrowsError(try WorkspaceThemeCatalog.load(JSONSerialization.data(withJSONObject: value)))
     }
 
+    func testCompleteRolesRemainValidated() throws {
+        let source = String(decoding: try fixture(), as: UTF8.self)
+        let catalog = try WorkspaceThemeCatalog.load(Data(source.utf8))
+        XCTAssertEqual(catalog.themes[0].modes["light"]?["typography.label.weight"], .number(400))
+        for changed in [source.replacingOccurrences(of: "\"typography.body.weight\": 400", with: "\"typography.body.weight\": 400.5"),
+                        source.replacingOccurrences(of: "\"typography.body.letterSpacing\": 0", with: "\"typography.body.letterSpacing\": -0.05"),
+                        source.replacingOccurrences(of: "\"typography.body.family\": \"system\"", with: "\"typography.body.family\": \"url(evil)\"")] {
+            XCTAssertThrowsError(try WorkspaceThemeCatalog.load(Data(changed.utf8)))
+        }
+    }
     func testRejectsInvalidCatalog() throws {
         let source = String(decoding: try fixture(), as: UTF8.self)
         for changed in [source.replacingOccurrences(of: "\"version\": 1", with: "\"version\": 2"),
