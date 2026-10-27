@@ -5,7 +5,7 @@ import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/reac
 
 const {services, runtime} = vi.hoisted(() => ({services: {reportStore: {getReport: vi.fn()}}, runtime: vi.fn()}));
 vi.mock('forge/core', () => ({useSetting: () => ({services})}));
-vi.mock('forge/components', () => ({ReportResourceRuntime: props => {runtime(props); return <div>Shared report runtime</div>;}}));
+vi.mock('forge/components', async () => ({ReportFilterBar:(await import('forge/components/dashboard/ReportFilterBar.jsx')).default, ReportResourceRuntime: props => {runtime(props); return <div>Shared report runtime</div>;}}));
 import ReportWindow from './ReportWindow.jsx';
 
 const pin = {uri: 'report://ar/overview', providerIdentity: 'producer-native', kind: 'working', contentFingerprint: 'bytes', authorityBinding: 'opaque', validUntil: '2030-01-01T00:00:00Z'};
@@ -19,12 +19,14 @@ it('requires both declared date endpoints before enabling report execution', asy
   render(<ReportWindow window={{...entry,parameters:{}}}/>);
   const start=await screen.findByLabelText('Date range from');
   expect(start.getAttribute('aria-required')).toBe('true');
-  expect(screen.getByText(/Complete these inputs/).textContent).toContain('Date range to');
+  expect(screen.getByText(/Complete these inputs/).textContent).toContain('Date range');
   expect(runtime.mock.calls.at(-1)[0].container.parameters.reportCapabilities.run).toBe(false);
   fireEvent.change(start,{target:{value:'2026-01-02'}});
   expect(runtime.mock.calls.at(-1)[0].container.parameters.reportCapabilities.run).toBe(false);
   fireEvent.change(screen.getByLabelText('Date range to'),{target:{value:'2026-01-03'}});
   expect(runtime.mock.calls.at(-1)[0].container.parameters.reportCapabilities.run).toBe(true);
+  expect(runtime.mock.calls.at(-1)[0].container.parameters.prefill).toEqual({});
+  fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
   expect(runtime.mock.calls.at(-1)[0].container.parameters.prefill).toEqual({from:'2026-01-02',to:'2026-01-03'});
   expect(screen.queryByText(/Complete these inputs/)).toBeNull();
   fireEvent.change(start,{target:{value:''}});
@@ -78,10 +80,20 @@ it('renders declared inputs, preserves empty/zero/false values, and resets edits
   const view = render(<ReportWindow window={initial}/>);
   fireEvent.change(await screen.findByLabelText('Entity'), {target: {value: '0'}});
   fireEvent.click(screen.getByLabelText('Active'));
+  expect(runtime.mock.calls.at(-1)[0].container.parameters.prefill).toEqual({entityId: 9, active: true});
+  fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
   expect(runtime.mock.calls.at(-1)[0].container.parameters.prefill).toEqual({entityId: 0, active: false});
   fireEvent.change(screen.getByLabelText('Entity'), {target: {value: ''}});
+  fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
   expect(runtime.mock.calls.at(-1)[0].container.parameters.prefill.entityId).toBe('');
   view.rerender(<ReportWindow window={{...initial, parameters: {entityId: 4, active: false}}}/>);
   expect(screen.getByLabelText('Entity').value).toBe('4');
   expect(runtime.mock.calls.at(-1)[0].container.parameters.prefill).toEqual({entityId: 4, active: false});
+});
+
+it('restores a logical report bookmark without treating it as a window',async()=>{
+ services.reportStore.getReport.mockResolvedValue({resource:pin});
+ render(<ReportWindow window={{windowKey:pin.uri,windowTitle:'Overview',parameters:{}}}/>);
+ await screen.findByText('Shared report runtime');
+ expect(services.reportStore.getReport).toHaveBeenCalledWith({resource:{uri:pin.uri}});
 });
