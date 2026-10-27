@@ -95,7 +95,7 @@ export default function ReportWindow({window: entry}) {
       applyDisabled={missing.length>0} placement={state.report.resourceDefinition?.builderDefinition?.reportBuilder?.filterPresentation||state.report.resourceDefinition?.metadata?.filterPlacement||'top'}/>
     {missing.length>0&&<Callout intent="warning" title="Required report inputs">Complete these inputs before running the report: {missing.map(field=>field.label).join(', ')}.</Callout>}
     <ReportResourceRuntime container={{parameters:{reportResource:state.report.resource,reportTitle:state.report.title||entry.windowTitle,
-      reportCapabilities:{run:missing.length===0,export:true},prefill:fields.length?appliedParameters:parameters,
+      reportCapabilities:{run:missing.length===0,export:true,tableBlockSelection:true,workbookExport:true},prefill:fields.length?appliedParameters:parameters,
       showRunControl:fields.length===0,executeOnOpen:applied?.identity===parameterIdentity&&runTrigger>0,runTrigger:applied?.identity===parameterIdentity?runTrigger:0}}} context={{handlers:services}}/>
   </div>;
 }

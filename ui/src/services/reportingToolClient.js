@@ -47,9 +47,9 @@ export function wrapToolError(error, fallbackMessage = '') {
   return wrapped;
 }
 
-export async function executeReportingTool(name, args, fallbackMessage = '') {
+export async function executeReportingTool(name, args, fallbackMessage = '', options = undefined) {
   try {
-    return normalizeToolResult(await client.executeTool(name, args));
+    return normalizeToolResult(await client.executeTool(name, args, options));
   } catch (error) {
     throw wrapToolError(error, fallbackMessage);
   }
