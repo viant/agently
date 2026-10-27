@@ -52,3 +52,8 @@ for (const name of ['forge/theme', 'forge/editor', 'forge/window-editor']) {
 }
 assert.ok(config.resolve.alias.some(entry => entry.find === 'forge'), 'legacy deep source imports must remain supported');
 console.log('Forge public exports and legacy source aliases passed');
+
+// Linked Forge sources must use the application-owned Blueprint peer packages.
+for (const name of ['@blueprintjs/core', '@blueprintjs/icons', '@blueprintjs/table']) {
+  assert.ok(config.resolve.dedupe.includes(name), `missing shared peer ${name}`);
+}

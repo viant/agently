@@ -4,6 +4,8 @@ init:
 pipeline:
   buildUI:
     action: exec:run
+    env:
+      GOWORK: "off"
     TimeoutMs: 600000
     description: build and embed UI
     checkError: true
@@ -13,6 +15,8 @@ pipeline:
 
   buildAgently:
     action: exec:run
+    env:
+      GOWORK: "off"
     TimeoutMs: 180000
     description: build agently binary
     checkError: true

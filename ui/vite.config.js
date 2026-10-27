@@ -138,6 +138,9 @@ export default defineConfig(({ mode, command }) => {
       dedupe: [
         'react',
         'react-dom',
+        '@blueprintjs/core',
+        '@blueprintjs/icons',
+        '@blueprintjs/table',
         '@uiw/react-codemirror',
         '@codemirror/state',
         '@codemirror/view',
