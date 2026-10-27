@@ -55,6 +55,9 @@ jobs:
       - run: node vite.config.test.mjs
       - run: npm run test:typography
       - run: npm run build
+      - name: Verify embedded UI bundle
+        working-directory: agently
+        run: bash ui/scripts/sync-deployment-ui.sh && go test ./deployment/ui
       - name: Check contributor entry points
         working-directory: agently
         run: test -f AGENTS.md && test -f CLAUDE.md && test -f .cursor/rules/design-system.mdc

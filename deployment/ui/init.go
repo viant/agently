@@ -4,7 +4,7 @@ import "embed"
 
 // FS exposes the content-hashed embedded UI bundle for the app server.
 //
-//go:embed index.html favicon.ico assets/*
+//go:embed index.html mcp-app-sandbox.html favicon.ico assets/*
 var FS embed.FS
 
 // Index keeps a direct handle to the app shell.

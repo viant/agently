@@ -55,16 +55,8 @@ if [ ! -d "$DIST" ]; then
   exit 1
 fi
 
-echo "[build-ui-embed] Copying ${DIST}/* to ${DEPLOY}/..."
-mkdir -p "${DEPLOY}"
-find "${DEPLOY}" -maxdepth 1 \
-  -not -name 'init.go' \
-  -not -name 'assets' \
-  -not -path "${DEPLOY}" \
-  -exec rm -rf {} +
-mkdir -p "${DEPLOY}/assets"
-find "${DEPLOY}/assets" -maxdepth 1 -mindepth 1 -exec rm -rf {} +
-find "$DIST" -maxdepth 1 -mindepth 1 ! -name 'assets' -exec cp -R {} "${DEPLOY}/" \;
-cp -R "$DIST"/assets/. "${DEPLOY}/assets/"
+echo "[build-ui-embed] Syncing the complete deployment bundle..."
+bash "${UI_DIR}/scripts/sync-deployment-ui.sh"
+(cd "${ROOT}" && go test ./deployment/ui)
 
 echo "[build-ui-embed] Done. Rebuild the binary: cd agently && go build -o agently ."
