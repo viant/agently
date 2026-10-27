@@ -2355,6 +2355,34 @@ describe('bindConversationWindowEvents', () => {
 });
 
 describe('bootstrapConversationSelection', () => {
+  it.each(['blank', 'route', 'scoped', 'explicit', 'unbound', 'retired'])('uses %s selection authority over inherited datasource state', (selection) => {
+    const previousWindow = global.window;
+    const previousWindows = activeWindows.peek();
+    const owner = {windowId: MAIN_CHAT_WINDOW_ID, windowKey: 'chat/new', conversationInstanceVersion: 8,
+      parameters: selection === 'unbound' ? {} : {conversations: {form: {id: ''}}, messages: {input: {parameters: {convID: ''}}}}};
+    activeWindows.value = [owner];
+    global.window = {location: {pathname: '/'}, localStorage: createStorage(), sessionStorage: createStorage()};
+    if (selection === 'route') window.location.pathname = '/conversation/route-conversation';
+    if (selection === 'scoped') window.sessionStorage.setItem(`agently.selectedConversationId:${MAIN_CHAT_WINDOW_ID}`, 'scoped-conversation');
+    const state = {values: {id: 'old-conversation', title: 'Previous title', agent: 'chosen-agent', model: 'chosen-model'}};
+    const context = ForgeContext(MAIN_CHAT_WINDOW_ID, {dataSource: {}, view: {}}, '', {windowState: owner});
+    if (selection === 'explicit') owner.parameters.conversations.form.id = 'explicit-conversation';
+    if (selection === 'retired') activeWindows.value = [{...owner, conversationInstanceVersion: 9}];
+    Object.assign(state.values, {running: true, status: 'succeeded', stage: 'done'});
+    context.Context = name => name === 'conversations' ? {handlers: {dataSource: {
+      peekFormData: () => state.values,
+      setFormData: ({values}) => { state.values = values; },
+    }}} : null;
+    try {
+      bootstrapConversationSelection(context);
+      const id = {blank: '', route: 'route-conversation', scoped: 'scoped-conversation', explicit: 'explicit-conversation', unbound: 'old-conversation', retired: 'old-conversation'}[selection];
+      expect(state.values).toMatchObject({id, agent: 'chosen-agent', model: 'chosen-model'});
+      if (selection === 'blank') expect(state.values).toMatchObject({title: 'New conversation', running: false, status: '', stage: ''});
+    } finally {
+      global.window = previousWindow;
+      activeWindows.value = previousWindows;
+    }
+  });
   it('hydrates a child chat window from window parameters when no scoped selection exists', () => {
     const conversationState = { values: {} };
     activeWindows.value = [{

@@ -37,6 +37,7 @@ vi.mock('./chatRuntime', () => ({
   dsTick: vi.fn(),
   disconnectStream: vi.fn(),
   ensureContextResources: vi.fn(),
+  ownsCurrentWindowInstance: vi.fn(() => true),
   ensureConversation: vi.fn(),
   clearSettledConversationBootstrapSnapshot: vi.fn(),
   fetchConversation: vi.fn(),

@@ -50,6 +50,7 @@ import {
   logStreamDebug,
   mapTranscriptToRows,
   normalizeMetaResponse,
+  ownsCurrentWindowInstance,
   publishActiveConversation,
   publishConversationMetaUpdated,
   renderMergedRowsForContext,
@@ -506,13 +507,17 @@ export async function onInit({ context }) {
   const initializationWindowId = String(context?.identity?.windowId || '').trim();
   const initializationWindowKey = initializationWindowId || context;
   const initializationToken = Symbol(initializationWindowId || 'anonymous-chat-context');
+  const initializationResources = ensureContextResources(context);
+  // New Chat replaces the shell instance before React mounts its new Context.
+  // A retired initializer must not claim ownership in that intervening frame.
+  if (!ownsCurrentWindowInstance(context, initializationResources)) return;
   chatInitializationOwnersByWindowId.set(initializationWindowKey, { context, token: initializationToken });
   let initializedConversationID = '';
-  let initializationResources = null;
   let initializationSelectionGeneration = 0;
   const isCurrentInitialization = () => {
     const owner = chatInitializationOwnersByWindowId.get(initializationWindowKey);
-    return owner?.context === context && owner?.token === initializationToken;
+    return owner?.context === context && owner?.token === initializationToken
+      && ownsCurrentWindowInstance(context, initializationResources);
   };
   const isCurrentConversation = (conversationID = initializedConversationID) => {
     if (!isCurrentInitialization()) return false;
@@ -530,8 +535,7 @@ export async function onInit({ context }) {
   });
   setStage({ phase: 'waiting', text: 'Initializing…' });
   try {
-    const resources = ensureContextResources(context);
-    initializationResources = resources;
+    const resources = initializationResources;
     initializationSelectionGeneration = Number(resources.conversationSelectionGeneration || 0);
     if (!resources.forgeUIActionUnsub) {
       resources.forgeUIActionUnsub = connectForgeUIActionsToCallbacksOrChat(submitMessage, () => context);

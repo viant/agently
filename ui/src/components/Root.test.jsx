@@ -6,6 +6,7 @@ import { MAIN_CHAT_WINDOW_ID, CHAT_WINDOW_KEY, openConversationInMainWindow, set
 
 import {
   resolveInitialAuthState,
+  scheduleMissingWorkspaceRestore,
   isCompactShellViewport,
   isConversationOwnedWorkspaceWindow,
   isConversationHostedWorkspaceChild,
@@ -43,6 +44,52 @@ import {
   shouldScrollConversationAfterTurn,
   shouldUseConversationWorkspaceFallback
 } from './Root.jsx';
+
+describe('scheduled missing workspace restoration', () => {
+  it.each(['conversation', 'route'])('respects a later %s selection before delayed restoration', (selection) => {
+    vi.useFakeTimers();
+    const pathname = window.location.pathname;
+    const restore = vi.fn();
+    let stop;
+    try {
+      window.history.replaceState({}, '', '/conversation/restore-race');
+      setScopedWorkspaceState('restore-race', {windowId: 'saved', windowKey: 'record', conversationId: 'restore-race'});
+      setScopedActiveSurface('restore-race', 'workspace');
+      stop = scheduleMissingWorkspaceRestore('restore-race', restore);
+      vi.advanceTimersByTime(200);
+      if (selection === 'conversation') setScopedActiveSurface('restore-race', 'conversation');
+      else window.history.replaceState({}, '', '/conversation/another-chat');
+      vi.advanceTimersByTime(3000);
+      expect(restore).not.toHaveBeenCalled();
+    } finally {
+      stop?.();
+      window.history.replaceState({}, '', pathname);
+      vi.useRealTimers();
+    }
+  });
+
+  it('restores the current workspace and cancels pending attempts on disposal', () => {
+    vi.useFakeTimers();
+    const pathname = window.location.pathname;
+    const restore = vi.fn();
+    let stop;
+    try {
+      window.history.replaceState({}, '', '/conversation/restore-current');
+      setScopedWorkspaceState('restore-current', {windowId: 'saved', windowKey: 'record', conversationId: 'restore-current'});
+      setScopedActiveSurface('restore-current', 'workspace');
+      stop = scheduleMissingWorkspaceRestore('restore-current', restore);
+      vi.advanceTimersByTime(250);
+      expect(restore).toHaveBeenCalledWith('restore-current');
+      stop();
+      vi.advanceTimersByTime(3000);
+      expect(restore).toHaveBeenCalledTimes(1);
+    } finally {
+      stop?.();
+      window.history.replaceState({}, '', pathname);
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe('section navigation conversation ownership', () => {
   it('uses the approved phone breakpoint only in the opt-in section shell', () => {
