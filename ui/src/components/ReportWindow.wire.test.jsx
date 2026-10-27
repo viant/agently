@@ -17,6 +17,27 @@ import {submitReportExportResource, getReportExportStatus, getReportExportArtifa
 import ReportWindow from './ReportWindow.jsx';
 afterEach(() => {cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks();});
 
+it('submits declared predicate IDs and date aliases rather than destination path suffixes', async () => {
+  const pin = {providerIdentity:'example',uri:'report://example/summary',kind:'working',contentFingerprint:'exact',authorityBinding:'owner',validUntil:'2030-01-01T00:00:00Z'};
+  const calls=[];
+  vi.stubGlobal('fetch',async(url,init)=>{
+    const args=JSON.parse(init.body); calls.push(args);
+    const payload=url.includes('get_report')?{resource:pin,resourceDefinition:{builderDefinition:{reportBuilder:{predicates:[
+      {id:'tags',label:'Tags',multiple:true,paramPath:'filters.tagCodes'},
+      {id:'range',label:'Period',kind:'dateRange',startParamPath:'filters.startDate',endParamPath:'filters.endDate',prefill:{start:'begin',end:'finish'}},
+    ]}}}}:{resource:pin,reportSpec:{title:'Filtered summary'},reportFill:{},reportPrint:{}};
+    return new Response(JSON.stringify({result:JSON.stringify(payload)}),{headers:{'content-type':'application/json'}});
+  });
+  hostServices={reportStore:{getReport,runReport}};
+  render(<ReportWindow window={{windowKey:pin.uri,resourceRef:{uri:pin.uri}}}/>);
+  fireEvent.change(await screen.findByLabelText('Tags'),{target:{value:'alpha, beta'}});
+  fireEvent.change(screen.getByLabelText('Period from'),{target:{value:'2026-01-01'}});
+  fireEvent.change(screen.getByLabelText('Period to'),{target:{value:'2026-01-02'}});
+  fireEvent.click(screen.getByRole('button',{name:'Run report'}));
+  await screen.findByRole('heading',{name:'Filtered summary'});
+  expect(calls[1].parameters).toEqual({tags:['alpha','beta'],begin:'2026-01-01',finish:'2026-01-02'});
+});
+
 it('renders the shared resource runtime and uses canonical SDK get/run/export routes with current scope and the producer pin', async () => {
   const pin = {providerIdentity:'native-producer', uri:'report://ar/overview', kind:'working', contentFingerprint:'exact', authorityBinding:'owned', validUntil:'2030-01-01T00:00:00Z'};
   const calls=[];

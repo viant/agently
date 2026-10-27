@@ -17,10 +17,10 @@ function reportParameterFields(report) {
   return (Array.isArray(predicates) ? predicates : []).flatMap(predicate => {
     const label = predicate.label || predicate.id;
     if (predicate.kind === 'dateRange') return [
-      {key: parameterKey(predicate.startParamPath, predicate.prefill?.start), label: `${label} from`, kind: 'date'},
-      {key: parameterKey(predicate.endParamPath, predicate.prefill?.end), label: `${label} to`, kind: 'date'},
+      {key: parameterKey(predicate.prefill?.start, predicate.startParamPath), label: `${label} from`, kind: 'date'},
+      {key: parameterKey(predicate.prefill?.end, predicate.endParamPath), label: `${label} to`, kind: 'date'},
     ].filter(field => field.key);
-    const key = parameterKey(predicate.paramPath, predicate.id);
+    const key = String(predicate.id || '').trim();
     return key ? [{key, label, kind: predicate.kind, multiple: predicate.multiple, required: predicate.required}] : [];
   });
 }
