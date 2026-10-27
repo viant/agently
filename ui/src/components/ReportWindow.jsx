@@ -17,8 +17,8 @@ function reportParameterFields(report) {
   return (Array.isArray(predicates) ? predicates : []).flatMap(predicate => {
     const label = predicate.label || predicate.id;
     if (predicate.kind === 'dateRange') return [
-      {key: parameterKey(predicate.prefill?.start, predicate.startParamPath), label: `${label} from`, kind: 'date'},
-      {key: parameterKey(predicate.prefill?.end, predicate.endParamPath), label: `${label} to`, kind: 'date'},
+      {key: parameterKey(predicate.prefill?.start, predicate.startParamPath), label: `${label} from`, kind: 'date', required: predicate.required},
+      {key: parameterKey(predicate.prefill?.end, predicate.endParamPath), label: `${label} to`, kind: 'date', required: predicate.required},
     ].filter(field => field.key);
     const key = String(predicate.id || '').trim();
     return key ? [{key, label, kind: predicate.kind, multiple: predicate.multiple, required: predicate.required}] : [];
@@ -64,13 +64,16 @@ export default function ReportWindow({window: entry}) {
   if (state.identity === identity && state.error) return <Callout intent="danger" title="Report unavailable">This report could not be loaded. Please try again. <Button onClick={() => setAttempt(value => value + 1)}>Retry</Button></Callout>;
   if (state.identity !== identity || !state.report) return <Spinner aria-label="Loading report" size={24}/>;
   const fields = reportParameterFields(state.report);
+  const missing = fields.filter(field => field.required && (parameters[field.key] == null
+    || typeof parameters[field.key] === 'string' && parameters[field.key].trim() === ''
+    || Array.isArray(parameters[field.key]) && parameters[field.key].length === 0));
   return <>
     {fields.length > 0 && <fieldset style={{border: 0, margin: 0, padding: 16}}>
       <legend>Report parameters</legend>
       <div style={{display: 'flex', flexWrap: 'wrap', gap: 12}}>
         {fields.map(field => <label key={field.key} style={{display: 'flex', flexDirection: 'column', gap: 4}}>
           <span>{field.label}{field.required ? ' *' : ''}</span>
-          <input aria-label={field.label} className="bp6-input" type={field.kind === 'boolean' ? 'checkbox' : field.kind === 'number' ? 'number' : field.kind === 'date' ? 'date' : 'text'}
+          <input aria-label={field.label} aria-required={field.required || undefined} className="bp6-input" type={field.kind === 'boolean' ? 'checkbox' : field.kind === 'number' ? 'number' : field.kind === 'date' ? 'date' : 'text'}
             {...(field.kind === 'boolean' ? {checked: parameters[field.key] ?? false} : {value: editedParameters?.identity === parameterIdentity && Object.hasOwn(editedParameters.text, field.key)
               ? editedParameters.text[field.key] : Array.isArray(parameters[field.key]) ? parameters[field.key].join(', ') : parameters[field.key] ?? ''})}
             placeholder={field.multiple || field.kind === 'multiSelect' ? 'Comma-separated values' : undefined}
@@ -81,10 +84,11 @@ export default function ReportWindow({window: entry}) {
         </label>)}
       </div>
     </fieldset>}
+    {missing.length > 0 && <Callout intent="warning" title="Required report inputs">Complete these inputs before running the report: {missing.map(field => field.label).join(', ')}.</Callout>}
     <ReportResourceRuntime container={{parameters: {
       reportResource: state.report.resource,
       reportTitle: state.report.title || entry.windowTitle,
-      reportCapabilities: {run: true, export: true},
+      reportCapabilities: {run: missing.length === 0, export: true},
       prefill: parameters,
     }}} context={{handlers: services}}/>
   </>;
