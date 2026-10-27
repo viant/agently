@@ -179,6 +179,9 @@ try {
     const spinner=lifecycle.locator('.app-run-progress-spinner');
     assert.equal(await spinner.evaluate(node=>getComputedStyle(node).animationName),'app-run-progress-spin');
     assert.ok(parseFloat(await spinner.evaluate(node=>getComputedStyle(node).animationDuration))>0);
+    await spinner.evaluate(node=>node.style.setProperty('--agently-theme-motion-fast','200ms'));
+    assert.equal(await spinner.evaluate(node=>getComputedStyle(node).animationDuration),'1.6s');
+    await spinner.evaluate(node=>node.style.removeProperty('--agently-theme-motion-fast'));
     await page.emulateMedia({reducedMotion:'reduce'});
     assert.equal(await spinner.evaluate(node=>getComputedStyle(node).animationName),'none');
     await page.emulateMedia({reducedMotion:'no-preference'});
