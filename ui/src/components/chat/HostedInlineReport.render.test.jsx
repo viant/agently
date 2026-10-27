@@ -9,6 +9,30 @@ vi.mock('../../services/reportExportService.js',()=>({submitReportExportRequest:
 vi.mock('../../services/reportEventService.js',()=>({emitReportUIEvent:vi.fn().mockResolvedValue({})}));
 import {HostedInlineReport} from './RichContent.jsx';
 
+it('restores report sections across remounts without leaking between conversations or revisions', async()=>{
+ const assembly={id:'shared-report',scope:'message',grammar:'report-document-v1',status:'committed',authoritative:true,sequence:1,
+  source:{title:'Example sections',viewer:{appearance:'document'},blocks:[
+   {id:'tabs',kind:'tabGroupBlock',sectionIds:['overview','detail'],defaultSectionId:'overview',includeUnlistedSections:false},
+   {id:'overview',kind:'sectionBlock',title:'Overview',blockIds:['overviewBody']},{id:'overviewBody',kind:'markdownBlock',markdown:'Overview evidence'},
+   {id:'detail',kind:'sectionBlock',title:'Details',blockIds:['detailBody']},{id:'detailBody',kind:'markdownBlock',markdown:'Detailed evidence'},
+  ]},dataSources:{}};
+ const node=document.createElement('div');document.body.append(node);let root=createRoot(node);
+ const show=async(conversationId,report=assembly)=>act(async()=>root.render(<HostedInlineReport conversationId={conversationId} messageId="same-message" assembly={report}/>));
+ const remount=async()=>{await act(async()=>root.unmount());root=createRoot(node);};
+ const selected=()=>node.querySelector('[role="tab"][aria-selected="true"]')?.textContent;
+ try{
+  await show('section-owner-a');expect(selected()).toBe('Overview');
+  await act(async()=>[...node.querySelectorAll('[role="tab"]')].find(e=>e.textContent==='Details').click());
+  expect(selected()).toBe('Details');
+  await remount();await show('section-owner-b');expect(selected()).toBe('Overview');
+  await remount();await show('section-owner-a');expect(selected()).toBe('Details');
+  expect(node.textContent).toContain('Detailed evidence');
+  await show('section-owner-a',{...assembly,sequence:2});expect(selected()).toBe('Overview');
+  const changed={...assembly,source:{...assembly.source,blocks:assembly.source.blocks.filter(e=>!['detail','detailBody'].includes(e.id)).map(e=>e.id==='tabs'?{...e,sectionIds:['overview']}:e)}};
+  await remount();await show('section-owner-a',changed);expect(node.textContent).toContain('Overview evidence');
+ }finally{await act(async()=>root.unmount());node.remove();}
+});
+
 it('hosts the shared analytical document and keeps the legacy report path',()=>{
   const source={title:'Example analytical report',subtitle:'Selected scope',viewer:{appearance:'document',allowChartTableSwitch:false},blocks:[{id:'total',kind:'kpiBlock',datasetRef:'records',valueField:'count',valueLabel:'Records',valueFormat:'number'}]};
   const assembly={id:'document-example',scope:'message',grammar:'report-document-v1',status:'committed',authoritative:true,sequence:1,source,dataSources:{records:{id:'records',format:'json',data:[{count:12345}]}}};
