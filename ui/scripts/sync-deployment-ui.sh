@@ -7,7 +7,7 @@ REPO_DIR="$(cd "${UI_DIR}/.." && pwd)"
 DIST_DIR="${UI_DIR}/dist"
 DEPLOY_DIR="${REPO_DIR}/deployment/ui"
 
-if [[ ! -f "${DIST_DIR}/index.html" || ! -d "${DIST_DIR}/assets" ]]; then
+if [[ ! -f "${DIST_DIR}/index.html" || ! -f "${DIST_DIR}/mcp-app-sandbox.html" || ! -f "${DIST_DIR}/favicon.ico" || ! -d "${DIST_DIR}/assets" ]]; then
   echo "UI dist is missing; run the Vite build before syncing." >&2
   exit 1
 fi
