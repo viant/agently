@@ -97,9 +97,9 @@ export async function recordReportRun(request = null) {
   return result;
 }
 
-export async function runReport(request = {}) {
+export async function runReport(request = {}, options = undefined) {
   if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('report run request is required');
-  const result = await executeReportingTool('reporting:run_report', request, 'report run request failed');
+  const result = await executeReportingTool('reporting:run_report', request, 'report run request failed', options);
   if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('unexpected report run response');
   return result;
 }
