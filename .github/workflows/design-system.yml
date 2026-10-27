@@ -24,7 +24,7 @@ jobs:
         with:
           # checkout requires a full commit SHA; abbreviated IDs are treated as refs.
           repository: viant/agently-core
-          ref: 0feac86ec9242a53612ec7a28c94461d61b72bcf
+          ref: 655b4db6af777dae221389479cc23dd12f5a130c
           path: agently-core
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -57,7 +57,7 @@ jobs:
       - run: npm run build
       - name: Verify embedded UI bundle
         working-directory: agently
-        run: bash ui/scripts/sync-deployment-ui.sh && go test ./deployment/ui
+        run: bash ui/scripts/sync-deployment-ui.sh && go test ./deployment/ui . -run 'TestEmbedded|TestRouterServesCompleteEmbeddedBundle'
       - name: Check contributor entry points
         working-directory: agently
         run: test -f AGENTS.md && test -f CLAUDE.md && test -f .cursor/rules/design-system.mdc
