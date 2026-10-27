@@ -8,7 +8,7 @@ vi.mock('../services/agentlyClient', async () => {
 });
 
 
-vi.mock('forge/components', async () => ({ReportResourceRuntime: (await import('forge/components/dashboard/ReportResourceRuntime.jsx')).default}));
+vi.mock('forge/components', async () => ({ReportFilterBar:(await import('forge/components/dashboard/ReportFilterBar.jsx')).default, ReportResourceRuntime: (await import('forge/components/dashboard/ReportResourceRuntime.jsx')).default}));
 vi.mock('forge/components/dashboard/ReportRuntime.jsx', () => ({default: ({reportSpec}) => <output>{reportSpec.title}</output>}));
 vi.mock('forge/core', async () => ({useSetting: () => ({services: (hostServices)})}));
 let hostServices;
@@ -33,7 +33,7 @@ it('submits declared predicate IDs and date aliases rather than destination path
   fireEvent.change(await screen.findByLabelText('Tags'),{target:{value:'alpha, beta'}});
   fireEvent.change(screen.getByLabelText('Period from'),{target:{value:'2026-01-01'}});
   fireEvent.change(screen.getByLabelText('Period to'),{target:{value:'2026-01-02'}});
-  fireEvent.click(screen.getByRole('button',{name:'Run report'}));
+  fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
   await screen.findByRole('heading',{name:'Filtered summary'});
   expect(calls[1].parameters).toEqual({tags:['alpha','beta'],begin:'2026-01-01',finish:'2026-01-02'});
 });
@@ -96,13 +96,13 @@ it('collects published predicate inputs before manual execution and sends typed 
   for(const [label,value] of [['Advertiser','42'],['Subscription suite','7'],['Campaigns','31, 32'],['Date Range from','2026-01-02'],['Date Range to','2026-01-03']]) {
     fireEvent.change(screen.getByLabelText(label),{target:{value}});
   }
-  fireEvent.click(screen.getByRole('button',{name:'Run report'}));
+  fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
   await screen.findByRole('heading',{name:'Selected scope'});
   expect(calls[1].args).toEqual({resource:{uri:pin.uri,revision:'working'},resolvedResource:pin,parameters:{advertiserId:42,suiteId:7,campaignIds:[31,32],from:'2026-01-02',to:'2026-01-03'},fillOnly:true});
   fireEvent.change(screen.getByLabelText('Advertiser'),{target:{value:'0'}});
   fireEvent.change(screen.getByLabelText('Campaigns'),{target:{value:''}});
   fireEvent.change(screen.getByLabelText('Date Range from'),{target:{value:''}});
-  fireEvent.click(screen.getByRole('button',{name:'Run report'}));
+  fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
   await screen.findByRole('heading',{name:'Selected scope'});
   expect(calls[2].args.parameters).toEqual({advertiserId:0,suiteId:7,campaignIds:[],from:'',to:'2026-01-03'});
 });

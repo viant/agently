@@ -24,12 +24,12 @@ jobs:
         with:
           # checkout requires a full commit SHA; abbreviated IDs are treated as refs.
           repository: viant/agently-core
-          ref: 655b4db6af777dae221389479cc23dd12f5a130c
+          ref: e65e3fc6b9e90c3b9a1ce8fcd1dd3174473c9315
           path: agently-core
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: viant/forge
-          ref: b2c3936a325a84c6d75361854b224a794b0a7ed0
+          ref: 0236be2f9afc7e23d8c424be0b37f94eacb7e68c
           path: forge
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
@@ -51,7 +51,7 @@ jobs:
         run: npm ci
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npx vitest run src/services/workspaceStyles.test.js src/typographyContract.test.js src/components/WorkspaceSidebar.menuDelivery.test.jsx src/components/WorkspaceSidebar.test.jsx src/components/Sidebar.test.js src/components/TurnProgressStatus.test.js src/components/TurnProgressStatus.publicTask.render.test.jsx src/components/Root.test.jsx src/components/ReportWindow.test.jsx src/components/ReportWindow.wire.test.jsx src/components/MenuBar.test.jsx src/components/ConversationWorkspaceSurface.test.jsx src/hooks/shellNavigation.test.jsx src/services/conversationWindow.test.js src/services/chatRuntime.test.js src/services/chatRuntime.feeds.test.js src/services/chatRuntime.terminalStage.test.js src/components/chat/ChatFeedFromChatStore.test.js src/components/chat/historyScroll.test.js src/services/workspaceSession.test.js src/components/lookups/NamedLookupInput.focus.test.jsx --testTimeout=15000
+      - run: npx vitest run src/services/workspaceStyles.test.js src/typographyContract.test.js src/components/WorkspaceSidebar.menuDelivery.test.jsx src/components/WorkspaceSidebar.test.jsx src/components/Sidebar.test.js src/components/TurnProgressStatus.test.js src/components/TurnProgressStatus.publicTask.render.test.jsx src/components/Root.test.jsx src/components/ReportWindow.test.jsx src/components/ReportWindow.wire.test.jsx src/services/reportChoiceService.test.js src/services/reportFilterParameters.test.js src/components/MenuBar.test.jsx src/components/ConversationWorkspaceSurface.test.jsx src/hooks/shellNavigation.test.jsx src/services/conversationWindow.test.js src/services/chatRuntime.test.js src/services/chatRuntime.feeds.test.js src/services/chatRuntime.terminalStage.test.js src/components/chat/ChatFeedFromChatStore.test.js src/components/chat/historyScroll.test.js src/services/workspaceSession.test.js src/components/lookups/NamedLookupInput.focus.test.jsx --testTimeout=15000
       - run: node vite.config.test.mjs
       - run: npm run test:typography
       - run: npm run build
