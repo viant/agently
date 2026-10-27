@@ -512,8 +512,9 @@ checks actual rendering, untouched saved content and retained viewer options.
 
 ## Observable progress in document chat
 
-The progress indicator animates from the existing motion token and respects
-reduced motion. Label, metadata and body roles remain the only text styles.
+The progress indicator animates from the existing motion token, falls back to
+the shared 120 ms fast-motion value when that optional token is absent, and
+respects reduced motion. Label, metadata and body roles remain the only text styles.
 Elapsed time stays outside live announcements. Completed/running/queued step
 counts come from identified scoped tool events, not an estimated percentage or a
 claim about the total work remaining. Runtime tool names stay in developer details;

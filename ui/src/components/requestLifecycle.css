@@ -5,7 +5,7 @@
 .app-run-progress-activity { display: inline-flex; align-items: center; gap: var(--agently-theme-spacing-2); min-width: 0; }
 .app-run-progress-heading > [data-forge-type="metadata"] { color: var(--app-muted); font-variant-numeric: tabular-nums; }
 .app-run-progress-heading > .forge-button { margin-inline-start: auto; }
-.app-run-progress-spinner { animation: app-run-progress-spin calc(var(--agently-theme-motion-fast) * 8) linear infinite; }
+.app-run-progress-spinner { animation: app-run-progress-spin calc(var(--agently-theme-motion-fast, 120ms) * 8) linear infinite; }
 @keyframes app-run-progress-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .app-run-progress-spinner { animation: none; } }
 .app-run-progress-meta { color: var(--app-muted); margin-top: var(--agently-theme-spacing-2); }
