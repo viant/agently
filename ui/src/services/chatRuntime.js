@@ -889,7 +889,7 @@ export function ensureContextResources(context) {
   return context.resources.chat;
 }
 
-function ownsCurrentWindowInstance(context, resources = ensureContextResources(context)) {
+export function ownsCurrentWindowInstance(context, resources = ensureContextResources(context)) {
   // Non-window callers retain their existing behavior; never bind them to the
   // main window just because getContextWindowId supplies a display fallback.
   if (!resources.windowInstanceID) return true;
@@ -2918,9 +2918,24 @@ export function bootstrapConversationSelection(context) {
       ? routeConversationID
       : explicitWindowConversationID
   );
-  if (!bootstrapID) return;
   const conversationsDS = context?.Context?.('conversations')?.handlers?.dataSource;
   const current = conversationsDS?.peekFormData?.() || {};
+  if (!bootstrapID) {
+    // Forge retains datasource signals across a chat Context replacement. A
+    // current blank window binding must clear that inherited conversation id
+    // before onInit decides which conversation to hydrate.
+    const windowForm = win?.parameters?.conversations?.form;
+    if (isMainChatWindowId(windowId)
+      && ownsCurrentWindowInstance(context)
+      && Object.prototype.hasOwnProperty.call(windowForm || {}, 'id')
+      && !String(windowForm.id || '').trim()
+      && String(current.id || '').trim()) {
+      conversationsDS?.setFormData?.({values: {
+        ...draftConversationValues(current), running: false, status: '', stage: '',
+      }});
+    }
+    return;
+  }
   conversationsDS?.setFormData?.({ values: { ...current, ...conversationComposerSelections.get(bootstrapID), id: bootstrapID } });
   if (conversationComposerSelections.has(bootstrapID)) syncConversationComposerSelection(context);
 }

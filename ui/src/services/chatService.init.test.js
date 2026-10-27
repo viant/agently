@@ -9,6 +9,7 @@ const {
   hydrateMetaMock,
   hydrateConversationFromBootstrapSnapshotMock,
   ensureContextResourcesMock,
+  ownsCurrentWindowInstanceMock,
   fetchConversationMock,
   getSettledConversationBootstrapSnapshotMock,
   dsTickMock,
@@ -31,6 +32,7 @@ const {
   hydrateMetaMock: vi.fn(),
   hydrateConversationFromBootstrapSnapshotMock: vi.fn(() => false),
   ensureContextResourcesMock: vi.fn(() => ({})),
+  ownsCurrentWindowInstanceMock: vi.fn(() => true),
   fetchConversationMock: vi.fn(),
   getSettledConversationBootstrapSnapshotMock: vi.fn(() => null),
   dsTickMock: vi.fn(),
@@ -58,6 +60,7 @@ vi.mock('./chatRuntime', () => ({
   dsTick: dsTickMock,
   disconnectStream: disconnectStreamMock,
   ensureContextResources: ensureContextResourcesMock,
+  ownsCurrentWindowInstance: ownsCurrentWindowInstanceMock,
   ensureConversation: vi.fn(),
   fetchConversation: fetchConversationMock,
   fetchPendingElicitations: fetchPendingElicitationsMock,
@@ -112,10 +115,12 @@ vi.mock('../utils/dialogBus', () => ({
 
 import { onInit } from './chatService';
 import { client } from './agentlyClient';
+import { activeWindows } from 'forge/core';
 
 describe('onInit', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    ownsCurrentWindowInstanceMock.mockImplementation(() => true);
     hydrateMetaMock.mockResolvedValue(undefined);
     hydrateConversationFromBootstrapSnapshotMock.mockReturnValue(false);
     getSettledConversationBootstrapSnapshotMock.mockReturnValue(null);
@@ -124,6 +129,51 @@ describe('onInit', () => {
     fetchPendingElicitationsMock.mockResolvedValue([]);
     refreshGoalFeedMock.mockResolvedValue(undefined);
     dsTickMock.mockResolvedValue({ hasRunning: false });
+  });
+
+  it.each(['before', 'during'])('retires initialization when New Conversation replaces its window instance %s hydration', async (timing) => {
+    const runtime = await vi.importActual('./chatRuntime');
+    const previousWindows = activeWindows.peek();
+    const owner = {windowId: 'chat/new', windowKey: 'chat/new', conversationInstanceVersion: 7};
+    const form = {id: 'old-conversation', title: 'Original title'};
+    const conversationsDS = {
+      peekFormData: () => form,
+      setFormData: vi.fn(({values}) => Object.assign(form, values)),
+    };
+    const context = {identity: {windowId: owner.windowId}, windowState: owner, resources: {}, Context(name) {
+      if (name === 'conversations') return {handlers: {dataSource: conversationsDS}};
+      if (name === 'messages') return {handlers: {dataSource: {setCollection: vi.fn(), setError: vi.fn()}}};
+      if (name === 'meta') return {handlers: {dataSource: {peekFormData: () => ({defaults: {}})}}};
+      return null;
+    }};
+    activeWindows.value = [owner];
+    const resources = runtime.ensureContextResources(context);
+    ensureContextResourcesMock.mockReturnValue(resources);
+    ownsCurrentWindowInstanceMock.mockImplementation(runtime.ownsCurrentWindowInstance);
+    let complete;
+    fetchConversationMock.mockReturnValue(new Promise(resolve => { complete = resolve; }));
+    dsTickMock.mockResolvedValue({conversationID: form.id, hasRunning: false});
+    try {
+      const replaceWindow = () => {
+        activeWindows.value = [{...owner, conversationInstanceVersion: 8, parameters: {conversations: {form: {id: ''}}}}];
+      };
+      if (timing === 'before') replaceWindow();
+      const pending = onInit({context});
+      if (timing === 'during') {
+        await vi.waitFor(() => expect(fetchConversationMock).toHaveBeenCalledWith(form.id));
+        // The shell stamps the replacement synchronously. Its new Context may
+        // not have mounted yet, and the old datasource can still expose its id.
+        replaceWindow();
+        complete({id: form.id, title: 'Retired hydration', status: 'succeeded'});
+      }
+      await pending;
+      expect(conversationsDS.setFormData).not.toHaveBeenCalled();
+      expect(publishActiveConversationMock).not.toHaveBeenCalled();
+      expect(startPollingMock).not.toHaveBeenCalled();
+    } finally {
+      activeWindows.value = previousWindows;
+      ensureContextResourcesMock.mockReturnValue({});
+    }
   });
 
   it('marks the shell ready immediately after metadata hydration, before slow conversation bootstrap resolves', async () => {

@@ -54,6 +54,24 @@ const WORKSPACE_MAX_HEIGHT = 960;
 const TERMINAL_TURN_ACTIVITY_TYPES = new Set(['turn_completed', 'turn_failed', 'turn_canceled']);
 const CONVERSATION_RESTORE_ACTIVITY_TYPES = new Set(['turn_started', 'turn_queued', 'turn_submitted']);
 
+export function scheduleMissingWorkspaceRestore(conversationId, restore = reopenWorkspaceForConversation) {
+  let cancelled = false;
+  const restoreIfNeeded = () => {
+    // A scheduled restore must not overtake a later chat or route selection.
+    if (cancelled || conversationIDFromPath(window.location.pathname) !== conversationId) return;
+    if (getScopedActiveSurface(conversationId) !== 'workspace') return;
+    if (!hasScopedWorkspaceState(conversationId)) return;
+    restore(conversationId);
+  };
+  const timer = window.setTimeout(restoreIfNeeded, 250);
+  const interval = window.setInterval(restoreIfNeeded, 1500);
+  return () => {
+    cancelled = true;
+    window.clearTimeout(timer);
+    window.clearInterval(interval);
+  };
+}
+
 export function resolveConversationWorkspaceAttachmentWindows(history = [], restored = [], live = []) {
   const byWindowId = new Map();
   for (const entries of [history, restored, live]) {
@@ -1274,20 +1292,8 @@ export default function Root() {
     if (!useConversationWorkspaceFallback) return () => {};
     if (getScopedActiveSurface(conversationId) !== 'workspace') return () => {};
     if (activeWorkspaceWindow?.windowId) return () => {};
-    let cancelled = false;
-    const restoreIfNeeded = () => {
-      if (cancelled) return;
-      if (!hasScopedWorkspaceState(conversationId)) return;
-      reopenWorkspaceForConversation(conversationId);
-    };
-    const timer = window.setTimeout(restoreIfNeeded, 250);
-    const interval = window.setInterval(restoreIfNeeded, 1500);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-      window.clearInterval(interval);
-    };
-  }, [activeWorkspaceWindow?.windowId, linkedChildWindow?.windowId, mainConversationId, useConversationWorkspaceFallback]);
+    return scheduleMissingWorkspaceRestore(conversationId);
+  }, [activeSurface, activeWorkspaceWindow?.windowId, linkedChildWindow?.windowId, mainConversationId, useConversationWorkspaceFallback]);
 
   useEffect(() => {
     const conversationId = mainConversationId;
