@@ -1,6 +1,8 @@
 // Workspace descriptors remain in memory and are restored from the server.
 // Persist only presentation preferences; never trust browser-stored content.
 const preferenceKey = (id) => `agently.workspacePreferences:${id}`;
+const reportSections = value => Object.fromEntries(Object.entries(value && typeof value === 'object' ? value : {})
+  .filter(([key, section]) => key.length <= 2048 && typeof section === 'string' && section.length <= 512).slice(-100));
 function readPreferences(storage, id) {
   try {
     const value = JSON.parse(storage?.getItem(preferenceKey(id)) || 'null');
@@ -11,6 +13,7 @@ function readPreferences(storage, id) {
       ...(ids(value.openWindowIds) ? {openWindowIds: ids(value.openWindowIds)} : {}),
       ...(typeof value.activeWindowId === 'string' ? {activeWindowId: value.activeWindowId} : {}),
       workspaceMode: value.workspaceMode === 'split' ? 'split' : 'focus',
+      reportSections: reportSections(value.reportSections),
       ...(['conversation', 'workspace'].includes(value.activeSurface)
         ? {activeSurface: value.activeSurface, hasSurfaceSelection: true} : {}),
     };
@@ -40,10 +43,23 @@ export function updateWorkspaceSession(storage, conversationId, change) {
     storage?.setItem(preferenceKey(conversationId), JSON.stringify({
       version: 1, activeWindowId: next.activeWindowId, workspaceMode: next.workspaceMode,
       closedWindowIds: next.closedWindowIds, openWindowIds: next.openWindowIds,
+      reportSections: reportSections(next.reportSections),
       ...(next.hasSurfaceSelection ? {activeSurface: next.activeSurface} : {}),
     }));
   } catch (_) { /* Storage may be unavailable; retain the in-memory preference. */ }
   return next;
+}
+
+export function readReportSection(storage, conversationId, reportKey) {
+  if (!conversationId || !reportKey) return '';
+  return readWorkspaceSession(storage, conversationId).reportSections?.[reportKey] || '';
+}
+
+export function rememberReportSection(storage, conversationId, reportKey, sectionId) {
+  if (!conversationId || !reportKey) return;
+  updateWorkspaceSession(storage, conversationId, state => ({...state,
+    reportSections: reportSections({...state.reportSections, [reportKey]: sectionId}),
+  }));
 }
 function mergeViewState(previous, incoming) {
   if (incoming === undefined) return previous;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readWorkspaceSession, updateWorkspaceSession, mergeWorkspaceSessionWindows, workspaceHistory } from './workspaceSession.js';
+import { readWorkspaceSession, updateWorkspaceSession, mergeWorkspaceSessionWindows, workspaceHistory, readReportSection, rememberReportSection } from './workspaceSession.js';
 const storage = () => {
   const values = new Map();
   return { getItem: (key) => values.get(key), setItem: (key, value) => values.set(key, value) };
@@ -7,6 +7,16 @@ const storage = () => {
 const entry = (id, revision = 1, turnId = 'turn-1') => ({ windowId: id, conversationId: 'conversation-1',
   workspaceObject: { objectId: `workspace:${id}`, revision, origin: { turnId }, lifecycle: { state: 'ready' } } });
 describe('conversation-owned workspace session', () => {
+  it('bounds report section preferences and restores only scoped presentation identities', () => {
+    const local = storage();
+    for (let i = 0; i < 105; i++) rememberReportSection(local, 'sections', `message-${i}:report`, 'details');
+    expect(Object.keys(readWorkspaceSession(local, 'sections').reportSections)).toHaveLength(100);
+    expect(readReportSection(local, 'sections', 'message-0:report')).toBe('');
+    expect(readReportSection(local, 'other', 'message-104:report')).toBe('');
+    const reloaded = {...local};
+    expect(readReportSection(reloaded, 'sections', 'message-104:report')).toBe('details');
+    expect(readWorkspaceSession(reloaded, 'sections').windows).toEqual([]);
+  });
   it('retains all historical objects and original ownership across show, close, and reload', () => {
     const local = storage();
     updateWorkspaceSession(local, 'conversation-1', (state) => mergeWorkspaceSessionWindows(state, [entry('one'), entry('two')]));

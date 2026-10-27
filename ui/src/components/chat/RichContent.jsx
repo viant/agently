@@ -1,4 +1,5 @@
 import WorkspaceOutputState from '../WorkspaceOutputState.jsx';
+import {readReportSection, rememberReportSection} from '../../services/workspaceSession.js';
 import {normalizeCanonicalReportAssembly, inlineReportWorkspaceDescriptor} from '../../services/workspaceAdapters.js';
 import {ConversationViewContext} from '../../context/ConversationViewContext.js';
 // RichContent – renders assistant message content with syntax-highlighted code,
@@ -1411,6 +1412,16 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
   const compiled = React.useMemo(() => applyInlineReportFilterValues(
     applyInlineReportTableSelections(reviewSource, reviewSelections), filterValues,
   ), [reviewSource, reviewState, filterValues]);
+  const sectionKey = JSON.stringify([messageId, assembly?.scope || 'message', assembly?.id,
+    assembly?.sequence || 0, assembly?.resetVersion || 0]);
+  let sectionStorage = null;
+  try { sectionStorage = typeof window !== 'undefined' ? window.sessionStorage : null; } catch (_) {}
+  const [sectionSelection, setSectionSelection] = React.useState(null);
+  const sectionOwner = JSON.stringify([conversationId, sectionKey]);
+  const rememberedSection = sectionSelection?.owner === sectionOwner ? sectionSelection.id
+    : readReportSection(sectionStorage, conversationId, sectionKey);
+  const selectedSectionId = compiled.reportFill?.blocks?.some(block => block.kind === 'sectionBlock' && block.id === rememberedSection)
+    ? rememberedSection : '';
   const runtimeHandlers = {
     onTableReviewChange: ({blockId, selection}) => setReviewState(current => ({source:reviewSource,
       selections:{...(current?.source === reviewSource ? current.selections : {}),[blockId]:selection},
@@ -1585,7 +1596,12 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
 				{materialization.error ? <div role="alert" data-forge-type={documentPresentation ? "metadata" : undefined} data-forge-status="danger" className="forge-report-document-notice" style={documentPresentation ? undefined : { color: "#b42318", fontSize: 12 }}>{materialization.error?.message || String(materialization.error)}</div> : null}
         {!documentPresentation ? reportActions : null}
         <ReportRuntime
-          key={inlineReportRuntimeKey(assembly)}
+          key={`${inlineReportRuntimeKey(assembly)}:${sectionOwner}`}
+          selectedSectionId={selectedSectionId}
+          onSectionChange={id => {
+            setSectionSelection({owner: sectionOwner, id});
+            rememberReportSection(sectionStorage, conversationId, sectionKey, id);
+          }}
           reportActions={documentPresentation ? reportActions : null}
           runtimeHandlers={runtimeHandlers}
           reportDocument={compiled.reportDocument}
