@@ -12,6 +12,25 @@ const pin = {uri: 'report://ar/overview', providerIdentity: 'producer-native', k
 const entry = {windowKey: pin.uri, resourceRef: {uri: pin.uri}, windowTitle: 'Overview', parameters: {AdvertiserIds: [42]}};
 afterEach(() => {cleanup(); vi.clearAllMocks();});
 
+it('requires both declared date endpoints before enabling report execution', async () => {
+  services.reportStore.getReport.mockResolvedValue({resource: pin, resourceDefinition:{builderDefinition:{reportBuilder:{predicates:[
+    {id:'window',label:'Date range',kind:'dateRange',required:true,startParamPath:'filters.start',endParamPath:'filters.end',prefill:{start:'from',end:'to'}},
+  ]}}}});
+  render(<ReportWindow window={{...entry,parameters:{}}}/>);
+  const start=await screen.findByLabelText('Date range from');
+  expect(start.getAttribute('aria-required')).toBe('true');
+  expect(screen.getByText(/Complete these inputs/).textContent).toContain('Date range to');
+  expect(runtime.mock.calls.at(-1)[0].container.parameters.reportCapabilities.run).toBe(false);
+  fireEvent.change(start,{target:{value:'2026-01-02'}});
+  expect(runtime.mock.calls.at(-1)[0].container.parameters.reportCapabilities.run).toBe(false);
+  fireEvent.change(screen.getByLabelText('Date range to'),{target:{value:'2026-01-03'}});
+  expect(runtime.mock.calls.at(-1)[0].container.parameters.reportCapabilities.run).toBe(true);
+  expect(runtime.mock.calls.at(-1)[0].container.parameters.prefill).toEqual({from:'2026-01-02',to:'2026-01-03'});
+  expect(screen.queryByText(/Complete these inputs/)).toBeNull();
+  fireEvent.change(start,{target:{value:''}});
+  expect(runtime.mock.calls.at(-1)[0].container.parameters.reportCapabilities.run).toBe(false);
+});
+
 it('resolves through the existing host and mounts the shared runtime with its opaque pin and current parameters', async () => {
   services.reportStore.getReport.mockResolvedValue({resource: pin, title: 'Producer overview'});
   const view = render(<ReportWindow window={entry}/>);
