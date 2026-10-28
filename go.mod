@@ -154,7 +154,7 @@ require (
 	github.com/viant/igo v0.2.0 // indirect
 	github.com/viant/mcp-tasks v0.1.0 // indirect
 	github.com/viant/parsly v0.3.3 // indirect
-	github.com/viant/scache v0.5.1-0.20241014222741-4367658dff4f // indirect
+	github.com/viant/scache v0.5.1-0.20261028041532-973c29b7bc31 // indirect
 	github.com/viant/sqlite-vec v0.3.1 // indirect
 	github.com/viant/sqlparser v0.13.1 // indirect
 	github.com/viant/sqlx v0.26.2-0.20261028024456-7f52e55c52a2 // indirect
