@@ -219,6 +219,24 @@ describe('getAuthMeSilently', () => {
     expect(await getAuthMeSilently()).toEqual({ username: 'awitas' });
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
+
+  it('keeps the verified cache owner stable across reloads and separates another principal', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({status:200,json:async()=>({provider:'session',subject:'alice',sessionBinding:'binding-A'})});
+    const first = await import('./agentlyClient.js');
+    expect(first.getAuthenticatedWindowCacheScope()).toBe('');
+    await first.getAuthMeSilently();
+    const alice=first.getAuthenticatedWindowCacheScope();
+    expect(alice).toContain('alice');
+    vi.resetModules();
+    const reloaded=await import('./agentlyClient.js');
+    await reloaded.getAuthMeSilently();
+    expect(reloaded.getAuthenticatedWindowCacheScope()).toBe(alice);
+    vi.resetModules();
+    globalThis.fetch = vi.fn().mockResolvedValue({status:200,json:async()=>({provider:'session',subject:'bob',sessionBinding:'binding-B'})});
+    const other=await import('./agentlyClient.js');
+    await other.getAuthMeSilently();
+    expect(other.getAuthenticatedWindowCacheScope()).not.toBe(alice);
+  });
 });
 
 describe('getAuthProvidersSilently', () => {

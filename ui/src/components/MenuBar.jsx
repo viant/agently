@@ -320,7 +320,11 @@ export default function MenuBar({
                   onNativeAction?.();
                   const key = action.resourceUri || (action.provider && action.provider !== 'workspace'
                     ? `provider:${action.provider}:${action.windowKey}` : action.windowKey);
-                  openWindow(key, entry.title, action.refreshDataSources || [], { parameters: action.parameters || {} });
+                  openWindow(key, entry.title, action.refreshDataSources || [], {
+                    parameters: action.parameters || {},
+                    ...(action.providerIdentity ? {providerIdentity: action.providerIdentity} : {}),
+                    ...(action.providerIdentity && action.resourceUri ? {resourceRef: {uri: action.resourceUri}} : {}),
+                  });
                 }} />
             </Tooltip>
           ))}

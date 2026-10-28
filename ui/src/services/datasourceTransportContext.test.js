@@ -12,6 +12,12 @@ it('carries only the existing same-origin bridge transport session for datasourc
  prepareAgentlyDataConnectorRequest({url:'/v1/api/datasources/records/fetch',headers,body});
  expect(headers).toEqual({'Mcp-Session-Id':'negotiated-session'});expect(body).toEqual({inputs:{id:123}});
 });
+it('keeps bridge routing on a published cohort datasource URL with a query marker',()=>{
+ const headers={};const queryParams=new URLSearchParams();
+ prepareAgentlyDataConnectorRequest({url:'/v1/api/datasources/records/fetch?cohort=1',headers,queryParams,body:{},windowState:{windowId:'published-instance'}});
+ expect(headers).toEqual({'Mcp-Session-Id':'negotiated-session'});
+ expect(queryParams.get('windowId')).toBe('published-instance');
+});
 it('does not leak the UI session to foreign MCP/remote destinations or unrelated requests',()=>{
  for(const url of ['http://foreign/v1/api/datasources/records/fetch','/v1/ui/rpc','http://foreign/v1/api/agently/forge/window/original','http://foreign/mcp']){
   const headers={};prepareAgentlyDataConnectorRequest({url,headers,body:{}});expect(headers).toEqual({});

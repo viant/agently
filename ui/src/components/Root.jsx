@@ -5,7 +5,7 @@ import { getWorkspaceHistory, reopenWorkspaceObject } from '../services/conversa
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSignals } from '@preact/signals-react/runtime';
 import { Button, Dialog } from '@blueprintjs/core';
-import { useSetting, activeWindows, addWindow, findCollectionSignal, findFormSignal, findMetadataSignal, findMetricsSignal, findViewSignal, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
+import { useSetting, activeWindows, addWindow, findCollectionSignal, findFormSignal, findMetadataSignal, findMetricsSignal, findViewSignal, getActiveUIBridgeTransportContext, removeWindow, selectedTabId, selectedWindowId, waitForUIBridgeReady } from 'forge/core';
 import { WindowManager, WindowContent, Typography } from 'forge/components';
 import ReportWindow, {isReportWindow} from './ReportWindow.jsx';
 import { DetailContext } from '../context/DetailContext';
@@ -17,7 +17,9 @@ import ConfirmDialog from './ConfirmDialog';
 import FileViewDialog from './FileViewDialog';
 import GoalDraftDialog from './GoalDraftDialog';
 import MenuBar from './MenuBar';
-import { refreshWindowDataSources } from './menuBarHelpers';
+import { openWindow, refreshWindowDataSources } from './menuBarHelpers';
+import {createDiagnosticPublishedWindowOpener,registerReadyDiagnosticPublishedWindowOpener} from '../services/perfDiagnostics';
+import {confirmClosePublishedManagementWindow,clearPublishedManagementWindowDirty} from '../services/publishedManagementHostWindow';
 import ToolFeedWorkspace from './ToolFeedWorkspace';
 import ToolFeedDetached from './ToolFeedDetached';
 import UsageBar from './UsageBar';
@@ -810,6 +812,25 @@ export default function Root() {
     if (mainConversationId) setScopedActiveSurface(mainConversationId, next);
   }, [mainConversationId]);
 
+  useEffect(() => {
+    if (!navigationReady) return undefined;
+    let current=true,dispose=()=>{};
+    const onOpen=createDiagnosticPublishedWindowOpener({
+      open:openWindow,conversationId:mainConversationId,parentKey:MAIN_CHAT_WINDOW_ID,
+      isReady:()=>navigationReady && !!getActiveUIBridgeTransportContext(),
+      activate:()=>{
+        backendSelection.select('agently');
+        setWorkspacePresentationMode('full');
+        setActiveSurface('workspace');
+      },
+    });
+    void registerReadyDiagnosticPublishedWindowOpener({
+      waitReady:()=>waitForUIBridgeReady(0),getTransport:getActiveUIBridgeTransportContext,
+      isCurrent:()=>current,onOpen,
+    }).then(stop=>{if(current)dispose=stop;else stop();});
+    return ()=>{current=false;dispose();};
+  }, [navigationReady,backendSelection.select,mainConversationId,setWorkspacePresentationMode,setActiveSurface]);
+
   const openWorkspaceSurface = React.useCallback(() => {
     if (!activeWorkspaceWindow?.windowId) return;
     selectedWindowId.value = activeWorkspaceWindow.windowId;
@@ -884,6 +905,7 @@ export default function Root() {
       return;
     }
     if (workspaceWindows.find((entry) => entry.windowId === activeWindowId)?.workspaceObject?.capabilities?.close === false) return;
+    if (!confirmClosePublishedManagementWindow(activeWindowId)) return;
     const currentIndex = workspaceWindows.findIndex((entry) => String(entry?.windowId || '').trim() === activeWindowId);
     const remaining = workspaceWindows.filter((entry) => String(entry?.windowId || '').trim() !== activeWindowId);
     setWorkspacePresentationModeState('split');
@@ -891,6 +913,7 @@ export default function Root() {
 
     dismissWorkspaceWindowForConversation(restoreConversationId, activeWindowId);
     removeWindow(activeWindowId);
+    clearPublishedManagementWindowDirty(activeWindowId);
     if (remaining.length > 0) {
       const nextIndex = currentIndex <= 0 ? 0 : Math.min(currentIndex - 1, remaining.length - 1);
       const nextWindow = remaining[nextIndex] || remaining[0];
@@ -1577,7 +1600,9 @@ export default function Root() {
                         getScopedConversationSelection(MAIN_CHAT_WINDOW_ID)
                       );
                       if (selectedWindow?.windowId) {
+                        if (!confirmClosePublishedManagementWindow(selectedWindow.windowId)) return;
                         removeWindow(selectedWindow.windowId);
+                        clearPublishedManagementWindowDirty(selectedWindow.windowId);
                       }
                       openConversationInMainWindow(restoreConversationId);
                     }}
