@@ -253,9 +253,9 @@ func Serve(options ServeOptions) error {
 			}
 		}
 	}()
-	cohortConfigPath := strings.TrimSpace(options.ArtifactCohortConfigPath)
-	if cohortConfigPath == "" {
-		cohortConfigPath = strings.TrimSpace(os.Getenv("AGENTLY_ARTIFACT_COHORT_CONFIG"))
+	cohortConfigPath, err := resolveArtifactCohortConfig(workspace.Root(), options.ArtifactCohortConfigPath, os.Getenv("AGENTLY_ARTIFACT_COHORT_CONFIG"), wsConfig)
+	if err != nil {
+		return err
 	}
 	if cohortConfigPath != "" {
 		bindings, prepareErr := cohort.PrepareLocalBindings(startupCtx, rt, cohortConfigPath)

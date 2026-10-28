@@ -26,6 +26,7 @@ import UsageBar from './UsageBar';
 import TurnProgressStatus from './TurnProgressStatus';
 import ConversationWorkspaceSurface from './ConversationWorkspaceSurface';
 import AppSectionContent from './AppSectionContent.jsx';
+import {belongsToAppSection} from './sectionWindowTree.js';
 import StatusBar from './StatusBar';
 import WorkspaceSidebar from './WorkspaceSidebar';
 import ScheduleConversationHistory from './ScheduleConversationHistory';
@@ -1645,6 +1646,7 @@ export default function Root() {
                 </>
               ) : (
                 <WindowManager
+                  windowFilter={entry => !belongsToAppSection(activeWindows.value, entry)}
                   isTabVisible={(windowEntry) => windowEntry?.region !== 'app.section' && String(windowEntry?.windowId || '').trim() !== MAIN_CHAT_WINDOW_ID}
                   renderWindowContent={({ window: windowEntry, defaultContent }) => (
                     String(windowEntry?.presentation || '').trim().toLowerCase() === 'conversationhistory'
