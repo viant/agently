@@ -8,6 +8,7 @@ import (
 // ServeCmd starts the HTTP server.
 type ServeCmd struct {
 	NativeWindowConfig       string `long:"native-window-config" description:"Operator-owned immutable window catalog and trusted entity bootstrap configuration"`
+	ArtifactCohortConfig     string `long:"artifact-cohort-config" description:"Operator-owned local artifact cohort activation file (or AGENTLY_ARTIFACT_COHORT_CONFIG)"`
 	InternalResourceProvider string `long:"internal-resource-provider" description:"Identity of the in-process workspace MCP provider (requires authorization configuration)"`
 	DisableBackgroundWorkers bool   `long:"disable-background-workers" description:"Disable autonomous/scheduled work on an isolated interactive validation host"`
 	ValidateAuthz            bool   `long:"validate-authz" description:"Validate explicit workspace authorization configuration without starting a server"`
@@ -35,6 +36,7 @@ func (c *ServeCmd) Execute(_ []string) error {
 func (c *ServeCmd) serveOptions() root.ServeOptions {
 	return root.ServeOptions{
 		NativeWindowConfigPath:           c.NativeWindowConfig,
+		ArtifactCohortConfigPath:         c.ArtifactCohortConfig,
 		InternalResourceProviderIdentity: c.InternalResourceProvider,
 		DisableBackgroundWorkers:         c.DisableBackgroundWorkers,
 		AuthzConfigPath:                  c.AuthzConfig,

@@ -28,6 +28,7 @@ import (
 	hostreporting "github.com/viant/agently-core/app/host/reporting"
 	hostruntime "github.com/viant/agently-core/app/host/runtime"
 	appserver "github.com/viant/agently-core/app/server"
+	"github.com/viant/agently-core/artifact/cohort"
 	mcpexpose "github.com/viant/agently-core/protocol/mcp/expose"
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	"github.com/viant/agently-core/protocol/primitive/observe"
@@ -88,6 +89,11 @@ type servedUIBundle struct {
 }
 
 type ServeOptions struct {
+	// ArtifactCohorts are trusted Go registrations, never request parameters.
+	// Each source is preloaded before the listener starts and stays opt-in.
+	ArtifactCohorts                  []ArtifactCohortBinding
+	ArtifactCohortRegistrations      []ArtifactCohortRegistration
+	ArtifactCohortConfigPath         string
 	nativeWindowRuntimeBinder        func(*executor.Runtime) error
 	InternalResourceProviderIdentity string
 	NativeWindowConfigPath           string
@@ -116,6 +122,11 @@ type ServeOptions struct {
 	Policy                           string // tool policy: auto|ask|deny
 	ExposeMCP                        bool   // expose tools over MCP HTTP server
 }
+
+// Compatibility names for embedders; implementation lives in Core.
+type ArtifactCohortSource = cohort.Source
+type ArtifactCohortBinding = cohort.Binding
+type ArtifactCohortRegistration = cohort.Registration
 
 const (
 	htmlCacheControl  = "no-cache, must-revalidate"
@@ -229,6 +240,67 @@ func Serve(options ServeOptions) error {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
 	}
 	defer rt.Close(context.Background())
+	// Close all prepared providers even if a later registration or preload fails.
+	defer func() {
+		for _, binding := range options.ArtifactCohorts {
+			if binding.Close != nil {
+				binding.Close()
+			}
+		}
+	}()
+	cohortConfigPath := strings.TrimSpace(options.ArtifactCohortConfigPath)
+	if cohortConfigPath == "" {
+		cohortConfigPath = strings.TrimSpace(os.Getenv("AGENTLY_ARTIFACT_COHORT_CONFIG"))
+	}
+	if cohortConfigPath != "" {
+		bindings, prepareErr := cohort.PrepareLocalBindings(ctx, rt, cohortConfigPath)
+		if prepareErr != nil {
+			return fmt.Errorf("local artifact cohort activation: %w", prepareErr)
+		}
+		options.ArtifactCohorts = append(options.ArtifactCohorts, bindings...)
+	}
+	for _, registration := range options.ArtifactCohortRegistrations {
+		binding, prepareErr := cohort.PrepareBinding(ctx, rt, registration)
+		if prepareErr != nil {
+			return fmt.Errorf("artifact cohort registration: %w", prepareErr)
+		}
+		options.ArtifactCohorts = append(options.ArtifactCohorts, binding)
+	}
+	cohortSources := map[string]ui.PublishedWindowSource{}
+	cohortNamespaces := map[string][]string{}
+	for _, binding := range options.ArtifactCohorts {
+		providerIdentity := strings.TrimSpace(binding.ProviderIdentity)
+		if providerIdentity == "" || binding.Source == nil || cohortSources[providerIdentity] != nil {
+			return fmt.Errorf("invalid or duplicate artifact cohort provider registration")
+		}
+		if binding.Start != nil {
+			if err := binding.Start(ctx); err != nil {
+				return fmt.Errorf("artifact cohort notifications %s: %w", providerIdentity, err)
+			}
+		}
+		preloadTiming := observe.Start(ctx, "startup.provider.preload", observe.Labels{Kind: "artifact"})
+		if err := binding.Source.Sync(ctx); err != nil {
+			preloadTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
+			return fmt.Errorf("artifact cohort preload %s: %w", providerIdentity, err)
+		}
+		preloadTiming.End(observe.OK, observe.CacheUnknown)
+		defer cohort.StartReconciliation(ctx, binding)()
+		cohortSources[providerIdentity] = binding.WindowSource()
+		cohortNamespaces[providerIdentity] = append([]string(nil), binding.Namespaces...)
+	}
+	var publishedBindings *sdk.PublishedWindowBindings
+	if len(cohortSources) > 0 {
+		publishedBindings = sdk.NewPublishedWindowBindingsForBackend(func(ctx context.Context, providerIdentity, uri string, target *forgetypes.WindowTarget) (*forgetypes.WindowResourceVariant, string, error) {
+			source := cohortSources[providerIdentity]
+			if source == nil {
+				return nil, "", fmt.Errorf("unregistered artifact cohort provider")
+			}
+			return source.OpenWindowVariant(ctx, uri, target)
+		}, client)
+		for providerIdentity := range cohortSources {
+			publishedBindings.ProtectProvider(providerIdentity)
+		}
+	}
 	if err := hostruntime.BindNativeWindowRuntime(hostOptions, rt); err != nil {
 		return fmt.Errorf("native window identity startup: %w", err)
 	}
@@ -357,6 +429,7 @@ func Serve(options ServeOptions) error {
 		return fmt.Errorf("configure navigation menu: %w", err)
 	}
 	apiHandler, err := appserver.NewAPIHandler(ctx, appserver.APIOptions{
+		PublishedWindowBindings:    publishedBindings,
 		MenuReader:                 menuReader,
 		MCPUIResourceReader:        hostedAppReader,
 		MCPUIResourceContextBinder: hostedAppBinder,
@@ -383,8 +456,12 @@ func Serve(options ServeOptions) error {
 	}
 	metaRoot := "embed://localhost/"
 	rawMetaHandler := ui.NewEmbeddedHandler(metaRoot, &coremeta.FS)
-	if rt.PermittedResolver != nil || uiBridge.UsesWindowResourceResolution() {
-		rawMetaHandler = ui.NewEmbeddedHandlerWithAuthorization(metaRoot, &coremeta.FS, rt.AuthorizationPolicy, permittedview.NewRuntime(rt.PermittedResolver), ui.WithWindowResourceProvider(uiBridge))
+	if rt.PermittedResolver != nil || uiBridge.UsesWindowResourceResolution() || len(cohortSources) > 0 {
+		uiOptions := []ui.HandlerOption{ui.WithWindowResourceProvider(uiBridge)}
+		for providerIdentity, source := range cohortSources {
+			uiOptions = append(uiOptions, ui.WithArtifactCohortWindowSourceForNamespaces(providerIdentity, source, publishedBindings.Bind, cohortNamespaces[providerIdentity]...))
+		}
+		rawMetaHandler = ui.NewEmbeddedHandlerWithAuthorization(metaRoot, &coremeta.FS, rt.AuthorizationPolicy, permittedview.NewRuntime(rt.PermittedResolver), uiOptions...)
 	}
 	// Forge metadata contains workspace-owned datasource contracts, schemas,
 	// dialogs, and internal endpoint mappings. Protect the complete metadata
