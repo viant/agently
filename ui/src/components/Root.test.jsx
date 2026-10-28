@@ -797,7 +797,7 @@ it('renders a hosted canonical report from its admitted conversation and retains
     expect(host.textContent).toContain('Existing row');
     expect(renderer.mock.calls.at(-1)[0].context).toBe(context);
     expect(lifecycle).toHaveBeenCalledWith('ready');
-    expect(read).toHaveBeenCalledWith({conversationId,includeModelCalls:true,includeToolCalls:true,includeFeeds:true});
+    expect(read).toHaveBeenCalledWith({conversationId,includeModelCalls:true,includeToolCalls:true,includeFeeds:true,includeModelPayloads:false,includeToolPayloads:false});
     read.mockRejectedValueOnce(Object.assign(new Error('Forbidden'),{status:403}));
     await React.act(async()=>{root.render(React.createElement(InlineReportWorkspace,{key:'denied',entry,onLifecycle:lifecycle}));});
     expect(host.textContent).toContain('You don’t have access to this output');

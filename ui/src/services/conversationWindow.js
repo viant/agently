@@ -939,7 +939,15 @@ export function syncScopedWorkspaceStateFromTranscriptTurns(
   });
   const derived = deriveWorkspaceStateFromTranscriptTurns(turns);
   if (!derived?.windows?.length) return null;
-  const windows = derived.windows.filter((entry) => !isWorkspaceWindowDismissed(convID, entry?.windowId));
+  // Native tool history is only one source of workspace objects. Keep open
+  // projected outputs (and their newer revisions) in the same session merge.
+  const session = mergeWorkspaceSessionWindows(readWorkspaceSession(uiStateStorage(), convID), derived.windows);
+  const openIds = new Set([...(session.openWindowIds || session.windows.map(entry => entry.windowId)),
+    ...derived.windows.map(entry => entry.windowId)]);
+  const windows = session.windows.filter(entry => openIds.has(entry.windowId)
+    && (!entry.conversationId || entry.conversationId === convID)
+    && entry.workspaceObject?.lifecycle?.state !== 'closed'
+    && !session.closedWindowIds.includes(entry.windowId));
   if (windows.length === 0) {
     setScopedWorkspaceState(convID, null);
     setScopedWorkspaceSelection(convID, '');

@@ -592,6 +592,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
                 key={id}
                 className={`app-conversation-row ${isSelected ? 'is-selected' : ''}`}
                 data-index={virtualized ? virtualRow.index : undefined}
+                data-conversation-id={id}
                 ref={virtualized ? rowVirtualizer.measureElement : undefined}
                 style={virtualized ? { position: 'absolute', width: '100%', top: 0, left: 0, transform: `translateY(${virtualRow.start}px)` } : undefined}
               >

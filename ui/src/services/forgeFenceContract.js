@@ -17,7 +17,7 @@ const CANONICAL_REPORT_KINDS = new Set([
 ]);
 const REPORT_ENVELOPE_FIELDS = new Set([
   'version', 'scope', 'id', 'sequence', 'mode', 'grammar', 'target',
-  'title', 'subtitle', 'description', 'theme', 'blocks', 'layout',
+  'title', 'subtitle', 'description', 'theme', 'viewer', 'blocks', 'layout',
   'removeBlockIds', 'fallback', 'metadata', 'datasets', 'dataSources',
 ]);
 const DATA_ENVELOPE_FIELDS = new Set([

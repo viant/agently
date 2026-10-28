@@ -13,6 +13,21 @@ import {
   validateForgeReportWorkspaceReferences,
 } from './forgeFenceContract.js';
 
+test('viewer settings survive start, append, patch and commit', () => {
+  const payloads = [
+    {version: 1, id: 'brief', sequence: 1, mode: 'start', grammar: 'report-document-v1', viewer: {appearance: 'document'}, blocks: []},
+    {version: 1, id: 'brief', sequence: 2, mode: 'append', blocks: [{id: 'summary', kind: 'markdownBlock', content: 'Synthetic summary'}]},
+    {version: 1, id: 'brief', sequence: 3, mode: 'patch', viewer: {allowChartTableSwitch: false}},
+    {version: 1, id: 'brief', sequence: 4, mode: 'commit'},
+  ];
+  const result = assembleForgeReportEvents(payloads.map((payload, index) => ({kind: 'report', index, payload})));
+  assert.deepEqual(result.diagnostics, []);
+  assert.equal(result.assemblies.length, 1);
+  assert.equal(result.assemblies[0].status, 'committed');
+  assert.deepEqual(result.assemblies[0].source.viewer, {appearance: 'document', allowChartTableSwitch: false});
+  assert.equal(result.assemblies[0].source.blocks.length, 1);
+});
+
 test('shared progressive report fixtures match the web reducer', async () => {
   const fixtureURL = new URL('../../../../agently-core/sdk/testdata/report_inline_cases.json', import.meta.url);
   const fixture = JSON.parse(await readFile(fixtureURL, 'utf8'));

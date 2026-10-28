@@ -1024,6 +1024,10 @@ export async function submitMessage({ context, message, model, agent }) {
         conversationId: conversationID,
         includeModelCalls: true,
         includeToolCalls: true,
+        // Automatic completion hydration must stay compact. Omitting either
+        // flag can restore bulk request/response loading; details are opt-in.
+        includeModelPayloads: false,
+        includeToolPayloads: false,
         includeFeeds: true,
       });
       const canonicalConversation = transcriptPayload?.conversation && typeof transcriptPayload.conversation === 'object'

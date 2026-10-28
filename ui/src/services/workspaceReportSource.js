@@ -20,7 +20,11 @@ export async function readWorkspaceReport(entry) {
   const scope = getReportRestoreScope();
   // Recheck the owning read endpoint before showing a cached report on open/retry.
   const payload = await client.readConversationHistory({conversationId: entry.conversationId,
-    includeModelCalls: true, includeToolCalls: true, includeFeeds: true});
+    includeModelCalls: true, includeToolCalls: true, includeFeeds: true,
+    // Keep execution summaries and report content, not model/tool request or
+    // response bodies. Do not omit either flag: legacy defaults caused bulk
+    // payload downloads on every report restore. Details must remain opt-in.
+    includeModelPayloads: false, includeToolPayloads: false});
   if (scope !== getReportRestoreScope()) throw new Error('Report account changed.');
   const conversation = payload?.conversation;
   if (conversation?.conversationId !== entry.conversationId) throw new Error('Report conversation does not match.');
