@@ -1,5 +1,6 @@
 import {conversation as outputConversation} from '../src/components/outputHandoffFixture.js';
 import {verifyDocumentChat} from './documentChat.browser.mjs';
+import {verifyTurnFeedback} from './turnFeedback.browser.mjs';
 import assert from 'node:assert/strict';
 import {realpathSync, readFileSync, existsSync, mkdirSync} from 'node:fs';
 import path from 'node:path';
@@ -175,6 +176,7 @@ try {
     if(pilot?.charts?.length) console.log(JSON.stringify({viewport,pilotCharts:await verifyAuthoredCharts(page,pilot.charts,pilot.chartReferenceStyles)}));
     const size = selector => page.locator(selector).first().evaluate(node => getComputedStyle(node).fontSize);
     await verifyDocumentChat(page, {touch: viewport.width < 500});
+    await verifyTurnFeedback(page, {touch: viewport.width < 500});
     const lifecycle=page.getByRole('region',{name:'Request lifecycle specimen'});
     const spinner=lifecycle.locator('.app-run-progress-spinner');
     assert.equal(await spinner.evaluate(node=>getComputedStyle(node).animationName),'app-run-progress-spin');
