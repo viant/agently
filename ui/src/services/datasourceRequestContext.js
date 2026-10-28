@@ -1,7 +1,7 @@
 import {findMetadataSignal, getActiveUIBridgeTransportContext} from 'forge/core';
 
-const DATASOURCE_FETCH_ROUTE = /\/v1\/api\/datasources\/[^/]+\/fetch$/;
-const WINDOW_METADATA_ROUTE = /\/v1\/api\/agently\/forge\/window\/[^/]+$/;
+const DATASOURCE_FETCH_ROUTE = /\/v1\/api\/datasources\/[^/?]+\/fetch(?:\?[^#]*)?$/;
+const WINDOW_METADATA_ROUTE = /\/v1\/api\/agently\/forge\/window\/[^/?]+(?:\?[^#]*)?$/;
 const isObject = value => !!value && typeof value === 'object' && !Array.isArray(value);
 const detached = value => JSON.parse(JSON.stringify(value));
 

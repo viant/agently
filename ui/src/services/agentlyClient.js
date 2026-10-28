@@ -60,6 +60,14 @@ export function getReportRestoreScope() {
   return `${workspaceMetadataGeneration}:${protocolSessionOwner}`;
 }
 
+// Server-verified auth owner is stable across UI bridge reconnects/reloads.
+// It partitions immutable browser window models only; every open still makes
+// the host admission GET and binds the new UI instance.
+export function getAuthenticatedWindowCacheScope() {
+  const principal = authMeCacheValue?.subject || authMeCacheValue?.email || authMeCacheValue?.username || '';
+  return authMeCacheReady && principal ? protocolSessionOwner : '';
+}
+
 function resetProtocolSession() {
   client.resetAgUiInteractions?.();
   protocolSessionOwner = '';

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('./chatStore', () => ({getProjection: vi.fn(), subscribe: vi.fn()}));
 
-vi.mock('./agentlyClient', () => ({client: {}, getAuthMeSilently: vi.fn(), getReportRestoreScope: vi.fn()}));
+vi.mock('./agentlyClient', () => ({client: {}, getAuthMeSilently: vi.fn(), getReportRestoreScope: vi.fn(), getAuthenticatedWindowCacheScope: vi.fn()}));
 
 vi.mock('./permissionService', () => ({applyPermission: vi.fn()}));
 

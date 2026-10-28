@@ -26,6 +26,21 @@ it('associates a metadata delivery with its negotiated client and concrete windo
   expect(findMetadataSignal).not.toHaveBeenCalled();
 });
 
+it('binds a scoped published metadata URL despite its resource query', () => {
+  getActiveUIBridgeTransportContext.mockReturnValue({
+    url: 'http://fixture.local/v1/ui/rpc', clientId: 'client-one',
+    sessionHeader: 'Mcp-Session-Id', sessionId: 'negotiated-session',
+  });
+  const headers = {};
+  const queryParams = new URLSearchParams();
+  prepareAgentlyDataConnectorRequest({
+    url: '/v1/api/agently/forge/window/window%3A%2F%2Fstudio%2FConnectors?providerIdentity=studio&resourceRef=%7B%22uri%22%3A%22window%3A%2F%2Fstudio%2FConnectors%22%7D',
+    headers, queryParams, windowState: {windowId: 'connectors-instance'},
+  });
+  expect(headers['Mcp-Session-Id']).toBe('negotiated-session');
+  expect(Object.fromEntries(queryParams)).toEqual({windowId: 'connectors-instance', clientId: 'client-one'});
+});
+
 it('does not send bridge session routing to a foreign metadata endpoint', () => {
   getActiveUIBridgeTransportContext.mockReturnValue({
     url: 'http://fixture.local/v1/ui/rpc', clientId: 'client-one',
