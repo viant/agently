@@ -184,11 +184,13 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       : layout.topbar?.actions?.find(entry => `action:${entry.id}` === section);
     const publish = (entry, title = '', error = '') => sectionWindowRef.current?.(entry, title, section, destination, error);
     if (section === 'workspaces' && !destination) { publish(null); return; }
-    if (!selected || selected.disabled || selected.action?.type !== 'window') {
+    if (!selected || selected.disabled || !['window', 'report'].includes(selected.action?.type)) {
       publish(null, '', 'This destination is unavailable. Choose another destination from the menu.');
       return;
     }
-    const options = resolveLayoutWindowOptions(selected.action, '', selectedWindowInputs());
+    const options = selected.action.type === 'report'
+      ? resolveLayoutReportOptions(selected.action, '', selectedWindowInputs())
+      : resolveLayoutWindowOptions(selected.action, '', selectedWindowInputs());
     if (!options) {
       publish(null, selected.title, 'Select the required context before opening this destination.');
       return;
@@ -234,8 +236,12 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         if (action?.type === 'report') {
           const options = resolveLayoutReportOptions(action, conversationId, selectedWindowInputs());
           if (!options) return;
-          openWindow(action.resourceUri, menu.title, [], options);
-          onOpenWorkspace?.();
+          if (sections) {
+            onSectionChange?.('workspaces', destinationId);
+          } else {
+            openWindow(action.resourceUri, menu.title, [], options);
+            onOpenWorkspace?.();
+          }
           onNavigate?.();
           return;
         }
