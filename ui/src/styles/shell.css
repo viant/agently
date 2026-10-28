@@ -4697,39 +4697,6 @@ span.app-workspace-breadcrumb-chip.is-current { background: rgba(222, 234, 253, 
   font-size: 14px;
 }
 
-/* Optional feedback follows the final bubble and uses the shell's semantic
-   typography, surface and selected-state roles. */
-.app-turn-feedback {
-  margin: -4px 0 12px 34px;
-  min-width: 0;
-  color: var(--app-text-secondary);
-}
-.app-turn-feedback-actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.app-turn-feedback-toolbar { flex-wrap: nowrap; min-width: 0; }
-.app-turn-feedback-toolbar > button[aria-pressed],
-.app-turn-feedback-toolbar > .forge-button--icon-only,
-.app-turn-feedback-toolbar > [role="status"] { flex-shrink: 0; }
-.app-turn-feedback-preview-action { flex: 0 1 auto; min-width: 0; max-width: 560px; text-align: left; }
-.app-turn-feedback-preview-action > :not(.app-turn-feedback-preview) { flex-shrink: 0; }
-.app-turn-feedback-preview { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.app-turn-feedback-actions button[aria-pressed="true"] {
-  color: var(--app-accent);
-  background: var(--app-selected-background);
-}
-.app-turn-feedback button:focus-visible, .app-turn-feedback textarea:focus-visible {
-  outline: var(--agently-theme-focus-width, 2px) solid var(--agently-theme-focus, var(--app-accent));
-  outline-offset: var(--agently-theme-focus-offset, 2px);
-}
-.app-turn-feedback-editor { display: grid; gap: 6px; max-width: 560px; padding-top: 6px; }
-.app-turn-feedback-editor textarea {
-  color: var(--app-text);
-  background: var(--app-surface);
-  border: 1px solid var(--app-border);
-  border-radius: 6px;
-  box-shadow: none;
-  resize: vertical;
-}
-.app-turn-feedback-error { margin: 4px 0 0; color: var(--app-danger, var(--app-text)); }
 
 .app-workspace-attachment {
   width: min(100%, 520px);

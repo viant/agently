@@ -1,29 +1,39 @@
 # Turn feedback
 
-The conversation owner can rate a completed final answer with Good response or
-Bad response. Clicking a selected thumb clears both the rating and comment.
-Changing thumbs preserves the saved comment. After rating, an icon-only comment
-action appears. A saved comment replaces that action with a bubble icon,
-single-line preview and chevron in the same row as the thumbs. The preview is
-at most 560px wide and uses a CSS ellipsis when space runs out; whitespace is
-collapsed only for display. Clicking it opens the inline editor directly with
-the complete original comment, including line breaks. The preview is hidden
-while editing; Save comment replaces the comment and Cancel discards the draft.
-Both return to the compact row. An empty saved comment restores the icon-only
-action. Add/Edit comment remains the accessible name and hover hint.
+The conversation owner can rate a completed final answer using the combined
+thumbs action, which opens Good response / Bad response. After saving, it shows
+the selected filled thumb; clicking it clears both the rating and comment.
+The Feedback options ellipsis menu also offers the ratings, preserving the saved
+comment when switching, and Add comment / Edit comment after a rating exists.
+Saved comments have no inline preview.
+
+A positive rating saves immediately without opening a form. A negative rating
+saves immediately and opens the comment dialog only after acknowledgment of that
+user action. Reading previously saved feedback never opens the dialog. Either
+rating can receive a comment manually through Feedback options.
+The small dialog has one optional textarea, a Unicode character counter, Save
+comment, Cancel and a close action. It has no reason categories or checkboxes.
+Editing retains the complete original text, including line breaks. Cancel,
+Escape, the close action and the backdrop discard only the unsaved draft; the
+saved rating and comment remain. Saving empty text clears just the comment.
 Controls are disabled during a write. Failed writes retain the saved vote and
 comment draft and show a retry message.
 
-`TurnFeedback` composes Forge Button, Blueprint TextArea and the existing Phosphor icons.
+`TurnFeedback` composes Forge Button, Blueprint Popover/Menu/Dialog/TextArea and
+the existing Phosphor icons. Its scoped styles live in chat/turnFeedback.css.
 It uses the shell's semantic typography, surface, border, accent and selected
-roles. Thumb buttons expose `aria-pressed`, the comment has a label and character
-limit, and pending/error states use status/alert roles.
+roles and the owning Forge boundary's themed portals. The selected thumb exposes
+`aria-pressed`; menus support arrows/Home/End and Escape. The comment has a label
+and character limit, and pending/error states use status/alert roles.
 The initiating control regains focus after a write unless focus moved outside
-the feedback form. Closing the comment editor returns focus to its action.
+the feedback controls. The dialog focuses its textarea after opening, contains
+keyboard focus, and returns it to the initiating footer action after closing.
 This change is scoped to the final-answer footer; existing bubble and execution-card typography remains
 legacy scope described in workspace-typography.md.
-At 390px the action row stays on one line; icons keep their shared target sizes
-while the preview shrinks. The footer and editor fit within the viewport. The
+The shared Forge compact-button rule also retains its 44px minimum target on
+coarse pointers; desktop compact dimensions remain unchanged.
+At 390px the action row stays on one line and icons keep their shared target
+sizes. The dialog is at most 560px wide with 16px viewport margins. The
 existing topbar/user button still extends about 5px past the viewport even when
 feedback is hidden; that shell layout is outside this change.
 
@@ -56,12 +66,12 @@ Rebuild the embedded UI using `cd ui && npm run build:embed`, then rebuild the G
 binary, or use `cd e2e && endly -t=build`. Browser validation should cover both
 thumbs, comment editing/canceling, reset, reload, independent turns, request
 failure/retry and keyboard use at desktop and narrow widths.
+The existing `npm run test:typography` browser proof exercises the actual
+TurnFeedback and SDK with synthetic local responses in both light/dark modes
+and desktop/touch sizes, including modal focus and comment preservation.
 
-Local verification uses a temporary Go workspace containing Agently and
-agently-core. The released Core version in Agently's go.mod must be updated when
-the Core changes are published. The current UI also requires Forge's shared
-design-system exports (available at `origin/codex/ux0-design-system-foundation`,
-revision `47b990c`). If the local Forge checkout lacks those exports, point
-`FORGE_SOURCE_ROOT` at a checkout of that revision when building or testing UI.
+Local development can use sibling agently-core and Forge checkouts through
+`go.mod` replacements. UI builds and Vitest also resolve those sibling sources
+by default; `AGENTLY_CORE_SOURCE_ROOT` and `FORGE_SOURCE_ROOT` can override them.
 UI Vitest also needs `APPSERVER_URL` set, as required by the existing Vite config
 (for example `APPSERVER_URL=http://127.0.0.1:9193`).
