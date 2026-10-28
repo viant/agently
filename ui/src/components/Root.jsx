@@ -23,6 +23,7 @@ import ToolFeedDetached from './ToolFeedDetached';
 import UsageBar from './UsageBar';
 import TurnProgressStatus from './TurnProgressStatus';
 import ConversationWorkspaceSurface from './ConversationWorkspaceSurface';
+import AppSectionContent from './AppSectionContent.jsx';
 import StatusBar from './StatusBar';
 import WorkspaceSidebar from './WorkspaceSidebar';
 import ScheduleConversationHistory from './ScheduleConversationHistory';
@@ -1552,12 +1553,7 @@ export default function Root() {
             />
           ) : null}
           <main className={`app-chat-pane${showChatChrome ? ' is-chat-main-window' : ''}`} inert={sectionNavigation && isCompactShell && isSidebarOpen ? '' : undefined}>
-            {showAppSection ? <section className="app-section-page" data-agently-presentation="legacy" aria-label={appSectionTitle}>
-              {sectionWindow ? <WindowContent key={sectionWindow.windowId} window={sectionWindow} isInTab/> : <div className="app-section-empty">
-                <Typography as="h1" typeRole="heading">{currentSectionView?.error ? 'Destination unavailable' : appSectionTitle}</Typography>
-                <Typography as="p" typeRole="body" role={currentSectionView?.error ? 'alert' : undefined}>{currentSectionView?.error || 'Choose a destination from the menu.'}</Typography>
-              </div>}
-            </section> : null}
+            {showAppSection ? <AppSectionContent window={sectionWindow} title={appSectionTitle} error={currentSectionView?.error}/> : null}
             {backendSelection.visited.map(connection => (
               <div key={connection.id} style={{ display: !showAppSection && backendSelection.selectedId === connection.id ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
                 <AgUiRemoteConversation connection={connection} active={backendSelection.selectedId === connection.id} />

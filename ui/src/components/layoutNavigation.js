@@ -26,7 +26,7 @@ export function layoutWindowDestinations(layout = {}) {
       for (const menu of menus || []) {
         const ids = [...path, menu.id];
         if (menu.children?.length) visit(menu.children, ids, disabled || menu.disabled);
-        else if (menu.action?.type === 'window') destinations.push({...menu, applicationId: app.id,
+        else if (['window', 'report'].includes(menu.action?.type)) destinations.push({...menu, applicationId: app.id,
           destination: JSON.stringify([app.id, ...ids]), disabled: !!(disabled || menu.disabled)});
       }
     };

@@ -142,6 +142,7 @@ const (
 )
 
 func Serve(options ServeOptions) error {
+	startupStarted := time.Now()
 	applyScratchpadRootURI(options.ScratchpadRootURI)
 
 	addr := envOr("AGENTLY_ADDR", ":8080")
@@ -166,6 +167,8 @@ func Serve(options ServeOptions) error {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	startupCtx, finishStartup := startupTiming(ctx, startupStarted)
+	defer finishStartup("error")
 
 	if debugEnabled {
 		enableDebugLogging()
@@ -227,7 +230,8 @@ func Serve(options ServeOptions) error {
 		return nil
 	}
 
-	rt, client, agentFndr, err := appserver.BuildWorkspaceRuntime(ctx, appserver.RuntimeOptions{
+	runtimeTiming := observe.Start(startupCtx, "startup.runtime.build", observe.Labels{})
+	rt, client, agentFndr, err := appserver.BuildWorkspaceRuntime(startupCtx, appserver.RuntimeOptions{
 		WorkspaceRoot:          workspace.Root(),
 		SkipRegistryInitialize: true,
 		Defaults:               defaults,
@@ -236,6 +240,7 @@ func Serve(options ServeOptions) error {
 			agentlyrt.ConfigureRegistry(ctx, rt, workspaceRoot)
 		},
 	})
+	runtimeTiming.End(observe.OutcomeFor(err), observe.CacheBypass)
 	if err != nil {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
 	}
@@ -253,14 +258,14 @@ func Serve(options ServeOptions) error {
 		cohortConfigPath = strings.TrimSpace(os.Getenv("AGENTLY_ARTIFACT_COHORT_CONFIG"))
 	}
 	if cohortConfigPath != "" {
-		bindings, prepareErr := cohort.PrepareLocalBindings(ctx, rt, cohortConfigPath)
+		bindings, prepareErr := cohort.PrepareLocalBindings(startupCtx, rt, cohortConfigPath)
 		if prepareErr != nil {
 			return fmt.Errorf("local artifact cohort activation: %w", prepareErr)
 		}
 		options.ArtifactCohorts = append(options.ArtifactCohorts, bindings...)
 	}
 	for _, registration := range options.ArtifactCohortRegistrations {
-		binding, prepareErr := cohort.PrepareBinding(ctx, rt, registration)
+		binding, prepareErr := cohort.PrepareBinding(startupCtx, rt, registration)
 		if prepareErr != nil {
 			return fmt.Errorf("artifact cohort registration: %w", prepareErr)
 		}
@@ -274,18 +279,26 @@ func Serve(options ServeOptions) error {
 			return fmt.Errorf("invalid or duplicate artifact cohort provider registration")
 		}
 		if binding.Start != nil {
-			if err := binding.Start(ctx); err != nil {
+			if err := binding.Start(startupCtx); err != nil {
 				return fmt.Errorf("artifact cohort notifications %s: %w", providerIdentity, err)
 			}
 		}
-		preloadTiming := observe.Start(ctx, "startup.provider.preload", observe.Labels{Kind: "artifact"})
-		if err := binding.Source.Sync(ctx); err != nil {
+		preloadTiming := observe.Start(startupCtx, "startup.provider.preload", observe.Labels{Kind: "artifact"})
+		if err := binding.Source.Sync(startupCtx); err != nil {
 			preloadTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
 			return fmt.Errorf("artifact cohort preload %s: %w", providerIdentity, err)
 		}
 		preloadTiming.End(observe.OK, observe.CacheUnknown)
+		if binding.ConnectionName == "" || binding.Metadata == nil {
+			return fmt.Errorf("artifact cohort metadata source is required for %s", providerIdentity)
+		}
+		if err := rt.InstallPublishedMetadata(resources.Connection{Name: binding.ConnectionName, ProviderIdentity: providerIdentity}, binding.Namespaces, binding.Metadata, binding.ConnectionAliases...); err != nil {
+			return fmt.Errorf("install artifact cohort metadata %s: %w", providerIdentity, err)
+		}
 		defer cohort.StartReconciliation(ctx, binding)()
-		cohortSources[providerIdentity] = binding.WindowSource()
+		cohortSources[providerIdentity] = cohort.WindowSourceFunc(func(ctx context.Context, uri string, target *forgetypes.WindowTarget) (*forgetypes.WindowResourceVariant, string, error) {
+			return rt.PrimitiveProviders.OpenPublishedWindowVariantForProvider(ctx, providerIdentity, uri, target)
+		})
 		cohortNamespaces[providerIdentity] = append([]string(nil), binding.Namespaces...)
 	}
 	var publishedBindings *sdk.PublishedWindowBindings
@@ -428,7 +441,8 @@ func Serve(options ServeOptions) error {
 	if err != nil {
 		return fmt.Errorf("configure navigation menu: %w", err)
 	}
-	apiHandler, err := appserver.NewAPIHandler(ctx, appserver.APIOptions{
+	apiTiming := observe.Start(startupCtx, "startup.api.build", observe.Labels{})
+	apiHandler, err := appserver.NewAPIHandler(startupCtx, appserver.APIOptions{
 		PublishedWindowBindings:    publishedBindings,
 		MenuReader:                 menuReader,
 		MCPUIResourceReader:        hostedAppReader,
@@ -445,10 +459,11 @@ func Serve(options ServeOptions) error {
 		UIBridgeHandler:            http.HandlerFunc(uiBridge.Hub().ServeHTTPRPC),
 		AGUIDemoBackends:           demoBackends,
 	})
+	apiTiming.End(observe.OutcomeFor(err), observe.CacheBypass)
 	if err != nil {
 		return fmt.Errorf("failed to create api handler: %w", err)
 	}
-	if os.Getenv("AGENTLY_PRIMITIVE_TRACE") == "1" {
+	if os.Getenv("BACKEND_PRIMITIVE_TRACE") == "1" {
 		apiHandler = withPrimitiveAPITiming(apiHandler, func(id uint64, method, route string, totals map[string]float64) {
 			encoded, _ := json.Marshal(totals)
 			log.Printf("primitive api timing request=%d method=%s route=%s (nested spans overlap): %s", id, method, route, encoded)
@@ -546,6 +561,7 @@ func Serve(options ServeOptions) error {
 		go agentWatchdog.Start(ctx)
 	}
 	log.Printf("agently serve listening on %s (workspace=%s ui=%s)", addr, workspace.Root(), uiBundle.Name)
+	finishStartup("ok")
 	serveErr := srv.Serve(listener)
 	return finalizeServeResult(cancel, &shutdownWG, serveErr, mcpSrv)
 }
@@ -560,7 +576,7 @@ func withForgeMetadataAuth(next http.Handler, authRuntime *svcauthctx.Runtime) h
 		}
 		protected.ServeHTTP(w, r)
 	})
-	if os.Getenv("AGENTLY_PRIMITIVE_TRACE") != "1" {
+	if os.Getenv("BACKEND_PRIMITIVE_TRACE") != "1" {
 		return handler
 	}
 	return observe.HTTP(handler, func(totals map[string]float64) {
