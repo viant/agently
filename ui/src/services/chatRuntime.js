@@ -1204,8 +1204,9 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     conversationId: normalizedConversationID,
     includeModelCalls: includeExecutionDetails,
     includeToolCalls: includeExecutionDetails,
-    // Initial history needs execution summaries and workspace ACKs, not the
-    // full model prompts/provider bodies. Detail expansion fetches those later.
+    // Keep history compact: summaries and workspace ACKs are needed, but model
+    // and tool request/response bodies load only on explicit detail inspection.
+    // Do not omit these flags: legacy defaults can download every payload again.
     includeModelPayloads: options?.includeModelPayloads === true,
     includeToolPayloads: options?.includeToolPayloads === true,
     includeFeeds,
@@ -2736,9 +2737,11 @@ export async function switchConversation(context, conversationID = '') {
       conversationId: targetID,
       cachedTurnCount: Array.isArray(cachedSettledSnapshot?.turns) ? cachedSettledSnapshot.turns.length : 0
     });
-    await refreshGoalFeed(targetID, context);
     if (!isCurrentRequest()) return;
     publishActiveConversation(targetID, context);
+    // Cached chat/workspace restoration must not wait for an independent goal
+    // lookup. The feed refresher already guards account/selection generations.
+    void refreshGoalFeed(targetID, context);
     return;
   }
   logExecutorDebug('switch-conversation-run', {

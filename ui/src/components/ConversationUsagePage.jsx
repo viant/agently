@@ -150,6 +150,10 @@ export default function ConversationUsagePage() {
           conversationId,
           includeModelCalls: true,
           includeToolCalls: true,
+          // Usage totals need call metadata, not model/tool request or response
+          // bodies. Keep both exclusions explicit; omitted flags retain legacy defaults.
+          includeModelPayloads: false,
+          includeToolPayloads: false,
         }).catch(() => null),
       ]);
       setConversation(nextConversation);

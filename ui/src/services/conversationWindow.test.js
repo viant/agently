@@ -2102,6 +2102,37 @@ describe('conversationWindow', () => {
 
   });
 
+  it('preserves an open projected report and its selection when native window history hydrates', () => {
+    const id = 'projected-history-owner';
+    const report = {windowId: 'projected-report', windowKey: 'inlineReport/workspace', conversationId: id,
+      parentKey: MAIN_CHAT_WINDOW_ID, presentation: 'hosted', region: 'chat.top',
+      workspaceObject: {objectId: 'report-object', revision: 4, lifecycle: {state: 'ready'}, content: {renderer: 'inlineReport', resetVersion: 2}}};
+    setScopedWorkspaceState(id, report);
+    setScopedWorkspaceSelection(id, report.windowId);
+    const closed = {...report, windowId: 'closed-report'};
+    const foreign = {...report, windowId: 'foreign-report', conversationId: 'another-owner'};
+    updateWorkspaceSession(window.sessionStorage, id, state => ({...state,
+      windows: [...state.windows, closed, foreign], openWindowIds: [...state.openWindowIds, closed.windowId, foreign.windowId],
+      closedWindowIds: [closed.windowId],
+    }));
+    const native = {windowId: 'native-window', windowKey: 'record', conversationId: id,
+      parentKey: MAIN_CHAT_WINDOW_ID, presentation: 'hosted', region: 'chat.top',
+      workspaceObject: {objectId: 'native-object', revision: 1, lifecycle: {state: 'ready'}}};
+    const turns = [{turnId: 'history-turn', execution: {pages: [{toolSteps: [{toolName: 'ui/window/get', status: 'completed', responsePayload: {window: native}}]}]}}];
+    const restored = syncScopedWorkspaceStateFromTranscriptTurns(id, turns, {announce: false});
+    expect(restored.windows.map(entry => entry.windowId)).toEqual(expect.arrayContaining([report.windowId, native.windowId]));
+    expect(restored.selectedWindowId).toBe(report.windowId);
+    expect(getScopedWorkspaceSelection(id)).toBe(report.windowId);
+    expect(getScopedWorkspaceWindowsState(id).find(entry => entry.windowId === report.windowId)?.workspaceObject.revision).toBe(4);
+    expect(restored.windows.map(entry => entry.windowId)).not.toContain(closed.windowId);
+    expect(restored.windows.map(entry => entry.windowId)).not.toContain(foreign.windowId);
+    // An older native snapshot cannot replace the report's newer session state.
+    turns[0].execution.pages[0].toolSteps[0].responsePayload.window = {...report, workspaceObject: {...report.workspaceObject, revision: 1, content: {...report.workspaceObject.content, resetVersion: 1}}};
+    const again = syncScopedWorkspaceStateFromTranscriptTurns(id, turns, {announce: false});
+    expect(again.windows.find(entry => entry.windowId === report.windowId)?.workspaceObject.revision).toBe(4);
+    expect(again.selectedWindowId).toBe(report.windowId);
+  });
+
 
   it('restores a ready window even when an earlier payload cannot be fetched', async () => {
     const compressed = (id) => ({ Id: id, Compression: 'gzip', InlineBody: '\u001f�compressed' });

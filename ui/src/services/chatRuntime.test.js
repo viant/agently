@@ -2240,11 +2240,21 @@ describe('switchConversation', () => {
       generatedFiles: []
     });
 
-    await switchConversation(context, 'conv-1');
-
-    expect(client.getConversation).not.toHaveBeenCalled();
-    expect(client.getTranscript).not.toHaveBeenCalled();
-    expect(setFormData).toHaveBeenCalled();
+    const previousGetGoal=client.getGoal;
+    let releaseGoal;
+    client.getGoal=vi.fn(()=>new Promise(resolve=>{releaseGoal=resolve;}));
+    let completed=false;
+    const switching=switchConversation(context,'conv-1').then(()=>{completed=true;});
+    try {
+      await Promise.resolve();await Promise.resolve();
+      expect(client.getGoal).toHaveBeenCalled();
+      expect(completed).toBe(true);
+      expect(client.getConversation).not.toHaveBeenCalled();
+      expect(client.getTranscript).not.toHaveBeenCalled();
+      expect(setFormData).toHaveBeenCalled();
+    } finally {
+      releaseGoal?.(null);await switching;client.getGoal=previousGetGoal;
+    }
   });
 });
 
@@ -4239,7 +4249,7 @@ describe('New Conversation window-instance ownership', () => {
     }
   });
 
-  it('discards a linked-window completion after that actual window is closed', async () => {
+  it('does not revive a closed linked window when its background goal read completes', async () => {
     const previous = global.window;
     const previousGetGoal = client.getGoal;
     global.window = browser();
@@ -4251,9 +4261,14 @@ describe('New Conversation window-instance ownership', () => {
     cacheSettledConversationBootstrapSnapshot('closed-linked-conversation', {conversation: {id: 'closed-linked-conversation', status: 'succeeded'}, turns: [], pendingElicitations: [], generatedFiles: []});
     try {
       const switching = switchConversation(linked.context, 'closed-linked-conversation');
-      activeWindows.value = [];
-      goal.resolve({id: 'closed-linked-goal', status: 'active'});
       await switching;
+      expect(window.sessionStorage.getItem('agently.selectedConversationId:closed-linked')).toBe('closed-linked-conversation');
+      // Cached navigation completes before the independent goal read. Retire
+      // its window/selection, then prove the late read cannot recreate them.
+      activeWindows.value = [];
+      window.sessionStorage.removeItem('agently.selectedConversationId:closed-linked');
+      goal.resolve({id: 'closed-linked-goal', status: 'active'});
+      await Promise.resolve();await Promise.resolve();await Promise.resolve();
       expect(window.sessionStorage.getItem('agently.selectedConversationId:closed-linked')).toBeNull();
       expect(getActiveFeeds().some(feed => feed.conversationId === 'closed-linked-conversation')).toBe(false);
     } finally {
