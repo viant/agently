@@ -9,6 +9,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 
 import {
     __resetAll,
+    beginTranscriptRead,
+    onTurnFeedback,
     getProjection,
     getState,
     getActiveTurnId,
@@ -198,5 +200,29 @@ describe('chatStore — identity stability across bootstrap → SSE echo → tra
 
         // Exactly one user row — no duplicate.
         expect(rowsAfterTranscript.filter((r) => r.kind === 'user').length).toBe(1);
+    });
+});
+
+
+describe('feedback snapshot ordering', () => {
+    it('keeps an acknowledged vote and clear when an older request or stream snapshot arrives', () => {
+        const original = {conversationId:CONV,turns:[{turnId:'a',status:'completed',feedback:{rating:0,comment:null,updatedAt:null}},
+            {turnId:'b',status:'completed',feedback:{rating:0,comment:null,updatedAt:null}}]};
+        onTranscript(CONV,original);
+        const olderRead = beginTranscriptRead(CONV);
+        const saved = {rating:1,comment:'Helpful',updatedAt:'2026-10-24T12:00:00Z'};
+        onTurnFeedback(CONV,'a',saved);
+        onTranscript(CONV,original,olderRead);
+        onTranscript(CONV,original);
+        expect(getState(CONV).turns[0].feedback).toEqual(saved);
+        const beforeClear = beginTranscriptRead(CONV);
+        const cleared = {rating:0,comment:null,updatedAt:null};
+        onTurnFeedback(CONV,'a',cleared);
+        onTranscript(CONV,{...original,turns:[{...original.turns[0],feedback:saved}]},beforeClear);
+        expect(getState(CONV).turns[0].feedback).toEqual(cleared);
+        // A subsequent read is authoritative, including edits in another tab.
+        onTranscript(CONV,{...original,turns:[{...original.turns[0],feedback:saved}]},beginTranscriptRead(CONV));
+        expect(getState(CONV).turns[0].feedback).toEqual(saved);
+        expect(getState(CONV).turns[1].feedback).toEqual(cleared);
     });
 });
