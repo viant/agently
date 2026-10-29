@@ -43,7 +43,8 @@ const server = await createServer({
       next();
     });
   }}],
-  optimizeDeps: {entries: ['typography-proof.html']},
+  // Scan both proof pages before interactions can discover dependencies and reload the page.
+  optimizeDeps: {entries: ['typography-proof.html', 'typography-components-proof.html']},
   server: {host: '127.0.0.1', port: 0, fs: {allow: [root, dependencies, forge, core]}},
 });
 let browser;
