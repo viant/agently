@@ -111,3 +111,19 @@
   line-height: var(--agently-theme-type-body-line-height, normal);
   letter-spacing: var(--agently-theme-type-body-letter-spacing, normal);
 }
+
+/* Application controls must not inherit the split sidebar's growing tabs. */
+.app-layout-sidebar.is-sections .app-section-applications {
+  flex: 0 0 auto; flex-wrap: wrap; overflow: visible;
+  padding: var(--agently-theme-spacing-2, 8px);
+  border-bottom: 1px solid var(--app-border);
+}
+.app-section-applications [role="tab"][aria-selected="true"] {
+  color: var(--app-accent); background: var(--app-selected-background);
+}
+.app-section-applications [role="tab"]:focus-visible {
+  outline: var(--agently-theme-focus-width, 2px) solid var(--app-muted, currentColor);
+  outline-offset: var(--agently-theme-focus-offset, 2px);
+}
+.app-layout-sidebar.is-sections .app-layout-menus { flex: 0 0 auto; }
+.app-section-menu-empty { padding: var(--agently-theme-spacing-2, 8px); }
