@@ -53,6 +53,17 @@ function projectDateParts(value) {
   return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+function dateRangeLabel(start, end) {
+  const values = [start, end].filter(Boolean);
+  if (!values.length) return '';
+  try {
+    const dates = values.map(value => new Date(`${value}T00:00:00Z`));
+    if (dates.some((date, index) => date.toISOString().slice(0, 10) !== values[index]) || (dates.length === 2 && dates[1] < dates[0])) return values.join(' – ');
+    const formatter = new Intl.DateTimeFormat(undefined, {dateStyle:'medium', timeZone:'UTC'});
+    return dates.length === 2 ? formatter.formatRange(dates[0], dates[1]) : formatter.format(dates[0]);
+  } catch {return values.join(' – ');}
+}
+
 export function projectFeedFields(root, fields = {}) {
   if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return root;
   const projected = {};
@@ -67,7 +78,7 @@ export function projectFeedFields(root, fields = {}) {
         start,
         end,
       };
-      if (transform === 'daterangelabel') value = [start, end].filter(Boolean).join(' – ');
+      if (transform === 'daterangelabel') value = dateRangeLabel(start, end);
     } else if (transform === 'dateparts') {
       value = projectDateParts(value);
     } else if (transform === 'boolean') {
