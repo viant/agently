@@ -295,6 +295,7 @@ func Serve(options ServeOptions) error {
 		if err := rt.InstallPublishedMetadata(resources.Connection{Name: binding.ConnectionName, ProviderIdentity: providerIdentity}, binding.Namespaces, binding.Metadata, binding.ConnectionAliases...); err != nil {
 			return fmt.Errorf("install artifact cohort metadata %s: %w", providerIdentity, err)
 		}
+		log.Printf("artifact cohort ready: connection=%q aliases=%q provider=%q namespaces=%q metadata=local", binding.ConnectionName, binding.ConnectionAliases, providerIdentity, binding.Namespaces)
 		defer cohort.StartReconciliation(ctx, binding)()
 		cohortSources[providerIdentity] = cohort.WindowSourceFunc(func(ctx context.Context, uri string, target *forgetypes.WindowTarget) (*forgetypes.WindowResourceVariant, string, error) {
 			return rt.PrimitiveProviders.OpenPublishedWindowVariantForProvider(ctx, providerIdentity, uri, target)
