@@ -106,7 +106,8 @@ export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const safeEnv = pickEnv(env, ['AUTH_URL', 'DATA_URL', 'APP_URL', 'APPSERVER_URL', 'VITE_FORGE_LOG_LEVEL']);
   const prodEnv = { AUTH_URL: '/', DATA_URL: '/', APPSERVER_URL: '/', ...safeEnv };
-  const proxyTarget = command === 'serve'
+  const testing = mode === 'test' || process.env.VITEST === 'true';
+  const proxyTarget = command === 'serve' && !testing
     ? resolveProxyTarget(env, { requireExplicit: true })
     : resolveProxyTarget(env);
   const devHost = resolveDevHost(env);
@@ -187,7 +188,7 @@ export default defineConfig(({ mode, command }) => {
         allow: [uiRoot, forgeRoot, resolve(forgeRoot, 'src'), coreRoot, resolve(coreRoot, 'sdk/ts/src')],
         strict: false
       },
-      proxy: {
+      proxy: testing ? {} : {
         '/v1': {
           target: proxyTarget,
           // Let the SPA handle the OAuth callback route so the OAuthCallback
