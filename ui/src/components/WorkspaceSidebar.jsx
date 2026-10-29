@@ -57,6 +57,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
   const [fraction, setFraction] = useState(DEFAULT_SPLIT);
   const [error, setError] = useState('');
   const [reloadVersion, setReloadVersion] = useState(0);
+  const [destinationVisit, setDestinationVisit] = useState(0);
   const [preferenceKey, setPreferenceKey] = useState('');
   const [sidebarHeight, setSidebarHeight] = useState(0);
   const shellRef = useRef(null);
@@ -199,7 +200,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
     const entry = openWindow(resolveLayoutWindowKey(selected.action), selected.title, selected.action.refreshDataSources || [],
       {...options, parentKey: null, region: 'app.section'});
     publish(entry, selected.title);
-  }, [sections, layout, section, destination]);
+  }, [sections, layout, section, destination, destinationVisit]);
   if (layout && !navigationEnabled && historyEnabled) {
     return <Sidebar hidden={drawerHidden} history={history} collapsed={collapsed} onNavigate={onNavigate} onExpand={onExpand} showNewConversation={history.newConversation !== false} />;
   }
@@ -237,6 +238,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
           const options = resolveLayoutReportOptions(action, conversationId, selectedWindowInputs());
           if (!options) return;
           if (sections) {
+            if (section === 'workspaces' && destination === destinationId) setDestinationVisit(value => value + 1);
             onSectionChange?.('workspaces', destinationId);
           } else {
             openWindow(action.resourceUri, menu.title, [], options);
@@ -250,6 +252,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
           const options = resolveLayoutWindowOptions(action, conversationId, selectedWindowInputs());
           if (!options) return;
           if (sections) {
+            if (section === 'workspaces' && destination === destinationId) setDestinationVisit(value => value + 1);
             onSectionChange?.('workspaces', destinationId);
           } else {
             openWindow(windowKey, menu.title, action.refreshDataSources || [], options);

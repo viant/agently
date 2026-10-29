@@ -1,5 +1,5 @@
 import { activeWindows, selectedWindowId, findViewSignal, findMetadataSignal, findInputSignal, findSelectionSignal } from 'forge/core';
-import { getScopedActiveSurface, getScopedWorkspaceSelection } from './conversationWindow.js';
+import { getScopedWorkspaceSelection } from './conversationWindow.js';
 import { resolveWorkspaceWindowTitle } from './workspaceWindowTitle.js';
 
 const scalar = (value) => typeof value === 'string' || typeof value === 'boolean'
@@ -12,15 +12,33 @@ const contextParameters = (value) => Object.fromEntries(Object.entries(value || 
   .slice(0, 16)
   .map(([key, item]) => [key, Array.isArray(item) ? item.slice(0, 16) : item]));
 
+let lastFocusedWindowId = '';
+const isWorkspaceWindow = entry => entry && entry.windowKey !== 'chat/new' && entry.windowId !== 'chat/new'
+  && !['failed', 'closed'].includes(entry.workspaceObject?.lifecycle?.state);
+
+// Keep only an identity pointer. Submission reads current state, never a stale
+// copy of a previous user's window or another conversation's data.
+export function trackWorkspaceQueryFocus() {
+  const remember = () => {
+    const windows = activeWindows.peek() || [];
+    const focused = windows.find(entry => entry.windowId === selectedWindowId.peek());
+    if (isWorkspaceWindow(focused)) lastFocusedWindowId = focused.windowId;
+    else if (!windows.some(entry => entry.windowId === lastFocusedWindowId)) lastFocusedWindowId = '';
+  };
+  const stopWindows = activeWindows.subscribe(remember);
+  const stopSelection = selectedWindowId.subscribe(remember);
+  return () => { stopWindows(); stopSelection(); lastFocusedWindowId = ''; };
+}
+
 // Read live signals for each submission. View hints are untrusted conversational
 // context, never authorization, tool permissions, or datasource resource grants.
 export function buildWorkspaceQueryContext(conversationId) {
-  if (!conversationId || getScopedActiveSurface(conversationId) !== 'workspace') return {};
-  const windows = (activeWindows.peek() || []).filter((item) => item.conversationId === conversationId);
-  // Tab focus changes synchronously; persisted workspace selection can lag a
-  // React effect. Composer focus may select chat, so retain the scoped fallback.
-  const entry = windows.find((item) => item.windowId === selectedWindowId.peek() && item.windowKey !== 'chat/new')
-    || windows.find((item) => item.windowId === getScopedWorkspaceSelection(conversationId));
+  if (!conversationId) return {};
+  const windows = activeWindows.peek() || [];
+  const eligible = entry => isWorkspaceWindow(entry) && (!entry.conversationId || entry.conversationId === conversationId);
+  const entry = windows.find(item => item.windowId === selectedWindowId.peek() && eligible(item))
+    || windows.find(item => item.windowId === lastFocusedWindowId && eligible(item))
+    || windows.find(item => item.windowId === getScopedWorkspaceSelection(conversationId) && item.conversationId === conversationId && eligible(item));
   if (!entry || ['failed', 'closed'].includes(entry.workspaceObject?.lifecycle?.state)) return {};
   const windowId = entry.windowId;
   const metadata = findMetadataSignal(windowId)?.peek?.() || {};
@@ -60,6 +78,7 @@ export function buildWorkspaceQueryContext(conversationId) {
   return { workspace: {
     objectId: entry.workspaceObject?.objectId || `workspace:${windowId}`,
     windowId, ...(entry.windowKey ? {windowKey: entry.windowKey} : {}),
+    ...((entry.resourceRef?.uri || metadata.resource?.uri) ? {resourceUri: entry.resourceRef?.uri || metadata.resource.uri} : {}),
     title: resolveWorkspaceWindowTitle(entry, metadata) || entry.title || '',
     renderer: entry.workspaceObject?.content?.renderer || 'forgeWindow',
     ...(Object.keys(parameters).length ? {parameters: snapshot(parameters)} : {}),

@@ -1,14 +1,17 @@
-import {beforeEach,describe,it,expect} from 'vitest';
+import {beforeEach,afterEach,describe,it,expect} from 'vitest';
 import {activeWindows,selectedWindowId,getMetadataSignal,getViewSignal,getInputSignal,getSelectionSignal} from 'forge/core';
 import {setScopedActiveSurface,setScopedWorkspaceSelection} from './conversationWindow';
-import {buildWorkspaceQueryContext} from './workspaceQueryContext';
+import {buildWorkspaceQueryContext,trackWorkspaceQueryFocus} from './workspaceQueryContext';
 
 describe('workspace composer context',()=>{
+ let stopTracking;
+ afterEach(()=>stopTracking?.());
  beforeEach(()=>{
   const values=new Map();
   global.window={sessionStorage:{getItem:key=>values.get(key),setItem:(key,value)=>values.set(key,value)}};
   activeWindows.value=[{windowId:'view-1',title:'Orders',conversationId:'c',workspaceObject:{objectId:'object-1',lifecycle:{state:'ready'}}}];
   selectedWindowId.value = null;
+  stopTracking=trackWorkspaceQueryFocus();
   setScopedActiveSurface('c','workspace');setScopedWorkspaceSelection('c','view-1');
   getMetadataSignal('view-1').value={dataSource:{records:{uniqueKey:[{field:'id'}]}}};
   getViewSignal('view-1').value={tabs:{sections:'activity'}};
@@ -58,10 +61,10 @@ describe('workspace composer context',()=>{
  it('includes active view choices and selected keys, not execution or permission state',()=>{
   expect(buildWorkspaceQueryContext('c')).toEqual({workspace:{objectId:'object-1',windowId:'view-1',title:'Orders',renderer:'forgeWindow',internalTabs:{sections:'activity'},dataSources:{records:{filter:{status:'active'},selectedKeys:{id:7}}}}});
  });
- it('does not leak another conversation or imply workspace context from chat',()=>{
+ it('keeps own workspace context in chat without leaking another conversation',()=>{
   expect(buildWorkspaceQueryContext('other')).toEqual({});
   setScopedActiveSurface('c','conversation');
-  expect(buildWorkspaceQueryContext('c')).toEqual({});
+  expect(buildWorkspaceQueryContext('c').workspace.windowId).toBe('view-1');
  });
  it('snapshots multiple declared composite identifiers without copying rows or complex key values',()=>{
   getMetadataSignal('view-1').value={dataSource:{records:{uniqueKey:['id',{field:'region'}, {field:'unsafe'}]}}};
@@ -87,4 +90,19 @@ describe('workspace composer context',()=>{
   expect(buildWorkspaceQueryContext('')).toEqual({});
  });
 
+});
+
+it('retains the last focused section child when moving into a new conversation composer',()=>{
+ const stop=trackWorkspaceQueryFocus();
+ try {
+  activeWindows.value=[{windowId:'root',windowKey:'records',region:'app.section'},
+    {windowId:'detail',windowKey:'window://example/detail',parentKey:'root',region:'app.section',parameters:{RecordId:[7]}},
+    {windowId:'nested',windowKey:'window://example/nested',parentKey:'detail',region:'app.section',parameters:{RecordId:[9]}},
+    {windowId:'chat/new',windowKey:'chat/new',conversationId:'new-chat'}];
+  getViewSignal('nested').value={tabs:{sections:'properties'}};
+  selectedWindowId.value='detail';selectedWindowId.value='nested';selectedWindowId.value='chat/new';
+  expect(buildWorkspaceQueryContext('new-chat').workspace).toMatchObject({windowId:'nested',windowKey:'window://example/nested',parameters:{RecordId:[9]},internalTabs:{sections:'properties'}});
+  activeWindows.value=activeWindows.peek().filter(entry=>entry.windowId!=='nested');
+  expect(buildWorkspaceQueryContext('new-chat')).toEqual({});
+ } finally {stop();activeWindows.value=[];}
 });

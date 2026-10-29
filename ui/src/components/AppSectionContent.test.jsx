@@ -3,14 +3,18 @@ import React from 'react';
 import {afterEach, expect, it, vi} from 'vitest';
 import {act, cleanup, fireEvent, render, screen} from '@testing-library/react';
 import {activeWindows, addWindow, selectedTabId, selectedWindowId} from 'forge/core';
+import {useWindowHandlers} from 'forge/hooks';
 import {sectionWindowIds, belongsToAppSection} from './sectionWindowTree.js';
 
-vi.mock('forge/window', () => ({default: ({window: entry}) => <div>
-  <span>{entry.windowKey} content</span>
-  <button onClick={() => addWindow('Detail', entry.windowId,
-    entry.windowKey.startsWith('window://') ? 'window://example/detail' : 'detail', '', true,
-    {RecordId: [7]}, {region: entry.region, providerIdentity: entry.providerIdentity})}>Open detail</button>
-</div>}));
+vi.mock('forge/window', async importOriginal => {
+  const actual = await importOriginal();
+  return {...actual, default: ({window: entry}) => {
+    React.useEffect(() => actual.syncWindowRuntimeHints(entry.windowId, {presentation:'hosted',region:'chat.top'}), [entry.windowId]);
+    return <div><span>{entry.windowKey} content</span>
+      <button onClick={() => useWindowHandlers(entry.windowId).openTarget({target:{kind:'window',windowKey:entry.windowKey.endsWith('detail')?'nested':'detail',windowTitle:entry.windowKey.endsWith('detail')?'Nested':'Detail',parameters:{RecordId:[7]}}})}>Open detail</button>
+    </div>;
+  }};
+});
 vi.mock('./ReportWindow.jsx', () => ({default: () => <div>Report</div>, isReportWindow: () => false}));
 import AppSectionContent from './AppSectionContent.jsx';
 
@@ -32,6 +36,11 @@ it.each(['records', 'window://example/records'])('renders linked children for %s
   const key=windowKey.startsWith('window://')?'window://example/detail':'detail';
   expect(visible(await screen.findByText(`${key} content`))).toBe(true);
   expect(activeWindows.peek().find(win=>win.windowKey===key).parameters).toEqual({RecordId:[7]});
+  await act(async () => {fireEvent.click(screen.getByRole('button',{name:'Open detail'}));});
+  const nestedKey=windowKey.startsWith('window://')?'window://example/nested':'nested';
+  expect(visible(await screen.findByText(`${nestedKey} content`))).toBe(true);
+  await act(async () => {fireEvent.click(screen.getByRole('button',{name:'Open detail'}));});
+  expect(visible(screen.getByText(`${key} content`))).toBe(true);
   await act(async () => {fireEvent.click(screen.getByRole('tab',{name:/Records/}));});
   expect(visible(screen.getByText(`${windowKey} content`))).toBe(true);
   expect(visible(screen.getByText(`${key} content`))).toBe(false);
