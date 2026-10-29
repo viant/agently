@@ -57,3 +57,7 @@ console.log('Forge public exports and legacy source aliases passed');
 for (const name of ['@blueprintjs/core', '@blueprintjs/icons', '@blueprintjs/table']) {
   assert.ok(config.resolve.dedupe.includes(name), `missing shared peer ${name}`);
 }
+
+const testConfig = createConfig({mode:'test',command:'serve'});
+assert.deepEqual(testConfig.server.proxy, {}, 'tests must not require or forward to a live backend');
+console.log('Vitest mode runs without backend proxy configuration');
