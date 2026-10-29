@@ -1,4 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+// @vitest-environment jsdom
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { fireEvent } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import Sidebar from './Sidebar';
+import { client } from '../services/agentlyClient';
+import * as conversationWindow from '../services/conversationWindow';
 import {
   applyConversationMetaPatchToRows,
   conversationActivityMetaPatch,
@@ -16,6 +23,93 @@ import {
   sidebarPageStatusLabel,
   terminalConversationMetaPatch
 } from './Sidebar';
+
+describe('saved conversation history', () => {
+  let root;
+  let element;
+
+  afterEach(async () => {
+    if (root) await act(async () => root.unmount());
+    element?.remove();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it.each(['', 'saved'])('lists a saved conversation during a pending pre-save read, with search "%s"', async (query) => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    vi.useFakeTimers();
+    let resolvePreSave;
+    const old = { id: 'previous-chat', title: 'Previous saved chat' };
+    const saved = { id: 'new-chat', title: 'Latest saved chat', lastActivity: '2026-10-29T18:00:00Z' };
+    const list = vi.spyOn(client, 'listConversations')
+      .mockImplementationOnce(() => new Promise(resolve => { resolvePreSave = resolve; }))
+      .mockResolvedValue({ data: [saved, old], page: {} });
+    const open = vi.spyOn(conversationWindow, 'openConversationInMainWindow').mockImplementation(() => {});
+    element = document.createElement('div');
+    document.body.append(element);
+    root = createRoot(element);
+    await act(async () => root.render(React.createElement(Sidebar, { history: { list: { virtualized: false } } })));
+    if (query) await act(async () => fireEvent.change(element.querySelector('input'), { target: { value: query } }));
+    await act(async () => vi.advanceTimersByTime(250));
+    expect(list).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('agently:conversation-new', { detail: { id: saved.id } }));
+      vi.advanceTimersByTime(300);
+    });
+    await act(async () => resolvePreSave({ data: [old], page: {} }));
+
+    expect([...element.querySelectorAll('.app-conversation-title')].map(row => row.textContent))
+      .toEqual([saved.title, old.title]);
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(list).toHaveBeenLastCalledWith({
+      excludeScheduled: true, query: query || undefined,
+      page: { limit: 12, direction: 'latest', cursor: undefined }
+    });
+    await act(async () => element.querySelector('.app-conversation-row-body').click());
+    expect(open).toHaveBeenCalledWith(saved.id);
+    expect(element.querySelector('input').value).toBe(query);
+  });
+
+  it.each([0, 300])('reconciles virtualized rows with the actual scroll offset %s after showing history', async (offset) => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    vi.useFakeTimers();
+    const observers = new Set();
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback) { this.callback = callback; this.targets = new Set(); observers.add(this); }
+      observe(target) { this.targets.add(target); }
+      unobserve(target) { this.targets.delete(target); }
+      disconnect() { this.targets.clear(); }
+    });
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function () {
+      if (this.closest('[hidden]')) return 0;
+      return this.classList.contains('app-sidebar-scroll') ? 180 : 36;
+    });
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(280);
+    const resize = () => observers.forEach(observer => observer.callback([...observer.targets].map(target => ({
+      target, borderBoxSize: [{inlineSize: target.offsetWidth, blockSize: target.offsetHeight}]
+    }))));
+    const savedRows = Array.from({length: 12}, (_, index) => ({id: `chat-${index}`, title: `Saved chat ${index}`}));
+    const list = vi.spyOn(client, 'listConversations').mockResolvedValue({data: savedRows, page: {}});
+    element = document.createElement('div');
+    document.body.append(element);
+    root = createRoot(element);
+    const view = hidden => React.createElement(Sidebar, {appearance: 'document', hidden});
+    await act(async () => root.render(view(false)));
+    await act(async () => vi.advanceTimersByTime(250));
+    const scroll = element.querySelector('.app-sidebar-scroll');
+    await act(async () => fireEvent.scroll(scroll, {target: {scrollTop: 300}}));
+    await act(async () => root.render(view(true)));
+    await act(async () => { scroll.scrollTop = offset; resize(); });
+    await act(async () => root.render(view(false)));
+    await act(async () => resize());
+
+    expect(element.querySelector(`[data-conversation-id="chat-${offset === 0 ? 0 : 8}"]`)).not.toBeNull();
+    expect(scroll.scrollTop).toBe(offset);
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('applyConversationMetaPatchToRows', () => {
   it('patches title and summary without treating selection hydration as activity', () => {
