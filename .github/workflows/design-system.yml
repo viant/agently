@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: viant/forge
-          ref: 875d62788d96de4c242cfa0c0f126358c06b5f53
+          ref: faf61b07aebd06dc9d2aeb54b766ae55715d5744
           path: forge
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
@@ -54,6 +54,8 @@ jobs:
       - run: npx vitest run src/services/workspaceStyles.test.js src/typographyContract.test.js src/components/WorkspaceSidebar.menuDelivery.test.jsx src/components/WorkspaceSidebar.test.jsx src/components/Sidebar.test.js src/components/TurnProgressStatus.test.js src/components/TurnProgressStatus.publicTask.render.test.jsx src/components/Root.test.jsx src/components/AppSectionContent.test.jsx src/services/workspaceQueryContext.test.js src/services/chatService.submit.test.js src/components/ReportWindow.test.jsx src/components/ReportWindow.wire.test.jsx src/services/reportChoiceService.test.js src/services/reportFilterParameters.test.js src/components/MenuBar.test.jsx src/components/ConversationWorkspaceSurface.test.jsx src/hooks/shellNavigation.test.jsx src/services/conversationWindow.test.js src/services/chatRuntime.test.js src/services/chatRuntime.feeds.test.js src/services/chatRuntime.terminalStage.test.js src/components/chat/ChatFeedFromChatStore.test.js src/components/chat/historyScroll.test.js src/services/workspaceSession.test.js src/components/lookups/NamedLookupInput.focus.test.jsx --testTimeout=15000
       - run: node vite.config.test.mjs
       - run: npm run test:typography
+      - run: npm run test:window-scroll
+        working-directory: agently/ui
       - run: npm run build
       - name: Verify embedded UI bundle
         working-directory: agently
