@@ -106,3 +106,24 @@ it('collects published predicate inputs before manual execution and sends typed 
   await screen.findByRole('heading',{name:'Selected scope'});
   expect(calls[2].args.parameters).toEqual({advertiserId:0,suiteId:7,campaignIds:[],from:'',to:'2026-01-03'});
 });
+
+
+it('clears an optional lookup predicate without sending an empty-set restriction', async () => {
+  const pin={providerIdentity:'example',uri:'report://example/summary',kind:'published',contentFingerprint:'exact',authorityBinding:'owner'};
+  const calls=[];
+  vi.stubGlobal('fetch',async(url,init)=>{
+    const args=JSON.parse(init.body); calls.push(args);
+    const payload=url.includes('get_report')?{resource:pin,resourceDefinition:{
+      dataSources:{options:{}},metadata:{previewChoices:[{parameter:'regions',label:'Regions',dataSourceRef:'options',multiple:true}]},
+      builderDefinition:{reportBuilder:{predicates:[{id:'regions',label:'Regions',multiple:true}]}}
+    }}:{resource:pin,reportSpec:{title:'All regions'},reportFill:{},reportPrint:{}};
+    return new Response(JSON.stringify({result:JSON.stringify(payload)}),{headers:{'content-type':'application/json'}});
+  });
+  hostServices={reportStore:{getReport,runReport}};
+  render(<ReportWindow window={{windowKey:pin.uri,parameters:{regions:['west'],unrelated:[],limit:0}}}/>);
+  await screen.findByRole('button',{name:'Apply filters'});
+  fireEvent.click(screen.getByRole('button',{name:'Clear Regions',hidden:true}));
+  fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
+  await screen.findByRole('heading',{name:'All regions'});
+  expect(calls[1].parameters).toEqual({unrelated:[],limit:0});
+});

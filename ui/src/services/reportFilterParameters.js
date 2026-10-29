@@ -29,3 +29,14 @@ export function initializeReportFilterParameters(definition = {}, parameters = {
   }
   return next;
 }
+
+// Clearing a declared optional picker removes that predicate. An empty array
+// sent to a reader is an explicit empty-set restriction, not an unselected UI
+// control. Do not rewrite required selectors or unrelated request inputs.
+export function applyReportFilterParameters(parameters, controls) {
+  const next = {...parameters};
+  for (const control of controls) {
+    if (control.kind === 'choice' && !control.required && Array.isArray(next[control.id]) && next[control.id].length === 0) delete next[control.id];
+  }
+  return next;
+}

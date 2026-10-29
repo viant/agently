@@ -1,7 +1,7 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {Button, Callout, Spinner} from '@blueprintjs/core';
 import {ReportResourceRuntime, ReportFilterBar} from 'forge/components';
-import {initializeReportFilterParameters} from '../services/reportFilterParameters';
+import {initializeReportFilterParameters, applyReportFilterParameters} from '../services/reportFilterParameters';
 import {createReportChoiceLoader} from '../services/reportChoiceService';
 import {useSetting} from 'forge/core';
 
@@ -90,7 +90,7 @@ export default function ReportWindow({window: entry}) {
   return <div className="forge-report-filter-layout">
     <ReportFilterBar controls={fields} values={{...parameters,...Object.fromEntries(fields.filter(field=>field.multiple&&field.kind==='text'&&editedParameters?.identity===parameterIdentity&&editedParameters.text?.[field.id]!==undefined).map(field=>[field.id,editedParameters.text[field.id]]))}} scopeKey={JSON.stringify(state.report.resource)} loadChoices={loadChoices}
       onChange={(id,value)=>{const field=fields.find(field=>field.id===id);setParameter(id,field?.multiple&&field.kind!=='choice'&&typeof value==='string'?reportParameterValue(value,field):value,value);}}
-      onApply={()=>{if(!missing.length){setApplied({identity:parameterIdentity,values:{...parameters}});setRunTrigger(value=>value+1);}}}
+      onApply={()=>{if(!missing.length){setApplied({identity:parameterIdentity,values:applyReportFilterParameters(parameters,fields)});setRunTrigger(value=>value+1);}}}
       onReset={()=>setEditedParameters({identity:parameterIdentity,values:{...initialParameters}})}
       applyDisabled={missing.length>0} placement={state.report.resourceDefinition?.builderDefinition?.reportBuilder?.filterPresentation||state.report.resourceDefinition?.metadata?.filterPlacement||'top'}/>
     {missing.length>0&&<Callout intent="warning" title="Required report inputs">Complete these inputs before running the report: {missing.map(field=>field.label).join(', ')}.</Callout>}
