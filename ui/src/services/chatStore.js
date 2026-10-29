@@ -24,6 +24,7 @@ import {
     chatStoreApplyEvent as applyEvent,
     chatStoreApplyLocalSubmit as applyLocalSubmit,
     chatStoreApplyTranscript as applyTranscript,
+    chatStoreApplyTurnFeedback as applyTurnFeedback,
     chatStoreNewConversationState as newConversationState,
     chatStoreProjectConversation as projectConversation,
     chatStoreProjectQueuedTurns as projectQueuedTurns,
@@ -55,6 +56,8 @@ function entry(conversationId) {
             state: newConversationState(conversationId),
             projection: null,
             version: 0,
+            feedbackRevision: 0,
+            feedbackWrites: new Map(),
         };
         conversations.set(conversationId, e);
     }
@@ -142,11 +145,32 @@ export function onSSE(conversationId, event) {
  * canonical api.ConversationState shape. `applyTranscript` is idempotent;
  * calling with the same snapshot twice is a no-op.
  */
-export function onTranscript(conversationId, snapshot) {
+/** Capture before starting a snapshot request, including reads racing a save. */
+export function beginTranscriptRead(conversationId) {
+    return entry(conversationId).feedbackRevision;
+}
+
+/** Confirmed writes update the canonical state; drafts stay in the component. */
+export function onTurnFeedback(conversationId, turnId, feedback) {
+    const e = entry(conversationId);
+    e.feedbackWrites.set(turnId, ++e.feedbackRevision);
+    applyTurnFeedback(e.state, turnId, feedback);
+    bump(e);
+}
+
+export function onTranscript(conversationId, snapshot, feedbackRevision = 0) {
     if (!snapshot || !conversationId) return;
     if (snapshot.conversationId && snapshot.conversationId !== conversationId) return;
     const e = entry(conversationId);
-    applyTranscript(e.state, snapshot);
+    // A request started before an acknowledged save (or a stream snapshot
+    // without a read token) must not restore the old vote/comment. Merge all
+    // other transcript fields normally, including the final answer.
+    const turns = snapshot.turns?.map((turn) => {
+        if ((e.feedbackWrites.get(turn.turnId) || 0) <= feedbackRevision) return turn;
+        const current = e.state.turns.find((value) => value.turnId === turn.turnId);
+        return current ? { ...turn, feedback: current.feedback } : turn;
+    });
+    applyTranscript(e.state, turns ? { ...snapshot, turns } : snapshot);
     bump(e);
 }
 

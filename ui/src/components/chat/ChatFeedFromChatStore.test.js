@@ -8,6 +8,12 @@ vi.mock('forge/components', () => ({
   AvatarIcon: ({ name = '' }) => React.createElement('span', { 'data-avatar-icon': name }),
 }));
 
+vi.mock('./TurnFeedback.jsx', () => ({
+  default: ({ turnId, feedback }) => React.createElement('div', {
+    'data-testid': 'turn-feedback', 'data-turn-id': turnId, 'data-rating': feedback?.rating || 0,
+  }),
+}));
+
 vi.mock('./LazyRichContent', () => ({
   default: ({ content = '' }) => React.createElement('span', null, content),
 }));
@@ -534,6 +540,19 @@ describe('native conversation-level feed ownership',()=>{
     renderToStaticMarkup(h(ChatFeedFromChatStore,{conversationId:'',rowsOverride:[{kind:'assistant',renderKey:'standard',turnId:'foreign',content:'Foreign',connectionProfile:'standard',hostEffectsAllowed:false}]}));
     expect(toolFeedDetailSpy).not.toHaveBeenCalled();
   });
+});
+
+
+it('renders one feedback control after the final answer, only with owner capability', () => {
+  const rows = [
+    {kind:'iteration',renderKey:'iteration',turnId:'t',lifecycle:'completed',rounds:[],feedbackEditable:true},
+    {kind:'assistant',renderKey:'final',turnId:'t',content:'Answer',feedbackEditable:true,feedback:{rating:1,comment:null,updatedAt:null}},
+    {kind:'assistant',renderKey:'reader',turnId:'other',content:'Shared answer',feedbackEditable:false},
+  ];
+  const html = renderToStaticMarkup(h(ChatFeedFromChatStore,{conversationId:'c',rowsOverride:rows}));
+  expect(html.match(/data-testid="turn-feedback"/g)).toHaveLength(1);
+  expect(html.indexOf('data-testid="turn-feedback"')).toBeGreaterThan(html.indexOf('data-render-key="final"'));
+  expect(html).toContain('data-rating="1"');
 });
 
 

@@ -1215,6 +1215,7 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
   const transcriptOptions = options?.selectors
     ? { selectors: options.selectors }
     : undefined;
+  const feedbackRevision = _chatStoreRef()?.beginTranscriptRead?.(normalizedConversationID);
   const payload = pendingBootstrap && !since && typeof client.getLiveState === 'function'
     ? await client.getLiveState(transcriptInput, transcriptOptions)
     : await client.getTranscript(transcriptInput, transcriptOptions);
@@ -1241,7 +1242,7 @@ export async function fetchTranscript(conversationID, since = '', options = {}) 
     }
     // Field provenance in the canonical reducer protects live SSE values while
     // allowing persisted transcript data to refine and settle the same entity.
-    store.onTranscript(canonicalConversation.conversationId, canonicalConversation);
+    store.onTranscript(canonicalConversation.conversationId, canonicalConversation, feedbackRevision);
   }
   // Workspace payload hydration is presentation-only. Do not make a history
   // switch wait for hosted workspace payload reads or authorization; the chat

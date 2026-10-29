@@ -1,0 +1,74 @@
+/* Optional feedback follows the final bubble and uses the shell's semantic
+   typography, surface and selected-state roles. */
+.app-turn-feedback {
+  margin: -4px 0 12px 34px;
+  min-width: 0;
+  color: var(--app-text-secondary);
+}
+.app-turn-feedback.is-document { margin-left: 0; }
+.app-turn-feedback-actions { display: flex; align-items: center; gap: var(--forge-spacing-1, 4px); flex-wrap: wrap; }
+.app-turn-feedback-toolbar { flex-wrap: nowrap; min-width: 0; }
+.app-turn-feedback-toolbar > * { flex-shrink: 0; }
+.app-turn-feedback-combined-icon { display: inline-flex; align-items: center; width: 22px; height: 22px; }
+.app-turn-feedback-combined-icon svg:first-child { align-self: flex-start; }
+.app-turn-feedback-combined-icon svg:last-child { align-self: flex-end; margin-left: -6px; }
+.app-turn-feedback-actions button[aria-pressed="true"] {
+  color: var(--app-accent);
+  background: var(--app-selected-background);
+}
+.app-turn-feedback button:focus-visible,
+.app-turn-feedback-dialog :is(button, textarea):focus-visible,
+.app-turn-feedback-menu .bp6-menu-item:focus-visible {
+  outline: var(--forge-focus-width, var(--agently-theme-focus-width, 2px)) solid var(--forge-focus-color, var(--app-accent));
+  outline-offset: var(--forge-focus-offset, var(--agently-theme-focus-offset, 2px));
+}
+.app-turn-feedback-menu.bp6-popover,
+.app-turn-feedback-dialog.bp6-dialog {
+  color: var(--forge-text, var(--app-text));
+  background: var(--forge-surface-raised, var(--app-surface));
+  border: var(--forge-border-width, 1px) solid var(--forge-border-strong, var(--app-border));
+  border-radius: var(--forge-radius-surface, var(--agently-theme-control-radius, 6px));
+}
+.app-turn-feedback-menu.bp6-popover { box-shadow: var(--forge-overlay-shadow, var(--forge-default-overlay-shadow)); }
+.app-turn-feedback-menu .bp6-popover-content,
+.app-turn-feedback-menu .bp6-menu { color: inherit; background: inherit; border-radius: inherit; }
+.app-turn-feedback-menu .bp6-menu-item { color: inherit; }
+.app-turn-feedback-menu .bp6-menu-item:not(.bp6-disabled):is(:hover, :focus) { color: inherit; background: var(--forge-surface-subtle, var(--app-surface-soft)); }
+.app-turn-feedback-menu .bp6-menu-item.bp6-disabled { color: var(--forge-disabled-text, var(--app-text-secondary)); }
+.app-turn-feedback-menu .bp6-menu-divider { border-color: var(--forge-border-strong, var(--app-border)); }
+.app-turn-feedback-dialog.bp6-dialog {
+  position: relative;
+  width: calc(100vw - 32px);
+  max-width: 560px;
+  padding-bottom: 0;
+  box-shadow: var(--forge-modal-shadow, var(--forge-default-modal-shadow));
+}
+.app-turn-feedback-dialog.bp6-dialog .bp6-dialog-header {
+  box-sizing: border-box;
+  min-height: 52px;
+  padding: var(--forge-spacing-4, 16px);
+  padding-right: 56px;
+  color: inherit;
+  background: inherit;
+  border-radius: inherit;
+  box-shadow: none;
+}
+.app-turn-feedback-dialog .bp6-dialog-header h2 { color: inherit; }
+.app-turn-feedback-close { position: absolute; top: var(--forge-spacing-2, 8px); right: var(--forge-spacing-2, 8px); }
+.app-turn-feedback-editor { display: grid; gap: var(--forge-spacing-2, 8px); min-width: 0; padding: 0 var(--forge-spacing-4, 16px) var(--forge-spacing-4, 16px); }
+.app-turn-feedback-editor textarea {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--forge-control-text, var(--app-text));
+  background: var(--forge-control-bg, var(--app-surface));
+  border: var(--forge-border-width, 1px) solid var(--forge-control-border, var(--app-border));
+  border-radius: var(--forge-control-radius, var(--agently-theme-control-radius, 6px));
+  box-shadow: none;
+  resize: vertical;
+}
+.app-turn-feedback-editor textarea[aria-invalid="true"] { border-color: var(--forge-status-danger-foreground, var(--app-danger)); }
+.app-turn-feedback-dialog-actions { margin-top: var(--forge-spacing-2, 8px); }
+.app-turn-feedback-error { margin: var(--forge-spacing-1, 4px) 0 0; color: var(--forge-status-danger-foreground, var(--app-danger, var(--app-text))); }
+@media (pointer: coarse) {
+  .app-turn-feedback-menu .bp6-menu-item { min-height: 44px; align-items: center; }
+}

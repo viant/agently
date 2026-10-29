@@ -6,7 +6,7 @@ const read = (path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8');
 describe('section navigation design-system adoption', () => {
   it('keeps shared appearance semantic and rejects raw styling bypasses', () => {
     const source = read('./components/SectionNavigation.jsx');
-    const styles = read('./components/sectionNavigation.css') + read('./components/shellHeader.css') + read('./components/chat/documentMessages.css') + read('./components/requestLifecycle.css');
+    const styles = read('./components/sectionNavigation.css') + read('./components/shellHeader.css') + read('./components/chat/documentMessages.css') + read('./components/requestLifecycle.css') + read('./components/chat/turnFeedback.css');
     const bypasses = css => /(?:#[0-9a-f]{3,8}\b|\b(?:rgb|hsl)a?\(|!important|(?:^|[;{])\s*(?:font-size|font-weight|line-height|letter-spacing)\s*:\s*-?\d)/i.test(css);
     expect(bypasses(styles)).toBe(false);
     expect(bypasses('.example {color: #123456}')).toBe(true);
