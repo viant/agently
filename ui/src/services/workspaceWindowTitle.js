@@ -8,7 +8,8 @@ export function resolveWorkspaceWindowTitle(windowEntry = null, metadata = null)
   if (!placeholder) return explicitTitle;
   const authoredTitle = String(metadata?.window?.title || metadata?.title || '').trim();
   const chipName = String(windowEntry?.navigation?.chipName || metadata?.window?.chipName || metadata?.chipName || '').trim();
-  if (authoredTitle || chipName) return authoredTitle || chipName;
+  const navigationLabel = String(windowEntry?.navigation?.label || '').trim();
+  if (authoredTitle || chipName || navigationLabel) return authoredTitle || chipName || navigationLabel;
   if (resourceKey) {
     return windowKey.split('/').filter(Boolean).pop().replace(/([a-z0-9])([A-Z])/g, '$1 $2')
       .replace(/[_-]+/g, ' ').replace(/\b\w/g, character => character.toUpperCase());
