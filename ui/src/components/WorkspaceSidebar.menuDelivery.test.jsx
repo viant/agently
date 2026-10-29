@@ -9,11 +9,11 @@ const sidebarRender = vi.fn();
 
 vi.mock('../services/agentlyClient', () => ({ getAuthMeSilently }));
 vi.mock('./menuBarHelpers', () => ({ openWindow }));
-vi.mock('./Sidebar', () => ({ default: () => {sidebarRender(); return <div data-testid="conversation-sidebar" />;} }));
+vi.mock('./Sidebar', () => ({ default: props => {sidebarRender(props); return <div data-testid="conversation-sidebar" hidden={props.hidden}/>;} }));
 // Use real shared primitives without loading unrelated report renderers.
 vi.mock('forge/components', async () => {
-  const {default: Typography, typographyProps} = await import('../../../../forge/src/components/Typography.jsx');
-  const {default: Icon} = await import('../../../../forge/src/components/Icon.jsx');
+  const {default: Typography, typographyProps} = await import('forge/components/Typography.jsx');
+  const {default: Icon} = await import('forge/components/Icon.jsx');
   return {Typography, typographyProps, Icon};
 });
 vi.mock('forge/core', async () => {
@@ -304,15 +304,31 @@ it('keeps conversation history mounted while sections replace its visible menu',
   const rail = await screen.findByRole('navigation', {name: 'App sections'});
   expect(rail.querySelector('[aria-current="page"]').getAttribute('aria-label')).toBe('Chat');
   const history = screen.getByTestId('conversation-sidebar');
+  expect(history.hidden).toBe(false);
   fireEvent.click(screen.getByRole('button', {name: 'Workspaces', exact: true}));
   fireEvent.click(await screen.findByRole('button', {name: 'Accounts'}));
   expect(history.isConnected).toBe(true);
+  expect(history.hidden).toBe(true);
   expect(history.closest('[hidden]')).not.toBeNull();
   expect(openWindow).toHaveBeenLastCalledWith('accounts', 'Accounts', [], expect.objectContaining({conversationId: undefined, parentKey: null, region: 'app.section', parameters: {scope: 'allowed'}}));
   expect(onOpenWorkspace).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', {name: 'Scheduled tasks'}));
   expect(openWindow).toHaveBeenLastCalledWith('schedule', 'Scheduled tasks', ['schedules'], expect.objectContaining({conversationId: undefined, parentKey: null, region: 'app.section'}));
   expect(onSectionWindow).toHaveBeenLastCalledWith({windowId: 'section-window'}, 'Scheduled tasks', 'action:schedule', '', '');
+});
+
+it('updates retained conversation history when the navigation drawer is hidden or shown', async () => {
+  const payload = layoutPayload({applications: []});
+  payload.layout.left.navigation = {presentation: 'sections'};
+  fetch.mockResolvedValue(response(payload));
+  const mounted = render(<WorkspaceSidebar drawerMode drawerHidden/>);
+  const history = await screen.findByTestId('conversation-sidebar');
+  expect(history.hidden).toBe(true);
+  mounted.rerender(<WorkspaceSidebar drawerMode drawerHidden={false}/>);
+  expect(history.hidden).toBe(false);
+  mounted.rerender(<WorkspaceSidebar drawerMode drawerHidden/>);
+  expect(history.hidden).toBe(true);
+  expect(history.isConnected).toBe(true);
 });
 
 it('restores only current catalog destinations and selects the owning application', async () => {
