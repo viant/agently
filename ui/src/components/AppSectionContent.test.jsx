@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import {afterEach, expect, it, vi} from 'vitest';
-import {act, cleanup, fireEvent, render, screen} from '@testing-library/react';
+import {act, cleanup, fireEvent, render, screen, within} from '@testing-library/react';
 import {activeWindows, addWindow, selectedTabId, selectedWindowId} from 'forge/core';
 import {useWindowHandlers} from 'forge/hooks';
 import {sectionWindowIds, belongsToAppSection} from './sectionWindowTree.js';
@@ -53,4 +53,25 @@ it('keeps unrelated sections, chat, and cycles outside the selected tree', () =>
   expect(belongsToAppSection(windows,windows[2])).toBe(true);
   expect(belongsToAppSection(windows,windows[4])).toBe(false);
   expect(belongsToAppSection(windows,windows[5])).toBe(false);
+});
+
+it.each(['records','window://example/records'])('keeps the three-level parent navigation in the header for %s',async windowKey=>{
+ const header=document.createElement('header');document.body.append(header);
+ try {
+  let root;
+  await act(async()=>{root=addWindow('Records',null,windowKey,'',true,{}, {region:'app.section'});});
+  const view=render(<AppSectionContent window={root} headerMount={header}/>);
+  expect(within(header).getByRole('tab',{name:'Records'})).toBeTruthy();
+  expect(view.container.querySelector('[role=tablist]')).toBeNull();
+  await act(async()=>fireEvent.click(screen.getByRole('button',{name:'Open detail'})));
+  await act(async()=>fireEvent.click(screen.getByRole('button',{name:'Open detail'})));
+  expect(within(header).getAllByRole('tab')).toHaveLength(3);
+  expect(header.querySelectorAll('.forge-icon')).toHaveLength(3);
+  await act(async()=>fireEvent.click(within(header).getByRole('tab',{name:'Detail'})));
+  const detail=windowKey.startsWith('window://')?'window://example/detail':'detail';
+  expect(visible(screen.getByText(`${detail} content`))).toBe(true);
+  await act(async()=>fireEvent.click(within(header).getByRole('tab',{name:'Records'})));
+  expect(visible(screen.getByText(`${windowKey} content`))).toBe(true);
+  expect(visible(screen.getByText(`${detail} content`))).toBe(false);
+ } finally {cleanup();header.remove();}
 });

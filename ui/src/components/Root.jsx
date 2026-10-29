@@ -1579,7 +1579,7 @@ export default function Root() {
             />
           ) : null}
           <main className={`app-chat-pane${showChatChrome ? ' is-chat-main-window' : ''}`} inert={sectionNavigation && isCompactShell && isSidebarOpen ? '' : undefined}>
-            {showAppSection ? <AppSectionContent window={sectionWindow} title={appSectionTitle} error={currentSectionView?.error}/> : null}
+            {showAppSection ? <AppSectionContent headerMount={viewerHeaderMount} window={sectionWindow} title={appSectionTitle} error={currentSectionView?.error}/> : null}
             {backendSelection.visited.map(connection => (
               <div key={connection.id} style={{ display: !showAppSection && backendSelection.selectedId === connection.id ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
                 <AgUiRemoteConversation connection={connection} active={backendSelection.selectedId === connection.id} />
