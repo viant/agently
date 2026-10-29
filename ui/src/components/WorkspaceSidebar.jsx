@@ -291,7 +291,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
     return <div className={`app-layout-sidebar is-sections${collapsed ? ' is-collapsed' : ''}`} hidden={drawerHidden} inert={drawerHidden ? '' : undefined}>
       <SectionNavigation section={section} actions={actions} onSelect={selectSection} brandRef={brandRef} headingActionsRef={setSearchMount} profileRef={profileRef} drawerOpen={drawerMode && !drawerHidden} onDismiss={onDismiss} returnFocusRef={returnFocusRef}>
         <div className="app-section-history" hidden={section !== 'chat'} data-section-hidden={section !== 'chat' ? '' : undefined}>
-          {historyEnabled ? <Sidebar appearance="document" searchMount={searchMount} history={history} onNavigate={onNavigate} showNewConversation={history.newConversation !== false}/> : null}
+          {historyEnabled ? <Sidebar appearance="document" hidden={drawerHidden || section !== 'chat'} searchMount={searchMount} history={history} onNavigate={onNavigate} showNewConversation={history.newConversation !== false}/> : null}
         </div>
         {section !== 'chat' ? <>
           <div className="app-section-menu-heading"><Typography as="h2" typeRole="section">{action?.title || 'Workspaces'}</Typography>
@@ -354,6 +354,6 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
     </> : null}
     {!collapsed && navigationEnabled && applications.length === 0 && !error ? <Button minimal small icon="refresh" onClick={() => setReloadVersion((value) => value + 1)}>Reload navigation</Button> : null}
     {error ? <div className="app-layout-error" role="alert">{error} <Button small minimal onClick={() => setReloadVersion((value) => value + 1)}>Retry</Button></div> : null}
-    {historyEnabled ? <div className="app-layout-history"><Sidebar history={history} collapsed={collapsed} onNavigate={onNavigate} onExpand={onExpand} showNewConversation={history.newConversation !== false} /></div> : null}
+    {historyEnabled ? <div className="app-layout-history"><Sidebar hidden={drawerHidden} history={history} collapsed={collapsed} onNavigate={onNavigate} onExpand={onExpand} showNewConversation={history.newConversation !== false} /></div> : null}
   </div>;
 }

@@ -377,8 +377,10 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
   const historyScrollRef = React.useRef(null);
   const lastAutoCursorRef = React.useRef('');
   const rowVirtualizer = useVirtualizer({
+    enabled: virtualized && !hidden,
     count: rows.length,
     getScrollElement: () => historyScrollRef.current,
+    initialOffset: () => historyScrollRef.current?.scrollTop || 0,
     estimateSize: () => documentAppearance ? 36 : 64,
     overscan: 6,
   });
@@ -668,8 +670,8 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
         queryReloadTimerRef.current = null;
       }
       // Small delay to allow the backend to commit the new conversation
-      // before the sidebar queries the list.
-      setTimeout(() => void reload('latest', ''), 300);
+      // before the sidebar queries the list. A pre-save read cannot include it.
+      setTimeout(() => void reload('latest', '', { force: true }), 300);
     };
     const onConversationActivity = (event) => {
       const id = String(event?.detail?.id || '').trim();
