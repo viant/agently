@@ -54,7 +54,7 @@ describe('shared typography delivery', () => {
     expect(main).not.toContain('@fontsource-variable');
     expect(typography).not.toContain('@fontsource-variable');
     expect(Object.keys(packageJSON.dependencies).some(name => name.startsWith('@fontsource'))).toBe(false);
-    expect(packageJSON.scripts['test:typography']).toBe('vitest run src/components/chat/HostedInlineReport.render.test.jsx --testTimeout=15000 && node scripts/test-typography-browser.mjs');
+    expect(packageJSON.scripts['test:typography']).toBe('vitest run src/components/chat/HostedInlineReport.render.test.jsx src/services/feedForgeWiring.test.js --testTimeout=15000 && node scripts/test-typography-browser.mjs');
   });
 
   it('lets a workspace-selected family reach shell, controls, and portals', () => {
