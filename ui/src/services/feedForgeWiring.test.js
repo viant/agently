@@ -1,6 +1,28 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { computeDataMap, filterFeedRows } from './feedForgeWiring';
+import { computeDataMap, filterFeedRows, projectFeedFields } from './feedForgeWiring';
+
+it('keeps calendar dates and editable values while making range labels readable', () => {
+  const NativeDateTimeFormat = Intl.DateTimeFormat;
+  const formatter = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function(_locale, options) {return new NativeDateTimeFormat('en-US', options);});
+  const previousTZ = process.env.TZ;
+  process.env.TZ = 'America/Los_Angeles';
+  try {
+    const got = projectFeedFields({start:'2026-10-21',end:{year:2026,monthIndex:11,day:31}}, {display:{transform:'dateRangeLabel'},editable:{transform:'dateRange'}});
+    expect(got.display.replace(/\s/g,' ')).toBe('Oct 21 – Dec 31, 2026');
+    expect(got.editable).toEqual({start:'2026-10-21',end:'2026-12-31'});
+    const label = (start, end) => projectFeedFields({start,end},{display:{transform:'dateRangeLabel'}}).display;
+    expect(label('2026-10-21','2026-10-21')).toBe('Oct 21, 2026');
+    expect(label('','2026-12-31')).toBe('Dec 31, 2026');
+    expect(label('2026-12-31','2026-10-21')).toBe('2026-12-31 – 2026-10-21');
+    expect(label('2026-02-31','2026-03-02')).toBe('2026-02-31 – 2026-03-02');
+    expect(label('invalid','')).toBe('invalid');
+    expect(label('','')).toBe('');
+  } finally {
+    formatter.mockRestore();
+    if (previousTZ === undefined) delete process.env.TZ; else process.env.TZ = previousTZ;
+  }
+});
 
 describe('computeDataMap', () => {
   it('resolves root-level output selectors directly from feed payload', () => {

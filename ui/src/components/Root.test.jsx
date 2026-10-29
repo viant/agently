@@ -581,6 +581,8 @@ describe('Root window selection helpers', () => {
       expect(resolveHostedWorkspaceTabLabel({windowKey:'window://workspace/creative',windowTitle:title,navigation:{chipName:'Creative'}})).toBe('Creative');
     }
     expect(resolveHostedWorkspaceTabLabel({windowKey:'window://workspace/siteList',windowTitle:'window://workspace/siteList'})).toBe('Site List');
+    expect(resolveHostedWorkspaceTabLabel({windowKey:'opaque-report-key',navigation:{label:'Example report'}})).toBe('Example report');
+    expect(resolveHostedWorkspaceTabLabel({windowKey:'opaque-report-key',windowTitle:'A saved report name',navigation:{label:'Example report'}})).toBe('A saved report name');
     expect(resolveHostedWorkspaceTabLabel({windowKey:'window://workspace/creative',windowTitle:'Summer Campaign Video',navigation:{chipName:'Creative'}})).toBe('Summer Campaign Video');
   });
 

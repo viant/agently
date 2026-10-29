@@ -533,3 +533,12 @@ its local "Complete example step" action demonstrates resuming after a quiet
 period. Existing Root/progress contracts and the existing typography browser
 runner cover quiet-state recovery, normal cancellation, role/bypass guards,
 desktop/narrow layout and reduced motion. No new workflow or backend API is needed.
+
+## Shared report presentation delivery
+
+Keep the Forge source checkout and Go module pin aligned when embedding report
+renderer changes. The host uses an authored navigation label for placeholder
+report titles while retaining an explicit saved name. Read-only date-range labels
+use locale-readable calendar dates in UTC; editable values remain exact source
+dates, and invalid/reversed ranges retain a literal fallback. Existing Root and
+feed projection checks cover these boundaries.
