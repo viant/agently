@@ -14,7 +14,9 @@ vi.mock('forge/components', async () => {
   const {default: Typography, typographyProps} = await import('forge/components/Typography.jsx');
   const {default: Icon} = await import('forge/components/Icon.jsx');
   const {default: ReportFilterBar} = await import('forge/components/dashboard/ReportFilterBar.jsx');
+  const {activeWindows} = await import('forge/core');
   return {Typography, typographyProps, Icon, ReportFilterBar,
+    WindowManager: ({windowFilter, renderWindowContent}) => <>{activeWindows.value.filter(windowFilter).map(entry => <React.Fragment key={entry.windowId}>{renderWindowContent({window: entry, defaultContent: <div>Window: {entry.windowTitle}</div>})}</React.Fragment>)}</>,
     WindowContent: ({window: entry}) => <div>Window: {entry.windowTitle}</div>,
     ReportResourceRuntime: () => <article aria-label="Example report output"><p>Rendered report</p><button>Export PDF</button></article>};
 });

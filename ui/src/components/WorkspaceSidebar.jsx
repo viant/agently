@@ -300,8 +300,28 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
           {section === 'workspaces' ? <>
             <SectionDestinationButton icon={<SharedIcon name="lucide:layout-grid"/>} selected={!destination}
               onClick={() => {onSectionChange?.('workspaces'); onNavigate?.();}}>Overview</SectionDestinationButton>
-            {applications.length > 1 ? <div className="app-layout-tabs" role="tablist" aria-label="Applications">{applications.map(app => <Button key={app.id} minimal role="tab" aria-selected={app.id === active?.id} disabled={app.disabled} onClick={() => setActiveApp(app.id)}>{app.title}</Button>)}</div> : null}
-            <div className="app-layout-menus">{active?.menus?.map(menu => renderMenu(menu))}</div>
+            {applications.length > 0 ? <div className="app-layout-tabs app-section-applications" role="tablist" aria-label="Applications">
+              {applications.map(app => <Button key={app.id} minimal role="tab" active={app.id === active?.id}
+                aria-selected={app.id === active?.id} tabIndex={app.id === active?.id ? 0 : -1}
+                icon={<SharedIcon name={app.icon || 'lucide:layout-grid'}/>}
+                disabled={app.disabled} onClick={() => setActiveApp(app.id)}
+                onKeyDown={event => {
+                  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                  event.preventDefault();
+                  const enabled = applications.filter(item => !item.disabled);
+                  const index = enabled.findIndex(item => item.id === app.id);
+                  const next = event.key === 'Home' ? 0 : event.key === 'End' ? enabled.length - 1
+                    : (index + (event.key === 'ArrowRight' ? 1 : -1) + enabled.length) % enabled.length;
+                  setActiveApp(enabled[next].id);
+                  event.currentTarget.parentElement.querySelectorAll('[role="tab"]:not(:disabled)')[next]?.focus();
+                }}>{app.title}</Button>)}
+            </div> : null}
+            <div className="app-layout-menus" aria-label={`${active?.title || 'Application'} navigation`}>
+              {active?.menus?.length ? active.menus.map(menu => renderMenu(menu)) : <div role="status" className="app-section-menu-empty">
+                <Typography typeRole="body">No navigation is available for {active?.title || 'this workspace'}.</Typography>
+                <Button minimal small icon={<SharedIcon name="lucide:refresh-cw"/>} onClick={() => setReloadVersion(value => value + 1)}>Reload menu</Button>
+              </div>}
+            </div>
           </> : null}
         </> : null}
         {error ? <div role="alert">{error}<Button minimal onClick={() => setReloadVersion(value => value + 1)}>Retry</Button></div> : null}

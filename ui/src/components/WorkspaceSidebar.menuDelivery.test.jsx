@@ -390,3 +390,34 @@ it('reselects the current destination after a linked child was opened', async ()
   expect(fetch.mock.calls.length).toBe(before);
   expect(openWindow).toHaveBeenLastCalledWith('records','Records',[],expect.objectContaining({region:'app.section',parentKey:null}));
 });
+
+it('switches application menus exclusively and opens the selected report', async () => {
+  const payload = layoutPayload({applications:[
+    {id:'records',title:'Records',menus:[{id:'list',title:'Record list',action:{type:'window',windowKey:'records'}}]},
+    {id:'analytics',title:'Analytics',menus:[{id:'summary',title:'Summary report',action:{type:'report',resourceUri:'report://example/summary',providerIdentity:'example'}}]},
+  ]});
+  payload.layout.left.navigation.presentation = 'sections';
+  fetch.mockResolvedValue(response(payload));
+  const onSectionChange = vi.fn();
+  render(<WorkspaceSidebar section="workspaces" onSectionChange={onSectionChange}/>);
+  await screen.findByRole('button', {name:'Record list'});
+  fireEvent.click(screen.getByRole('tab', {name:'Analytics'}));
+  expect(screen.queryByRole('button', {name:'Record list'})).toBeNull();
+  expect(screen.getByRole('tab', {name:'Analytics'}).getAttribute('aria-selected')).toBe('true');
+  fireEvent.click(screen.getByRole('button', {name:'Summary report'}));
+  expect(onSectionChange).toHaveBeenCalledWith('workspaces', JSON.stringify(['analytics','summary']));
+  fireEvent.keyDown(screen.getByRole('tab', {name:'Analytics'}), {key:'ArrowLeft'});
+  expect(screen.getByRole('button', {name:'Record list'})).toBeTruthy();
+  expect(screen.queryByRole('button', {name:'Summary report'})).toBeNull();
+});
+
+it('makes an empty application menu explicit and allows reloading it', async () => {
+  const payload = layoutPayload({applications:[{id:'example',title:'Example',menus:[]}]});
+  payload.layout.left.navigation.presentation = 'sections';
+  fetch.mockResolvedValue(response(payload));
+  render(<WorkspaceSidebar section="workspaces"/>);
+  expect((await screen.findByRole('status')).textContent).toContain('No navigation is available for Example');
+  const calls = fetch.mock.calls.length;
+  fireEvent.click(screen.getByRole('button', {name:'Reload menu'}));
+  await waitFor(() => expect(fetch.mock.calls.length).toBeGreaterThan(calls));
+});
