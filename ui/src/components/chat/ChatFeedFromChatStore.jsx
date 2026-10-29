@@ -23,6 +23,7 @@ import IterationRowBlock from './IterationRowBlock.jsx';
 import TurnProgressStatus, {activeIteration} from '../TurnProgressStatus.jsx';
 import ToolFeedDetail from '../ToolFeedDetail.jsx';
 import BubbleMessage from './BubbleMessage.jsx';
+import TurnFeedback from './TurnFeedback.jsx';
 import MCPUIBubble from './MCPUIBubble.jsx';
 import StandardAppRenderer from '../mcpApps/StandardAppRenderer.jsx';
 import { useAgUiHostActivities } from '../../services/aguiHostActivities.js';
@@ -256,6 +257,10 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
         const isFinalTurnRepresentation = allowHostEffects && !!turnId
           && (row?.kind === 'iteration' || row?.kind === 'assistant')
           && (lastIndexByTurn.get(turnId) ?? index) === index;
+        const feedback = isFinalTurnRepresentation && row.feedbackEditable ? (
+          <TurnFeedback key={`feedback:${conversationId}:${turnId}`} conversationId={conversationId}
+            turnId={turnId} feedback={row.feedback} editable={row.feedbackEditable} />
+        ) : null;
         const inlineFeed = isFinalTurnRepresentation ? (
           <ToolFeedDetail
             key={`inline-feed:${conversationId}:${turnId}`}
@@ -279,6 +284,7 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
           );
           return [
             <React.Fragment key={row.renderKey}>{rendered}</React.Fragment>,
+            feedback,
             inlineFeed,
             ...appRows,
           ];
@@ -297,6 +303,7 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
               attachment={allowHostEffects ? workspaceAttachmentFor(index) : null}
             />
           </React.Fragment>,
+          feedback,
           inlineFeed,
           ...appRows,
         ];

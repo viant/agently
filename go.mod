@@ -34,7 +34,6 @@ require (
 	github.com/google/gops v0.3.28
 	github.com/viant/agently-core/protocol/primitive v0.1.0
 	github.com/viant/agently-core/protocol/resource v0.1.0
-	github.com/viant/authz v0.1.2-0.20261027201251-5ba403d7e022
 	github.com/viant/bigquery v0.5.4
 )
 
@@ -145,6 +144,7 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
 	github.com/viant/agently-core/protocol/window v0.1.0 // indirect
+	github.com/viant/authz v0.1.2-0.20261027201251-5ba403d7e022 // indirect
 	github.com/viant/bindly v0.4.1 // indirect
 	github.com/viant/bintly v0.2.0 // indirect
 	github.com/viant/gds v0.6.0 // indirect
