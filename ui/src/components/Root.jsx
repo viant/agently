@@ -26,6 +26,7 @@ import UsageBar from './UsageBar';
 import TurnProgressStatus from './TurnProgressStatus';
 import ConversationWorkspaceSurface from './ConversationWorkspaceSurface';
 import AppSectionContent from './AppSectionContent.jsx';
+import {trackWorkspaceQueryFocus} from '../services/workspaceQueryContext.js';
 import {belongsToAppSection} from './sectionWindowTree.js';
 import StatusBar from './StatusBar';
 import WorkspaceSidebar from './WorkspaceSidebar';
@@ -629,6 +630,7 @@ export default function Root() {
   // Render the shell optimistically. Protected endpoints still emit the
   // authoritative unauthorized event; auth discovery must not gate chat.
   const [authState, setAuthState] = useState('ready');
+  useEffect(() => authState === 'ready' ? trackWorkspaceQueryFocus() : undefined, [authState]);
   const [navigationReady, setNavigationReady] = useState(false);
   const [mcpResumePending, setMCPResumePending] = useState(() => currentPendingMCPAuth());
   const [oauthProviderLabel, setOAuthProviderLabel] = useState('');

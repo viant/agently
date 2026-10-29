@@ -1,3 +1,4 @@
+import {trackWorkspaceQueryFocus} from './workspaceQueryContext';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const queryDeferred = () => {
@@ -1321,4 +1322,22 @@ describe('submitMessage', () => {
     expect(syncConversationTransport).toHaveBeenCalledWith(context, 'conv-1');
     expect(disconnectStream).not.toHaveBeenCalled();
   });
+it('submits the last-focused section window after composer focus changes',async()=>{
+ const stop=trackWorkspaceQueryFocus();
+ const previousWindow=global.window;
+ const values=new Map();
+ global.window={sessionStorage:{getItem:key=>values.get(key),setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)}};
+ try {
+  activeWindows.value=[{windowId:'nested',windowKey:'window://example/detail',title:'Selected detail',region:'app.section',parameters:{RecordId:[7]}},{windowId:'chat/new',windowKey:'chat/new',conversationId:'current'}];
+  getViewSignal('nested').value={tabs:{details:'properties'}};
+  selectedWindowId.value='nested';selectedWindowId.value='chat/new';
+  client.query.mockResolvedValue({});ensureConversation.mockResolvedValue('current');resolveUserID.mockReturnValue('');
+  ensureContextResources.mockReturnValue({});dsTick.mockResolvedValue({});
+  const form={id:'current'};
+  const context={Context:name=>name==='conversations'?{handlers:{dataSource:{peekFormData:()=>form,setFormData:({values})=>Object.assign(form,values)}}}:null};
+  await submitMessage({context,message:{content:'Explain this record'}});
+  expect(client.query.mock.calls.at(-1)[0].context.workspace).toMatchObject({windowId:'nested',windowKey:'window://example/detail',parameters:{RecordId:[7]},internalTabs:{details:'properties'}});
+ } finally {stop();activeWindows.value=[];global.window=previousWindow;}
+});
+
 });

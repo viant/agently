@@ -375,3 +375,18 @@ it('honors disabled history and reveals section menus from the collapsed rail', 
   expect(expand).toHaveBeenCalledOnce();
   expect(select).toHaveBeenLastCalledWith('workspaces');
 });
+
+it('reselects the current destination after a linked child was opened', async () => {
+  const destination=JSON.stringify(['example','records']);
+  const payload=layoutPayload({applications:[{id:'example',title:'Example',menus:[{id:'records',title:'Records',action:{type:'window',windowKey:'records'}}]}]});
+  payload.layout.left.navigation.presentation='sections';
+  fetch.mockResolvedValue(response(payload));
+  openWindow.mockReturnValue({windowId:'root'});
+  render(<WorkspaceSidebar section="workspaces" destination={destination}/>);
+  await waitFor(()=>expect(openWindow).toHaveBeenCalledTimes(1));
+  const before=fetch.mock.calls.length;
+  fireEvent.click(screen.getByRole('button',{name:'Records',exact:true}));
+  await waitFor(()=>expect(openWindow).toHaveBeenCalledTimes(2));
+  expect(fetch.mock.calls.length).toBe(before);
+  expect(openWindow).toHaveBeenLastCalledWith('records','Records',[],expect.objectContaining({region:'app.section',parentKey:null}));
+});
