@@ -542,3 +542,13 @@ report titles while retaining an explicit saved name. Read-only date-range label
 use locale-readable calendar dates in UTC; editable values remain exact source
 dates, and invalid/reversed ranges retain a literal fallback. Existing Root and
 feed projection checks cover these boundaries.
+
+## Anchored menus and panels
+
+Use `Popover` from `forge/components` for shell-owned anchored panels. Follow
+[Forge's canonical positioning rule](../../forge/doc/typography.md#anchored-panels-stay-visible):
+preferred placement can flip above, below or beside the trigger; panels keep
+12px viewport padding, use the existing portal, and scroll oversized content.
+Preserve dismissal, focus return, disabled state and nested controls. Do not
+replace this behavior with local absolute-position CSS or raw Blueprint Popover.
+Native selects and modal dialogs retain their platform semantics.

@@ -1,5 +1,6 @@
+import {Popover} from 'forge/components';
 import React, { useContext, useEffect, useId, useRef, useState } from 'react';
-import { Dialog, Menu, MenuDivider, MenuItem, Popover, TextArea } from '@blueprintjs/core';
+import { Dialog, Menu, MenuDivider, MenuItem, TextArea } from '@blueprintjs/core';
 import { Button, typographyProps } from 'forge/components';
 import { ThumbsUp, ThumbsDown, ChatText, DotsThree, X } from '@phosphor-icons/react';
 import { client } from '../../services/agentlyClient.js';
