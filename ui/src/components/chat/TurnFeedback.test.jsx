@@ -64,7 +64,7 @@ describe('TurnFeedback', () => {
     expect(screen.queryByRole('checkbox')).toBeNull();
     expect(screen.queryByRole('combobox')).toBeNull();
     fireEvent.change(field,{target:{value:'Unsaved'}});
-    fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
+    fireEvent.click(screen.getByRole('button',{name:'Not now'}));
     await closed();
     expect(document.activeElement).toBe(screen.getByRole('button',{name:'Feedback options'}));
     expect(client.setTurnFeedback).toHaveBeenCalledTimes(1);
@@ -73,9 +73,11 @@ describe('TurnFeedback', () => {
     fireEvent.click(screen.getByRole('button',{name:'Save comment'}));
     await closed();
     expect(screen.queryByText('Pomocne 👍')).toBeNull();
+    expect(screen.getByRole('status').textContent).toBe('Comment saved');
 
     await choose('Bad response');
     const dialog = await screen.findByRole('dialog',{name:'Feedback'});
+    expect(screen.queryByText('Comment saved')).toBeNull();
     expect(within(dialog).getByRole('textbox').value).toBe('Pomocne 👍');
     expect(client.setTurnFeedback).toHaveBeenLastCalledWith('c','t',{rating:-1,comment:'Pomocne 👍'});
     fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
@@ -140,7 +142,7 @@ describe('TurnFeedback', () => {
     expect(document.activeElement).toBe(other);
   });
 
-  it('keeps saved comments out of the footer and opens their full text only through options', async () => {
+  it('keeps saved comments out of the footer, skips unchanged writes and preserves edited text', async () => {
     const original = 'Pomocne 👍\n\n  Zażółć gęślą jaźń.\tWięcej szczegółów.';
     onTurnFeedback('c','t',saved(-1,original));
     render(<Feed/>);
@@ -152,11 +154,42 @@ describe('TurnFeedback', () => {
     fireEvent.change(field,{target:{value:'Discard this draft'}});
     fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
     await closed();
-    expect((await openComment('Edit comment')).value).toBe(original);
+    const reopened = await openComment('Edit comment');
+    expect(reopened.value).toBe(original);
+    expect(screen.getByRole('button',{name:'Save comment'}).disabled).toBe(true);
+    fireEvent.submit(reopened.form);
+    expect(client.setTurnFeedback).not.toHaveBeenCalled();
+    fireEvent.change(reopened,{target:{value:original + '\nUpdated'}});
+    expect(screen.getByRole('button',{name:'Save comment'}).disabled).toBe(false);
+    fireEvent.change(reopened,{target:{value:original}});
+    expect(screen.getByRole('button',{name:'Save comment'}).disabled).toBe(true);
+    fireEvent.change(reopened,{target:{value:original + '\nUpdated'}});
     fireEvent.click(screen.getByRole('button',{name:'Save comment'}));
     await closed();
-    expect(client.setTurnFeedback).toHaveBeenCalledWith('c','t',{rating:-1,comment:original});
+    expect(client.setTurnFeedback).toHaveBeenCalledWith('c','t',{rating:-1,comment:original + '\nUpdated'});
     expect(document.activeElement).toBe(screen.getByRole('button',{name:'Feedback options'}));
+  });
+
+  it('explains the saved rating and skips blank new comments without another write', async () => {
+    render(<Feed/>);
+    await choose('Bad response','Rate response');
+    const field = await screen.findByRole('textbox');
+    const hint = screen.getByText('Your rating is saved.');
+    expect(field.getAttribute('aria-describedby').split(' ')).toContain(hint.id);
+    const save = screen.getByRole('button',{name:'Save comment'});
+    expect(save.disabled).toBe(true);
+    fireEvent.submit(field.form);
+    fireEvent.change(field,{target:{value:' \n\t '}});
+    expect(save.disabled).toBe(true);
+    fireEvent.submit(field.form);
+    fireEvent.change(field,{target:{value:'A comment'}});
+    expect(save.disabled).toBe(false);
+    fireEvent.change(field,{target:{value:''}});
+    expect(save.disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button',{name:'Not now'}));
+    await closed();
+    expect(client.setTurnFeedback).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button',{name:'Remove negative feedback'}).getAttribute('aria-pressed')).toBe('true');
   });
 
   it('clears only the comment when saving whitespace and restores Add comment', async () => {
@@ -168,6 +201,7 @@ describe('TurnFeedback', () => {
     await closed();
     expect(screen.getByRole('button',{name:'Remove negative feedback'}).getAttribute('aria-pressed')).toBe('true');
     expect(client.clearTurnFeedback).not.toHaveBeenCalled();
+    expect(client.setTurnFeedback).toHaveBeenCalledWith('c','t',{rating:-1,comment:null});
     expect((await openComment()).value).toBe('');
   });
 
@@ -205,9 +239,17 @@ describe('TurnFeedback', () => {
     fireEvent.change(field,{target:{value:'👍'.repeat(4001)}});
     expect(screen.getByRole('button',{name:'Save comment'}).disabled).toBe(true);
     expect(field.getAttribute('aria-invalid')).toBe('true');
+    const limitError = screen.getByRole('alert');
+    expect(limitError.textContent).toContain('Remove 1 character to save your comment.');
+    expect(field.getAttribute('aria-describedby').split(' ')).toContain(limitError.id);
+    fireEvent.change(field,{target:{value:'👍'.repeat(4002)}});
+    expect(screen.getByRole('alert').textContent).toContain('Remove 2 characters to save your comment.');
     const allowed = '👍'.repeat(4000);
     fireEvent.change(field,{target:{value:allowed}});
     expect(screen.getByText('4000/4000 characters')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(field.getAttribute('aria-invalid')).toBe('false');
+    expect(field.getAttribute('aria-describedby').split(' ')).not.toContain(limitError.id);
     expect(screen.getByRole('button',{name:'Save comment'}).disabled).toBe(false);
     fireEvent.click(screen.getByRole('button',{name:'Save comment'}));
     await closed();

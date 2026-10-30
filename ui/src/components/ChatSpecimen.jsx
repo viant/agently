@@ -31,7 +31,7 @@ export default function ChatSpecimen() {
     <Typography as="h2" typeRole="section">Chat components</Typography>
     <ConversationViewContext.Provider value={{presentation: 'document'}}>
       <BubbleMessage message={{id: 'example-user', role: 'user', content: 'Keep my question compact.\nPreserve line breaks.'}}/>
-      <BubbleMessage message={{id: 'example-answer', role: 'assistant', content: 'The reply uses the shared body role, with no surrounding card.', interim: 0}}/>
+      <BubbleMessage message={{id: 'example-answer', role: 'assistant', content: 'The reply uses the shared body role, with no surrounding card.\n\nParagraphs keep a compact, consistent gap.\nDeliberate line breaks are preserved.', interim: 0}}/>
       <TurnFeedback conversationId="specimen-feedback" turnId="example-answer" feedback={feedback} editable/>
       {messages.map((content, index) => <BubbleMessage key={index} message={{id: `local-${index}`, role: 'user', content}}/>)}
     </ConversationViewContext.Provider>
