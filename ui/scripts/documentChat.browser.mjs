@@ -82,7 +82,8 @@ export async function verifyDocumentChat(page, {touch = false} = {}) {
   assert.ok(Math.abs(returnGeometry.left) < 1 && Math.abs(returnGeometry.gap-16) < 1, 'Return aligns with the heading and keeps its spacing');
   await homeField.press('Shift+Tab');
   assert.equal(await back.evaluate(node => node === document.activeElement && node.matches(':focus-visible')), true);
-  assert.notEqual(await back.evaluate(node => getComputedStyle(node).outlineStyle), 'none');
+  const returnFocus = await back.evaluate(node => ({focused: node === document.activeElement, visible: node.matches(':focus-visible'), outline: getComputedStyle(node).outlineStyle, width: getComputedStyle(node).getPropertyValue('--forge-focus-width'), color: getComputedStyle(node).getPropertyValue('--chat-focus')}));
+  assert.notEqual(returnFocus.outline, 'none', JSON.stringify(returnFocus));
   await back.press('Enter');
   await home.locator('.forge-task-row').waitFor();
   await waitForDraft('Independent Home draft.');

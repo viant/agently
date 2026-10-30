@@ -155,7 +155,7 @@ export default defineConfig(({ mode, command }) => {
         'react-dom': resolve(appNodeModules, 'react-dom'),
         '@preact/signals-react': resolve(appNodeModules, '@preact/signals-react'),
         'react-rnd': sharedDependency('react-rnd'),
-        'lucide-react': sharedDependency('lucide-react'),
+        'lucide-react': resolve(sharedDependency('lucide-react'), 'dist/esm/lucide-react.mjs'),
         're-resizable': sharedDependency('re-resizable'),
         'react-draggable': sharedDependency('react-draggable'),
         '@phosphor-icons/react': resolve(appNodeModules, '@phosphor-icons/react'),
