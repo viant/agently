@@ -35,3 +35,16 @@ it('mounts the intact canonical picker Dialog and returns its selection through 
  await act(async()=>{selected=handlers.openWindow({execution:{args:['window://external/picker','','',false,{awaitResult:true,modal:true,resourceRef:{uri:'window://external/picker'},providerIdentity:'owning',pickerDialogId:'originalDialog'}]},context:{}})});await flush();
  expect(document.body.textContent).toContain('Original picker');const button=Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='Select dialog record');expect(button).toBeTruthy();await act(async()=>button.click());await flush();expect(await selected).toEqual({id:84});await flush();expect(node.querySelector('.floating-window')).toBeNull();
 });
+
+ it('leaves application roots and nested floating children exclusively with their section host', async()=>{
+ addWindow('Application',null,'application-root',null,true,{}, {region:'app.section'});
+ addWindow('Child','application-root','application-child',null,false,{}, {inlineMetadata:{view:{content:{id:'child',text:'Section child'}},dataSource:{}}});
+ addWindow('Grandchild','application-child','application-grandchild',null,false,{}, {inlineMetadata:{view:{content:{id:'grandchild',text:'Section grandchild'}},dataSource:{}}});
+ const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+ await mount();
+ expect(node.querySelectorAll('.floating-window')).toHaveLength(0);
+ expect(fetch).not.toHaveBeenCalled();
+ await act(async()=>{activeWindows.value=activeWindows.peek().map(entry=>({...entry,inTab:false}));});await flush();
+ expect(node.querySelectorAll('.floating-window')).toHaveLength(0);
+ expect(fetch).not.toHaveBeenCalled();
+ });
