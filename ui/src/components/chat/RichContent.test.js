@@ -567,6 +567,18 @@ describe('RichContent fence parsing', () => {
     expect(html).toContain('A short paragraph.');
   });
 
+  it('renders conversation paragraphs without extra blank-line breaks', () => {
+    const html = renderToStaticMarkup(React.createElement(RichContent, {
+      content: 'First paragraph.\n\nSecond paragraph.\nA deliberate line break.',
+    }));
+    const root = document.createElement('div');
+    root.innerHTML = html;
+    const prose = root.querySelector('.app-rich-prose');
+    expect([...prose.children].map(node => node.tagName)).toEqual(['P', 'P']);
+    expect(prose.children[0].textContent).toBe('First paragraph.');
+    expect(prose.children[1].innerHTML).toBe('Second paragraph.<br>A deliberate line break.');
+  });
+
   it('rewrites sandbox markdown links to generated file download URLs', () => {
     const html = renderToStaticMarkup(
       React.createElement(RichContent, {
