@@ -275,8 +275,8 @@ func Serve(options ServeOptions) error {
 	cohortNamespaces := map[string][]string{}
 	for _, binding := range options.ArtifactCohorts {
 		providerIdentity := strings.TrimSpace(binding.ProviderIdentity)
-		if providerIdentity == "" || binding.Source == nil || cohortSources[providerIdentity] != nil {
-			return fmt.Errorf("invalid or duplicate artifact cohort provider registration")
+		if providerIdentity == "" || binding.Source == nil {
+			return fmt.Errorf("invalid artifact cohort provider registration")
 		}
 		if binding.Start != nil {
 			if err := binding.Start(startupCtx); err != nil {
@@ -300,7 +300,10 @@ func Serve(options ServeOptions) error {
 		cohortSources[providerIdentity] = cohort.WindowSourceFunc(func(ctx context.Context, uri string, target *forgetypes.WindowTarget) (*forgetypes.WindowResourceVariant, string, error) {
 			return rt.PrimitiveProviders.OpenPublishedWindowVariantForProvider(ctx, providerIdentity, uri, target)
 		})
-		cohortNamespaces[providerIdentity] = append([]string(nil), binding.Namespaces...)
+		// Metadata registration rejects overlapping namespace claims above. A
+		// provider can expose several disjoint endpoints; retain every claim for
+		// the shared window source instead of replacing its earlier namespaces.
+		cohortNamespaces[providerIdentity] = append(cohortNamespaces[providerIdentity], binding.Namespaces...)
 	}
 	var publishedBindings *sdk.PublishedWindowBindings
 	if len(cohortSources) > 0 {
