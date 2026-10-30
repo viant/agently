@@ -47,7 +47,8 @@
     "build:embed": "vite build && ./scripts/sync-deployment-ui.sh",
     "build:embed:v1": "vite build && ./scripts/sync-deployment-ui.sh",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:asset-recovery": "vitest run src/components/ApplicationRecovery.test.jsx && node scripts/criticalModulePreload.test.mjs && node scripts/test-module-preload-browser.mjs"
   },
   "dependencies": {
     "@blueprintjs/core": "^6.0.0-alpha.5",

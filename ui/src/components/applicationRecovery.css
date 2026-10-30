@@ -1,0 +1,10 @@
+.app-application-recovery {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--agently-theme-spacing-3, 12px);
+  padding: var(--agently-theme-spacing-4, 16px);
+  max-width: 48rem;
+}
+.app-application-recovery > h2,
+.app-application-recovery > p { margin: 0; }

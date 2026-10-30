@@ -1,3 +1,4 @@
+import {criticalModulePreload} from './scripts/criticalModulePreload.mjs';
 import { resolve } from 'path';
 import path from 'path';
 import fs from 'fs';
@@ -168,7 +169,7 @@ export default defineConfig(({ mode, command }) => {
       'process.env': prodEnv,
       global: 'window'
     },
-    plugins: [loopbackOnlyDevPlugin(), react(), networkLoggerPlugin()],
+    plugins: [loopbackOnlyDevPlugin(), react(), networkLoggerPlugin(), criticalModulePreload()],
     server: {
       host: devHost,
       port: devPort,

@@ -1,3 +1,4 @@
+import {ApplicationRouteError} from './components/ApplicationRecovery.jsx';
 import AppWorkspaceStyles from './components/AppWorkspaceStyles.jsx';
 import React from 'react';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
@@ -62,7 +63,7 @@ export const routes = [
   { path: '/ui/settings', element: <UISettingsPage /> },
   { path: '/conversation/:conversationId/usage', element: <ConversationUsagePage /> },
   { path: '*', element: <Root /> }
-];
+].map(route => ({...route,errorElement:<ApplicationRouteError/>}));
 
 if (JSON.stringify(routes.map((entry) => entry.path)) !== JSON.stringify(appRoutePaths)) {
   throw new Error('App route path list drifted from appRoutePaths');
