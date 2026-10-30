@@ -1,3 +1,4 @@
+import {findViewSignal} from 'forge/core';
 // @vitest-environment jsdom
 import React from 'react';
 import {afterEach, expect, it, vi} from 'vitest';
@@ -10,7 +11,7 @@ vi.mock('../services/agentlyClient', async () => {
 
 vi.mock('forge/components', async () => ({ReportFilterBar:(await import('forge/components/dashboard/ReportFilterBar.jsx')).default, ReportResourceRuntime: (await import('forge/components/dashboard/ReportResourceRuntime.jsx')).default}));
 vi.mock('forge/components/dashboard/ReportRuntime.jsx', () => ({default: ({reportSpec}) => <output>{reportSpec.title}</output>}));
-vi.mock('forge/core', async () => ({useSetting: () => ({services: (hostServices)})}));
+vi.mock('forge/core', async (importOriginal) => ({...(await importOriginal()),useSetting: () => ({services: hostServices})}));
 let hostServices;
 import {getReport, runReport} from '../services/reportStoreService';
 import {submitReportExportResource, getReportExportStatus, getReportExportArtifact} from '../services/reportExportService';
@@ -54,7 +55,7 @@ it('renders the shared resource runtime and uses canonical SDK get/run/export ro
   const createURL=vi.fn(()=> 'blob:report');
   URL.createObjectURL=createURL; URL.revokeObjectURL=vi.fn();
   vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{});
-  const entry={windowKey:pin.uri,resourceRef:{uri:pin.uri},parameters:{AdvertiserIds:[42]}};
+  const entry={windowId:'report-context',windowKey:pin.uri,resourceRef:{uri:pin.uri},parameters:{AdvertiserIds:[42]}};
   const view=render(<ReportWindow window={entry}/>);
   fireEvent.click(await screen.findByRole('button',{name:'Run report'}));
   await screen.findByRole('heading',{name:'Server overview'});
@@ -67,6 +68,7 @@ it('renders the shared resource runtime and uses canonical SDK get/run/export ro
   const selected={resource:{uri:pin.uri,revision:'working'},resolvedResource:pin,parameters:{AdvertiserIds:[0],Search:''}};
   expect(calls[0].args).toEqual({resource:{uri:pin.uri}});
   expect(calls[2].args).toEqual({...selected,fillOnly:true});
+  expect(findViewSignal('report-context').peek().report).toMatchObject({title:'Server overview',status:'ready',parameters:{AdvertiserIds:[0],Search:''}});
   expect(calls[3].args).toEqual({...selected,format:'csv'});
   expect(calls.every(call=>call.init.credentials==='include')).toBe(true);
   expect(view.container.querySelector('iframe')).toBeNull();

@@ -2,7 +2,7 @@ import { request as requestMock } from './httpClient';
 vi.mock('./httpClient', () => ({ request: vi.fn().mockResolvedValue([]) }));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { activeWindows, getFormSignal, Context as ForgeContext } from 'forge/core';
-import { getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, MAIN_CHAT_WINDOW_ID, requestNewConversationInMainWindow } from './conversationWindow';
+import { getScopedConversationSelection, getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, MAIN_CHAT_WINDOW_ID, requestNewConversationInMainWindow } from './conversationWindow';
 
 const {
   setPendingElicitationMock,
@@ -119,6 +119,15 @@ describe('publishActiveConversation', () => {
     expect(replaceState).not.toHaveBeenCalled();
     expect(dispatchEvent).not.toHaveBeenCalled();
     expect(window.location.pathname).toBe('/conversation/conv-route');
+  });
+
+  it('publishes workspace chat without navigating away from the application',()=>{
+    const replaceState=vi.fn();
+    global.window={location:{pathname:'/',search:'?section=workspaces',hostname:'127.0.0.1'},history:{state:{agentlyShell:{section:'workspaces'}},replaceState},localStorage:createStorage(),sessionStorage:createStorage(),dispatchEvent:vi.fn()};
+    publishActiveConversation('workspace-conversation',{identity:{windowId:'chat/new'}});
+    expect(replaceState).not.toHaveBeenCalled();
+    expect(window.location.search).toBe('?section=workspaces');
+    expect(getScopedConversationSelection('chat/new')).toBe('workspace-conversation');
   });
 
   it('seeds the URL on bootstrap when no conversation is in the path yet', () => {

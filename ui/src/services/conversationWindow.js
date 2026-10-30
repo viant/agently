@@ -1,3 +1,5 @@
+import {belongsToAppSection} from '../components/sectionWindowTree.js';
+import {batch} from '@preact/signals-react';
 import { readWorkspaceSession, updateWorkspaceSession, mergeWorkspaceSessionWindows, workspaceHistory } from './workspaceSession.js';
 import {
   addWindow,
@@ -232,7 +234,7 @@ function removeWindowsForConversationChange(nextConversationId = '') {
   for (const win of windows) {
     const windowId = String(win?.windowId || '').trim();
     if (!windowId) continue;
-    if (win.region === 'app.section' && !String(win.conversationId || '').trim()) continue;
+    if (belongsToAppSection(windows, win) && !String(win.conversationId || '').trim()) continue;
     // Native menu workspaces have no conversation owner. History selection
     // must preserve them without adopting them into the selected chat.
     if (!String(win?.conversationId || '').trim()
@@ -999,13 +1001,23 @@ export function syncHydratedWorkspaceStateFromTranscriptTurns(
     .then((hydratedTurns) => syncScopedWorkspaceStateFromTranscriptTurns(conversationId, hydratedTurns, options));
 }
 
-export function ensureMainChatWindow() {
-  const windows = Array.isArray(activeWindows.peek?.()) ? activeWindows.peek() : [];
-  let existing = windows.find((entry) => String(entry?.windowId || '').trim() === MAIN_CHAT_WINDOW_ID);
-  if (!existing) {
-    existing = addWindow('Chat', null, CHAT_WINDOW_KEY, null, true, {}, { autoIndexTitle: false });
-  }
-  return focusWindow(existing);
+export function isApplicationSectionActive() {
+  const section = globalThis.window?.history?.state?.agentlyShell?.section
+    || new URLSearchParams(globalThis.window?.location?.search || '').get('section');
+  return section === 'workspaces' || /^action:[\w-]+$/.test(section || '');
+}
+
+export function ensureMainChatWindow({focus = true} = {}) {
+  let result;
+  batch(() => {
+    const previousWindow = selectedWindowId.peek(), previousTab = selectedTabId.peek();
+    const windows = activeWindows.peek() || [];
+    result = windows.find(entry => entry.windowId === MAIN_CHAT_WINDOW_ID)
+      || addWindow('Chat', null, CHAT_WINDOW_KEY, null, true, {}, {autoIndexTitle:false});
+    if (focus) focusWindow(result);
+    else {selectedWindowId.value=previousWindow;selectedTabId.value=previousTab;}
+  });
+  return result;
 }
 
 function updateMainChatWindowParameters(conversationId = '', { resetInstance = false } = {}) {
@@ -1079,7 +1091,7 @@ export function publishConversationSelection(windowId = '', conversationId = '',
   } catch (_) {}
 }
 
-export function openConversationInMainWindow(conversationId = '', {landingWorkspaceSelection = null} = {}) {
+export function openConversationInMainWindow(conversationId = '', {landingWorkspaceSelection = null, focus = true} = {}) {
   const targetID = String(conversationId || '').trim();
   const windows = activeWindows.peek();
   const preservedLanding = targetID && preserveLandingWorkspaceSelection(targetID, landingWorkspaceSelection, windows);
@@ -1089,8 +1101,8 @@ export function openConversationInMainWindow(conversationId = '', {landingWorksp
   if (bound !== windows) activeWindows.value = bound;
   const conversationSurface = getScopedActiveSurface(targetID) !== 'workspace';
   removeWindowsForConversationChange(targetID);
-  const mainWindow = ensureMainChatWindow();
-  focusWindow(mainWindow);
+  const mainWindow = ensureMainChatWindow({focus});
+  if (focus) focusWindow(mainWindow);
   const mountedConversationID = String(
     mainWindow?.parameters?.conversations?.form?.id
     || mainWindow?.parameters?.messages?.input?.parameters?.convID
@@ -1104,14 +1116,14 @@ export function openConversationInMainWindow(conversationId = '', {landingWorksp
     && mountedConversationID !== targetID;
   updateMainChatWindowParameters(targetID, { resetInstance });
   publishConversationSelection(mainWindow?.windowId || MAIN_CHAT_WINDOW_ID, targetID, {
-    syncPath: true,
+    syncPath: focus,
     eventType: 'agently:conversation-select'
   });
   if (preservedLanding) dispatchWorkspaceStateEvent(targetID);
   // A history/chat selection must not mount a saved hosted workspace. Its
   // metadata, applyPermission call, and auto-fetch datasources stay dormant
   // until the user explicitly selects the workspace surface.
-  if (conversationSurface) {
+  if (conversationSurface || !focus) {
     return mainWindow;
   }
   const workspaceWindow = ensureWorkspaceWindowForConversation(targetID);

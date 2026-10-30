@@ -1326,7 +1326,7 @@ it('submits the last-focused section window after composer focus changes',async(
  const stop=trackWorkspaceQueryFocus();
  const previousWindow=global.window;
  const values=new Map();
- global.window={sessionStorage:{getItem:key=>values.get(key),setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)}};
+ global.window={history:{state:{agentlyShell:{section:'workspaces'}}},sessionStorage:{getItem:key=>values.get(key),setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)}};
  try {
   activeWindows.value=[{windowId:'nested',windowKey:'window://example/detail',title:'Selected detail',region:'app.section',parameters:{RecordId:[7]}},{windowId:'chat/new',windowKey:'chat/new',conversationId:'current'}];
   getViewSignal('nested').value={tabs:{details:'properties'}};
@@ -1334,9 +1334,14 @@ it('submits the last-focused section window after composer focus changes',async(
   client.query.mockResolvedValue({});ensureConversation.mockResolvedValue('current');resolveUserID.mockReturnValue('');
   ensureContextResources.mockReturnValue({});dsTick.mockResolvedValue({});
   const form={id:'current'};
-  const context={Context:name=>name==='conversations'?{handlers:{dataSource:{peekFormData:()=>form,setFormData:({values})=>Object.assign(form,values)}}}:null};
+  const context={identity:{windowId:'chat/new'},Context:name=>name==='conversations'?{handlers:{dataSource:{peekFormData:()=>form,setFormData:({values})=>Object.assign(form,values)}}}:null};
   await submitMessage({context,message:{content:'Explain this record'}});
   expect(client.query.mock.calls.at(-1)[0].context.workspace).toMatchObject({windowId:'nested',windowKey:'window://example/detail',parameters:{RecordId:[7]},internalTabs:{details:'properties'}});
+  activeWindows.value=[...activeWindows.peek(),{windowId:'next',windowKey:'window://example/next',region:'app.section',parameters:{RecordId:[8]}}];
+  selectedWindowId.value='next';selectedWindowId.value='chat/new';
+  await submitMessage({context,message:{content:'Now explain the focused record'}});
+  expect(client.query.mock.calls.at(-1)[0].context.workspace).toMatchObject({windowId:'next',parameters:{RecordId:[8]}});
+
  } finally {stop();activeWindows.value=[];global.window=previousWindow;}
 });
 

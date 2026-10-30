@@ -78,7 +78,7 @@ import HomeRecentConversations from '../components/HomeRecentConversations.jsx';
 import ChatFeedFromChatStore from '../components/chat/ChatFeedFromChatStore.jsx';
 import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore, onSSE as applyEventToChatStore, getActiveTurnId } from './chatStore.js';
 import { conversationIDFromPath } from './chatRuntime';
-import { captureLandingWorkspaceSelection, getScopedConversationSelection, MAIN_CHAT_WINDOW_ID, openConversationInMainWindow, syncHydratedWorkspaceStateFromTranscriptTurns } from './conversationWindow';
+import { isApplicationSectionActive, captureLandingWorkspaceSelection, getScopedConversationSelection, MAIN_CHAT_WINDOW_ID, openConversationInMainWindow, syncHydratedWorkspaceStateFromTranscriptTurns } from './conversationWindow';
 
 const ITERATION_STEP = 1;
 const DEFAULT_REASONING_OPTIONS = [
@@ -828,7 +828,8 @@ export async function submitMessage({ context, message, model, agent }) {
   });
   if (String(context?.identity?.windowId || '').trim() === MAIN_CHAT_WINDOW_ID) {
     markPendingConversationBootstrap(conversationID);
-    openConversationInMainWindow(conversationID, {landingWorkspaceSelection});
+    const workspaceComposer = isApplicationSectionActive();
+    openConversationInMainWindow(conversationID, {landingWorkspaceSelection, ...(workspaceComposer ? {focus:false} : {})});
   } else {
     markPendingConversationBootstrap(conversationID);
     publishActiveConversation(conversationID, context);

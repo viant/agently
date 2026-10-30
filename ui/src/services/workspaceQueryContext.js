@@ -67,6 +67,8 @@ export function buildWorkspaceQueryContext(conversationId) {
 
   }
   const parameters = contextParameters(entry.parameters);
+  const report = view.report && { ...scalarEntries(Object.fromEntries(['resourceUri','title','status','activeSectionId'].map(key=>[key,view.report[key]]))), parameters: contextParameters(view.report.parameters) };
+  const resourceUri = entry.resourceRef?.uri || metadata.resource?.uri || report?.resourceUri;
   const carousels = Object.fromEntries(Object.entries(view.carousels || {}).sort(([a], [b]) => a.localeCompare(b))
     .slice(0, 16).map(([id, selection]) => [id, scalarEntries(selection)]));
   const cardRails = Object.fromEntries(Object.entries(view.cardRails || {}).sort(([a], [b]) => a.localeCompare(b))
@@ -78,12 +80,13 @@ export function buildWorkspaceQueryContext(conversationId) {
   return { workspace: {
     objectId: entry.workspaceObject?.objectId || `workspace:${windowId}`,
     windowId, ...(entry.windowKey ? {windowKey: entry.windowKey} : {}),
-    ...((entry.resourceRef?.uri || metadata.resource?.uri) ? {resourceUri: entry.resourceRef?.uri || metadata.resource.uri} : {}),
+    ...(resourceUri ? {resourceUri} : {}),
     title: resolveWorkspaceWindowTitle(entry, metadata) || entry.title || '',
-    renderer: entry.workspaceObject?.content?.renderer || 'forgeWindow',
+    renderer: entry.workspaceObject?.content?.renderer || (report ? 'report' : 'forgeWindow'),
     ...(Object.keys(parameters).length ? {parameters: snapshot(parameters)} : {}),
     ...(Object.keys(carousels).length ? {carousels: snapshot(carousels)} : {}),
     ...(Object.keys(cardRails).length ? {cardRails: snapshot(cardRails)} : {}),
+    ...(report ? {report: snapshot(report)} : {}),
     internalTabs: scalarEntries(view.tabs), dataSources: sources,
   } };
 }
