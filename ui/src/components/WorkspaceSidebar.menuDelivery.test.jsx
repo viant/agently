@@ -469,3 +469,74 @@ it('uses application scope for later menu opens and labels instead of another fo
   expect(openWindow).toHaveBeenLastCalledWith('summary','Summary',[],expect.objectContaining({parameters:{Entity:12}}));
   applicationScope.clear();
 });
+
+it('refreshes published menus on focus without reopening the current window or switching apps', async () => {
+  const apps = [
+    {id:'first',title:'First',menus:[]},
+    {id:'second',title:'Second',menus:[{id:'records',title:'Records',action:{type:'window',windowKey:'records'}}]},
+  ];
+  const initial = layoutPayload({applications:apps});
+  initial.layoutRevision = 'one';
+  initial.layout.left.navigation.presentation = 'sections';
+  initial.layout.left.width.preferenceScope = 'global';
+  const next = structuredClone(initial);
+  next.layoutRevision = 'two';
+  next.layout.applications[1].menus.push({id:'new',title:'New report',action:{type:'report',resourceUri:'report://example/new'}});
+  fetch.mockResolvedValueOnce(response(initial)).mockResolvedValue(response(next));
+  openWindow.mockReturnValue({windowId:'retained'});
+  render(<WorkspaceSidebar section="workspaces" destination='["second","records"]'/>);
+  await screen.findByRole('button',{name:'Records',exact:true});
+  expect(openWindow).toHaveBeenCalledTimes(1);
+  await act(async () => { window.dispatchEvent(new Event('focus')); });
+  await screen.findByRole('button',{name:'New report',exact:true});
+  expect(screen.getByRole('tab',{name:'Second',exact:true}).getAttribute('aria-selected')).toBe('true');
+  expect(openWindow).toHaveBeenCalledTimes(1);
+  const authCalls = getAuthMeSilently.mock.calls.length;
+  await act(async () => { window.dispatchEvent(new Event('focus')); });
+  expect(getAuthMeSilently).toHaveBeenCalledTimes(authCalls);
+  expect(openWindow).toHaveBeenCalledTimes(1);
+});
+
+it('removes revoked applications on refresh without breaking conversation history', async () => {
+  const initial = layoutPayload({applications:[{id:'restricted',title:'Restricted',menus:[{id:'records',title:'Restricted records',action:{type:'window',windowKey:'records'}}]}]});
+  initial.layoutRevision='one';
+  const next=layoutPayload({applications:[]});
+  next.layoutRevision='two';
+  fetch.mockResolvedValueOnce(response(initial)).mockResolvedValue(response(next));
+  render(<WorkspaceSidebar/>);
+  await screen.findByRole('button',{name:'Restricted records'});
+  const history=screen.getByTestId('conversation-sidebar');
+  await act(async () => { window.dispatchEvent(new Event('focus')); });
+  await waitFor(()=>expect(screen.queryByRole('button',{name:'Restricted records'})).toBeNull());
+  expect(history.isConnected).toBe(true);
+  expect(screen.queryByText(/cohort denied/i)).toBeNull();
+});
+
+it('refreshes on a bounded timer, skips hidden pages, and never overlaps requests', async () => {
+  let tick;
+  const interval=vi.spyOn(window,'setInterval').mockImplementation(callback=>{tick=callback;return 98765;});
+  const clear=vi.spyOn(window,'clearInterval');
+  const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(false);
+  let finish;
+  const payload=layoutPayload({applications:[{id:'app',title:'App',menus:[{id:'records',title:'Records',action:{type:'window',windowKey:'records'}}]}]});
+  payload.layoutRevision='one';
+  fetch.mockResolvedValueOnce(response(payload)).mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+  const mounted=render(<WorkspaceSidebar/>);
+  try {
+    await screen.findByRole('button',{name:'Records'});
+    expect(interval).toHaveBeenCalledWith(expect.any(Function),15000);
+    hidden.mockReturnValue(true);
+    await act(async()=>{tick();});
+    expect(fetch).toHaveBeenCalledTimes(1);
+    hidden.mockReturnValue(false);
+    await act(async()=>{tick();tick();window.dispatchEvent(new Event('focus'));});
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await act(async()=>{finish(response(payload));});
+    mounted.unmount();
+    expect(clear).toHaveBeenCalledWith(98765);
+    window.dispatchEvent(new Event('focus'));
+    expect(fetch).toHaveBeenCalledTimes(2);
+  } finally {
+    mounted.unmount(); interval.mockRestore(); clear.mockRestore(); hidden.mockRestore();
+  }
+});
