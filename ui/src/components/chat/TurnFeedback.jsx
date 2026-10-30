@@ -1,8 +1,6 @@
-import {Popover} from 'forge/components';
 import React, { useContext, useEffect, useId, useRef, useState } from 'react';
 import { Dialog, Menu, MenuDivider, MenuItem, TextArea } from '@blueprintjs/core';
-import { Button, typographyProps } from 'forge/components';
-import { ThumbsUp, ThumbsDown, ChatText, DotsThree, X } from '@phosphor-icons/react';
+import { Button, Icon, Popover, typographyProps } from 'forge/components';
 import { client } from '../../services/agentlyClient.js';
 import { onTurnFeedback } from '../../services/chatStore.js';
 import { ConversationViewContext } from '../../context/ConversationViewContext.js';
@@ -21,6 +19,7 @@ export default function TurnFeedback({ conversationId, turnId, feedback, editabl
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [commentSaved, setCommentSaved] = useState(false);
   const inFlight = useRef(false);
   const root = useRef(null);
   const menuRoot = useRef(null);
@@ -33,14 +32,24 @@ export default function TurnFeedback({ conversationId, turnId, feedback, editabl
   const comment = feedback?.comment || '';
   const length = Array.from(draft).length;
   const tooLong = length > 4000;
+  // Match the API: whitespace-only text clears a comment; otherwise preserve it.
+  const nextComment = draft.trim() ? draft : '';
+  const canSaveComment = !pending && !tooLong && nextComment !== comment;
 
   // A capability change or authoritative clear must also dismiss local UI.
   useEffect(() => {
     if (!editable || rating === 0) {
       setEditing(false);
       setMenu(null);
+      setCommentSaved(false);
     }
   }, [editable, rating]);
+
+  useEffect(() => {
+    if (!commentSaved) return;
+    const timeout = setTimeout(() => setCommentSaved(false), 3000);
+    return () => clearTimeout(timeout);
+  }, [commentSaved]);
 
   function restoreFocus(action) {
     const active = document.activeElement;
@@ -66,6 +75,7 @@ export default function TurnFeedback({ conversationId, turnId, feedback, editabl
     setMenu(null);
     setDraft(value);
     setError('');
+    setCommentSaved(false);
     setEditing(true);
   }
 
@@ -85,6 +95,7 @@ export default function TurnFeedback({ conversationId, turnId, feedback, editabl
     setMenu(null);
     setPending(true);
     setError('');
+    setCommentSaved(false);
     try {
       const saved = nextRating === 0
         ? await client.clearTurnFeedback(conversationId, turnId)
@@ -94,7 +105,10 @@ export default function TurnFeedback({ conversationId, turnId, feedback, editabl
         openComment(saved.comment || '', trigger);
       } else if (closeEditor || nextRating === 0) {
         setEditing(false);
-        if (closeEditor) requestFocus.current = null;
+        if (closeEditor) {
+          requestFocus.current = null;
+          setCommentSaved(true);
+        }
       }
     } catch (_) {
       setError('Could not save feedback. Please try again.');
@@ -120,13 +134,13 @@ export default function TurnFeedback({ conversationId, turnId, feedback, editabl
 
   function renderMenu(kind) {
     return <Menu {...typographyProps('body')} ulRef={menuRoot} aria-label="Response feedback" onKeyDown={handleMenuKeyDown}>
-      <MenuItem text="Good response" icon={<ThumbsUp size={16} weight={rating === 1 ? 'fill' : 'regular'}/>}
+      <MenuItem text="Good response" icon={<Icon name="lucide:thumbs-up"/>}
         disabled={pending || rating === 1} onClick={() => chooseRating(1)}/>
-      <MenuItem text="Bad response" icon={<ThumbsDown size={16} weight={rating === -1 ? 'fill' : 'regular'}/>}
+      <MenuItem text="Bad response" icon={<Icon name="lucide:thumbs-down"/>}
         disabled={pending || rating === -1} onClick={() => chooseRating(-1)}/>
       {kind === 'more' && rating !== 0 ? <>
         <MenuDivider/>
-        <MenuItem text={comment ? 'Edit comment' : 'Add comment'} icon={<ChatText size={16}/>}
+        <MenuItem text={comment ? 'Edit comment' : 'Add comment'} icon={<Icon name="lucide:message-square"/>}
           disabled={pending} onClick={() => openComment()}/>
       </> : null}
     </Menu>;
@@ -141,7 +155,10 @@ export default function TurnFeedback({ conversationId, turnId, feedback, editabl
     popoverClassName: 'app-turn-feedback-menu',
     shouldReturnFocusOnClose: false,
     onInteraction: open => {
-      if (open) menuTrigger.current = root.current?.querySelector('[data-feedback-action="' + kind + '"]');
+      if (open) {
+        menuTrigger.current = root.current?.querySelector('[data-feedback-action="' + kind + '"]');
+        setCommentSaved(false);
+      }
       setMenu(open ? kind : null);
     },
     onOpened: () => menuRoot.current?.querySelector('[role="menuitem"]:not([aria-disabled="true"])')?.focus(),
@@ -158,9 +175,10 @@ export default function TurnFeedback({ conversationId, turnId, feedback, editabl
             <Button variant="ghost" size="compact" hideLabel data-feedback-action="rating"
               aria-label={ratingLabel} title={ratingLabel} aria-pressed={rating !== 0} disabled={pending || editing}
               aria-haspopup={rating === 0 ? 'menu' : undefined} aria-expanded={rating === 0 ? menu === 'rating' : undefined}
-              icon={rating === 1 ? <ThumbsUp aria-hidden="true" size={16} weight="fill"/> : rating === -1
-                ? <ThumbsDown aria-hidden="true" size={16} weight="fill"/>
-                : <span className="app-turn-feedback-combined-icon" aria-hidden="true"><ThumbsUp size={14}/><ThumbsDown size={14}/></span>}
+              icon={<span className={`app-turn-feedback-rating-icon${rating === 0 ? ' is-combined' : ''}`} aria-hidden="true">
+                {rating !== 0 ? <Icon name={rating === 1 ? 'lucide:thumbs-up' : 'lucide:thumbs-down'}/>
+                  : <><Icon name="lucide:thumbs-up"/><Icon name="lucide:thumbs-down"/></>}
+              </span>}
               onClick={event => rating !== 0 ? save(0, '', {trigger: event.currentTarget}) : onClick(event)}/>
           </span>}/>
         <Popover {...popoverProps('more')} renderTarget={({ref, className, onClick}) =>
@@ -168,9 +186,9 @@ export default function TurnFeedback({ conversationId, turnId, feedback, editabl
             <Button variant="ghost" size="compact" hideLabel data-feedback-action="more"
               aria-label="Feedback options" title="Feedback options" disabled={pending || editing}
               aria-haspopup="menu" aria-expanded={menu === 'more'} onClick={onClick}
-              icon={<DotsThree aria-hidden="true" size={20} weight="bold"/>}/>
+              icon="lucide:ellipsis"/>
           </span>}/>
-        <span {...typographyProps('metadata')} className="app-turn-feedback-status" role="status">{pending ? 'Saving…' : ''}</span>
+        <span {...typographyProps('metadata')} className="app-turn-feedback-status" role="status">{pending ? 'Saving…' : commentSaved ? 'Comment saved' : ''}</span>
       </div>
       {error && !editing ? <p {...typographyProps('metadata')} className="app-turn-feedback-error" role="alert">{error}</p> : null}
       <Dialog isOpen={editing && rating !== 0} className="app-turn-feedback-dialog" title="Feedback" titleTagName={FeedbackHeading}
@@ -179,18 +197,22 @@ export default function TurnFeedback({ conversationId, turnId, feedback, editabl
         onOpened={() => editor.current?.querySelector('textarea')?.focus()}
         onClosed={() => { setDraft(''); restoreFocus(editorTrigger.current); }}>
         <Button variant="ghost" size="compact" hideLabel className="app-turn-feedback-close" aria-label="Close feedback"
-          icon={<X aria-hidden="true" size={16}/>} disabled={pending} onClick={closeComment}/>
+          icon="lucide:x" disabled={pending} onClick={closeComment}/>
         <form ref={editor} className="app-turn-feedback-editor" aria-busy={pending}
-          onSubmit={event => { event.preventDefault(); if (!tooLong) save(rating, draft, {closeEditor: true}); }}>
+          onSubmit={event => { event.preventDefault(); if (canSaveComment) save(rating, nextComment, {closeEditor: true}); }}>
+          <p {...typographyProps('small')} id={commentId + '-rating'} className="app-turn-feedback-hint">Your rating is saved.</p>
           <label {...typographyProps('label')} htmlFor={commentId}>Comment (optional)</label>
-          <TextArea {...typographyProps('body')} id={commentId} value={draft} rows={3} fill disabled={pending}
-            aria-invalid={tooLong} aria-describedby={commentId + '-limit' + (error ? ' ' + commentId + '-error' : '')}
+          <TextArea {...typographyProps('body')} id={commentId} value={draft} rows={4} fill disabled={pending}
+            aria-invalid={tooLong} aria-describedby={commentId + '-rating ' + commentId + '-limit' + (tooLong ? ' ' + commentId + '-length-error' : '') + (error ? ' ' + commentId + '-error' : '')}
             onChange={event => setDraft(event.target.value)}/>
-          <span {...typographyProps('metadata')} id={commentId + '-limit'}>{length}/4000 characters</span>
+          <span {...typographyProps('metadata')} id={commentId + '-limit'} className="app-turn-feedback-limit">{length}/4000 characters</span>
+          {tooLong ? <p {...typographyProps('metadata')} id={commentId + '-length-error'} className="app-turn-feedback-error" role="alert">
+            Remove {length - 4000} {length === 4001 ? 'character' : 'characters'} to save your comment.
+          </p> : null}
           {error ? <p {...typographyProps('metadata')} id={commentId + '-error'} className="app-turn-feedback-error" role="alert">{error}</p> : null}
           <div className="app-turn-feedback-actions app-turn-feedback-dialog-actions">
-            <Button variant="ghost" size="compact" disabled={pending} onClick={closeComment}>Cancel</Button>
-            <Button variant="primary" size="compact" type="submit" disabled={pending || tooLong}>Save comment</Button>
+            <Button variant="ghost" size="compact" disabled={pending} onClick={closeComment}>{comment ? 'Cancel' : 'Not now'}</Button>
+            <Button variant="primary" size="compact" type="submit" disabled={!canSaveComment}>Save comment</Button>
             <span {...typographyProps('metadata')} role="status">{pending ? 'Saving…' : ''}</span>
           </div>
         </form>

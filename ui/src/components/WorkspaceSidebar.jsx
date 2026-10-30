@@ -1,3 +1,4 @@
+import {applicationScope} from '../services/applicationScope';
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Icon } from '@blueprintjs/core';
 import { useSignals } from '@preact/signals-react/runtime';
@@ -49,6 +50,7 @@ export function selectedWindowInputs() {
 
 export default function WorkspaceSidebar({ discoveryReady = true, conversationId = '', collapsed = false, onNavigate, onExpand, onOpenWorkspace, onTopbarActionsChange, section = 'chat', destination = '', onSectionChange, onSectionWindow, onSectionPresentationChange, brandRef, profileRef, drawerHidden = false, drawerMode = false, onDismiss, returnFocusRef }) {
   useSignals();
+  applicationScope.revision.value;
   const windowInputs = selectedWindowInputs();
   const [layout, setLayout] = useState(null);
   const [searchMount, setSearchMount] = useState(null);
@@ -78,12 +80,12 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateTabScroll) : null;
     observer?.observe(node);
     return () => observer?.disconnect();
-  }, [layout, collapsed]);
+  }, [layout, collapsed, section]);
 
   useEffect(() => {
     tabsRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView?.({block: 'nearest', inline: 'nearest'});
     updateTabScroll();
-  }, [layout, activeApp, collapsed]);
+  }, [layout, activeApp, collapsed, section]);
 
   useEffect(() => {
     const element = shellRef.current;
@@ -97,20 +99,28 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
   useEffect(() => {
     let live = true;
     let requestSequence = 0;
+    let inFlight = false;
+    let revision = null;
     if (!discoveryReady) { setLayout(null); onTopbarActionsChange?.([]); return undefined; }
-    const load = async () => {
+    const load = async (background = false) => {
+      if (background && (inFlight || document.hidden)) return;
+      inFlight = true;
       const sequence = ++requestSequence;
       try {
-        if (reloadVersion > 0) workspaceResources.clear();
+        if (!background && reloadVersion > 0) workspaceResources.clear();
         const response = await fetch(`${sdkBaseURL}/workspace/layout`, { credentials: 'include', headers: { Accept: 'application/json' } });
         if (!live || sequence !== requestSequence) return;
         if (!response.ok) throw new Error(`Workspace layout unavailable (${response.status})`);
         const payload = await response.json();
         if (!live || sequence !== requestSequence) return;
+        const nextRevision = JSON.stringify([payload.workspaceId, payload.layoutRevision || payload.layout, payload.catalogRevisions]);
+        if (background && nextRevision === revision) return;
         const applications = Array.isArray(payload?.layout?.applications) ? payload.layout.applications : [];
+        const principal = await getAuthMeSilently();
+        if (!live || sequence !== requestSequence) return;
+        applicationScope.configure(JSON.stringify([payload.workspaceId, principal?.subject || principal?.username || principal?.id || 'anonymous']), applications);
         const archives = payload?.layout?.resourceArchives || [];
         if (archives.length || applications.some(app => app.styleResources?.length)) {
-          const principal = await getAuthMeSilently();
           if (!live || sequence !== requestSequence) return;
           const scope = JSON.stringify([payload.workspaceId, principal]);
           workspaceResources.configure(scope, archives);
@@ -122,6 +132,13 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
           workspaceResources.clear(); getWorkspaceStyleManager().clearApplicationStyles();
         }
         onTopbarActionsChange?.(payload?.layout?.topbar?.actions || []);
+        revision = nextRevision;
+        if (background) {
+          setLayout(payload.layout);
+          setActiveApp(current => applications.some(app => app.id === current) ? current : (applications[0]?.id || ''));
+          setError('');
+          return;
+        }
         const widthSpec = payload?.layout?.left?.width || {};
         const initialWidth = Number(widthSpec.default) || 320;
         if (widthSpec.preferenceScope === 'global') {
@@ -136,7 +153,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         if (error) window.dispatchEvent(new CustomEvent('forge:retry-window-metadata'));
           return;
         }
-        const me = await getAuthMeSilently().catch(() => null);
+        const me = principal;
         if (!live || sequence !== requestSequence) return;
         const principalId = String(me?.subject || me?.username || me?.email || me?.id || 'anonymous');
         const key = `agently.layoutPreferences.v1:${JSON.stringify([payload.workspaceId, principalId, payload.layout?.id || 'main'])}`;
@@ -153,13 +170,19 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         setError('');
         if (error) window.dispatchEvent(new CustomEvent('forge:retry-window-metadata'));
       } catch (cause) {
-        if (live && sequence === requestSequence) { setLayout(null); onTopbarActionsChange?.([]); setError(String(cause?.message || cause)); }
+        if (live && sequence === requestSequence) { revision = null; setLayout(null); onTopbarActionsChange?.([]); setError(String(cause?.message || cause)); }
+      } finally {
+        if (sequence === requestSequence) inFlight = false;
       }
     };
     void load();
-    const onAuthorized = () => { setLayout(null); void load(); };
+    const onAuthorized = () => { revision = null; sectionRouteSignature.current = ''; applicationScope.clear(); setLayout(null); void load(); };
+    const refresh = () => { void load(true); };
+    const timer = window.setInterval(refresh, 15000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
     window.addEventListener('agently:authorized', onAuthorized);
-    return () => { live = false; window.removeEventListener('agently:authorized', onAuthorized); };
+    return () => { live = false; window.clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); window.removeEventListener('agently:authorized', onAuthorized); };
   }, [reloadVersion, discoveryReady]);
 
   useEffect(() => {
@@ -176,29 +199,38 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
   const history = layout?.left?.history || {};
   const sections = navigationEnabled && layout?.left?.navigation?.presentation === 'sections';
   useEffect(() => { onSectionPresentationChange?.(sections); }, [sections, onSectionPresentationChange]);
+  const sectionRouteSignature = useRef('');
   const sectionWindowRef = useRef(onSectionWindow);
   sectionWindowRef.current = onSectionWindow;
   useEffect(() => {
-    if (!sections || section === 'chat') return;
+    if (!sections || section === 'chat') { sectionRouteSignature.current = ''; return; }
     const selected = section === 'workspaces'
       ? layoutWindowDestinations(layout).find(entry => entry.destination === destination)
       : layout.topbar?.actions?.find(entry => `action:${entry.id}` === section);
     const publish = (entry, title = '', error = '') => sectionWindowRef.current?.(entry, title, section, destination, error);
-    if (section === 'workspaces' && !destination) { publish(null); return; }
+    if (section === 'workspaces' && !destination) { sectionRouteSignature.current = ''; publish(null); return; }
     if (!selected || selected.disabled || !['window', 'report'].includes(selected.action?.type)) {
+      sectionRouteSignature.current = '';
       publish(null, '', 'This destination is unavailable. Choose another destination from the menu.');
       return;
     }
+    const application = applications.find(app => app.id === selected.applicationId);
+    const scopeInputs = applicationScope.inputs(application, selectedWindowInputs());
     const options = selected.action.type === 'report'
-      ? resolveLayoutReportOptions(selected.action, '', selectedWindowInputs())
-      : resolveLayoutWindowOptions(selected.action, '', selectedWindowInputs());
+      ? resolveLayoutReportOptions(selected.action, '', scopeInputs)
+      : resolveLayoutWindowOptions(selected.action, '', scopeInputs);
     if (!options) {
+      sectionRouteSignature.current = '';
       publish(null, selected.title, 'Select the required context before opening this destination.');
       return;
     }
+    const signature = JSON.stringify([section, destination, destinationVisit, selected, options]);
+    if (sectionRouteSignature.current === signature) return;
+    sectionRouteSignature.current = signature;
     if (selected.applicationId) setActiveApp(selected.applicationId);
     const entry = openWindow(resolveLayoutWindowKey(selected.action), selected.title, selected.action.refreshDataSources || [],
       {...options, parentKey: null, region: 'app.section'});
+    applicationScope.register(entry, application, selected.action);
     publish(entry, selected.title);
   }, [sections, layout, section, destination, destinationVisit]);
   if (layout && !navigationEnabled && historyEnabled) {
@@ -226,7 +258,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         {expanded ? <div className="app-layout-menu-children">{menu.children.map(child => renderMenu(child, [...parentPath, menu.id]))}</div> : null}
       </div>;
     }
-    const missingInputs = ['window', 'report'].includes(menu.action?.type) && resolveNavigationParameters(menu.action, windowInputs).missing;
+    const missingInputs = ['window', 'report'].includes(menu.action?.type) && resolveNavigationParameters(menu.action, applicationScope.inputs(active, windowInputs)).missing;
     const destinationId = JSON.stringify([active?.id, ...parentPath, menu.id]);
     const unavailable = sections && layoutWindowDestinations(layout).find(entry => entry.destination === destinationId)?.disabled;
     const MenuButton = sections ? SectionDestinationButton : Button;
@@ -235,13 +267,13 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         const action = menu.action;
         if (openLayoutURL(action)) { onNavigate?.(); return; }
         if (action?.type === 'report') {
-          const options = resolveLayoutReportOptions(action, conversationId, selectedWindowInputs());
+          const options = resolveLayoutReportOptions(action, conversationId, applicationScope.inputs(active, selectedWindowInputs()));
           if (!options) return;
           if (sections) {
             if (section === 'workspaces' && destination === destinationId) setDestinationVisit(value => value + 1);
             onSectionChange?.('workspaces', destinationId);
           } else {
-            openWindow(action.resourceUri, menu.title, [], options);
+            applicationScope.register(openWindow(action.resourceUri, menu.title, [], options), active, action);
             onOpenWorkspace?.();
           }
           onNavigate?.();
@@ -249,18 +281,18 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         }
         if (action?.type === 'window') {
           const windowKey = resolveLayoutWindowKey(action);
-          const options = resolveLayoutWindowOptions(action, conversationId, selectedWindowInputs());
+          const options = resolveLayoutWindowOptions(action, conversationId, applicationScope.inputs(active, selectedWindowInputs()));
           if (!options) return;
           if (sections) {
             if (section === 'workspaces' && destination === destinationId) setDestinationVisit(value => value + 1);
             onSectionChange?.('workspaces', destinationId);
           } else {
-            openWindow(windowKey, menu.title, action.refreshDataSources || [], options);
+            applicationScope.register(openWindow(windowKey, menu.title, action.refreshDataSources || [], options), active, action);
             onOpenWorkspace?.();
           }
           onNavigate?.();
         }
-      }}>{menu.title}</MenuButton>;
+      }}>{menu.title}{menu.scopeLabelKey && applicationScope.inputs(active)[menu.scopeLabelKey] ? `: ${applicationScope.inputs(active)[menu.scopeLabelKey]}` : ''}</MenuButton>;
   };
 
   const startResize = (event) => {
@@ -300,7 +332,9 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
           {section === 'workspaces' ? <>
             <SectionDestinationButton icon={<SharedIcon name="lucide:layout-grid"/>} selected={!destination}
               onClick={() => {onSectionChange?.('workspaces'); onNavigate?.();}}>Overview</SectionDestinationButton>
-            {applications.length > 0 ? <div className="app-layout-tabs app-section-applications" role="tablist" aria-label="Applications">
+            {applications.length > 0 ? <div className="app-layout-tabbar app-section-application-bar">
+              {tabScroll.left || tabScroll.right ? <Button minimal small icon={<SharedIcon name="step-backward"/>} aria-label="Scroll applications left" disabled={!tabScroll.left} onClick={() => scrollTabs(-1)}/> : null}
+              <div className="app-layout-tabs app-section-applications" role="tablist" aria-label="Applications" ref={tabsRef} onScroll={updateTabScroll}>
               {applications.map(app => <Button key={app.id} minimal role="tab" active={app.id === active?.id}
                 aria-selected={app.id === active?.id} tabIndex={app.id === active?.id ? 0 : -1}
                 icon={<SharedIcon name={app.icon || 'lucide:layout-grid'}/>}
@@ -315,6 +349,8 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
                   setActiveApp(enabled[next].id);
                   event.currentTarget.parentElement.querySelectorAll('[role="tab"]:not(:disabled)')[next]?.focus();
                 }}>{app.title}</Button>)}
+              </div>
+              {tabScroll.left || tabScroll.right ? <Button minimal small icon={<SharedIcon name="step-forward"/>} aria-label="Scroll applications right" disabled={!tabScroll.right} onClick={() => scrollTabs(1)}/> : null}
             </div> : null}
             <div className="app-layout-menus" aria-label={`${active?.title || 'Application'} navigation`}>
               {active?.menus?.length ? active.menus.map(menu => renderMenu(menu)) : <div role="status" className="app-section-menu-empty">
