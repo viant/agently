@@ -439,3 +439,33 @@ it('makes an empty application menu explicit and allows reloading it', async () 
   fireEvent.click(screen.getByRole('button', {name:'Reload menu'}));
   await waitFor(() => expect(fetch.mock.calls.length).toBeGreaterThan(calls));
 });
+
+it('uses application scope for later menu opens and labels instead of another focused window', async () => {
+  const {applicationScope} = await import('../services/applicationScope');
+  applicationScope.clear();
+  const payload = layoutPayload({applications:[
+    {id:'analytics',providerIdentity:'producer',title:'Analytics',scope:{keys:['entityId','entityName']},menus:[
+      {id:'select',title:'Entity',scopeLabelKey:'entityName',action:{type:'window',windowKey:'selector'}},
+      {id:'summary',title:'Summary',action:{type:'window',windowKey:'summary',parameterBindings:{Entity:{from:'entityId'}}}},
+    ]},
+    {id:'operations',title:'Operations',menus:[]},
+  ]});
+  fetch.mockResolvedValue(response(payload));
+  openWindow.mockImplementation((key,title,refs,options)=>{
+    const entry={windowId:`opened-${key}`,windowKey:key,parameters:options.parameters};
+    windowSignals.activeWindows.value=[...windowSignals.activeWindows.value,entry];return entry;
+  });
+  render(<WorkspaceSidebar/>);
+  await screen.findByRole('button',{name:'Entity'});
+  expect(screen.getByRole('button',{name:'Summary'}).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button',{name:'Entity'}));
+  await act(async()=>applicationScope.set({identity:{windowId:'opened-selector'}},{entityId:12,entityName:'Selected entity'}));
+  expect(screen.getByRole('button',{name:'Entity: Selected entity'})).toBeTruthy();
+  await act(async()=>{
+    windowSignals.activeWindows.value=[...windowSignals.activeWindows.value,{windowId:'other-app',parameters:{entityId:99}}];
+    windowSignals.selectedWindowId.value='other-app';
+  });
+  fireEvent.click(screen.getByRole('button',{name:'Summary'}));
+  expect(openWindow).toHaveBeenLastCalledWith('summary','Summary',[],expect.objectContaining({parameters:{Entity:12}}));
+  applicationScope.clear();
+});

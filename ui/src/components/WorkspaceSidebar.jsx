@@ -1,3 +1,4 @@
+import {applicationScope} from '../services/applicationScope';
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Icon } from '@blueprintjs/core';
 import { useSignals } from '@preact/signals-react/runtime';
@@ -49,6 +50,7 @@ export function selectedWindowInputs() {
 
 export default function WorkspaceSidebar({ discoveryReady = true, conversationId = '', collapsed = false, onNavigate, onExpand, onOpenWorkspace, onTopbarActionsChange, section = 'chat', destination = '', onSectionChange, onSectionWindow, onSectionPresentationChange, brandRef, profileRef, drawerHidden = false, drawerMode = false, onDismiss, returnFocusRef }) {
   useSignals();
+  applicationScope.revision.value;
   const windowInputs = selectedWindowInputs();
   const [layout, setLayout] = useState(null);
   const [searchMount, setSearchMount] = useState(null);
@@ -108,9 +110,11 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         const payload = await response.json();
         if (!live || sequence !== requestSequence) return;
         const applications = Array.isArray(payload?.layout?.applications) ? payload.layout.applications : [];
+        const principal = await getAuthMeSilently();
+        if (!live || sequence !== requestSequence) return;
+        applicationScope.configure(JSON.stringify([payload.workspaceId, principal?.subject || principal?.username || principal?.id || 'anonymous']), applications);
         const archives = payload?.layout?.resourceArchives || [];
         if (archives.length || applications.some(app => app.styleResources?.length)) {
-          const principal = await getAuthMeSilently();
           if (!live || sequence !== requestSequence) return;
           const scope = JSON.stringify([payload.workspaceId, principal]);
           workspaceResources.configure(scope, archives);
@@ -136,7 +140,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         if (error) window.dispatchEvent(new CustomEvent('forge:retry-window-metadata'));
           return;
         }
-        const me = await getAuthMeSilently().catch(() => null);
+        const me = principal;
         if (!live || sequence !== requestSequence) return;
         const principalId = String(me?.subject || me?.username || me?.email || me?.id || 'anonymous');
         const key = `agently.layoutPreferences.v1:${JSON.stringify([payload.workspaceId, principalId, payload.layout?.id || 'main'])}`;
@@ -157,7 +161,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       }
     };
     void load();
-    const onAuthorized = () => { setLayout(null); void load(); };
+    const onAuthorized = () => { applicationScope.clear(); setLayout(null); void load(); };
     window.addEventListener('agently:authorized', onAuthorized);
     return () => { live = false; window.removeEventListener('agently:authorized', onAuthorized); };
   }, [reloadVersion, discoveryReady]);
@@ -189,9 +193,11 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       publish(null, '', 'This destination is unavailable. Choose another destination from the menu.');
       return;
     }
+    const application = applications.find(app => app.id === selected.applicationId);
+    const scopeInputs = applicationScope.inputs(application, selectedWindowInputs());
     const options = selected.action.type === 'report'
-      ? resolveLayoutReportOptions(selected.action, '', selectedWindowInputs())
-      : resolveLayoutWindowOptions(selected.action, '', selectedWindowInputs());
+      ? resolveLayoutReportOptions(selected.action, '', scopeInputs)
+      : resolveLayoutWindowOptions(selected.action, '', scopeInputs);
     if (!options) {
       publish(null, selected.title, 'Select the required context before opening this destination.');
       return;
@@ -199,6 +205,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
     if (selected.applicationId) setActiveApp(selected.applicationId);
     const entry = openWindow(resolveLayoutWindowKey(selected.action), selected.title, selected.action.refreshDataSources || [],
       {...options, parentKey: null, region: 'app.section'});
+    applicationScope.register(entry, application, selected.action);
     publish(entry, selected.title);
   }, [sections, layout, section, destination, destinationVisit]);
   if (layout && !navigationEnabled && historyEnabled) {
@@ -226,7 +233,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         {expanded ? <div className="app-layout-menu-children">{menu.children.map(child => renderMenu(child, [...parentPath, menu.id]))}</div> : null}
       </div>;
     }
-    const missingInputs = ['window', 'report'].includes(menu.action?.type) && resolveNavigationParameters(menu.action, windowInputs).missing;
+    const missingInputs = ['window', 'report'].includes(menu.action?.type) && resolveNavigationParameters(menu.action, applicationScope.inputs(active, windowInputs)).missing;
     const destinationId = JSON.stringify([active?.id, ...parentPath, menu.id]);
     const unavailable = sections && layoutWindowDestinations(layout).find(entry => entry.destination === destinationId)?.disabled;
     const MenuButton = sections ? SectionDestinationButton : Button;
@@ -235,13 +242,13 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         const action = menu.action;
         if (openLayoutURL(action)) { onNavigate?.(); return; }
         if (action?.type === 'report') {
-          const options = resolveLayoutReportOptions(action, conversationId, selectedWindowInputs());
+          const options = resolveLayoutReportOptions(action, conversationId, applicationScope.inputs(active, selectedWindowInputs()));
           if (!options) return;
           if (sections) {
             if (section === 'workspaces' && destination === destinationId) setDestinationVisit(value => value + 1);
             onSectionChange?.('workspaces', destinationId);
           } else {
-            openWindow(action.resourceUri, menu.title, [], options);
+            applicationScope.register(openWindow(action.resourceUri, menu.title, [], options), active, action);
             onOpenWorkspace?.();
           }
           onNavigate?.();
@@ -249,18 +256,18 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         }
         if (action?.type === 'window') {
           const windowKey = resolveLayoutWindowKey(action);
-          const options = resolveLayoutWindowOptions(action, conversationId, selectedWindowInputs());
+          const options = resolveLayoutWindowOptions(action, conversationId, applicationScope.inputs(active, selectedWindowInputs()));
           if (!options) return;
           if (sections) {
             if (section === 'workspaces' && destination === destinationId) setDestinationVisit(value => value + 1);
             onSectionChange?.('workspaces', destinationId);
           } else {
-            openWindow(windowKey, menu.title, action.refreshDataSources || [], options);
+            applicationScope.register(openWindow(windowKey, menu.title, action.refreshDataSources || [], options), active, action);
             onOpenWorkspace?.();
           }
           onNavigate?.();
         }
-      }}>{menu.title}</MenuButton>;
+      }}>{menu.title}{menu.scopeLabelKey && applicationScope.inputs(active)[menu.scopeLabelKey] ? `: ${applicationScope.inputs(active)[menu.scopeLabelKey]}` : ''}</MenuButton>;
   };
 
   const startResize = (event) => {
