@@ -1,5 +1,6 @@
 /* Quiet document messages share the same body role as navigation and reports. */
 .app-bubble-row.is-document { margin: 0 0 28px; padding: 0; gap: 0; color: var(--app-text); }
+.app-bubble-row.is-document.app-bubble-row-assistant:has(+ .app-turn-feedback.is-document) { margin-bottom: var(--forge-spacing-3, 12px); }
 .app-bubble-row.is-document.app-bubble-row-user { justify-content: flex-end; }
 .app-bubble-row.is-document > .app-bubble { flex: 0 1 auto; width: auto; min-width: 0; padding: 0; border: 0; box-shadow: none; background: transparent; border-radius: 0; }
 .app-bubble-row.is-document > .app-bubble-user { max-width: 88%; padding: 10px 16px; background: var(--agently-theme-surface-subtle, var(--app-surface-soft)); border-radius: var(--agently-theme-radius-surface, 10px); }
@@ -11,7 +12,9 @@
 .app-bubble-row.is-document .app-workspace-attachment { margin-top: var(--agently-theme-spacing-4, 16px); }
 .app-bubble-row.is-document .app-workspace-attachment:hover { background: var(--app-surface-soft); }
 
-.app-bubble-row.is-document .app-bubble-content :is(.app-rich-prose, .app-rich-markdown) { font: inherit; letter-spacing: inherit; white-space: pre-wrap; }
+.app-bubble-row.is-document .app-bubble-content :is(.app-rich-prose, .app-rich-markdown) { font: inherit; letter-spacing: inherit; white-space: normal; }
+.app-bubble-row.is-document :is(.app-rich-prose, .app-rich-markdown) > p { margin: 0 0 var(--forge-spacing-3, 12px); }
+.app-bubble-row.is-document :is(.app-rich-prose, .app-rich-markdown) > :last-child { margin-bottom: 0; }
 
 /* Output links use the same compact document attachment in chat and specimens. */
 .app-workspace-attachment.is-document { width: 100%; max-width: 380px; padding: 13px; gap: 10px; border-color: var(--agently-theme-border-strong, var(--app-border)); border-radius: var(--agently-theme-radius-control, 8px); background: var(--app-surface); box-shadow: none; color: var(--app-accent); }
