@@ -21,11 +21,12 @@ export async function verifyDocumentChat(page, {touch = false} = {}) {
   assert.equal(await field.inputValue(), 'Review this example.\n');
   const controls = specimen.getByRole('button', {name: 'Tools', exact: true});
   await controls.click();
-  const model = specimen.getByRole('combobox', {name: 'Model', exact: true});
+  const model = page.getByRole('dialog', {name: 'Tools', exact: true}).getByRole('combobox', {name: 'Model', exact: true});
   await model.waitFor();
   const bounds = await model.boundingBox();
   assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= page.viewportSize().width);
   await model.press('Escape');
+  await page.waitForFunction(() => document.querySelector('#foundation-chat [aria-label="Tools"]') === document.activeElement);
   assert.equal(await controls.evaluate(node => node === document.activeElement), true);
   await field.click();
   const pointer = await specimen.locator('.forge-document-composer-shell').evaluate(node => ({outline: getComputedStyle(node).outlineWidth, style: getComputedStyle(node).outlineStyle, className: node.parentElement.className}));
