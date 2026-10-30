@@ -91,3 +91,19 @@ describe('role adoption in the shared settings pilot', () => {
     expect(source).not.toContain('<select');
   });
 });
+
+describe('anchored panel design-system adoption', () => {
+  it('uses shared positioning for host panels', () => {
+    const inspect = directory => {
+      for (const entry of fs.readdirSync(directory, {withFileTypes:true})) {
+        const file = new URL(entry.name + (entry.isDirectory() ? '/' : ''), directory);
+        if (entry.isDirectory()) inspect(file);
+        else if (/\.[jt]sx?$/.test(entry.name)) {
+          const imports = [...fs.readFileSync(file,'utf8').matchAll(/import\s*\{([^}]+)\}\s*from\s*['"]@blueprintjs\/core['"]/g)];
+          expect(imports.some(match => /\bPopover\b/.test(match[1])), file.pathname).toBe(false);
+        }
+      }
+    };
+    inspect(new URL('./',import.meta.url));
+  });
+});
