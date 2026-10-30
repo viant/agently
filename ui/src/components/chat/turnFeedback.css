@@ -1,20 +1,34 @@
 /* Optional feedback follows the final bubble and uses the shell's semantic
    typography, surface and selected-state roles. */
 .app-turn-feedback {
+  --app-feedback-icon-slot: 28px;
+  --app-feedback-target-min: var(--forge-control-height, 36px);
+  --app-feedback-icon-inset: max(calc(var(--forge-spacing-2, 8px) + var(--forge-border-width, 1px)), calc((var(--app-feedback-target-min) - var(--app-feedback-icon-slot)) / 2));
   margin: -4px 0 12px 34px;
   min-width: 0;
-  color: var(--app-text-secondary);
+  color: var(--forge-text-secondary, var(--app-text-secondary));
 }
-.app-turn-feedback.is-document { margin-left: 0; }
+.app-turn-feedback.is-document { margin-top: 0; margin-left: 0; }
 .app-turn-feedback-actions { display: flex; align-items: center; gap: var(--forge-spacing-1, 4px); flex-wrap: wrap; }
-.app-turn-feedback-toolbar { flex-wrap: nowrap; min-width: 0; }
+.app-turn-feedback-toolbar {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.app-turn-feedback.is-document .app-turn-feedback-toolbar {
+  /* Align the glyph, while retaining the shared button's full hit area. */
+  margin-inline-start: calc(0px - var(--app-feedback-icon-inset));
+}
 .app-turn-feedback-toolbar > * { flex-shrink: 0; }
-.app-turn-feedback-combined-icon { display: inline-flex; align-items: center; width: 22px; height: 22px; }
-.app-turn-feedback-combined-icon svg:first-child { align-self: flex-start; }
-.app-turn-feedback-combined-icon svg:last-child { align-self: flex-end; margin-left: -6px; }
+.app-turn-feedback-toolbar .forge-button { color: var(--forge-text-secondary, var(--app-text-secondary)); }
+.app-turn-feedback .forge-icon, .app-turn-feedback-menu .forge-icon, .app-turn-feedback-dialog .forge-icon { --forge-icon-size: 16px; }
+.app-turn-feedback-rating-icon { display: inline-flex; align-items: center; width: var(--app-feedback-icon-slot); height: 22px; }
+.app-turn-feedback-rating-icon.is-combined .forge-icon { --forge-icon-size: 14px; }
+.app-turn-feedback-rating-icon.is-combined svg:first-child { align-self: flex-start; }
+.app-turn-feedback-rating-icon.is-combined svg:last-child { align-self: flex-end; margin-left: -2px; }
+.app-turn-feedback-status { min-width: 0; flex-shrink: 1; }
 .app-turn-feedback-actions button[aria-pressed="true"] {
-  color: var(--app-accent);
-  background: var(--app-selected-background);
+  color: var(--forge-interaction-color, var(--app-accent));
+  background: var(--forge-selected-background, var(--app-selected-background));
 }
 .app-turn-feedback button:focus-visible,
 .app-turn-feedback-dialog :is(button, textarea):focus-visible,
@@ -56,8 +70,11 @@
 .app-turn-feedback-dialog .bp6-dialog-header h2 { color: inherit; }
 .app-turn-feedback-close { position: absolute; top: var(--forge-spacing-2, 8px); right: var(--forge-spacing-2, 8px); }
 .app-turn-feedback-editor { display: grid; gap: var(--forge-spacing-2, 8px); min-width: 0; padding: 0 var(--forge-spacing-4, 16px) var(--forge-spacing-4, 16px); }
+.app-turn-feedback-hint { margin: 0; }
+.app-turn-feedback-hint, .app-turn-feedback-limit { color: var(--forge-text-secondary, var(--app-text-secondary)); }
 .app-turn-feedback-editor textarea {
   min-width: 0;
+  min-height: var(--forge-textarea-min-height, 96px);
   max-width: 100%;
   color: var(--forge-control-text, var(--app-text));
   background: var(--forge-control-bg, var(--app-surface));
@@ -66,9 +83,12 @@
   box-shadow: none;
   resize: vertical;
 }
-.app-turn-feedback-editor textarea[aria-invalid="true"] { border-color: var(--forge-status-danger-foreground, var(--app-danger)); }
-.app-turn-feedback-dialog-actions { margin-top: var(--forge-spacing-2, 8px); }
-.app-turn-feedback-error { margin: var(--forge-spacing-1, 4px) 0 0; color: var(--forge-status-danger-foreground, var(--app-danger, var(--app-text))); }
+.app-turn-feedback-editor textarea.bp6-input:focus { box-shadow: none; }
+.app-turn-feedback-editor textarea[aria-invalid="true"] { border-color: var(--agently-theme-validation-border, var(--forge-status-danger-foreground, var(--app-danger))); }
+.app-turn-feedback-dialog-actions { margin-top: var(--forge-spacing-2, 8px); justify-content: flex-end; position: relative; }
+.app-turn-feedback-dialog-actions [role="status"] { position: absolute; inset-inline-start: 0; }
+.app-turn-feedback-error { margin: var(--forge-spacing-1, 4px) 0 0; color: var(--agently-theme-validation-border, var(--forge-status-danger-foreground, var(--app-danger, var(--app-text)))); }
 @media (pointer: coarse) {
+  .app-turn-feedback { --app-feedback-target-min: max(44px, var(--forge-control-height, 36px)); }
   .app-turn-feedback-menu .bp6-menu-item { min-height: 44px; align-items: center; }
 }

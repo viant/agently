@@ -76,6 +76,16 @@ try {
   browser = await chromium.launch({headless: true, channel: process.env.PLAYWRIGHT_CHANNEL || 'chromium'});
   await auditViewport(baseURL, {width: 1440, height: 900});
   await auditViewport(baseURL, {width: 390, height: 844});
+  // The feedback dialog and stable toolbar also cover the tablet breakpoint.
+  {
+    const page = await browser.newPage({viewport:{width:768,height:1024}});
+    await page.clock.install();
+    await page.goto(`${baseURL}/typography-components-proof.html`);
+    await page.locator('#foundation-chat .app-rich-prose').first().waitFor();
+    await page.evaluate(() => document.fonts.ready);
+    await verifyTurnFeedback(page);
+    await page.close();
+  }
   for (const viewport of [{width:1440,height:900},{width:390,height:844}]) {
     const page = await browser.newPage({viewport, ...(viewport.width<500 ? {hasTouch:true,isMobile:true} : {})});
     await page.clock.install();
