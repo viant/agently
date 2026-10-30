@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, expect, it, vi} from 'vitest';
-vi.mock('forge/core',()=>({findMetadataSignal:vi.fn(),getActiveUIBridgeTransportContext:vi.fn()}));
-import {getActiveUIBridgeTransportContext} from 'forge/core';
+vi.mock('forge/core',()=>({findMetadataSignal:vi.fn(),getActiveUIBridgeTransportContext:vi.fn(),waitForUIBridgeReady:vi.fn()}));
+import {getActiveUIBridgeTransportContext,waitForUIBridgeReady} from 'forge/core';
 import {prepareAgentlyDataConnectorRequest} from './datasourceRequestContext.js';
 beforeEach(()=>{
  vi.stubGlobal('window',{location:{href:'http://owned/workspace'}});
@@ -24,4 +24,19 @@ it('does not leak the UI session to foreign MCP/remote destinations or unrelated
  }
  getActiveUIBridgeTransportContext.mockReturnValue(null);
  const headers={};prepareAgentlyDataConnectorRequest({url:'/v1/api/datasources/records/fetch',headers,body:{}});expect(headers).toEqual({});
+});
+
+it('waits for the existing bridge before preparing an early cohort read',async()=>{
+ let release;getActiveUIBridgeTransportContext.mockReturnValue(null);
+ waitForUIBridgeReady.mockImplementation(()=>new Promise(resolve=>{release=resolve}));
+ const headers={},queryParams=new URLSearchParams();
+ const pending=prepareAgentlyDataConnectorRequest({url:'/v1/api/datasources/records/fetch?cohort=1',headers,queryParams,body:{},windowState:{windowId:'fresh-window'}});
+ expect(headers).toEqual({});
+ getActiveUIBridgeTransportContext.mockReturnValue({url:'http://owned/v1/ui/rpc',sessionHeader:'Mcp-Session-Id',sessionId:'fresh-session'});
+ release(true);await pending;
+ expect(headers['Mcp-Session-Id']).toBe('fresh-session');expect(queryParams.get('windowId')).toBe('fresh-window');
+});
+it('reports an unavailable workspace transport without pretending it is an access denial',async()=>{
+ getActiveUIBridgeTransportContext.mockReturnValue(null);waitForUIBridgeReady.mockResolvedValue(false);
+ await expect(prepareAgentlyDataConnectorRequest({url:'/v1/api/datasources/records/fetch?cohort=1',headers:{},body:{}})).rejects.toThrow('workspace connection is not ready');
 });
