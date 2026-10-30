@@ -1,3 +1,4 @@
+import {Popover} from 'forge/components';
 import './skillHints.css';
 import {lookupSurfaceInvocation} from './surface.js';
 import {client as skillClient} from '../../services/agentlyClient';
@@ -5,7 +6,6 @@ import {skillHintQuery, matchingSkills, insertSkillPrefix} from './skillHints.js
 import {useSignals} from '@preact/signals-react/runtime';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
-  Popover,
   Menu,
   MenuItem,
   InputGroup,
