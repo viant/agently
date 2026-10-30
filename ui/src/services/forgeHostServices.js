@@ -1,3 +1,4 @@
+import {applicationScope} from './applicationScope';
 import { chatService } from './chatService';
 import { scheduleService } from './scheduleService';
 import { prepareAgentlyDataConnectorRequest } from './datasourceRequestContext';
@@ -9,6 +10,7 @@ import {getAuthenticatedWindowCacheScope} from './agentlyClient';
 import {recoverPublishedWindowBinding} from './publishedWindowBindingRecovery';
 
 export const forgeHostServices = {
+  applicationScope,
   createHostWindow:createPublishedManagementHostWindow,
   windowModelCacheScope:getAuthenticatedWindowCacheScope,
 	resourceFS: workspaceResources,

@@ -552,3 +552,18 @@ preferred placement can flip above, below or beside the trigger; panels keep
 Preserve dismissal, focus return, disabled state and nested controls. Do not
 replace this behavior with local absolute-position CSS or raw Blueprint Popover.
 Native selects and modal dialogs retain their platform semantics.
+
+## Application selection context
+
+Workspace applications can declare `scope: {keys: [entityId, entityName]}`.
+Menu-opened windows receive `context.handlers.applicationScope.get(context)` and
+`set(context, values)` through the shared Forge host services. Successful updates
+return `true`; undeclared keys or missing window ownership throw. This is UI context,
+not authorization. The producer continues to authorize resource and data access.
+
+Menu bindings use the application's selection instead of a different focused
+window. An optional `scopeLabelKey: entityName` displays the current selection next
+to the menu title. Changed keys close dependent views in that application without
+replaying queries; the selector stays open. Scope is kept only in memory and reset
+on an authenticated workspace/user change. See Forge's `doc/application-scope.md`
+for the shared store and nested-window contract.
