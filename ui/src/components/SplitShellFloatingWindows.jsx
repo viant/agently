@@ -1,5 +1,7 @@
 import React from 'react';
 import {WindowManager} from 'forge/components';
+import {activeWindows} from 'forge/core';
+import {belongsToAppSection} from './sectionWindowTree.js';
 import ReportWindow, {isReportWindow} from './ReportWindow.jsx';
 
 // Split chat/workspace panes own their tabs; ordinary floating children keep
@@ -7,7 +9,7 @@ import ReportWindow, {isReportWindow} from './ReportWindow.jsx';
 export default function SplitShellFloatingWindows() {
   return <div className="split-shell-floating-windows" style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',pointerEvents:'none'}}>
     <style>{'.split-shell-floating-windows .react-draggable { pointer-events: auto; }'}</style>
-    <WindowManager windowFilter={entry => entry?.inTab === false && !entry?.windowScopeId}
+    <WindowManager windowFilter={entry => entry?.inTab === false && !entry?.windowScopeId && !belongsToAppSection(activeWindows.value, entry)}
       renderWindowContent={({window, defaultContent}) => isReportWindow(window) ? <ReportWindow window={window}/> : defaultContent}/>
   </div>;
 }
