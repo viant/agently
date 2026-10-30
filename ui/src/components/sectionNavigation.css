@@ -113,11 +113,15 @@
 }
 
 /* Application controls must not inherit the split sidebar's growing tabs. */
-.app-layout-sidebar.is-sections .app-section-applications {
-  flex: 0 0 auto; flex-wrap: wrap; overflow: visible;
+.app-layout-sidebar.is-sections .app-section-application-bar {
+  flex: 0 0 auto; min-width: 0;
   padding: var(--agently-theme-spacing-2, 8px);
   border-bottom: 1px solid var(--app-border);
 }
+.app-layout-sidebar.is-sections .app-section-applications {
+  flex: 1 1 auto; flex-wrap: nowrap; overflow-x: auto;
+}
+.app-section-applications [role="tab"] { flex-shrink: 0; white-space: nowrap; }
 .app-section-applications [role="tab"][aria-selected="true"] {
   color: var(--app-accent); background: var(--app-selected-background);
 }

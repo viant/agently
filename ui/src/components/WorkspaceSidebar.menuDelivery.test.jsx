@@ -78,11 +78,13 @@ it('collapses nested menu groups independently and preserves leaf actions', asyn
   expect(openWindow).toHaveBeenCalledWith('advertiserList', 'Advertisers', [], expect.any(Object));
 });
 
-it('shows directional scroll controls only when application tabs overflow', async () => {
-  fetch.mockResolvedValue(response(layoutPayload({applications: [
+it.each(['split', 'sections'])('shows directional scroll controls when %s application tabs overflow', async presentation => {
+  const payload = layoutPayload({applications: [
     {id: 'dsp', title: 'DSP', menus: []}, {id: 'studio', title: 'Studio', menus: []},
-  ]})));
-  render(<WorkspaceSidebar />);
+  ]});
+  payload.layout.left.navigation = {presentation};
+  fetch.mockResolvedValue(response(payload));
+  render(<WorkspaceSidebar section="workspaces" />);
   const tabs = await screen.findByRole('tablist', {name: 'Applications'});
   const scrollBy = vi.fn();
   Object.defineProperties(tabs, {clientWidth: {value: 200}, scrollWidth: {value: 400}, scrollLeft: {value: 0, writable: true}, scrollBy: {value: scrollBy}});
