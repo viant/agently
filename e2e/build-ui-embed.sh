@@ -7,6 +7,12 @@ set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# npm ci removes node_modules before installation. Serialize the complete UI
+# build so concurrent Endly invocations cannot remove each other's tools.
+if [ "${AGENTLY_UI_BUILD_LOCK_HELD:-}" != "$ROOT" ]; then
+  exec python3 "$ROOT/scripts/with_ui_build_lock.py" "$ROOT" bash "$ROOT/e2e/build-ui-embed.sh"
+fi
+
 if ! command -v npm >/dev/null 2>&1; then
   echo "Error: npm not found. Install Node/npm and try again." >&2
   exit 1
