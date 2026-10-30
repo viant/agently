@@ -27,6 +27,9 @@ yarn.lock
 agently.sql
 e2e/database/agently/script/schema.ddl
 /ui/scripts/*
+!/ui/scripts/criticalModulePreload.mjs
+!/ui/scripts/criticalModulePreload.test.mjs
+!/ui/scripts/test-module-preload-browser.mjs
 !/ui/scripts/sync-deployment-ui.sh
 !/ui/scripts/test-typography-browser.mjs
 !/ui/scripts/documentChat.browser.mjs

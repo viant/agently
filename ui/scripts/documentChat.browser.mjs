@@ -53,7 +53,14 @@ export async function verifyDocumentChat(page, {touch = false} = {}) {
   assert.equal(allocation.composerFirst,true);
   const homeField = home.getByRole('textbox', {name:'Message', exact:true});
   const selectTask = () => touch ? home.locator('.forge-task-row').tap() : home.locator('.forge-task-row').click();
-  const waitForDraft = value => page.waitForFunction(expected => document.querySelector('#foundation-chat-home textarea')?.value === expected, value);
+  const waitForDraft = async value => {
+    try {
+      await page.waitForFunction(expected => document.querySelector('#foundation-chat-home textarea')?.value === expected, value);
+    } catch (error) {
+      const actual = await page.locator('#foundation-chat-home textarea').inputValue();
+      throw new Error(`Composer draft mismatch: expected ${JSON.stringify(value)}, received ${JSON.stringify(actual)}`, {cause: error});
+    }
+  };
   await homeField.fill('Independent Home draft.');
   await selectTask();
   const back = home.getByRole('button', {name:'New Chat', exact:true});

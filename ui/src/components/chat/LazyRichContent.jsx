@@ -1,4 +1,5 @@
 import React from 'react';
+import {AssetLoadBoundary} from '../ApplicationRecovery.jsx';
 
 const RichContent = React.lazy(() => import('./RichContent.jsx'));
 
@@ -12,8 +13,8 @@ function RichContentFallback() {
 
 export default function LazyRichContent(props) {
   return (
-    <React.Suspense fallback={<RichContentFallback />}>
+    <AssetLoadBoundary><React.Suspense fallback={<RichContentFallback />}>
       <RichContent {...props} />
-    </React.Suspense>
+    </React.Suspense></AssetLoadBoundary>
   );
 }
