@@ -3354,13 +3354,15 @@ td[data-col="enabled"] {
 /* The generic first-child rule above supports non-chat windows. A chat with
    Tool feeds is a desktop two-column shell: conversation (including its
    bottom-docked composer) on the left and the feed rail on the right. */
-.app-chat-pane > .app-chat-layout.has-tool-workspace {
+.app-chat-pane > .app-chat-layout.has-tool-workspace,
+.app-workspace-chat-dock > .app-chat-layout.has-tool-workspace {
   flex-direction: row;
   align-items: stretch;
 }
 
 @media (max-width: 1100px) {
-  .app-chat-pane > .app-chat-layout.has-tool-workspace {
+  .app-chat-pane > .app-chat-layout.has-tool-workspace,
+.app-workspace-chat-dock > .app-chat-layout.has-tool-workspace {
     flex-direction: column;
   }
 }

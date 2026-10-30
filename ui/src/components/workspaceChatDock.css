@@ -1,0 +1,9 @@
+.app-workspace-chat-dock { display:flex; flex:1 1 auto; flex-direction:column; min-width:0; min-height:0; }
+.app-chat-pane > .app-workspace-chat-dock.is-overlay {
+  position:absolute; right:12px; bottom:60px; z-index:30;
+  width:min(680px, calc(100% - 24px)); height:min(480px, calc(100% - 80px));
+  flex:none; overflow:hidden; border:1px solid var(--app-border, #d8dee8);
+  border-radius:var(--forge-radius-surface, 8px); background:var(--app-bg, #fff);
+  box-shadow:0 4px 20px rgb(0 0 0 / 15%);
+}
+.app-workspace-chat-toggle { position:absolute; right:12px; bottom:12px; z-index:31; }
