@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {createPortal} from 'react-dom';
 import { Button, InputGroup, Spinner } from '@blueprintjs/core';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import {Icon as SharedIcon, typographyProps} from 'forge/components';
+import {Button as SharedButton, Icon as SharedIcon, Typography, typographyProps} from 'forge/components';
 import { resolveConversationSummary, resolveConversationTitle } from '../services/conversationTitle';
 import { isConnectivityError } from '../services/networkError';
 import { client } from '../services/agentlyClient';
@@ -478,6 +478,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
     const requestSeq = reloadSeqRef.current + 1;
     reloadSeqRef.current = requestSeq;
     setLoading(true);
+    setError('');
     const request = (async () => {
       try {
         const page = await fetchPage({ query: activeQuery, direction: pageRequest.direction, cursor: pageRequest.cursor });
@@ -500,11 +501,14 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
         return page;
       } catch (err) {
         if (reloadSeqRef.current === requestSeq) {
-          if (isConnectivityError(err)) {
-            setError('');
-          } else {
-            setError(String(err?.message || err));
-          }
+          setError({
+            message: isConnectivityError(err)
+              ? 'Could not refresh conversations. Check your connection and retry.'
+              : 'Could not refresh conversations. Please retry.',
+            direction: pageRequest.direction,
+            cursor: pageRequest.cursor,
+            options
+          });
         }
         throw err;
       } finally {
@@ -539,7 +543,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
       queryReloadTimerRef.current = null;
     }
     queryReloadTimerRef.current = setTimeout(() => {
-      void reload('latest', '');
+      void reload('latest', '').catch(() => {});
     }, searchDebounceMs);
     return () => {
       if (queryReloadTimerRef.current) {
@@ -551,9 +555,8 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
 
   useEffect(() => {
     // A freshly restarted local server can render the shell before its authenticated
-    // conversation endpoint is ready. The normal initial reload intentionally hides
-    // that transient connectivity error, but without one bounded retry the sidebar
-    // remains on a false empty state until the user presses Refresh.
+    // conversation endpoint is ready. Retry that initial read once before
+    // requiring the user to retry manually.
     initialReloadRetryTimerRef.current = setTimeout(() => {
       initialReloadRetryTimerRef.current = null;
       if (rowsRef.current.length === 0) {
@@ -572,7 +575,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
   const virtualHeight = rowVirtualizer.getTotalSize();
   const content = useMemo(() => {
     if (loading && rows.length === 0) return <div className="app-sidebar-loading"><Spinner size={18} /></div>;
-    if (rows.length === 0 && error) return <div className="app-sidebar-error">{error}</div>;
+    if (rows.length === 0 && error) return null;
     if (rows.length === 0) return <div className="app-sidebar-empty">{query.trim() ? (list.noMatchesText || 'No conversations match your search') : (list.emptyText || 'No conversations yet')}</div>;
 
     return (
@@ -660,7 +663,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
       }
       const hasRows = rowsRef.current.length > 0;
       if (!hasRows) {
-        void reload('latest', '');
+        void reload('latest', '').catch(() => {});
       }
     };
     const onConversationNew = () => {
@@ -671,7 +674,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
       }
       // Small delay to allow the backend to commit the new conversation
       // before the sidebar queries the list. A pre-save read cannot include it.
-      setTimeout(() => void reload('latest', '', { force: true }), 300);
+      setTimeout(() => void reload('latest', '', { force: true }).catch(() => {}), 300);
     };
     const onConversationActivity = (event) => {
       const id = String(event?.detail?.id || '').trim();
@@ -730,7 +733,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
               setSearchOpen(false); setQuery(''); searchButtonRef.current?.focus();
             } else if (enterToSearch && event.key === 'Enter') {
               if (queryReloadTimerRef.current) clearTimeout(queryReloadTimerRef.current);
-              void reload('latest', '', { force: true });
+              void reload('latest', '', { force: true }).catch(() => {});
             }
           }}
           rightElement={showSearchClear && query ? <Button minimal small icon="cross" aria-label="Clear search" onClick={() => setQuery('')} /> : undefined}
@@ -756,10 +759,16 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
             <span>Conversations</span>
             {documentAppearance ? <div>
               {!searchMount ? searchButton : null}
-              <Button minimal small icon={<SharedIcon name="lucide:refresh-cw"/>} aria-label="Refresh conversations" onClick={() => void reload('latest', '')}/>
-            </div> : <Button minimal small icon="refresh" onClick={() => void reload('latest', '')}>Refresh</Button>}
+              <Button minimal small loading={loading} icon={<SharedIcon name="lucide:refresh-cw"/>} aria-label="Refresh conversations" onClick={() => void reload('latest', '').catch(() => {})}/>
+            </div> : <Button minimal small loading={loading} icon="refresh" onClick={() => void reload('latest', '').catch(() => {})}>Refresh</Button>}
           </div>
           {documentAppearance ? searchField : null}
+          {error ? <div className="app-sidebar-recovery" role="alert">
+            <Typography as="p" typeRole="small">{error.message}</Typography>
+            <SharedButton variant="secondary" size="compact" disabled={loading} onClick={() => {
+              void reload(error.direction, error.cursor, error.options).catch(() => {});
+            }}>Retry</SharedButton>
+          </div> : null}
           <div className="app-sidebar-scroll" ref={historyScrollRef} onScroll={(event) => {
             const element = event.currentTarget;
             if (!autoLoadOlder || !nextCursor || loading || lastAutoCursorRef.current === nextCursor) return;
@@ -772,14 +781,14 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
               {paginationMode === 'pages' ? <>
                 <Button small minimal icon="chevron-left" className="app-sidebar-pagination-btn" disabled={!prevCursor}
                   aria-label="Load newer conversations" title="Load newer conversations"
-                  onClick={() => { const request = sidebarPaginationRequest('newer', prevCursor); void reload(request.direction, request.cursor); }} />
+                  onClick={() => { const request = sidebarPaginationRequest('newer', prevCursor); void reload(request.direction, request.cursor).catch(() => {}); }} />
                 <div className="app-sidebar-pagination-status">{pageStatusLabel}</div>
                 <Button small minimal icon="chevron-right" className="app-sidebar-pagination-btn" disabled={!nextCursor}
                   aria-label="Load older conversations" title="Load older conversations"
-                  onClick={() => { const request = sidebarPaginationRequest('older', nextCursor); void reload(request.direction, request.cursor); }} />
+                  onClick={() => { const request = sidebarPaginationRequest('older', nextCursor); void reload(request.direction, request.cursor).catch(() => {}); }} />
               </> : <>
               {prevCursor ? <Button small minimal icon="arrow-up" onClick={() => {
-                void reload('latest', '').then(() => { if (historyScrollRef.current) historyScrollRef.current.scrollTop = 0; });
+                void reload('latest', '').then(() => { if (historyScrollRef.current) historyScrollRef.current.scrollTop = 0; }).catch(() => {});
               }}>Back to latest</Button> : null}
               {nextCursor ? <Button small minimal icon="arrow-down" disabled={loading} onClick={() => {
                 void reload('before', nextCursor, { append: true }).catch(() => {});

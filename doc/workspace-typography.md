@@ -131,6 +131,14 @@ heading. The canonical `sectionNavigation.css` owns geometry, shared semantic
 appearance and the bounded phone-input size. Workspace branding stays in its
 existing theme. Do not reproduce this pattern with application CSS overrides.
 
+History refresh recovery uses small-role text followed by a shared secondary
+compact button on its own row. The shell's `--app-history-content-inset` aligns
+the document history heading, recovery content and row text. Keep the alert
+semantics and current history visible during recovery. Do not inherit legacy
+error colors or place the action inline with wrapping error text. A local review
+must load the workspace style provider and its actual theme assets to establish
+typography and color integration.
+
 `Root` hosts app destinations in `app.section`, independently of conversation
 outputs in `chat.top`. Account controls retain their existing MenuBar handlers
 when portaled into the rail. A modal phone drawer focuses its selected section,
