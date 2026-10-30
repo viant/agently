@@ -26,6 +26,7 @@ import UsageBar from './UsageBar';
 import TurnProgressStatus from './TurnProgressStatus';
 import ConversationWorkspaceSurface from './ConversationWorkspaceSurface';
 import AppSectionContent from './AppSectionContent.jsx';
+import WorkspaceChatDock from './WorkspaceChatDock.jsx';
 import {trackWorkspaceQueryFocus} from '../services/workspaceQueryContext.js';
 import {belongsToAppSection} from './sectionWindowTree.js';
 import StatusBar from './StatusBar';
@@ -1585,9 +1586,10 @@ export default function Root() {
                 <AgUiRemoteConversation connection={connection} active={backendSelection.selectedId === connection.id} />
               </div>
             ))}
-            <div className={`app-chat-layout${showChatChrome ? ' has-tool-workspace' : ''}`} style={backendSelection.isRemote || showAppSection ? { display: 'none' } : undefined}>
+            <WorkspaceChatDock active={showAppSection && !backendSelection.isRemote}>
+            <div className={`app-chat-layout${showChatChrome ? ' has-tool-workspace' : ''}`} style={backendSelection.isRemote ? { display: 'none' } : undefined}>
             <div className="app-chat-content-column" style={{ flex: 1, minHeight: 0, overflow: 'visible', display: 'flex', flexDirection: 'column' }}>
-              {shouldShowMainWindowHeader(selectedWindow) && !activeWorkspaceWindow ? (
+              {!showAppSection && shouldShowMainWindowHeader(selectedWindow) && !activeWorkspaceWindow ? (
                 <div className="app-main-window-header">
                   <button
                     type="button"
@@ -1622,13 +1624,13 @@ export default function Root() {
                   presentation={sectionNavigation ? 'document' : undefined}
                   headerMount={viewerHeaderMount}
                   headerActive={!showAppSection && !backendSelection.isRemote}
-                  activeSurface={activeSurface}
+                  activeSurface={showAppSection ? 'conversation' : activeSurface}
                   unreadCount={unreadChatCount}
                   chatRunning={chatRunning}
                   workspaceMode={workspacePresentationMode === 'full' ? 'focus' : 'split'}
                   onChangeWorkspaceMode={(mode) => setWorkspacePresentationMode(mode === 'focus' ? 'full' : 'split')}
                   chatWindow={hostedBottomWindow}
-                  workspaceWindow={showWorkspacePane ? activeWorkspaceWindow : null}
+                  workspaceWindow={!showAppSection && showWorkspacePane ? activeWorkspaceWindow : null}
                   savedOutputs={resolveConversationWorkspaceAttachmentWindows(getWorkspaceHistory(mainConversationId), projectedWorkspaceEntries(projectedConversationRows, mainConversationId, {includeInlineReports: sectionNavigation}), workspaceWindows)}
                   conversationId={mainConversationId}
                   onOpenSavedOutput={activateWorkspaceAttachment}
@@ -1661,6 +1663,7 @@ export default function Root() {
             {showChatChrome ? <ToolFeedWorkspace active={!backendSelection.isRemote} conversationId={activeConversationId} developerMode={developerMode} /> : null}
             <ToolFeedDetached active={!backendSelection.isRemote} conversationId={activeConversationId} developerMode={developerMode} />
             </div>
+            </WorkspaceChatDock>
             {showChatChrome && developerMode && !backendSelection.isRemote ? <UsageBar /> : null}
           </main>
         </div>
