@@ -1,4 +1,4 @@
-import {findMetadataSignal, getActiveUIBridgeTransportContext} from 'forge/core';
+import {findMetadataSignal, getActiveUIBridgeTransportContext, waitForUIBridgeReady} from 'forge/core';
 
 const DATASOURCE_FETCH_ROUTE = /\/v1\/api\/datasources\/[^/?]+\/fetch(?:\?[^#]*)?$/;
 const WINDOW_METADATA_ROUTE = /\/v1\/api\/agently\/forge\/window\/[^/?]+(?:\?[^#]*)?$/;
@@ -22,6 +22,15 @@ export function prepareAgentlyDataConnectorRequest({
   const metadataRequest = WINDOW_METADATA_ROUTE.test(requestURL);
   if (!metadataRequest && !DATASOURCE_FETCH_ROUTE.test(requestURL)) return;
   const transport = getActiveUIBridgeTransportContext();
+  if (!metadataRequest && !transport?.sessionId) {
+    const pageURL = globalThis.window?.location?.href || globalThis.location?.href;
+    let cohort = false;
+    try { const destination = new URL(requestURL, pageURL); cohort = destination.origin === new URL(pageURL).origin && destination.searchParams.get('cohort') === '1'; } catch (_) {}
+    if (cohort) return waitForUIBridgeReady(10000).then(ready => {
+      if (!ready || !getActiveUIBridgeTransportContext()?.sessionId) throw new Error('The workspace connection is not ready. Please try again.');
+      return prepareAgentlyDataConnectorRequest({url, queryParams, body, windowState, headers});
+    });
+  }
   if (transport?.sessionId && headers) {
     try {
       const pageURL = globalThis.window?.location?.href || globalThis.location?.href || transport.url;
