@@ -542,3 +542,18 @@ report titles while retaining an explicit saved name. Read-only date-range label
 use locale-readable calendar dates in UTC; editable values remain exact source
 dates, and invalid/reversed ranges retain a literal fallback. Existing Root and
 feed projection checks cover these boundaries.
+
+## Application selection context
+
+Workspace applications can declare `scope: {keys: [entityId, entityName]}`.
+Menu-opened windows receive `context.handlers.applicationScope.get(context)` and
+`set(context, values)` through the shared Forge host services. Successful updates
+return `true`; undeclared keys or missing window ownership throw. This is UI context,
+not authorization. The producer continues to authorize resource and data access.
+
+Menu bindings use the application's selection instead of a different focused
+window. An optional `scopeLabelKey: entityName` displays the current selection next
+to the menu title. Changed keys close dependent views in that application without
+replaying queries; the selector stays open. Scope is kept only in memory and reset
+on an authenticated workspace/user change. See Forge's `doc/application-scope.md`
+for the shared store and nested-window contract.
