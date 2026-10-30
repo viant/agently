@@ -24,12 +24,12 @@ jobs:
         with:
           # checkout requires a full commit SHA; abbreviated IDs are treated as refs.
           repository: viant/agently-core
-          ref: f567fed338e01873e353ff1ce66377ba52c69428
+          ref: 962a911334a4f84d87e2f8b95b453ae70d04f957
           path: agently-core
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: viant/forge
-          ref: 05123c4edea5629f434b711d366bd51105c2508a
+          ref: 169d61179284a152bc9fe435d0c2197f10243b3f
           path: forge
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
