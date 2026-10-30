@@ -1,5 +1,6 @@
+import {Popover} from 'forge/components';
 import React from 'react';
-import { Button, Icon, Popover, Spinner, Tooltip } from '@blueprintjs/core';
+import { Button, Icon, Spinner, Tooltip } from '@blueprintjs/core';
 import {
   resolveActiveTurnProgress,
   summarizeExecutionTokenUsage,
