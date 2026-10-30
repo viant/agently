@@ -99,16 +99,22 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
   useEffect(() => {
     let live = true;
     let requestSequence = 0;
+    let inFlight = false;
+    let revision = null;
     if (!discoveryReady) { setLayout(null); onTopbarActionsChange?.([]); return undefined; }
-    const load = async () => {
+    const load = async (background = false) => {
+      if (background && (inFlight || document.hidden)) return;
+      inFlight = true;
       const sequence = ++requestSequence;
       try {
-        if (reloadVersion > 0) workspaceResources.clear();
+        if (!background && reloadVersion > 0) workspaceResources.clear();
         const response = await fetch(`${sdkBaseURL}/workspace/layout`, { credentials: 'include', headers: { Accept: 'application/json' } });
         if (!live || sequence !== requestSequence) return;
         if (!response.ok) throw new Error(`Workspace layout unavailable (${response.status})`);
         const payload = await response.json();
         if (!live || sequence !== requestSequence) return;
+        const nextRevision = JSON.stringify([payload.workspaceId, payload.layoutRevision || payload.layout, payload.catalogRevisions]);
+        if (background && nextRevision === revision) return;
         const applications = Array.isArray(payload?.layout?.applications) ? payload.layout.applications : [];
         const principal = await getAuthMeSilently();
         if (!live || sequence !== requestSequence) return;
@@ -126,6 +132,13 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
           workspaceResources.clear(); getWorkspaceStyleManager().clearApplicationStyles();
         }
         onTopbarActionsChange?.(payload?.layout?.topbar?.actions || []);
+        revision = nextRevision;
+        if (background) {
+          setLayout(payload.layout);
+          setActiveApp(current => applications.some(app => app.id === current) ? current : (applications[0]?.id || ''));
+          setError('');
+          return;
+        }
         const widthSpec = payload?.layout?.left?.width || {};
         const initialWidth = Number(widthSpec.default) || 320;
         if (widthSpec.preferenceScope === 'global') {
@@ -157,13 +170,19 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         setError('');
         if (error) window.dispatchEvent(new CustomEvent('forge:retry-window-metadata'));
       } catch (cause) {
-        if (live && sequence === requestSequence) { setLayout(null); onTopbarActionsChange?.([]); setError(String(cause?.message || cause)); }
+        if (live && sequence === requestSequence) { revision = null; setLayout(null); onTopbarActionsChange?.([]); setError(String(cause?.message || cause)); }
+      } finally {
+        if (sequence === requestSequence) inFlight = false;
       }
     };
     void load();
-    const onAuthorized = () => { applicationScope.clear(); setLayout(null); void load(); };
+    const onAuthorized = () => { revision = null; sectionRouteSignature.current = ''; applicationScope.clear(); setLayout(null); void load(); };
+    const refresh = () => { void load(true); };
+    const timer = window.setInterval(refresh, 15000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
     window.addEventListener('agently:authorized', onAuthorized);
-    return () => { live = false; window.removeEventListener('agently:authorized', onAuthorized); };
+    return () => { live = false; window.clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); window.removeEventListener('agently:authorized', onAuthorized); };
   }, [reloadVersion, discoveryReady]);
 
   useEffect(() => {
@@ -180,16 +199,18 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
   const history = layout?.left?.history || {};
   const sections = navigationEnabled && layout?.left?.navigation?.presentation === 'sections';
   useEffect(() => { onSectionPresentationChange?.(sections); }, [sections, onSectionPresentationChange]);
+  const sectionRouteSignature = useRef('');
   const sectionWindowRef = useRef(onSectionWindow);
   sectionWindowRef.current = onSectionWindow;
   useEffect(() => {
-    if (!sections || section === 'chat') return;
+    if (!sections || section === 'chat') { sectionRouteSignature.current = ''; return; }
     const selected = section === 'workspaces'
       ? layoutWindowDestinations(layout).find(entry => entry.destination === destination)
       : layout.topbar?.actions?.find(entry => `action:${entry.id}` === section);
     const publish = (entry, title = '', error = '') => sectionWindowRef.current?.(entry, title, section, destination, error);
-    if (section === 'workspaces' && !destination) { publish(null); return; }
+    if (section === 'workspaces' && !destination) { sectionRouteSignature.current = ''; publish(null); return; }
     if (!selected || selected.disabled || !['window', 'report'].includes(selected.action?.type)) {
+      sectionRouteSignature.current = '';
       publish(null, '', 'This destination is unavailable. Choose another destination from the menu.');
       return;
     }
@@ -199,9 +220,13 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       ? resolveLayoutReportOptions(selected.action, '', scopeInputs)
       : resolveLayoutWindowOptions(selected.action, '', scopeInputs);
     if (!options) {
+      sectionRouteSignature.current = '';
       publish(null, selected.title, 'Select the required context before opening this destination.');
       return;
     }
+    const signature = JSON.stringify([section, destination, destinationVisit, selected, options]);
+    if (sectionRouteSignature.current === signature) return;
+    sectionRouteSignature.current = signature;
     if (selected.applicationId) setActiveApp(selected.applicationId);
     const entry = openWindow(resolveLayoutWindowKey(selected.action), selected.title, selected.action.refreshDataSources || [],
       {...options, parentKey: null, region: 'app.section'});
