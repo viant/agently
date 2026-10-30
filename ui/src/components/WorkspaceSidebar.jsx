@@ -78,12 +78,12 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateTabScroll) : null;
     observer?.observe(node);
     return () => observer?.disconnect();
-  }, [layout, collapsed]);
+  }, [layout, collapsed, section]);
 
   useEffect(() => {
     tabsRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView?.({block: 'nearest', inline: 'nearest'});
     updateTabScroll();
-  }, [layout, activeApp, collapsed]);
+  }, [layout, activeApp, collapsed, section]);
 
   useEffect(() => {
     const element = shellRef.current;
@@ -300,7 +300,9 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
           {section === 'workspaces' ? <>
             <SectionDestinationButton icon={<SharedIcon name="lucide:layout-grid"/>} selected={!destination}
               onClick={() => {onSectionChange?.('workspaces'); onNavigate?.();}}>Overview</SectionDestinationButton>
-            {applications.length > 0 ? <div className="app-layout-tabs app-section-applications" role="tablist" aria-label="Applications">
+            {applications.length > 0 ? <div className="app-layout-tabbar app-section-application-bar">
+              {tabScroll.left || tabScroll.right ? <Button minimal small icon={<SharedIcon name="step-backward"/>} aria-label="Scroll applications left" disabled={!tabScroll.left} onClick={() => scrollTabs(-1)}/> : null}
+              <div className="app-layout-tabs app-section-applications" role="tablist" aria-label="Applications" ref={tabsRef} onScroll={updateTabScroll}>
               {applications.map(app => <Button key={app.id} minimal role="tab" active={app.id === active?.id}
                 aria-selected={app.id === active?.id} tabIndex={app.id === active?.id ? 0 : -1}
                 icon={<SharedIcon name={app.icon || 'lucide:layout-grid'}/>}
@@ -315,6 +317,8 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
                   setActiveApp(enabled[next].id);
                   event.currentTarget.parentElement.querySelectorAll('[role="tab"]:not(:disabled)')[next]?.focus();
                 }}>{app.title}</Button>)}
+              </div>
+              {tabScroll.left || tabScroll.right ? <Button minimal small icon={<SharedIcon name="step-forward"/>} aria-label="Scroll applications right" disabled={!tabScroll.right} onClick={() => scrollTabs(1)}/> : null}
             </div> : null}
             <div className="app-layout-menus" aria-label={`${active?.title || 'Application'} navigation`}>
               {active?.menus?.length ? active.menus.map(menu => renderMenu(menu)) : <div role="status" className="app-section-menu-empty">
