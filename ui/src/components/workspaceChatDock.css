@@ -1,9 +1,30 @@
 .app-workspace-chat-dock { display:flex; flex:1 1 auto; flex-direction:column; min-width:0; min-height:0; }
 .app-chat-pane > .app-workspace-chat-dock.is-overlay {
-  position:absolute; right:12px; bottom:60px; z-index:30;
-  width:min(680px, calc(100% - 24px)); height:min(480px, calc(100% - 80px));
-  flex:none; overflow:hidden; border:1px solid var(--app-border, #d8dee8);
-  border-radius:var(--forge-radius-surface, 8px); background:var(--app-bg, #fff);
-  box-shadow:0 4px 20px rgb(0 0 0 / 15%);
+  position:absolute; left:50%; bottom:16px; transform:translateX(-50%); z-index:30;
+  width:min(720px, calc(100% - 32px)); height:min(320px, calc(100% - 48px)); max-height:calc(100% - 48px);
+  flex:none; overflow:visible; background:transparent;
 }
+.app-workspace-chat-controls { display:flex; justify-content:flex-end; gap:4px; flex:none; }
 .app-workspace-chat-toggle { position:absolute; right:12px; bottom:12px; z-index:31; }
+.app-chat-pane:has(> .app-workspace-chat-dock.is-split[data-expanded="true"]) { flex-direction:row-reverse; }
+.app-chat-pane > .app-workspace-chat-dock.is-split {
+  flex:0 0 38%; min-width:320px; max-width:680px; border-right:1px solid var(--app-border, #d8dee8);
+  background:var(--forge-surface, #fff); padding:8px; overflow:hidden;
+}
+.app-workspace-chat-dock.is-overlay .forge-document-chat {
+  height:100%!important; min-height:0; max-height:100%; padding:0; gap:8px; background:transparent;
+}
+.app-workspace-chat-dock.is-overlay .forge-chat-welcome,
+.app-workspace-chat-dock.is-overlay .forge-chat-task-back,
+.app-workspace-chat-dock.is-overlay .forge-document-chat.is-starting .chat-feed-stage { display:none; }
+.app-workspace-chat-dock.is-overlay .chat-feed-stage { flex:0 1 auto!important; max-height:180px; overflow:auto!important; }
+.app-workspace-chat-dock.is-overlay .app-chat-feed { border:1px solid var(--app-border,#d8dee8);border-radius:12px;background:var(--forge-surface,#fff);padding:12px;box-shadow:0 3px 14px rgb(0 0 0 / 12%); }
+.app-workspace-chat-dock.is-overlay .forge-document-composer-shell { padding:6px 12px;gap:0;box-shadow:0 3px 14px rgb(0 0 0 / 12%); }
+.app-workspace-chat-dock.is-overlay .forge-document-textarea { min-height:28px;max-height:96px; }
+@media (max-width:800px) {
+  .app-chat-pane:has(> .app-workspace-chat-dock.is-split[data-expanded="true"]) { flex-direction:column; }
+  .app-chat-pane > .app-workspace-chat-dock.is-split { flex:0 0 42%;min-width:0;max-width:none;width:100%;border-right:0;border-top:1px solid var(--app-border,#d8dee8); }
+}
+
+.app-chat-pane > .app-workspace-chat-dock.is-overlay:has(.forge-document-chat.is-starting) { height:146px; }
+.app-workspace-chat-dock.is-overlay .app-tool-workspace { display:none; }

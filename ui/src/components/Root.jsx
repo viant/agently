@@ -37,7 +37,7 @@ import { useApprovalQueue } from '../hooks/useApprovalQueue';
 import { useAgUiBackendSelection } from '../hooks/useAgUiBackendSelection';
 import AgUiRemoteConversation from './AgUiRemoteConversation';
 import {trackConversationRestoration} from '../services/conversationRestoration';
-import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, dismissWorkspaceWindowForConversation, ensureWorkspaceWindowForConversation, getScopedActiveSurface, hasScopedActiveSurfaceSelection, getScopedConversationSelection, getScopedWorkspacePresentationMode, getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, restoreWorkspaceNavigationTrailEntry, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
+import { CHAT_WINDOW_KEY, MAIN_CHAT_WINDOW_ID, ensureMainChatWindow, dismissWorkspaceWindowForConversation, ensureWorkspaceWindowForConversation, getScopedActiveSurface, hasScopedActiveSurfaceSelection, getScopedConversationSelection, getScopedWorkspacePresentationMode, getScopedWorkspaceSelection, getScopedWorkspaceWindowsState, getSelectedWindow, hasScopedWorkspaceState, isLinkedChildWindow, openConversationInMainWindow, reopenWorkspaceForConversation, requestNewConversationInMainWindow, resolveConversationSelection, resolveWorkspaceWindowForConversation, resolveWorkspaceWindowsForConversation, restoreWorkspaceNavigationTrailEntry, returnToParentConversation, setScopedActiveSurface, setScopedWorkspacePresentationMode, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow';
 import { AGENTLY_UI_BUILD } from '../buildInfo';
 import { conversationIDFromPath, publishActiveConversation } from '../services/chatRuntime';
 import { beginLogin, getAuthMeSilently, getAuthProvidersSilently } from '../services/agentlyClient';
@@ -767,7 +767,8 @@ export default function Root() {
   const shouldRenderSplitShell = !!(
     (effectiveMainChatWindow || activeWorkspaceWindow)
     && (
-      !selectedWindow
+      showAppSection
+      || !selectedWindow
       ||
       selectedWindowShowsChatChrome
       || !!activeWorkspaceWindow
@@ -1586,7 +1587,7 @@ export default function Root() {
                 <AgUiRemoteConversation connection={connection} active={backendSelection.selectedId === connection.id} />
               </div>
             ))}
-            <WorkspaceChatDock active={showAppSection && !backendSelection.isRemote}>
+            <WorkspaceChatDock active={showAppSection && !backendSelection.isRemote} onOpen={() => ensureMainChatWindow({focus:false})}>
             <div className={`app-chat-layout${showChatChrome ? ' has-tool-workspace' : ''}`} style={backendSelection.isRemote ? { display: 'none' } : undefined}>
             <div className="app-chat-content-column" style={{ flex: 1, minHeight: 0, overflow: 'visible', display: 'flex', flexDirection: 'column' }}>
               {!showAppSection && shouldShowMainWindowHeader(selectedWindow) && !activeWorkspaceWindow ? (

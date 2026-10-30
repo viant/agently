@@ -6,6 +6,7 @@ import { updateWorkspaceSession } from './workspaceSession.js';
 
 import {
   CHAT_WINDOW_KEY,
+  ensureMainChatWindow,
   bindLandingWorkspaceWindows,
   captureLandingWorkspaceSelection,
   detachWorkspaceWindowsFromConversation,
@@ -107,6 +108,19 @@ describe('conversationWindow', () => {
     activeWindows.value = [{windowId:MAIN_CHAT_WINDOW_ID,windowKey:CHAT_WINDOW_KEY,inTab:true}, section];
     openConversationInMainWindow('late-conversation');
     expect(activeWindows.peek()).toContainEqual(section);
+  });
+
+  it('keeps nested application reports and their live state when the workspace composer creates a chat', () => {
+    const section={windowId:'app',windowKey:'records',region:'app.section'};
+    const child={windowId:'child',windowKey:'record',parentKey:'app',inTab:true};
+    const report={windowId:'report',windowKey:'report://example/summary',parentKey:'child',inTab:true};
+    activeWindows.value=[section,child,report];
+    selectedWindowId.value=selectedTabId.value='report';
+    getFormSignal('report:filters').value={period:'current'};
+    openConversationInMainWindow('new-chat',{focus:false});
+    expect(activeWindows.peek()).toEqual(expect.arrayContaining([section,child,report]));
+    expect(selectedWindowId.peek()).toBe('report');
+    expect(getFormSignal('report:filters').peek()).toEqual({period:'current'});
   });
 
   it('starting fresh after deletion preserves detached workspace content and drafts', () => {
@@ -2164,4 +2178,13 @@ it('retains native workspace windows and parameter identity after detaching dele
  expect(activeWindows.peek()[0]).toEqual({...workspace,conversationId:undefined});
  expect(activeWindows.peek()[0].parameters).toBe(parameters);
  expect(activeWindows.peek()[1]).toBe(other);expect(activeWindows.peek()[2]).toBe(feed);
+});
+
+it('initializes one main chat without changing an active application window',()=>{
+ activeWindows.value=[{windowId:'report',windowKey:'report://example/summary',region:'app.section',inTab:true}];
+ selectedWindowId.value='report';selectedTabId.value='report';
+ const first=ensureMainChatWindow({focus:false});const second=ensureMainChatWindow({focus:false});
+ expect(first.windowId).toBe(MAIN_CHAT_WINDOW_ID);expect(second.windowId).toBe(first.windowId);
+ expect(activeWindows.peek().filter(w=>w.windowId===MAIN_CHAT_WINDOW_ID)).toHaveLength(1);
+ expect(selectedWindowId.peek()).toBe('report');expect(selectedTabId.peek()).toBe('report');
 });

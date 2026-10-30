@@ -30,6 +30,12 @@ describe('workspace composer context',()=>{
   activeWindows.value[1].parameters.RecordId[0]=999;
   expect(captured.parameters.RecordId).toEqual([321]);
  });
+ it('includes current report inputs and active section without report payloads',()=>{
+  getViewSignal('view-1').value={report:{resourceUri:'report://example/summary',title:'Summary',status:'ready',activeSectionId:'detail',parameters:{from:'2026-01-01',entityIds:[7]},rawToken:'not-context',rows:[{private:'not-context'}]}};
+  const context=buildWorkspaceQueryContext('c');
+  expect(context.workspace.report).toEqual({resourceUri:'report://example/summary',title:'Summary',status:'ready',activeSectionId:'detail',parameters:{from:'2026-01-01',entityIds:[7]}});
+  expect(JSON.stringify(context)).not.toContain('not-context');
+ });
  it('does not populate context with unused datasource definitions',()=>{
   const metadata=getMetadataSignal('view-1').peek();
   for(let i=0;i<100;i++) metadata.dataSource[`unused_${i}`]={uniqueKey:['id']};

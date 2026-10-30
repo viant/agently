@@ -41,6 +41,7 @@ import { applyFeedEvent, clearFeedState, clearFeedStateForConversation, isFeedIn
 import { publishUsage } from './usageBus';
 import { request } from './httpClient';
 import {
+  isApplicationSectionActive,
   clearWorkspaceWindowsForNewConversation,
   getWindowById,
   MAIN_CHAT_WINDOW_ID,
@@ -1139,7 +1140,7 @@ export function publishActiveConversation(conversationID = '', context = null) {
     return;
   }
   publishConversationSelection(targetWindowId, id, {
-    syncPath: isMainChatWindowId(targetWindowId)
+    syncPath: !isApplicationSectionActive() && isMainChatWindowId(targetWindowId)
       && (!currentRouteConversationId || currentRouteConversationId === id),
     eventType: 'forge:conversation-active'
   });
