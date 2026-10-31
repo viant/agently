@@ -1,7 +1,10 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@blueprintjs/core';
-import {Button as SharedButton} from 'forge/components';
-import {RunNotice} from '../RunProgressView.jsx';
+import {Button as SharedButton, Icon as SharedIcon, typographyProps} from 'forge/components';
+import RunProgressView, {RunActivity, RunNotice} from '../RunProgressView.jsx';
+import {ReviewAction} from '../RequestReviewDialog.jsx';
+import '../../styles/iteration.css';
+import '../executionDetails.css';
 import {
   summarizeLinkedConversationTranscript as sdkSummarizeLinkedConversationTranscript,
   shouldShowNarrationBubble as sdkShouldShowNarrationBubble,
@@ -1795,12 +1798,13 @@ export function resolveCanonicalDetailStep(canonicalRow = null, step = {}) {
   return step;
 }
 
-function NativeIterationBlock({ message, canonicalRow = null, context, showToolFeedDetail = true, suppressBubble = false, retryPrompt = '', attachment = null }) {
+function NativeIterationBlock({ message, canonicalRow = null, conversationId = '', progress = null, context, showToolFeedDetail = true, suppressBubble = false, retryPrompt = '', attachment = null }) {
   const { showDetail } = useContext(DetailContext);
   const { developerMode = false, showIntakeDetails = false, toolFeedDock = 'inline', presentation } = useContext(ConversationViewContext);
+  const executionDetailsId = React.useId();
   const ReviewRequestButton = presentation === 'document' ? SharedButton : Button;
   const data = buildIterationDataFromCanonicalRow(canonicalRow, message);
-  const iterationConversationId = String(canonicalRow?.conversationId || data?.conversationId || message?.conversationId || '').trim() || currentConversationId();
+  const iterationConversationId = String(conversationId || canonicalRow?.conversationId || data?.conversationId || message?.conversationId || '').trim() || currentConversationId();
   const [activeFeeds, setActiveFeeds] = useState(getActiveFeeds);
   useEffect(() => onFeedChange((next) => setActiveFeeds(Array.isArray(next) ? next : [])), []);
   const suppressedReportIds = useMemo(() => {
@@ -1981,6 +1985,14 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
     },
     [allGroupEntries, context, data, message, visiblePreambleText, includeExecutionGroup]
   );
+  const historyScope = `${iterationConversationId}:${data?.turnId || message?.id || ''}`;
+  const recordedHistory = useRef({scope: '', groups: []});
+  const historyScopeChanged = recordedHistory.current.scope !== historyScope;
+  if (historyScopeChanged) recordedHistory.current = {scope: historyScope, groups: []};
+  const hasRecordedGroups = allGroupEntries.some(includeExecutionGroup);
+  if (presentation === 'document' && hasRecordedGroups) recordedHistory.current.groups = displayGroupEntries;
+  const executionGroupEntries = presentation === 'document' && !hasRecordedGroups && isTerminalTurnStatus(data?.status)
+    ? recordedHistory.current.groups.filter(includeExecutionGroup) : displayGroupEntries;
 
   const linkedConversationIds = useMemo(() => {
     const ids = [];
@@ -2023,7 +2035,16 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
     () => resolveIterationDisplayStatus(data, allGroupEntries, linkedStatusValues),
     [allGroupEntries, data, linkedStatusValues]
   );
-  const [collapsed, setCollapsed] = useState(() => !(isLatestIteration && isActiveIteration) && !hasExecutionElicitation);
+  const [collapsed, setCollapsed] = useState(() => !hasExecutionElicitation && (presentation === 'document' || !(isLatestIteration && isActiveIteration)));
+  const lastProgress = useRef(progress);
+  const observedCompletion = useRef(null);
+  if (historyScopeChanged) {lastProgress.current = progress; observedCompletion.current = null;}
+  if (progress) lastProgress.current = progress;
+  const completedProgress = presentation === 'document' && (lastProgress.current || executionGroupEntries.length > 0)
+    && isTerminalTurnStatus(canonicalRow?.lifecycle || iterationDisplayStatus);
+  if (completedProgress && lastProgress.current && observedCompletion.current === null) observedCompletion.current = Date.now();
+  const showExecutionDetails = presentation === 'document' ? executionGroupEntries.length > 0 || !!lastProgress.current : developerMode;
+  const canInspect = developerMode || presentation !== 'document';
   const prevLatestRef = useRef(isLatestIteration);
   const prevActiveRef = useRef(isActiveIteration);
 
@@ -2048,6 +2069,14 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
     if (!turnStartedAt) return explicit;
     return formatDurationClock(Math.max(0, now - turnStartedAt)) || explicit;
   }, [allGroupEntries, useLiveWallClock, turnStartedAt, data?.turnCompletedAt, now]);
+
+  const activityProgress = presentation === 'document' ? (progress || completedProgress ? React.cloneElement(progress || lastProgress.current || <RunProgressView/>, {
+    completed: completedProgress, startedAt: canonicalRow?.turnStartedAt || (progress || lastProgress.current)?.props?.startedAt,
+    onToggleDetails: showExecutionDetails ? () => setCollapsed(value => !value) : undefined,
+    expanded: !collapsed, controls: executionDetailsId,
+    ...(completedProgress ? {durationSeconds: observedCompletion.current && turnStartedAt ? Math.max(0, Math.round((observedCompletion.current - turnStartedAt) / 1000))
+      : elapsedLabel ? elapsedLabel.split(':').reduce((total, part) => total * 60 + Number(part), 0) : undefined} : {}),
+  }) : null) : progress;
 
   const linkedConversations = useMemo(() => {
     const seen = new Map();
@@ -2105,6 +2134,7 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
     () => resolveIterationStatusDetail({ ...data, status: iterationDisplayStatus || data?.status || '' }),
     [data, iterationDisplayStatus]
   );
+  const operationalNarrationPreview = isActiveIteration && !(presentation === 'document' && progress) ? plainText(canonicalRow?.operationalNarration) : '';
 
   const visibleGroups = displayGroupEntries;
 
@@ -2275,21 +2305,21 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
         <React.Fragment key={nodeKey}>
           <div className="app-iteration-tool-row">
             <div className="app-iteration-tool-row-main">
-              <span className="app-iteration-tool-icon">{displayItemRowIcon(toolStep)}</span>
-              <span className="app-iteration-tool-row-title">{displayItemRowTitle(toolStep)}</span>
-              {toolStepSummaryText(toolStep) ? (
-                <span className="app-iteration-model-summary">{toolStepSummaryText(toolStep)}</span>
+              <span className="app-iteration-tool-icon">{presentation === 'document' ? <SharedIcon name="lucide:sliders-horizontal"/> : displayItemRowIcon(toolStep)}</span>
+              <span {...(presentation === 'document' ? typographyProps('label') : {})} className="app-iteration-tool-row-title">{displayItemRowTitle(toolStep)}</span>
+              {canInspect && toolStepSummaryText(toolStep) ? (
+                <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className="app-iteration-model-summary">{toolStepSummaryText(toolStep)}</span>
               ) : null}
             </div>
             <div className="app-iteration-tool-row-meta">
-              <span className={`app-iteration-status tone-${statusTone(toolStep?.status)}`}>{statusLabel(toolStep?.status)}</span>
+              <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className={`app-iteration-status tone-${statusTone(toolStep?.status)}`}>{statusLabel(toolStep?.status)}</span>
               {latencyLabel(toolStep, now, turnStartedAt, useLiveWallClock) ? (
-                <span className="app-iteration-group-time">{latencyLabel(toolStep, now, turnStartedAt, useLiveWallClock)}</span>
+                <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className="app-iteration-group-time">{latencyLabel(toolStep, now, turnStartedAt, useLiveWallClock)}</span>
               ) : null}
               {String(toolStep?.kind || '').toLowerCase() === 'elicitation' ? (
-                <Button minimal small className="app-iteration-link" onClick={() => openElicitationReview(toolStep)}>Open review</Button>
+                <ReviewAction appearance={presentation} minimal small className="app-iteration-link" onClick={() => openElicitationReview(toolStep)}>Open review</ReviewAction>
               ) : null}
-              <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, withPricingModel(toolStep)))}>Details</Button>
+              {canInspect ? <ReviewAction appearance={presentation} minimal small className="app-iteration-link" onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, withPricingModel(toolStep)))}>Details</ReviewAction> : null}
             </div>
           </div>
           {Array.isArray(toolStep?.childToolSteps) && toolStep.childToolSteps.length > 0 ? (
@@ -2322,41 +2352,41 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
       {modelStep ? (
         <div className="app-iteration-model-row">
           <div className="app-iteration-tool-row-main">
-            <span className="app-iteration-model-icon">{displayStepIcon({ ...modelStep, kind: 'model' })}</span>
-            <span className="app-iteration-model-title">{stepTitle({ ...modelStep, kind: 'model' })}</span>
-            {phaseBadgeLabel(group) ? (
-              <span className="app-iteration-model-summary">{phaseBadgeLabel(group)}</span>
+            <span className="app-iteration-model-icon">{presentation === 'document' ? <SharedIcon name="lucide:message-square"/> : displayStepIcon({ ...modelStep, kind: 'model' })}</span>
+            <span {...(presentation === 'document' ? typographyProps('label') : {})} className="app-iteration-model-title">{canInspect ? stepTitle({ ...modelStep, kind: 'model' }) : 'Preparing response'}</span>
+            {canInspect && phaseBadgeLabel(group) ? (
+              <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className="app-iteration-model-summary">{phaseBadgeLabel(group)}</span>
             ) : null}
-            {group.title && group.title !== stepTitle({ ...modelStep, kind: 'model' }) ? (
-              <span className="app-iteration-model-summary">{group.title}</span>
+            {canInspect && group.title && group.title !== stepTitle({ ...modelStep, kind: 'model' }) ? (
+              <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className="app-iteration-model-summary">{group.title}</span>
             ) : null}
           </div>
           <div className="app-iteration-tool-row-meta">
-            <span className={`app-iteration-status tone-${statusTone(modelStep?.status)}`}>{statusLabel(modelStep?.status)}</span>
+            <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className={`app-iteration-status tone-${statusTone(modelStep?.status)}`}>{statusLabel(modelStep?.status)}</span>
             {latencyLabel(modelStep, now, turnStartedAt, useLiveWallClock) ? (
-              <span className="app-iteration-group-time">{latencyLabel(modelStep, now, turnStartedAt, useLiveWallClock)}</span>
+              <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className="app-iteration-group-time">{latencyLabel(modelStep, now, turnStartedAt, useLiveWallClock)}</span>
             ) : null}
-              <Button
+              {canInspect ? <ReviewAction appearance={presentation}
               minimal
               small
               className="app-iteration-link"
               onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, { ...modelStep, kind: 'model' }))}
             >
               Details
-            </Button>
+            </ReviewAction> : null}
           </div>
         </div>
       ) : null}
       {showToolOnlyHeader ? (
         <div className="app-iteration-model-row">
           <div className="app-iteration-tool-row-main">
-            <span className="app-iteration-model-icon">{phaseBadgeLabel(group) || displayStepIcon({ kind: 'tool' })}</span>
-            <span className="app-iteration-model-title">{String(group?.title || '').trim() || 'Execution step'}</span>
+            <span className="app-iteration-model-icon">{presentation === 'document' ? <SharedIcon name="lucide:sliders-horizontal"/> : phaseBadgeLabel(group) || displayStepIcon({ kind: 'tool' })}</span>
+            <span {...(presentation === 'document' ? typographyProps('label') : {})} className="app-iteration-model-title">{String(group?.title || '').trim() || 'Execution step'}</span>
           </div>
           <div className="app-iteration-tool-row-meta">
-            <span className={`app-iteration-status tone-${statusTone(group?.status)}`}>{statusLabel(group?.status)}</span>
+            <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className={`app-iteration-status tone-${statusTone(group?.status)}`}>{statusLabel(group?.status)}</span>
             {String(group?.elapsed || '').trim() ? (
-              <span className="app-iteration-group-time">{group.elapsed}</span>
+              <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className="app-iteration-group-time">{group.elapsed}</span>
             ) : null}
           </div>
         </div>
@@ -2370,21 +2400,21 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
             {lifecycleTools.map((toolStep, toolIndex) => (
               <div className="app-iteration-tool-row" key={`${group.id}:lifecycle:${toolIndex}:${stepKey(toolStep)}`}>
                 <div className="app-iteration-tool-row-main">
-                  <span className="app-iteration-tool-icon">{displayItemRowIcon(toolStep)}</span>
-                  <span className="app-iteration-tool-row-title">{displayItemRowTitle(toolStep)}</span>
-                  {toolStepSummaryText(toolStep) ? (
-                    <span className="app-iteration-model-summary">{toolStepSummaryText(toolStep)}</span>
+                  <span className="app-iteration-tool-icon">{presentation === 'document' ? <SharedIcon name="lucide:sliders-horizontal"/> : displayItemRowIcon(toolStep)}</span>
+                  <span {...(presentation === 'document' ? typographyProps('label') : {})} className="app-iteration-tool-row-title">{displayItemRowTitle(toolStep)}</span>
+                  {canInspect && toolStepSummaryText(toolStep) ? (
+                    <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className="app-iteration-model-summary">{toolStepSummaryText(toolStep)}</span>
                   ) : null}
                 </div>
                 <div className="app-iteration-tool-row-meta">
-                  <span className={`app-iteration-status tone-${statusTone(toolStep?.status)}`}>{statusLabel(toolStep?.status)}</span>
+                  <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className={`app-iteration-status tone-${statusTone(toolStep?.status)}`}>{statusLabel(toolStep?.status)}</span>
                   {latencyLabel(toolStep, now, turnStartedAt, useLiveWallClock) ? (
-                    <span className="app-iteration-group-time">{latencyLabel(toolStep, now, turnStartedAt, useLiveWallClock)}</span>
+                    <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className="app-iteration-group-time">{latencyLabel(toolStep, now, turnStartedAt, useLiveWallClock)}</span>
                   ) : null}
                   {String(toolStep?.kind || '').toLowerCase() === 'elicitation' ? (
-                    <Button minimal small className="app-iteration-link" onClick={() => openElicitationReview(toolStep)}>Open review</Button>
+                    <ReviewAction appearance={presentation} minimal small className="app-iteration-link" onClick={() => openElicitationReview(toolStep)}>Open review</ReviewAction>
                   ) : null}
-                  <Button minimal small className="app-iteration-link" onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, withPricingModel(toolStep)))}>Details</Button>
+                  {canInspect ? <ReviewAction appearance={presentation} minimal small className="app-iteration-link" onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, withPricingModel(toolStep)))}>Details</ReviewAction> : null}
                 </div>
               </div>
             ))}
@@ -2407,22 +2437,22 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
         {modelStep ? (
           <div className="app-iteration-model-row">
             <div className="app-iteration-tool-row-main">
-              <span className="app-iteration-model-icon">{displayStepIcon({ ...modelStep, kind: 'model' })}</span>
-              <span className="app-iteration-model-title">{stepTitle({ ...modelStep, kind: 'model' })}</span>
+              <span className="app-iteration-model-icon">{presentation === 'document' ? <SharedIcon name="lucide:message-square"/> : displayStepIcon({ ...modelStep, kind: 'model' })}</span>
+              <span {...(presentation === 'document' ? typographyProps('label') : {})} className="app-iteration-model-title">{stepTitle({ ...modelStep, kind: 'model' })}</span>
               {preview?.title && preview.title !== stepTitle({ ...modelStep, kind: 'model' }) ? (
-                <span className="app-iteration-model-summary">{preview.title}</span>
+                <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className="app-iteration-model-summary">{preview.title}</span>
               ) : null}
             </div>
             <div className="app-iteration-tool-row-meta">
-              <span className={`app-iteration-status tone-${statusTone(modelStep?.status)}`}>{statusLabel(modelStep?.status)}</span>
-              <Button
+              <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className={`app-iteration-status tone-${statusTone(modelStep?.status)}`}>{statusLabel(modelStep?.status)}</span>
+              <ReviewAction appearance={presentation}
                 minimal
                 small
                 className="app-iteration-link"
                 onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, modelStep))}
               >
                 Details
-              </Button>
+              </ReviewAction>
             </div>
           </div>
         ) : null}
@@ -2431,12 +2461,12 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
             {toolSteps.map((toolStep, toolIndex) => (
               <div className="app-iteration-tool-row" key={`${String(preview?.id || previewIndex)}:tool:${toolIndex}`}>
                 <div className="app-iteration-tool-row-main">
-                  <span className="app-iteration-tool-icon">{displayItemRowIcon(toolStep)}</span>
-                  <span className="app-iteration-tool-row-title">{displayItemRowTitle(toolStep)}</span>
+                  <span className="app-iteration-tool-icon">{presentation === 'document' ? <SharedIcon name="lucide:sliders-horizontal"/> : displayItemRowIcon(toolStep)}</span>
+                  <span {...(presentation === 'document' ? typographyProps('label') : {})} className="app-iteration-tool-row-title">{displayItemRowTitle(toolStep)}</span>
                 </div>
                 <div className="app-iteration-tool-row-meta">
-                  <span className={`app-iteration-status tone-${statusTone(toolStep?.status)}`}>{statusLabel(toolStep?.status)}</span>
-                  <Button
+                  <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className={`app-iteration-status tone-${statusTone(toolStep?.status)}`}>{statusLabel(toolStep?.status)}</span>
+                  <ReviewAction appearance={presentation}
                     minimal
                     small
                     className="app-iteration-link"
@@ -2447,7 +2477,7 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
                     }))}
                   >
                     Details
-                  </Button>
+                  </ReviewAction>
                 </div>
               </div>
             ))}
@@ -2459,7 +2489,7 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
               <span className="app-iteration-linked-conv-expanded-icon">{displayStepIcon({ kind: preview?.stepKind })}</span>
               <span className="app-iteration-linked-conv-preview-title">{String(preview?.title || '').trim()}</span>
             </span>
-            <span className={`app-iteration-status tone-${statusTone(preview?.status)}`}>{statusLabel(preview?.status)}</span>
+            <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className={`app-iteration-status tone-${statusTone(preview?.status)}`}>{statusLabel(preview?.status)}</span>
           </div>
         ) : null}
         {previewGroupContent(preview) ? (
@@ -2586,7 +2616,7 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
   useEffect(() => {
     const turnTerminal = isTerminalTurnStatus(iterationDisplayStatus);
     const linkedActive = hasActiveLinkedConversation;
-    if (isLatestIteration && isActiveIteration) {
+    if (presentation !== 'document' && isLatestIteration && isActiveIteration) {
       logIterationDebug('expand-latest-active', {
         messageId: message?.id || '',
         turnId: data?.turnId || '',
@@ -2610,10 +2640,10 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
     }
     prevLatestRef.current = isLatestIteration;
     prevActiveRef.current = isActiveIteration;
-  }, [iterationDisplayStatus, isActiveIteration, isLatestIteration, linkedConversationStates, hasActiveLinkedConversation, message?.id, data?.turnId]);
+  }, [presentation, iterationDisplayStatus, isActiveIteration, isLatestIteration, linkedConversationStates, hasActiveLinkedConversation, message?.id, data?.turnId]);
 
   useEffect(() => {
-    if (!hasActiveLinkedConversation) return;
+    if (presentation === 'document' || !hasActiveLinkedConversation) return;
     logIterationDebug('expand-linked-active', {
       messageId: message?.id || '',
       turnId: data?.turnId || '',
@@ -2623,7 +2653,7 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
       linkedConversationStates
     });
     setCollapsed(false);
-  }, [hasActiveLinkedConversation, message?.id, data?.turnId, iterationDisplayStatus, isLatestIteration, isActiveIteration, linkedConversationStates]);
+  }, [presentation, hasActiveLinkedConversation, message?.id, data?.turnId, iterationDisplayStatus, isLatestIteration, isActiveIteration, linkedConversationStates]);
 
   useEffect(() => {
     const lifecycleOnly = displayGroupEntries.length > 0
@@ -2650,10 +2680,10 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
       setCollapsed(false);
       return;
     }
-    if (isLatestIteration && isActiveIteration) {
+    if (presentation !== 'document' && isLatestIteration && isActiveIteration) {
       setCollapsed(false);
     }
-  }, [message?.id, data?.turnId, isActiveIteration, isLatestIteration, hasExecutionElicitation]);
+  }, [presentation, message?.id, data?.turnId, isActiveIteration, isLatestIteration, hasExecutionElicitation]);
 
   useEffect(() => {
     if (!useLiveWallClock) return undefined;
@@ -2673,15 +2703,16 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
   }, [hasPendingVisibleElicitation, message?.id]);
 
   useEffect(() => {
-    if (!shouldAutoScrollExecutionGroups({ collapsed, isActiveIteration, iterationDisplayStatus })) return;
+    if (presentation === 'document' || !shouldAutoScrollExecutionGroups({ collapsed, isActiveIteration, iterationDisplayStatus })) return;
     const el = groupsRef.current;
     if (el) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [collapsed, isActiveIteration, iterationDisplayStatus, visibleGroups]);
+  }, [presentation, collapsed, isActiveIteration, iterationDisplayStatus, visibleGroups]);
 
   return (
     <>
+      {activityProgress || showExecutionDetails || showTerminalNotice || hasPendingExecutionElicitation ? <RunActivity appearance={presentation} progress={activityProgress}>
       {showTerminalNotice && presentation === 'document' ? <RunNotice data-testid="turn-terminal-notice"
         tone={normalizedTerminalStatus.startsWith('cancel') || mcpConnectionReady ? 'neutral' : 'danger'}
         title={mcpConnectionReady ? 'Connection ready' : normalizedTerminalStatus.startsWith('cancel') ? 'Request canceled' : 'Request couldn’t be completed'}
@@ -2731,34 +2762,38 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
           if (step) openElicitationReview(step);
         }}>Review request</ReviewRequestButton>
       ) : null}
-      {developerMode ? (
-        <section className={`app-iteration-card tone-${statusTone(iterationDisplayStatus)}`}>
-          <button type="button" className="app-iteration-head" onClick={() => setCollapsed((value) => !value)}>
+      {showExecutionDetails ? (
+        <section className={`app-iteration-card tone-${statusTone(iterationDisplayStatus)}${presentation === 'document' ? ' is-contained' : ''}`}>
+          {!activityProgress ? <button type="button" className="app-iteration-head" aria-expanded={!collapsed} aria-controls={executionDetailsId}
+            {...(presentation === 'document' ? typographyProps('label') : {})} onClick={() => setCollapsed((value) => !value)}>
             <span className="app-iteration-head-main">
-              <span className="app-iteration-title">
-                <span className="app-iteration-title-time">{elapsedLabel || '00:00'}</span>
+              <span className="app-iteration-title" {...(presentation === 'document' ? typographyProps('label') : {})}>
+                {!(presentation === 'document' && activityProgress) ? <span className="app-iteration-title-time" {...(presentation === 'document' ? typographyProps('metadata') : {})}>{elapsedLabel || '00:00'}</span> : null}
                 <span>
                   Execution details
                   {iterationAgentLabel ? ` · ${iterationAgentLabel}` : ''}
-                  {` (${displayGroupEntries.length})`}
+                  {` (${executionGroupEntries.length})`}
                 </span>
               </span>
-              {developerMode && (isActiveIteration && canonicalRow?.operationalNarration || iterationStatusDetail) ? (
-                <span className="app-iteration-status-detail" data-testid={isActiveIteration && canonicalRow?.operationalNarration ? 'execution-status-narration' : undefined}
-                  title={isActiveIteration && canonicalRow?.operationalNarration || iterationStatusDetail}>
-                  {isActiveIteration && canonicalRow?.operationalNarration || iterationStatusDetail}
+              {developerMode && (operationalNarrationPreview || iterationStatusDetail) ? (
+                <span className="app-iteration-status-detail" {...(presentation === 'document' ? typographyProps('metadata') : {})} data-testid={operationalNarrationPreview ? 'execution-status-narration' : undefined}
+                  title={operationalNarrationPreview || iterationStatusDetail}>
+                  {operationalNarrationPreview || iterationStatusDetail}
                 </span>
               ) : null}
             </span>
-            <span className="app-iteration-toggle">{collapsed ? '▸' : '▾'}</span>
-          </button>
+            <span className="app-iteration-toggle" aria-hidden="true">{presentation === 'document'
+              ? <SharedIcon name={collapsed ? 'lucide:chevron-right' : 'lucide:chevron-down'}/>
+              : collapsed ? '▸' : '▾'}</span>
+          </button> : null}
 
-          {!collapsed && displayGroupEntries.length > 0 ? (
+          <div id={executionDetailsId} hidden={collapsed}>
+          {!collapsed && executionGroupEntries.length > 0 ? (
             <>
               <div className="app-iteration-groups" ref={groupsRef}>
-                {visibleGroups.map((group, index) => renderGroupRow(group, index))}
+                {executionGroupEntries.map((group, index) => renderGroupRow(group, index))}
               </div>
-              {linkedConversations.length > 0 ? (
+              {canInspect && linkedConversations.length > 0 ? (
                 <div className="app-iteration-linked-section">
                   <button
                     type="button"
@@ -2789,7 +2824,7 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
                             <div className="app-iteration-linked-conv-head">
                               <span className="app-iteration-linked-conv-title">{displayLinkedConversationTitle(step, context)}</span>
                               <div className="app-iteration-linked-conv-meta">
-                                <span className={`app-iteration-status tone-${statusTone(step?.status)}`}>{statusLabel(step?.status)}</span>
+                                <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className={`app-iteration-status tone-${statusTone(step?.status)}`}>{statusLabel(step?.status)}</span>
                                 {linkedConversationLatencyLabel(step, now, turnStartedAt) ? <span className="app-iteration-linked-conv-time">{linkedConversationLatencyLabel(step, now, turnStartedAt)}</span> : null}
                               </div>
                             </div>
@@ -2802,7 +2837,7 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
                                   {step.previewGroups.map((preview, previewIndex) => (
                                     <div key={`${String(preview?.id || previewIndex)}:${previewIndex}`} className="app-iteration-linked-conv-preview-row">
                                       <span className="app-iteration-linked-conv-preview-title">{String(preview?.title || '').trim()}</span>
-                                      <span className={`app-iteration-status tone-${statusTone(preview?.status)}`}>{statusLabel(preview?.status)}</span>
+                                      <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className={`app-iteration-status tone-${statusTone(preview?.status)}`}>{statusLabel(preview?.status)}</span>
                                     </div>
                                   ))}
                                 </div>
@@ -2832,7 +2867,7 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
                   ) : null}
                 </div>
               ) : null}
-              {summaryContent ? (
+              {summaryContent && presentation !== 'document' ? (
                 <details className="app-iteration-summary-section">
                   <summary className="app-iteration-summary-head">Summary</summary>
                   <div className="app-iteration-summary-body">
@@ -2843,17 +2878,20 @@ function NativeIterationBlock({ message, canonicalRow = null, context, showToolF
                 </details>
               ) : null}
             </>
-          ) : null}
+          ) : !collapsed && presentation === 'document' ? <div className="app-iteration-groups"><p {...typographyProps('metadata')}>No steps were recorded for this request.</p></div> : null}
+          </div>
         </section>
       ) : null}
+      </RunActivity> : null}
       {showToolFeedDetail && (developerMode || !isActiveIteration) ? (
         <ToolFeedDetail context={context} conversationId={iterationConversationId} turnId={String(data?.turnId || canonicalRow?.turnId || '').trim()} placement="inline" includeAuto={toolFeedDock !== 'right'} />
       ) : null}
-      {(developerMode || !isActiveIteration || hasPublicTypedPendingReport) && !showTerminalNotice && !suppressBubble && !hasPendingVisibleElicitation && !hasPendingExecutionElicitation && (hasPublicTypedReport || shouldShowNarrationBubble(visibleGroups, displayContinuousRenderedText, stripSuppressedForgeReports(data?.response?.content, suppressedReportIds))) ? (
+      {(developerMode || !isActiveIteration || hasPublicTypedPendingReport) && !showTerminalNotice && !suppressBubble && !hasPendingVisibleElicitation && !hasPendingExecutionElicitation && (attachment || hasPublicTypedReport || shouldShowNarrationBubble(visibleGroups, displayContinuousRenderedText, stripSuppressedForgeReports(data?.response?.content, suppressedReportIds))) ? (
         <BubbleMessage
           context={context}
           conversationId={iterationConversationId}
           attachment={attachment}
+          deferContent={presentation === 'document' && isActiveIteration}
           message={{
             id: `${message?.id || 'iteration'}:narration`,
             role: 'assistant',

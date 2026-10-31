@@ -2238,6 +2238,7 @@ function stripLeadingTemplateDescriptor(content = '') {
 // ── Main component ──
 
 function NativeRichContent({ content = '', renderedContent = null, generatedFiles = [], messageId = '', conversationId = '', context = null }) {
+  const view = React.useContext(ConversationViewContext);
   const entityAliasVersion = React.useSyncExternalStore(subscribeFeedEntityAliases, getFeedEntityAliasVersion, getFeedEntityAliasVersion);
   const textNorm = React.useMemo(() => normalizeBrokenMarkdownLayout(
     normalizeLegacyForgeFenceBlocks(stripLeadingTemplateDescriptor(rewriteFeedEntityAliases(String(content || ''), conversationId)))
@@ -2314,13 +2315,18 @@ function NativeRichContent({ content = '', renderedContent = null, generatedFile
         && Array.isArray(assembly?.source?.blocks)
         && assembly.source.blocks.length > 0)
     ));
+  const reportsInWorkspace = view?.reportsInWorkspace && view?.presentation === 'document'
+    && typeof view.onOpenWorkspace === 'function' && progressiveReports.assemblies.length > 0
+    && progressiveReports.assemblies.every(assembly => assembly.authoritative
+      && inlineReportWorkspaceDescriptor({assembly,conversationId,messageId})
+      && !progressiveReports.diagnostics.some(item => item.reportId === assembly.id));
 
-  if (!descriptors.length) return <span>&nbsp;</span>;
+  if (!descriptors.length) return null;
 
   const out = [];
   let pendingIndicatorRendered = false;
   const renderPendingIndicator = () => {
-    if (!reportIsBuilding || pendingIndicatorRendered) return;
+    if (!reportIsBuilding || pendingIndicatorRendered || reportsInWorkspace) return;
     pendingIndicatorRendered = true;
     out.push(<ForgeFenceLoading key="forge-report-progress" {...progressCounts} />);
   };
@@ -2447,7 +2453,7 @@ function NativeRichContent({ content = '', renderedContent = null, generatedFile
     }
   });
 
-  return <div className="app-rich-content">{out}</div>;
+  return out.length ? <div className="app-rich-content">{out}</div> : null;
 }
 
 /** Passive foreign text never mounts native datasource/report/file handlers. */

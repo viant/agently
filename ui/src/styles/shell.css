@@ -2590,6 +2590,7 @@ body {
 }
 
 .app-statusbar-right {
+  margin-inline-start: auto;
   display: flex;
   align-items: center;
   gap: 6px;

@@ -6,7 +6,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSignals } from '@preact/signals-react/runtime';
 import { Button, Dialog } from '@blueprintjs/core';
 import { useSetting, activeWindows, addWindow, findCollectionSignal, findFormSignal, findMetadataSignal, findMetricsSignal, findViewSignal, getActiveUIBridgeTransportContext, removeWindow, selectedTabId, selectedWindowId, waitForUIBridgeReady } from 'forge/core';
-import { WindowManager, WindowContent, Typography } from 'forge/components';
+import { WindowManager, WindowContent, Typography, ForgeThemeBoundary } from 'forge/components';
 import ReportWindow, {isReportWindow} from './ReportWindow.jsx';
 import { DetailContext } from '../context/DetailContext';
 import { ConversationViewContext } from '../context/ConversationViewContext';
@@ -602,6 +602,7 @@ export default function Root() {
   const [conversationSelectionEpoch, setConversationSelectionEpoch] = useState(0);
   const activatedWorkspaceIntents = useRef(new Set());
   const [selectedTool, setSelectedTool] = useState(null);
+  const detailHeadingId = React.useId();
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [detailMode, setDetailMode] = useState(() => {
     if (typeof window === 'undefined') return 'right';
@@ -701,6 +702,8 @@ export default function Root() {
     }});
   const projectedConversationRows = useChatProjection(mainConversationId);
   const chatRunning = useChatIsRunning(mainConversationId);
+  const hasInlineRequestProgress = sectionNavigation && projectedConversationRows.some(row => row.kind === 'iteration'
+    && ['pending','running'].includes(row.lifecycle) && row.hostEffectsAllowed !== false && row.connectionProfile !== 'standard');
   const [readChatRows, setReadChatRows] = useState({conversationId: '', keys: []});
   const assistantRows = projectedConversationRows.filter((row) => row.kind === 'assistant' || row.kind === 'iteration');
   const unreadChatCount = readChatRows.conversationId === mainConversationId
@@ -1669,7 +1672,7 @@ export default function Root() {
           </main>
         </div>
 
-          <StatusBar hidden={backendSelection.isRemote} developerMode={developerMode} backendUnavailable={!!approvals?.backendUnavailable} approvals={approvals} />
+          <StatusBar hidden={backendSelection.isRemote} requestInFeed={hasInlineRequestProgress} developerMode={developerMode} backendUnavailable={!!approvals?.backendUnavailable} approvals={approvals} />
           {backendSelection.isRemote ? <footer className="app-statusbar" role="status">
             <span>{backendSelection.connections.find(connection => connection.id === backendSelection.selectedId)?.label} · Session-only conversation</span>
           </footer> : null}
@@ -1677,19 +1680,25 @@ export default function Root() {
       </ConversationViewContext.Provider>
 
       <Dialog
-        isOpen={isPanelOpen}
+        isOpen={isPanelOpen && detailMode !== 'window'}
         onClose={value.closeDetail}
-        style={{ width: '70vw', minWidth: 900, maxWidth: '95vw' }}
+        className={sectionNavigation ? 'app-execution-dialog' : undefined}
+        aria-labelledby={detailHeadingId}
+        style={sectionNavigation ? undefined : { width: '70vw', minWidth: 900, maxWidth: '95vw' }}
       >
         <div className="app-detail-dialog-shell">
+          <ForgeThemeBoundary presentation={sectionNavigation ? 'document' : undefined} windowKey="execution-details">
           <DetailPanel
             toolCall={selectedTool}
+            headingId={detailHeadingId}
+            appearance={sectionNavigation ? 'document' : undefined}
             mode="dialog"
             onClose={value.closeDetail}
             onUndock={() => setMode('window')}
             onDockRight={() => setMode('right')}
             onDockLeft={() => setMode('left')}
           />
+          </ForgeThemeBoundary>
         </div>
       </Dialog>
 
@@ -1698,6 +1707,7 @@ export default function Root() {
           <div className="app-detail-popout-shell">
             <DetailPanel
               toolCall={selectedTool}
+              appearance={sectionNavigation ? 'document' : undefined}
               mode="window"
               onClose={value.closeDetail}
               onUndock={() => setMode('window')}
