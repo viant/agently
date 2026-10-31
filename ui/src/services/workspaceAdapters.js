@@ -42,9 +42,10 @@ export function normalizeCanonicalReportAssembly(assembly = {}, presentation) {
 
 // Conversation, turn (or message), scope and report ID distinguish outputs from revisions.
 export function inlineReportWorkspaceDescriptor({assembly, conversationId, messageId, turnId = ''}) {
-  if (!conversationId || !messageId || !assembly?.id || assembly.status !== 'committed') return null;
+  if (!conversationId || !messageId || !assembly?.id || !['rendering','committed'].includes(assembly.status)) return null;
+  const pending = assembly.status === 'rendering';
   const normalized = normalizeCanonicalReportAssembly(assembly);
-  if (!Object.keys(normalized.source).length || !['dashboard-v1', 'report-document-v1'].includes(assembly.grammar || 'dashboard-v1')) return null;
+  if ((!pending && !Object.keys(normalized.source).length) || !['dashboard-v1', 'report-document-v1'].includes(assembly.grammar || 'dashboard-v1')) return null;
   const scope = assembly.scope || 'message';
   const windowId = `report:${[conversationId, turnId || messageId, scope, assembly.id].map(encodeURIComponent).join(':')}`;
   return {windowId, windowKey: 'report/workspace', windowTitle: normalized.source.title || 'Report',
@@ -54,8 +55,8 @@ export function inlineReportWorkspaceDescriptor({assembly, conversationId, messa
       content: {renderer: 'inlineReport', windowId, windowKey: 'report/workspace', messageId, turnId, reportId: assembly.id, reportScope: scope, resetVersion: Number(assembly.resetVersion || 0)},
       navigation: {label: normalized.source.title || 'Report', icon: 'document'},
       placement: {preferred: 'workspace', allowed: ['workspace'], initialWorkspaceMode: 'split'},
-      lifecycle: {state: 'ready', restorePolicy: 'conversation', refreshPolicy: 'explicit'},
-      capabilities: {close: true, focus: true, split: true, reopen: true}}};
+      lifecycle: {state: pending ? 'opening' : 'ready', restorePolicy: 'conversation', refreshPolicy: 'explicit'},
+      capabilities: {close: true, focus: true, split: true, reopen: !pending}}};
 }
 
 export function canonicalReportSources(rows = []) {

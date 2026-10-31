@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { attachHistoryScroll } from './historyScroll.js';
 
-function fixture(conversationId = '') {
+function fixture(conversationId = '', feed = {}) {
   const listeners = new Map();
   const frames = new Map();
   let sequence = 0;
@@ -11,6 +11,7 @@ function fixture(conversationId = '') {
     addEventListener: (name, callback) => listeners.set(name, callback),
     removeEventListener: name => listeners.delete(name),
   };
+  viewport.closest = () => viewport;
   const disconnect = vi.fn();
   const environment = {
     requestAnimationFrame: callback => { frames.set(++sequence, callback); return sequence; },
@@ -21,7 +22,7 @@ function fixture(conversationId = '') {
       disconnect = disconnect;
     },
   };
-  const dispose = attachHistoryScroll({}, viewport, environment, conversationId);
+  const dispose = attachHistoryScroll(feed, viewport, environment, conversationId);
   const flush = () => {
     const pending = [...frames.values()]; frames.clear();
     for (const callback of pending) callback();
@@ -32,6 +33,15 @@ function fixture(conversationId = '') {
 }
 
 describe('history viewport scrolling', () => {
+  it('keeps the reading position on completion and resumes following a new submission', () => {
+    const feed={dataset:{requestActive:'true'}},f=fixture('',feed);f.flush();
+    expect(f.viewport.scrollTop).toBe(800);
+    feed.dataset.requestActive='false';f.viewport.scrollHeight=1800;f.resize();f.flush();
+    expect(f.viewport.scrollTop).toBe(800);
+    f.listeners.get('forge:chat-submitted')();feed.dataset.requestActive='true';
+    f.viewport.scrollHeight=2000;f.resize();f.flush();
+    expect(f.viewport.scrollTop).toBe(1600);f.dispose();
+  });
   it('opens at the bottom and follows late rendering and viewport resizing', () => {
     const f = fixture(); f.flush();
     expect(f.viewport.scrollTop).toBe(800);

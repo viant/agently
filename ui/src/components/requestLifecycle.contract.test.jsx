@@ -5,7 +5,7 @@ import {afterEach, describe, expect, it, vi} from 'vitest';
 import {client} from '../services/agentlyClient.js';
 import {onTranscript} from '../services/chatStore.js';
 import TurnProgressStatus from './TurnProgressStatus.jsx';
-import RunProgressView from './RunProgressView.jsx';
+import RunProgressView, {workDurationLabel} from './RunProgressView.jsx';
 import StatusBar from './StatusBar.jsx';
 import {setStage} from '../services/stageBus.js';
 import {ElicitationDialog} from './ElicitationOverlay.jsx';
@@ -17,6 +17,25 @@ afterEach(async()=>{if(root)await act(async()=>root.unmount());element?.remove()
 async function mount(node){if(!root){element=document.createElement('div');document.body.append(element);root=createRoot(element);}await act(async()=>root.render(node));}
 const transcript=(id,status='running')=>({conversationId:id,turns:[{turnId:`${id}-turn`,status,createdAt:new Date(Date.now()-14000).toISOString(),user:{messageId:'question',content:'Review this example.'},execution:{pages:[{pageId:'page',status,phase:'thinking',content:''}]}}]});
 describe('document request lifecycle',()=>{
+ it('uses a small completion label with an honest duration',()=>{
+  expect(workDurationLabel(30)).toBe('Worked for 30s');
+  expect(workDurationLabel(1628)).toBe('Worked for 27m 8s');
+  expect(workDurationLabel(3600)).toBe('Worked for 1h');
+  expect(workDurationLabel(null)).toBe('Work completed');
+ });
+ it('gives inline progress the request clock while retaining global attention and approvals',async()=>{
+  setStage({phase:'executing',text:'Executing example/check'});
+  await mount(<StatusBar requestInFeed/>);
+  expect(element.querySelector('footer').style.display).toBe('none');
+  await mount(<StatusBar requestInFeed approvals={{pendingCount:1}}/>);
+  expect(element.textContent).toContain('Approvals 1');
+  expect(element.textContent).not.toContain('Running a step');
+  setStage({phase:'error',text:'Network timeout'});
+  await mount(<StatusBar requestInFeed/>);
+  expect(element.textContent).toContain('connection was interrupted');
+  expect(element.querySelector('footer').style.display).not.toBe('none');
+  setStage({phase:'ready',text:'Ready'});
+ });
  it('keeps technical execution names in developer details instead of public status',async()=>{
   setStage({phase:'executing',text:'Executing ui/view/open…'});
   await mount(<StatusBar/>);
@@ -38,17 +57,17 @@ describe('document request lifecycle',()=>{
   expect(element.querySelector('.app-run-progress-spinner')).not.toBeNull();
   expect(element.textContent).not.toContain('leave this chat');
   await act(async()=>vi.advanceTimersByTime(31000));
-  expect(element.textContent).toContain('Waiting for an update');
-  expect(element.textContent).toContain('No new progress for 0:31');
+  expect(element.textContent).toContain('Working on your request');
+  expect(element.textContent).toContain('No new updates for 0:31');
   expect(element.textContent).not.toMatch(/failed|reconnect|%|Thinking/);
   await mount(view()); // An unrelated render is not evidence of backend progress.
   await act(async()=>vi.advanceTimersByTime(2000));
-  expect(element.textContent).toContain('No new progress for 0:33');
+  expect(element.textContent).toContain('No new updates for 0:33');
   await mount(view('two','1 step completed'));
   expect(element.textContent).toContain('Working on your request');
   expect(element.textContent).toContain('1 step completed');
-  expect(element.textContent).not.toContain('No new progress');
-  expect(element.querySelector('.app-run-progress-heading [aria-live=off]').textContent).toContain('0:33 elapsed');
+  expect(element.textContent).not.toContain('No new updates');
+  expect(element.querySelector('.app-run-progress-heading [aria-live=off]').getAttribute('aria-label')).toBe('0:33 elapsed');
   await act(async()=>element.querySelector('button').click());expect(stop).toHaveBeenCalledOnce();
   await mount(<RunProgressView startedAt={startedAt} waiting/>);
   await act(async()=>vi.advanceTimersByTime(31000));
@@ -59,27 +78,23 @@ describe('document request lifecycle',()=>{
   expect(element.querySelector('button').disabled).toBe(true);
   expect(element.textContent).toContain('Waiting for confirmation');
  });
- it('uses the actual scoped cancellation, retains failure and resets for the next turn',async()=>{
-  const cancel=vi.spyOn(client,'cancelTurn').mockRejectedValue(new Error('private stop diagnostic'));
+ it('leaves document cancellation in the composer instead of progress',async()=>{
   onTranscript('run-example',transcript('run-example'));
   await mount(<TurnProgressStatus appearance="document" conversationId="run-example"/>);
-  expect(element.textContent).toContain('elapsed');expect(element.textContent).not.toContain('tokens');
-  await act(async()=>element.querySelector('button').click());
-  expect(cancel).toHaveBeenCalledWith('run-example-turn');
-  expect(element.querySelector('[role=alert]').textContent).toContain('Try again');
-  expect(element.textContent).not.toContain('private stop diagnostic');
-  cancel.mockResolvedValue(true);
-  await act(async()=>element.querySelector('button').click());expect(element.textContent).toContain('Stopping request');
-  onTranscript('next-example',transcript('next-example'));await mount(<TurnProgressStatus appearance="document" conversationId="next-example"/>);
-  expect(element.querySelector('button').disabled).toBe(false);expect(element.textContent).not.toContain('Stopping request');
+  expect(element.querySelector('[aria-label$=" elapsed"]')).not.toBeNull();
+  expect(element.querySelector('button')).toBeNull();
+  expect(element.textContent).not.toContain('Stop');
  });
- it('places one public progress record at the request and hides it at completion',async()=>{
+ it('keeps the activity area in place and replaces progress with completion',async()=>{
   onTranscript('inline-example',transcript('inline-example'));
   const node=<ConversationViewContext.Provider value={{presentation:'document'}}><ChatFeed conversationId="inline-example"/></ConversationViewContext.Provider>;
   await mount(node);expect(element.querySelectorAll('[data-testid=turn-progress-status]').length).toBe(1);
   expect(element.querySelector('.app-chat-feed [data-testid=turn-progress-status]')).not.toBeNull();
+  const activity=element.querySelector('.app-run-activity');
   await act(async()=>onTranscript('inline-example',transcript('inline-example','completed')));
   expect(element.querySelector('[data-testid=turn-progress-status]')).toBeNull();
+  expect(element.querySelector('.app-run-activity')).toBe(activity);
+  expect(element.querySelector('[data-testid=turn-completed-status]')).not.toBeNull();
  });
  it('retains selection after a rejected decision and disables historical review',async()=>{
   const resolve=vi.spyOn(client,'resolveElicitation').mockRejectedValue(new Error('Decision did not complete. Try again.'));

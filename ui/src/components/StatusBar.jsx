@@ -23,11 +23,13 @@ function formatElapsed(ms = 0) {
   return `${Math.round(sec)}s`;
 }
 
-export default function StatusBar({ backendUnavailable = false, approvals = null, developerMode = false, hidden = false }) {
+export default function StatusBar({ backendUnavailable = false, approvals = null, developerMode = false, hidden: explicitlyHidden = false, requestInFeed = false }) {
   const stage = useStage();
   const [now, setNow] = React.useState(Date.now());
   const {phase, text} = progressStatusPresentation(stage, developerMode, backendUnavailable);
   const pendingApprovals = Number(approvals?.pendingCount || 0);
+  const showStage = !requestInFeed || backendUnavailable || ['error','failed','offline','attention'].includes(phase);
+  const hidden = explicitlyHidden || (!showStage && !pendingApprovals);
   const isElapsedActive = !backendUnavailable && ELAPSED_PHASES.has(phase);
   const startedAt = Number(stage?.startedAt || 0);
   const completedAt = Number(stage?.completedAt || 0);
@@ -51,13 +53,13 @@ export default function StatusBar({ backendUnavailable = false, approvals = null
 
   return (
     <footer className={`app-statusbar phase-${phase}`} style={hidden ? { display: 'none' } : undefined} role="status" aria-label={import.meta.env.DEV ? `Verification ${globalThis.location?.pathname?.match(/\/(?:v1\/|ui\/)?conversation\/([a-f0-9-]{36})(?:\/)?$/)?.[1] || "no-conversation"} | aliases p:${browserAliases?.pendingCount ?? 0} exact:${browserAliases?.exactCount ?? 0} canon:${browserAliases?.canonicalCount ?? 0} slash:${browserAliases?.slashCount ?? 0} dash:${browserAliases?.dashCount ?? 0} | failure:${browserContinuation?.failure || "none"} stage:${browserContinuation?.stage || "none"} pending:${browserContinuation?.pendingCount ?? 0} interrupts:${browserContinuation?.interruptCount ?? 0} | ${browserLifecycleLabel} close:${browserCloseCause || "none"}` : undefined} aria-live="polite">
-      <div className="app-statusbar-main">
+      {showStage ? <div className="app-statusbar-main">
         <span className="app-statusbar-icon">{PHASE_ICON[phase] || '●'}</span>
         <span className="app-statusbar-text">
           {text}
           {isElapsedActive ? ` ${formatElapsed(elapsedMs)}` : ''}
         </span>
-      </div>
+      </div> : null}
       <div className="app-statusbar-right">
         {pendingApprovals > 0 ? <span className="app-status-chip">Approvals {pendingApprovals}</span> : null}
       </div>
