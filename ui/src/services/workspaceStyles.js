@@ -161,7 +161,7 @@ export class WorkspaceStyleManager {
     this.applicationStyles.clear(); this.applicationStyleKey = ''; this.applicationStyleAccount = ''; this.applicationStylePending = null;
   }
   loadApplicationStyles(applications, {accountKey = '', readResource, force = false} = {}) {
-    const entries = applications.flatMap(app => (app.styleResources || []).map(uri => ({uri, server: app.resourceConnection, providerIdentity: app.providerIdentity, namespace: app.resourceNamespace})))
+    const entries = applications.filter(app => app.allowStyleOverrides === true).flatMap(app => (app.styleResources || []).map(uri => ({uri, server: app.resourceConnection, providerIdentity: app.providerIdentity, namespace: app.resourceNamespace})))
       .filter(entry => entry.server && entry.providerIdentity && entry.namespace);
     const key = JSON.stringify([accountKey, entries]);
     if (!force && key === this.applicationStyleKey) return this.applicationStylePending || Promise.resolve();
