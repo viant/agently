@@ -36,13 +36,14 @@ it('requires both declared date endpoints before enabling report execution', asy
   fireEvent.change(start,{target:{value:'2026-01-02'}});
   expect(runtime.mock.calls.at(-1)[0].container.parameters.reportCapabilities.run).toBe(false);
   fireEvent.change(screen.getByLabelText('Date range to'),{target:{value:'2026-01-03'}});
-  expect(runtime.mock.calls.at(-1)[0].container.parameters.reportCapabilities.run).toBe(true);
+  expect(runtime.mock.calls.at(-1)[0].container.parameters.reportCapabilities.run).toBe(false);
   expect(runtime.mock.calls.at(-1)[0].container.parameters.prefill).toEqual({});
   fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
   expect(runtime.mock.calls.at(-1)[0].container.parameters.prefill).toEqual({from:'2026-01-02',to:'2026-01-03'});
   expect(screen.queryByText(/Complete these inputs/)).toBeNull();
   fireEvent.change(start,{target:{value:''}});
-  expect(runtime.mock.calls.at(-1)[0].container.parameters.reportCapabilities.run).toBe(false);
+  expect(runtime.mock.calls.at(-1)[0].container.parameters.reportCapabilities.run).toBe(true);
+  expect(screen.getByRole('button',{name:'Apply filters'}).disabled).toBe(true);
 });
 
 it('resolves through the existing host and mounts the shared runtime with its opaque pin and current parameters', async () => {
@@ -108,4 +109,29 @@ it('restores a logical report bookmark without treating it as a window',async()=
  render(<ReportWindow window={{windowKey:pin.uri,windowTitle:'Overview',parameters:{}}}/>);
  await screen.findByText('Shared report runtime');
  expect(services.reportStore.getReport).toHaveBeenCalledWith({resource:{uri:pin.uri}});
+});
+
+it('opts into opening execution with authored defaults and excludes the control from datasource inputs', async () => {
+ services.reportStore.getReport.mockResolvedValue({resource:pin,resourceDefinition:{metadata:{executeOnOpen:true},builderDefinition:{reportBuilder:{predicates:[{id:'region',label:'Region',required:true,default:'west'}]}}}});
+ const view=render(<ReportWindow window={{...entry,parameters:{executeOnOpen:true}}}/>);
+ const field=await screen.findByLabelText('Region');
+ const read=()=>runtime.mock.calls.at(-1)[0].container.parameters;
+ expect(read().executeOnOpen).toBe(true);
+ expect(read().prefill).toEqual({region:'west'});
+ fireEvent.change(field,{target:{value:''}});
+ expect(read().prefill).toEqual({region:'west'});
+ expect(read().reportCapabilities.run).toBe(true);
+ expect(screen.getByRole('button',{name:'Apply filters'}).disabled).toBe(true);
+ view.rerender(<ReportWindow window={{...entry,parameters:{executeOnOpen:false}}}/>);
+ expect(read().executeOnOpen).toBe(false);
+});
+it('does not auto-execute without complete required initial inputs or explicit opt-in', async () => {
+ services.reportStore.getReport.mockResolvedValue({resource:pin,resourceDefinition:{metadata:{executeOnOpen:true},builderDefinition:{reportBuilder:{predicates:[{id:'region',label:'Region',required:true}]}}}});
+ render(<ReportWindow window={{...entry,parameters:{}}}/>);
+ await screen.findByLabelText('Region');
+ expect(runtime.mock.calls.at(-1)[0].container.parameters.executeOnOpen).toBe(false);
+ fireEvent.change(screen.getByLabelText('Region'),{target:{value:'west'}});
+ expect(runtime.mock.calls.at(-1)[0].container.parameters.executeOnOpen).toBe(false);
+ fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
+ expect(runtime.mock.calls.at(-1)[0].container.parameters.executeOnOpen).toBe(true);
 });

@@ -104,3 +104,16 @@ uses neutral styling and plain recovery guidance. The regular status bar and ter
 Error/failed labels and red diagnostic styling. The underlying execution state
 and error payload are preserved. Developer mode retains explicit errors, raw
 diagnostic messages, and red execution-detail styling.
+
+### Run a report when it opens
+
+Report windows use Forge's `executeOnOpen` option. Set
+`resourceDefinition.metadata.executeOnOpen: true` to opt in for a report, or pass
+`executeOnOpen: true` in the window's opening parameters. An explicit `false` in
+opening parameters overrides the report setting. The default is manual execution.
+
+Opening execution uses authored predicate defaults and supplied scope parameters,
+and starts only when all declared required inputs are present. The option itself
+is not sent as a datasource input. Editing filters does not execute a new request;
+**Apply filters** submits the edited values. No default dates or account scope are
+invented by the host.

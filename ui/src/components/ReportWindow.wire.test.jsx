@@ -129,3 +129,25 @@ it('clears an optional lookup predicate without sending an empty-set restriction
   await screen.findByRole('heading',{name:'All regions'});
   expect(calls[1].parameters).toEqual({unrelated:[],limit:0});
 });
+
+it('auto-runs once from defaults and waits for Apply before using filter edits', async () => {
+  const pin={providerIdentity:'example',uri:'report://example/defaults',kind:'working',contentFingerprint:'exact',authorityBinding:'owner',validUntil:'2030-01-01T00:00:00Z'};
+  const runs=[];
+  vi.stubGlobal('fetch',async(url,init)=>{
+    const args=JSON.parse(init.body);
+    if(url.includes('run_report'))runs.push(args);
+    const payload=url.includes('get_report')?{resource:pin,resourceDefinition:{metadata:{executeOnOpen:true},builderDefinition:{reportBuilder:{predicates:[{id:'region',label:'Region',required:true,default:'west'}]}}}}:{resource:pin,reportSpec:{title:'Default summary'},reportFill:{},reportPrint:{}};
+    return new Response(JSON.stringify({result:JSON.stringify(payload)}),{headers:{'content-type':'application/json'}});
+  });
+  hostServices={reportStore:{getReport,runReport}};
+  render(<React.StrictMode><ReportWindow window={{windowKey:pin.uri,resourceRef:{uri:pin.uri},parameters:{}}}/></React.StrictMode>);
+  await screen.findByRole('heading',{name:'Default summary'});
+  expect(runs).toHaveLength(1);
+  expect(runs[0].parameters).toEqual({region:'west'});
+  fireEvent.change(screen.getByLabelText('Region'),{target:{value:''}});
+  fireEvent.change(screen.getByLabelText('Region'),{target:{value:'east'}});
+  expect(runs).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
+  await waitFor(()=>expect(runs).toHaveLength(2));
+  expect(runs[1].parameters).toEqual({region:'east'});
+});
