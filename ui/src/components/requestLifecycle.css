@@ -1,16 +1,39 @@
-.app-run-progress, .app-run-notice { color: var(--app-text); margin-block: var(--agently-theme-spacing-4); }
+/* Activity is secondary to the answer. One disclosure owns the inline history. */
+.app-run-activity { min-width: 0; margin-block: var(--agently-theme-spacing-2, 8px) var(--agently-theme-spacing-4, 16px); border: 0; background: transparent; color: var(--app-text, var(--forge-text)); overflow-wrap: anywhere; }
+.app-run-activity > .app-run-progress, .app-run-activity > .app-run-notice { margin: 0; padding: 0; }
+.app-run-activity > .app-run-notice { border: 0; background: transparent; }
+.app-run-activity > .forge-button { margin-block: var(--agently-theme-spacing-2, 8px); }
+.app-iteration-card.is-contained { min-width: 0; margin: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.app-iteration-card.is-contained .app-iteration-head { min-height: 44px; gap: var(--agently-theme-spacing-2, 8px); padding: 0; color: var(--app-muted, var(--forge-text-muted)); background: transparent; }
+.app-iteration-card.is-contained .app-iteration-head-main { gap: var(--agently-theme-spacing-1, 4px); }
+.app-iteration-card.is-contained .app-iteration-title { min-width: 0; gap: var(--agently-theme-spacing-2, 8px); white-space: normal; flex-wrap: wrap; }
+.app-iteration-card.is-contained .app-iteration-title-time, .app-iteration-card.is-contained .app-iteration-status-detail { color: var(--app-muted, var(--forge-text-muted)); opacity: 1; }
+.app-iteration-card.is-contained .app-iteration-toggle { display: inline-flex; margin: 0; opacity: 1; color: var(--app-muted, var(--forge-text-muted)); }
+.app-iteration-card.is-contained .app-iteration-toggle .forge-icon { width: 16px; height: 16px; }
+.app-iteration-card.is-contained .app-iteration-groups { max-height: none; overflow: visible; padding: var(--agently-theme-spacing-1, 4px) 0 var(--agently-theme-spacing-2, 8px) var(--agently-theme-spacing-4, 16px); }
+.app-run-progress, .app-run-notice { color: var(--app-text); margin-block: var(--agently-theme-spacing-2, 8px); }
 .app-run-progress p, .app-run-notice p { margin: 0; }
-.app-run-progress-heading, .app-run-progress-meta, .app-run-notice-actions { display: flex; align-items: center; gap: var(--agently-theme-spacing-2); flex-wrap: wrap; }
-.app-run-progress-heading { margin-bottom: var(--agently-theme-spacing-2); }
-.app-run-progress-activity { display: inline-flex; align-items: center; gap: var(--agently-theme-spacing-2); min-width: 0; }
-.app-run-progress-heading > [data-forge-type="metadata"] { color: var(--app-muted); font-variant-numeric: tabular-nums; }
-.app-run-progress-heading > .forge-button { margin-inline-start: auto; }
+.app-run-progress-heading, .app-run-progress-meta, .app-run-notice-actions { display: flex; align-items: center; gap: var(--agently-theme-spacing-2, 8px); }
+.app-run-progress-heading { min-height: 44px; }
+.app-run-progress .app-run-progress-toggle { display: inline-flex; flex: 1; align-items: center; width: auto; min-width: 0; min-height: 44px; gap: var(--agently-theme-spacing-2, 8px); padding: 0; border: 0; background: transparent; color: inherit; text-align: left; }
+button.app-run-progress-toggle { cursor: pointer; }
+button.app-run-progress-toggle:hover { color: var(--app-accent, var(--forge-interaction-color)); }
+.app-run-progress .app-run-progress-toggle:focus:not(:focus-visible) { outline: none; }
+.app-run-progress .app-run-progress-toggle:focus-visible, .app-iteration-card.is-contained .app-iteration-head:focus-visible { outline: var(--agently-theme-focus-width, 2px) solid var(--agently-theme-focus, var(--forge-focus-color)); outline-offset: var(--agently-theme-focus-offset, 2px); }
+.app-run-progress-activity { display: inline-flex; align-items: center; gap: var(--agently-theme-spacing-2, 8px); min-width: 0; }
+.app-run-progress-activity > [data-forge-type] { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-run-progress-toggle > [data-forge-type=metadata] { flex-shrink: 0; color: var(--app-muted, var(--forge-text-muted)); font-variant-numeric: tabular-nums; }
+.app-run-progress-heading > .forge-button { flex-shrink: 0; margin-inline-start: auto; }
+.app-run-progress.is-completed { color: var(--app-muted, var(--forge-text-muted)); }
+.app-run-progress.is-completed .app-run-progress-heading, .app-run-progress.is-completed .app-run-progress-toggle { min-height: 32px; }
+.app-run-progress.is-completed .app-run-progress-toggle { flex: none; }
+@media (pointer: coarse) { .app-run-progress.is-completed .app-run-progress-heading, .app-run-progress.is-completed .app-run-progress-toggle { min-height: 44px; } }
 .app-run-progress-spinner { animation: app-run-progress-spin calc(var(--agently-theme-motion-fast, 120ms) * 8) linear infinite; }
 @keyframes app-run-progress-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .app-run-progress-spinner { animation: none; } }
-.app-run-progress-meta { color: var(--app-muted); margin-top: var(--agently-theme-spacing-2); }
-.app-run-progress-heading .forge-icon, .app-run-notice > .forge-icon { color: var(--app-accent); flex-shrink: 0; }
-.app-run-progress .forge-icon, .app-run-notice .forge-icon { width: 16px; height: 16px; }
+.app-run-progress-meta { flex-wrap: wrap; color: var(--app-muted, var(--forge-text-muted)); margin-top: var(--agently-theme-spacing-1, 4px); }
+.app-run-progress .forge-icon, .app-run-notice .forge-icon { width: 16px; height: 16px; flex-shrink: 0; }
+.app-run-progress-spinner, .app-run-notice > .forge-icon { color: var(--app-accent, var(--forge-interaction-color)); }
 .app-run-notice { display: flex; align-items: flex-start; gap: var(--agently-theme-spacing-3); padding: var(--agently-theme-spacing-3); border: 1px solid var(--app-border); border-radius: var(--agently-theme-control-radius); background: var(--app-surface-soft); }
 .app-run-notice[data-tone="danger"] > .forge-icon { color: var(--app-status-danger-foreground); }
 .app-run-notice-content { min-width: 0; overflow-wrap: anywhere; }

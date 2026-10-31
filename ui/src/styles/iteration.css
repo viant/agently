@@ -1,5 +1,5 @@
 /* ── Iteration card ── */
-.app-iteration-card {
+.app-iteration-card:where(:not(.is-contained)) {
   border: 1px solid #e4e9f2;
   background: #fafbfd;
   border-radius: 14px;
@@ -9,24 +9,24 @@
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
-.app-iteration-card:hover {
+.app-iteration-card:where(:not(.is-contained)):hover {
   box-shadow: 0 4px 14px rgba(20, 29, 45, 0.07);
 }
 
-.app-iteration-card.tone-success {
+.app-iteration-card:where(:not(.is-contained)).tone-success {
   border-color: #a8dfc0;
 }
 
-.app-iteration-card.tone-running {
+.app-iteration-card:where(:not(.is-contained)).tone-running {
   border-color: #b8c4f6;
   box-shadow: 0 2px 10px rgba(48, 67, 184, 0.08);
 }
 
-.app-iteration-card.tone-error {
+.app-iteration-card:where(:not(.is-contained)).tone-error {
   border-color: #e8b4b4;
 }
 
-.app-iteration-card.tone-warning {
+.app-iteration-card:where(:not(.is-contained)).tone-warning {
   border-color: #e8d49e;
 }
 
@@ -56,22 +56,22 @@
   background: rgba(0, 0, 0, 0.015);
 }
 
-.app-iteration-card.tone-success .app-iteration-head {
+.app-iteration-card:where(:not(.is-contained)).tone-success .app-iteration-head {
   background: linear-gradient(135deg, #eef9f2 0%, #f4faf6 100%);
   color: #0d5e3c;
 }
 
-.app-iteration-card.tone-running .app-iteration-head {
+.app-iteration-card:where(:not(.is-contained)).tone-running .app-iteration-head {
   background: linear-gradient(135deg, #edf1ff 0%, #f3f5ff 100%);
   color: #2a3da8;
 }
 
-.app-iteration-card.tone-error .app-iteration-head {
+.app-iteration-card:where(:not(.is-contained)).tone-error .app-iteration-head {
   background: linear-gradient(135deg, #fef1f1 0%, #fff6f6 100%);
   color: #a11d13;
 }
 
-.app-iteration-card.tone-warning .app-iteration-head {
+.app-iteration-card:where(:not(.is-contained)).tone-warning .app-iteration-head {
   background: linear-gradient(135deg, #fef8e6 0%, #fffbf0 100%);
   color: #8a5d00;
 }
@@ -734,6 +734,6 @@
   }
 }
 
-.agently-workspace[data-forge-theme] .app-iteration-card { background: var(--forge-control-bg); color: var(--forge-text); border-color: var(--forge-control-border); }
-.agently-workspace[data-forge-theme] .app-iteration-card .app-iteration-head { background: var(--forge-table-header-surface); color: var(--forge-text); }
-.agently-workspace[data-forge-theme] .app-iteration-card .app-iteration-title { color: var(--forge-text); }
+.agently-workspace[data-forge-theme] .app-iteration-card:where(:not(.is-contained)) { background: var(--forge-control-bg); color: var(--forge-text); border-color: var(--forge-control-border); }
+.agently-workspace[data-forge-theme] .app-iteration-card:where(:not(.is-contained)) .app-iteration-head { background: var(--forge-table-header-surface); color: var(--forge-text); }
+.agently-workspace[data-forge-theme] .app-iteration-card:where(:not(.is-contained)) .app-iteration-title { color: var(--forge-text); }

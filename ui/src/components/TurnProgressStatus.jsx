@@ -4,12 +4,16 @@ import { Button, Icon, Spinner, Tooltip } from '@blueprintjs/core';
 import {
   resolveActiveTurnProgress,
   summarizeExecutionTokenUsage,
+  renderMarkdownBlock,
 } from 'agently-core-ui-sdk';
 import { useChatProjection } from '../services/chatStore';
 import { client } from '../services/agentlyClient';
 import { getUsage, onUsageChange } from '../services/usageBus';
 import { setStage, useStage } from '../services/stageBus';
 import RunProgressView from './RunProgressView.jsx';
+import {ConversationViewContext} from '../context/ConversationViewContext.js';
+import {projectedWorkspaceEntries} from '../services/workspaceAttachment.js';
+import {canonicalReportSources} from '../services/workspaceAdapters.js';
 
 const NUMBER = new Intl.NumberFormat();
 
@@ -162,8 +166,9 @@ function tokenHoverText(usage) {
   ].filter(Boolean).join(' · ') || 'Show token usage breakdown';
 }
 
-export default function TurnProgressStatus({ conversationId = '', developerMode = false, connectionResumePending = null, appearance, publicNarrationInFeed = false }) {
+export default function TurnProgressStatus({ conversationId = '', developerMode = false, connectionResumePending = null, appearance, publicNarrationInFeed = false, completed = false, durationSeconds, startedAt, onToggleDetails, expanded, controls }) {
   const rows = useChatProjection(conversationId);
+  const view = React.useContext(ConversationViewContext);
   const stage = useStage();
   const [usage, setUsage] = React.useState(getUsage);
   const [stopping, setStopping] = React.useState(false);
@@ -183,6 +188,8 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
   // turn from the stage alone. This prevents failed/default workspace startup
   // from looking like an assistant is actively working.
   if (!String(conversationId || '').trim()) return null;
+  if (appearance === 'document' && completed) return <RunProgressView completed startedAt={startedAt} durationSeconds={durationSeconds}
+    onToggleDetails={onToggleDetails} expanded={expanded} controls={controls}/>;
   if (!row || !String(row?.turnId || '').trim()) {
     const pendingConversationId = String(connectionResumePending?.conversationId || '').trim();
     const submitting = !!row && ['pending', 'running'].includes(row.lifecycle);
@@ -228,10 +235,17 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
 
   if (!progress) return null;
 
-  const publicNarration = publicTaskNarration(rows, row.turnId);
-  // The inline document feed already owns public messages and their attachments.
-  // Standalone status retains narration, including the operational fallback.
-  const operationalNarration = publicNarration
+  const turnRows = rows.filter(entry => entry.turnId === row.turnId);
+  const publicNarration = publicTaskNarration(turnRows, row.turnId);
+  const reportEntries = appearance === 'document' && view?.reportsInWorkspace
+    ? projectedWorkspaceEntries(turnRows,conversationId,{includeInlineReports:true,includePendingReports:true})
+      .filter(entry => entry.workspaceObject.kind === 'report') : [];
+  const preparingReport = reportEntries.some(entry => entry.workspaceObject.lifecycle.state === 'opening');
+  const reportUpdates = preparingReport ? canonicalReportSources(turnRows)
+    .flatMap(source => (source.renderedContent?.reports || []).map(report => [report.id,report.scope,report.status,report.resetVersion,report.sequence,
+      report.source?.blocks?.length,Object.entries(report.dataSources || {}).map(([id,data]) => [id,data?.sequence])])) : [];
+  // Document progress reports activity; the completed reply owns result prose.
+  const operationalNarration = appearance === 'document' && publicNarrationInFeed ? '' : publicNarration
     ? (publicNarrationInFeed ? '' : publicNarration)
     : (typeof row.operationalNarration === 'string' ? row.operationalNarration.trim() : '');
   const rawActivity = executingClientTool ? 'Executing local tool' : progress.activity.label || ACTIVITY_LABELS[progress.activity.kind] || 'Working';
@@ -257,14 +271,15 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
   };
 
   // Progress changes come from the active turn, never elapsed ticks or unrelated history.
-  const progressKey = JSON.stringify([row.turnId, row.lifecycle, publicNarration, row.operationalNarration, executingClientTool,
+  const progressKey = JSON.stringify([row.turnId, row.lifecycle, publicNarration, row.operationalNarration, executingClientTool,reportUpdates,
     groups.map(group => [group.pageId, group.status, group.phase, group.content?.length,
       group.modelSteps.map(step => [step.modelCallId, step.status, step.completedAt, step.usage?.totalTokens]),
       group.toolSteps.map(step => [step.toolCallId, step.status])])]);
-  if (appearance === 'document') return <RunProgressView activity={documentActivityLabel(progress, executingClientTool)} narration={operationalNarration}
+  if (appearance === 'document') return <RunProgressView activity={preparingReport ? 'Preparing report' : documentActivityLabel(progress, executingClientTool)} narration={operationalNarration}
+    onToggleDetails={onToggleDetails} expanded={expanded} controls={controls}
     progressKey={progressKey} summary={documentStepSummary(progress)}
     startedAt={progress.startedAt} waiting={waiting} stopping={stopping}
-    onStop={progress.canStop || stopping ? stop : undefined} error={stopError}/>;
+    error={stopError}/>;
 
   return (
     <section className={`app-turn-progress${waiting ? ' is-waiting' : ''}`} data-testid="turn-progress-status" aria-live="polite">
@@ -272,7 +287,7 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
         {waiting ? <span>!</span> : <Spinner size={18} />}
       </div>
       <div className="app-turn-progress-content">
-        {operationalNarration ? <div className="app-turn-progress-narration" data-testid="turn-progress-narration">{operationalNarration}</div> : null}
+        {operationalNarration ? <div className="app-turn-progress-narration app-rich-prose" data-testid="turn-progress-narration" dangerouslySetInnerHTML={{__html:renderMarkdownBlock(operationalNarration)}}/> : null}
         <div className="app-turn-progress-title">{waiting ? 'Needs your input' : 'Working on your request'}</div>
         <div className="app-turn-progress-chips">
           <span className="app-turn-progress-chip is-activity">{activity}</span>

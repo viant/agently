@@ -1,7 +1,7 @@
 import React from 'react';
 import IterationBlock from './IterationBlock.jsx';
 
-export default function IterationRowBlock({ context, iterationRow = null, showToolFeedDetail = true, suppressBubble = false, retryPrompt = '', attachment = null }) {
+export default function IterationRowBlock({ context, conversationId = '', iterationRow = null, progress = null, showToolFeedDetail = true, suppressBubble = false, retryPrompt = '', attachment = null }) {
   if (!iterationRow) return null;
-  return <IterationBlock canonicalRow={iterationRow} context={context} showToolFeedDetail={showToolFeedDetail} suppressBubble={suppressBubble} retryPrompt={retryPrompt} attachment={attachment} />;
+  return <IterationBlock canonicalRow={iterationRow} conversationId={conversationId} progress={progress} context={context} showToolFeedDetail={showToolFeedDetail} suppressBubble={suppressBubble} retryPrompt={retryPrompt} attachment={attachment} />;
 }

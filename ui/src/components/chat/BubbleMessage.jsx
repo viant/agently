@@ -28,7 +28,7 @@ export function shouldAutoScrollStreamingRow(rowRect, containerRect, threshold =
   return rowBottom - containerBottom <= threshold;
 }
 
-export default function BubbleMessage({ message, messageIndex = 0, conversationId = '', attachment = null, context = null }) {
+export default function BubbleMessage({ message, messageIndex = 0, conversationId = '', attachment = null, deferContent = false, context = null }) {
   const {presentation} = useContext(ConversationViewContext);
   const documentAppearance = presentation === 'document';
   const rowRef = useRef(null);
@@ -36,7 +36,7 @@ export default function BubbleMessage({ message, messageIndex = 0, conversationI
   const isUser = role === 'user';
   const isPreamble = !!message?._narrationBubble;
   const terminalStatus = ['completed', 'succeeded', 'success', 'done'].includes(String(message?.turnStatus || message?.status || '').toLowerCase());
-  const isStreaming = !isUser
+  const isStreaming = !deferContent && !isUser
     && !terminalStatus
     && Number(message?.interim ?? 1) !== 0
     && (message?.isStreaming === true || (message?._type === 'stream' && message?.isStreaming !== false));
@@ -56,6 +56,8 @@ export default function BubbleMessage({ message, messageIndex = 0, conversationI
     });
     return () => window.cancelAnimationFrame(rafId);
   }, [isStreaming, message?.content, message?.id]);
+
+  if (deferContent && !attachment) return null;
 
   if (isPreamble) {
     return (
@@ -97,9 +99,9 @@ export default function BubbleMessage({ message, messageIndex = 0, conversationI
               context={context}
               allowHostEffects={message?.hostEffectsAllowed !== false && message?.connectionProfile !== 'standard'}
               connectionProfile={message?.connectionProfile}
-            content={String(message?.content || '').trim()}
-            renderedContent={message?.renderedContent || null}
-            generatedFiles={Array.isArray(message?.generatedFiles) ? message.generatedFiles : []}
+            content={deferContent ? '' : String(message?.content || '').trim()}
+            renderedContent={deferContent ? null : message?.renderedContent || null}
+            generatedFiles={!deferContent && Array.isArray(message?.generatedFiles) ? message.generatedFiles : []}
             messageId={String(message?.id || '').trim()}
             conversationId={String(conversationId || message?.conversationId || '').trim()}
           />
