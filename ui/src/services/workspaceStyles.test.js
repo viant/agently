@@ -174,8 +174,30 @@ describe('workspace style lifecycle', () => {
 });
 
 describe('provider-scoped application resources', () => {
-  const app = namespace => ({providerIdentity: 'studio', resourceNamespace: namespace, resourceConnection: 'studio-mcp', styleResources: [`style://${namespace}/workspace`]});
+  const app = namespace => ({allowStyleOverrides: true, providerIdentity: 'studio', resourceNamespace: namespace, resourceConnection: 'studio-mcp', styleResources: [`style://${namespace}/workspace`]});
   const response = (uri, css = '.shared { color: red; }') => ({contents: [{uri, text: JSON.stringify({schemaVersion: 1, css, tokens: {'--edge': 'red'}})}]});
+  it('defaults provider CSS off and removes sheets when the host disables overrides', async () => {
+    const {manager,elements}=fixture();let reads=0;const readResource=async({uri})=>{reads++;return response(uri);};
+    const disabled={...app('one')};delete disabled.allowStyleOverrides;
+    await manager.loadApplicationStyles([disabled],{accountKey:'alice',readResource});
+    expect(reads).toBe(0);expect(elements).toHaveLength(0);
+    await manager.loadApplicationStyles([app('one')],{accountKey:'alice',readResource});expect(elements).toHaveLength(1);
+    await manager.loadApplicationStyles([disabled],{accountKey:'alice',readResource});expect(elements).toHaveLength(0);expect(reads).toBe(1);
+    manager.dispose();
+  });
+  it('does not install a pending provider sheet after overrides are disabled', async () => {
+    const {manager, elements} = fixture();
+    let resolveRead;
+    const pending = manager.loadApplicationStyles([app('one')], {
+      accountKey: 'alice',
+      readResource: () => new Promise(resolve => { resolveRead = resolve; }),
+    });
+    await manager.loadApplicationStyles([{...app('one'), allowStyleOverrides: false}], {accountKey: 'alice'});
+    resolveRead(response('style://one/workspace'));
+    await pending;
+    expect(elements).toHaveLength(0);
+    manager.dispose();
+  });
   it('installs separate scoped sheets and reuses the authenticated snapshot', async () => {
     const {manager, elements} = fixture(); let reads = 0;
     const readResource = async ({uri}) => { reads++; return response(uri, '@keyframes fade{to{opacity:0}}.shared{animation:fade 1s;color:red}'); };
