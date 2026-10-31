@@ -200,10 +200,7 @@ func internalServiceFactory(rt *executor.Runtime, workspaceRoot, name string) sv
 		if rt.Agent == nil {
 			return nil
 		}
-		pRepo := intakerepo.NewWithStore(rt.Store)
-		if rt.PrimitiveProviders != nil {
-			pRepo = intakerepo.NewWithReader(primitiveResources.NewIntentReader(rt.PrimitiveProviders))
-		}
+		pRepo := runtimePlaybookRepository(rt)
 		opts := []llmagents.Option{
 			llmagents.WithConversationClient(rt.Conversation),
 			llmagents.WithDirectoryProvider(agentDirectoryProvider(rt, workspaceRoot)),
@@ -269,10 +266,7 @@ func internalServiceFactory(rt *executor.Runtime, workspaceRoot, name string) sv
 			templatesvc.WithAgentFinder(finder),
 		)
 	case "prompt":
-		pRepo := intakerepo.NewWithStore(rt.Store)
-		if rt.PrimitiveProviders != nil {
-			pRepo = intakerepo.NewWithReader(primitiveResources.NewIntentReader(rt.PrimitiveProviders))
-		}
+		pRepo := runtimePlaybookRepository(rt)
 		var finder agentmdl.Finder
 		if rt.Agent != nil {
 			finder = rt.Agent.Finder()
@@ -560,4 +554,12 @@ func executeExternalA2A(ctx context.Context, spec *svca2a.ExternalSpec, fallback
 	}
 	client := svca2a.NewClient(strings.TrimSpace(spec.JSONRPCURL), svca2a.WithHeaders(spec.Headers))
 	return client.SendMessage(ctx, messages, contextRef)
+}
+
+// Discovery and delegation share the same canonical/legacy profile loader.
+func runtimePlaybookRepository(rt *executor.Runtime) *intakerepo.Repository {
+	if rt.PrimitiveProviders != nil {
+		return intakerepo.NewWithReader(primitiveResources.NewPlaybookReader(rt.PrimitiveProviders))
+	}
+	return intakerepo.NewWithStore(rt.Store)
 }
