@@ -115,9 +115,19 @@ export default function ConversationWorkspaceSurface({
   const showObjectTabs = shouldShowWorkspaceTabs(workspaceTabs.length, workspaceTabsVisibility);
   const workspaceActive = hasWorkspace && activeSurface === 'workspace';
   const contentRef = useWorkspaceScroll(workspaceWindow?.windowId, workspaceActive);
+  const surfaceRef = useRef(null);
   const [compact, setCompact] = useState(false);
   useEffect(() => {
-    const query = window.matchMedia(documentPresentation ? '(max-width: 1179px)' : '(max-width: 600px)');
+    if (documentPresentation && surfaceRef.current && typeof ResizeObserver !== 'undefined') {
+      const surface = surfaceRef.current;
+      // Keep room for the 380px transcript and at least 380px of workspace.
+      const update = () => setCompact(surface.clientWidth < 760);
+      update();
+      const observer = new ResizeObserver(update);
+      observer.observe(surface);
+      return () => observer.disconnect();
+    }
+    const query = window.matchMedia(documentPresentation ? '(max-width: 759px)' : '(max-width: 600px)');
     const update = () => setCompact(query.matches);
     update(); query.addEventListener('change', update);
     return () => query.removeEventListener('change', update);
@@ -150,7 +160,7 @@ export default function ConversationWorkspaceSurface({
   }, [workspaceActive, effectiveMode, workspaceWindow?.windowId]);
 
   return (
-    <div className={`app-summary-surface-shell${documentPresentation ? ' is-document' : ''}${workspaceActive ? ` is-workspace${effectiveMode === 'split' ? ' is-split' : ''}` : ' is-conversation'}`} data-active-surface={workspaceActive ? 'workspace' : 'conversation'}>
+    <div ref={surfaceRef} className={`app-summary-surface-shell${documentPresentation ? ' is-document' : ''}${workspaceActive ? ` is-workspace${effectiveMode === 'split' ? ' is-split' : ''}` : ' is-conversation'}`} data-active-surface={workspaceActive ? 'workspace' : 'conversation'}>
       {documentPresentation && headerMount && headerActive && (hasWorkspace || savedOutputs.length > 0) ? createPortal(<>
         {workspaceActive ? <WorkspaceRuntimeTabs id="conversation-workspace"
           entries={(workspaceTabs.length ? workspaceTabs : [{windowId: workspaceWindow.windowId, label: navigation.label}]).map(tab => ({...tab, closable: (workspaceWindows.find(entry => entry.windowId === tab.windowId) || workspaceWindow)?.workspaceObject?.capabilities?.close !== false}))}
@@ -164,11 +174,11 @@ export default function ConversationWorkspaceSurface({
           {(workspaceTabs.length ? workspaceTabs : [{windowId: workspaceWindow.windowId, label: navigation.label}]).map(tab => <option key={tab.windowId} value={tab.windowId}>{tab.label}</option>)}
         </SelectControl> : null}
         <SavedOutputInventory entries={savedOutputs} conversationId={conversationId} onOpen={onOpenSavedOutput}/>
-        <div className="app-shell-viewer-controls">
+        <div className={`app-shell-viewer-controls${compact ? ' is-compact' : ''}`}>
           <span className="app-shell-viewer-status" {...typographyProps('metadata')} role="status" aria-live="polite">{chatRunning ? 'Working…' : unreadCount > 0 ? `${unreadCount} new` : ''}</span>
           {workspaceActive ? <ShellIconButton icon={effectiveMode === 'focus' ? 'lucide:minimize' : 'lucide:maximize'}
             className="app-shell-viewer-expand" label={effectiveMode === 'focus' ? 'Restore split view' : 'Expand workspace'}
-            aria-pressed={effectiveMode === 'focus'} disabled={capabilities.split === false}
+            aria-pressed={effectiveMode === 'focus'} disabled={compact || capabilities.split === false}
             onClick={() => onChangeWorkspaceMode?.(effectiveMode === 'focus' ? 'split' : 'focus')}/> : null}
           {hasWorkspace ? <ShellIconButton icon="lucide:panel-right" label={workspaceActive ? 'Hide workspace' : 'Show workspace'}
             aria-expanded={workspaceActive} aria-controls="conversation-workspace-viewer" onClick={workspaceActive ? onBackToConversation : onOpenWorkspace}/> : null}
