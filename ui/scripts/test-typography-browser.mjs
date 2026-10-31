@@ -135,6 +135,7 @@ try {
       const chat = node.querySelector('.app-summary-conversation');
       const glyph = header.querySelector(innerWidth < 761 ? '.app-shell-menu-toggle svg' : '.app-shell-history svg');
       return {direction: getComputedStyle(surface).flexDirection, headerHeight: header.getBoundingClientRect().height,
+        headerBasis: getComputedStyle(header.querySelector('.app-topbar-left')).flexBasis,
         sideBySide: panel.getBoundingClientRect().x > chat.getBoundingClientRect().x, chatVisible: getComputedStyle(chat).display !== 'none',
         glyph: glyph.getBoundingClientRect().width, role: header.querySelector('h1').dataset.forgeType,
         titleSize: getComputedStyle(header.querySelector('h1')).fontSize};
@@ -143,7 +144,7 @@ try {
     assert.equal(viewerGeometry.role, 'label');
     assert.equal(viewerGeometry.glyph, 18);
     if (viewport.width > 500) {assert.equal(viewerGeometry.headerHeight, 54); assert.equal(viewerGeometry.sideBySide, true); assert.equal(viewerGeometry.chatVisible, true);}
-    else {assert.equal(viewerGeometry.headerHeight, 59); assert.equal(viewerGeometry.chatVisible, false);}
+    else {assert.equal(viewerGeometry.headerHeight, 59); assert.equal(viewerGeometry.chatVisible, false); assert.equal(viewerGeometry.headerBasis, 'auto');}
     for (const name of ['Go back', 'Go forward']) assert.equal(await viewer.getByRole('button', {name, exact: true}).isVisible(), true);
     const closeGlyph = viewer.getByRole('button', {name: 'Close Example output', exact: true}).locator('svg');
     assert.equal(await closeGlyph.isVisible(), true, 'the tab-close glyph remains visible on phones');
