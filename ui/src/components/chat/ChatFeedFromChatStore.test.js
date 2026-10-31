@@ -58,6 +58,7 @@ vi.mock('./MCPUIBubble.jsx', () => ({
 import ChatFeedFromChatStore, {
   resolveStarterTaskPresentation,
   resolveWorkspaceAttachmentOwnerIndex,
+  documentChatRows,
 } from './ChatFeedFromChatStore.jsx';
 import { ConversationViewContext } from '../../context/ConversationViewContext.js';
 
@@ -90,6 +91,14 @@ function makeContext({ conversation = {}, meta = {} } = {}) {
 }
 
 describe('ChatFeedFromChatStore', () => {
+  it('keeps native execution before replies without crossing steering or foreign rows', () => {
+    const user={kind:'user',turnId:'turn'},first={kind:'assistant',turnId:'turn'},second={kind:'assistant',turnId:'turn'},
+      execution={kind:'iteration',turnId:'turn'},steer={kind:'user',turnId:'turn'},foreign={kind:'assistant',turnId:'turn',hostEffectsAllowed:false};
+    expect(documentChatRows([user,first,second,execution])).toEqual([user,execution,first,second]);
+    expect(documentChatRows([user,first,steer,second,execution])).toEqual([user,first,steer,execution,second]);
+    expect(documentChatRows([user,first,foreign,execution])).toEqual([user,first,foreign,execution]);
+    expect(documentChatRows([user,first,{...execution,connectionProfile:'standard'}])).toEqual([user,first,{...execution,connectionProfile:'standard'}]);
+  });
   it('keeps refined final-message attachments out of a suppressed iteration bubble', () => {
     const descriptor = {version: 1, objectId: 'object-1', origin: {turnId: 'turn-1'}, lifecycle: {state: 'ready'}, content: {windowId: 'view-1', windowKey: 'resource'}};
     const attachments = [{kind: 'workspaceObject', objectId: 'object-1', label: 'Resource', workspaceObject: descriptor}];

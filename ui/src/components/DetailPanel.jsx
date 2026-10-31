@@ -1,5 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Dialog } from '@blueprintjs/core';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Button } from '@blueprintjs/core';
+import {Button as SharedButton, Icon, Typography, typographyProps, WorkspaceRuntimeTabs} from 'forge/components';
+import {ReviewAction} from './RequestReviewDialog.jsx';
+import {useWorkspaceStyle} from './WorkspaceStyleProvider.jsx';
 import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
 import { getScopedConversationSelection, MAIN_CHAT_WINDOW_ID, openLinkedConversationWindow } from '../services/conversationWindow';
@@ -12,6 +15,8 @@ import {
   formatUsdEstimate,
   resolveModelPricing,
 } from '../services/tokenUsageEstimation';
+import '../styles/detail-panel.css';
+import './executionDetails.css';
 
 export {
   estimatePayloadTokenUsage,
@@ -446,11 +451,19 @@ export async function hydrateToolCallFromTranscript(toolCall = {}) {
   return toolCall;
 }
 
-export default function DetailPanel({ toolCall, onClose }) {
-  const [payloadDialog, setPayloadDialog] = useState(null); // {title, loading, payload, error}
+export default function DetailPanel({ toolCall, onClose, appearance, headingId }) {
+  const documentAppearance = appearance === 'document';
+  const workspace = useWorkspaceStyle();
+  const panelId = `execution-${useId()}`;
+  const [activePart, setActivePart] = useState('overview');
+  const [payloadView, setPayloadView] = useState(null);
+  const [copyStatus, setCopyStatus] = useState('');
+  const payloadRequest = useRef(0);
   const [resolvedToolCall, setResolvedToolCall] = useState(toolCall || null);
   useEffect(() => {
     let cancelled = false;
+    payloadRequest.current++;
+    setActivePart('overview');setPayloadView(null);setCopyStatus('');
     setResolvedToolCall(toolCall || null);
     if (!toolCall) return () => {};
     hydrateToolCallFromTranscript(toolCall).then((next) => {
@@ -460,6 +473,7 @@ export default function DetailPanel({ toolCall, onClose }) {
     });
     return () => {
       cancelled = true;
+      payloadRequest.current++;
     };
   }, [toolCall]);
   const effectiveToolCall = resolvedToolCall || toolCall || null;
@@ -491,48 +505,23 @@ export default function DetailPanel({ toolCall, onClose }) {
   if (!effectiveToolCall) return null;
 
   const openPayload = async (part) => {
-    const hydratedToolCall = await hydrateToolCallFromTranscript(effectiveToolCall || {});
-    const map = {
-      request: {
-        title: 'Request',
-        payload: hydratedToolCall?.requestPayload || null,
-        payloadId: hydratedToolCall?.requestPayloadId || ''
-      },
-      response: {
-        title: 'Response',
-        payload: hydratedToolCall?.responsePayload || null,
-        payloadId: hydratedToolCall?.responsePayloadId || ''
-      },
-      providerRequest: {
-        title: 'Provider Request',
-        payload: hydratedToolCall?.providerRequestPayload || null,
-        payloadId: hydratedToolCall?.providerRequestPayloadId || ''
-      },
-      providerResponse: {
-        title: 'Provider Response',
-        payload: hydratedToolCall?.providerResponsePayload || null,
-        payloadId: hydratedToolCall?.providerResponsePayloadId || ''
-      },
-      stream: {
-        title: 'Stream',
-        payload: hydratedToolCall?.streamPayload || null,
-        payloadId: hydratedToolCall?.streamPayloadId || ''
-      }
-    };
-    const selected = map[part];
-    if (!selected) return;
-    setPayloadDialog({ title: selected.title, loading: true, payload: null, error: '' });
+    const request = ++payloadRequest.current;
+    setActivePart(part);setCopyStatus('');
+    if (part === 'overview') {setPayloadView(null);return;}
+    setPayloadView({loading:true,payload:null,error:''});
     try {
-      let loaded = selected.payload;
+      const hydratedToolCall = await hydrateToolCallFromTranscript(effectiveToolCall || {});
+      if (request !== payloadRequest.current) return;
+      setResolvedToolCall(hydratedToolCall);
+      let loaded = hydratedToolCall?.[`${part}Payload`] ?? null;
       const compressedPayloadId = extractCompressedPayloadId(loaded);
-      const payloadId = String(selected.payloadId || compressedPayloadId || '').trim();
+      const payloadId = String(hydratedToolCall?.[`${part}PayloadId`] || compressedPayloadId || '').trim();
       if ((loaded == null || loaded === '' || compressedPayloadId) && payloadId) {
         loaded = await fetchPayloadById(payloadId);
       }
-      setPayloadDialog({ title: selected.title, loading: false, payload: loaded, error: '' });
+      if (request === payloadRequest.current) setPayloadView({loading:false,payload:loaded,error:''});
     } catch (err) {
-      setPayloadDialog({
-        title: selected.title,
+      if (request === payloadRequest.current) setPayloadView({
         loading: false,
         payload: null,
         error: String(err?.message || err || 'failed to load payload')
@@ -541,41 +530,63 @@ export default function DetailPanel({ toolCall, onClose }) {
   };
 
   const copyPayload = async () => {
-    if (!payloadDialog || payloadDialog.payload == null) return;
+    if (payloadView?.payload == null) return;
     try {
-      await navigator.clipboard.writeText(stringifyPayload(payloadDialog.payload));
-    } catch (_) {}
+      await navigator.clipboard.writeText(stringifyPayload(payloadView.payload));
+      setCopyStatus('Copied');
+    } catch (_) {setCopyStatus('Copy failed. Try again.');}
   };
 
   const isModel = String(effectiveToolCall?.kind || '').toLowerCase() === 'model';
+  const tabs = [{windowId:'overview',label:'Overview'},{windowId:'request',label:'Request'},{windowId:'response',label:'Response'},
+    ...(isModel ? [{windowId:'stream',label:'Stream'},{windowId:'providerRequest',label:'Provider request'},{windowId:'providerResponse',label:'Provider response'}] : [])];
   return (
-    <aside className="app-detail-panel app-detail-panel-dialog">
+    <aside className={`app-detail-panel app-detail-panel-dialog${documentAppearance ? ' is-document' : ''}`} {...(documentAppearance ? typographyProps('body') : {})}>
       <div className="app-detail-head app-detail-head-compact">
+        {documentAppearance ? <>
+          <div className="app-execution-heading"><Icon name={isModel ? 'lucide:message-square' : 'lucide:sliders-horizontal'}/>
+            <div><Typography as="h2" id={headingId} typeRole="section">Step details</Typography><Typography as="p" typeRole="metadata">{displayStepTitle(effectiveToolCall)} · {isModel ? 'Model call' : 'Execution step'}</Typography></div>
+          </div>
+          <Typography typeRole="metadata" className="app-execution-status" data-status={effectiveToolCall.status}>{String(effectiveToolCall.status || 'Unknown').replace(/_/g,' ')}</Typography>
+          <SharedButton variant="ghost" size="compact" icon="lucide:x" hideLabel aria-label="Close execution details" onClick={onClose}/>
+        </> : <>
         <div className="app-detail-tool-row">
           <span className={`app-detail-kind kind-${isModel ? 'model' : 'tool'}`}>
             {displayStepIcon(effectiveToolCall || {})}
           </span>
-          <span className="app-detail-tool-name">{displayStepTitle(effectiveToolCall || {})}</span>
+          <span id={headingId} className="app-detail-tool-name">{displayStepTitle(effectiveToolCall || {})}</span>
           {phaseLabel(effectiveToolCall) ? (
             <span className="app-detail-status-chip">{phaseLabel(effectiveToolCall)}</span>
           ) : null}
           <span className="app-detail-status-chip">{String(effectiveToolCall?.status || '').toLowerCase() || 'unknown'}</span>
         </div>
         <Button minimal small icon="cross" onClick={onClose} />
+        </>}
       </div>
 
+      <Typography as="div" typeRole="label" className="app-execution-navigation">
+        <WorkspaceRuntimeTabs id={panelId} entries={tabs} selectedId={activePart} onSelect={part=>{openPayload(part);}} ariaLabel="Step detail views" className="app-execution-tabs" tabClassName="app-execution-tab"/>
+      </Typography>
+      <div className="app-execution-content" id={`${panelId}-panel-${encodeURIComponent(activePart)}`} role="tabpanel" tabIndex={0} aria-labelledby={`${panelId}-tab-${encodeURIComponent(activePart)}`}>
+      {activePart === 'overview' ? <>
       <div className="app-detail-section app-detail-section-summary">
-        {isModel && effectiveToolCall?.provider ? <div><strong>Provider:</strong> {effectiveToolCall.provider}</div> : null}
-        {isModel && effectiveToolCall?.model ? <div><strong>Model:</strong> {effectiveToolCall.model}</div> : null}
-        {effectiveToolCall?.latencyMs ? <div><strong>Duration:</strong> {Math.round(effectiveToolCall.latencyMs)}ms</div> : null}
+        {documentAppearance ? <dl className="app-execution-facts">
+          <div><Typography as="dt" typeRole="metadata">{isModel ? 'Model' : 'Step'}</Typography><Typography as="dd" typeRole="body">{isModel ? effectiveToolCall.model || 'Not recorded' : displayStepTitle(effectiveToolCall)}</Typography></div>
+          {isModel ? <div><Typography as="dt" typeRole="metadata">Provider</Typography><Typography as="dd" typeRole="body">{effectiveToolCall.provider || 'Not recorded'}</Typography></div> : null}
+          <div><Typography as="dt" typeRole="metadata">Duration</Typography><Typography as="dd" typeRole="body">{effectiveToolCall.latencyMs != null ? `${Math.round(effectiveToolCall.latencyMs)} ms` : 'Not recorded'}</Typography></div>
+        </dl> : <>
+          {isModel && effectiveToolCall?.provider ? <div><strong>Provider:</strong> {effectiveToolCall.provider}</div> : null}
+          {isModel && effectiveToolCall?.model ? <div><strong>Model:</strong> {effectiveToolCall.model}</div> : null}
+          {effectiveToolCall?.latencyMs ? <div><strong>Duration:</strong> {Math.round(effectiveToolCall.latencyMs)}ms</div> : null}
+        </>}
         {errorText ? <div className="app-detail-error"><strong>Error:</strong> {errorText}</div> : null}
         {isModel && tokenUsage ? (
           <div className="app-detail-token-usage">
-            <span className="app-detail-token-chip">Prompt {tokenUsage.prompt ?? 'n/a'}</span>
-            <span className="app-detail-token-chip">Completion {tokenUsage.completion ?? 'n/a'}</span>
-            <span className="app-detail-token-chip app-detail-token-chip-total">Total {tokenUsage.total ?? 'n/a'}</span>
+            <span {...(documentAppearance ? typographyProps('metadata') : {})} className="app-detail-token-chip">Prompt {tokenUsage.prompt ?? 'n/a'}</span>
+            <span {...(documentAppearance ? typographyProps('metadata') : {})} className="app-detail-token-chip">Completion {tokenUsage.completion ?? 'n/a'}</span>
+            <span {...(documentAppearance ? typographyProps('metadata') : {})} className="app-detail-token-chip app-detail-token-chip-total">Total {tokenUsage.total ?? 'n/a'}</span>
             {tokenCost ? (
-              <span className="app-detail-token-chip app-detail-token-chip-total">{`Est. ${formatUsdEstimate(tokenCost.total)}`}</span>
+              <span {...(documentAppearance ? typographyProps('metadata') : {})} className="app-detail-token-chip app-detail-token-chip-total">{`Est. ${formatUsdEstimate(tokenCost.total)}`}</span>
             ) : null}
           </div>
         ) : null}
@@ -583,29 +594,29 @@ export default function DetailPanel({ toolCall, onClose }) {
           <div className="app-detail-tool-token-estimate">
             <div className="app-detail-token-usage">
               {toolTokenUsage.toolInput.available ? (
-                <span className="app-detail-token-chip" title="Tool arguments generated by the model are billed as model output">
+                <span {...(documentAppearance ? typographyProps('metadata') : {})} className="app-detail-token-chip" title="Tool arguments generated by the model are billed as model output">
                   {`Arguments ≈${toolTokenUsage.toolInput.tokens} output tokens · ${toolTokenUsage.toolInput.bytes} B${toolTokenUsage.toolInput.cost != null ? ` · ${formatUsdEstimate(toolTokenUsage.toolInput.cost)}` : ''}`}
                 </span>
-              ) : <span className="app-detail-token-chip">Arguments unavailable</span>}
+              ) : <span {...(documentAppearance ? typographyProps('metadata') : {})} className="app-detail-token-chip">Arguments unavailable</span>}
               {toolTokenUsage.toolOutput.available ? (
-                <span className="app-detail-token-chip" title="Tool results presented to the model are billed as model input">
+                <span {...(documentAppearance ? typographyProps('metadata') : {})} className="app-detail-token-chip" title="Tool results presented to the model are billed as model input">
                   {`Result ≈${toolTokenUsage.toolOutput.tokens} input tokens · ${toolTokenUsage.toolOutput.bytes} B${toolTokenUsage.toolOutput.cost != null ? ` · ${formatUsdEstimate(toolTokenUsage.toolOutput.cost)}` : ''}`}
                 </span>
-              ) : <span className="app-detail-token-chip">Result unavailable</span>}
-              <span className="app-detail-token-chip app-detail-token-chip-total">
+              ) : <span {...(documentAppearance ? typographyProps('metadata') : {})} className="app-detail-token-chip">Result unavailable</span>}
+              <span {...(documentAppearance ? typographyProps('metadata') : {})} className="app-detail-token-chip app-detail-token-chip-total">
                 {`Tool payload ≈${toolTokenUsage.totalTokens} tokens`}
               </span>
               {toolTokenUsage.totalCost != null ? (
-                <span className="app-detail-token-chip app-detail-token-chip-total">
+                <span {...(documentAppearance ? typographyProps('metadata') : {})} className="app-detail-token-chip app-detail-token-chip-total">
                   {`Est. ${formatUsdEstimate(toolTokenUsage.totalCost)}`}
                 </span>
               ) : null}
             </div>
-            <div className="app-detail-token-estimate-note">
+            <div {...(documentAppearance ? typographyProps('metadata') : {})} className="app-detail-token-estimate-note">
               {`Estimated at ${toolTokenUsage.bytesPerToken} UTF-8 bytes/token${toolTokenUsage.pricingModel ? ` using ${[toolTokenUsage.pricingProvider, toolTokenUsage.pricingModel].filter(Boolean).join('/')} pricing` : ''}; this is an attribution breakdown, not an addition to provider-reported totals.`}
             </div>
             {toolTokenUsage.toolOutput.overflow?.overflow ? (
-              <div className="app-detail-token-overflow-note">
+              <div {...(documentAppearance ? typographyProps('metadata') : {})} className="app-detail-token-overflow-note">
                 Output overflowed; only bytes presented to the model are included.
                 {toolTokenUsage.toolOutput.overflow.remaining != null ? ` ${toolTokenUsage.toolOutput.overflow.remaining} units remain.` : ''}
               </div>
@@ -615,65 +626,43 @@ export default function DetailPanel({ toolCall, onClose }) {
         {linkedConversationId ? (
           <div className="app-detail-thread-link">
             <strong>Linked conversation:</strong>
-            <Button small className="app-detail-pill app-detail-thread-open" onClick={() => openLinkedConversation(linkedConversationId, onClose)}>Open Thread →</Button>
+            <ReviewAction appearance={appearance} small minimal onClick={() => openLinkedConversation(linkedConversationId, onClose)}>{documentAppearance ? 'Open conversation' : 'Open Thread →'}</ReviewAction>
           </div>
         ) : null}
         {canOpenElicitation ? (
           <div className="app-detail-thread-link">
             <strong>Review dialog:</strong>
-            <Button small className="app-detail-pill app-detail-thread-open" onClick={() => openElicitationFromDetail(effectiveToolCall, onClose)}>Open Review →</Button>
+            <ReviewAction appearance={appearance} small minimal onClick={() => openElicitationFromDetail(effectiveToolCall, onClose)}>{documentAppearance ? 'Open review' : 'Open Review →'}</ReviewAction>
           </div>
         ) : null}
       </div>
 
-      {isModel ? (
-        <>
-          <div className="app-detail-section-label">General</div>
-          <div className="app-detail-action-bar">
-            <Button small className="app-detail-pill" onClick={() => openPayload('request')}>Request</Button>
-            <Button small className="app-detail-pill" onClick={() => openPayload('response')}>Response</Button>
-            <Button small className="app-detail-pill" onClick={() => openPayload('stream')}>Stream</Button>
-          </div>
-          <div className="app-detail-section-label">Provider</div>
-          <div className="app-detail-action-bar">
-            <Button small className="app-detail-pill" onClick={() => openPayload('providerRequest')}>Provider Request</Button>
-            <Button small className="app-detail-pill" onClick={() => openPayload('providerResponse')}>Provider Response</Button>
-          </div>
-        </>
-      ) : (
-        <div className="app-detail-action-bar">
-          <Button small className="app-detail-pill" onClick={() => openPayload('request')}>Request</Button>
-          <Button small className="app-detail-pill" onClick={() => openPayload('response')}>Response</Button>
+      </> : <div className="app-execution-payload">
+        <div className="app-execution-payload-toolbar">
+          <Typography as="h3" typeRole="label">{tabs.find(tab=>tab.windowId===activePart)?.label}</Typography>
+          <Typography typeRole="metadata" aria-live="polite">{copyStatus}</Typography>
+          <ReviewAction appearance={appearance} small minimal onClick={copyPayload} disabled={payloadView?.loading || !!payloadView?.error || payloadView?.payload == null}>Copy</ReviewAction>
         </div>
-      )}
-
-      <Dialog
-        isOpen={!!payloadDialog}
-        onClose={() => setPayloadDialog(null)}
-        title={payloadDialog?.title || 'Payload'}
-        style={{ width: '90vw', maxWidth: '1400px', minWidth: '900px' }}
-      >
-        <div className="app-payload-dialog-body">
-          <div className="app-payload-dialog-actions">
-            <Button small onClick={copyPayload} disabled={payloadDialog?.payload == null}>Copy</Button>
-          </div>
-          {payloadDialog?.loading ? <div>Loading…</div> : null}
-          {payloadDialog?.error ? <div className="app-detail-error">{payloadDialog.error}</div> : null}
-          {!payloadDialog?.loading && !payloadDialog?.error && payloadDialog?.payload != null ? (
-            <CodeMirror
-              value={stringifyPayload(payloadDialog?.payload || '')}
-              extensions={[json()]}
-              editable={false}
-              basicSetup={{ lineNumbers: true, foldGutter: true }}
-              height="72vh"
-              theme="dark"
-            />
-          ) : null}
-          {!payloadDialog?.loading && !payloadDialog?.error && payloadDialog?.payload == null ? (
-            <div className="app-detail-empty">Payload is not available for this step yet.</div>
-          ) : null}
-        </div>
-      </Dialog>
+        {payloadView?.loading ? <Typography as="div" typeRole="body" className="app-execution-state" role="status">Loading {tabs.find(tab=>tab.windowId===activePart)?.label.toLowerCase()}…</Typography> : null}
+        {payloadView?.error ? <div className="app-execution-state" role="alert">
+          <Typography as="h3" typeRole="label">Couldn’t load this data</Typography>
+          <Typography as="p" typeRole="body">{payloadView.error}</Typography>
+          <ReviewAction appearance={appearance} small onClick={()=>openPayload(activePart)}>Try again</ReviewAction>
+        </div> : null}
+        {!payloadView?.loading && !payloadView?.error && payloadView?.payload != null ? (
+          <Typography as="div" typeRole="code" className="app-execution-code">
+            <CodeMirror value={stringifyPayload(payloadView.payload)} extensions={[json()]} editable={false}
+              basicSetup={{lineNumbers:true,foldGutter:true}} height="100%"
+              theme={documentAppearance ? workspace?.state?.mode === 'dark' ? 'dark' : 'light' : 'dark'}/>
+          </Typography>
+        ) : null}
+        {!payloadView?.loading && !payloadView?.error && payloadView?.payload == null ? <div className="app-execution-state">
+          <Typography as="h3" typeRole="label">No data available</Typography>
+          <Typography as="p" typeRole="body">This step has no {tabs.find(tab=>tab.windowId===activePart)?.label.toLowerCase()} data available.</Typography>
+          <ReviewAction appearance={appearance} small onClick={()=>openPayload(activePart)}>Refresh</ReviewAction>
+        </div> : null}
+      </div>}
+      </div>
     </aside>
   );
 }

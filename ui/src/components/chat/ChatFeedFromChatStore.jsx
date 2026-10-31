@@ -89,7 +89,7 @@ function UserBubble({ row, conversationId = '', context }) {
   );
 }
 
-function AssistantBubble({ row, conversationId = '', attachment = null, context }) {
+function AssistantBubble({ row, conversationId = '', attachment = null, deferContent = false, context }) {
   return (
     <div
       data-render-key={row.renderKey}
@@ -99,6 +99,7 @@ function AssistantBubble({ row, conversationId = '', attachment = null, context 
         context={context}
         conversationId={conversationId}
         attachment={attachment}
+        deferContent={deferContent}
         message={{
           id: row.messageId || row.renderKey,
           role: 'assistant',
@@ -117,17 +118,17 @@ function AssistantBubble({ row, conversationId = '', attachment = null, context 
   );
 }
 
-function renderRow(row, context, conversationId = '', attachment = null) {
+function renderRow(row, context, conversationId = '', attachment = null, deferContent = false) {
   switch (row.kind) {
     case 'user':
       return <UserBubble key={row.renderKey} row={row} conversationId={conversationId} context={context} />;
     case 'assistant':
-      return <AssistantBubble key={row.renderKey} row={row} conversationId={conversationId} attachment={attachment} context={context} />;
+      return <AssistantBubble key={row.renderKey} row={row} conversationId={conversationId} attachment={attachment} deferContent={deferContent} context={context} />;
     case 'mcpui':
       if (row.hostEffectsAllowed === false || row.connectionProfile === 'standard') return <div key={row.renderKey}>{String(row.toolName || 'Tool result')}</div>;
       return <MCPUIBubble key={row.renderKey} row={row} conversationId={conversationId} context={context} />;
     case 'iteration':
-      return <IterationRowBlock key={row.renderKey} iterationRow={row} context={context} />;
+      return <IterationRowBlock key={row.renderKey} iterationRow={row} conversationId={conversationId} context={context} />;
     default:
       return null;
   }
@@ -142,6 +143,19 @@ function latestTurnRowIndex(rows = []) {
     result.set(turnId, index);
   });
   return result;
+}
+
+export function documentChatRows(rows = []) {
+  const ordered = [];
+  for (const row of rows) {
+    let index = ordered.length;
+    if (row.kind === 'iteration' && row.hostEffectsAllowed !== false && row.connectionProfile !== 'standard') {
+      while (index > 0 && ordered[index - 1].kind === 'assistant' && ordered[index - 1].turnId === row.turnId
+        && ordered[index - 1].hostEffectsAllowed !== false && ordered[index - 1].connectionProfile !== 'standard') index--;
+    }
+    ordered.splice(index, 0, row);
+  }
+  return ordered;
 }
 
 /**
@@ -159,7 +173,9 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
     setWorkspaceMetadata(snapshot || {});
   }), []);
   const subscribed = useChatProjection(conversationId);
-  const rows = rowsOverride !== undefined ? rowsOverride : subscribed;
+  const projectedRows = rowsOverride !== undefined ? rowsOverride : subscribed;
+  const rows = React.useMemo(() => viewContext?.presentation === 'document' && viewContext?.reportsInWorkspace && Array.isArray(projectedRows)
+    ? documentChatRows(projectedRows) : projectedRows, [projectedRows, viewContext?.presentation, viewContext?.reportsInWorkspace]);
   const feedRef = React.useRef(null);
   const hasRows = Array.isArray(rows) && rows.length > 0;
   React.useEffect(() => {
@@ -212,6 +228,9 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
   }
   const lastIndexByTurn = latestTurnRowIndex(rows);
   const progressRow = activeIteration(rows);
+  const activeTurnIds = new Set(rows.filter(row => row.kind === 'iteration' && ['pending','running'].includes(row.lifecycle)
+    && row.hostEffectsAllowed !== false && row.connectionProfile !== 'standard')
+    .map(row => row.turnId));
   const attachmentsByOwner = new Map();
   const workspaceEntries = viewContext?.workspaceWindows || (viewContext?.workspaceWindow ? [viewContext.workspaceWindow] : []);
   const projectedObjectIds = new Set();
@@ -231,7 +250,8 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
     attachmentsByOwner.get(owner).push(entry);
   }
   const workspaceAttachmentFor = (index) => {
-    const entries = attachmentsByOwner.get(index);
+    const entries = attachmentsByOwner.get(index)?.filter(entry => !(viewContext?.presentation === 'document'
+      && entry.workspaceObject?.content?.renderer === 'inlineReport' && activeTurnIds.has(entry.workspaceObject.origin?.turnId)));
     if (!entries?.length) return null;
     return <div className="app-workspace-attachments" role="group" aria-label={entries.length > 1 ? `${entries.length} workspaces` : 'Workspace'}>
       {entries.length > 1 ? <span>{entries.length} workspaces</span> : null}
@@ -250,7 +270,7 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
   });
 
   return (
-    <div ref={feedRef} className="app-chat-feed" data-source="chatStore">
+    <div ref={feedRef} className="app-chat-feed" data-source="chatStore" data-request-active={viewContext?.presentation === 'document' ? activeTurnIds.size > 0 : undefined}>
       {rows.flatMap((row, index) => {
         const turnId = String(row?.turnId || '').trim();
         const allowHostEffects = row.hostEffectsAllowed !== false && row.connectionProfile !== 'standard';
@@ -280,7 +300,8 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
             row,
             context,
             conversationId,
-            allowHostEffects ? workspaceAttachmentFor(index) : null
+            allowHostEffects ? workspaceAttachmentFor(index) : null,
+            allowHostEffects && viewContext?.presentation === 'document' && activeTurnIds.has(turnId)
           );
           return [
             <React.Fragment key={row.renderKey}>{rendered}</React.Fragment>,
@@ -292,10 +313,11 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
         const suppressBubble = !!turnId && (lastIndexByTurn.get(turnId) ?? index) > index;
         return [
           <React.Fragment key={row.renderKey}>
-            {allowHostEffects && viewContext?.presentation === 'document' && row === progressRow
-              ? <TurnProgressStatus appearance="document" publicNarrationInFeed conversationId={conversationId} developerMode={viewContext.developerMode}/> : null}
             <IterationRowBlock
               iterationRow={row}
+              conversationId={conversationId}
+              progress={allowHostEffects && viewContext?.presentation === 'document' && row === progressRow
+                ? <TurnProgressStatus appearance="document" publicNarrationInFeed conversationId={conversationId} developerMode={viewContext.developerMode}/> : null}
               context={context}
               showToolFeedDetail={false}
               suppressBubble={suppressBubble}

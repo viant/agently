@@ -740,6 +740,20 @@ describe('canonical report workspace handoff', () => {
   const report = (sequence = 1, extra = {}) => ({id:'review',scope:'campaign',grammar:'dashboard-v1',status:'committed',sequence,
     source:{title:'Delivery review',blocks:[{id:'summary',kind:'dashboard.markdown',content:'Existing report'}]},dataSources:{},...extra});
   const row = (assembly = report(), extra = {}) => ({kind:'assistant',renderKey:'answer',messageId:'message-1',turnId:'turn-1',renderedContent:{reports:[assembly],diagnostics:[]},...extra});
+  it('projects transient pending cards only for the chat and keeps their identity on commit', async () => {
+    const {projectedWorkspaceEntries} = await import('../services/workspaceAttachment.js');
+    const {resolveSavedOutputs} = await import('./SavedOutputInventory.jsx');
+    const pending=row(report(1,{status:'rendering',source:{}}));
+    expect(projectedWorkspaceEntries([pending],'conversation',{includeInlineReports:true})).toEqual([]);
+    const cards=projectedWorkspaceEntries([pending],'conversation',{includeInlineReports:true,includePendingReports:true});
+    expect(cards).toHaveLength(1);expect(cards[0].workspaceObject.lifecycle.state).toBe('opening');
+    expect(cards[0].workspaceObject.capabilities.reopen).toBe(false);
+    expect(resolveSavedOutputs(cards,'conversation')).toEqual([]);
+    const ready=projectedWorkspaceEntries([pending,row(report(2))],'conversation',{includeInlineReports:true,includePendingReports:true});
+    expect(ready).toHaveLength(1);expect(ready[0].windowId).toBe(cards[0].windowId);
+    expect(ready[0].workspaceObject.capabilities.reopen).toBe(true);
+    expect(ready[0].workspaceObject.content).not.toHaveProperty('source');
+  });
   it('creates one output for revisions, different outputs for different turns, and no output for ordinary or foreign answers', async () => {
     const {projectedWorkspaceEntries} = await import('../services/workspaceAttachment.js');
     const entries = rows => projectedWorkspaceEntries(rows, 'conversation', {includeInlineReports:true});

@@ -1,5 +1,97 @@
 # Workspace design-system foundation
 
+## Execution step inspector
+
+Document execution rows use quiet divided geometry, shared model/tool icons,
+label/metadata roles and the shared button primitive. The host's DetailPanel
+keeps Overview, Request and Response in one inspector; model steps additionally
+expose Stream, Provider request and Provider response. Selecting a data view
+replaces its content, never opens another dialog. The existing Blueprint frame
+owns focus containment, Escape and return focus. Its visible heading labels the
+dialog. Forge WorkspaceRuntimeTabs owns arrow/Home/End navigation.
+
+Document styling uses registered theme colors, spacing and typography with the
+shared neutral fallbacks. The inspector fits the phone viewport; its header and
+tabs remain above a scrollable read-only CodeMirror viewer. Loading, unavailable
+data, errors/retry and clipboard feedback remain inline. Exact-step hydration,
+payload references, accounting and linked review/conversation actions are kept.
+Absent metadata is labeled Not recorded, without inferred provider/model data.
+
+ExecutionDetailsSpecimen mounts the real component with neutral inline model
+and tool data. The existing required typography browser runner verifies one
+dialog across every view, desktop/phone fit, long-data scrolling, live code-role
+propagation, light/dark theme inheritance, keyboard selection and Escape/focus
+return. DetailPanel.render.test.jsx covers deferred loading, stale fetches,
+retry, copy and false/zero data; the existing helper suite retains hydration and
+accounting checks. No new token, dependency or CI workflow is introduced.
+
+## Contained execution activity
+
+Document chat forwards TurnProgressStatus through IterationRowBlock's progress
+slot to IterationBlock. RunActivity is a borderless region with one compact
+progress/disclosure row, plus notices or required review. Ordinary work is44px
+tall; completion replaces it with a muted Worked for duration disclosure,32px on
+desktop and44px for touch. Do not add another Execution details header,
+completion message, return-later subtitle or card. Final prose, reports, Tool
+Feeds and feedback stay outside this boundary.
+
+The live progress component is retained through completion so the disclosure
+button and focus remain stable. Preserve an explicit expansion. Public document
+users can expand recorded step names/status/duration inline; model narration,
+payload bodies and raw Details actions are excluded. Developer mode keeps the
+existing inspector actions. Do not repeat final response Markdown in history.
+Unknown historical duration is not inferred from the current time; watched
+requests freeze elapsed time at observed completion.
+
+Keep that disclosure clickable after Stop as well as successful completion.
+Retain recorded execution groups if the terminal update omits them, scoped to
+the same conversation/request and filtered through the current privacy rules.
+This history must not feed cached prose into the final reply. Never carry it to
+another request or manufacture steps from an empty active state. A watched
+request with no recorded steps opens an explicit empty state.
+
+Use the existing label/metadata, spacing, color and focus roles, shared icons and
+button primitive. The disclosure has aria-expanded, aria-controls and Enter/Space
+support. Stop belongs in the composer Send position, through its existing
+showAbort/onAbort binding, and is not supplied to document TurnProgressStatus. Expanded groups use normal chat scrolling,
+without an inner height cap or automatic inner scrolling. The legacy
+presentation retains its visual treatment and scroll behavior.
+
+RequestLifecycleSpecimen composes the actual IterationBlock and RunProgressView
+with six neutral steps. The existing required public-task render suite covers
+output separation, completion, privacy, retained button identity and legacy
+fallback. Existing typography browser checks cover compact dimensions, inline
+steps, semantic roles, keyboard behavior and desktop/phone containment. No new
+token, dependency or CI workflow is required.
+
+## Progress Markdown
+
+Document and legacy turn-progress narration use the existing SDK
+`renderMarkdownBlock`, shared `app-rich-prose` treatment and document body role.
+Headings, lists, emphasis, code and links render as content. Raw HTML remains
+escaped, unsupported link schemes are rejected and report fences remain code.
+The standalone execution disclosure keeps a single-line text preview through its
+existing `plainText` helper, with readable tooltip text and no nested links.
+Contained progress omits that duplicate preview. Explicit caller-supplied
+narration appears only while expanded and active; document turn status does
+not repeat result prose there.
+No theme tokens, report generation rules or lifecycle behavior change.
+
+RequestLifecycleSpecimen demonstrates Markdown with the real RunProgressView.
+The existing typography browser runner checks semantic structure at desktop and
+phone sizes; existing required TurnProgressStatus and public-task render suites
+cover both progress variants, unsafe input and the mounted execution header.
+
+## Document summary spacing
+
+Assistant Markdown uses normal HTML whitespace so the renderer's line-break
+elements do not combine with preserved source newlines. User-authored line breaks
+and fenced code keep their existing behavior. Empty rich content emits no text
+placeholder, and a report-only response's first output card has no extra top
+margin. The existing OutputHandoffSpecimen and document-chat browser check cover
+separate summary/report messages, measured text/card gaps and user whitespace at
+desktop and phone sizes. Report contents and workflow semantics are unchanged.
+
 Agently and Forge are shared open-source owners. Runtime behavior, semantic APIs,
 neutral defaults and examples stay generic. Workspace-owned configuration supplies
 brand colors, fonts, reviewed values, business content and variant selection.
@@ -314,8 +406,22 @@ draft/history and shell-control evidence without replacing these shared checks.
 
 In document presentation, `canonicalReportSources` reads admitted assistant and
 iteration content, including Core's `assistantFinal`. `workspaceAdapters` maps
-supported committed report assemblies into the existing workspace-object
-contract. Conversation, turn (message fallback), scope and report ID form the
+supported report assemblies into the existing workspace-object contract.
+Progress projects transient `rendering` state to name its phase. Chat keeps the
+report link hidden until its native turn ends and the report is committed. The
+finished reply and link appear together below activity. Pending reports cannot
+open, enter saved outputs or persist in workspace history. Document chat keeps
+the draft and building strip out of the transcript when it routes to the workspace.
+Legacy, unsupported and diagnostic rendering retain their existing paths.
+While an admitted document turn is pending or running, keep its reply text,
+generated files and report body in the canonical store without mounting them in
+chat. `BubbleMessage` defers content; canonical report links wait with it. The
+workspace-enabled document layout keeps native execution before its reply within
+the same user segment, preserving steering and foreign boundaries. Release the
+response when the turn ends. This also applies in developer mode. Execution inspection and review
+controls remain in their existing separate surfaces. Legacy/foreign presentation
+keeps its existing admission and rendering behavior.
+Conversation, turn (message fallback), scope and report ID form the
 identity. Same-turn revisions and reset generations update that object; different
 turns stay separate unless a backend descriptor supplies shared identity.
 Ordinary answers and foreign, incomplete, unsupported or diagnostic reports do
@@ -338,7 +444,9 @@ feeds keep their existing placement. Phone viewing moves approvals, usage and
 backend controls into the existing account menu, preserving their handlers.
 
 `OutputHandoffSpecimen` in the existing component proof mounts the actual
-`ChatFeedFromChatStore`, `ConversationWorkspaceSurface` and report reader. Existing
+`ChatFeedFromChatStore`, `ConversationWorkspaceSurface` and report reader. Its
+prepare/complete actions demonstrate the same report identity across the handoff.
+Existing
 component/service and desktop/touch browser checks cover handoff states, role
 propagation and retained Home behavior. Actual-app fixtures cover two reports,
 exact drafts, close/reopen and reload; signed-in desktop read-only evidence
@@ -464,8 +572,8 @@ share the linked UI dependencies' React runtime.
 
 ## Document request lifecycle
 
-Section-navigation workspaces place the actual TurnProgressStatus beside the
-active iteration in ChatFeedFromChatStore. Legacy shells keep their existing
+Section-navigation workspaces place the actual TurnProgressStatus inside the
+active iteration's RunActivity in ChatFeedFromChatStore. Legacy shells keep their existing
 top-level status. Select one running iteration ahead of queued pending work;
 queued requests must not duplicate the status or redirect Stop. Connection-only
 bootstrap status remains available before an iteration exists.
@@ -526,15 +634,36 @@ respects reduced motion. Label, metadata and body roles remain the only text sty
 Elapsed time stays outside live announcements. Completed/running/queued step
 counts come from identified scoped tool events, not an estimated percentage or a
 claim about the total work remaining. Runtime tool names stay in developer details;
-the public chat and footer use plain activity labels.
+the public chat and footer use plain activity labels. Document feed progress
+always omits operational/result narration. The finished reply owns those findings
+once the turn ends; draft public messages wait with that reply. A pending
+canonical report supplies the phase label "Preparing report".
+
+Document execution details start collapsed and preserve the user's choice across
+updates. Required elicitation can still expand them; legacy expansion and linked
+polling remain. A watched live activity area becomes a completed status in the
+same place and size. Historical replies do not acquire new live-progress records
+on reload. Stable responsive control geometry and the return-later note from the
+accepted start prevent ordinary phase changes from adding/removing rows.
+
+The existing history-scroll controller holds the reader's position when native
+document work ends instead of jumping to the bottom of the appended answer. A
+new submission resumes following. Footer approval controls keep their alignment.
 
 RunProgressView observes a stable active-turn progress key. Thirty seconds without
-a changed activity, public update, model step or tool state displays "Waiting for
-an update" and the observed quiet time. A timer tick, unrelated history render or
-elapsed time is not new progress. A real new update restores the current activity;
+a changed activity, public update, model step, tool state or canonical report fact
+keeps the current phase and adds "No new updates" with the observed quiet time.
+Report sequence, reset, block and datasource sequences are scoped to the active
+turn. A timer tick, unrelated history render or elapsed time is not new progress.
+A real new update clears the quiet notice;
 input-required and stopping states remain distinct. This is an observation of the
 client's received progress, not a diagnosis of a failed connection or a backend
 timeout. Stop still waits for authoritative cancellation confirmation.
+
+When the document feed owns active progress, the global footer omits its duplicate
+task label and clock. Connection failures, attention states and pending approval
+counts remain visible. Ordinary completed status and legacy presentation keep
+their existing behavior.
 
 RequestLifecycleSpecimen uses the actual component under a document boundary;
 its local "Complete example step" action demonstrates resuming after a quiet
