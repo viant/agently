@@ -185,6 +185,20 @@ export async function verifyDocumentChat(page, {touch = false} = {}) {
   await openOutput.click();
   await output.locator('.app-summary-workspace .app-rich-inline-report').waitFor();
   assert.equal(await output.getByRole('tab', {name:'Delivery overview', exact:true}).isVisible(), true);
+  if (!touch) {
+    const style = await output.getAttribute('style');
+    try {
+      await output.evaluate(node => {node.style.width = '759px';});
+      await output.locator('.app-summary-conversation').waitFor({state:'hidden'});
+      await output.evaluate(node => {node.style.width = '842px';});
+      await output.locator('.app-summary-conversation').waitFor({state:'visible'});
+      const panes = await output.evaluate(node => ({chat:node.querySelector('.app-summary-conversation').getBoundingClientRect().toJSON(),workspace:node.querySelector('.app-summary-workspace').getBoundingClientRect().toJSON()}));
+      assert.equal(panes.chat.width,380);
+      assert.equal(panes.workspace.left,panes.chat.right,'Changing available space must restore chat without a viewport resize');
+    } finally {
+      await output.evaluate((node, style) => {if (style === null) node.removeAttribute('style'); else node.setAttribute('style', style);}, style);
+    }
+  }
   await output.getByRole('button', {name:'Hide workspace', exact:true}).click();
   assert.equal(await output.locator('.app-summary-workspace').isVisible(), false);
   await output.getByRole('button', {name:'Show workspace', exact:true}).click();
