@@ -257,6 +257,54 @@ it('mounts a hidden fresh opening renderer for readiness while restored windows 
 });
 
 
+it('keeps document chat beside an opened workspace whenever the available surface fits both', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  let availableWidth = 842, notifyResize;
+  const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => availableWidth);
+  const disconnect = vi.fn(), observe = vi.fn();
+  vi.stubGlobal('ResizeObserver', class {
+    constructor(callback) { notifyResize = callback; }
+    observe = observe;
+    disconnect = disconnect;
+  });
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  const entry = {windowId: 'document-output', windowTitle: 'Output'};
+  function App({active = false, mode = 'split', entry: workspace = entry}) {
+    const [mount, setMount] = React.useState(null);
+    return <><header className="app-topbar is-document" ref={setMount}/><ConversationWorkspaceSurface
+      presentation="document" headerMount={mount} activeSurface={active ? 'workspace' : 'conversation'}
+      workspaceMode={mode} workspaceWindow={active ? workspace : null}
+      renderConversation={() => <textarea defaultValue="Keep draft"/>} renderWorkspace={() => <div>Report details</div>}/></>;
+  }
+  try {
+    await act(async () => root.render(<App/>));
+    const surface = host.querySelector('.app-summary-surface-shell'), draft = host.querySelector('textarea');
+    expect(observe).toHaveBeenCalledWith(surface);
+    // Opening the report must split immediately, without a viewport resize.
+    await act(async () => root.render(<App active/>));
+    expect(surface.classList.contains('is-split')).toBe(true);
+    expect(host.querySelector('[aria-label="Expand workspace"]').disabled).toBe(false);
+    availableWidth = 759;
+    await act(async () => notifyResize());
+    expect(surface.classList.contains('is-split')).toBe(false);
+    expect(host.querySelector('.app-shell-viewer-controls').classList.contains('is-compact')).toBe(true);
+    expect(host.querySelector('[aria-label="Restore split view"]').disabled).toBe(true);
+    availableWidth = 760;
+    await act(async () => notifyResize());
+    expect(surface.classList.contains('is-split')).toBe(true);
+    expect(host.querySelector('textarea')).toBe(draft);
+    await act(async () => root.render(<App active mode="focus"/>));
+    expect(surface.classList.contains('is-split')).toBe(false);
+    await act(async () => root.render(<App active entry={{...entry, workspaceObject: {capabilities: {split: false}}}}/>));
+    expect(surface.classList.contains('is-split')).toBe(false);
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    width.mockRestore(); vi.unstubAllGlobals();
+  }
+});
+
 it('uses the same retained viewer with separate hide, expand and tab-close actions in document headers', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   window.matchMedia = () => ({matches: false, addEventListener(){}, removeEventListener(){}});

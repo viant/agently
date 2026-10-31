@@ -276,8 +276,13 @@ usage, backend selection, settings and logout callbacks remain available.
 `ConversationWorkspaceSurface presentation="document"` portals the real Forge
 runtime tabs and separate `panel-right` hide/show and maximize/minimize actions
 into `MenuBar`'s header slot. The transcript and renderer mounts are retained.
-At 1180px and wider the split transcript is 380px; narrower screens switch
-between full surfaces. Hide does not call close. Close still uses the owning
+The document surface measures its available width, including changes caused by
+the navigation sidebar. With at least 760px available it keeps the 380px
+transcript beside a workspace of at least 380px; narrower surfaces switch
+between full surfaces. This replaces the viewport-wide 1180px cutoff, which hid
+chat on laptop layouts even when both panes fit. Header alignment and layout
+controls use the same measured state. Explicit expansion and workspace split
+capabilities remain authoritative. Hide does not call close. Close still uses the owning
 host's capability checks and handler. Named tabs stay visible for one object,
 unless the host explicitly selects `tabs: never`, which retains a native shared
 SelectControl. Ancestry actions, working/unread status, lazy first mounting,
