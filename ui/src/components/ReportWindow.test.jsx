@@ -12,6 +12,18 @@ const pin = {uri: 'report://ar/overview', providerIdentity: 'producer-native', k
 const entry = {windowKey: pin.uri, resourceRef: {uri: pin.uri}, windowTitle: 'Overview', parameters: {AdvertiserIds: [42]}};
 afterEach(() => {cleanup(); vi.clearAllMocks();});
 
+it('uses the authored report title while required inputs are still incomplete', async () => {
+  services.reportStore.getReport.mockResolvedValue({resource:pin,title:'314',resourceDefinition:{
+    reportDocument:{title:'Service coverage'},
+    builderDefinition:{reportBuilder:{predicates:[{id:'region',label:'Region',kind:'value',required:true,paramPath:'filters.region'}]}},
+  }});
+  render(<ReportWindow window={{...entry,parameters:{}}}/>);
+  await screen.findByLabelText('Region');
+  expect(screen.getByText(/Complete these inputs/)).toBeTruthy();
+  expect(runtime.mock.calls.at(-1)[0].container.parameters.reportTitle).toBe('Service coverage');
+  expect(runtime.mock.calls.at(-1)[0].container.parameters.reportCapabilities.run).toBe(false);
+});
+
 it('requires both declared date endpoints before enabling report execution', async () => {
   services.reportStore.getReport.mockResolvedValue({resource: pin, resourceDefinition:{builderDefinition:{reportBuilder:{predicates:[
     {id:'window',label:'Date range',kind:'dateRange',required:true,startParamPath:'filters.start',endParamPath:'filters.end',prefill:{start:'from',end:'to'}},
