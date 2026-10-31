@@ -1,4 +1,66 @@
 import assert from 'node:assert/strict';
+import {mkdirSync} from 'node:fs';
+import path from 'node:path';
+
+export async function verifyExecutionDetails(page, {touch = false} = {}) {
+  const specimen=page.locator('#foundation-execution-details');
+  const open=specimen.getByRole('button',{name:'Open model details',exact:true});
+  const dialog=page.getByRole('dialog',{name:'Step details',exact:true});
+  const tab=name=>dialog.getByRole('tab',{name,exact:true});
+  const oneDialog=async()=>{await dialog.waitFor();await page.clock.runFor(400);assert.equal(await page.locator('[role="dialog"]:visible').count(),1);};
+  const capture=async name=>{
+    if(!process.env.AGENTLY_TYPOGRAPHY_SCREENSHOTS)return;
+    mkdirSync(process.env.AGENTLY_TYPOGRAPHY_SCREENSHOTS,{recursive:true});
+    await dialog.screenshot({path:path.join(process.env.AGENTLY_TYPOGRAPHY_SCREENSHOTS,`execution-${page.viewportSize().width}-${name}.png`)});
+  };
+  await open.click();await oneDialog();
+  assert.equal(await dialog.getByRole('tab').count(),6);
+  assert.equal(await dialog.getByRole('heading',{name:'Step details',exact:true}).getAttribute('data-forge-type'),'section');
+  const box=await dialog.boundingBox(), viewport=page.viewportSize();
+  assert.equal(box.width,viewport.width>600?960:viewport.width-16);
+  assert.ok(box.x>=0 && box.y>=0 && box.x+box.width<=viewport.width && box.y+box.height<=viewport.height,JSON.stringify(box));
+  assert.equal(await dialog.evaluate(node=>node.scrollWidth<=node.clientWidth),true);
+  await capture('overview');
+  await tab('Overview').press('ArrowRight');
+  await dialog.locator('.cm-content').waitFor();await oneDialog();
+  assert.equal(await tab('Request').getAttribute('aria-selected'),'true');
+  assert.equal(await tab('Request').evaluate(node=>node===document.activeElement),true);
+  for(const [name,text] of [['Response','Ready for review.'],['Stream','Example output fragment.'],['Provider request','example-model'],['Provider response','complete']]) {
+    await tab(name).click();await oneDialog();
+    await page.waitForFunction(value=>document.querySelector('.app-execution-code .cm-content')?.textContent.includes(value),text);
+    assert.equal(await dialog.getByRole('button',{name:'Copy',exact:true}).isEnabled(),true);
+    if(name==='Stream') {
+      const scroll=await dialog.locator('.cm-scroller').evaluate(node=>({height:node.clientHeight,content:node.scrollHeight}));
+      assert.ok(scroll.height>0 && scroll.content>scroll.height,JSON.stringify(scroll));
+      await capture('stream');
+    }
+  }
+  const code=dialog.locator('.cm-scroller');
+  await dialog.locator('.app-execution-code').evaluate(node=>node.style.setProperty('--forge-type-code-size','17px'));
+  assert.equal(await code.evaluate(node=>getComputedStyle(node).fontSize),'17px');
+  await dialog.locator('.app-execution-code').evaluate(node=>node.style.removeProperty('--forge-type-code-size'));
+  const mode=page.getByRole('combobox',{name:'Workspace color mode',exact:true}), originalMode=await mode.inputValue();
+  await dialog.getByRole('button',{name:'Close execution details',exact:true}).click();await dialog.waitFor({state:'hidden'});
+  const appearances=[];
+  for(const value of ['light','dark']) {
+    if(await mode.locator(`option[value="${value}"]`).isDisabled())continue;
+    await mode.selectOption(value);await open.click();await oneDialog();
+    appearances.push(await dialog.evaluate(node=>({mode:node.closest('[data-forge-color-mode]')?.dataset.forgeColorMode,background:getComputedStyle(node).backgroundColor,panel:getComputedStyle(node.querySelector('.app-detail-panel')).backgroundColor})));
+    assert.equal(appearances.at(-1).mode,value);
+    assert.equal(appearances.at(-1).background,appearances.at(-1).panel);
+    await capture(value);
+    await tab('Overview').press('Escape');await dialog.waitFor({state:'hidden'});
+    assert.equal(await open.evaluate(node=>node===document.activeElement),true);
+  }
+  if(appearances.length===2)assert.notEqual(appearances[0].background,appearances[1].background);
+  await mode.selectOption(originalMode);
+  await specimen.getByRole('button',{name:'Open tool details',exact:true}).click();
+  assert.equal(await dialog.getByRole('tab').count(),3);
+  await tab('Response').click();await dialog.locator('.cm-content').waitFor();await oneDialog();
+  assert.equal(await dialog.locator('.cm-content').textContent(),'false');
+  await dialog.getByRole('button',{name:'Close execution details',exact:true}).click();await dialog.waitFor({state:'hidden'});
+  console.log(JSON.stringify({executionDetails:{touch,box,appearances,singleInspector:true}}));
+}
 
 export async function verifyDocumentChat(page, {touch = false} = {}) {
   const specimen = page.locator('#foundation-chat');
@@ -102,6 +164,23 @@ export async function verifyDocumentChat(page, {touch = false} = {}) {
   assert.equal(await homeField.inputValue(), 'Independent Home draft.');
   assert.equal(await home.locator('.chat-feed article').count(), 0, 'Task selection and return never send a message');
   const output = page.locator('#foundation-output-handoff');
+  const summarySpacing = await output.evaluate(node => {
+    const summary = node.querySelector('[data-message-id="findings"] .app-rich-prose');
+    const text = [...summary.querySelectorAll('p')];
+    const bounds = child => {const range = document.createRange(); range.selectNodeContents(child); return range.getBoundingClientRect();};
+    const content = node.querySelector('[data-message-id="answer"] .app-bubble-content');
+    const card = content.querySelector('.app-workspace-attachment');
+    return {whiteSpace:getComputedStyle(summary).whiteSpace, lineHeight:parseFloat(getComputedStyle(summary).lineHeight),
+      textGap:bounds(text.at(-1)).top-bounds(text[0]).bottom,
+      cardGap:card.getBoundingClientRect().top-summary.getBoundingClientRect().bottom,
+      firstChild:content.firstElementChild.className, cardMargin:getComputedStyle(card).marginTop};
+  });
+  assert.equal(summarySpacing.whiteSpace,'normal','Generated Markdown line breaks must not also preserve HTML source newlines');
+  assert.ok(summarySpacing.textGap <= summarySpacing.lineHeight,JSON.stringify(summarySpacing));
+  assert.ok(summarySpacing.cardGap <= summarySpacing.lineHeight*2,JSON.stringify(summarySpacing));
+  assert.equal(summarySpacing.firstChild,'app-workspace-attachments','A report-only response must not add an empty text line');
+  assert.equal(summarySpacing.cardMargin,'0px');
+  assert.equal(await specimen.getByRole('article',{name:'Your message'}).first().locator('.app-rich-prose').evaluate(node=>getComputedStyle(node).whiteSpace),'pre-wrap','User-authored line breaks stay intact');
   const openOutput = output.getByRole('button', {name:'Show Delivery overview', exact:true});
   await openOutput.click();
   await output.locator('.app-summary-workspace .app-rich-inline-report').waitFor();
@@ -137,6 +216,26 @@ export async function verifyDocumentChat(page, {touch = false} = {}) {
   await title.evaluate(node=>node.style.setProperty('--forge-type-label-size','17px'));
   assert.equal(await title.evaluate(node=>getComputedStyle(node).fontSize),'17px');
   await title.evaluate(node=>node.style.removeProperty('--forge-type-label-size'));
+
+  const objectId=await output.locator('[data-workspace-object-id]').getAttribute('data-workspace-object-id');
+  await output.getByRole('button',{name:'Prepare example report',exact:true}).click();
+  assert.equal(await output.getByTestId('workspace-attachment-card').count(),0);
+  assert.equal(await output.getByRole('button',{name:'Saved outputs (1)',exact:true}).count(),0);
+  assert.equal(await output.locator('.app-rich-inline-report,.app-forge-fence-loading').count(),0);
+  assert.equal(await output.getByText('The selected record is ready for review.',{exact:false}).count(),0);
+  const progress=output.getByTestId('turn-progress-status');
+  assert.match(await progress.textContent(),/Preparing report/);
+  await page.clock.fastForward(31000);
+  assert.match(await progress.textContent(),/Preparing report/);
+  assert.match(await progress.textContent(),/No new updates/);
+  await output.getByRole('button',{name:'Complete example report',exact:true}).click();
+  assert.equal(await output.getByTestId('turn-progress-status').count(),0);
+  await output.getByText('The selected record is ready for review.',{exact:false}).waitFor();
+  assert.equal(await openOutput.isEnabled(),true);
+  assert.equal(await openOutput.getAttribute('data-workspace-object-id'),objectId);
+  await openOutput.click();
+  await output.locator('.app-summary-workspace .app-rich-inline-report').waitFor();
+  assert.equal(await output.locator('.app-summary-conversation .app-rich-inline-report').count(),0);
 
   console.log(JSON.stringify({documentChat: {roles, changed, touch, nativeCallbacks: true}}));
 }

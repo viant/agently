@@ -1,6 +1,7 @@
 import React from 'react';
 import OutputHandoffSpecimen from './OutputHandoffSpecimen.jsx';
 import RequestLifecycleSpecimen from './RequestLifecycleSpecimen.jsx';
+import ExecutionDetailsSpecimen from './ExecutionDetailsSpecimen.jsx';
 import {Typography} from 'forge/components';
 import Chat from 'forge/components/Chat.jsx';
 import {signal} from '@preact/signals-react';
@@ -43,5 +44,5 @@ export default function ChatSpecimen() {
     <StarterTaskBrowser categories={[{id:'review',title:'Review'}]} tasks={tasks} onSelect={task => setDraft(task.prompt)}/>
     <HomeRecentConversations loadConversations={recentExamples}/>
   </section>
-  <section id="foundation-chat-home" aria-label="Native chat Home" style={{height:700,display:'flex',flexDirection:'column'}}><Chat context={homeContext} container={{chat:{appearance:'document',showUpload:true,showMic:true}}}/></section><OutputHandoffSpecimen/><RequestLifecycleSpecimen/></>;
+  <section id="foundation-chat-home" aria-label="Native chat Home" style={{height:700,display:'flex',flexDirection:'column'}}><Chat context={homeContext} container={{chat:{appearance:'document',showUpload:true,showMic:true}}}/></section><OutputHandoffSpecimen/><RequestLifecycleSpecimen/><ExecutionDetailsSpecimen/></>;
 }

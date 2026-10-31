@@ -12,9 +12,11 @@
 .app-bubble-row.is-document .app-workspace-attachment { margin-top: var(--agently-theme-spacing-4, 16px); }
 .app-bubble-row.is-document .app-workspace-attachment:hover { background: var(--app-surface-soft); }
 
-.app-bubble-row.is-document .app-bubble-content :is(.app-rich-prose, .app-rich-markdown) { font: inherit; letter-spacing: inherit; white-space: normal; }
+.app-bubble-row.is-document .app-bubble-content :is(.app-rich-prose, .app-rich-markdown) { font: inherit; letter-spacing: inherit; white-space: pre-wrap; }
+.app-bubble-row-assistant.is-document .app-bubble-content :is(.app-rich-prose, .app-rich-markdown) { white-space: normal; }
 .app-bubble-row.is-document :is(.app-rich-prose, .app-rich-markdown) > p { margin: 0 0 var(--forge-spacing-3, 12px); }
 .app-bubble-row.is-document :is(.app-rich-prose, .app-rich-markdown) > :last-child { margin-bottom: 0; }
+.app-bubble-row.is-document .app-bubble-content > .app-workspace-attachments:first-child .app-workspace-attachment:first-child { margin-top: 0; }
 
 /* Output links use the same compact document attachment in chat and specimens. */
 .app-workspace-attachment.is-document { width: 100%; max-width: 380px; padding: 13px; gap: 10px; border-color: var(--agently-theme-border-strong, var(--app-border)); border-radius: var(--agently-theme-radius-control, 8px); background: var(--app-surface); box-shadow: none; color: var(--app-accent); }

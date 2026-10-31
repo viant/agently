@@ -32,6 +32,23 @@ describe('TurnProgressStatus helpers', () => {
     projectedRows = [];
   });
 
+  it('renders progress Markdown in document and legacy chat without activating embedded content', () => {
+    projectedRows = [{kind:'iteration',turnId:'current',lifecycle:'running',
+      operationalNarration:'### Key findings\n- **Main finding:** review `scope`.\n- Read [details](https://example.com/report).\n<img src=x onerror=alert(1)>\n[unsafe](javascript:alert)\n```forge-report\n{"id":"not-a-report"}\n```',
+      rounds:[{pageId:'page',status:'running',phase:'main'}]}];
+    for (const appearance of ['document', undefined]) {
+      const html = renderToStaticMarkup(React.createElement(TurnProgressStatus, {conversationId:'c',appearance}));
+      expect(html).toContain('<h3>Key findings</h3>');
+      expect(html).toContain('<li><strong>Main finding:</strong> review <code>scope</code>.</li>');
+      expect(html).toContain('href="https://example.com/report"');
+      expect(html).toContain('&lt;img');
+      expect(html).not.toMatch(/<img|href="javascript:|data-report-id=/);
+      if (appearance === 'document') expect(html).not.toContain('Stop');
+      else expect(html).toContain('Stop');
+      if (appearance === 'document') expect(html).toContain('data-forge-type="body"');
+    }
+  });
+
   it('keeps failure distinct from completion in tool details', () => {
     expect(statusLabel('failed')).toBe('Failed');
     expect(statusLabel('error')).toBe('Failed');
