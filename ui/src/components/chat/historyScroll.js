@@ -12,6 +12,7 @@ export function attachHistoryScroll(feed, viewport, environment = globalThis, co
   let following = saved?.following ?? true;
   if (saved && !following) viewport.scrollTop = saved.top;
   let frame = null;
+  let wasActive = feed.dataset?.requestActive === 'true';
   let lastTop = viewport.scrollTop;
   const bottom = () => viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 48;
   const remember = () => {
@@ -26,6 +27,9 @@ export function attachHistoryScroll(feed, viewport, environment = globalThis, co
   const scroll = () => {
     frame = null;
     if (viewport.clientHeight <= 0) return;
+    const active = feed.dataset?.requestActive === 'true';
+    if (wasActive && !active) {restoreTop = null; following = false; remember();}
+    wasActive = active;
     if (restoreTop !== null) {
       viewport.scrollTop = Math.min(restoreTop, Math.max(0, viewport.scrollHeight - viewport.clientHeight));
       if (viewport.scrollHeight - viewport.clientHeight >= restoreTop) restoreTop = null;

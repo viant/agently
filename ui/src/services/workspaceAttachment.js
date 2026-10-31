@@ -24,7 +24,7 @@ export function workspaceEntryFromAttachment(attachment, conversationId = '') {
     navigation: {...object.navigation, label: attachment.label || object.navigation?.label, icon: attachment.icon || object.navigation?.icon}};
 }
 
-export function projectedWorkspaceEntries(rows = [], conversationId = '', {includeInlineReports = false} = {}) {
+export function projectedWorkspaceEntries(rows = [], conversationId = '', {includeInlineReports = false, includePendingReports = false} = {}) {
   const entries = new Map();
   for (const row of rows) {
     if (row.hostEffectsAllowed === false || row.connectionProfile === 'standard') continue;
@@ -37,6 +37,7 @@ export function projectedWorkspaceEntries(rows = [], conversationId = '', {inclu
   }
   if (includeInlineReports) for (const {row, messageId, renderedContent} of canonicalReportSources(rows)) {
     for (const assembly of renderedContent?.reports || []) {
+      if (assembly.status === 'rendering' && !includePendingReports) continue;
       if ((renderedContent.diagnostics || []).some(item => item.reportId === assembly.id)) continue;
       const entry = inlineReportWorkspaceDescriptor({assembly, conversationId, messageId, turnId: row.turnId});
       if (!entry) continue;

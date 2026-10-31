@@ -27,6 +27,10 @@ function createScratchpadClickEvent(artifactId) {
 }
 
 describe('RichContent fence parsing', () => {
+  it('does not reserve an empty text line above a report-only attachment', () => {
+    expect(renderToStaticMarkup(React.createElement(RichContent, {content: ''}))).toBe('');
+    expect(renderToStaticMarkup(React.createElement(RichContent, {content: '   \n\n'}))).toBe('');
+  });
   it('retains inline report runtime identity across snapshots and resets it on replace', () => {
     const initial = { scope: 'campaign', id: 'delivery', sequence: 1, resetVersion: 0 };
     expect(inlineReportRuntimeKey({ ...initial, sequence: 2 })).toBe(inlineReportRuntimeKey(initial));
