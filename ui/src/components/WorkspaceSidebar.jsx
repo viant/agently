@@ -110,11 +110,11 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         if (!background && reloadVersion > 0) workspaceResources.clear();
         const response = await fetch(`${sdkBaseURL}/workspace/layout`, { credentials: 'include', headers: { Accept: 'application/json' } });
         if (!live || sequence !== requestSequence) return;
-        if (!response.ok) throw new Error(`Workspace layout unavailable (${response.status})`);
+        if (!response.ok) throw Object.assign(new Error(`Workspace layout unavailable (${response.status})`), {status: response.status});
         const payload = await response.json();
         if (!live || sequence !== requestSequence) return;
         const nextRevision = JSON.stringify([payload.workspaceId, payload.layoutRevision || payload.layout, payload.catalogRevisions]);
-        if (background && nextRevision === revision) return;
+        if (background && nextRevision === revision) { setError(''); return; }
         const applications = Array.isArray(payload?.layout?.applications) ? payload.layout.applications : [];
         const principal = await getAuthMeSilently();
         if (!live || sequence !== requestSequence) return;
@@ -170,7 +170,15 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         setError('');
         if (error) window.dispatchEvent(new CustomEvent('forge:retry-window-metadata'));
       } catch (cause) {
-        if (live && sequence === requestSequence) { revision = null; setLayout(null); onTopbarActionsChange?.([]); setError(String(cause?.message || cause)); }
+        if (live && sequence === requestSequence) {
+          // An unavailable refresh is not a new catalog. Keep the admitted
+          // layout mounted so report runs and local drafts retain their owners.
+          const transient = !cause?.status || cause.status >= 500 || cause.status === 408 || cause.status === 429;
+          if (!(background && revision !== null && transient)) {
+            revision = null; setLayout(null); onTopbarActionsChange?.([]);
+          }
+          setError(String(cause?.message || cause));
+        }
       } finally {
         if (sequence === requestSequence) inFlight = false;
       }

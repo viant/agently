@@ -540,3 +540,16 @@ it('refreshes on a bounded timer, skips hidden pages, and never overlaps request
     mounted.unmount(); interval.mockRestore(); clear.mockRestore(); hidden.mockRestore();
   }
 });
+
+
+it.each([401,403])('clears previously admitted navigation after background HTTP %s',async status=>{
+  const payload=layoutPayload({applications:[{id:'example',title:'Example',menus:[{id:'records',title:'Records',action:{type:'window',windowKey:'records'}}]}]});
+  payload.layoutRevision='one';
+  fetch.mockResolvedValueOnce(response(payload)).mockResolvedValue(response({},status));
+  const topbar=vi.fn();
+  render(<WorkspaceSidebar onTopbarActionsChange={topbar}/>);
+  await screen.findByRole('button',{name:'Records',exact:true});
+  await act(async()=>window.dispatchEvent(new Event('focus')));
+  expect(screen.queryByRole('button',{name:'Records',exact:true})).toBeNull();
+  expect(topbar).toHaveBeenLastCalledWith([]);
+});
