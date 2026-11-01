@@ -5,8 +5,12 @@ import {windowMetadataFetchKey} from 'forge/components/WindowContent.jsx';
 import {activeWindows, addWindow, removeWindow, selectedTabId, selectedWindowId} from 'forge/core';
 import {mountStandaloneRoot, disposeStandaloneScope, closeStandaloneBranch, createStandaloneScopeId, applyStandaloneAdmission} from './standaloneWindowScope.js';
 
-export function windowCatalogRouting(window) {
+export function windowCatalogRouting(window, destinationKey) {
   const match = /^window:\/\/([^/]+)\/.+$/.exec(String(window?.resource?.uri || ''));
+  const destination = /^window:\/\/([^/]+)\/.+$/.exec(String(destinationKey || ''));
+  // An explicit foreign namespace resolves its own provider through the host.
+  // The parent's provider hint is not authority for the destination catalog.
+  if (destination && destination[1] !== match?.[1]) return {namespace: destination[1]};
   return match ? {namespace: match[1], ...(window?.resource?.providerIdentity ? {providerIdentity: window.resource.providerIdentity} : {})} : {};
 }
 
@@ -38,7 +42,7 @@ export default function StandaloneForgeWindowSurface({selectedWindow, loadWindow
       for (const entry of activeWindows.peek()) {
         if (entry.windowScopeId !== scopeId || entry.windowId === root.windowId || pending.has(entry.windowId) || entry.standaloneAdmissionComplete) continue;
         const parent = windows.find(window => window.windowId === entry.parentKey && window.windowScopeId === scopeId) || selectedWindow;
-        const request = {parameters: structuredClone(entry.parameters || {}), routing: windowCatalogRouting(parent)};
+        const request = {parameters: structuredClone(entry.parameters || {}), routing: windowCatalogRouting(parent, entry.windowKey)};
         pending.set(entry.windowId, request);
         Promise.resolve().then(() => loadWindow(entry.windowKey, request.parameters, targetContext, request.routing))
           .then(async selected => {

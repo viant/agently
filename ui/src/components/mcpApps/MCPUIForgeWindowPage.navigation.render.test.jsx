@@ -16,6 +16,8 @@ import WindowManager from 'forge/components/WindowManager.jsx';
 const fixtureKey=value=>decodeURIComponent(String(value || '')).split('/').pop();
 const parameters={EntityID:['9007199254740993'],nested:{selection:{region:'west'}},Limit:7};
 let root,element;
+let authoredChildNamespace = '';
+const authoredChild = key => authoredChildNamespace ? `window://${authoredChildNamespace}/${key}` : key;
 const contexts=new Map();
 const mounts=new Map();
 registerContainerRenderer('test.native-navigation',({context})=>{
@@ -24,23 +26,24 @@ registerContainerRenderer('test.native-navigation',({context})=>{
  const key=fixtureKey(context.windowState.windowKey);
  return <section data-native-window={key}>
    <span>{key} native content</span>
-   {key==='Root' ? <><button onClick={()=>context.handlers.window.openWindow({context,execution:{args:['Child','Child',null,true]},parameters})}>Open original child</button><button onClick={()=>context.handlers.window.openWindow({context,execution:{args:['ChildFloat','Child floating',null,false]},parameters})}>Open original floating child</button></> : null}
+   {key==='Root' ? <><button onClick={()=>context.handlers.window.openWindow({context,execution:{args:[authoredChild('Child'),'Child',null,true]},parameters})}>Open original child</button><button onClick={()=>context.handlers.window.openWindow({context,execution:{args:[authoredChild('ChildFloat'),'Child floating',null,false]},parameters})}>Open original floating child</button></> : null}
  </section>;
 });
 const flush=()=>act(async()=>{for(let i=0;i<35;i++)await Promise.resolve();});
 afterEach(async()=>{
  if(root)await act(async()=>root.unmount());element?.remove();root=null;
  for(const entry of activeWindows.peek())removeWindow(entry.windowId);
- contexts.clear();mounts.clear();vi.unstubAllGlobals();
+ contexts.clear();mounts.clear();authoredChildNamespace='';vi.unstubAllGlobals();
 });
-function admitted(key){
+function admitted(key, namespace='example'){
  const selectionBinding={actor:{issuer:'issuer',subject:'actor',tenantId:'tenant',accountId:'account'},instanceId:`${key}-instance`,parametersDigest:`${key}-digest`,token:`${key}-signed`,opaque:{preserved:true}};
- const resource={providerIdentity:'owned-independent-report',uri:`window://example/${key}`,kind:'working',contentFingerprint:`${key}-pin`,authorityBinding:`${key}-authority`,validUntil:'2030-01-01T00:00:00.123456789Z'};
- const resourceTarget={platform:'web',formFactor:'desktop',selectionToken:`${key}-target`,dependencyPins:{rows:{uri:`datasource://example/${key}/rows`,contentFingerprint:`${key}-source`}},executionProof:{token:`${key}-proof`}};
+ const resource={providerIdentity:namespace==='example'?'owned-independent-report':'owned-foreign-report',uri:`window://${namespace}/${key}`,kind:'working',contentFingerprint:`${key}-pin`,authorityBinding:`${key}-authority`,validUntil:'2030-01-01T00:00:00.123456789Z'};
+ const resourceTarget={platform:'web',formFactor:'desktop',selectionToken:`${key}-target`,dependencyPins:{rows:{uri:`datasource://${namespace}/${key}/rows`,contentFingerprint:`${key}-source`}},executionProof:{token:`${key}-proof`}};
  return {title:key,resource,resourceTarget,selectionBinding,authorization:{scope:'resource'},authorizationSnapshot:{schemaVersion:2,expiresAt:'2000-01-01T00:00:00Z',resource:{capabilities:{read:false,write:false}}},dataSource:{rows:{service:{uri:`datasources/${key}/fetch`,endpoint:'appAPI',method:'POST'},selectionMode:'none'}},view:{content:{id:`${key}-content`,kind:'test.native-navigation',dataSourceRef:'rows'}}};
 }
-it.each(['signed','unsigned'])('opens an authored child, returns without remounting, and owns only its admitted windows (%s)',async(delivery)=>{
- const frame=key=>{const value=admitted(key);if(delivery==='unsigned'){delete value.selectionBinding;delete value.authorization;delete value.authorizationSnapshot;}return value;};
+it.each([['signed','example'],['unsigned','example'],['signed','reporting'],['unsigned','reporting']])('opens an authored child, returns without remounting, and owns only its admitted windows (%s, %s)',async(delivery, childNamespace)=>{
+ authoredChildNamespace=childNamespace==='example'?'':childNamespace;
+ const frame=key=>{const value=admitted(key,key==='Root'?'example':childNamespace);if(delivery==='unsigned'){delete value.selectionBinding;delete value.authorization;delete value.authorizationSnapshot;}return value;};
  let releaseChild;
  globalThis.IS_REACT_ACT_ENVIRONMENT=true;
  const unrelated=addWindow('Unrelated','foreign','Foreign','',true,{}, {inlineMetadata:{view:{content:{id:'foreign',kind:'test.native-navigation'}}}});
@@ -52,16 +55,16 @@ it.each(['signed','unsigned'])('opens an authored child, returns without remount
   const key=fixtureKey(request.pathname.split('/').pop());
   if(request.pathname.includes('/agently/forge/window/')){
    expect(opens).toHaveProperty(key);
-   expect(decodeURIComponent(request.pathname.split('/').pop())).toBe(key==='Root'?'Root':`window://example/${key}`);
+   expect(decodeURIComponent(request.pathname.split('/').pop())).toBe(key==='Root'?'Root':`window://${childNamespace}/${key}`);
    opens[key]++;
    expect(opens[key]).toBe(1);
    expect(request.searchParams.get('applyPermission')).toBe('true');
    expect(JSON.parse(request.searchParams.get('windowParams'))).toEqual(parameters);
    expect(request.searchParams.get('platform')).toBe('web');
    expect(request.searchParams.get('formFactor')).toBe('desktop');
-   if(key!=='Root'){expect(request.searchParams.get('namespace')).toBe('example');expect(request.searchParams.get('providerIdentity')).toBe('owned-independent-report');expect(request.searchParams.has('resolvedResource')).toBe(false);expect(request.searchParams.has('resourceRef')).toBe(false);}
+   if(key!=='Root'){expect(request.searchParams.get('namespace')).toBe(childNamespace);expect(request.searchParams.get('providerIdentity')).toBe(childNamespace==='example'?'owned-independent-report':null);expect(request.searchParams.has('resolvedResource')).toBe(false);expect(request.searchParams.has('resourceRef')).toBe(false);}
    if(delivery==='unsigned'&&key==='Child')await new Promise(resolve=>{releaseChild=resolve});
-   return new Response(JSON.stringify({data:{...frame(key),windowKey:`window://example/${key}`}}),{status:200,headers:{'Content-Type':'application/json'}});
+   return new Response(JSON.stringify({data:{...frame(key),windowKey:`window://${key==='Root'?'example':childNamespace}/${key}`}}),{status:200,headers:{'Content-Type':'application/json'}});
   }
   if(request.pathname.endsWith('/fetch')){
    const owner=request.pathname.split('/').at(-2);

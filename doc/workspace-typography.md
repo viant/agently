@@ -697,6 +697,14 @@ Native selects and modal dialogs retain their platform semantics.
 
 ## Application selection context
 
+An authored `window://namespace/name` child link routes to its destination
+namespace. A foreign namespace does not inherit the parent's provider hint or
+admission; the host resolves and admits that destination independently. Relative
+and same-namespace links retain their catalog routing. Original parameters and
+parent window state remain intact. The standalone navigation render regression
+covers both signed and unsigned responses, destination datasource context,
+return to the parent, and denied child admission without data execution.
+
 Workspace applications can declare `scope: {keys: [entityId, entityName]}`.
 Menu-opened windows receive `context.handlers.applicationScope.get(context)` and
 `set(context, values)` through the shared Forge host services. Successful updates
