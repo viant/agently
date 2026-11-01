@@ -184,13 +184,27 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       }
     };
     void load();
-    const onAuthorized = () => { revision = null; sectionRouteSignature.current = ''; applicationScope.clear(); setLayout(null); void load(); };
+    const clearIdentity = () => {
+      // A response started by the previous session must never repopulate the
+      // retained layout, even when it completes after an account switch.
+      ++requestSequence;
+      inFlight = false;
+      revision = null;
+      sectionRouteSignature.current = '';
+      applicationScope.clear();
+      setLayout(null);
+      setError('');
+      onTopbarActionsChange?.([]);
+    };
+    const onAuthorized = () => { clearIdentity(); void load(); };
     const refresh = () => { void load(true); };
     const timer = window.setInterval(refresh, 15000);
     window.addEventListener('focus', refresh);
     document.addEventListener('visibilitychange', refresh);
     window.addEventListener('agently:authorized', onAuthorized);
-    return () => { live = false; window.clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); window.removeEventListener('agently:authorized', onAuthorized); };
+    window.addEventListener('agently:session-reset', clearIdentity);
+    window.addEventListener('agently:logout', clearIdentity);
+    return () => { live = false; window.clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); window.removeEventListener('agently:authorized', onAuthorized); window.removeEventListener('agently:session-reset', clearIdentity); window.removeEventListener('agently:logout', clearIdentity); };
   }, [reloadVersion, discoveryReady]);
 
   useEffect(() => {

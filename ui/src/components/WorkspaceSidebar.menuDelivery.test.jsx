@@ -553,3 +553,32 @@ it.each([401,403])('clears previously admitted navigation after background HTTP 
   expect(screen.queryByRole('button',{name:'Records',exact:true})).toBeNull();
   expect(topbar).toHaveBeenLastCalledWith([]);
 });
+
+it.each(['agently:session-reset','agently:logout','agently:authorized'])('discards retained identity and late reads on %s',async event=>{
+  const initial=layoutPayload({applications:[{id:'restricted',title:'Restricted',menus:[{id:'records',title:'Restricted records',action:{type:'window',windowKey:'records'}}]}]});
+  initial.layoutRevision='first-owner';
+  let finishPrevious;
+  fetch.mockResolvedValue(response({},503)).mockResolvedValueOnce(response(initial)).mockImplementationOnce(()=>new Promise(resolve=>{finishPrevious=resolve;}));
+  const topbar=vi.fn();
+  render(<WorkspaceSidebar onTopbarActionsChange={topbar}/>);
+  await screen.findByRole('button',{name:'Restricted records',exact:true});
+  await act(async()=>window.dispatchEvent(new Event('focus')));
+  expect(fetch).toHaveBeenCalledTimes(2);
+  await act(async()=>window.dispatchEvent(new Event(event)));
+  expect(screen.queryByRole('button',{name:'Restricted records',exact:true})).toBeNull();
+  expect(topbar).toHaveBeenLastCalledWith([]);
+  getAuthMeSilently.mockResolvedValue({subject:'another-example-user'});
+  await act(async()=>finishPrevious(response(initial)));
+  expect(screen.queryByRole('button',{name:'Restricted records',exact:true})).toBeNull();
+  fetch.mockResolvedValue(response({},503));
+  await act(async()=>window.dispatchEvent(new Event('agently:authorized')));
+  expect(screen.queryByRole('button',{name:'Restricted records',exact:true})).toBeNull();
+  await act(async()=>window.dispatchEvent(new Event('focus')));
+  expect(screen.queryByRole('button',{name:'Restricted records',exact:true})).toBeNull();
+  const next=layoutPayload({applications:[{id:'public',title:'Public',menus:[{id:'summary',title:'Public summary',action:{type:'window',windowKey:'summary'}}]}]});
+  next.layoutRevision='next-owner';
+  fetch.mockResolvedValue(response(next));
+  await act(async()=>window.dispatchEvent(new Event('focus')));
+  expect(screen.getByRole('button',{name:'Public summary',exact:true})).toBeTruthy();
+  expect(screen.queryByRole('button',{name:'Restricted records',exact:true})).toBeNull();
+});
