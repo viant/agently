@@ -4,7 +4,7 @@
 # After this, rebuild the Go binary: cd agently && go build -o agently .
 
 set -e
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 cd "$ROOT"
 
 # npm ci removes node_modules before installation. Serialize the complete UI
