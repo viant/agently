@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {Button, Callout, Spinner} from '@blueprintjs/core';
 import {ReportResourceRuntime, ReportFilterBar} from 'forge/components';
+import {normalizeReportDatePresets,useReportDatePresetDraft} from 'forge/reporting';
 import {initializeReportFilterParameters, applyReportFilterParameters} from '../services/reportFilterParameters';
 import {createReportChoiceLoader} from '../services/reportChoiceService';
 import {useSetting, getViewSignal, findViewSignal} from 'forge/core';
@@ -21,8 +22,16 @@ function reportParameterFields(report) {
   return (Array.isArray(predicates)?predicates:[]).flatMap(predicate=>{
     const id=String(predicate.id||'').trim(),label=predicate.label||id;
     if(!id)return [];
-    if(predicate.kind==='dateRange')return [{id,label,kind:'dateRange',required:predicate.required,
-      start:parameterKey(predicate.prefill?.start,predicate.startParamPath),end:parameterKey(predicate.prefill?.end,predicate.endParamPath)}];
+    if(predicate.kind==='dateRange'){
+      const range={id,label,kind:'dateRange',required:predicate.required,
+        start:parameterKey(predicate.prefill?.start,predicate.startParamPath),end:parameterKey(predicate.prefill?.end,predicate.endParamPath)};
+      if(Object.hasOwn(predicate,'datePresets')){
+        range.requiresExplicitDates=true;
+        try{range.datePresets=normalizeReportDatePresets(predicate.datePresets,definition.dataSources);}
+        catch(error){range.datePresetError=error.message;}
+      }
+      return [range];
+    }
     const binding=bindings.find(value=>value.parameter===id);
     if(binding && definition.dataSources?.[binding.dataSourceRef])return [{...predicate,...binding,id,label,kind:'choice',dataSourceId:binding.dataSourceRef}];
     if(Array.isArray(predicate.options)&&predicate.options.length&&!predicate.multiple)return [{...predicate,id,label,kind:'select',choices:predicate.options.map(value=>typeof value==='object'?value:{value,label:String(value)})}];
@@ -32,7 +41,7 @@ function reportParameterFields(report) {
 }
 
 function missingReportInputs(fields, values) {
-  return fields.filter(field=>field.required && (field.kind==='dateRange'
+  return fields.filter(field=>(field.required||field.requiresExplicitDates) && (field.kind==='dateRange'
     ? !values[field.start]||!values[field.end]
     : values[field.id]==null || values[field.id]==='' || Array.isArray(values[field.id])&&!values[field.id].length));
 }
@@ -59,12 +68,6 @@ export default function ReportWindow({window: entry}) {
   const identity = JSON.stringify(resourceRef);
   const parameterIdentity = JSON.stringify([identity, entry.parameters || {}]);
   const initialParameters = useMemo(() => {const {executeOnOpen, ...inputs}=entry.parameters || {}; return initializeReportFilterParameters(state.report?.resourceDefinition, inputs);}, [state.report?.resourceDefinition, parameterIdentity]);
-  const parameters = editedParameters?.identity === parameterIdentity ? editedParameters.values : initialParameters;
-  const setParameter = (key, value, raw) => setEditedParameters(previous => ({
-    identity: parameterIdentity,
-    values: {...(previous?.identity === parameterIdentity ? previous.values : initialParameters), [key]: value},
-    text: {...(previous?.identity === parameterIdentity ? previous.text : {}), [key]: raw},
-  }));
   useEffect(() => {
     let active = true;
     setState({});
@@ -77,7 +80,20 @@ export default function ReportWindow({window: entry}) {
     }).catch(error => { if (active) setState({error, identity}); });
     return () => { active = false; };
   }, [identity, store, attempt]);
-  const choiceLoader=useMemo(()=>state.report?.resource ? createReportChoiceLoader(state.report.resource) : null,[state.report?.resource?.uri,state.report?.resource?.providerIdentity]);
+  const choiceLoader=useMemo(()=>state.report?.resource ? createReportChoiceLoader(state.report.resource) : null,[JSON.stringify(state.report?.resource),store]);
+  const loadCalendar=useCallback((id,inputs,signal)=>{
+    if(!choiceLoader)throw Error('Calendar metadata is unavailable.');
+    return choiceLoader(id,inputs,{signal});
+  },[choiceLoader]);
+  const declaredFields=reportParameterFields(state.report);
+  const dates=useReportDatePresetDraft({ranges:declaredFields.filter(field=>field.kind==='dateRange'),
+    parameters:initialParameters,resetParameters:initialParameters,contextKey:parameterIdentity,loadCalendar,
+    onDefaultsReady:values=>{setApplied({identity:parameterIdentity,values:applyReportFilterParameters(values,declaredFields)});return values;}});
+  const parameters=dates.draft;
+  const setParameter=(key,value,raw)=>{
+    dates.editField(key);dates.writeDraft({...dates.draftRef.current,[key]:value});
+    setEditedParameters(previous=>({identity:parameterIdentity,text:{...(previous?.identity===parameterIdentity?previous.text:{}),[key]:raw}}));
+  };
   const loadChoices=async(id,inputs,options)=>{
     const response=await choiceLoader(id,inputs,options);
     const binding=state.report.resourceDefinition?.metadata?.previewChoices?.find(value=>value.dataSourceRef===id);
@@ -97,7 +113,7 @@ export default function ReportWindow({window: entry}) {
   useEffect(()=>()=>{const signal=entry.windowId&&findViewSignal(entry.windowId);if(signal?.peek()?.report?.resourceUri===resourceRef.uri){const next={...signal.peek()};delete next.report;signal.value=next;}},[entry.windowId,identity]);
   if (state.identity === identity && state.error) return <Callout intent="danger" title="Report unavailable">This report could not be loaded. Please try again. <Button onClick={() => setAttempt(value => value + 1)}>Retry</Button></Callout>;
   if (state.identity !== identity || !state.report) return <Spinner aria-label="Loading report" size={24}/>;
-  const fields=reportParameterFields(state.report);
+  const fields=declaredFields.map(field=>dates.controls.find(range=>range.id===field.id)||field);
   const missing=missingReportInputs(fields,parameters);
   const appliedMissing=missingReportInputs(fields,appliedParameters);
   const executeOnOpen=typeof entry.parameters?.executeOnOpen==='boolean'
@@ -108,9 +124,10 @@ export default function ReportWindow({window: entry}) {
   return <div className="forge-report-filter-layout">
     <ReportFilterBar controls={fields} values={{...parameters,...Object.fromEntries(fields.filter(field=>field.multiple&&field.kind==='text'&&editedParameters?.identity===parameterIdentity&&editedParameters.text?.[field.id]!==undefined).map(field=>[field.id,editedParameters.text[field.id]]))}} scopeKey={JSON.stringify(state.report.resource)} loadChoices={loadChoices}
       onChange={(id,value)=>{const field=fields.find(field=>field.id===id);setParameter(id,field?.multiple&&field.kind!=='choice'&&typeof value==='string'?reportParameterValue(value,field):value,value);}}
-      onApply={()=>{if(!missing.length){setApplied({identity:parameterIdentity,values:applyReportFilterParameters(parameters,fields)});setRunTrigger(value=>value+1);}}}
-      onReset={()=>setEditedParameters({identity:parameterIdentity,values:{...initialParameters}})}
-      applyDisabled={missing.length>0} placement={state.report.resourceDefinition?.builderDefinition?.reportBuilder?.filterPresentation||state.report.resourceDefinition?.metadata?.filterPlacement||'top'}/>
+      onDatePreset={dates.requestPreset} onDateRange={dates.manualRange} onDateDraft={dates.cancelDraftRequests}
+      onApply={()=>{if(!missing.length&&!dates.dateBlocked){setApplied({identity:parameterIdentity,values:applyReportFilterParameters(parameters,fields)});setRunTrigger(value=>value+1);}}}
+      onReset={()=>{dates.reset();setEditedParameters(null);}}
+      applyDisabled={missing.length>0||dates.dateBlocked} placement={state.report.resourceDefinition?.builderDefinition?.reportBuilder?.filterPresentation||state.report.resourceDefinition?.metadata?.filterPlacement||'top'}/>
     {missing.length>0&&<Callout intent="warning" title="Required report inputs">Complete these inputs before running the report: {missing.map(field=>field.label).join(', ')}.</Callout>}
     <ReportResourceRuntime onViewStateChange={publishReportView} container={{parameters:{reportResource:state.report.resource,reportTitle,
       reportCapabilities:{run:appliedMissing.length===0,export:true,tableBlockSelection:true,workbookExport:true},prefill:fields.length?appliedParameters:parameters,

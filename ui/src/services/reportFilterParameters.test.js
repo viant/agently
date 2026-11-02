@@ -10,3 +10,11 @@ it('does not invent defaults when the producer has supplied none or invalid stat
  expect(initializeReportFilterParameters({})).toEqual({});
  expect(initializeReportFilterParameters({...definition,state:{scopeParams:{period:{startExpression:'unavailable',endExpression:'yesterday'}}}})).toEqual({});
 });
+
+it('leaves declared calendar presets to the shared authoritative calendar lifecycle',()=>{
+ const calendarDefinition=structuredClone(definition);
+ calendarDefinition.builderDefinition.reportBuilder.predicates[0].datePresets={calendar:{dataSourceRef:'calendar'}};
+ expect(initializeReportFilterParameters(calendarDefinition,{},new Date('2026-01-01T00:00:00Z'))).toEqual({});
+ calendarDefinition.state.scopeParams.period={start:'2026-01-02',end:'2026-01-03'};
+ expect(initializeReportFilterParameters(calendarDefinition)).toEqual({from:'2026-01-02',to:'2026-01-03'});
+});

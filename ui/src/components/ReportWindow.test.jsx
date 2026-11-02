@@ -7,6 +7,7 @@ const {services, runtime} = vi.hoisted(() => ({services: {reportStore: {getRepor
 vi.mock('forge/core', () => ({useSetting: () => ({services})}));
 vi.mock('forge/components', async () => ({ReportFilterBar:(await import('forge/components/dashboard/ReportFilterBar.jsx')).default, ReportResourceRuntime: props => {runtime(props); return <div>Shared report runtime</div>;}}));
 import ReportWindow from './ReportWindow.jsx';
+import 'forge/packs/blueprint';
 
 const pin = {uri: 'report://ar/overview', providerIdentity: 'producer-native', kind: 'working', contentFingerprint: 'bytes', authorityBinding: 'opaque', validUntil: '2030-01-01T00:00:00Z'};
 const entry = {windowKey: pin.uri, resourceRef: {uri: pin.uri}, windowTitle: 'Overview', parameters: {AdvertiserIds: [42]}};
@@ -134,4 +135,40 @@ it('does not auto-execute without complete required initial inputs or explicit o
  expect(runtime.mock.calls.at(-1)[0].container.parameters.executeOnOpen).toBe(false);
  fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
  expect(runtime.mock.calls.at(-1)[0].container.parameters.executeOnOpen).toBe(true);
+});
+
+it('retains published calendar presets and waits for authoritative defaults before allowing Apply',async()=>{
+  vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-01-01T07:59:00Z'));
+  const calendar={calendar:{dataSourceRef:'calendar',input:{name:'ids',parameter:'entity',array:true},identityField:'id',timeZoneField:'zone'},default:'completed',options:[{value:'completed',label:'Completed days',range:{kind:'relativeDays',startOffset:-7,endOffset:-1}},{value:'custom',label:'Custom'}]};
+  services.reportStore.getReport.mockResolvedValue({resource:pin,resourceDefinition:{dataSources:{calendar:{cache:{enabled:false}}},builderDefinition:{reportBuilder:{predicates:[{id:'period',label:'Period',kind:'dateRange',prefill:{start:'from',end:'to'},datePresets:calendar}]}}}});
+  let finish;const fetchMock=vi.fn(()=>new Promise(resolve=>{finish=resolve;}));vi.stubGlobal('fetch',fetchMock);
+  try{
+    render(<ReportWindow window={{...entry,parameters:{entity:17}}}/>);
+    await waitFor(()=>expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('button',{name:'Apply filters'}).disabled).toBe(true);
+    expect(runtime.mock.calls.at(-1)[0].container.parameters.reportCapabilities.run).toBe(false);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({owner:{uri:pin.uri},inputs:{ids:[17]}});
+    finish({ok:true,json:async()=>({rows:[{id:17,zone:'America/Los_Angeles'}]})});
+    await waitFor(()=>expect(screen.getByLabelText('Period from').value).toBe('2025-12-24'));
+    expect(screen.getByLabelText('Period to').value).toBe('2025-12-30');
+    expect(screen.getByRole('button',{name:'Apply filters'}).disabled).toBe(false);
+    fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
+    expect(runtime.mock.calls.at(-1)[0].container.parameters.prefill).toEqual({entity:17,from:'2025-12-24',to:'2025-12-30'});
+  }finally{vi.useRealTimers();vi.unstubAllGlobals();}
+});
+
+it('failed calendar metadata blocks default execution and a deliberate manual pair recovers',async()=>{
+  const datePresets={calendar:{dataSourceRef:'calendar',input:{name:'ids',parameter:'entity',array:true},identityField:'id',timeZoneField:'zone'},default:'yesterday',options:[{value:'yesterday',label:'Yesterday'},{value:'custom',label:'Custom'}]};
+  services.reportStore.getReport.mockResolvedValue({resource:pin,resourceDefinition:{dataSources:{calendar:{cache:{enabled:false}}},builderDefinition:{reportBuilder:{predicates:[{id:'period',label:'Period',kind:'dateRange',prefill:{start:'from',end:'to'},datePresets}]}}}});
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({rows:[{id:18,zone:'UTC'}]})}));
+  try{
+    render(<ReportWindow window={{...entry,parameters:{entity:17}}}/>);
+    await screen.findByText(/Calendar timezone is unavailable/);
+    expect(screen.getByRole('button',{name:'Apply filters'}).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('Period from'),{target:{value:'2026-01-02'}});
+    fireEvent.change(screen.getByLabelText('Period to'),{target:{value:'2026-01-03'}});
+    expect(screen.getByRole('button',{name:'Apply filters'}).disabled).toBe(false);
+    fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
+    expect(runtime.mock.calls.at(-1)[0].container.parameters.prefill).toEqual({entity:17,from:'2026-01-02',to:'2026-01-03'});
+  }finally{vi.unstubAllGlobals();}
 });
