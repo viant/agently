@@ -41,6 +41,23 @@ describe('workspace composer context',()=>{
   for(let i=0;i<100;i++) metadata.dataSource[`unused_${i}`]={uniqueKey:['id']};
   expect(Object.keys(buildWorkspaceQueryContext('c').workspace.dataSources)).toEqual(['records']);
  });
+ it('carries live report drafts, execution receipt and normal action identity separately from applied filters',()=>{
+  getViewSignal('view-1').value={report:{resourceUri:'report://example/summary',status:'idle',parameters:{from:'2026-10-01'},draftParameters:{from:'2026-10-02'},canRun:true,canSave:false,hasCompletedRun:false,runControlId:'report-filter:apply',rows:[{private:'excluded'}]}};
+  const captured=buildWorkspaceQueryContext('c').workspace.report;
+  expect(captured).toMatchObject({parameters:{from:'2026-10-01'},draftParameters:{from:'2026-10-02'},canRun:true,canSave:false,hasCompletedRun:false,runControlId:'report-filter:apply'});
+  getViewSignal('view-1').value.report.draftParameters.from='2026-10-03';
+  expect(captured.draftParameters.from).toBe('2026-10-02');
+  expect(buildWorkspaceQueryContext('c').workspace.report.draftParameters.from).toBe('2026-10-03');
+  expect(JSON.stringify(captured)).not.toContain('excluded');
+ });
+ it('marks compacted report parameters incomplete so follow-ups can read their complete native state',()=>{
+  getViewSignal('view-1').value={report:{parameters:{entityIds:Array.from({length:20},(_,i)=>i+1)},draftParameters:{entityIds:[]}}};
+  const report=buildWorkspaceQueryContext('c').workspace.report;
+  expect(report.parameters.entityIds).toHaveLength(16);
+  expect(report.parametersComplete).toBe(false);
+  expect(report.draftParametersComplete).toBe(false);
+  expect(getViewSignal('view-1').peek().report.parameters.entityIds).toHaveLength(20);
+ });
  it('keeps the visible workspace when focus moves to the composer',()=>{
   activeWindows.value.push({windowId:'chat/new',windowKey:'chat/new',conversationId:'c'});
   selectedWindowId.value='chat/new';

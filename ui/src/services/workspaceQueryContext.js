@@ -67,7 +67,11 @@ export function buildWorkspaceQueryContext(conversationId) {
 
   }
   const parameters = contextParameters(entry.parameters);
-  const report = view.report && { ...scalarEntries(Object.fromEntries(['resourceUri','title','status','activeSectionId'].map(key=>[key,view.report[key]]))), parameters: contextParameters(view.report.parameters) };
+  const report = view.report && { ...scalarEntries(Object.fromEntries(['resourceUri','title','status','activeSectionId','canRun','canSave','canExport','hasCompletedRun','runControlId','error','progress'].map(key=>[key,view.report[key]]))), parameters: contextParameters(view.report.parameters),
+    ...(view.report.draftParameters ? {draftParameters:contextParameters(view.report.draftParameters)} : {}) };
+  if (report) for (const key of ['parameters','draftParameters']) {
+    if (view.report[key] && !Object.entries(view.report[key]).every(([name,value])=>JSON.stringify(report[key]?.[name])===JSON.stringify(value))) report[`${key}Complete`]=false;
+  }
   const resourceUri = entry.resourceRef?.uri || metadata.resource?.uri || report?.resourceUri;
   const carousels = Object.fromEntries(Object.entries(view.carousels || {}).sort(([a], [b]) => a.localeCompare(b))
     .slice(0, 16).map(([id, selection]) => [id, scalarEntries(selection)]));

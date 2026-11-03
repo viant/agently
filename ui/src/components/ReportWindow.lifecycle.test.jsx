@@ -2,7 +2,7 @@
 import React from 'react';
 import {afterEach,expect,it,vi} from 'vitest';
 import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
-import {SettingProvider,activeWindows,addWindow,selectedTabId,selectedWindowId} from 'forge/core';
+import {SettingProvider,activeWindows,addWindow,selectedTabId,selectedWindowId,getViewSignal} from 'forge/core';
 import AppSectionContent from './AppSectionContent.jsx';
 import WorkspaceWindowContent from './WorkspaceWindowContent.jsx';
 import {waitForWorkspaceReady} from 'forge/core/ui/workspaceReady.js';
@@ -98,6 +98,7 @@ it('keeps a typed custom range through real resource execution and metadata-stab
  await waitFor(()=>expect(screen.getByRole('button',{name:'Apply filters'}).disabled).toBe(false));
  fireEvent.change(screen.getByLabelText('Period from'),{target:{value:'2026-10-01'}});
  fireEvent.change(screen.getByLabelText('Period to'),{target:{value:'2026-11-01'}});
+ await waitFor(()=>expect(getViewSignal(entry.windowId).peek().report.draftParameters).toMatchObject({from:'2026-10-01',to:'2026-11-01'}));
  fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
  await waitFor(()=>expect(services.reportStore.runReport).toHaveBeenCalled());
  expect(services.reportStore.runReport.mock.calls.at(-1)[0].parameters).toMatchObject({from:'2026-10-01',to:'2026-11-01'});
