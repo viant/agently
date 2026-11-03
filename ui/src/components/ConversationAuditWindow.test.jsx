@@ -78,17 +78,19 @@ it('does not mount the reader when the experimental UI is disabled', async () =>
   expect(screen.queryByRole('button', {name: 'Search turns'})).toBeNull();
 });
 
-it('uses real shared controls and only reads turns after explicit search', async () => {
-  const row = {id: 'turn-1', conversationId: 'conversation-1', conversationTitle: 'Example', userId: 'alice', status: 'completed', feedbackRating: 1, message: []};
+it('uses real shared controls to search and refresh without opening turn details', async () => {
+  const row = {id: 'turn-1', conversationId: 'conversation-1', conversationTitle: 'Example', userId: 'alice', status: 'completed', feedbackRating: 1};
   fetch.mockImplementation(async url => {
     if (url.endsWith('/capabilities')) return response(capabilities);
     if (url.includes('/turns?')) return response({rows: [row]});
-    return response({row, input: 'Example input', output: 'Example output', state: {}});
+    throw new Error(`Unexpected audit request: ${url}`);
   });
   mount();
   await screen.findByRole('button', {name: 'Search turns'});
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(screen.getByRole('button', {name: 'Export CSV'}).disabled).toBe(true);
+  expect(screen.queryByRole('combobox', {name: 'Turn to inspect'})).toBeNull();
+  expect(screen.queryByRole('button', {name: 'View turn'})).toBeNull();
   fireEvent.click(screen.getByRole('button', {name: 'Search turns'}));
   await screen.findByText(/1 turns on this page/);
   expect(fetch).toHaveBeenCalledTimes(2);
@@ -98,10 +100,17 @@ it('uses real shared controls and only reads turns after explicit search', async
   expect(url.searchParams.get('to')).toBeTruthy();
   expect(url.searchParams.get('includeContent')).toBe('true');
   expect(screen.getByRole('button', {name: 'Export CSV'}).disabled).toBe(false);
-  fireEvent.change(screen.getByRole('combobox', {name: 'Turn to inspect'}), {target: {value: row.id}});
-  fireEvent.click(screen.getByRole('button', {name: 'View turn'}));
-  await screen.findByText('Example output');
+  const table = document.querySelector('.conversation-audit-table');
+  await within(table).findByText('Example', {exact: true});
+  await act(async () => fireEvent.click(within(table).getByText('Example', {exact: true})));
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(screen.queryByRole('combobox', {name: 'Turn to inspect'})).toBeNull();
+  expect(screen.queryByRole('button', {name: 'View turn'})).toBeNull();
+  expect(screen.queryByRole('region', {name: 'Saved turn details'})).toBeNull();
+  fireEvent.click(screen.getByRole('button', {name: 'Refresh'}));
+  await waitFor(() => expect(screen.getByRole('button', {name: 'Refresh'}).disabled).toBe(false));
   expect(fetch).toHaveBeenCalledTimes(3);
+  expect(fetch.mock.calls[2][0]).toBe(fetch.mock.calls[1][0]);
   const inputs = document.querySelectorAll('input[type="text"]');
   expect(inputs.length).toBeGreaterThan(0);
   fireEvent.change(inputs[0], {target: {value: 'another-conversation'}});
@@ -175,4 +184,73 @@ it('connects the shared table pager to bounded API cursors without inventing a l
   fireEvent.click(screen.getByRole('button', {name: 'Previous Page'}));
   await screen.findByText('First page');
   expect(new URL(fetch.mock.calls[3][0], 'https://example.invalid').searchParams.has('cursor')).toBe(false);
+});
+
+it('keeps cursor history across three full pages, refresh and changed filters', async () => {
+  const queries = [];
+  fetch.mockImplementation(async url => {
+    if (url.endsWith('/capabilities')) return response({...capabilities, canAuditAllUsers: true});
+    const query = new URL(url, 'https://example.invalid').searchParams;
+    queries.push(query);
+    const cursor = query.get('cursor');
+    const page = cursor === 'cursor-3' ? 3 : cursor === 'cursor-2' ? 2 : 1;
+    return response({rows: Array.from({length: page === 3 ? 1 : Number(query.get('limit'))}, (_, i) => ({
+      id: `turn-${page}-${i}`, conversationId: 'example', conversationTitle: `Page ${page} row ${i}`,
+    })), ...(page < 3 ? {nextCursor: `cursor-${page + 1}`} : {})});
+  });
+  mount();
+  fireEvent.click(await screen.findByRole('button', {name: 'Search turns'}));
+  await screen.findByText('Page 1 row 0');
+  const go = async (label, title) => {
+    const button = screen.getByRole('button', {name: label, exact: true});
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    await screen.findByText(title, {exact: true});
+  };
+  await go('Next Page', 'Page 2 row 0');
+  await go('Next Page', 'Page 3 row 0');
+  expect(screen.getByRole('button', {name: 'Next Page'}).disabled).toBe(true);
+  await go('Previous Page', 'Page 2 row 0');
+  await go('Next Page', 'Page 3 row 0');
+  await go('First Page', 'Page 1 row 0');
+  await go('Next Page', 'Page 2 row 0');
+  await go('Refresh', 'Page 1 row 0');
+  expect(screen.getByText(/Page 1\. 50 turns on this page/)).toBeTruthy();
+  expect(queries.map(query => query.get('cursor'))).toEqual([
+    null, 'cursor-2', 'cursor-3', 'cursor-2', 'cursor-3', null, 'cursor-2', null,
+  ]);
+  await go('Next Page', 'Page 2 row 0');
+  fireEvent.change(screen.getByRole('combobox', {name: 'Rows per page'}), {target: {value: '20'}});
+  await screen.findByText(/Page 1\. 20 turns on this page/);
+  expect(queries.at(-1).has('cursor')).toBe(false);
+  expect(queries.at(-1).get('limit')).toBe('20');
+  await go('Next Page', 'Page 2 row 0');
+  expect(queries.at(-1).get('limit')).toBe('20');
+  fireEvent.change(screen.getByRole('textbox', {name: 'Conversation owner ID'}), {target: {value: 'bob'}});
+  await waitFor(() => expect(screen.getByRole('button', {name: 'Next Page'}).disabled).toBe(true));
+  await go('Search turns', 'Page 1 row 0');
+  await waitFor(() => expect(queries.at(-1).get('userId')).toBe('bob'));
+  expect(queries.at(-1).has('cursor')).toBe(false);
+}, 30000);
+
+it('allows editing owner ID but handles a server denial without showing another owner’s data', async () => {
+  fetch.mockImplementation(async url => {
+    if (url.endsWith('/capabilities')) return response(capabilities);
+    const owner = new URL(url, 'https://example.invalid').searchParams.get('userId');
+    return owner === 'bob' ? {ok: false, status: 403, json: async () => ({error: 'audit access denied'})}
+      : response({rows: [{id: 'own-turn', conversationTitle: 'Own conversation'}]});
+  });
+  mount();
+  const owner = await screen.findByRole('textbox', {name: 'Conversation owner ID'});
+  expect(owner.readOnly).toBe(false);
+  expect(screen.queryByRole('checkbox', {name: /All users/})).toBeNull();
+  expect(screen.getByText(/Other owners require additional audit access/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: 'Search turns'}));
+  await screen.findByText('Own conversation');
+  fireEvent.change(owner, {target: {value: 'bob'}});
+  fireEvent.click(screen.getByRole('button', {name: 'Search turns'}));
+  await screen.findByRole('alert');
+  expect(screen.getByRole('alert').textContent).toContain('audit access denied');
+  expect(screen.getByRole('button', {name: 'Export CSV'}).disabled).toBe(true);
+  expect(new URL(fetch.mock.calls.at(-1)[0], 'https://example.invalid').searchParams.get('userId')).toBe('bob');
 });

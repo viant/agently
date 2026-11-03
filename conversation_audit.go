@@ -26,7 +26,7 @@ func conversationAuditOptions() (audit.Options, error) {
 	}
 	if raw := strings.TrimSpace(os.Getenv("AGENTLY_CONVERSATION_AUDIT_USERS")); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &opts.AuditorUserIDs); err != nil {
-			return opts, fmt.Errorf("AGENTLY_CONVERSATION_AUDIT_USERS must be a JSON array of canonical user IDs")
+			return opts, fmt.Errorf("AGENTLY_CONVERSATION_AUDIT_USERS must be a JSON array of server user IDs")
 		}
 		for _, id := range opts.AuditorUserIDs {
 			if strings.TrimSpace(id) == "" {

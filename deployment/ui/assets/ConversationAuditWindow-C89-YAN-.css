@@ -1,0 +1,1 @@
+.conversation-audit{min-width:0;padding:var(--forge-spacing-4, 16px);color:var(--app-text);background:var(--app-surface)}.conversation-audit-actions{display:flex;flex-wrap:wrap;align-items:center;gap:var(--forge-spacing-2, 8px);margin-block:var(--forge-spacing-3, 12px)}.conversation-audit-table{min-width:0;max-width:100%;overflow:auto}

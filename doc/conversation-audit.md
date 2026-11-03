@@ -3,9 +3,12 @@
 Implemented for the native database runtime. This is a read-only web UI API;
 it is separate from the MCP interface used by hosts.
 
-One row represents one saved turn. Details include input and steering,
-the canonical final response, saved messages, model/tool metadata, execution
-attempts and resumptions, current feedback and available usage measurements.
+One row represents one saved turn. The window provides filters, a turn table
+and CSV export with full input and steering, the canonical final response,
+current feedback and available usage measurements. Saved messages, model/tool
+metadata, execution attempts, resumptions and payload bodies remain available
+through the read-only diagnostic API; the window does not request or display
+individual turn details.
 The feature uses existing tables without changing recording, execution,
 streaming, scheduling or feedback updates.
 
@@ -22,7 +25,7 @@ including restored/direct openings. The API remains available independently.
 Rebuild embedded UI assets after source changes with `cd ui && npm run build:embed`.
 
 Users can inspect their own conversations. To give specific accounts access
-to other owners' conversations, configure canonical server user IDs:
+to other owners' conversations, configure server user IDs:
 
 ```sh
 export AGENTLY_CONVERSATION_AUDIT_USERS='["example-auditor-id"]'
@@ -32,6 +35,21 @@ An entry grants instance-wide conversation audit access. An empty or omitted
 list grants no additional access. Identity comes from the existing authenticated
 server context (or the existing anonymous browser cookie in local mode).
 The request's `userId` is only an owner filter and cannot establish identity.
+Use the `currentUserId` returned by `/capabilities` for the signed-in account:
+this is the effective workspace identity used by conversation ownership, which
+can differ from the canonical `users.id` stored for authentication.
+
+The owner field is editable for every user. Editing it does not grant access:
+the server rejects a different owner with HTTP 403 unless the caller is on the
+auditor list. Leaving it empty still restricts an ordinary caller to their own
+conversations. Only auditors see the explicit All users option. The same scope
+checks apply to list, CSV, diagnostic details and payload reads. Workspace roles
+do not automatically grant conversation audit access.
+
+Multi-user deployments must use the existing server authentication. The local
+anonymous browser cookie is a convenience identity, not verified authentication
+and not a security boundary for shared deployments. The experimental UI flag
+only controls window visibility; it never grants API privileges.
 
 ## Filters and API
 
@@ -56,6 +74,14 @@ Lists also accept `limit` (default 50, maximum 200) and the returned opaque
 `cursor`, tied to the selected filters and owner. Sort order is turn creation
 time then ID, descending. Export rejects cursors and covers all applied filters.
 Changing the form requires a new search before exporting.
+The window follows server cursors with Next Page, Previous Page and First Page.
+Rows per page offers 20, 50 (the default) and 100 turns. Changing it resets the
+cursor history and loads the first page at the selected size. The current page
+and end of results are shown above the table. With 48 matches at the default
+size of 50, all results fit on one page and the navigation arrows are disabled.
+There is no total-page count or direct Last Page operation; that control stays
+disabled. Refresh and a new search reset to the first page. A failed page request
+leaves the last successful results available.
 
 The audit table starts with Turn time, Turn ID, Conversation ID and Conversation.
 It then shows Input, Output, User, Agent, Status, Models, Input tokens, Output tokens,
@@ -81,23 +107,24 @@ full text. Run IDs, warnings, costs, execution details and payload bodies are
 excluded. Text is quoted for CSV and protected against spreadsheet formulas;
 numeric feedback retains `-1`, `0`, or `1`.
 
-View turn retains saved execution details. Its Runs and resumptions section shows
-the saved run records, including their `id`, attempt and `resumedFromRunId` when
-recorded. A turn can have several runs when execution resumes.
+The diagnostic turn endpoint retains saved execution details. Its `row.runs`
+contains the saved run records, including their `id`, attempt and
+`resumedFromRunId` when recorded. A turn can have several runs when execution
+resumes. These records are available through the API without a UI inspector.
 
 ## Limits and interpretation
 
 - Export: 1,000 turns, 32 MiB, 30 seconds, two concurrent exports per instance.
   The complete file is buffered before success headers. Exceeding a limit
   returns an error; no successful truncated file is sent.
-- Details: at most 10,000 saved messages and 10,000 runs, bounded serialized
-  projection size of 32 MiB. Oversized details return an error.
+- Diagnostic API details: at most 10,000 saved messages and 10,000 runs, with
+  serialized projection size bounded to 32 MiB. Oversized details return an error.
 - Enriched lists apply the same per-turn limits, with both the batch projection
   and complete response bounded to 32 MiB. Exceeding a limit returns an error,
   without silently shortening Input or Output. Narrow the filters or request
-  a smaller page. The UI requests 50 turns per page.
-- Payload bodies load only on demand, after checking conversation ownership
-  and reference membership. Inline and decompressed bodies are limited to
+  a smaller page. The UI defaults to 50 turns per page.
+- Diagnostic API payload bodies load only on demand, after checking conversation
+  ownership and reference membership. Inline and decompressed bodies are limited to
   2 MiB. External URIs are not fetched. Binary bodies use base64.
 - Unknown or incomplete measurements stay unknown. Execution span covers the
   first run start through the last run completion, including waits between

@@ -29,6 +29,7 @@ const csvValues = [row.createdAt, row.id, row.conversationId, row.conversationTi
   row.feedbackRating, row.feedbackComment, row.modelCalls, row.toolCalls, row.conversationCreatedAt];
 const fixtureCSV = `${csvColumns.join(',')}\n${csvValues.map(value => `"${String(value).replaceAll('"', '""')}"`).join(',')}\n`;
 let enabled = true;
+let paginated = false;
 const reads = [];
 const exports = [];
 const html = '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/__audit/fixture.jsx"></script></body></html>';
@@ -69,10 +70,16 @@ const server = await createServer({...config, configFile: false, root, logLevel:
         }
         let body;
         if (req.url.endsWith('/capabilities')) body = {uiEnabled: enabled, currentUserId: 'example-user', canAuditAllUsers: false};
-        else if (req.url.includes('/turns?')) body = {rows: [row]};
-        else body = {row: {...row, message: [{id: 'input', role: 'user', content: row.input}],
-          runs: [{id: 'synthetic-run', turnId: row.id, attempt: 1, status: 'completed'}]},
-          state: {}, input: row.input, output: row.output, executionSpanMs: row.executionSpanMs};
+        else if (req.url.includes('/turns?')) {
+          const query = new URL(req.url, 'http://localhost').searchParams;
+          const cursor = query.get('cursor');
+          const pageNumber = cursor === 'cursor-3' ? 3 : cursor === 'cursor-2' ? 2 : 1;
+          body = paginated ? {
+            rows: Array.from({length: pageNumber === 3 ? 1 : Number(query.get('limit'))}, (_, i) => ({...row, id: `page-${pageNumber}-turn-${i}`})),
+            ...(pageNumber < 3 ? {nextCursor: `cursor-${pageNumber + 1}`} : {}),
+          } : {rows: [row]};
+        }
+        else {res.statusCode = 404; body = {error: 'Unexpected audit route'};}
         res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(body));
       });
     },
@@ -85,6 +92,7 @@ try {
   const base = `http://127.0.0.1:${server.httpServer.address().port}`;
   browser = await chromium.launch({headless: true, channel: process.env.PLAYWRIGHT_CHANNEL || 'chrome'});
   for (const width of [1440, 390]) {
+    paginated = false;
     const page = await browser.newPage({viewport: {width, height: 900}});
     page.setDefaultTimeout(60000);
     const failures = [];
@@ -93,6 +101,7 @@ try {
     // A cold Vite transform of the shared Forge sources can exceed one minute.
     await page.goto(`${base}/__audit`, {timeout: 120000});
     await page.getByRole('button', {name: 'Search turns', exact: true}).waitFor();
+    assert.equal(await page.getByRole('textbox', {name: 'Conversation owner ID', exact: true}).isEditable(), true);
     assert.equal(reads.length, before + 1, 'opening the window must only read capabilities');
     await page.locator('.conversation-audit input').nth(2).click();
     const calendar = page.locator('.conversation-audit .rdp');
@@ -117,6 +126,11 @@ try {
     for (const text of [row.id, row.conversationId, row.agentIdUsed, 'alpha/chat, zeta/reasoning', '1 min 2 s']) {
       assert.equal(await table.getByText(text, {exact: true}).count(), 1);
     }
+    assert.equal(await page.getByRole('combobox', {name: 'Turn to inspect'}).count(), 0);
+    assert.equal(await page.getByRole('button', {name: 'View turn'}).count(), 0);
+    assert.equal(await page.getByRole('region', {name: 'Saved turn details'}).count(), 0);
+    await table.getByText(row.id, {exact: true}).click();
+    assert.equal(reads.length, before + 2, 'clicking a table row must not read turn details or payloads');
     assert.equal(await table.getByText(/Obsolete/).count(), 0);
     const beforeContent = reads.length;
     for (const [label, content] of [['Input', row.input], ['Output', row.output]]) {
@@ -133,12 +147,6 @@ try {
       await dialog.waitFor({state: 'hidden'});
     }
     assert.equal(reads.length, beforeContent, 'opening full text must not fetch each turn again');
-    await page.getByRole('combobox', {name: 'Turn to inspect'}).selectOption(row.id);
-    await page.getByRole('button', {name: 'View turn'}).click();
-    const detail = page.getByRole('region', {name: 'Saved turn details'});
-    await detail.getByText(row.output, {exact: true}).waitFor();
-    await detail.getByRole('heading', {name: 'Runs and resumptions'}).waitFor();
-    assert.ok((await detail.textContent()).includes('synthetic-run'), 'run records remain in View turn');
     assert.equal(await page.locator('.conversation-audit-table').getByText('Needs correction', {exact: true}).count(), 1);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'table overflow must stay inside the audit pane');
     const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', {name: 'Export CSV'}).click()]);
@@ -147,7 +155,27 @@ try {
     const list = new URL(reads.slice(before).find(url => url.includes('/turns?')), base).searchParams;
     assert.equal(list.get('includeContent'), 'true');
     assert.deepEqual(exports.at(-1), {userId: 'example-user', from: list.get('from'), to: list.get('to')});
+    assert.equal(reads.length, before + 3, 'the window only reads capabilities, the turn list and CSV');
     await page.screenshot({path: path.join(output, `audit-${width}.png`), fullPage: true});
+    paginated = true;
+    const pagingStart = reads.length;
+    await page.getByRole('button', {name: 'Refresh', exact: true}).click();
+    await table.getByText('page-1-turn-0', {exact: true}).waitFor();
+    for (const [button, pageNumber] of [['Next Page', 2], ['Next Page', 3], ['Previous Page', 2], ['Next Page', 3], ['First Page', 1]]) {
+      await page.getByRole('button', {name: button, exact: true}).click();
+      await table.getByText(`page-${pageNumber}-turn-0`, {exact: true}).waitFor();
+    }
+    assert.deepEqual(reads.slice(pagingStart).map(url => new URL(url, base).searchParams.get('cursor')),
+      [null, 'cursor-2', 'cursor-3', 'cursor-2', 'cursor-3', null]);
+    await page.getByRole('combobox', {name: 'Rows per page'}).selectOption('20');
+    await page.getByText(/Page 1\. 20 turns on this page/).waitFor();
+    await page.getByRole('button', {name: 'Next Page', exact: true}).click();
+    await page.getByText(/Page 2\. 20 turns on this page/).waitFor();
+    const resized = reads.slice(-2).map(url => new URL(url, base).searchParams);
+    assert.deepEqual(resized.map(query => query.get('limit')), ['20', '20']);
+    assert.deepEqual(resized.map(query => query.get('cursor')), [null, 'cursor-2']);
+    await page.getByRole('heading', {name: 'Conversation audit', exact: true}).scrollIntoViewIfNeeded();
+    await page.screenshot({path: path.join(output, `audit-pagination-${width}.png`), fullPage: true});
     assert.deepEqual(failures, []);
     await page.close();
   }
