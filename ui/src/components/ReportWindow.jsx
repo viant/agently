@@ -4,6 +4,7 @@ import {ReportResourceRuntime, ReportFilterBar} from 'forge/components';
 import {normalizeReportDatePresets,useReportDatePresetDraft} from 'forge/reporting';
 import {initializeReportFilterParameters, applyReportFilterParameters} from '../services/reportFilterParameters';
 import {createReportChoiceLoader} from '../services/reportChoiceService';
+import {setWorkspaceLifecycle} from '../services/useWorkspaceAdapters.js';
 import {useSetting, getViewSignal, findViewSignal} from 'forge/core';
 
 export function isReportWindow(window = {}) {
@@ -80,6 +81,11 @@ export default function ReportWindow({window: entry}) {
     }).catch(error => { if (active) setState({error, identity}); });
     return () => { active = false; };
   }, [identity, store, attempt]);
+  useEffect(() => {
+    if (state.identity !== identity) return;
+    if (state.error) setWorkspaceLifecycle(entry.windowId, 'failed');
+    else if (state.report) setWorkspaceLifecycle(entry.windowId, 'ready');
+  }, [entry.windowId, identity, state]);
   const choiceLoader=useMemo(()=>state.report?.resource ? createReportChoiceLoader(state.report.resource) : null,[JSON.stringify(state.report?.resource),store]);
   const loadCalendar=useCallback((id,inputs,signal)=>{
     if(!choiceLoader)throw Error('Calendar metadata is unavailable.');

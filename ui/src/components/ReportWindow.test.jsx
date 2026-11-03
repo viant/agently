@@ -4,7 +4,7 @@ import {afterEach, expect, it, vi} from 'vitest';
 import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 
 const {services, runtime} = vi.hoisted(() => ({services: {reportStore: {getReport: vi.fn()}}, runtime: vi.fn()}));
-vi.mock('forge/core', () => ({useSetting: () => ({services})}));
+vi.mock('forge/core', async original => ({...await original(), useSetting: () => ({services})}));
 vi.mock('forge/components', async () => ({ReportFilterBar:(await import('forge/components/dashboard/ReportFilterBar.jsx')).default, ReportResourceRuntime: props => {runtime(props); return <div>Shared report runtime</div>;}}));
 import ReportWindow from './ReportWindow.jsx';
 import 'forge/packs/blueprint';

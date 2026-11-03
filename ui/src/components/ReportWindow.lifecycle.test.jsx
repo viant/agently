@@ -4,8 +4,25 @@ import {afterEach,expect,it,vi} from 'vitest';
 import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
 import {SettingProvider,activeWindows,addWindow,selectedTabId,selectedWindowId} from 'forge/core';
 import AppSectionContent from './AppSectionContent.jsx';
+import WorkspaceWindowContent from './WorkspaceWindowContent.jsx';
+import {waitForWorkspaceReady} from 'forge/core/ui/workspaceReady.js';
 vi.mock('forge/components/dashboard/ReportRuntime.jsx',()=>({default:({reportSpec})=><output>{reportSpec.title}</output>}));
 afterEach(()=>{cleanup();activeWindows.value=[];selectedTabId.value=null;selectedWindowId.value=null;vi.restoreAllMocks();vi.unstubAllGlobals();});
+it.each([false,true])('acknowledges hosted report metadata admission and denial (denied=%s)',async denied=>{
+ const pin={uri:'report://example/summary',providerIdentity:'example',kind:'published',contentFingerprint:'fixture',authorityBinding:'fixture'};
+ let deliver;
+ const services={reportStore:{getReport:vi.fn(()=>new Promise((resolve,reject)=>{deliver=()=>denied?reject(Error('Denied')):resolve({resource:pin,resourceDefinition:{}});} ))}};
+ let entry;
+ await act(async()=>{entry=addWindow('Example report',null,pin.uri,'',true,{}, {presentation:'hosted',resourceRef:{uri:pin.uri},workspaceObject:{version:1,objectId:'workspace:example',kind:'report',content:{renderer:'forgeWindow'},lifecycle:{state:'opening'}}});});
+ const acknowledgement=waitForWorkspaceReady(activeWindows,entry.windowId,1000).then(value=>({value}),error=>({error}));
+ render(<SettingProvider services={services}><WorkspaceWindowContent window={entry}/></SettingProvider>);
+ await waitFor(()=>expect(deliver).toBeTypeOf('function'));
+ expect(activeWindows.peek().find(value=>value.windowId===entry.windowId).workspaceObject.lifecycle.state).toBe('opening');
+ await act(async()=>deliver());
+ const result=await acknowledgement;
+ if(denied){expect(result.error?.message).toBe('Workspace could not be opened');expect(screen.getByText('Report unavailable')).toBeTruthy();}
+ else expect(result.value?.lifecycle.state).toBe('ready');
+});
 it('retains report output and draft filters across unrelated section rerenders',async()=>{
  const pin={uri:'report://example/summary',providerIdentity:'example',kind:'published',contentFingerprint:'fixture',authorityBinding:'fixture'};
  const services={reportExport:{submitResource:vi.fn(),getStatus:vi.fn(),getArtifact:vi.fn()},reportStore:{getReport:vi.fn(async()=>({resource:pin,resourceDefinition:{builderDefinition:{reportBuilder:{predicates:[{id:'range',label:'Period',kind:'dateRange',startParamPath:'filters.from',endParamPath:'filters.to',default:{start:'2026-01-01',end:'2026-01-02'}}]}}}})),runReport:vi.fn(async()=>({resource:pin,reportSpec:{title:'Executed example',datasets:[],blocks:[]},reportFill:{datasets:[],blocks:[]},reportPrint:{}}))}};
