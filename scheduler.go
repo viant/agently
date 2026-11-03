@@ -12,7 +12,6 @@ import (
 
 	"github.com/viant/afs"
 	_ "github.com/viant/afs/file"
-	"github.com/viant/agently-core/app/executor"
 	execconfig "github.com/viant/agently-core/app/executor/config"
 	appserver "github.com/viant/agently-core/app/server"
 	svcauth "github.com/viant/agently-core/service/auth"
@@ -67,17 +66,25 @@ func RunScheduler(options SchedulerRunOptions) error {
 	wscfg.ApplyPathDefaults(defaults)
 
 	rt, _, _, err := appserver.BuildWorkspaceRuntime(ctx, appserver.RuntimeOptions{
-		WorkspaceRoot:     workspace.Root(),
-		Defaults:          defaults,
-		SchedulerHeadless: true,
-		ConfigureRuntime: func(ctx context.Context, rt *executor.Runtime, workspaceRoot string) {
-			agentlyrt.ConfigureRegistry(ctx, rt, workspaceRoot)
-		},
+		WorkspaceRoot:          workspace.Root(),
+		Defaults:               defaults,
+		SchedulerHeadless:      true,
+		SkipRegistryInitialize: true,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
 	}
 	defer rt.Close(context.Background())
+	cohortConfigPath, err := resolveArtifactCohortConfig(workspace.Root(), "", os.Getenv("AGENTLY_ARTIFACT_COHORT_CONFIG"), wsConfig)
+	if err != nil {
+		return err
+	}
+	_, closeCohorts, err := activateArtifactCohorts(ctx, ctx, rt, cohortConfigPath, nil, nil)
+	defer closeCohorts()
+	if err != nil {
+		return err
+	}
+	agentlyrt.ConfigureRegistry(ctx, rt, workspace.Root())
 	if err := registerSchedulerUIServices(rt); err != nil {
 		return fmt.Errorf("failed to register scheduler UI tools: %w", err)
 	}
