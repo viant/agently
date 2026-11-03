@@ -334,6 +334,9 @@ export function shouldPersistWorkspaceHeight({
   return String(activeWorkspaceWindowId || '').trim() !== '' || hasStoredHeight === true;
 }
 
+const isExplicitWorkspaceNavigation = entry => entry?.workspaceObject?.placement?.preferred === 'workspace'
+  && ['ui/view/open', 'ui/view:open'].includes((entry.workspaceObject.lastActivatedBy || entry.workspaceObject.origin)?.toolName);
+
 export function shouldPromoteFreshWorkspaceSurface({
   activeSurface = 'conversation',
   developerMode = false,
@@ -349,7 +352,10 @@ export function shouldPromoteFreshWorkspaceSurface({
     (row.kind === 'assistant' && !!String(row.content || '').trim() && !['running', 'streaming', 'pending'].includes(row.status))
     || (row.kind === 'iteration' && row.lifecycle === 'completed' && row.rounds?.some((round) => round.finalResponse && !!String(round.content || '').trim()))
   ));
-  return !turnRunning && confirmationCommitted && activeSurface !== 'workspace'
+  const navigationReady = isExplicitWorkspaceNavigation(activeWorkspaceWindow)
+    ? activeWorkspaceWindow.workspaceObject.lifecycle?.state === 'ready'
+    : !turnRunning && confirmationCommitted;
+  return navigationReady && activeSurface !== 'workspace'
     && !!mainConversationId
     && activeWorkspaceWindow?.conversationId === mainConversationId
     && activeWorkspaceWindow?.hostOpenState === 'fresh'
@@ -1392,8 +1398,8 @@ export default function Root() {
     const descriptor = activeWorkspaceWindow.workspaceObject;
     const key = JSON.stringify([mainConversationId, activeWorkspaceWindow.windowId, descriptor.lastActivatedBy?.turnId || descriptor.origin?.turnId]);
     if (activatedWorkspaceIntents.current.has(key)) return;
+    if (!isExplicitWorkspaceNavigation(activeWorkspaceWindow) && sectionNavigation && (window.innerWidth < 1180 || document.activeElement?.matches('textarea, [contenteditable="true"]') || (hasScopedActiveSurfaceSelection(mainConversationId) && getScopedActiveSurface(mainConversationId) === 'conversation'))) return;
     activatedWorkspaceIntents.current.add(key);
-    if (sectionNavigation && (window.innerWidth < 1180 || document.activeElement?.matches('textarea, [contenteditable="true"]') || (hasScopedActiveSurfaceSelection(mainConversationId) && getScopedActiveSurface(mainConversationId) === 'conversation'))) return;
     setWorkspacePresentationMode(sectionNavigation ? 'split' : 'full');
     setActiveSurface('workspace');
   }, [sectionNavigation, activeSurface, activeWorkspaceWindow, developerMode, mainConversationId, selectedWindow?.windowId, setActiveSurface, projectedConversationRows, chatRunning]);

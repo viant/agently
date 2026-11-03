@@ -301,6 +301,17 @@ describe('Root window selection helpers', () => {
     }
   });
 
+  it('shows explicit workspace navigation once admitted, while narration is still running', () => {
+    const input={activeSurface:'conversation',mainConversationId:'example-conversation',selectedWindowId:'example-window',turnRunning:true,conversationRows:[],
+      activeWorkspaceWindow:{windowId:'example-window',conversationId:'example-conversation',hostOpenState:'fresh',workspaceObject:{
+        origin:{turnId:'example-turn',toolName:'ui/view/open'},placement:{preferred:'workspace'},lifecycle:{state:'ready'}}}};
+    expect(shouldPromoteFreshWorkspaceSurface(input)).toBe(true);
+    const previous={windowId:'previous-window',conversationId:'example-conversation',hostOpenState:'historical_replay'};
+    expect(resolveAcknowledgedWorkspaceWindow({candidate:input.activeWorkspaceWindow,windows:[previous,input.activeWorkspaceWindow],conversationId:input.mainConversationId,previousWindowId:previous.windowId})).toBe(input.activeWorkspaceWindow);
+    for(const state of ['opening','failed','closed'])expect(shouldPromoteFreshWorkspaceSurface({...input,activeWorkspaceWindow:{...input.activeWorkspaceWindow,workspaceObject:{...input.activeWorkspaceWindow.workspaceObject,lifecycle:{state}}}})).toBe(false);
+    expect(shouldPromoteFreshWorkspaceSurface({...input,mainConversationId:'another-conversation'})).toBe(false);
+  });
+
   it('does not let a freshly opened hosted workspace overtake the active conversation', () => {
     const freshAdvertiser = {
       windowId: 'advertiser_85141',

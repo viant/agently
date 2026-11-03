@@ -290,6 +290,11 @@ it('keeps document chat beside an opened workspace whenever the available surfac
     expect(surface.classList.contains('is-split')).toBe(false);
     expect(host.querySelector('.app-shell-viewer-controls').classList.contains('is-compact')).toBe(true);
     expect(host.querySelector('[aria-label="Restore split view"]').disabled).toBe(true);
+    const showComposer=host.querySelector('[aria-label="Show composer"]');
+    expect(showComposer).not.toBeNull();
+    await act(async()=>showComposer.click());
+    expect(host.querySelector('textarea')).toBe(draft);
+    expect(host.querySelector('.app-summary-conversation').classList.contains('is-composer-expanded')).toBe(true);
     availableWidth = 760;
     await act(async () => notifyResize());
     expect(surface.classList.contains('is-split')).toBe(true);

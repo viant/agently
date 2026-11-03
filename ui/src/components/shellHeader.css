@@ -48,13 +48,14 @@
 .app-shell-tab-close:hover:not(:disabled) { background: var(--app-surface-soft); }
 .app-shell-tab-close:disabled { opacity: .35; cursor: default; }
 .app-summary-surface-shell.is-document:is(.is-conversation, .is-workspace) { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: row; position: relative; inset: auto; z-index: auto; background: var(--app-surface); }
-.app-summary-surface-shell.is-document.is-workspace:not(.is-split) { position: relative; inset: auto; z-index: auto; background: var(--app-surface); }
+.app-summary-surface-shell.is-document.is-workspace:not(.is-split) { position: relative; inset: auto; z-index: auto; background: var(--app-surface); flex-direction: column; }
 .app-summary-surface-shell.is-document .app-summary-conversation { order: 0; flex: 1; min-width: 0; min-height: 0; overflow: auto; }
 .app-summary-surface-shell.is-document .app-summary-workspace { display: flex; flex-direction: column; overflow: hidden; order: 1; flex: 1; min-width: 0; min-height: 0; margin: 0; border: 0; border-radius: 0; border-inline-start: 1px solid var(--app-border); background: var(--app-surface); }
 .app-summary-surface-shell.is-document .app-summary-workspace.is-surface-hidden { display: none; }
 .app-summary-surface-shell.is-document.is-split .app-summary-workspace { flex: 1; min-height: 0; }
 .app-summary-surface-shell.is-document.is-split .app-summary-conversation { flex: 0 0 380px; min-width: 0; }
 .app-summary-surface-shell.is-document.is-workspace:not(.is-split) .app-summary-conversation { display: none; }
+.app-summary-surface-shell.is-document.is-workspace:not(.is-split) .app-summary-conversation.is-composer-only { display: grid; order: 2; flex: 0 0 auto; overflow: visible; }
 .app-summary-surface-shell.is-document:not(.is-split) .app-summary-workspace { border: 0; }
 .app-summary-surface-shell.is-document .app-summary-workspace-content { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; overflow: auto; padding: 0; }
 .app-shell-ancestor-navigation { display: flex; align-items: center; gap: var(--agently-theme-spacing-2, 8px); padding: var(--agently-theme-spacing-2, 8px); border-bottom: 1px solid var(--app-border); }
