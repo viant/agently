@@ -13,9 +13,11 @@ async function request(path, options = {}) {
 
 export const auditCapabilities = signal => request('/capabilities', {signal}).then(r => r.json());
 export const auditTurns = (filter, signal) => request(`/turns?${new URLSearchParams(filter)}`, {signal}).then(r => r.json());
-export const auditCSV = (filter, signal) => request('/export', {
+const auditExport = (path, filter, signal) => request(path, {
   method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(filter), signal,
 }).then(r => r.blob());
+export const auditCSV = (filter, signal) => auditExport('/export', filter, signal);
+export const auditJSON = (filter, signal) => auditExport('/export/json', filter, signal);
 
 export function auditDuration(milliseconds) {
   if (typeof milliseconds !== 'number' || !Number.isFinite(milliseconds) || milliseconds < 0) return 'unknown';
@@ -29,6 +31,11 @@ export function auditDuration(milliseconds) {
 export function auditFilter(values) {
   const filter = {};
   if (values.userId?.trim()) filter.userId = values.userId.trim();
+  if (values.userIdContains !== undefined) {
+    const fragment = values.userIdContains?.trim();
+    if (!fragment || filter.userId) throw new Error('Enter an owner ID fragment or choose exact ID matching.');
+    filter.userIdContains = fragment;
+  }
   if (values.conversationId?.trim()) {
     filter.conversationId = values.conversationId.trim();
   } else {

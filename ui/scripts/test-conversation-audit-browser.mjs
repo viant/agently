@@ -28,7 +28,11 @@ const csvValues = [row.createdAt, row.id, row.conversationId, row.conversationTi
   row.models.join(', '), row.inputTokens, row.outputTokens, row.executionSpanMs,
   row.feedbackRating, row.feedbackComment, row.modelCalls, row.toolCalls, row.conversationCreatedAt];
 const fixtureCSV = `${csvColumns.join(',')}\n${csvValues.map(value => `"${String(value).replaceAll('"', '""')}"`).join(',')}\n`;
+const jsonRecord = Object.fromEntries(csvColumns.map((key, index) => [key, key === 'models' ? row.models : csvValues[index]]));
+const fixtureJSON = JSON.stringify([jsonRecord]);
 let enabled = true;
+let granted = true;
+let admin = false;
 let paginated = false;
 const reads = [];
 const exports = [];
@@ -60,24 +64,27 @@ const server = await createServer({...config, configFile: false, root, logLevel:
         if (req.url === '/__audit/themes.json') {res.setHeader('Content-Type', 'application/json'); res.end(readFileSync(path.join(core, 'protocol/ui/theme/testdata/baseline.json'))); return;}
         if (!req.url?.startsWith('/v1/api/conversation-audit/')) return next();
         reads.push(req.url);
-        if (req.url.endsWith('/export')) {
+        if (req.url.endsWith('/export') || req.url.endsWith('/export/json')) {
           let input = '';
           for await (const chunk of req) input += chunk;
           exports.push(JSON.parse(input));
-          res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-          res.setHeader('Content-Disposition', 'attachment; filename="conversation-audit.csv"');
-          res.end(fixtureCSV); return;
+          const json = req.url.endsWith('/json');
+          res.setHeader('Content-Type', json ? 'application/json' : 'text/csv; charset=utf-8');
+          res.setHeader('Content-Disposition', `attachment; filename="conversation-audit.${json ? 'json' : 'csv'}"`);
+          res.end(json ? fixtureJSON : fixtureCSV); return;
         }
         let body;
-        if (req.url.endsWith('/capabilities')) body = {uiEnabled: enabled, currentUserId: 'example-user', canAuditAllUsers: false};
+        if (req.url.endsWith('/capabilities')) body = {uiEnabled: enabled, canAudit: granted, currentUserId: 'example-user', canAuditAllUsers: admin};
         else if (req.url.includes('/turns?')) {
           const query = new URL(req.url, 'http://localhost').searchParams;
           const cursor = query.get('cursor');
           const pageNumber = cursor === 'cursor-3' ? 3 : cursor === 'cursor-2' ? 2 : 1;
+          const size = Number(query.get('limit'));
           body = paginated ? {
-            rows: Array.from({length: pageNumber === 3 ? 1 : Number(query.get('limit'))}, (_, i) => ({...row, id: `page-${pageNumber}-turn-${i}`})),
-            ...(pageNumber < 3 ? {nextCursor: `cursor-${pageNumber + 1}`} : {}),
+            rows: Array.from({length: Math.min(size, 21 - (pageNumber - 1) * size)}, (_, i) => ({...row, id: `page-${pageNumber}-turn-${i}`})),
+            ...(pageNumber * size < 21 ? {nextCursor: `cursor-${pageNumber + 1}`} : {}),
           } : {rows: [row]};
+          if (query.get('includeTotal') === 'true') body.totalCount = paginated ? 21 : 1;
         }
         else {res.statusCode = 404; body = {error: 'Unexpected audit route'};}
         res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(body));
@@ -98,10 +105,11 @@ try {
     const failures = [];
     page.on('pageerror', e => {failures.push(e.message); console.error(e.stack);});
     const before = reads.length;
-    // A cold Vite transform of the shared Forge sources can exceed one minute.
-    await page.goto(`${base}/__audit`, {timeout: 120000});
+    // Cold transforms of the shared Forge sources are much slower than a built UI.
+    await page.goto(`${base}/__audit`, {timeout: 240000});
     await page.getByRole('button', {name: 'Search turns', exact: true}).waitFor();
-    assert.equal(await page.getByRole('textbox', {name: 'Conversation owner ID', exact: true}).isEditable(), true);
+    assert.equal(await page.getByRole('textbox', {name: 'User ID', exact: true}).isEditable(), false);
+    assert.equal(await page.getByRole('button', {name: 'Users', exact: true}).count(), 0);
     assert.equal(reads.length, before + 1, 'opening the window must only read capabilities');
     await page.locator('.conversation-audit input').nth(2).click();
     const calendar = page.locator('.conversation-audit .rdp');
@@ -156,6 +164,19 @@ try {
     assert.equal(list.get('includeContent'), 'true');
     assert.deepEqual(exports.at(-1), {userId: 'example-user', from: list.get('from'), to: list.get('to')});
     assert.equal(reads.length, before + 3, 'the window only reads capabilities, the turn list and CSV');
+    assert.equal(list.get('includeTotal'), 'true');
+    assert.equal(list.get('limit'), '10');
+    assert.equal(await table.locator('.toolbar-center').getByText('Page 1 of 1', {exact: true}).count(), 1);
+    assert.equal(await page.getByRole('combobox', {name: 'Rows per page'}).inputValue(), '10');
+    const pageStatus = table.locator('.toolbar-center').getByText('Page 1 of 1', {exact: true});
+    assert.equal(await pageStatus.evaluate(el => el.getClientRects().length === 1 && el.clientHeight < 40), true,
+      'the page label must remain on one line');
+    const sizeBounds = await page.getByRole('combobox', {name: 'Rows per page'}).boundingBox();
+    assert.ok(sizeBounds.width >= 50, 'the page size value must remain readable on a narrow screen');
+    const [jsonDownload] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', {name: 'Export JSON'}).click()]);
+    assert.equal(jsonDownload.suggestedFilename(), 'conversation-audit.json');
+    assert.deepEqual(JSON.parse(readFileSync(await jsonDownload.path(), 'utf8')), [jsonRecord]);
+    assert.deepEqual(exports.at(-1), {userId: 'example-user', from: list.get('from'), to: list.get('to')});
     await page.screenshot({path: path.join(output, `audit-${width}.png`), fullPage: true});
     paginated = true;
     const pagingStart = reads.length;
@@ -164,13 +185,17 @@ try {
     for (const [button, pageNumber] of [['Next Page', 2], ['Next Page', 3], ['Previous Page', 2], ['Next Page', 3], ['First Page', 1]]) {
       await page.getByRole('button', {name: button, exact: true}).click();
       await table.getByText(`page-${pageNumber}-turn-0`, {exact: true}).waitFor();
+      await table.locator('.toolbar-center').getByText(`Page ${pageNumber} of 3`, {exact: true}).waitFor();
     }
     assert.deepEqual(reads.slice(pagingStart).map(url => new URL(url, base).searchParams.get('cursor')),
       [null, 'cursor-2', 'cursor-3', 'cursor-2', 'cursor-3', null]);
+    assert.deepEqual(reads.slice(pagingStart).map(url => new URL(url, base).searchParams.get('includeTotal')),
+      ['true', null, null, null, null, null]);
+    assert.equal(await page.getByRole('button', {name: 'Last Page', exact: true}).isDisabled(), true);
     await page.getByRole('combobox', {name: 'Rows per page'}).selectOption('20');
-    await page.getByText(/Page 1\. 20 turns on this page/).waitFor();
+    await table.locator('.toolbar-center').getByText('Page 1 of 2', {exact: true}).waitFor();
     await page.getByRole('button', {name: 'Next Page', exact: true}).click();
-    await page.getByText(/Page 2\. 20 turns on this page/).waitFor();
+    await table.locator('.toolbar-center').getByText('Page 2 of 2', {exact: true}).waitFor();
     const resized = reads.slice(-2).map(url => new URL(url, base).searchParams);
     assert.deepEqual(resized.map(query => query.get('limit')), ['20', '20']);
     assert.deepEqual(resized.map(query => query.get('cursor')), [null, 'cursor-2']);
@@ -178,7 +203,103 @@ try {
     await page.screenshot({path: path.join(output, `audit-pagination-${width}.png`), fullPage: true});
     assert.deepEqual(failures, []);
     await page.close();
+    admin = true;
+    paginated = false;
+    const adminPage = await browser.newPage({viewport: {width, height: 900}});
+    adminPage.setDefaultTimeout(60000);
+    adminPage.on('pageerror', e => failures.push(e.message));
+    await adminPage.goto(`${base}/__audit`, {timeout: 120000});
+    const owner = adminPage.getByRole('textbox', {name: 'User ID', exact: true});
+    await owner.waitFor();
+    assert.equal(await owner.isEditable(), false);
+    assert.equal(await owner.inputValue(), 'example-user');
+    assert.equal(await adminPage.getByRole('checkbox').count(), 0);
+    const users = adminPage.getByRole('button', {name: 'Users', exact: true});
+    assert.equal(await users.textContent(), 'My conversations');
+    const chooseUsers = async label => {
+      await users.click();
+      await adminPage.getByText(label, {exact: true}).click();
+    };
+    const searchAdmin = async () => {
+      const [result] = await Promise.all([
+        adminPage.waitForResponse(response => response.url().includes('/api/conversation-audit/turns?')),
+        adminPage.getByRole('button', {name: 'Search turns', exact: true}).click(),
+      ]);
+      await adminPage.waitForFunction(() => !document.querySelector('.conversation-audit-actions button:last-of-type').disabled);
+      return new URL(result.url()).searchParams;
+    };
+    let adminQuery = await searchAdmin();
+    assert.equal(adminQuery.get('userId'), 'example-user');
+    const originalDates = [adminQuery.get('from'), adminQuery.get('to')];
+    await users.press('Enter');
+    await adminPage.getByText('User ID contains', {exact: true}).waitFor();
+    await adminPage.keyboard.press('Escape');
+    await adminPage.getByText('User ID contains', {exact: true}).waitFor({state: 'hidden'});
+    await chooseUsers('User ID contains');
+    assert.equal(await owner.isEditable(), true);
+    await owner.fill('Team_%*');
+    assert.equal(await adminPage.getByRole('button', {name: 'Export CSV'}).isDisabled(), true);
+    assert.equal(await adminPage.getByRole('button', {name: 'Export JSON'}).isDisabled(), true);
+    adminQuery = await searchAdmin();
+    assert.equal(adminQuery.get('userIdContains'), 'Team_%*');
+    assert.equal(adminQuery.has('userId'), false);
+    for (const format of ['CSV', 'JSON']) {
+      await Promise.all([adminPage.waitForEvent('download'), adminPage.getByRole('button', {name: `Export ${format}`}).click()]);
+      assert.equal(exports.at(-1).userIdContains, 'Team_%*');
+      assert.equal(Object.hasOwn(exports.at(-1), 'userId'), false);
+    }
+    assert.deepEqual([adminQuery.get('from'), adminQuery.get('to')], originalDates);
+    await adminPage.screenshot({path: path.join(output, `audit-admin-${width}.png`), fullPage: true});
+    await chooseUsers('Exact user ID');
+    assert.equal(await owner.inputValue(), 'Team_%*');
+    adminQuery = await searchAdmin();
+    assert.equal(adminQuery.get('userId'), 'Team_%*');
+    assert.equal(adminQuery.has('userIdContains'), false);
+    await owner.fill('  ');
+    const blankBefore = reads.length;
+    await adminPage.getByRole('button', {name: 'Search turns', exact: true}).click();
+    await adminPage.getByRole('alert').filter({hasText: 'Enter a user ID or select All users.'}).waitFor();
+    assert.equal(reads.length, blankBefore);
+    await owner.fill('Team_%*');
+    await chooseUsers('All users');
+    assert.equal(await owner.isDisabled(), true);
+    assert.equal(await owner.inputValue(), '');
+    assert.equal(await owner.getAttribute('placeholder'), 'All users');
+    assert.equal(await adminPage.getByRole('button', {name: 'Export CSV'}).isDisabled(), true);
+    adminQuery = await searchAdmin();
+    assert.equal(adminQuery.has('userId'), false);
+    assert.equal(adminQuery.has('userIdContains'), false);
+    assert.deepEqual([adminQuery.get('from'), adminQuery.get('to')], originalDates);
+    for (const format of ['CSV', 'JSON']) {
+      await Promise.all([adminPage.waitForEvent('download'), adminPage.getByRole('button', {name: `Export ${format}`}).click()]);
+      assert.equal(Object.hasOwn(exports.at(-1), 'userId'), false);
+      assert.equal(Object.hasOwn(exports.at(-1), 'userIdContains'), false);
+    }
+    assert.equal(await adminPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await adminPage.screenshot({path: path.join(output, `audit-admin-all-${width}.png`), fullPage: true});
+    await chooseUsers('My conversations');
+    assert.equal(await owner.isEditable(), false);
+    assert.equal(await owner.inputValue(), 'example-user');
+    adminQuery = await searchAdmin();
+    assert.equal(adminQuery.get('userId'), 'example-user');
+    assert.equal(adminQuery.has('userIdContains'), false);
+    const beforeSwitch = reads.length;
+    await chooseUsers('User ID contains');
+    assert.equal(await owner.inputValue(), 'Team_%*');
+    assert.equal(reads.length, beforeSwitch, 'changing scope must not fetch conversation data');
+    assert.deepEqual(failures, []);
+    await adminPage.close();
+    admin = false;
   }
+  granted = false;
+  const denied = await browser.newPage();
+  const deniedBefore = reads.length;
+  await denied.goto(`${base}/__audit`, {timeout: 120000});
+  await denied.getByText('You do not have conversation audit access.').waitFor();
+  assert.equal(await denied.getByRole('button', {name: 'Search turns'}).count(), 0);
+  assert.equal(reads.length, deniedBefore + 1);
+  await denied.close();
+  granted = true;
   enabled = false;
   const page = await browser.newPage();
   const before = reads.length;
@@ -186,7 +307,7 @@ try {
   await page.getByText(/experimental audit window is disabled/).waitFor();
   assert.equal(reads.length, before + 1);
   await page.close();
-  console.log(`Audit browser checks passed (1440px, 390px, UI disabled). Screenshots: ${output}`);
+  console.log(`Audit browser checks passed (1440px, 390px, ordinary/admin/denied, UI disabled). Screenshots: ${output}`);
 } finally {
   await browser?.close();
   await server.close();

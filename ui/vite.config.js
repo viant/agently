@@ -155,6 +155,7 @@ export default defineConfig(({ mode, command }) => {
         'react-dom': resolve(appNodeModules, 'react-dom'),
         '@preact/signals-react': resolve(appNodeModules, '@preact/signals-react'),
         '@blueprintjs/datetime2': sharedDependency('@blueprintjs/datetime2'),
+        '@blueprintjs/select': sharedDependency('@blueprintjs/select'),
         '@blueprintjs/datetime': sharedDependency('@blueprintjs/datetime'),
         'react-rnd': sharedDependency('react-rnd'),
         'lucide-react': resolve(sharedDependency('lucide-react'), 'dist/esm/lucide-react.mjs'),
@@ -224,7 +225,7 @@ export default defineConfig(({ mode, command }) => {
     test: {
       // Prebundle linked CJS UI dependencies with the same React runtime as
       // the app; native Node require would resolve Forge's second React copy.
-      deps: { optimizer: { web: { enabled: true, include: ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'react-dom', 'lucide-react', '@blueprintjs/core', '@blueprintjs/datetime2', 'react-rnd', 're-resizable', 'react-draggable'] } } },
+      deps: { optimizer: { web: { enabled: true, include: ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'react-dom', 'lucide-react', '@blueprintjs/core', '@blueprintjs/select', '@blueprintjs/datetime2', 'react-rnd', 're-resizable', 'react-draggable'] } } },
       exclude: [
         '**/node_modules/**',
         '**/dist/**',

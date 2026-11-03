@@ -12,3 +12,15 @@
   margin-block: var(--forge-spacing-3, 12px);
 }
 .conversation-audit-table { min-width: 0; max-width: 100%; overflow: auto; }
+.conversation-audit-table .pagination-bar > div {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.conversation-audit-table .forge-toolbar-status { white-space: nowrap; }
+@media (max-width: 600px) {
+  .conversation-audit-table .pagination-bar label {
+    order: 1;
+    flex-basis: 100%;
+    justify-content: center;
+  }
+}

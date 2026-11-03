@@ -446,13 +446,13 @@ func Serve(options ServeOptions) error {
 		return fmt.Errorf("configure navigation menu: %w", err)
 	}
 	apiTiming := observe.Start(startupCtx, "startup.api.build", observe.Labels{})
-	auditOptions, err := conversationAuditOptions()
+	auditOptions, err := conversationAuditOptions(wsConfig)
 	if err != nil {
 		return err
 	}
 	apiHandler, err := appserver.NewAPIHandler(startupCtx, appserver.APIOptions{
 		ConversationAudit:          auditOptions,
-		LayoutDecorator:            conversationAuditLayout(auditOptions.UIEnabled),
+		LayoutDecorator:            conversationAuditLayout(auditOptions),
 		PublishedWindowBindings:    publishedBindings,
 		MenuReader:                 menuReader,
 		MCPUIResourceReader:        hostedAppReader,
@@ -491,7 +491,7 @@ func Serve(options ServeOptions) error {
 	// Forge metadata contains workspace-owned datasource contracts, schemas,
 	// dialogs, and internal endpoint mappings. Protect the complete metadata
 	// surface whenever workspace authentication is enabled.
-	metaHandler := withForgeMetadataAuth(withConversationAuditWindow(rawMetaHandler, auditOptions.UIEnabled), authRuntime)
+	metaHandler := withForgeMetadataAuth(withConversationAuditWindow(rawMetaHandler, auditOptions), authRuntime)
 	uiBundle := servedUIBundle{Name: "v1", FS: deployui.FS, Index: deployui.Index}
 
 	h := newRouter(apiHandler, metaHandler, speechHandler, uiDist, uiBundle)

@@ -2,17 +2,25 @@
 import React from 'react';
 import {readFileSync} from 'node:fs';
 import {afterEach, beforeEach, expect, it, vi} from 'vitest';
-import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {act, cleanup, configure, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {SettingProvider, activeWindows, addWindow, selectedTabId, selectedWindowId} from 'forge/core';
 import ConversationAuditWindow from './ConversationAuditWindow.jsx';
 import AppSectionContent from './AppSectionContent.jsx';
 import SectionNavigation from './SectionNavigation.jsx';
 import {auditFilter, auditDuration} from '../services/conversationAudit.js';
 
+// These integration tests render the real Forge table and its full set of cells.
+vi.setConfig({testTimeout: 20000});
+configure({asyncUtilTimeout: 5000});
+
 const response = body => ({ok: true, json: async () => body});
 const readHostSource = path => readFileSync(new URL(path, import.meta.url), 'utf8');
-const capabilities = {uiEnabled: true, currentUserId: 'alice', canAuditAllUsers: false};
+const capabilities = {uiEnabled: true, canAudit: true, currentUserId: 'alice', canAuditAllUsers: false};
 const mount = () => render(<SettingProvider endpoints={{}} connectorConfig={{}} services={{}}><ConversationAuditWindow/></SettingProvider>);
+const chooseUsers = async label => {
+  fireEvent.click(screen.getByRole('button', {name: 'Users', exact: true}));
+  fireEvent.click(await screen.findByText(label, {exact: true}));
+};
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn());
   // jsdom has no layout observer; the real shared table uses the browser API.
@@ -99,6 +107,8 @@ it('uses real shared controls to search and refresh without opening turn details
   expect(url.searchParams.get('from')).toBeTruthy();
   expect(url.searchParams.get('to')).toBeTruthy();
   expect(url.searchParams.get('includeContent')).toBe('true');
+  expect(url.searchParams.get('includeTotal')).toBe('true');
+  expect(url.searchParams.get('limit')).toBe('10');
   expect(screen.getByRole('button', {name: 'Export CSV'}).disabled).toBe(false);
   const table = document.querySelector('.conversation-audit-table');
   await within(table).findByText('Example', {exact: true});
@@ -194,13 +204,18 @@ it('keeps cursor history across three full pages, refresh and changed filters', 
     queries.push(query);
     const cursor = query.get('cursor');
     const page = cursor === 'cursor-3' ? 3 : cursor === 'cursor-2' ? 2 : 1;
-    return response({rows: Array.from({length: page === 3 ? 1 : Number(query.get('limit'))}, (_, i) => ({
+    const size = Number(query.get('limit'));
+    return response({rows: Array.from({length: Math.min(size, 21 - (page - 1) * size)}, (_, i) => ({
       id: `turn-${page}-${i}`, conversationId: 'example', conversationTitle: `Page ${page} row ${i}`,
-    })), ...(page < 3 ? {nextCursor: `cursor-${page + 1}`} : {})});
+    })), ...((page * size < 21) ? {nextCursor: `cursor-${page + 1}`} : {}),
+    ...(query.get('includeTotal') === 'true' ? {totalCount: 21} : {})});
   });
   mount();
   fireEvent.click(await screen.findByRole('button', {name: 'Search turns'}));
   await screen.findByText('Page 1 row 0');
+  const bar = () => document.querySelector('.conversation-audit-table .toolbar-center');
+  expect(within(bar()).getByText('Page 1 of 3')).toBeTruthy();
+  expect(screen.getByRole('combobox', {name: 'Rows per page'}).value).toBe('10');
   const go = async (label, title) => {
     const button = screen.getByRole('button', {name: label, exact: true});
     await waitFor(() => expect(button.disabled).toBe(false));
@@ -208,6 +223,7 @@ it('keeps cursor history across three full pages, refresh and changed filters', 
     await screen.findByText(title, {exact: true});
   };
   await go('Next Page', 'Page 2 row 0');
+  expect(within(bar()).getByText('Page 2 of 3')).toBeTruthy();
   await go('Next Page', 'Page 3 row 0');
   expect(screen.getByRole('button', {name: 'Next Page'}).disabled).toBe(true);
   await go('Previous Page', 'Page 2 row 0');
@@ -215,42 +231,244 @@ it('keeps cursor history across three full pages, refresh and changed filters', 
   await go('First Page', 'Page 1 row 0');
   await go('Next Page', 'Page 2 row 0');
   await go('Refresh', 'Page 1 row 0');
-  expect(screen.getByText(/Page 1\. 50 turns on this page/)).toBeTruthy();
+  expect(screen.getByText(/10 turns on this page/)).toBeTruthy();
+  expect(queries.map(query => query.get('includeTotal'))).toEqual(['true', null, null, null, null, null, null, 'true']);
   expect(queries.map(query => query.get('cursor'))).toEqual([
     null, 'cursor-2', 'cursor-3', 'cursor-2', 'cursor-3', null, 'cursor-2', null,
   ]);
   await go('Next Page', 'Page 2 row 0');
   fireEvent.change(screen.getByRole('combobox', {name: 'Rows per page'}), {target: {value: '20'}});
-  await screen.findByText(/Page 1\. 20 turns on this page/);
+  await screen.findByText(/20 turns on this page/);
+  expect(within(bar()).getByText('Page 1 of 2')).toBeTruthy();
+  expect(queries.at(-1).has('includeTotal')).toBe(false);
   expect(queries.at(-1).has('cursor')).toBe(false);
   expect(queries.at(-1).get('limit')).toBe('20');
   await go('Next Page', 'Page 2 row 0');
   expect(queries.at(-1).get('limit')).toBe('20');
-  fireEvent.change(screen.getByRole('textbox', {name: 'Conversation owner ID'}), {target: {value: 'bob'}});
+  expect(within(bar()).getByText('Page 2 of 2')).toBeTruthy();
+  await chooseUsers('Exact user ID');
+  fireEvent.change(screen.getByRole('textbox', {name: 'User ID', exact: true}), {target: {value: 'bob'}});
   await waitFor(() => expect(screen.getByRole('button', {name: 'Next Page'}).disabled).toBe(true));
   await go('Search turns', 'Page 1 row 0');
   await waitFor(() => expect(queries.at(-1).get('userId')).toBe('bob'));
   expect(queries.at(-1).has('cursor')).toBe(false);
+  expect(queries.at(-1).get('includeTotal')).toBe('true');
 }, 30000);
 
-it('allows editing owner ID but handles a server denial without showing another owner’s data', async () => {
+it('shows empty results as Page 1 of 1 inside the navigation bar', async () => {
+  fetch.mockImplementation(async url => url.endsWith('/capabilities') ? response(capabilities) : response({rows: [], totalCount: 0}));
+  mount();
+  fireEvent.click(await screen.findByRole('button', {name: 'Search turns'}));
+  await screen.findByText(/0 turns on this page/);
+  expect(within(document.querySelector('.toolbar-center')).getByText('Page 1 of 1')).toBeTruthy();
+  expect(screen.getByRole('button', {name: 'Next Page'}).disabled).toBe(true);
+  expect(screen.getByRole('button', {name: 'Last Page'}).disabled).toBe(true);
+});
+
+it('preserves the last successful page and total after a failed page request', async () => {
+  let fail = false;
   fetch.mockImplementation(async url => {
     if (url.endsWith('/capabilities')) return response(capabilities);
-    const owner = new URL(url, 'https://example.invalid').searchParams.get('userId');
-    return owner === 'bob' ? {ok: false, status: 403, json: async () => ({error: 'audit access denied'})}
-      : response({rows: [{id: 'own-turn', conversationTitle: 'Own conversation'}]});
+    if (fail) return {ok: false, json: async () => ({error: 'Synthetic read failure'})};
+    return response({rows: [{id: 'saved', conversationTitle: 'Saved result'}], nextCursor: 'next', totalCount: 80});
   });
   mount();
-  const owner = await screen.findByRole('textbox', {name: 'Conversation owner ID'});
-  expect(owner.readOnly).toBe(false);
+  fireEvent.click(await screen.findByRole('button', {name: 'Search turns'}));
+  await screen.findByText('Saved result');
+  fail = true;
+  await waitFor(() => expect(screen.getByRole('button', {name: 'Next Page'}).disabled).toBe(false));
+  fireEvent.click(screen.getByRole('button', {name: 'Next Page'}));
+  await screen.findByText('Synthetic read failure');
+  expect(screen.getByText('Saved result')).toBeTruthy();
+  expect(within(document.querySelector('.toolbar-center')).getByText('Page 1 of 8')).toBeTruthy();
+  expect(screen.getByRole('button', {name: 'Previous Page'}).disabled).toBe(true);
+});
+
+it('exports JSON with applied filters and blocks both exports until completion', async () => {
+  const blob = new Blob(['[]'], {type: 'application/json'});
+  const create = vi.fn(() => 'blob:synthetic');
+  vi.stubGlobal('URL', class extends URL {static createObjectURL = create; static revokeObjectURL = vi.fn();});
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  let finish;
+  fetch.mockImplementation(async (url, options) => {
+    if (url.endsWith('/capabilities')) return response(capabilities);
+    if (url.endsWith('/export/json')) return new Promise(resolve => {finish = () => resolve({ok: true, blob: async () => blob});});
+    return response({rows: [], totalCount: 0});
+  });
+  try {
+    mount();
+    expect((await screen.findByRole('button', {name: 'Export JSON'})).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', {name: 'Search turns'}));
+    await screen.findByText(/0 turns on this page/);
+    const applied = new URL(fetch.mock.calls.at(-1)[0], 'https://example.invalid').searchParams;
+    fireEvent.click(screen.getByRole('button', {name: 'Export JSON'}));
+    await waitFor(() => expect(finish).toBeTypeOf('function'));
+    expect(screen.getByRole('button', {name: 'Export CSV'}).disabled).toBe(true);
+    expect(screen.getByRole('button', {name: 'Export JSON'}).disabled).toBe(true);
+    const [url, options] = fetch.mock.calls.at(-1);
+    expect(url).toMatch(/\/export\/json$/);
+    expect(options.credentials).toBe('include');
+    expect(JSON.parse(options.body)).toEqual({userId: 'alice', from: applied.get('from'), to: applied.get('to')});
+    await act(async () => finish());
+    await waitFor(() => expect(click).toHaveBeenCalledOnce());
+    expect(click.mock.instances[0].download).toBe('conversation-audit.json');
+    expect(create).toHaveBeenCalledWith(blob);
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:synthetic'), {timeout: 2000});
+    fireEvent.change(screen.getByRole('textbox', {name: 'Conversation ID (optional)'}), {target: {value: 'changed'}});
+    await waitFor(() => expect(screen.getByRole('button', {name: 'Export JSON'}).disabled).toBe(true));
+  } finally {click.mockRestore();}
+});
+
+it('aborts pending requests on close and ignores a late response', async () => {
+  let late, oldSignal, requests = 0;
+  fetch.mockImplementation(async (url, options) => {
+    if (url.endsWith('/capabilities')) return response(capabilities);
+    requests++;
+    if (requests === 1) return response({rows: [{id: 'saved', conversationTitle: 'Saved result'}], totalCount: 80});
+    if (requests === 2) {
+      oldSignal = options.signal;
+      return new Promise(resolve => {late = () => resolve(response({rows: [], totalCount: 0}));});
+    }
+    throw new Error('Unexpected request');
+  });
+  const view = mount();
+  fireEvent.click(await screen.findByRole('button', {name: 'Search turns'}));
+  await screen.findByText('Saved result');
+  fireEvent.click(screen.getByRole('button', {name: 'Refresh'}));
+  await waitFor(() => expect(late).toBeTypeOf('function'));
+  expect(screen.getByText('Saved result')).toBeTruthy();
+  expect(within(document.querySelector('.toolbar-center')).getByText('Page 1 of 8')).toBeTruthy();
+  view.unmount();
+  expect(oldSignal.aborted).toBe(true);
+  await act(async () => late());
+  expect(screen.queryByText('Saved result')).toBeNull();
+  expect(requests).toBe(2);
+});
+
+it('locks an ordinary owner and uses the server identity even if the form is tampered with', async () => {
+  fetch.mockImplementation(async url => url.endsWith('/capabilities') ? response(capabilities) : response({rows: []}));
+  mount();
+  const owner = await screen.findByRole('textbox', {name: 'User ID', exact: true});
+  expect(owner.readOnly).toBe(true);
   expect(screen.queryByRole('checkbox', {name: /All users/})).toBeNull();
-  expect(screen.getByText(/Other owners require additional audit access/)).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', {name: 'Search turns'}));
-  await screen.findByText('Own conversation');
+  expect(screen.queryByRole('button', {name: 'Users', exact: true})).toBeNull();
   fireEvent.change(owner, {target: {value: 'bob'}});
   fireEvent.click(screen.getByRole('button', {name: 'Search turns'}));
-  await screen.findByRole('alert');
-  expect(screen.getByRole('alert').textContent).toContain('audit access denied');
+  await screen.findByText(/0 turns on this page/);
+  expect(new URL(fetch.mock.calls.at(-1)[0], 'https://example.invalid').searchParams.get('userId')).toBe('alice');
+});
+
+it('blocks restored windows without a grant before mounting any data controls', async () => {
+  fetch.mockResolvedValue(response({...capabilities, canAudit: false}));
+  mount();
+  await screen.findByText(/You do not have conversation audit access/);
+  expect(screen.queryByRole('textbox')).toBeNull();
+  expect(screen.queryByRole('button', {name: 'Search turns'})).toBeNull();
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it('lets admins explicitly select their own, exact, fragment and all-user scopes', async () => {
+  const queries = [];
+  fetch.mockImplementation(async url => {
+    if (url.endsWith('/capabilities')) return response({...capabilities, canAuditAllUsers: true});
+    queries.push(new URL(url, 'https://example.invalid').searchParams);
+    return response({rows: [], nextCursor: 'next', totalCount: 21});
+  });
+  mount();
+  const owner = await screen.findByRole('textbox', {name: 'User ID', exact: true});
+  expect(owner.readOnly).toBe(true);
+  expect(owner.value).toBe('alice');
+  expect(screen.queryByRole('checkbox')).toBeNull();
+  expect(screen.queryByRole('button', {name: 'Owner matching'})).toBeNull();
+  const search = async () => {
+    const before = queries.length;
+    fireEvent.click(screen.getByRole('button', {name: 'Search turns'}));
+    await waitFor(() => expect(queries).toHaveLength(before + 1));
+    await waitFor(() => expect(screen.getByRole('button', {name: 'Refresh'}).disabled).toBe(false));
+    return queries.at(-1);
+  };
+  let query = await search();
+  expect(query.get('userId')).toBe('alice');
+  expect(query.has('userIdContains')).toBe(false);
+  await chooseUsers('User ID contains');
+  expect(owner.readOnly).toBe(false);
+  fireEvent.change(owner, {target: {value: ' Team_%* '}});
+  expect(queries).toHaveLength(1);
+  for (const label of ['Export CSV', 'Export JSON', 'Refresh', 'Next Page']) {
+    expect(screen.getByRole('button', {name: label, exact: true}).disabled).toBe(true);
+  }
+  query = await search();
+  expect(query.get('userIdContains')).toBe('Team_%*');
+  expect(query.has('userId')).toBe(false);
+  await chooseUsers('Exact user ID');
+  expect(owner.value).toBe(' Team_%* ');
   expect(screen.getByRole('button', {name: 'Export CSV'}).disabled).toBe(true);
-  expect(new URL(fetch.mock.calls.at(-1)[0], 'https://example.invalid').searchParams.get('userId')).toBe('bob');
+  query = await search();
+  expect(query.get('userId')).toBe('Team_%*');
+  expect(query.has('userIdContains')).toBe(false);
+  expect(query.has('cursor')).toBe(false);
+  await chooseUsers('All users');
+  expect(owner.value).toBe('');
+  expect(owner.placeholder).toBe('All users');
+  expect(owner.disabled).toBe(true);
+  query = await search();
+  expect(query.has('userId')).toBe(false);
+  expect(query.has('userIdContains')).toBe(false);
+  expect(query.get('from')).toBeTruthy();
+  expect(query.get('to')).toBeTruthy();
+  expect(query.get('includeTotal')).toBe('true');
+  await chooseUsers('My conversations');
+  expect(owner.disabled).toBe(false);
+  expect(owner.readOnly).toBe(true);
+  expect(owner.value).toBe('alice');
+  fireEvent.change(owner, {target: {value: 'tampered'}});
+  query = await search();
+  expect(query.get('userId')).toBe('alice');
+  expect(query.has('userIdContains')).toBe(false);
+});
+
+it('preserves the owner text, conversation and edited dates across scope switches without fetching', async () => {
+  fetch.mockResolvedValue(response({...capabilities, canAuditAllUsers: true}));
+  mount();
+  const owner = await screen.findByRole('textbox', {name: 'User ID', exact: true});
+  const conversation = screen.getByRole('textbox', {name: 'Conversation ID (optional)'});
+  const from = screen.getByText('Conversation created from', {exact: true}).closest('.forge-control-wrapper').querySelector('input');
+  const to = screen.getByText('Conversation created before', {exact: true}).closest('.forge-control-wrapper').querySelector('input');
+  fireEvent.change(from, {target: {value: '2026-10-01 08:00'}});
+  fireEvent.blur(from);
+  fireEvent.change(to, {target: {value: '2026-10-02 08:00'}});
+  fireEvent.blur(to);
+  fireEvent.change(conversation, {target: {value: 'keep-conversation'}});
+  await chooseUsers('Exact user ID');
+  fireEvent.change(owner, {target: {value: ' keep_owner_%* '}});
+  for (const scope of ['All users', 'My conversations', 'User ID contains', 'Exact user ID']) {
+    await chooseUsers(scope);
+    expect(conversation.value).toBe('keep-conversation');
+    expect(from.value).toBe('2026-10-01 08:00');
+    expect(to.value).toBe('2026-10-02 08:00');
+    if (scope === 'Exact user ID' || scope === 'User ID contains') expect(owner.value).toBe(' keep_owner_%* ');
+  }
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it('rejects blank exact IDs and fragments instead of silently searching all users', async () => {
+  fetch.mockResolvedValue(response({...capabilities, canAuditAllUsers: true}));
+  mount();
+  const owner = await screen.findByRole('textbox', {name: 'User ID', exact: true});
+  for (const scope of ['Exact user ID', 'User ID contains']) {
+    await chooseUsers(scope);
+    fireEvent.change(owner, {target: {value: '  '}});
+    fireEvent.click(screen.getByRole('button', {name: 'Search turns'}));
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('select All users'));
+    expect(screen.getByRole('button', {name: 'Export CSV'}).disabled).toBe(true);
+    expect(screen.getByRole('button', {name: 'Export JSON'}).disabled).toBe(true);
+  }
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it('rejects empty or ambiguous fragments and preserves literal characters', () => {
+  const bounds = {from: '2026-11-01', to: '2026-11-02'};
+  expect(() => auditFilter({...bounds, userIdContains: ' '})).toThrow(/fragment/);
+  expect(() => auditFilter({...bounds, userId: 'alice', userIdContains: 'ali'})).toThrow();
+  expect(auditFilter({...bounds, userIdContains: " %_*' "}).userIdContains).toBe("%_*'");
 });
