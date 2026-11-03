@@ -128,6 +128,8 @@ export async function verifyDocumentChat(page, {touch = false} = {}) {
   const back = home.getByRole('button', {name:'New Chat', exact:true});
   await back.waitFor();
   await waitForDraft('Review this example.');
+  // Finish the task-selection focus frame before testing keyboard navigation.
+  await page.clock.runFor(32);
   assert.equal(await homeField.inputValue(), 'Review this example.');
   await homeField.fill('Edited starter request.');
   const returnGeometry = await back.evaluate(node => {
