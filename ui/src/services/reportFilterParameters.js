@@ -22,7 +22,7 @@ export function initializeReportFilterParameters(definition = {}, parameters = {
     const start = alias(predicate.prefill?.start, predicate.startParamPath);
     const end = alias(predicate.prefill?.end, predicate.endParamPath);
     if (!start || !end || start === end || !value || typeof value !== 'object') continue;
-    const range = date(value.start) && date(value.end) ? value : resolveReportRelativeDateRangeSpec(value, now, builder.request);
+    const range = date(value.start) && date(value.end) ? value : own(predicate, 'datePresets') ? null : resolveReportRelativeDateRangeSpec(value, now, builder.request);
     if (!range || !date(range.start) || !date(range.end) || range.start > range.end) continue;
     if (!own(next, start)) next[start] = range.start;
     if (!own(next, end)) next[end] = range.end;

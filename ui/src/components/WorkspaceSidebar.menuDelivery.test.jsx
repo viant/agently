@@ -582,3 +582,27 @@ it.each(['agently:session-reset','agently:logout','agently:authorized'])('discar
   expect(screen.getByRole('button',{name:'Public summary',exact:true})).toBeTruthy();
   expect(screen.queryByRole('button',{name:'Restricted records',exact:true})).toBeNull();
 });
+
+it.each(['split', 'sections'])('renders portable group and leaf drawings while preserving %s navigation actions', async presentation => {
+  // Independently authored shapes exercise filled outlines and stroke geometry.
+  const groupIcon = {viewBox: [0, 0, 20, 20], paths: ['M2 3L17 3L9 18Z'], fill: 'currentColor', stroke: 'none'};
+  const leafIcon = {viewBox: [0, 0, 24, 24], rects: [{x: 3, y: 4, width: 17, height: 15, rx: 2}]};
+  const payload = layoutPayload({applications: [{id: 'tools', title: 'Tools', menus: [{id: 'group', title: 'Shapes', iconSvg: groupIcon, children: [
+    {id: 'leaf', title: 'Inspect shape', iconSvg: leafIcon, action: {type: 'window', windowKey: 'shapeInspector', parameters: {shape: 7}}},
+  ]}]}]});
+  payload.layout.left.navigation.presentation = presentation;
+  fetch.mockResolvedValue(response(payload));
+  const onSectionChange = vi.fn();
+  render(<WorkspaceSidebar section="workspaces" onSectionChange={onSectionChange}/>);
+  const group = await screen.findByRole('button', {name: 'Shapes'});
+  expect(group.querySelector('svg[viewBox="0 0 20 20"]')?.getAttribute('fill')).toBe('currentColor');
+  expect(group.querySelector('svg[viewBox="0 0 20 20"]')?.getAttribute('stroke')).toBe('none');
+  const leaf = screen.getByRole('button', {name: 'Inspect shape'});
+  expect(leaf.querySelector('svg[viewBox="0 0 24 24"] rect')?.getAttribute('width')).toBe('17');
+  fireEvent.click(group);
+  expect(screen.queryByRole('button', {name: 'Inspect shape'})).toBeNull();
+  fireEvent.click(group);
+  fireEvent.click(screen.getByRole('button', {name: 'Inspect shape'}));
+  if (presentation === 'sections') expect(onSectionChange).toHaveBeenCalledWith('workspaces', JSON.stringify(['tools', 'group', 'leaf']));
+  else expect(openWindow).toHaveBeenCalledWith('shapeInspector', 'Inspect shape', [], expect.objectContaining({parameters: {shape: 7}}));
+});

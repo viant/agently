@@ -231,6 +231,8 @@ export default defineConfig(({ mode, command }) => {
         '**/dist/**',
         '**/.cache/**',
         'vite.config.test.mjs',
+        // Standalone Node assertions run in test:asset-recovery.
+        'scripts/criticalModulePreload.test.mjs',
         'src/services/forgeFenceContract.test.mjs',
         'src/components/lookups/chipEditing.test.mjs',
         'src/components/lookups/forgeBridge.test.mjs',

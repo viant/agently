@@ -236,73 +236,31 @@ func Serve(options ServeOptions) error {
 		SkipRegistryInitialize: true,
 		Defaults:               defaults,
 		ConfigureBuilder:       configureBuilder,
-		ConfigureRuntime: func(ctx context.Context, rt *executor.Runtime, workspaceRoot string) {
-			agentlyrt.ConfigureRegistry(ctx, rt, workspaceRoot)
-		},
 	})
 	runtimeTiming.End(observe.OutcomeFor(err), observe.CacheBypass)
 	if err != nil {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
 	}
 	defer rt.Close(context.Background())
-	// Close all prepared providers even if a later registration or preload fails.
-	defer func() {
-		for _, binding := range options.ArtifactCohorts {
-			if binding.Close != nil {
-				binding.Close()
-			}
-		}
-	}()
+	closeCohorts := func() { closeArtifactCohorts(options.ArtifactCohorts) }
+	defer func() { closeCohorts() }()
 	cohortConfigPath, err := resolveArtifactCohortConfig(workspace.Root(), options.ArtifactCohortConfigPath, os.Getenv("AGENTLY_ARTIFACT_COHORT_CONFIG"), wsConfig)
 	if err != nil {
 		return err
 	}
-	if cohortConfigPath != "" {
-		bindings, prepareErr := cohort.PrepareLocalBindings(startupCtx, rt, cohortConfigPath)
-		if prepareErr != nil {
-			return fmt.Errorf("local artifact cohort activation: %w", prepareErr)
-		}
-		options.ArtifactCohorts = append(options.ArtifactCohorts, bindings...)
+	bindings, closeCohorts, err := activateArtifactCohorts(startupCtx, ctx, rt, cohortConfigPath, options.ArtifactCohorts, options.ArtifactCohortRegistrations)
+	if err != nil {
+		return err
 	}
-	for _, registration := range options.ArtifactCohortRegistrations {
-		binding, prepareErr := cohort.PrepareBinding(startupCtx, rt, registration)
-		if prepareErr != nil {
-			return fmt.Errorf("artifact cohort registration: %w", prepareErr)
-		}
-		options.ArtifactCohorts = append(options.ArtifactCohorts, binding)
-	}
+	options.ArtifactCohorts = bindings
+	agentlyrt.ConfigureRegistry(ctx, rt, workspace.Root())
 	cohortSources := map[string]ui.PublishedWindowSource{}
 	cohortNamespaces := map[string][]string{}
 	for _, binding := range options.ArtifactCohorts {
 		providerIdentity := strings.TrimSpace(binding.ProviderIdentity)
-		if providerIdentity == "" || binding.Source == nil {
-			return fmt.Errorf("invalid artifact cohort provider registration")
-		}
-		if binding.Start != nil {
-			if err := binding.Start(startupCtx); err != nil {
-				return fmt.Errorf("artifact cohort notifications %s: %w", providerIdentity, err)
-			}
-		}
-		preloadTiming := observe.Start(startupCtx, "startup.provider.preload", observe.Labels{Kind: "artifact"})
-		if err := binding.Source.Sync(startupCtx); err != nil {
-			preloadTiming.End(observe.OutcomeFor(err), observe.CacheUnknown)
-			return fmt.Errorf("artifact cohort preload %s: %w", providerIdentity, err)
-		}
-		preloadTiming.End(observe.OK, observe.CacheUnknown)
-		if binding.ConnectionName == "" || binding.Metadata == nil {
-			return fmt.Errorf("artifact cohort metadata source is required for %s", providerIdentity)
-		}
-		if err := rt.InstallPublishedMetadata(resources.Connection{Name: binding.ConnectionName, ProviderIdentity: providerIdentity}, binding.Namespaces, binding.Metadata, binding.ConnectionAliases...); err != nil {
-			return fmt.Errorf("install artifact cohort metadata %s: %w", providerIdentity, err)
-		}
-		log.Printf("artifact cohort ready: connection=%q aliases=%q provider=%q namespaces=%q metadata=local", binding.ConnectionName, binding.ConnectionAliases, providerIdentity, binding.Namespaces)
-		defer cohort.StartReconciliation(ctx, binding)()
 		cohortSources[providerIdentity] = cohort.WindowSourceFunc(func(ctx context.Context, uri string, target *forgetypes.WindowTarget) (*forgetypes.WindowResourceVariant, string, error) {
 			return rt.PrimitiveProviders.OpenPublishedWindowVariantForProvider(ctx, providerIdentity, uri, target)
 		})
-		// Metadata registration rejects overlapping namespace claims above. A
-		// provider can expose several disjoint endpoints; retain every claim for
-		// the shared window source instead of replacing its earlier namespaces.
 		cohortNamespaces[providerIdentity] = append(cohortNamespaces[providerIdentity], binding.Namespaces...)
 	}
 	var publishedBindings *sdk.PublishedWindowBindings
@@ -423,12 +381,7 @@ func Serve(options ServeOptions) error {
 		}()
 		maintenance.Start(ctx, rt.Data, cleanupOptions)
 	}
-	schedulerOpts := agentlyrt.SchedulerOptionsFromEnv()
-	if options.DisableBackgroundWorkers {
-		schedulerOpts.EnableAPI = false
-		schedulerOpts.EnableRunNow = false
-		schedulerOpts.EnableWatchdog = false
-	}
+	schedulerOpts := schedulerOptionsForServe(options.DisableBackgroundWorkers)
 	agentIDs := appserver.DiscoverWorkspaceAgentIDs(workspace.Root())
 	if options.DisableBackgroundWorkers {
 		agentIDs = nil
@@ -574,6 +527,15 @@ func Serve(options ServeOptions) error {
 	finishStartup("ok")
 	serveErr := srv.Serve(listener)
 	return finalizeServeResult(cancel, &shutdownWG, serveErr, mcpSrv)
+}
+
+func schedulerOptionsForServe(disableBackgroundWorkers bool) *sdk.SchedulerOptions {
+	options := agentlyrt.SchedulerOptionsFromEnv()
+	if disableBackgroundWorkers {
+		options.EnableRunNow = false
+		options.EnableWatchdog = false
+	}
+	return options
 }
 
 func withForgeMetadataAuth(next http.Handler, authRuntime *svcauthctx.Runtime) http.Handler {

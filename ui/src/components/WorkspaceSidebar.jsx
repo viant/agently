@@ -274,7 +274,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       const expanded = !collapsedGroups[groupKey];
       return <div className={`app-layout-menu-group ${menu.className || ''}`} key={menu.id}>
         <Button minimal fill alignText="left" className="app-layout-menu-group-title" aria-expanded={expanded} {...(sections ? typographyProps('label') : {})}
-          icon={sections ? <SharedIcon name={menu.icon || 'lucide:layout-grid'}/> : <Icon icon={menu.icon || 'folder-close'} size={14} className="app-layout-group-icon" />}
+          icon={sections || menu.iconSvg ? <SharedIcon name={menu.icon || (menu.iconSvg ? undefined : 'lucide:layout-grid')} iconSvg={menu.iconSvg} className="app-layout-group-icon"/> : <Icon icon={menu.icon || 'folder-close'} size={14} className="app-layout-group-icon" />}
           endIcon={<Icon icon={expanded ? 'minus' : 'plus'} size={12} />}
           onClick={() => setCollapsedGroups(previous => ({...previous, [groupKey]: !previous[groupKey]}))}>{menu.title}</Button>
         {expanded ? <div className="app-layout-menu-children">{menu.children.map(child => renderMenu(child, [...parentPath, menu.id]))}</div> : null}
@@ -284,7 +284,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
     const destinationId = JSON.stringify([active?.id, ...parentPath, menu.id]);
     const unavailable = sections && layoutWindowDestinations(layout).find(entry => entry.destination === destinationId)?.disabled;
     const MenuButton = sections ? SectionDestinationButton : Button;
-    return <MenuButton key={menu.id} minimal fill alignText="left" className={`app-layout-menu ${menu.className || ''}`} {...(sections ? {selected: section === 'workspaces' && destination === destinationId} : {})} icon={menu.icon ? sections ? <SharedIcon name={menu.icon}/> : <Icon icon={menu.icon} size={14} className="app-layout-menu-icon" /> : undefined} disabled={menu.disabled || active?.disabled || unavailable || missingInputs}
+    return <MenuButton key={menu.id} minimal fill alignText="left" className={`app-layout-menu ${menu.className || ''}`} {...(sections ? {selected: section === 'workspaces' && destination === destinationId} : {})} icon={menu.icon || menu.iconSvg ? sections || menu.iconSvg ? <SharedIcon name={menu.icon} iconSvg={menu.iconSvg} className="app-layout-menu-icon"/> : <Icon icon={menu.icon} size={14} className="app-layout-menu-icon" /> : undefined} disabled={menu.disabled || active?.disabled || unavailable || missingInputs}
       onClick={() => {
         const action = menu.action;
         if (openLayoutURL(action)) { onNavigate?.(); return; }

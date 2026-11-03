@@ -8,7 +8,9 @@ vi.mock('../services/agentlyClient', () => ({getAuthMeSilently: vi.fn(async () =
 vi.mock('./Sidebar', () => ({default: () => <p>Conversation history</p>}));
 vi.mock('forge/core', async () => {
   const {signal} = await import('@preact/signals-react');
-  return {activeWindows: signal([]), selectedWindowId: signal(null), selectedTabId: signal(null), getFormSignal: () => signal({}), useSetting: () => ({services})};
+  const views=new Map();
+  const getViewSignal=id=>{if(!views.has(id))views.set(id,signal({}));return views.get(id);};
+  return {getViewSignal,findViewSignal:id=>views.get(id),activeWindows: signal([]), selectedWindowId: signal(null), selectedTabId: signal(null), getFormSignal: () => signal({}), useSetting: () => ({services})};
 });
 vi.mock('forge/components', async () => {
   const {default: Typography, typographyProps} = await import('forge/components/Typography.jsx');

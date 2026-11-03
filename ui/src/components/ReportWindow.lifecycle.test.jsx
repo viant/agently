@@ -2,10 +2,27 @@
 import React from 'react';
 import {afterEach,expect,it,vi} from 'vitest';
 import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
-import {SettingProvider,activeWindows,addWindow,selectedTabId,selectedWindowId} from 'forge/core';
+import {SettingProvider,activeWindows,addWindow,selectedTabId,selectedWindowId,getViewSignal} from 'forge/core';
 import AppSectionContent from './AppSectionContent.jsx';
+import WorkspaceWindowContent from './WorkspaceWindowContent.jsx';
+import {waitForWorkspaceReady} from 'forge/core/ui/workspaceReady.js';
 vi.mock('forge/components/dashboard/ReportRuntime.jsx',()=>({default:({reportSpec})=><output>{reportSpec.title}</output>}));
 afterEach(()=>{cleanup();activeWindows.value=[];selectedTabId.value=null;selectedWindowId.value=null;vi.restoreAllMocks();vi.unstubAllGlobals();});
+it.each([false,true])('acknowledges hosted report metadata admission and denial (denied=%s)',async denied=>{
+ const pin={uri:'report://example/summary',providerIdentity:'example',kind:'published',contentFingerprint:'fixture',authorityBinding:'fixture'};
+ let deliver;
+ const services={reportStore:{getReport:vi.fn(()=>new Promise((resolve,reject)=>{deliver=()=>denied?reject(Error('Denied')):resolve({resource:pin,resourceDefinition:{}});} ))}};
+ let entry;
+ await act(async()=>{entry=addWindow('Example report',null,pin.uri,'',true,{}, {presentation:'hosted',resourceRef:{uri:pin.uri},workspaceObject:{version:1,objectId:'workspace:example',kind:'report',content:{renderer:'forgeWindow'},lifecycle:{state:'opening'}}});});
+ const acknowledgement=waitForWorkspaceReady(activeWindows,entry.windowId,1000).then(value=>({value}),error=>({error}));
+ render(<SettingProvider services={services}><WorkspaceWindowContent window={entry}/></SettingProvider>);
+ await waitFor(()=>expect(deliver).toBeTypeOf('function'));
+ expect(activeWindows.peek().find(value=>value.windowId===entry.windowId).workspaceObject.lifecycle.state).toBe('opening');
+ await act(async()=>deliver());
+ const result=await acknowledgement;
+ if(denied){expect(result.error?.message).toBe('Workspace could not be opened');expect(screen.getByText('Report unavailable')).toBeTruthy();}
+ else expect(result.value?.lifecycle.state).toBe('ready');
+});
 it('retains report output and draft filters across unrelated section rerenders',async()=>{
  const pin={uri:'report://example/summary',providerIdentity:'example',kind:'published',contentFingerprint:'fixture',authorityBinding:'fixture'};
  const services={reportExport:{submitResource:vi.fn(),getStatus:vi.fn(),getArtifact:vi.fn()},reportStore:{getReport:vi.fn(async()=>({resource:pin,resourceDefinition:{builderDefinition:{reportBuilder:{predicates:[{id:'range',label:'Period',kind:'dateRange',startParamPath:'filters.from',endParamPath:'filters.to',default:{start:'2026-01-01',end:'2026-01-02'}}]}}}})),runReport:vi.fn(async()=>({resource:pin,reportSpec:{title:'Executed example',datasets:[],blocks:[]},reportFill:{datasets:[],blocks:[]},reportPrint:{}}))}};
@@ -66,4 +83,26 @@ it.each([503,429,'network'])('keeps report state through unchanged layout and tr
  fetch.mockResolvedValueOnce({ok:true,json:async()=>revoked});
  await act(async()=>window.dispatchEvent(new Event('focus')));
  expect(screen.queryByLabelText('Period from')).toBeNull();
+});
+
+it('keeps a typed custom range through real resource execution and metadata-stable rerender',async()=>{
+ const pin={uri:'report://example/summary',providerIdentity:'example',kind:'published',contentFingerprint:'fixture',authorityBinding:'fixture'};
+ const datePresets={calendar:{dataSourceRef:'calendar',input:{name:'ids',parameter:'entity',array:true},identityField:'id',timeZoneField:'zone'},default:'completed',options:[{value:'completed',label:'Completed days',range:{kind:'relativeDays',startOffset:-30,endOffset:-1}},{value:'custom',label:'Custom'}]};
+ const definition={dataSources:{calendar:{cache:{enabled:false}}},builderDefinition:{reportBuilder:{predicates:[{id:'period',label:'Period',kind:'dateRange',prefill:{start:'from',end:'to'},datePresets}]}}};
+ const services={reportStore:{getReport:vi.fn(async()=>({resource:pin,resourceDefinition:definition})),runReport:vi.fn(async()=>({resource:pin,reportSpec:{title:'Executed custom example',datasets:[],blocks:[]},reportFill:{datasets:[],blocks:[]},reportPrint:{}}))}};
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({rows:[{id:17,zone:'UTC'}]})}));
+ let entry;
+ await act(async()=>{entry=addWindow('Example report',null,pin.uri,'',true,{entity:17},{region:'app.section',presentation:'hosted',resourceRef:{uri:pin.uri}});});
+ const view=render(<SettingProvider services={services}><AppSectionContent window={{...entry}}/></SettingProvider>);
+ await screen.findByLabelText('Period from');
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Apply filters'}).disabled).toBe(false));
+ fireEvent.change(screen.getByLabelText('Period from'),{target:{value:'2026-10-01'}});
+ fireEvent.change(screen.getByLabelText('Period to'),{target:{value:'2026-11-01'}});
+ await waitFor(()=>expect(getViewSignal(entry.windowId).peek().report.draftParameters).toMatchObject({from:'2026-10-01',to:'2026-11-01'}));
+ fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
+ await waitFor(()=>expect(services.reportStore.runReport).toHaveBeenCalled());
+ expect(services.reportStore.runReport.mock.calls.at(-1)[0].parameters).toMatchObject({from:'2026-10-01',to:'2026-11-01'});
+ view.rerender(<SettingProvider services={services}><AppSectionContent window={{...entry}}/></SettingProvider>);
+ expect(screen.getByLabelText('Period from').value).toBe('2026-10-01');
+ expect(screen.getByLabelText('Period to').value).toBe('2026-11-01');
 });

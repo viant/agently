@@ -296,8 +296,8 @@ export default function ConversationWorkspaceSurface({
         </section>
       ) : null}
 
-      <section className={`app-summary-conversation${!documentPresentation && workspaceActive && effectiveMode !== 'split' ? ` is-composer-only${composerExpanded ? ' is-composer-expanded' : ''}` : ''}`} aria-label="Conversation">
-        {!documentPresentation && workspaceActive && effectiveMode === 'focus' ? (
+      <section className={`app-summary-conversation${workspaceActive && effectiveMode !== 'split' ? ` is-composer-only${composerExpanded ? ' is-composer-expanded' : ''}` : ''}`} aria-label="Conversation">
+        {workspaceActive && effectiveMode === 'focus' ? (
           <Button
             minimal
             small

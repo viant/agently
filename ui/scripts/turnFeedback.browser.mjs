@@ -126,7 +126,9 @@ export async function verifyTurnFeedback(page, {touch = false} = {}) {
   await field.fill('');
   assert.equal(writes.length,1,'An empty new comment must not cause an extra write');
   const box = await dialog.boundingBox();
-  assert.ok(box.x >= 16 && box.x + box.width <= page.viewportSize().width - 15 && box.width <= 560);
+  assert.ok(box.x >= 16 && box.x + box.width <= page.viewportSize().width - 15 && box.width <= 560,
+    `Feedback dialog must fit the viewport: ${JSON.stringify({box,viewport:page.viewportSize(),touch,
+      css:await dialog.evaluate(node=>{const css=getComputedStyle(node);return {boxSizing:css.boxSizing,width:css.width,maxWidth:css.maxWidth,margin:css.margin,transform:css.transform,border:css.borderWidth,padding:css.padding,scrollX:window.scrollX,innerWidth:window.innerWidth,clientWidth:document.documentElement.clientWidth};})})}`);
   assert.equal(await field.getAttribute('rows'),'4');
   const form = await field.evaluate(node => {
     const css = getComputedStyle(node);
