@@ -90,6 +90,7 @@ export default function ReportWindow({window: entry}) {
     parameters:initialParameters,resetParameters:initialParameters,contextKey:parameterIdentity,loadCalendar,
     onDefaultsReady:values=>{setApplied({identity:parameterIdentity,values:applyReportFilterParameters(values,declaredFields)});return values;}});
   const parameters=dates.draft;
+  const reportContext={identity:{windowId:entry.windowId},windowState:{...entry,windowForm:parameters},handlers:services};
   const setParameter=(key,value,raw)=>{
     dates.editField(key);dates.writeDraft({...dates.draftRef.current,[key]:value});
     setEditedParameters(previous=>({identity:parameterIdentity,text:{...(previous?.identity===parameterIdentity?previous.text:{}),[key]:raw}}));
@@ -122,7 +123,7 @@ export default function ReportWindow({window: entry}) {
     || state.report.resourceDefinition?.reportSpec?.title
     || state.report.title || entry.windowTitle;
   return <div className="forge-report-filter-layout">
-    <ReportFilterBar controls={fields} values={{...parameters,...Object.fromEntries(fields.filter(field=>field.multiple&&field.kind==='text'&&editedParameters?.identity===parameterIdentity&&editedParameters.text?.[field.id]!==undefined).map(field=>[field.id,editedParameters.text[field.id]]))}} scopeKey={JSON.stringify(state.report.resource)} loadChoices={loadChoices}
+    <ReportFilterBar context={reportContext} controls={fields} values={{...parameters,...Object.fromEntries(fields.filter(field=>field.multiple&&field.kind==='text'&&editedParameters?.identity===parameterIdentity&&editedParameters.text?.[field.id]!==undefined).map(field=>[field.id,editedParameters.text[field.id]]))}} scopeKey={JSON.stringify(state.report.resource)} loadChoices={loadChoices}
       onChange={(id,value)=>{const field=fields.find(field=>field.id===id);setParameter(id,field?.multiple&&field.kind!=='choice'&&typeof value==='string'?reportParameterValue(value,field):value,value);}}
       onDatePreset={dates.requestPreset} onDateRange={dates.manualRange} onDateDraft={dates.cancelDraftRequests}
       onApply={()=>{if(!missing.length&&!dates.dateBlocked){setApplied({identity:parameterIdentity,values:applyReportFilterParameters(parameters,fields)});setRunTrigger(value=>value+1);}}}
@@ -131,6 +132,6 @@ export default function ReportWindow({window: entry}) {
     {missing.length>0&&<Callout intent="warning" title="Required report inputs">Complete these inputs before running the report: {missing.map(field=>field.label).join(', ')}.</Callout>}
     <ReportResourceRuntime onViewStateChange={publishReportView} container={{parameters:{reportResource:state.report.resource,reportTitle,
       reportCapabilities:{run:appliedMissing.length===0,export:true,tableBlockSelection:true,workbookExport:true},prefill:fields.length?appliedParameters:parameters,
-      showRunControl:fields.length===0,executeOnOpen:appliedMissing.length===0&&(executeOnOpen||applied?.identity===parameterIdentity&&runTrigger>0),runTrigger:applied?.identity===parameterIdentity?runTrigger:0}}} context={{handlers:services}}/>
+      showRunControl:fields.length===0,executeOnOpen:appliedMissing.length===0&&(executeOnOpen||applied?.identity===parameterIdentity&&runTrigger>0),runTrigger:applied?.identity===parameterIdentity?runTrigger:0}}} context={reportContext}/>
   </div>;
 }

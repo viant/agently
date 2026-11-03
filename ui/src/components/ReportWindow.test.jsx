@@ -172,3 +172,22 @@ it('failed calendar metadata blocks default execution and a deliberate manual pa
     expect(runtime.mock.calls.at(-1)[0].container.parameters.prefill).toEqual({entity:17,from:'2026-01-02',to:'2026-01-03'});
   }finally{vi.unstubAllGlobals();}
 });
+
+it('applies typed manual dates after a relative default without restoring the preset',async()=>{
+  const pin={uri:'report://example/summary',providerIdentity:'example',kind:'published',contentFingerprint:'fixture',authorityBinding:'fixture'};
+  const entry={windowKey:pin.uri,resourceRef:{uri:pin.uri},windowTitle:'Example'};
+  const datePresets={calendar:{dataSourceRef:'calendar',input:{name:'ids',parameter:'entity',array:true},identityField:'id',timeZoneField:'zone'},default:'completed',options:[{value:'completed',label:'Completed days',range:{kind:'relativeDays',startOffset:-30,endOffset:-1}},{value:'custom',label:'Custom'}]};
+  services.reportStore.getReport.mockResolvedValue({resource:pin,resourceDefinition:{dataSources:{calendar:{cache:{enabled:false}}},builderDefinition:{reportBuilder:{predicates:[{id:'period',label:'Period',kind:'dateRange',prefill:{start:'from',end:'to'},datePresets}]}}}});
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({rows:[{id:17,zone:'UTC'}]})}));
+  try{
+    const view=render(<ReportWindow window={{...entry,parameters:{entity:17}}}/>);
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Apply filters'}).disabled).toBe(false));
+    fireEvent.change(screen.getByLabelText('Period from'),{target:{value:'2026-10-01'}});
+    fireEvent.change(screen.getByLabelText('Period to'),{target:{value:'2026-11-01'}});
+    fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
+    expect(runtime.mock.calls.at(-1)[0].container.parameters.prefill).toEqual({entity:17,from:'2026-10-01',to:'2026-11-01'});
+    view.rerender(<ReportWindow window={{...entry,parameters:{entity:17}}}/>);
+    expect(screen.getByLabelText('Period from').value).toBe('2026-10-01');
+    expect(screen.getByLabelText('Period to').value).toBe('2026-11-01');
+  }finally{vi.unstubAllGlobals();}
+});

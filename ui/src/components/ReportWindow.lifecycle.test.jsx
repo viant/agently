@@ -67,3 +67,24 @@ it.each([503,429,'network'])('keeps report state through unchanged layout and tr
  await act(async()=>window.dispatchEvent(new Event('focus')));
  expect(screen.queryByLabelText('Period from')).toBeNull();
 });
+
+it('keeps a typed custom range through real resource execution and metadata-stable rerender',async()=>{
+ const pin={uri:'report://example/summary',providerIdentity:'example',kind:'published',contentFingerprint:'fixture',authorityBinding:'fixture'};
+ const datePresets={calendar:{dataSourceRef:'calendar',input:{name:'ids',parameter:'entity',array:true},identityField:'id',timeZoneField:'zone'},default:'completed',options:[{value:'completed',label:'Completed days',range:{kind:'relativeDays',startOffset:-30,endOffset:-1}},{value:'custom',label:'Custom'}]};
+ const definition={dataSources:{calendar:{cache:{enabled:false}}},builderDefinition:{reportBuilder:{predicates:[{id:'period',label:'Period',kind:'dateRange',prefill:{start:'from',end:'to'},datePresets}]}}};
+ const services={reportStore:{getReport:vi.fn(async()=>({resource:pin,resourceDefinition:definition})),runReport:vi.fn(async()=>({resource:pin,reportSpec:{title:'Executed custom example',datasets:[],blocks:[]},reportFill:{datasets:[],blocks:[]},reportPrint:{}}))}};
+ vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({rows:[{id:17,zone:'UTC'}]})}));
+ let entry;
+ await act(async()=>{entry=addWindow('Example report',null,pin.uri,'',true,{entity:17},{region:'app.section',presentation:'hosted',resourceRef:{uri:pin.uri}});});
+ const view=render(<SettingProvider services={services}><AppSectionContent window={{...entry}}/></SettingProvider>);
+ await screen.findByLabelText('Period from');
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Apply filters'}).disabled).toBe(false));
+ fireEvent.change(screen.getByLabelText('Period from'),{target:{value:'2026-10-01'}});
+ fireEvent.change(screen.getByLabelText('Period to'),{target:{value:'2026-11-01'}});
+ fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
+ await waitFor(()=>expect(services.reportStore.runReport).toHaveBeenCalled());
+ expect(services.reportStore.runReport.mock.calls.at(-1)[0].parameters).toMatchObject({from:'2026-10-01',to:'2026-11-01'});
+ view.rerender(<SettingProvider services={services}><AppSectionContent window={{...entry}}/></SettingProvider>);
+ expect(screen.getByLabelText('Period from').value).toBe('2026-10-01');
+ expect(screen.getByLabelText('Period to').value).toBe('2026-11-01');
+});
