@@ -423,12 +423,7 @@ func Serve(options ServeOptions) error {
 		}()
 		maintenance.Start(ctx, rt.Data, cleanupOptions)
 	}
-	schedulerOpts := agentlyrt.SchedulerOptionsFromEnv()
-	if options.DisableBackgroundWorkers {
-		schedulerOpts.EnableAPI = false
-		schedulerOpts.EnableRunNow = false
-		schedulerOpts.EnableWatchdog = false
-	}
+	schedulerOpts := schedulerOptionsForServe(options.DisableBackgroundWorkers)
 	agentIDs := appserver.DiscoverWorkspaceAgentIDs(workspace.Root())
 	if options.DisableBackgroundWorkers {
 		agentIDs = nil
@@ -568,6 +563,15 @@ func Serve(options ServeOptions) error {
 	finishStartup("ok")
 	serveErr := srv.Serve(listener)
 	return finalizeServeResult(cancel, &shutdownWG, serveErr, mcpSrv)
+}
+
+func schedulerOptionsForServe(disableBackgroundWorkers bool) *sdk.SchedulerOptions {
+	options := agentlyrt.SchedulerOptionsFromEnv()
+	if disableBackgroundWorkers {
+		options.EnableRunNow = false
+		options.EnableWatchdog = false
+	}
+	return options
 }
 
 func withForgeMetadataAuth(next http.Handler, authRuntime *svcauthctx.Runtime) http.Handler {
