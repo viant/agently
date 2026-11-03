@@ -44,6 +44,20 @@ func TestSchedulerLoadsConfiguredArtifactCohortsBeforeRunning(t *testing.T) {
 	require.ErrorContains(t, err, "artifact cohort", "scheduler startup must load the same configured metadata as the web host")
 }
 
+func TestSchedulerLoadsConfiguredUserFactsBeforeRunning(t *testing.T) {
+	root := t.TempDir()
+	previousRoot, previousRuntime := workspace.Root(), workspace.RuntimeRoot()
+	t.Cleanup(func() { workspace.SetRoot(previousRoot); workspace.SetRuntimeRoot(previousRuntime) })
+	for _, key := range []string{"AGENTLY_DB_DRIVER", "AGENTLY_DB_DSN", "AGENTLY_DB_PATH", "AGENTLY_DB_SECRETS", "AGENTLY_ARTIFACT_COHORT_CONFIG", "AGENTLY_AUTHZ_CONFIG"} {
+		t.Setenv(key, "")
+	}
+	t.Setenv("AGENTLY_WORKSPACE", root)
+	t.Setenv("AGENTLY_RUNTIME_ROOT", filepath.Join(root, "runtime"))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "config.yaml"), []byte("ui:\n  presentation:\n    identityFile: missing-identity.json\n"), 0600))
+	err := RunScheduler(SchedulerRunOptions{Once: true})
+	require.ErrorContains(t, err, "presentation identity configuration", "scheduled users must use the configured facts source, without requiring a browser")
+}
+
 type schedulerMetadataFixture struct {
 	syncs   atomic.Int64
 	syncErr error

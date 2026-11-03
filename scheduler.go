@@ -13,6 +13,7 @@ import (
 	"github.com/viant/afs"
 	_ "github.com/viant/afs/file"
 	execconfig "github.com/viant/agently-core/app/executor/config"
+	hostruntime "github.com/viant/agently-core/app/host/runtime"
 	appserver "github.com/viant/agently-core/app/server"
 	svcauth "github.com/viant/agently-core/service/auth"
 	svcscheduler "github.com/viant/agently-core/service/scheduler"
@@ -64,12 +65,17 @@ func RunScheduler(options SchedulerRunOptions) error {
 		defaults = wsConfig.DefaultsWithFallback(defaults)
 	}
 	wscfg.ApplyPathDefaults(defaults)
+	configureBuilder, err := hostruntime.ConfigureAuthorization(hostruntime.Options{WorkspacePath: workspace.Root()}, workspace.Root(), wsConfig, nil)
+	if err != nil {
+		return fmt.Errorf("scheduler user facts configuration: %w", err)
+	}
 
 	rt, _, _, err := appserver.BuildWorkspaceRuntime(ctx, appserver.RuntimeOptions{
 		WorkspaceRoot:          workspace.Root(),
 		Defaults:               defaults,
 		SchedulerHeadless:      true,
 		SkipRegistryInitialize: true,
+		ConfigureBuilder:       configureBuilder,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize runtime: %w", err)
