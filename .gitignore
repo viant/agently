@@ -32,6 +32,7 @@ e2e/database/agently/script/schema.ddl
 !/ui/scripts/test-module-preload-browser.mjs
 !/ui/scripts/sync-deployment-ui.sh
 !/ui/scripts/test-typography-browser.mjs
+!/ui/scripts/test-conversation-audit-browser.mjs
 !/ui/scripts/documentChat.browser.mjs
 !/ui/scripts/turnFeedback.browser.mjs
 !/ui/scripts/proof-mcp-apps.mjs
