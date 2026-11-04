@@ -191,9 +191,11 @@ export async function verifyDocumentChat(page, {touch = false} = {}) {
     const style = await output.getAttribute('style');
     try {
       await output.evaluate(node => {node.style.width = '759px';});
-      await output.locator('.app-summary-conversation').waitFor({state:'hidden'});
+      await output.locator('.app-summary-conversation.is-composer-only').waitFor({state:'visible'});
+      assert.equal(await output.getByRole('button', {name:'Show composer', exact:true}).isVisible(), true, 'Narrow workspace retains the collapsed composer control');
+      assert.equal(await output.locator('.app-summary-conversation > :not(.app-workspace-composer-toggle)').first().isVisible(), false, 'Narrow workspace hides full conversation content');
       await output.evaluate(node => {node.style.width = '842px';});
-      await output.locator('.app-summary-conversation').waitFor({state:'visible'});
+      await output.locator('.app-summary-conversation:not(.is-composer-only)').waitFor({state:'visible'});
       const panes = await output.evaluate(node => ({chat:node.querySelector('.app-summary-conversation').getBoundingClientRect().toJSON(),workspace:node.querySelector('.app-summary-workspace').getBoundingClientRect().toJSON()}));
       assert.equal(panes.chat.width,380);
       assert.equal(panes.workspace.left,panes.chat.right,'Changing available space must restore chat without a viewport resize');

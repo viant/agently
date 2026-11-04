@@ -140,11 +140,11 @@ try {
         glyph: glyph.getBoundingClientRect().width, role: header.querySelector('h1').dataset.forgeType,
         titleSize: getComputedStyle(header.querySelector('h1')).fontSize};
     });
-    assert.equal(viewerGeometry.direction, 'row');
+    assert.equal(viewerGeometry.direction, viewport.width > 500 ? 'row' : 'column');
     assert.equal(viewerGeometry.role, 'label');
     assert.equal(viewerGeometry.glyph, 18);
     if (viewport.width > 500) {assert.equal(viewerGeometry.headerHeight, 54); assert.equal(viewerGeometry.sideBySide, true); assert.equal(viewerGeometry.chatVisible, true);}
-    else {assert.equal(viewerGeometry.headerHeight, 59); assert.equal(viewerGeometry.chatVisible, false); assert.equal(viewerGeometry.headerBasis, 'auto');}
+    else {assert.equal(viewerGeometry.headerHeight, 59); assert.equal(viewerGeometry.chatVisible, true); assert.equal(await viewer.getByRole('button', {name: 'Show composer', exact: true}).isVisible(), true); assert.equal(viewerGeometry.headerBasis, 'auto');}
     for (const name of ['Go back', 'Go forward']) assert.equal(await viewer.getByRole('button', {name, exact: true}).isVisible(), true);
     const closeGlyph = viewer.getByRole('button', {name: 'Close Example output', exact: true}).locator('svg');
     assert.equal(await closeGlyph.isVisible(), true, 'the tab-close glyph remains visible on phones');
