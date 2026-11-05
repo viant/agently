@@ -200,7 +200,7 @@ final class AppStateTargetingTests: XCTestCase {
         {
           "name":"order",
           "title":"Order",
-          "dataSource":"ad_order_lookup",
+          "dataSource":"record_order_lookup",
           "token":{
             "queryInput":"AdOrderName",
             "resolveInput":"AdOrderId"

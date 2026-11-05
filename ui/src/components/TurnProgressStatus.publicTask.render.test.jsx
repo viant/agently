@@ -20,7 +20,7 @@ import { DetailContext } from '../context/DetailContext.js';
 import IterationBlock from './chat/IterationBlock.jsx';
 import RunProgressView from './RunProgressView.jsx';
 const conversationId='public-task-conversation',turnId='public-task-turn';
-const task='Preparing a Coca-Cola draft with an assumed budget.';
+const task='Preparing a Example team draft with an assumed budget.';
 const highlight='Retained public highlights';
 const meta=(id,mode='task',extra={})=>({agently:{presentation:{version:'1',conversationId,nativeTurnId:turnId,nativeMessageId:id,mode,createdAt:'2026-10-11T20:00:01Z',...extra}}});
 let root,container;

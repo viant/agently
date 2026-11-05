@@ -11,8 +11,8 @@ describe('forgeWindowContract', () => {
       data: {
         reportBuilder: {
           hooks: {
-            initializeState: 'Performance Metrics.stewardReportBuilder.initializeState',
-            buildRequest: 'Performance Metrics.stewardReportBuilder.buildRequest',
+            initializeState: 'Performance Metrics.exampleReportBuilder.initializeState',
+            buildRequest: 'Performance Metrics.exampleReportBuilder.buildRequest',
           },
         },
       },
@@ -23,11 +23,11 @@ describe('forgeWindowContract', () => {
     expect(getIncompleteWindowContractError({
       reportBuilder: {
         hooks: {
-          resolveLookup: 'Performance Metrics.stewardReportBuilder.resolveLookup',
+          resolveLookup: 'Performance Metrics.exampleReportBuilder.resolveLookup',
         },
       },
       actions: {
-        code: '(() => ({ stewardReportBuilder: { resolveLookup() { return null; } } }))()',
+        code: '(() => ({ exampleReportBuilder: { resolveLookup() { return null; } } }))()',
       },
     })).toBe('');
   });

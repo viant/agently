@@ -322,10 +322,10 @@ describe('resolveStarterTasks', () => {
 describe('resolveStarterTaskCategories', () => {
   it('preserves workspace order and scopes categories to the selected agent', () => {
     const got = resolveStarterTaskCategories({
-      selectedAgent: 'steward',
+      selectedAgent: 'example',
       agentInfos: [
         { id: 'other', starterTaskCategories: [{ id: 'build', title: 'Build' }] },
-        { id: 'steward', starterTaskCategories: [
+        { id: 'example', starterTaskCategories: [
           { id: 'plan', title: 'Plan', icon: 'route' },
           { id: 'measure', title: 'Measure', icon: 'chart-line' }
         ] }
@@ -333,7 +333,7 @@ describe('resolveStarterTaskCategories', () => {
     });
 
     expect(got.map((entry) => entry.id)).toEqual(['plan', 'measure']);
-    expect(got[0]).toMatchObject({ agentId: 'steward', icon: 'route' });
+    expect(got[0]).toMatchObject({ agentId: 'example', icon: 'route' });
   });
 });
 
@@ -990,7 +990,7 @@ describe('handleStreamEvent', () => {
       handleStreamEvent(chatState, context, 'conv-1', {
         type: 'conversation_meta_updated',
         conversationId: 'conv-1',
-        patch: { title: 'Campaign 4821 Underpacing', summary: 'underpacing' }
+        patch: { title: 'Project 4821 Underpacing', summary: 'underpacing' }
       });
     } finally {
       mockWindow.removeEventListener('agently:conversation-meta-updated', handler);
@@ -1001,7 +1001,7 @@ describe('handleStreamEvent', () => {
     expect(received).toHaveLength(1);
     expect(received[0]).toEqual({
       id: 'conv-1',
-      patch: { title: 'Campaign 4821 Underpacing', summary: 'underpacing' }
+      patch: { title: 'Project 4821 Underpacing', summary: 'underpacing' }
     });
   });
 
@@ -1274,10 +1274,10 @@ describe('dsTick', () => {
       turns: [{
         turnId: 'turn-open', status: 'succeeded', execution: { pages: [{ toolSteps: [{
           toolName: 'ui/window/get', status: 'completed', responsePayload: { window: {
-            windowId: 'advertiserList__conv-route-restore', windowKey: 'advertiserList',
+            windowId: 'recordList__conv-route-restore', windowKey: 'recordList',
             conversationId: 'conv-route-restore', parentKey: MAIN_CHAT_WINDOW_ID,
             presentation: 'hosted', region: 'chat.top',
-            workspaceObject: { version: 1, objectId: 'workspace:advertiserList__conv-route-restore',
+            workspaceObject: { version: 1, objectId: 'workspace:recordList__conv-route-restore',
               origin: { turnId: 'turn-open' }, lifecycle: { state: 'ready' } },
           } },
         }] }] },
@@ -1295,7 +1295,7 @@ describe('dsTick', () => {
     try {
       await dsTick(context, { conversationID: 'conv-route-restore', allowLiveHydration: true });
       expect(getScopedWorkspaceWindowsState('conv-route-restore')).toEqual([
-        expect.objectContaining({ windowId: 'advertiserList__conv-route-restore',
+        expect.objectContaining({ windowId: 'recordList__conv-route-restore',
           workspaceObject: expect.objectContaining({ lifecycle: expect.objectContaining({ state: 'ready' }) }) }),
       ]);
     } finally {
@@ -1527,8 +1527,8 @@ describe('createNewConversation', () => {
     global.window = { sessionStorage };
     markPendingConversationBootstrap('conv-old');
 
-    const conversationState = { values: { id: 'conv-old', agent: 'steward', queuedTurns: [] } };
-    const metaState = { values: { agent: 'steward', defaults: { agent: 'steward' } } };
+    const conversationState = { values: { id: 'conv-old', agent: 'example', queuedTurns: [] } };
+    const metaState = { values: { agent: 'example', defaults: { agent: 'example' } } };
     const context = {
       resources: {},
       Context(name) {
@@ -2948,13 +2948,13 @@ describe('startPolling', () => {
 describe('createNewConversation', () => {
   it('restores starter tasks immediately after switching away from a populated conversation', async () => {
     const messageState = { collection: [{ id: 'old-msg', role: 'assistant', content: 'existing' }] };
-    const conversationState = { values: { id: 'conv-old', agent: 'steward', queuedTurns: [] } };
+    const conversationState = { values: { id: 'conv-old', agent: 'example', queuedTurns: [] } };
     const metaState = {
       values: {
-        agent: 'steward',
-        defaults: { agent: 'steward' },
+        agent: 'example',
+        defaults: { agent: 'example' },
         agentInfos: [
-          { id: 'steward', name: 'Steward', starterTasks: [{ id: 'analyze', title: 'Analyze campaign performance', prompt: 'Analyze campaign 12345 performance.' }] },
+          { id: 'example', name: 'Example', starterTasks: [{ id: 'analyze', title: 'Analyze project performance', prompt: 'Analyze project 12345 performance.' }] },
         ]
       }
     };
@@ -3002,7 +3002,7 @@ describe('createNewConversation', () => {
     expect(messageState.collection).toHaveLength(0);
     expect(metaState.values.starterTasks).toHaveLength(1);
     expect(metaState.values.starterTasks[0]).toMatchObject({
-      title: 'Analyze campaign performance',
+      title: 'Analyze project performance',
     });
   });
 
@@ -3024,10 +3024,10 @@ describe('createNewConversation', () => {
       const conversationState = { values: { id: 'conv-old', agent: '', queuedTurns: [] } };
       const metaState = {
         values: {
-          agent: 'steward',
-          defaults: { agent: 'steward' },
+          agent: 'example',
+          defaults: { agent: 'example' },
           agentInfos: [
-            { id: 'steward', name: 'Steward', starterTasks: [{ id: 'analyze', title: 'Analyze campaign performance', prompt: 'Analyze campaign 12345 performance.' }] },
+            { id: 'example', name: 'Example', starterTasks: [{ id: 'analyze', title: 'Analyze project performance', prompt: 'Analyze project 12345 performance.' }] },
           ]
         }
       };
@@ -3071,10 +3071,10 @@ describe('createNewConversation', () => {
 
       await createNewConversation(context);
 
-      expect(conversationState.values.agent).toBe('steward');
+      expect(conversationState.values.agent).toBe('example');
       expect(messageState.collection).toHaveLength(0);
       expect(metaState.values.starterTasks?.[0]).toMatchObject({
-        title: 'Analyze campaign performance'
+        title: 'Analyze project performance'
       });
     } finally {
       global.window = originalWindow;

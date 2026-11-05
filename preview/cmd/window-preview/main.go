@@ -16,8 +16,6 @@ func main() {
 	metadataRoot := flag.String("metadata-root", "", "optional Forge metadata root; defaults to --root")
 	mcpURL := flag.String("mcp-url", "", "optional stable loopback MCP URL override")
 	mcpBaseURL := flag.String("mcp-base-url", "", "deprecated alias for --mcp-url")
-	platformMCPURL := flag.String("platform-mcp-url", "", "stable loopback Platform MCP URL override")
-	stewardMCPURL := flag.String("steward-mcp-url", "", "stable loopback Steward MCP URL override")
 	disableAuthorization := flag.Bool("disable-authorization", false, "omit window authorization preflight for standalone preview")
 	readOnly := flag.Bool("read-only", false, "disable workspace actions and mutations for standalone preview")
 	addr := flag.String("addr", "127.0.0.1:8098", "loopback address")
@@ -32,7 +30,7 @@ func main() {
 	if *mcpURL == "" {
 		*mcpURL = *mcpBaseURL
 	}
-	if e := windowpreview.Serve(ctx, windowpreview.Config{Root: *root, WorkspaceRoot: *workspaceRoot, MetadataRoot: *metadataRoot, MCPURL: *mcpURL, PlatformMCPURL: *platformMCPURL, StewardMCPURL: *stewardMCPURL, DisableAuthorization: *disableAuthorization, ReadOnly: *readOnly, Addr: *addr, Assets: *assets}, os.Stdout); e != nil {
+	if e := windowpreview.Serve(ctx, windowpreview.Config{Root: *root, WorkspaceRoot: *workspaceRoot, MetadataRoot: *metadataRoot, MCPURL: *mcpURL, DisableAuthorization: *disableAuthorization, ReadOnly: *readOnly, Addr: *addr, Assets: *assets}, os.Stdout); e != nil {
 		fmt.Fprintln(os.Stderr, e)
 		os.Exit(1)
 	}

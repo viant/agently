@@ -73,7 +73,7 @@ function NavigationReview() {
           </div></ForgeThemeBoundary>}
           renderConversation={() => <div className="app-section-empty">
             <Typography as="h2" typeRole="section">{heading}</Typography>
-            <Typography as="p" typeRole="body">Local shell review using the actual Steward layout and theme. Sample content below exercises the shared header and viewer.</Typography>
+            <Typography as="p" typeRole="body">Local shell review using the configured workspace layout and theme. Sample content below exercises the shared header and viewer.</Typography>
             <Button variant="ghost" onClick={openOutput}>Open example output</Button>
             <label className="app-review-draft" {...typographyProps('body')}>Local draft <textarea {...typographyProps('body')} aria-label="Local draft" defaultValue="Keep this draft while switching views"/></label>
           </div>}/></div>

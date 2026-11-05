@@ -294,7 +294,7 @@ export default function WindowPreview() {
           {error && <div role="alert">{error}</div>}
           {variant === "empty" && (
             <div className="preview-state" role="status">
-              Empty fixture: no advertiser records were returned. Change the variant to continue reviewing populated states.
+              Empty fixture: no records were returned. Change the variant to continue reviewing populated states.
             </div>
           )}
           {variant === "error" && (

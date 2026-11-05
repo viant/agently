@@ -34,7 +34,7 @@ class AuthRuntimeTest {
         )
         assertFalse(
             authUrlUsesRedirect(
-                "https://idp.viantinc.com/v1/api/oauth2/authorize?redirect_uri=https%3A%2F%2Fsteward.agently.viantinc.com%2Fv1%2Fapi%2Fauth%2Foauth%2Fcallback",
+                "https://idp.viantinc.com/v1/api/oauth2/authorize?redirect_uri=https%3A%2F%2Fexample.agently.viantinc.com%2Fv1%2Fapi%2Fauth%2Foauth%2Fcallback",
                 AndroidOAuthRedirectURI
             )
         )

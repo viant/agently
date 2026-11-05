@@ -51,9 +51,9 @@ class ForgeAgentlyWindowMetadataLoaderTest {
 
         val metadata = loader(
             ForgeRuntime.WindowMetadataRequest(
-                windowId = "advertiser-85141",
-                windowKey = "advertiser",
-                parameters = mapOf("AdvertiserId" to listOf(85141)),
+                windowId = "record-85141",
+                windowKey = "record",
+                parameters = mapOf("RecordId" to listOf(85141)),
                 conversationId = "conv-1"
             )
         )

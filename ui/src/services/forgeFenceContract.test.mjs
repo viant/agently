@@ -71,10 +71,10 @@ test('validateForgeReportWorkspaceReferences gates live sources by effective-use
 
 test('assembleForgeReportEvents progressively builds one canonical dashboard source', () => {
   const result = assembleForgeReportEvents([
-    { kind: 'data', index: 0, payload: { version: 2, scope: 'campaign', reportRef: 'brief', id: 'rows', sequence: 1, data: [{ spend: 12 }] } },
-    { kind: 'report', index: 1, payload: { version: 1, scope: 'campaign', id: 'brief', sequence: 2, mode: 'start', title: 'Delivery', blocks: [{ id: 'summary', kind: 'dashboard.summary', dataSourceRef: 'rows' }] } },
-    { kind: 'report', index: 2, payload: { version: 1, scope: 'campaign', id: 'brief', sequence: 3, mode: 'append', blocks: [{ id: 'table', kind: 'dashboard.table', dataSourceRef: 'rows' }] } },
-    { kind: 'report', index: 3, payload: { version: 1, scope: 'campaign', id: 'brief', sequence: 4, mode: 'commit' } },
+    { kind: 'data', index: 0, payload: { version: 2, scope: 'project', reportRef: 'brief', id: 'rows', sequence: 1, data: [{ spend: 12 }] } },
+    { kind: 'report', index: 1, payload: { version: 1, scope: 'project', id: 'brief', sequence: 2, mode: 'start', title: 'Delivery', blocks: [{ id: 'summary', kind: 'dashboard.summary', dataSourceRef: 'rows' }] } },
+    { kind: 'report', index: 2, payload: { version: 1, scope: 'project', id: 'brief', sequence: 3, mode: 'append', blocks: [{ id: 'table', kind: 'dashboard.table', dataSourceRef: 'rows' }] } },
+    { kind: 'report', index: 3, payload: { version: 1, scope: 'project', id: 'brief', sequence: 4, mode: 'commit' } },
   ]);
 
   assert.equal(result.assemblies.length, 1);
@@ -354,12 +354,12 @@ test('planner submit payload filters selected rows to workspace-declared keys', 
           type: 'llm_event',
           eventName: 'planner_table_submit',
           context: {
-            domain: 'site_list',
+            domain: 'item_list',
             submitIntent: 'submit_selected',
             allowedSubmitIntents: ['submit_selected', 'preview_selected'],
             selectedKeys: ['site_id', 'recommendation_patch'],
             toolGuidance: {
-              tool: 'steward-RecommendationPatch',
+              tool: 'example-RecommendationPatch',
               useSelectedRowsOnly: true,
             },
           },
@@ -376,12 +376,12 @@ test('planner submit payload filters selected rows to workspace-declared keys', 
   const payload = createPlannerTableSubmitPayload(ui, block, originalRows, originalRows);
 
   assert.deepEqual(payload.plannerSubmit, {
-    domain: 'site_list',
+    domain: 'item_list',
     submitIntent: 'submit_selected',
     allowedSubmitIntents: ['submit_selected', 'preview_selected'],
     selectedKeys: ['site_id', 'recommendation_patch'],
     toolGuidance: {
-      tool: 'steward-RecommendationPatch',
+      tool: 'example-RecommendationPatch',
       useSelectedRowsOnly: true,
     },
   });

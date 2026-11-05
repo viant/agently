@@ -58,7 +58,7 @@ it('collapses nested menu groups independently and preserves leaf actions', asyn
   fetch.mockResolvedValue(response(layoutPayload({applications: [{id: 'dsp', title: 'DSP', menus: [
     {id: 'management', title: 'Management', children: [
       {id: 'accounts', title: 'Accounts', children: [
-        {id: 'advertisers', title: 'Advertisers', action: {type: 'window', windowKey: 'advertiserList'}},
+        {id: 'records', title: 'Records', action: {type: 'window', windowKey: 'recordList'}},
       ]},
     ]},
   ]}]})));
@@ -67,15 +67,15 @@ it('collapses nested menu groups independently and preserves leaf actions', asyn
   const nested = screen.getByRole('button', {name: 'Accounts'});
   expect(parent.getAttribute('aria-expanded')).toBe('true');
   fireEvent.click(nested);
-  expect(screen.queryByRole('button', {name: 'Advertisers'})).toBeNull();
+  expect(screen.queryByRole('button', {name: 'Records'})).toBeNull();
   fireEvent.click(parent);
   expect(parent.getAttribute('aria-expanded')).toBe('false');
   expect(screen.queryByRole('button', {name: 'Accounts'})).toBeNull();
   fireEvent.click(parent);
   expect(screen.getByRole('button', {name: 'Accounts'}).getAttribute('aria-expanded')).toBe('false');
   fireEvent.click(screen.getByRole('button', {name: 'Accounts'}));
-  fireEvent.click(screen.getByRole('button', {name: 'Advertisers'}));
-  expect(openWindow).toHaveBeenCalledWith('advertiserList', 'Advertisers', [], expect.any(Object));
+  fireEvent.click(screen.getByRole('button', {name: 'Records'}));
+  expect(openWindow).toHaveBeenCalledWith('recordList', 'Records', [], expect.any(Object));
 });
 
 it.each(['split', 'sections'])('shows directional scroll controls when %s application tabs overflow', async presentation => {
@@ -119,8 +119,8 @@ const menuApplications = [
   {
     id: 'advertising', title: 'Advertising', icon: 'briefcase',
     menus: [
-      { id: 'advertisers', title: 'Advertisers', icon: 'people', action: { type: 'window', windowKey: 'advertiserList', parameters: { source: 'workspace-menu' } } },
-      { id: 'campaigns', title: 'Campaigns', icon: 'chart', action: { type: 'window', windowKey: 'campaignList', parameters: { status: 'active' }, refreshDataSources: ['campaigns'] } },
+      { id: 'records', title: 'Records', icon: 'people', action: { type: 'window', windowKey: 'recordList', parameters: { source: 'workspace-menu' } } },
+      { id: 'projects', title: 'Projects', icon: 'chart', action: { type: 'window', windowKey: 'projectList', parameters: { status: 'active' }, refreshDataSources: ['projects'] } },
     ],
   },
 ];
@@ -128,23 +128,23 @@ const menuApplications = [
 describe('WorkspaceSidebar menu delivery from the workspace layout', () => {
   it('binds typed report inputs from the selected window and reacts to changes without mutating the catalog', async () => {
     const {signal} = await import('@preact/signals-react');
-    const form = signal({AdvertiserId: 83611});
+    const form = signal({RecordId: 83611});
     const action = {type: 'window', resourceUri: 'window://ar/report', parameters: {ViewId: 1294}, parameterBindings: {
-      AdvertiserIds: {from: ['AdvertiserId', 'advertiserId'], array: true},
-      CampaignId: {from: 'CampaignId', optional: true},
+      RecordIds: {from: ['RecordId', 'recordId'], array: true},
+      ProjectId: {from: 'ProjectId', optional: true},
     }};
     const original = JSON.stringify(action);
-    windowSignals.activeWindows.value = [{windowId: 'advertiser', parameters: {AdvertiserId: 1}}];
-    windowSignals.selectedWindowId.value = 'advertiser';
-    windowSignals.getFormSignal.mockImplementation(id => id === 'advertiser:windowForm' ? form : {value: {}});
+    windowSignals.activeWindows.value = [{windowId: 'record', parameters: {RecordId: 1}}];
+    windowSignals.selectedWindowId.value = 'record';
+    windowSignals.getFormSignal.mockImplementation(id => id === 'record:windowForm' ? form : {value: {}});
     fetch.mockResolvedValue(response(layoutPayload({applications: [{id: 'ar', title: 'Reports', menus: [{id: 'overview', title: 'Overview', action}]}]})));
     render(<WorkspaceSidebar conversationId="conversation" />);
     const report = await screen.findByRole('button', {name: 'Overview'});
     fireEvent.click(report);
-    expect(openWindow).toHaveBeenLastCalledWith('window://ar/report', 'Overview', [], expect.objectContaining({parameters: {ViewId: 1294, AdvertiserIds: [83611]}}));
-    act(() => { form.value = {AdvertiserId: 0}; });
+    expect(openWindow).toHaveBeenLastCalledWith('window://ar/report', 'Overview', [], expect.objectContaining({parameters: {ViewId: 1294, RecordIds: [83611]}}));
+    act(() => { form.value = {RecordId: 0}; });
     fireEvent.click(report);
-    expect(openWindow).toHaveBeenLastCalledWith('window://ar/report', 'Overview', [], expect.objectContaining({parameters: {ViewId: 1294, AdvertiserIds: [0]}}));
+    expect(openWindow).toHaveBeenLastCalledWith('window://ar/report', 'Overview', [], expect.objectContaining({parameters: {ViewId: 1294, RecordIds: [0]}}));
     act(() => { windowSignals.selectedWindowId.value = 'chat'; });
     await waitFor(() => expect(report.disabled).toBe(true));
     openWindow.mockClear();
@@ -166,7 +166,7 @@ describe('WorkspaceSidebar menu delivery from the workspace layout', () => {
     expect(openWindow).toHaveBeenCalledWith('report','Open',[],expect.objectContaining({parameters:{Status:'active',RecordId:7}}));
   });
 
-  it('renders Advertisers and Campaigns from layout.applications and preserves their window actions', async () => {
+  it('renders Records and Projects from layout.applications and preserves their window actions', async () => {
     const topbarActions = [{ id: 'help', title: 'Help' }];
     fetch.mockResolvedValueOnce(response(layoutPayload({ applications: menuApplications, topbarActions })));
     const onTopbarActionsChange = vi.fn();
@@ -175,21 +175,21 @@ describe('WorkspaceSidebar menu delivery from the workspace layout', () => {
 
     render(<WorkspaceSidebar conversationId="conv-42" onTopbarActionsChange={onTopbarActionsChange} onOpenWorkspace={onOpenWorkspace} onNavigate={onNavigate} />);
 
-    const advertisers = await screen.findByRole('button', { name: 'Advertisers' });
-    const campaigns = screen.getByRole('button', { name: 'Campaigns' });
-    expect(advertisers.querySelector('.app-layout-menu-icon')?.classList.contains('bp6-icon-people')).toBe(true);
-    expect(campaigns.querySelector('.app-layout-menu-icon')?.classList.contains('bp6-icon-chart')).toBe(true);
+    const records = await screen.findByRole('button', { name: 'Records' });
+    const projects = screen.getByRole('button', { name: 'Projects' });
+    expect(records.querySelector('.app-layout-menu-icon')?.classList.contains('bp6-icon-people')).toBe(true);
+    expect(projects.querySelector('.app-layout-menu-icon')?.classList.contains('bp6-icon-chart')).toBe(true);
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch.mock.calls[0][0]).toMatch(/\/workspace\/layout$/);
     expect(fetch.mock.calls[0][1]).toMatchObject({ credentials: 'include', headers: { Accept: 'application/json' } });
     expect(onTopbarActionsChange).toHaveBeenCalledWith(topbarActions);
 
-    fireEvent.click(advertisers);
-    expect(openWindow).toHaveBeenLastCalledWith('advertiserList', 'Advertisers', [], {
+    fireEvent.click(records);
+    expect(openWindow).toHaveBeenLastCalledWith('recordList', 'Records', [], {
       parameters: { source: 'workspace-menu' }, conversationId: 'conv-42', parentKey: 'chat/new', presentation: 'hosted', region: 'chat.top',
     });
-    fireEvent.click(campaigns);
-    expect(openWindow).toHaveBeenLastCalledWith('campaignList', 'Campaigns', ['campaigns'], {
+    fireEvent.click(projects);
+    expect(openWindow).toHaveBeenLastCalledWith('projectList', 'Projects', ['projects'], {
       parameters: { status: 'active' }, conversationId: 'conv-42', parentKey: 'chat/new', presentation: 'hosted', region: 'chat.top',
     });
     expect(onOpenWorkspace).toHaveBeenCalledTimes(2);
@@ -202,15 +202,15 @@ describe('WorkspaceSidebar menu delivery from the workspace layout', () => {
       .mockResolvedValueOnce(response({}, 403));
     const onTopbarActionsChange = vi.fn();
     render(<WorkspaceSidebar onTopbarActionsChange={onTopbarActionsChange} />);
-    await screen.findByRole('button', { name: 'Campaigns' });
+    await screen.findByRole('button', { name: 'Projects' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Reload navigation' }));
 
     await screen.findByRole('alert');
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
-    expect(screen.queryByRole('button', { name: 'Advertisers' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Campaigns' })).toBeNull();
-    expect(screen.queryByText(/advertiserList|campaignList|fallback/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Records' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Projects' })).toBeNull();
+    expect(screen.queryByText(/recordList|projectList|fallback/i)).toBeNull();
     expect(onTopbarActionsChange).toHaveBeenLastCalledWith([]);
   });
 
@@ -218,13 +218,13 @@ describe('WorkspaceSidebar menu delivery from the workspace layout', () => {
     fetch.mockResolvedValueOnce(response(layoutPayload({ applications: menuApplications })))
       .mockResolvedValueOnce(response(layoutPayload({ applications: [], layoutId: 'empty-menu' })));
     render(<WorkspaceSidebar />);
-    await screen.findByRole('button', { name: 'Campaigns' });
+    await screen.findByRole('button', { name: 'Projects' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Reload navigation' }));
 
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
-    expect(screen.queryByRole('button', { name: 'Advertisers' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Campaigns' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Records' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Projects' })).toBeNull();
   });
 
   it('continues to render ordinary legacy applications and their menus', async () => {
@@ -248,10 +248,10 @@ it('defers discovery until session confirmation and clears menus when the sessio
   const mounted = render(<WorkspaceSidebar discoveryReady={false} onTopbarActionsChange={topbar} />);
   expect(fetch).not.toHaveBeenCalled();
   mounted.rerender(<WorkspaceSidebar discoveryReady={true} onTopbarActionsChange={topbar} />);
-  await screen.findByRole('button', { name: 'Advertisers' });
+  await screen.findByRole('button', { name: 'Records' });
   expect(fetch).toHaveBeenCalledTimes(1);
   mounted.rerender(<WorkspaceSidebar discoveryReady={false} onTopbarActionsChange={topbar} />);
-  await waitFor(() => expect(screen.queryByRole('button', { name: 'Advertisers' })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Records' })).toBeNull());
   expect(topbar).toHaveBeenLastCalledWith([]);
 });
 

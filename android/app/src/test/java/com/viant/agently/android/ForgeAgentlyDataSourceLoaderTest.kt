@@ -122,8 +122,8 @@ class ForgeAgentlyDataSourceLoaderTest {
                 .setBody(
                     """
                     {"data":{"schedules":[
-                      {"id":"one","name":"Hello World","agentRef":"steward","enabled":false,"scheduleType":"cron"},
-                      {"id":"two","name":"Other","agentRef":"steward","enabled":true,"scheduleType":"interval"}
+                      {"id":"one","name":"Hello World","agentRef":"example","enabled":false,"scheduleType":"cron"},
+                      {"id":"two","name":"Other","agentRef":"example","enabled":true,"scheduleType":"interval"}
                     ]}}
                     """.trimIndent()
                 )
@@ -157,7 +157,7 @@ class ForgeAgentlyDataSourceLoaderTest {
                 .setBody(
                     """
                     {"agentInfos":[
-                      {"id":"steward","name":"Steward","internal":false}
+                      {"id":"example","name":"Example","internal":false}
                     ]}
                     """.trimIndent()
                 )
@@ -178,6 +178,6 @@ class ForgeAgentlyDataSourceLoaderTest {
             )
         )
 
-        assertEquals(listOf("steward"), result?.rows?.map { it["id"] })
+        assertEquals(listOf("example"), result?.rows?.map { it["id"] })
     }
 }

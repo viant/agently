@@ -153,8 +153,8 @@ final class HostedWorkspacePolicyTests: XCTestCase {
         let selected = WorkspaceWindowSnapshot(
             windowId: "order__conv-1",
             conversationId: "conv-1",
-            windowKey: "campaign",
-            windowTitle: "Campaign",
+            windowKey: "project",
+            windowTitle: "Project",
             presentation: "hosted",
             region: "chat.top",
             parentKey: "chat/new"

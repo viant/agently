@@ -125,11 +125,11 @@ describe('ChatFeedFromChatStore', () => {
     expect(resolveStarterTaskPresentation(
       { starterTasks: [], starterTaskCategories: [] },
       {
-        starterTasks: [{ id: 'review', title: 'Review campaign', prompt: 'Review campaign 1.' }],
+        starterTasks: [{ id: 'review', title: 'Review project', prompt: 'Review project 1.' }],
         starterTaskCategories: [{ id: 'measure', title: 'Measure' }],
       },
     )).toEqual({
-      starterTasks: [{ id: 'review', title: 'Review campaign', prompt: 'Review campaign 1.' }],
+      starterTasks: [{ id: 'review', title: 'Review project', prompt: 'Review project 1.' }],
       starterTaskCategories: [{ id: 'measure', title: 'Measure' }],
     });
   });
@@ -169,9 +169,9 @@ describe('ChatFeedFromChatStore', () => {
       { kind: 'assistant', renderKey: 'later-answer', turnId: 'turn-later', content: 'A later answer.' },
     ];
     const restored = {
-      windowId: 'advertiserList__conv-1', windowKey: 'advertiserList', conversationId: 'conv-1',
+      windowId: 'recordList__conv-1', windowKey: 'recordList', conversationId: 'conv-1',
       presentation: 'hosted', region: 'chat.top',
-      workspaceObject: { objectId: 'workspace:advertiserList__conv-1',
+      workspaceObject: { objectId: 'workspace:recordList__conv-1',
         origin: { turnId: 'turn-open' }, lifecycle: { state: 'ready' } },
     };
     const html = renderToStaticMarkup(
@@ -179,7 +179,7 @@ describe('ChatFeedFromChatStore', () => {
         value: { workspaceWindows: [restored], workspaceVisible: false, onOpenWorkspace: vi.fn() },
       }, h(ChatFeedFromChatStore, { conversationId: 'conv-1', rowsOverride: rows })),
     );
-    expect(html).toContain('data-workspace-window-id="advertiserList__conv-1"');
+    expect(html).toContain('data-workspace-window-id="recordList__conv-1"');
     expect(html).toContain('Show');
     expect(html.indexOf('workspace-attachment-card')).toBeLessThan(html.indexOf('data-render-key="later-answer"'));
   });
@@ -262,8 +262,8 @@ describe('ChatFeedFromChatStore', () => {
             starterTasks: [
               {
                 id: 'analyze',
-                title: 'Analyze campaign performance',
-                prompt: 'Analyze campaign 12345 performance.',
+                title: 'Analyze project performance',
+                prompt: 'Analyze project 12345 performance.',
                 description: 'Starter prompt',
               },
             ],
@@ -272,7 +272,7 @@ describe('ChatFeedFromChatStore', () => {
       }),
     );
     expect(html).toContain('Start with an agent prompt');
-    expect(html).toContain('Analyze campaign performance');
+    expect(html).toContain('Analyze project performance');
   });
 
   it('renders category-first starter tasks when categories are supplied', () => {
@@ -314,8 +314,8 @@ describe('ChatFeedFromChatStore', () => {
             starterTasks: [
               {
                 id: 'analyze',
-                title: 'Analyze campaign performance',
-                prompt: 'Analyze campaign 12345 performance.',
+                title: 'Analyze project performance',
+                prompt: 'Analyze project 12345 performance.',
               },
             ],
           },

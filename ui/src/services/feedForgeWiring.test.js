@@ -113,11 +113,11 @@ describe('computeDataMap', () => {
           fields: {
             planId: 'planId',
             totalBudget: 'totalBudget',
-            startDate: { path: 'campaignDates.startDate', transform: 'dateParts' },
+            startDate: { path: 'projectDates.startDate', transform: 'dateParts' },
             flight: {
               transform: 'dateRange',
-              startPath: 'campaignDates.startDate',
-              endPath: 'campaignDates.endDate',
+              startPath: 'projectDates.startDate',
+              endPath: 'projectDates.endDate',
             },
           },
         },
@@ -129,7 +129,7 @@ describe('computeDataMap', () => {
             plan: {
               planId: 'plan-1',
               totalBudget: 250000,
-              campaignDates: {
+              projectDates: {
                 startDate: { year: 2026, monthIndex: 8, day: 15 },
                 endDate: { year: 2026, monthIndex: 9, day: 31 },
               },

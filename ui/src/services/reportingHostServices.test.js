@@ -71,8 +71,8 @@ describe('reportingHostServices report-builder preview adapter', () => {
         turnId: 'turn-1',
         executionGroups: [{
           toolSteps: [
-            { toolCallId: 'call-1', toolName: 'steward/MetricsAdCube', status: 'completed', completedAt: '2026-08-04T12:00:00Z' },
-            { toolCallId: 'call-1', toolName: 'steward/MetricsAdCube', status: 'completed' },
+            { toolCallId: 'call-1', toolName: 'example/MetricsAdCube', status: 'completed', completedAt: '2026-08-04T12:00:00Z' },
+            { toolCallId: 'call-1', toolName: 'example/MetricsAdCube', status: 'completed' },
             { toolCallId: 'call-2', toolName: 'ui/window/setFormData', status: 'failed' },
           ],
         }],
@@ -82,7 +82,7 @@ describe('reportingHostServices report-builder preview adapter', () => {
       events: [
         {
           id: 'call-1',
-          label: 'steward/MetricsAdCube',
+          label: 'example/MetricsAdCube',
           status: 'completed',
           completedAt: '2026-08-04T12:00:00Z',
         },

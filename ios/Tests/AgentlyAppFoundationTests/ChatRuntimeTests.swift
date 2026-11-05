@@ -942,7 +942,7 @@ final class ChatRuntimeTests: XCTestCase {
                             "format": .string("currency"),
                             "type": .string("link"),
                             "link": .object([
-                                "href": .string("ad_order_url")
+                                "href": .string("record_order_url")
                             ])
                         ]),
                         .object([
@@ -978,7 +978,7 @@ final class ChatRuntimeTests: XCTestCase {
         XCTAssertEqual(table.table?.columns.map(\.label), ["Entity", "Primary blocker"])
         XCTAssertEqual(table.table?.columns.map(\.format), ["currency", "percentFraction"])
         XCTAssertEqual(table.table?.columns.first?.type, "link")
-        XCTAssertEqual(table.table?.columns.first?.link?.href, "ad_order_url")
+        XCTAssertEqual(table.table?.columns.first?.link?.href, "record_order_url")
     }
 
     func testBuildTranscriptForgeWindowMetadataAdaptsSummaryItemsAndReportBlocks() throws {

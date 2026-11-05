@@ -37,7 +37,7 @@ import {
 
 describe('landing workspace conversation binding', () => {
   it('preserves the landing window and parameters when the first conversation starts', () => {
-    const home = {windowId:'menu-advertisers',windowKey:'advertiserList',parentKey:MAIN_CHAT_WINDOW_ID,
+    const home = {windowId:'menu-records',windowKey:'recordList',parentKey:MAIN_CHAT_WINDOW_ID,
       presentation:'hosted',region:'chat.top',parameters:{name:'Example Fitness'}};
     const owned = {...home,windowId:'other-chat',conversationId:'private'};
     const bottom = {...home,windowId:'bottom',region:'chat.bottom'};
@@ -343,20 +343,20 @@ describe('conversationWindow', () => {
 
   it('restores an ancestor workspace and truncates breadcrumb ancestry', () => {
     const current = {
-      windowId: 'advertiser_101705__conv-123',
-      windowKey: 'advertiser',
+      windowId: 'record_101705__conv-123',
+      windowKey: 'record',
       windowTitle: 'A_TEST',
       parentKey: MAIN_CHAT_WINDOW_ID,
       conversationId: 'conv-123',
       presentation: 'hosted',
       region: 'chat.top',
       inTab: true,
-      parameters: { AdvertiserId: [101705] },
-      navigation: { chipName: 'Advertiser' },
+      parameters: { RecordId: [101705] },
+      navigation: { chipName: 'Record' },
       navigationTrail: [{
-        windowId: 'advertiserList__conv-123',
-        windowKey: 'advertiserList',
-        windowTitle: 'Advertisers',
+        windowId: 'recordList__conv-123',
+        windowKey: 'recordList',
+        windowTitle: 'Records',
         parentKey: MAIN_CHAT_WINDOW_ID,
         conversationId: 'conv-123',
         presentation: 'hosted',
@@ -364,10 +364,10 @@ describe('conversationWindow', () => {
         inTab: true,
         parameters: {},
         navigation: { chipName: 'List' },
-        windowForm: { advertiserQuery: 'A_TEST' },
+        windowForm: { recordQuery: 'A_TEST' },
         viewState: { activeTabId: 'all' },
         dataSourceState: {
-          advertisers: {
+          records: {
             input: { filter: { Id: '101705' }, page: 3, pageSize: 25 },
           },
         },
@@ -377,10 +377,10 @@ describe('conversationWindow', () => {
 
     const restored = restoreWorkspaceNavigationTrailEntry('conv-123', current, 0);
 
-    expect(restored?.windowKey).toBe('advertiserList');
+    expect(restored?.windowKey).toBe('recordList');
     expect(restored?.navigationTrail).toEqual([]);
-    expect(getFormSignal(`${restored.windowId}:windowForm`).value).toEqual({ advertiserQuery: 'A_TEST' });
-    expect(getInputSignal(`${restored.windowId}DSadvertisers`).value).toMatchObject({
+    expect(getFormSignal(`${restored.windowId}:windowForm`).value).toEqual({ recordQuery: 'A_TEST' });
+    expect(getInputSignal(`${restored.windowId}DSrecords`).value).toMatchObject({
       filter: { Id: '101705' },
       page: 3,
       pageSize: 25,
@@ -841,35 +841,35 @@ describe('conversationWindow', () => {
 
   it('rehydrates resource parameters into an existing hosted window shell', () => {
     activeWindows.value = [{
-      windowId: 'advertiser_39764637__conv-advertiser',
-      windowKey: 'advertiser',
-      windowTitle: 'Advertiser',
+      windowId: 'record_39764637__conv-record',
+      windowKey: 'record',
+      windowTitle: 'Record',
       parentKey: MAIN_CHAT_WINDOW_ID,
       presentation: 'hosted',
       region: 'chat.top',
       inTab: true,
-      conversationId: 'conv-advertiser',
+      conversationId: 'conv-record',
       parameters: {}
     }];
-    setScopedWorkspaceState('conv-advertiser', {
+    setScopedWorkspaceState('conv-record', {
       ...activeWindows.value[0],
       parameters: {
-        AdvertiserId: [85141],
-        advertiser_properties: {parameters: {Id: [85141]}}
+        RecordId: [85141],
+        record_properties: {parameters: {Id: [85141]}}
       }
     });
-    expect(getScopedWorkspaceState('conv-advertiser')?.parameters).toEqual({
-      AdvertiserId: [85141],
-      advertiser_properties: {parameters: {Id: [85141]}}
+    expect(getScopedWorkspaceState('conv-record')?.parameters).toEqual({
+      RecordId: [85141],
+      record_properties: {parameters: {Id: [85141]}}
     });
 
-    const restored = ensureWorkspaceWindowForConversation('conv-advertiser');
+    const restored = ensureWorkspaceWindowForConversation('conv-record');
 
     expect(restored?.parameters).toEqual({
-      AdvertiserId: [85141],
-      advertiser_properties: {parameters: {Id: [85141]}}
+      RecordId: [85141],
+      record_properties: {parameters: {Id: [85141]}}
     });
-    expect(activeWindows.value[0]?.parameters?.AdvertiserId).toEqual([85141]);
+    expect(activeWindows.value[0]?.parameters?.RecordId).toEqual([85141]);
   });
 
   it('rehydrates a uniquely matching hosted shell when bound parameters changed its durable window hash', () => {
@@ -1134,7 +1134,7 @@ describe('conversationWindow', () => {
           reportDocumentReopenSession: {
             reportId: 'forecastingTrendQ3',
             documentVersion: 6,
-            reopenedSemanticFingerprint: '{"modelRef":"model://steward/performance/ad_delivery@v1"}'
+            reopenedSemanticFingerprint: '{"modelRef":"model://example/performance/record_activity@v1"}'
           },
           reportDocumentTitle: 'Forecasting Trend Q3',
           dynamicGroups: {
@@ -1175,7 +1175,7 @@ describe('conversationWindow', () => {
           reportDocumentReopenSession: {
             reportId: 'forecastingTrendQ3',
             documentVersion: 6,
-            reopenedSemanticFingerprint: '{"modelRef":"model://steward/performance/ad_delivery@v1"}'
+            reopenedSemanticFingerprint: '{"modelRef":"model://example/performance/record_activity@v1"}'
           },
           reportDocumentTitle: 'Forecasting Trend Q3',
           dynamicGroups: {
@@ -1274,8 +1274,8 @@ describe('conversationWindow', () => {
     expect(selectedTabId.value).toBe(restored?.windowId);
   });
 
-  it('does not merge a saved report snapshot into a different advertiser suite or view', () => {
-    const firstParameters = {AdvertiserId: [95420], SuiteId: 5, ViewId: 1447, Trial: false};
+  it('does not merge a saved report snapshot into a different record suite or view', () => {
+    const firstParameters = {RecordId: [95420], SuiteId: 5, ViewId: 1447, Trial: false};
     setScopedWorkspaceState('conv-report-isolation', {
       windowId: 'advancedReportBuilder_foot_traffic',
       windowKey: 'advancedReportBuilder',
@@ -1283,7 +1283,7 @@ describe('conversationWindow', () => {
       windowForm: {ReportName: 'Foot Traffic', ViewId: 1447},
     });
 
-    const funnelParameters = {AdvertiserId: [95420], SuiteId: 4, ViewId: 1338, Trial: false};
+    const funnelParameters = {RecordId: [95420], SuiteId: 4, ViewId: 1338, Trial: false};
     setScopedWorkspaceState('conv-report-isolation', {
       windowId: 'advancedReportBuilder_conversion_funnel',
       windowKey: 'advancedReportBuilder',
@@ -1870,7 +1870,7 @@ describe('conversationWindow', () => {
           reportDocumentReopenSession: {
             reportId: 'forecastingTrendQ3',
             documentVersion: 6,
-            reopenedSemanticFingerprint: '{"modelRef":"model://steward/performance/ad_delivery@v1"}'
+            reopenedSemanticFingerprint: '{"modelRef":"model://example/performance/record_activity@v1"}'
           },
           reportDocumentTitle: 'Forecasting Trend Q3',
           reportDocumentSubtitle: 'Saved subtitle'
@@ -1964,7 +1964,7 @@ describe('conversationWindow', () => {
             reportDocumentReopenSession: {
               reportId: 'forecastingTrendQ3',
               documentVersion: 6,
-              reopenedSemanticFingerprint: '{"modelRef":"model://steward/performance/ad_delivery@v1"}'
+              reopenedSemanticFingerprint: '{"modelRef":"model://example/performance/record_activity@v1"}'
             },
             reportDocumentTitle: 'Forecasting Trend Q3 (Live)',
             reportDocumentSubtitle: 'Transcript subtitle'
@@ -2048,13 +2048,13 @@ describe('conversationWindow', () => {
           toolName: 'ui/window/list',
           status: 'completed',
           responsePayload: { items: [{
-            windowId: 'advertiserList__conv-1',
-            windowKey: 'advertiserList',
+            windowId: 'recordList__conv-1',
+            windowKey: 'recordList',
             conversationId: 'conv-1',
             parentKey: MAIN_CHAT_WINDOW_ID,
             presentation: 'hosted',
             region: 'chat.top',
-            workspaceObject: { version: 1, objectId: 'workspace:advertiserList__conv-1', lifecycle: { state: 'opening' } },
+            workspaceObject: { version: 1, objectId: 'workspace:recordList__conv-1', lifecycle: { state: 'opening' } },
           }] },
         },
         {
@@ -2071,20 +2071,20 @@ describe('conversationWindow', () => {
     const hydrated = await hydrateWorkspaceTranscriptTurns(turns, async (payloadId) => {
       expect(payloadId).toBe('payload-ready-window');
       return { window: {
-        windowId: 'advertiserList__conv-1',
-        windowKey: 'advertiserList',
+        windowId: 'recordList__conv-1',
+        windowKey: 'recordList',
         conversationId: 'conv-1',
         parentKey: MAIN_CHAT_WINDOW_ID,
         presentation: 'hosted',
         region: 'chat.top',
-        workspaceObject: { version: 1, objectId: 'workspace:advertiserList__conv-1', lifecycle: { state: 'ready' } },
-        windowForm: { advertiserListMode: 'starred' },
+        workspaceObject: { version: 1, objectId: 'workspace:recordList__conv-1', lifecycle: { state: 'ready' } },
+        windowForm: { recordListMode: 'starred' },
       } };
     });
 
     const restored = deriveWorkspaceStateFromTranscriptTurns(hydrated);
     expect(restored?.windows?.[0]?.workspaceObject?.lifecycle?.state).toBe('ready');
-    expect(restored?.windows?.[0]?.windowForm).toEqual({ advertiserListMode: 'starred' });
+    expect(restored?.windows?.[0]?.windowForm).toEqual({ recordListMode: 'starred' });
   });
 
   it('mounts the last ready workspace when reopening its past conversation', () => {
@@ -2092,10 +2092,10 @@ describe('conversationWindow', () => {
     activeWindows.value = [{ windowId: MAIN_CHAT_WINDOW_ID, windowKey: CHAT_WINDOW_KEY, parameters: {} }];
     const turns = [{ turnId: 'turn-open', execution: { pages: [{ toolSteps: [{
       toolName: 'ui/window/get', status: 'completed', responsePayload: { window: {
-        windowId: 'advertiserList__conv-auto-restore', windowKey: 'advertiserList',
+        windowId: 'recordList__conv-auto-restore', windowKey: 'recordList',
         conversationId: 'conv-auto-restore', parentKey: MAIN_CHAT_WINDOW_ID,
         presentation: 'hosted', region: 'chat.top',
-        workspaceObject: { version: 1, objectId: 'workspace:advertiserList__conv-auto-restore',
+        workspaceObject: { version: 1, objectId: 'workspace:recordList__conv-auto-restore',
           origin: { turnId: 'turn-open' }, lifecycle: { state: 'ready' } },
       } },
     }] }] } }];
@@ -2104,9 +2104,9 @@ describe('conversationWindow', () => {
     expect(result?.windows).toHaveLength(1);
     expect(getScopedActiveSurface('conv-auto-restore')).toBe('workspace');
     expect(resolveWorkspaceWindowsForConversation('conv-auto-restore')).toEqual([
-      expect.objectContaining({ windowId: 'advertiserList__conv-auto-restore', hostOpenState: 'historical_replay' }),
+      expect.objectContaining({ windowId: 'recordList__conv-auto-restore', hostOpenState: 'historical_replay' }),
     ]);
-    expect(selectedWindowId.value).toBe('advertiserList__conv-auto-restore');
+    expect(selectedWindowId.value).toBe('recordList__conv-auto-restore');
     // Hydration must not undo a subsequent explicit return to chat.
     setScopedActiveSurface('conv-auto-restore', 'conversation');
     selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
@@ -2157,9 +2157,9 @@ describe('conversationWindow', () => {
     const hydrated = await hydrateWorkspaceTranscriptTurns(turns, async (id) => {
       if (id === 'missing-list') throw new Error('payload unavailable');
       return { window: {
-        windowId: 'advertiserList__conv-1', windowKey: 'advertiserList', conversationId: 'conv-1',
+        windowId: 'recordList__conv-1', windowKey: 'recordList', conversationId: 'conv-1',
         parentKey: MAIN_CHAT_WINDOW_ID, presentation: 'hosted', region: 'chat.top',
-        workspaceObject: { version: 1, objectId: 'workspace:advertiserList__conv-1',
+        workspaceObject: { version: 1, objectId: 'workspace:recordList__conv-1',
           origin: { turnId: 'turn-open' }, lifecycle: { state: 'ready' } },
       } };
     });

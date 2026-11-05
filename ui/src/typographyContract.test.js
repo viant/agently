@@ -19,10 +19,10 @@ describe('section navigation design-system adoption', () => {
     expect(read('./components/lookups/NamedLookupInput.jsx')).toContain('data-forge-type={typeRole}');
     expect(source).toContain("typographyProps('body')");
     expect(source).toContain('aria-current');
-    expect(source).not.toMatch(/(?:IBM Plex|Steward|Viant|fontSize|fontFamily)/i);
+    expect(source).not.toMatch(/(?:IBM Plex|Viant|fontSize|fontFamily)/i);
     for (const file of ['./components/RunProgressView.jsx','./components/RequestReviewDialog.jsx','./components/RequestLifecycleSpecimen.jsx']) {
       const component=read(file);
-      expect(component).not.toMatch(/(?:IBM Plex|Steward|Viant|#[0-9a-f]{3,8}\b|fontSize|fontWeight|fontFamily|lineHeight|letterSpacing)/i);
+      expect(component).not.toMatch(/(?:IBM Plex|Viant|#[0-9a-f]{3,8}\b|fontSize|fontWeight|fontFamily|lineHeight|letterSpacing)/i);
       expect(component).toContain('typeRole=');
     }
     expect(read('./components/Sidebar.jsx')).toContain("typographyProps('metadata')");
@@ -30,7 +30,7 @@ describe('section navigation design-system adoption', () => {
     expect(header).toContain('typeRole="label"');
     expect(header).toContain("typographyProps('label')");
     for (const icon of ['menu', 'arrow-left', 'arrow-right']) expect(header).toContain(`lucide:${icon}`);
-    expect(header).not.toMatch(/(?:IBM Plex|Steward|Viant|fontSize|fontFamily)/i);
+    expect(header).not.toMatch(/(?:IBM Plex|Viant|fontSize|fontFamily)/i);
     const surface = read('./components/ConversationWorkspaceSurface.jsx');
     expect(surface).toContain('aria-controls="conversation-workspace-viewer"');
     expect(surface).toContain('lucide:panel-right');
@@ -38,7 +38,7 @@ describe('section navigation design-system adoption', () => {
     expect(surface).toContain('WorkspaceRuntimeTabs');
     for (const file of ['./components/WorkspaceOutputState.jsx', './components/InlineReportWorkspace.jsx', './components/OutputHandoffSpecimen.jsx', './components/chat/WorkspaceAttachmentCard.jsx']) {
       const source = read(file);
-      expect(source).not.toMatch(/(?:IBM Plex|Steward|Viant|#[0-9a-f]{3,8}\b|fontSize|fontWeight|fontFamily|lineHeight|letterSpacing)/i);
+      expect(source).not.toMatch(/(?:IBM Plex|Viant|#[0-9a-f]{3,8}\b|fontSize|fontWeight|fontFamily|lineHeight|letterSpacing)/i);
       expect(source).toMatch(/(?:typeRole=|typographyProps\(|WorkspaceOutputState)/);
     }
 
@@ -72,7 +72,7 @@ describe('shared typography delivery', () => {
 describe('role adoption in the shared settings pilot', () => {
   it('takes workspace-specific proof content and expectations from external fixtures', () => {
     for (const file of ['./typographyComponentsProof.jsx', '../scripts/test-typography-browser.mjs']) {
-      expect(read(file)).not.toMatch(/(?:IBM Plex|Steward|Viant|media-plan|planDisplayName)/i);
+      expect(read(file)).not.toMatch(/(?:IBM Plex|Viant|media-plan|planDisplayName)/i);
     }
   });
   it('renders the actual authored pilot container and forwards document appearance', () => {

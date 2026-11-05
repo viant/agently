@@ -78,7 +78,7 @@ it('keeps a readable title when heading lookup fails', async () => {
 
 it('restores catalog destination IDs from links and keeps each visit distinct', async () => {
   const first = JSON.stringify(['business', 'browse', 'accounts']);
-  const second = JSON.stringify(['business', 'browse', 'campaigns']);
+  const second = JSON.stringify(['business', 'browse', 'projects']);
   window.history.replaceState(null, '', `/?retain=value&section=workspaces&destination=${encodeURIComponent(first)}`);
   const restore = vi.fn();
   const {result, unmount} = renderHook(() => useShellNavigation({enabled: true, section: 'workspaces', conversationId: 'chat-a', onRestore: restore}));

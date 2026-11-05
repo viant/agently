@@ -42,3 +42,9 @@ ui/theme-proof-dist/
 
 /agently-bin
 /bin/
+
+# Local mobile workspace configuration and developer Xcode state.
+/ios/Configuration/*.local.xcconfig
+/ios/**/xcuserdata/
+/android/*.local.properties
+/run/steward-local*

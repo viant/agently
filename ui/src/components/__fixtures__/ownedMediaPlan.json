@@ -21,9 +21,9 @@
         "dataSourceRef": "editDraft",
         "items": [
           {
-            "id": "advertiser-label",
+            "id": "record-label",
             "widget": "label",
-            "dataField": "advertiserName",
+            "dataField": "recordName",
             "dataSourceRef": "editDraft",
             "scope": "form"
           }
@@ -37,9 +37,9 @@
           "showSubmit": false,
           "fields": [
             {
-              "id": "advertiserName",
-              "name": "advertiserName",
-              "label": "Advertiser",
+              "id": "recordName",
+              "name": "recordName",
+              "label": "Record",
               "widget": "text"
             },
             {
@@ -56,7 +56,7 @@
   },
   "output": {
     "plan": {
-      "advertiserName": "Coca-Cola",
+      "recordName": "Example team",
       "totalBudget": 100000
     },
     "channels": [

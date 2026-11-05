@@ -15,7 +15,7 @@ describe('callbackService.dispatchCallback', () => {
   });
 
   it('POSTs to /v1/api/callbacks/dispatch with credentials and JSON body', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ tool: 'steward-SaveRecommendation', result: '{"ok":true}' }), {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ tool: 'example-SaveRecommendation', result: '{"ok":true}' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     }));
@@ -30,7 +30,7 @@ describe('callbackService.dispatchCallback', () => {
 
     expect(out.ok).toBe(true);
     expect(out.notFound).toBe(false);
-    expect(out.tool).toBe('steward-SaveRecommendation');
+    expect(out.tool).toBe('example-SaveRecommendation');
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     const [url, opts] = fetchMock.mock.calls[0];

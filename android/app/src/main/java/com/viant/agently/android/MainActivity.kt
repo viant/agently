@@ -277,21 +277,6 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
             scope = scope,
             targetContext = forgeTargetContext,
             reportRequestInspectionOnly = BuildConfig.DEBUG && BuildConfig.REPORT_REQUEST_INSPECTION_ONLY,
-            reportInspectionObserver = if (BuildConfig.DEBUG) ({ prepared: com.viant.forgeandroid.runtime.PreparedReportRequest ->
-                val request = prepared.primaryRequest
-                val filters = request["filters"] as? JsonObject
-                val safeScope = filters?.filterKeys { it in setOf("From", "To", "advertiserId", "advertiserIds", "campaignIds", "orderIds", "lineItemIds") }
-                val measureCount = (request["measures"] as? JsonObject)?.size ?: 0
-                val dimensionCount = (request["dimensions"] as? JsonObject)?.size ?: 0
-                android.util.Log.i("ReportRequestInspection", "inspectionOnly=${BuildConfig.REPORT_REQUEST_INSPECTION_ONLY} status=${prepared.status} identity=${prepared.identity} source=${prepared.dataSourceRef} scope=$safeScope measures=$measureCount dimensions=$dimensionCount sources=${prepared.publishedSources.size}")
-                if (prepared.status == "ready") prepared.publishedSources.forEach { source ->
-                    val scoped = (prepared.state["reportDatasetScopeParams"] ?: prepared.state["datasetScopeParams"]) as? JsonObject
-                    val plan = com.viant.forgeandroid.runtime.preparePublishedReportRequest(prepared.identity, prepared, source, scoped)
-                    val publishedFilters = (plan.request?.get("filters") as? JsonObject)?.filterKeys { it in setOf("From", "To", "advertiserId", "advertiserIds", "campaignIds", "orderIds", "lineItemIds") }
-                    android.util.Log.i("ReportRequestInspection", "published=${source.id} source=${source.dataSourceRef} status=${plan.status} scope=$publishedFilters")
-                }
-
-            }) else null,
             frozenReportInspectionObserver=if(BuildConfig.DEBUG) ({ windowId,reason -> android.util.Log.d("FrozenReportProof","window=$windowId reason=$reason") }) else null
         ).also { runtime ->
             runtime.nativeReportLifecycle.register(makeNativeReportRunLifecycleHandler(client,
@@ -302,15 +287,7 @@ private fun AgentlyApp(oauthCallbackUriFlow: MutableStateFlow<Uri?>, themeRuntim
             runtime.registerWindowMetadataRequestLoader(
                 makeForgeAgentlyWindowMetadataLoader(client, forgeTargetContext)
             )
-            val nativeLoader = makeForgeAgentlyDataSourceLoader(client)
-            runtime.registerDataSourceLoader { request ->
-                if (BuildConfig.DEBUG && runtime.metadataSignal(request.windowId).peek()?.let { request.dataSourceRef in com.viant.forgeandroid.runtime.reportOwnedDataSourceRefs(it) } == true) {
-                    val filters = request.input.parameters["filters"] as? Map<*, *>
-                    val safeScope = filters?.filterKeys { it in setOf("From", "To", "advertiserId", "advertiserIds", "campaignIds", "orderIds", "lineItemIds") }
-                    android.util.Log.i("ReportRequestDispatch", "window=${request.windowId} source=${request.dataSourceRef} scope=$safeScope")
-                }
-                nativeLoader(request)
-            }
+            runtime.registerDataSourceLoader(makeForgeAgentlyDataSourceLoader(client))
             registerScheduleHandlers(runtime, client) { filter ->
                 scheduleHistoryFilter = filter
                 currentScreen = AppScreen.History

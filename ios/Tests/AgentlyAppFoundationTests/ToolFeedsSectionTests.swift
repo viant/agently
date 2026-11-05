@@ -5,13 +5,13 @@ import ForgeIOSRuntime
 
 final class ToolFeedsSectionTests: XCTestCase {
     func testNativeFeedPreservesDeclaredLookupDialogsAndNamespace() throws {
-        let ui = try JSONDecoder().decode(AgentlySDK.JSONValue.self, from: Data(#"{"namespace":"steward","containers":[{"id":"form","dataSourceRef":"details"}],"dialogs":[{"id":"advertisers","title":"Choose advertiser"}],"target":{"formFactor":"phone"}}"#.utf8))
+        let ui = try JSONDecoder().decode(AgentlySDK.JSONValue.self, from: Data(#"{"namespace":"example","containers":[{"id":"form","dataSourceRef":"details"}],"dialogs":[{"id":"records","title":"Choose record"}],"target":{"formFactor":"phone"}}"#.utf8))
         let payload = FeedDataResponse(feedID: "media", ui: ui)
         let content = try XCTUnwrap(decodedToolFeedContent(ui))
         let metadata = nativeToolFeedMetadata(payload: payload, content: content)
-        XCTAssertEqual(metadata.namespace, "steward")
-        XCTAssertEqual(metadata.dialogs.first?.id, "advertisers")
-        XCTAssertEqual(metadata.dialogs.first?.title, "Choose advertiser")
+        XCTAssertEqual(metadata.namespace, "example")
+        XCTAssertEqual(metadata.dialogs.first?.id, "records")
+        XCTAssertEqual(metadata.dialogs.first?.title, "Choose record")
         XCTAssertEqual(metadata.view?.content?.containers.first?.id, "form")
         XCTAssertEqual(metadata.target?.objectValue?["formFactor"]?.stringValue, "phone")
     }

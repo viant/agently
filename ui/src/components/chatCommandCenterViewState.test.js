@@ -33,11 +33,11 @@ describe('chatCommandCenterViewState', () => {
     const handleReasoningChange = vi.fn();
 
     const base = {
-      commandCenterDefaults: { agent: 'steward', model: 'gpt-5-mini' },
-      currentAgent: 'steward',
+      commandCenterDefaults: { agent: 'example', model: 'gpt-5-mini' },
+      currentAgent: 'example',
       currentModel: 'gpt-5.4',
       metaSnapshot: {
-        agentOptions: [{ value: 'steward', modelRef: 'gpt-5.4', tools: ['prompt/list', 'llm/agents/list'] }],
+        agentOptions: [{ value: 'example', modelRef: 'gpt-5.4', tools: ['prompt/list', 'llm/agents/list'] }],
       },
       events: null,
       metaCtx: null,
@@ -70,7 +70,7 @@ describe('chatCommandCenterViewState', () => {
     expect(clearCommandCenterChip({
       chip: { id: 'agent' },
       commandCenterDefaults: {},
-      currentAgent: 'steward',
+      currentAgent: 'example',
       currentModel: 'gpt-5.4',
       metaSnapshot: {},
       events,

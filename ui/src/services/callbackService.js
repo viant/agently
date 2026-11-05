@@ -4,7 +4,7 @@
  *
  * When the workspace has a matching `callbacks/<eventName>.yaml`, the
  * server renders the payload template and invokes the mapped tool (e.g.
- * `steward-SaveRecommendation`). When no callback is registered for the
+ * `provider-SaveRecord`). When no callback is registered for the
  * event, the server returns HTTP 400 / 404 and this helper reports
  * `notFound: true` so callers can fall back to another path
  * (conversational chat submit, toast-only, …).

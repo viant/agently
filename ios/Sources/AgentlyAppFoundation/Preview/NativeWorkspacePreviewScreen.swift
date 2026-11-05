@@ -27,8 +27,8 @@ public struct NativeWorkspacePreviewConfiguration: Sendable {
               ["127.0.0.1", "localhost"].contains(baseURL.host?.lowercased() ?? "") else {
             return nil
         }
-        let windowKey = argument("--previewWindow", in: arguments) ?? "advertiser"
-        let rawParameters = argument("--previewParameters", in: arguments) ?? #"{"AdvertiserId":[85141]}"#
+        guard let windowKey = argument("--previewWindow", in: arguments), !windowKey.isEmpty else { return nil }
+        let rawParameters = argument("--previewParameters", in: arguments) ?? "{}"
         let parameters = (try? JSONDecoder().decode([String: JSONValue].self, from: Data(rawParameters.utf8))) ?? [:]
         var configuration = Self(
             baseURL: baseURL,
@@ -88,7 +88,7 @@ public struct NativeWorkspacePreviewScreen: View {
                         contentPadding: 8
                     )
                 } else {
-                    ProgressView("Loading Advertiser…")
+                    ProgressView("Loading preview…")
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -99,7 +99,7 @@ public struct NativeWorkspacePreviewScreen: View {
                     .padding(.vertical, 4)
                     .background(.bar)
             }
-            .navigationTitle(windowState?.title ?? "Advertiser")
+            .navigationTitle(windowState?.title ?? "Preview")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif

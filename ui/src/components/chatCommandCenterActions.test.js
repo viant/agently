@@ -38,30 +38,30 @@ describe('chatCommandCenterActions', () => {
   it('applies agent selection and mirrors key fields to conversations', () => {
     const metaDS = makeDataSource({
       defaults: { model: 'gpt-5-mini' },
-      agentOptions: [{ value: 'steward', label: 'Steward', modelRef: 'gpt-5.4', name: 'Steward', tools: ['planner'] }],
-      agentInfo: { steward: { tools: ['planner', 'search'] } },
+      agentOptions: [{ value: 'example', label: 'Example', modelRef: 'gpt-5.4', name: 'Example', tools: ['planner'] }],
+      agentInfo: { example: { tools: ['planner', 'search'] } },
     });
     const convDS = makeDataSource();
 
     applyAgentSelection({
-      agentID: 'steward',
+      agentID: 'example',
       metaDS,
       metaSnapshot: metaDS.state,
       context: makeContext(convDS),
     });
 
-    expect(metaDS.state.agent).toBe('steward');
+    expect(metaDS.state.agent).toBe('example');
     expect(metaDS.state.model).toBe('gpt-5.4');
     expect(metaDS.state.tool).toBeUndefined();
-    expect(convDS.state.agent).toBe('steward');
-    expect(convDS.state.agentName).toBe('Steward');
+    expect(convDS.state.agent).toBe('example');
+    expect(convDS.state.agentName).toBe('Example');
     expect(convDS.state.model).toBe('gpt-5.4');
   });
 
   it('clears agent selection back to defaults', () => {
     const metaDS = makeDataSource({
       defaults: { model: 'gpt-5-mini' },
-      agent: 'steward',
+      agent: 'example',
       model: 'gpt-5.4',
     });
     const convDS = makeDataSource();

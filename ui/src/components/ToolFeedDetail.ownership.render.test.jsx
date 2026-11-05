@@ -21,7 +21,7 @@ it('the real mounted owned feed exposes only its own declared conversation state
  applyFeedEvent({type:'tool_feed_active',feedId:'media-plan',conversationId,turnId:'turn-fixture',feedTarget:'inline',feedItemCount:3});
  element=document.createElement('div');document.body.append(element);root=createRoot(element);
  await act(async()=>root.render(<SettingProvider><ToolFeedDetail conversationId={conversationId} turnId="turn-fixture"/></SettingProvider>));await flush();
- expect(element.textContent).toContain('Coca-Cola');expect(element.textContent).toContain('Total budget');
+ expect(element.textContent).toContain('Example team');expect(element.textContent).toContain('Total budget');
  const budget=()=>element.querySelector('input[data-forge-control-id="totalBudget"], [data-forge-control-id="totalBudget"] input');
  expect(budget()?.value).toBe('100000');
  expect(getWindowContext(windowId)?.identity).toMatchObject({feedId:'media-plan',conversationId});

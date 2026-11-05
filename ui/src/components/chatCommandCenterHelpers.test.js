@@ -22,23 +22,23 @@ describe('chatCommandCenterHelpers', () => {
   it('resolves preferred agent model and tools from snapshot', () => {
     const snapshot = {
       agentOptions: [
-        { value: 'steward', label: 'Steward', modelRef: 'gpt-5.4', tools: ['planner'] },
+        { value: 'example', label: 'Example', modelRef: 'gpt-5.4', tools: ['planner'] },
       ],
       agentInfo: {
-        steward: { tools: ['planner', 'search'] },
+        example: { tools: ['planner', 'search'] },
       },
     };
 
-    expect(defaultAgentModel(snapshot, 'steward')).toBe('gpt-5.4');
-    expect(defaultAgentTools(snapshot, 'steward')).toEqual(['planner', 'search']);
+    expect(defaultAgentModel(snapshot, 'example')).toBe('gpt-5.4');
+    expect(defaultAgentTools(snapshot, 'example')).toEqual(['planner', 'search']);
   });
 
   it('prefers the selected agent model when current model is empty or default', () => {
     const snapshot = {
-      agent: 'steward',
+      agent: 'example',
       model: '',
       defaults: { model: 'gpt-5-mini' },
-      agentOptions: [{ value: 'steward', modelRef: 'gpt-5.4' }],
+      agentOptions: [{ value: 'example', modelRef: 'gpt-5.4' }],
     };
     expect(resolveCurrentModel(snapshot)).toBe('gpt-5.4');
 

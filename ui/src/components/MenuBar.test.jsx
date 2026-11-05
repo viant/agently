@@ -268,12 +268,12 @@ describe('MenuBar branding', () => {
     const { resolveBrandLogoSrc } = await import('./menuBarHelpers.js');
     expect(resolveBrandLogoSrc('builtin:viant')).toBe('logo.png');
     expect(resolveBrandLogoSrc('')).toBe('logo.png');
-    expect(resolveBrandLogoSrc('builtin:steward')).toBe('');
+    expect(resolveBrandLogoSrc('builtin:example')).toBe('');
   });
 
   it('derives a monogram for workspaces without an image-backed icon ref', async () => {
     const { resolveBrandMonogram } = await import('./menuBarHelpers.js');
-    expect(resolveBrandMonogram('Steward')).toBe('S');
+    expect(resolveBrandMonogram('Example')).toBe('E');
     expect(resolveBrandMonogram('Acme Workspace')).toBe('AW');
     expect(resolveBrandMonogram('')).toBe('A');
   });
@@ -323,7 +323,7 @@ describe('MenuBar queue approval dialog', () => {
   it('normalizes queue approvals into renderable review schema seeded from queued arguments', async () => {
     const { normalizeQueueApprovalDialog } = await import('./menuBarHelpers.js');
     const item = {
-      toolName: 'steward/RecommendationPatch',
+      toolName: 'example/RecommendationPatch',
       arguments: {
         Recommendation: { id: 7288305001 },
         intent: 'target_add_sites',
@@ -333,7 +333,7 @@ describe('MenuBar queue approval dialog', () => {
         ]
       },
       metadata: {
-        approval: { toolName: 'steward/RecommendationPatch', title: 'Recommendation review' },
+        approval: { toolName: 'example/RecommendationPatch', title: 'Recommendation review' },
         review: {
           requestedSchema: {
             type: 'object',
@@ -361,7 +361,7 @@ describe('MenuBar queue approval dialog', () => {
     };
 
     const dialog = normalizeQueueApprovalDialog(item);
-    expect(dialog.approval.toolName).toBe('steward/RecommendationPatch');
+    expect(dialog.approval.toolName).toBe('example/RecommendationPatch');
     expect(dialog.argumentsPayload.intent).toBe('target_add_sites');
     expect(dialog.preparedSchema.properties.intent.default).toBe('target_add_sites');
     expect(dialog.preparedSchema.properties.rows.default).toEqual(item.arguments.rows);
@@ -372,7 +372,7 @@ describe('MenuBar queue approval dialog', () => {
   it('parses stringified queue metadata and arguments', async () => {
     const { normalizeQueueApprovalDialog } = await import('./menuBarHelpers.js');
     const metadata = {
-      approval: { toolName: 'steward/RecommendationPatch', title: 'Recommendation review' },
+      approval: { toolName: 'example/RecommendationPatch', title: 'Recommendation review' },
       review: {
         requestedSchema: {
           type: 'object',
@@ -416,13 +416,13 @@ describe('MenuBar queue approval dialog', () => {
     const item = {
       arguments: {
         Recommendation: {
-          change_summary: 'Extend target sitelist coverage for audience 7320456 with reusable sitelist 115989 containing 10 sites.',
-          change_reason: 'Objective=SCALE with bid fulfillment ratio 0.00; prepared deterministic sitelist artifact for safe target expansion.',
+          change_summary: 'Update the selected record with ten list items.',
+          change_reason: 'Review the proposed list update before saving.',
           metadata: {
-            current_expression: 'location:["US"] AND ad.site.type:["app"]',
-            proposed_expression: 'location:["US"] AND ad.site.type:["app"] AND site.lists.v2:["115989"]',
-            site_list_id: 115989,
-            generated_sitelist_name: 'steward-sl-adv-110580-target-d50d3583197d',
+            current_expression: 'location:["US"] AND record.type:["app"]',
+            proposed_expression: 'location:["US"] AND record.type:["app"] AND record.lists:["115989"]',
+            item_list_id: 115989,
+            generated_itemlist_name: 'example-list-42',
           },
         },
       },
@@ -435,8 +435,8 @@ describe('MenuBar queue approval dialog', () => {
               current_expression: { type: 'string', readOnly: true },
               proposed_expression: { type: 'string', readOnly: true },
               change_reason: { type: 'string', readOnly: true },
-              site_list_id: { type: 'integer', readOnly: true },
-              generated_sitelist_name: { type: 'string', readOnly: true },
+              item_list_id: { type: 'integer', readOnly: true },
+              generated_itemlist_name: { type: 'string', readOnly: true },
             },
           },
           seeds: [
@@ -444,8 +444,8 @@ describe('MenuBar queue approval dialog', () => {
             { schemaPath: 'properties.current_expression.default', selector: 'Recommendation.metadata.current_expression' },
             { schemaPath: 'properties.proposed_expression.default', selector: 'Recommendation.metadata.proposed_expression' },
             { schemaPath: 'properties.change_reason.default', selector: 'Recommendation.change_reason' },
-            { schemaPath: 'properties.site_list_id.default', selector: 'Recommendation.metadata.site_list_id' },
-            { schemaPath: 'properties.generated_sitelist_name.default', selector: 'Recommendation.metadata.generated_sitelist_name' },
+            { schemaPath: 'properties.item_list_id.default', selector: 'Recommendation.metadata.item_list_id' },
+            { schemaPath: 'properties.generated_itemlist_name.default', selector: 'Recommendation.metadata.generated_itemlist_name' },
           ],
         },
       },
@@ -456,15 +456,15 @@ describe('MenuBar queue approval dialog', () => {
     expect(dialog.preparedSchema.properties.current_expression.default).toBe(item.arguments.Recommendation.metadata.current_expression);
     expect(dialog.preparedSchema.properties.proposed_expression.default).toBe(item.arguments.Recommendation.metadata.proposed_expression);
     expect(dialog.preparedSchema.properties.change_reason.default).toBe(item.arguments.Recommendation.change_reason);
-    expect(dialog.preparedSchema.properties.site_list_id.default).toBe(item.arguments.Recommendation.metadata.site_list_id);
-    expect(dialog.preparedSchema.properties.generated_sitelist_name.default).toBe(item.arguments.Recommendation.metadata.generated_sitelist_name);
+    expect(dialog.preparedSchema.properties.item_list_id.default).toBe(item.arguments.Recommendation.metadata.item_list_id);
+    expect(dialog.preparedSchema.properties.generated_itemlist_name.default).toBe(item.arguments.Recommendation.metadata.generated_itemlist_name);
     expect(extractSchemaDefaultValues(dialog.preparedSchema)).toEqual({
       change_summary: item.arguments.Recommendation.change_summary,
       current_expression: item.arguments.Recommendation.metadata.current_expression,
       proposed_expression: item.arguments.Recommendation.metadata.proposed_expression,
       change_reason: item.arguments.Recommendation.change_reason,
-      site_list_id: item.arguments.Recommendation.metadata.site_list_id,
-      generated_sitelist_name: item.arguments.Recommendation.metadata.generated_sitelist_name,
+      item_list_id: item.arguments.Recommendation.metadata.item_list_id,
+      generated_itemlist_name: item.arguments.Recommendation.metadata.generated_itemlist_name,
     });
   });
 });

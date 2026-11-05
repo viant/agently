@@ -64,18 +64,18 @@ describe('workspaceMetadata', () => {
       seen.push(payload)
     })
 
-    publishWorkspaceMetadataSnapshot({ appName: 'Steward' })
+    publishWorkspaceMetadataSnapshot({ appName: 'Example' })
 
-    expect(getWorkspaceMetadataSnapshot()).toEqual({ appName: 'Steward' })
-    expect(seen).toEqual([{ appName: 'Steward' }])
+    expect(getWorkspaceMetadataSnapshot()).toEqual({ appName: 'Example' })
+    expect(seen).toEqual([{ appName: 'Example' }])
 
     unsubscribe()
     publishWorkspaceMetadataSnapshot({ appName: 'Agently' })
-    expect(seen).toEqual([{ appName: 'Steward' }])
+    expect(seen).toEqual([{ appName: 'Example' }])
   })
 
   it('resolves workspace app name from normalized metadata', () => {
-    expect(resolveWorkspaceAppName({ appName: 'Steward' }, 'Agently')).toBe('Steward')
+    expect(resolveWorkspaceAppName({ appName: 'Example' }, 'Agently')).toBe('Example')
     expect(resolveWorkspaceAppName({ defaults: { appName: 'Workspace' } }, 'Agently')).toBe('Workspace')
     expect(resolveWorkspaceAppName({}, 'Agently')).toBe('Agently')
   })
@@ -88,10 +88,10 @@ describe('workspaceMetadata', () => {
 
   it('resolves workspace branding as a single contract', () => {
     expect(resolveWorkspaceBranding({
-      appName: 'Steward',
+      appName: 'Example',
       appIconRef: 'builtin:viant',
     })).toEqual({
-      appName: 'Steward',
+      appName: 'Example',
       appIconRef: 'builtin:viant',
     })
   })

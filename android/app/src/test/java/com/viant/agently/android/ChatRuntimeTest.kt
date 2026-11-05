@@ -50,7 +50,7 @@ class ChatRuntimeTest {
     @Test
     fun toolActivityLabelsHumanizeProtocolNamesWithoutSemanticInference() {
         assertEquals("Reporting Submit Export", userFacingToolActivity("reporting:submit_export"))
-        assertEquals("Steward Diagnostic", userFacingToolActivity("steward-Diagnostic"))
+        assertEquals("Example Diagnostic", userFacingToolActivity("example-Diagnostic"))
         assertEquals("Forecast Run", userFacingToolActivity("forecast/run"))
         assertEquals("Delivery diagnostics", userFacingToolActivity("Delivery diagnostics"))
         assertNull(userFacingToolActivity("  "))

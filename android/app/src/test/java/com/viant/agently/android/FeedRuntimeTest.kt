@@ -416,19 +416,19 @@ class FeedRuntimeTest {
         val payload = com.viant.agentlysdk.FeedDataResponse(
             feedId = "plan",
             dataSources = json.parseToJsonElement("""{"editDraft":{"source":"output.plan"}}""") as JsonObject,
-            ui = json.parseToJsonElement("""{"containers":[{"schemaBasedForm":{"schema":{"properties":{"advertiserId":{"type":"number","x-ui-widget":"lookup","lookup":{"dialogId":"advertiserPicker"}}}}}}]}""") as JsonObject
+            ui = json.parseToJsonElement("""{"containers":[{"schemaBasedForm":{"schema":{"properties":{"recordId":{"type":"number","x-ui-widget":"lookup","lookup":{"dialogId":"recordPicker"}}}}}}]}""") as JsonObject
         )
         val shared = WindowMetadata(
-            dataSources = mapOf("advertiser_lookup" to DataSourceDef(), "unrelated_private" to DataSourceDef()),
+            dataSources = mapOf("record_lookup" to DataSourceDef(), "unrelated_private" to DataSourceDef()),
             dialogs = listOf(
-                com.viant.forgeandroid.runtime.DialogDef(id = "advertiserPicker", dataSourceRef = "advertiser_lookup"),
+                com.viant.forgeandroid.runtime.DialogDef(id = "recordPicker", dataSourceRef = "record_lookup"),
                 com.viant.forgeandroid.runtime.DialogDef(id = "unrelatedDialog", dataSourceRef = "unrelated_private")
             )
         )
         val metadata = buildFeedWindowMetadata(payload, shared)
-        assertEquals(setOf("advertiserPicker"), referencedFeedLookupDialogs(payload.ui))
-        assertEquals(listOf("advertiserPicker"), metadata.dialogs.map { it.id })
-        assertNotNull(metadata.dataSources["advertiser_lookup"])
+        assertEquals(setOf("recordPicker"), referencedFeedLookupDialogs(payload.ui))
+        assertEquals(listOf("recordPicker"), metadata.dialogs.map { it.id })
+        assertNotNull(metadata.dataSources["record_lookup"])
         assertNull(metadata.dataSources["unrelated_private"])
     }
 

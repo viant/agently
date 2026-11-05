@@ -77,7 +77,7 @@ assert.equal(
     lastSyncedValue: 'Troubleshoot @{order:? "Order"} for pacing.',
     nextValue: 'Troubleshoot @{order:? "Order"} for pacing.',
     hasChipEditor: true,
-    activeChipRaw: '@{campaign:? "Campaign"}',
+    activeChipRaw: '@{project:? "Project"}',
   }),
   false
 );
@@ -123,17 +123,17 @@ assert.equal(draftWithEditedChip(before, {raw: '@{order:7 "Seven"}', name: 'orde
 assert.equal(draftWithEditedChip(before, {raw: '@{order:missing "Missing"}', name: 'order'}, '42'), before);
 
 // Slash-menu selection resolves the placeholder created during the async open.
-const unresolved = '@{campaign:? "Campaign"}';
-assert.deepEqual(lookupPlaceholderAtTrigger(unresolved, 'campaign', 0, true), {raw: unresolved, index: 0});
-const resolvedCampaign = '@{campaign:563622 "Chosen campaign"}';
-const target = lookupPlaceholderAtTrigger(unresolved, 'campaign', 0, true);
-assert.equal(applyResolvedChipToken(unresolved, target.raw, resolvedCampaign, target.index).nextStored, resolvedCampaign);
-assert.equal(createEditingChipState({raw: resolvedCampaign, name: 'campaign'}).value, '563622');
+const unresolved = '@{project:? "Project"}';
+assert.deepEqual(lookupPlaceholderAtTrigger(unresolved, 'project', 0, true), {raw: unresolved, index: 0});
+const resolvedProject = '@{project:563622 "Chosen project"}';
+const target = lookupPlaceholderAtTrigger(unresolved, 'project', 0, true);
+assert.equal(applyResolvedChipToken(unresolved, target.raw, resolvedProject, target.index).nextStored, resolvedProject);
+assert.equal(createEditingChipState({raw: resolvedProject, name: 'project'}).value, '563622');
 const repeated = 'First ' + unresolved + ' then ' + unresolved;
-const second = lookupPlaceholderAtTrigger(repeated, 'campaign', 20, true);
+const second = lookupPlaceholderAtTrigger(repeated, 'project', 20, true);
 assert.deepEqual(second, {raw: unresolved, index: 6 + unresolved.length + 6});
-assert.equal(applyResolvedChipToken(repeated, second.raw, resolvedCampaign, second.index).nextStored, 'First ' + unresolved + ' then ' + resolvedCampaign);
-assert.equal(lookupPlaceholderAtTrigger(repeated, 'campaign', 7, true), null);
+assert.equal(applyResolvedChipToken(repeated, second.raw, resolvedProject, second.index).nextStored, 'First ' + unresolved + ' then ' + resolvedProject);
+assert.equal(lookupPlaceholderAtTrigger(repeated, 'project', 7, true), null);
 assert.equal(lookupPlaceholderAtTrigger(unresolved, 'order', 0, true), null);
-assert.equal(lookupPlaceholderAtTrigger(resolvedCampaign, 'campaign', 0, true), null);
-assert.equal(applyResolvedChipToken('changed', unresolved, resolvedCampaign, 0).ok, false);
+assert.equal(lookupPlaceholderAtTrigger(resolvedProject, 'project', 0, true), null);
+assert.equal(applyResolvedChipToken('changed', unresolved, resolvedProject, 0).ok, false);

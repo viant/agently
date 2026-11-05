@@ -4,20 +4,20 @@ import { translateSchema, extractLookupBindings } from './forgeBridge.js';
 
 const serverEmittedSchema = {
   properties: {
-    advertiser_id: {
+    record_id: {
       type: 'integer',
-      title: 'Advertiser',
+      title: 'Record',
       'x-ui-widget': 'lookup',
       'x-ui-lookup': {
-        dataSource: 'advertiser',
-        dialogId: 'advertiserPicker',
-        title: 'Advertiser list',
+        dataSource: 'record',
+        dialogId: 'recordPicker',
+        title: 'Record list',
         queryInput: 'q',
         resolveInput: 'id',
         inputs: [],
         outputs: [
-          { location: 'id', name: 'advertiser_id' },
-          { location: 'name', name: 'advertiser_name' },
+          { location: 'id', name: 'record_id' },
+          { location: 'name', name: 'record_name' },
         ],
         display: '${name} (#${id})',
       },
@@ -28,13 +28,13 @@ const serverEmittedSchema = {
 
 translateSchema(serverEmittedSchema);
 assert.ok(
-  serverEmittedSchema.properties.advertiser_id.lookup,
+  serverEmittedSchema.properties.record_id.lookup,
   'lookup metadata attached to property'
 );
-const lk = serverEmittedSchema.properties.advertiser_id.lookup;
-assert.equal(lk.dialogId, 'advertiserPicker');
-assert.equal(lk.dataSource, 'advertiser');
-assert.equal(lk.title, 'Advertiser list');
+const lk = serverEmittedSchema.properties.record_id.lookup;
+assert.equal(lk.dialogId, 'recordPicker');
+assert.equal(lk.dataSource, 'record');
+assert.equal(lk.title, 'Record list');
 assert.equal(lk.queryInput, 'q');
 assert.equal(lk.resolveInput, 'id');
 assert.equal(lk.outputs.length, 2);
@@ -42,7 +42,7 @@ console.log('translateSchema ✓ attaches item.lookup from x-ui-lookup');
 
 const bindings = extractLookupBindings(serverEmittedSchema);
 assert.deepEqual(bindings, [
-  { property: 'advertiser_id', dataSource: 'advertiser' },
+  { property: 'record_id', dataSource: 'record' },
 ]);
 console.log('extractLookupBindings ✓ yields property↔datasource pairs');
 

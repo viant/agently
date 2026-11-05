@@ -138,7 +138,7 @@ func TestInternalServiceFactoryTemplateUsesRuntimeStore(t *testing.T) {
 		}
 	}
 	write("templates/dashboard.yaml", "id: dashboard\nname: dashboard\ndescription: Dashboard template\n")
-	write("templates/bundles/steward-output.yaml", "id: steward-output\ntemplates:\n  - dashboard\n")
+	write("templates/bundles/example-output.yaml", "id: example-output\ntemplates:\n  - dashboard\n")
 
 	runtime := &executor.Runtime{
 		Defaults: &config.Defaults{

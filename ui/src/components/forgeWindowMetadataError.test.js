@@ -8,11 +8,11 @@ describe('Forge window permission feedback', () => {
   });
 
   it('does not restart metadata fetch for equal reconstructed window state', () => {
-    const original = windowMetadataFetchKey({ windowId: 'advertisers-1', windowKey: 'advertiserList',
+    const original = windowMetadataFetchKey({ windowId: 'records-1', windowKey: 'recordList',
       conversationId: 'conv-1', parameters: { AgencyId: [42] } }, { platform: 'web' });
-    const reconstructed = windowMetadataFetchKey({ windowId: 'advertisers-1', windowKey: 'advertiserList',
+    const reconstructed = windowMetadataFetchKey({ windowId: 'records-1', windowKey: 'recordList',
       conversationId: 'conv-1', parameters: { AgencyId: [42] } }, { platform: 'web' });
-    const changed = windowMetadataFetchKey({ windowId: 'advertisers-1', windowKey: 'advertiserList',
+    const changed = windowMetadataFetchKey({ windowId: 'records-1', windowKey: 'recordList',
       conversationId: 'conv-1', parameters: { AgencyId: [43] } }, { platform: 'web' });
     expect(reconstructed).toBe(original);
     expect(changed).not.toBe(original);

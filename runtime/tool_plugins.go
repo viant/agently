@@ -82,20 +82,8 @@ func ConfigureRegistry(ctx context.Context, rt *executor.Runtime, workspaceRoot 
 	go func() {
 		<-done
 		log.Printf("agently-app: registry warmup finished")
-		// Primitive catalogs can be user-scoped. The first authenticated request
-		// warms its own catalog; a background startup context has no authority.
-		if rt.PrimitiveProviders != nil {
-			return
-		}
-		warmCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer cancel()
-		if rt.Agent != nil {
-			if err := rt.Agent.WarmToolSurface(warmCtx, "steward"); err != nil {
-				log.Printf("agently-app: steward tool-surface warmup failed: %v", err)
-				return
-			}
-			log.Printf("agently-app: steward tool-surface warmup finished")
-		}
+		// Agent tool surfaces are resolved by authenticated requests, not by
+		// selecting a producer-specific agent in the host startup context.
 	}()
 }
 

@@ -32,7 +32,7 @@ describe('RichContent fence parsing', () => {
     expect(renderToStaticMarkup(React.createElement(RichContent, {content: '   \n\n'}))).toBe('');
   });
   it('retains inline report runtime identity across snapshots and resets it on replace', () => {
-    const initial = { scope: 'campaign', id: 'delivery', sequence: 1, resetVersion: 0 };
+    const initial = { scope: 'project', id: 'delivery', sequence: 1, resetVersion: 0 };
     expect(inlineReportRuntimeKey({ ...initial, sequence: 2 })).toBe(inlineReportRuntimeKey(initial));
     expect(inlineReportRuntimeKey({ ...initial, resetVersion: 1 })).not.toBe(inlineReportRuntimeKey(initial));
   });
@@ -1172,7 +1172,7 @@ describe('RichContent fence parsing', () => {
   it('preserves badges, summary, timeline, and table blocks in a dashboard payload', () => {
     const normalized = normalizeDashboardPayload({
       type: 'forge_dashboard',
-      title: 'Campaign Health',
+      title: 'Project Health',
       subtitle: 'Summary header',
       dataSources: [
         {
@@ -1225,7 +1225,7 @@ describe('RichContent fence parsing', () => {
       ],
     });
 
-    expect(normalized.title).toBe('Campaign Health');
+    expect(normalized.title).toBe('Project Health');
     expect(normalized.subtitle).toBe('Summary header');
     expect(normalized.blocks.map((block) => block.kind)).toEqual([
       'dashboard.badges',
@@ -1320,7 +1320,7 @@ describe('RichContent fence parsing', () => {
           id: 'order2661308_summary',
           collection: [
             {
-              ad_order_name: 'ThomasJHenryLaw_CTVPilot_2026_CTV_Video_Dallas_General',
+              record_order_name: 'ThomasJHenryLaw_CTVPilot_2026_CTV_Video_Dallas_General',
               baseline_spend: 24082.989,
               daily_budget: 25000,
               pacing_rate: 0.9633,
@@ -1336,7 +1336,7 @@ describe('RichContent fence parsing', () => {
           title: 'Delivery posture and blocker ranking',
           dataSourceRef: 'order2661308_summary',
           items: [
-            { label: 'Ad order', valueField: 'ad_order_name' },
+            { label: 'Ad order', valueField: 'record_order_name' },
             { label: 'Baseline spend', valueField: 'baseline_spend', format: 'currency' },
             { label: 'Daily budget', valueField: 'daily_budget', format: 'currency' },
             { label: 'Pacing rate', valueField: 'pacing_rate', format: 'percentFraction' },

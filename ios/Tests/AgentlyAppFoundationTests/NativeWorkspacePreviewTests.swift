@@ -14,7 +14,7 @@ final class NativeWorkspacePreviewTests: XCTestCase {
     }
 
     func testNestedSectionSelectionPreservesCompleteWindow() throws {
-        let data = Data(#"{"id":"advertiserPhoneRoot","containers":[{"id":"binding","fetchData":true},{"id":"nav","tabs":{},"containers":[{"id":"measurement","tabs":{},"containers":[{"id":"pixels"},{"id":"capi"}]}]}]}"#.utf8)
+        let data = Data(#"{"id":"recordPhoneRoot","containers":[{"id":"binding","fetchData":true},{"id":"nav","tabs":{},"containers":[{"id":"measurement","tabs":{},"containers":[{"id":"pixels"},{"id":"capi"}]}]}]}"#.utf8)
         let original = try JSONDecoder().decode(JSONValue.self, from: data)
         let selected = previewSelectingSection("capi", in: original).objectValue!
         let children = selected["containers"]!.arrayValue!
