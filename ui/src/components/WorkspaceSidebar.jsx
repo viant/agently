@@ -188,10 +188,15 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         if (error) window.dispatchEvent(new CustomEvent('forge:retry-window-metadata'));
       } catch (cause) {
         if (current()) {
-          // An unavailable refresh is not a new catalog. Keep the admitted
-          // layout mounted so report runs and local drafts retain their owners.
+          // A failed context request invalidates its menus, while the same
+          // verified actor's open selector can still supply another context.
           const transient = !cause?.status || cause.status >= 500 || cause.status === 408 || cause.status === 429;
-          if (!(background && revision !== null && transient)) {
+          if (background && revision !== null && contextChanged && context && cause?.status !== 401) {
+            // A valid return to the previous context must rebuild its menus.
+            revision = '';
+            setLayout(previous => previous && {...previous, applications: (previous.applications || []).map(app =>
+              app.id === context.applicationId && (app.providerIdentity || '') === context.providerIdentity ? {...app, menus: []} : app)});
+          } else if (!(background && revision !== null && transient)) {
             revision = null; setLayout(null); onTopbarActionsChange?.([]);
           }
           setError(String(cause?.message || cause));
@@ -260,6 +265,12 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       : layout.topbar?.actions?.find(entry => `action:${entry.id}` === section);
     const publish = (entry, title = '', error = '') => sectionWindowRef.current?.(entry, title, section, destination, error);
     if (section === 'workspaces' && !destination) { sectionRouteSignature.current = ''; publish(null); return; }
+    if (!selected && error && sectionRouteSignature.current) {
+      const [openedSection, openedDestination, openedVisit] = JSON.parse(sectionRouteSignature.current);
+      // A failed contextual menu refresh does not close its already-open
+      // destination. The retained selector can supply a recoverable context.
+      if (openedSection === section && openedDestination === destination && openedVisit === destinationVisit) return;
+    }
     if (!selected || selected.disabled || !['window', 'report'].includes(selected.action?.type)) {
       sectionRouteSignature.current = '';
       publish(null, '', 'This destination is unavailable. Choose another destination from the menu.');
@@ -283,7 +294,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       {...options, parentKey: null, region: 'app.section'});
     applicationScope.register(entry, application, selected.action);
     publish(entry, selected.title);
-  }, [sections, layout, section, destination, destinationVisit]);
+  }, [sections, layout, section, destination, destinationVisit, error]);
   if (layout && !navigationEnabled && historyEnabled) {
     return <Sidebar hidden={drawerHidden} history={history} collapsed={collapsed} onNavigate={onNavigate} onExpand={onExpand} showNewConversation={history.newConversation !== false} />;
   }
