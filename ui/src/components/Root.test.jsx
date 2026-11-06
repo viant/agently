@@ -123,12 +123,12 @@ describe('initial authentication discovery', () => {
 describe('landing-page workspace ownership', () => {
   it('renders menu windows without a conversation and isolates conversation-owned windows', () => {
     const windows = [
-      ...['advertisers', 'campaigns', 'spo'].map((windowKey) => ({windowId: windowKey, windowKey,
+      ...['records', 'projects', 'spo'].map((windowKey) => ({windowId: windowKey, windowKey,
         parentKey: 'chat/new', presentation: 'hosted', region: 'chat.top'})),
       {windowId: 'private', conversationId: 'conv-1', parentKey: 'chat/new', presentation: 'hosted', region: 'chat.top'},
       {windowId: 'bottom', presentation: 'hosted', region: 'chat.bottom'},
     ];
-    expect(resolveShellWorkspaceWindows(windows).map((entry) => entry.windowId)).toEqual(['advertisers', 'campaigns', 'spo']);
+    expect(resolveShellWorkspaceWindows(windows).map((entry) => entry.windowId)).toEqual(['records', 'projects', 'spo']);
     expect(resolveShellWorkspaceWindows(windows, 'conv-1').map((entry) => entry.windowId)).toEqual(['private']);
     expect(isConversationHostedWorkspaceChild(windows[0], '')).toBe(false);
     expect(isConversationHostedWorkspaceChild(windows[0], 'conv-1')).toBe(false);
@@ -139,17 +139,17 @@ describe('landing-page workspace ownership', () => {
 describe('Root window selection helpers', () => {
   it('shows transcript-restored workspace references when the original open did not acknowledge', () => {
     const restored = {
-      windowId: 'advertiserList__conv-1',
-      windowKey: 'advertiserList',
+      windowId: 'recordList__conv-1',
+      windowKey: 'recordList',
       conversationId: 'conv-1',
       workspaceObject: {
-        objectId: 'workspace:advertiserList__conv-1',
+        objectId: 'workspace:recordList__conv-1',
         origin: { turnId: 'turn-open' },
         lifecycle: { state: 'ready' },
       },
     };
     expect(resolveConversationWorkspaceAttachmentWindows([], [restored], [])).toEqual([restored]);
-    const live = { ...restored, windowTitle: 'Advertisers', windowForm: { advertiserListMode: 'starred' } };
+    const live = { ...restored, windowTitle: 'Records', windowForm: { recordListMode: 'starred' } };
     expect(resolveConversationWorkspaceAttachmentWindows([], [restored], [live])).toEqual([live]);
   });
 
@@ -313,30 +313,30 @@ describe('Root window selection helpers', () => {
   });
 
   it('does not let a freshly opened hosted workspace overtake the active conversation', () => {
-    const freshAdvertiser = {
-      windowId: 'advertiser_85141',
-      windowKey: 'advertiser',
-      conversationId: 'conv-advertiser',
+    const freshRecord = {
+      windowId: 'record_85141',
+      windowKey: 'record',
+      conversationId: 'conv-record',
       presentation: 'hosted',
       region: 'chat.top',
       hostOpenState: 'fresh',
     };
     expect(shouldPromoteFreshWorkspaceSurface({
       activeSurface: 'conversation',
-      mainConversationId: 'conv-advertiser',
-      activeWorkspaceWindow: freshAdvertiser,
-      selectedWindowId: 'advertiser_85141',
+      mainConversationId: 'conv-record',
+      activeWorkspaceWindow: freshRecord,
+      selectedWindowId: 'record_85141',
     })).toBe(false);
     expect(shouldPromoteFreshWorkspaceSurface({
       activeSurface: 'conversation',
-      mainConversationId: 'conv-advertiser',
-      activeWorkspaceWindow: { ...freshAdvertiser, hostOpenState: 'historical_replay' },
-      selectedWindowId: 'advertiser_85141',
+      mainConversationId: 'conv-record',
+      activeWorkspaceWindow: { ...freshRecord, hostOpenState: 'historical_replay' },
+      selectedWindowId: 'record_85141',
     })).toBe(false);
     expect(shouldPromoteFreshWorkspaceSurface({
       activeSurface: 'conversation',
-      mainConversationId: 'conv-advertiser',
-      activeWorkspaceWindow: freshAdvertiser,
+      mainConversationId: 'conv-record',
+      activeWorkspaceWindow: freshRecord,
       selectedWindowId: 'chat/new',
     })).toBe(false);
   });
@@ -555,13 +555,13 @@ describe('Root window selection helpers', () => {
       windowKey: 'orderPerformance',
     })).toBe('orderPerformance');
     expect(resolveMainWindowHeaderTitle({
-      windowKey: 'campaign',
+      windowKey: 'project',
       windowTitle: '6TJH_ThomasJHenryLaw_CTVPilot_2026'
     })).toBe('6TJH_ThomasJHenryLaw_CTVPilot_2026');
     expect(resolveMainWindowHeaderTitle({
-      windowKey: 'campaignPerformance',
-      windowTitle: 'Campaign 551665'
-    })).toBe('Campaign 551665');
+      windowKey: 'projectPerformance',
+      windowTitle: 'Project 551665'
+    })).toBe('Project 551665');
     expect(resolveMainWindowHeaderTitle({
       windowKey: 'line',
       windowTitle: 'English OLV'
@@ -594,7 +594,7 @@ describe('Root window selection helpers', () => {
     expect(resolveHostedWorkspaceTabLabel({windowKey:'window://workspace/siteList',windowTitle:'window://workspace/siteList'})).toBe('Site List');
     expect(resolveHostedWorkspaceTabLabel({windowKey:'opaque-report-key',navigation:{label:'Example report'}})).toBe('Example report');
     expect(resolveHostedWorkspaceTabLabel({windowKey:'opaque-report-key',windowTitle:'A saved report name',navigation:{label:'Example report'}})).toBe('A saved report name');
-    expect(resolveHostedWorkspaceTabLabel({windowKey:'window://workspace/creative',windowTitle:'Summer Campaign Video',navigation:{chipName:'Creative'}})).toBe('Summer Campaign Video');
+    expect(resolveHostedWorkspaceTabLabel({windowKey:'window://workspace/creative',windowTitle:'Summer Project Video',navigation:{chipName:'Creative'}})).toBe('Summer Project Video');
   });
 
   it('uses the current window title for hosted workspace tabs', () => {
@@ -748,7 +748,7 @@ it('loads actual recent conversations, preserves ordering/links, and handles emp
 });
 
 describe('canonical report workspace handoff', () => {
-  const report = (sequence = 1, extra = {}) => ({id:'review',scope:'campaign',grammar:'dashboard-v1',status:'committed',sequence,
+  const report = (sequence = 1, extra = {}) => ({id:'review',scope:'project',grammar:'dashboard-v1',status:'committed',sequence,
     source:{title:'Delivery review',blocks:[{id:'summary',kind:'dashboard.markdown',content:'Existing report'}]},dataSources:{},...extra});
   const row = (assembly = report(), extra = {}) => ({kind:'assistant',renderKey:'answer',messageId:'message-1',turnId:'turn-1',renderedContent:{reports:[assembly],diagnostics:[]},...extra});
   it('projects transient pending cards only for the chat and keeps their identity on commit', async () => {

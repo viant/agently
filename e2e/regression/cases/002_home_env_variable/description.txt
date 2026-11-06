@@ -1,1 +1,0 @@
-Browser regression: ask chatter for the HOME environment variable and verify the UI shows both execution details and the resolved HOME value.

@@ -359,3 +359,17 @@ func TestFoundationMetadataSurvivesHostLoadingDocumentChat(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPOverrideUsesManifestEndpointNames(t *testing.T) {
+	a := example(t)
+	a.config.MCPURL = "http://127.0.0.1:9123/"
+	if err := a.configureMCPEndpoints(); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.workspace.Endpoints) != 1 {
+		t.Fatalf("unexpected endpoints: %#v", a.workspace.Endpoints)
+	}
+	if got := a.workspace.Endpoints["mockData"].BaseURL; got != "http://127.0.0.1:9123" {
+		t.Fatalf("override = %q", got)
+	}
+}

@@ -2,44 +2,44 @@ import {describe, expect, it} from 'vitest';
 import {prepareAgentlyDataConnectorRequest} from './datasourceRequestContext.js';
 
 const windowState = {
-  windowId: 'advertiser-85141',
+  windowId: 'record-85141',
   conversationId: 'conv-1',
-  parameters: {AdvertiserId: [85141]},
+  parameters: {RecordId: [85141]},
 };
 
 describe('prepareAgentlyDataConnectorRequest', () => {
   it('keeps complete metadata fetch unchanged', () => {
     const queryParams = new URLSearchParams();
     prepareAgentlyDataConnectorRequest({
-      url: '/v1/api/agently/forge/window/advertiser', queryParams, windowState,
+      url: '/v1/api/agently/forge/window/record', queryParams, windowState,
     });
     expect(queryParams.toString()).toBe('');
   });
 
   it('keeps datasource fetch on the existing public contract', () => {
-    const body = {inputs: {AdvertiserId: [85141]}};
+    const body = {inputs: {RecordId: [85141]}};
     prepareAgentlyDataConnectorRequest({
-      url: '/v1/api/datasources/advertiser_identity/fetch', body, windowState,
+      url: '/v1/api/datasources/record_identity/fetch', body, windowState,
     });
-    expect(body).toEqual({inputs: {AdvertiserId: [85141]}, conversationId: 'conv-1', windowParameters: {AdvertiserId: [85141]}});
+    expect(body).toEqual({inputs: {RecordId: [85141]}, conversationId: 'conv-1', windowParameters: {RecordId: [85141]}});
     expect(body.windowParameters).not.toBe(windowState.parameters);
   });
 });
 
 it('carries the opened definition pin without deriving a revision from UI state', () => {
- const resource={uri:'window://steward/advertiser',kind:'working',contentFingerprint:'bound',authorityBinding:'actor'};
- const body={inputs:{AdvertiserId:[85141]},resource:{uri:'window://foreign/forged'}};
- prepareAgentlyDataConnectorRequest({url:'/v1/api/datasources/advertiser_identity/fetch',body,windowState:{...windowState,metadata:{resource}}});
+ const resource={uri:'window://example/record',kind:'working',contentFingerprint:'bound',authorityBinding:'actor'};
+ const body={inputs:{RecordId:[85141]},resource:{uri:'window://foreign/forged'}};
+ prepareAgentlyDataConnectorRequest({url:'/v1/api/datasources/record_identity/fetch',body,windowState:{...windowState,metadata:{resource}}});
  expect(body.resource).toEqual(resource);
  expect(body.resource).not.toBe(resource);
- expect(body.inputs).toEqual({AdvertiserId:[85141]});
+ expect(body.inputs).toEqual({RecordId:[85141]});
 });
 
 it('forwards the signed target with the exact opened pin', () => {
- const resource={uri:'window://steward/campaign',kind:'working',contentFingerprint:'parent',authorityBinding:'actor',validUntil:'2030-01-01T00:00:00.123456789Z'};
+ const resource={uri:'window://example/project',kind:'working',contentFingerprint:'parent',authorityBinding:'actor',validUntil:'2030-01-01T00:00:00.123456789Z'};
  const resourceTarget={platform:'ios',formFactor:'phone',surface:'app',selectionToken:'verified-presentation'};
- const body={inputs:{CampaignId:[1]},target:{platform:'web'}};
- prepareAgentlyDataConnectorRequest({url:'/v1/api/datasources/campaign_lookup/fetch',body,windowState:{metadata:{resource,resourceTarget}}});
+ const body={inputs:{ProjectId:[1]},target:{platform:'web'}};
+ prepareAgentlyDataConnectorRequest({url:'/v1/api/datasources/project_lookup/fetch',body,windowState:{metadata:{resource,resourceTarget}}});
  expect(body.resource).toEqual(resource);
  expect(body.target).toEqual(resourceTarget);
  expect(body.target).not.toBe(resourceTarget);

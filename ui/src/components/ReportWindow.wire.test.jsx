@@ -55,20 +55,20 @@ it('renders the shared resource runtime and uses canonical SDK get/run/export ro
   const createURL=vi.fn(()=> 'blob:report');
   URL.createObjectURL=createURL; URL.revokeObjectURL=vi.fn();
   vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{});
-  const entry={windowId:'report-context',windowKey:pin.uri,resourceRef:{uri:pin.uri},parameters:{AdvertiserIds:[42]}};
+  const entry={windowId:'report-context',windowKey:pin.uri,resourceRef:{uri:pin.uri},parameters:{RecordIds:[42]}};
   const view=render(<ReportWindow window={entry}/>);
   fireEvent.click(await screen.findByRole('button',{name:'Run report'}));
   await screen.findByRole('heading',{name:'Server overview'});
-  view.rerender(<ReportWindow window={{...entry,parameters:{AdvertiserIds:[0],Search:''}}}/>);
+  view.rerender(<ReportWindow window={{...entry,parameters:{RecordIds:[0],Search:''}}}/>);
   fireEvent.click(screen.getByRole('button',{name:'Run report'}));
   await screen.findByRole('heading',{name:'Server overview'});
   fireEvent.click(screen.getByRole('button',{name:'Export CSV'}));
   await waitFor(()=>expect(createURL).toHaveBeenCalledOnce());
   expect(calls.map(call=>call.url)).toEqual(['get_report','run_report','run_report','submit_export','get_export_status','get_artifact'].map(name=>`http://owned/v1/tools/reporting%3A${name}/execute`));
-  const selected={resource:{uri:pin.uri,revision:'working'},resolvedResource:pin,parameters:{AdvertiserIds:[0],Search:''}};
+  const selected={resource:{uri:pin.uri,revision:'working'},resolvedResource:pin,parameters:{RecordIds:[0],Search:''}};
   expect(calls[0].args).toEqual({resource:{uri:pin.uri}});
   expect(calls[2].args).toEqual({...selected,fillOnly:true});
-  expect(findViewSignal('report-context').peek().report).toMatchObject({title:'Server overview',status:'ready',parameters:{AdvertiserIds:[0],Search:''}});
+  expect(findViewSignal('report-context').peek().report).toMatchObject({title:'Server overview',status:'ready',parameters:{RecordIds:[0],Search:''}});
   expect(calls[3].args).toEqual({...selected,format:'csv'});
   expect(calls.every(call=>call.init.credentials==='include')).toBe(true);
   expect(view.container.querySelector('iframe')).toBeNull();
@@ -77,9 +77,9 @@ it('renders the shared resource runtime and uses canonical SDK get/run/export ro
 it('collects published predicate inputs before manual execution and sends typed current values through the shared runtime', async () => {
   const pin = {providerIdentity:'native-producer',uri:'report://ar/example',kind:'working',contentFingerprint:'exact',authorityBinding:'owned',validUntil:'2030-01-01T00:00:00Z'};
   const predicates = [
-    {id:'advertiserId',kind:'number',label:'Advertiser',paramPath:'filters.advertiserId',required:true},
+    {id:'recordId',kind:'number',label:'Record',paramPath:'filters.recordId',required:true},
     {id:'suiteId',kind:'number',label:'Subscription suite',paramPath:'filters.suiteId',required:true},
-    {id:'campaignIds',kind:'multiSelect',label:'Campaigns',multiple:true,paramPath:'filters.campaignIds'},
+    {id:'projectIds',kind:'multiSelect',label:'Projects',multiple:true,paramPath:'filters.projectIds'},
     {id:'dateRange',kind:'dateRange',label:'Date Range',prefill:{start:'from',end:'to'},startParamPath:'filters.from',endParamPath:'filters.to'},
   ];
   const calls=[];
@@ -91,22 +91,22 @@ it('collects published predicate inputs before manual execution and sends typed 
   });
   hostServices={reportStore:{getReport,runReport}};
   render(<ReportWindow window={{windowKey:pin.uri,resourceRef:{uri:pin.uri},parameters:{}}}/>);
-  await screen.findByLabelText('Advertiser');
+  await screen.findByLabelText('Record');
   expect(calls).toHaveLength(1);
-  fireEvent.change(screen.getByLabelText('Campaigns'),{target:{value:'31,'}});
-  expect(screen.getByLabelText('Campaigns').value).toBe('31,');
-  for(const [label,value] of [['Advertiser','42'],['Subscription suite','7'],['Campaigns','31, 32'],['Date Range from','2026-01-02'],['Date Range to','2026-01-03']]) {
+  fireEvent.change(screen.getByLabelText('Projects'),{target:{value:'31,'}});
+  expect(screen.getByLabelText('Projects').value).toBe('31,');
+  for(const [label,value] of [['Record','42'],['Subscription suite','7'],['Projects','31, 32'],['Date Range from','2026-01-02'],['Date Range to','2026-01-03']]) {
     fireEvent.change(screen.getByLabelText(label),{target:{value}});
   }
   fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
   await screen.findByRole('heading',{name:'Selected scope'});
-  expect(calls[1].args).toEqual({resource:{uri:pin.uri,revision:'working'},resolvedResource:pin,parameters:{advertiserId:42,suiteId:7,campaignIds:[31,32],from:'2026-01-02',to:'2026-01-03'},fillOnly:true});
-  fireEvent.change(screen.getByLabelText('Advertiser'),{target:{value:'0'}});
-  fireEvent.change(screen.getByLabelText('Campaigns'),{target:{value:''}});
+  expect(calls[1].args).toEqual({resource:{uri:pin.uri,revision:'working'},resolvedResource:pin,parameters:{recordId:42,suiteId:7,projectIds:[31,32],from:'2026-01-02',to:'2026-01-03'},fillOnly:true});
+  fireEvent.change(screen.getByLabelText('Record'),{target:{value:'0'}});
+  fireEvent.change(screen.getByLabelText('Projects'),{target:{value:''}});
   fireEvent.change(screen.getByLabelText('Date Range from'),{target:{value:''}});
   fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
   await screen.findByRole('heading',{name:'Selected scope'});
-  expect(calls[2].args.parameters).toEqual({advertiserId:0,suiteId:7,campaignIds:[],from:'',to:'2026-01-03'});
+  expect(calls[2].args.parameters).toEqual({recordId:0,suiteId:7,projectIds:[],from:'',to:'2026-01-03'});
 });
 
 

@@ -12,6 +12,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
@@ -52,7 +53,7 @@ class ComposerLookupRuntimeTest {
     @Test
     fun `legacy lookup list suffix is removed from user facing title`() {
         assertEquals("Order", composerLookupUserFacingTitle("Order list"))
-        assertEquals("Campaign", composerLookupUserFacingTitle("Campaign LIST"))
+        assertEquals("Project", composerLookupUserFacingTitle("Project LIST"))
     }
 
     @Test
@@ -213,24 +214,24 @@ class ComposerLookupRuntimeTest {
     }
 
     @Test
-    fun `order lookup row exposes ad order id in details column`() {
-        assertEquals(
-            "2688386",
-            composerLookupRowSecondaryText(
-                mapOf("adOrderId" to JsonPrimitive(2688386))
-            )
+    fun `lookup details do not infer producer-specific identifiers`() {
+        assertNull(composerLookupRowSecondaryText(mapOf("customRecordId" to JsonPrimitive(42))))
+        val entry = LookupRegistryEntry(
+            name = "record", dataSource = "records",
+            token = LookupTokenFormat(store = "\${customRecordId}", display = "\${name}")
         )
+        assertEquals("42", composerLookupRowSecondaryText(mapOf("customRecordId" to JsonPrimitive(42)), entry))
     }
 
     @Test
     fun `lookup details use declared identity instead of unrelated fallback id`() {
         val entry = LookupRegistryEntry(
-            name = "campaign", dataSource = "campaign_lookup",
-            token = LookupTokenFormat(store = "\${campaignId}", display = "\${campaignName}")
+            name = "project", dataSource = "project_lookup",
+            token = LookupTokenFormat(store = "\${projectId}", display = "\${projectName}")
         )
         val row = mapOf(
-            "campaignId" to JsonPrimitive(910003),
-            "campaignName" to JsonPrimitive("Example Coffee"),
+            "projectId" to JsonPrimitive(910003),
+            "projectName" to JsonPrimitive("Example Coffee"),
             "id" to JsonPrimitive(999)
         )
         assertEquals("910003", composerLookupRowSecondaryText(row, entry))

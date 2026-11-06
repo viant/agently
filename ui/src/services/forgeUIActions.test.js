@@ -87,7 +87,7 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
   it('routes to the workspace callback dispatcher on success and posts a confirmation', async () => {
     await withFakeWindow(async () => {
       const submitMessage = vi.fn(async () => {});
-      const dispatchCallback = vi.fn(async () => ({ ok: true, tool: 'steward-SaveRecommendation' }));
+      const dispatchCallback = vi.fn(async () => ({ ok: true, tool: 'example-SaveRecommendation' }));
       const context = {
         conversationId: 'conv-42',
       };
@@ -133,7 +133,7 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
       expect(submitMessage).toHaveBeenCalledTimes(1);
       const msg = String(submitMessage.mock.calls[0][0].message || '');
       expect(msg).toContain('Forge UI callback dispatched: spo_planner_submit');
-      expect(msg).toContain('steward-SaveRecommendation');
+      expect(msg).toContain('example-SaveRecommendation');
       expect(msg).toContain('Stage lifecycle advanced: Validate -> Execute.');
       expect(msg).toContain('Next stage: Follow Up.');
 
@@ -172,12 +172,12 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
   it('routes llm_event planner submits directly back to chat with masked display text and structured payload', async () => {
     await withFakeWindow(async () => {
       const submitMessage = vi.fn(async () => {});
-      const dispatchCallback = vi.fn(async () => ({ ok: true, tool: 'steward-RecommendationPatch' }));
+      const dispatchCallback = vi.fn(async () => ({ ok: true, tool: 'example-RecommendationPatch' }));
       const context = { conversationId: 'conv-site' };
       const disconnect = connectForgeUIActionsToCallbacksOrChat(submitMessage, () => context, dispatchCallback);
 
       dispatchForgeUIAction({
-        eventName: 'site_list_planner_submit',
+        eventName: 'item_list_planner_submit',
         tableId: 'site-review',
         selectionField: 'selected',
         columns: [
@@ -186,19 +186,19 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
         ],
         selectedRows: [{ publisher_id: 37, site_id: 3945613211, audience_id: 7301206, relationship: 'target', recommendation: 'ADD' }],
         plannerSubmit: {
-          domain: 'site_list',
+          domain: 'item_list',
           submitIntent: 'submit_selected',
           selectedKeys: ['publisher_id', 'site_id', 'audience_id', 'relationship', 'recommendation'],
           toolGuidance: {
-            tool: 'steward-RecommendationPatch',
-            toolBundle: 'analyst-sitelist-tools',
+            tool: 'example-RecommendationPatch',
+            toolBundle: 'analyst-itemlist-tools',
             useSelectedRowsOnly: true,
           },
         },
         callbackContext: {
           displayQuery: 'Submit selected site recommendations.',
         },
-        callback: { type: 'llm_event', eventName: 'site_list_planner_submit', target: 'foreground' },
+        callback: { type: 'llm_event', eventName: 'item_list_planner_submit', target: 'foreground' },
       });
 
       await Promise.resolve();
@@ -211,14 +211,14 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
       expect(call.message).toEqual({
         content: 'Execute the planner submit event using the structured plannerSubmitEvent context. If plannerSubmitEvent.plannerSubmit.toolGuidance.tool is present, attempt that guided tool or its review flow before answering. Do not summarize selected rows in prose unless execution is blocked after attempting the guided path.',
         displayQuery: 'Submit selected site recommendations.',
-        tools: ['steward-RecommendationPatch'],
-        toolBundles: ['analyst-sitelist-tools'],
+        tools: ['example-RecommendationPatch'],
+        toolBundles: ['analyst-itemlist-tools'],
         context: {
           plannerSubmitEvent: {
             callbackContext: {
               displayQuery: 'Submit selected site recommendations.',
             },
-            eventName: 'site_list_planner_submit',
+            eventName: 'item_list_planner_submit',
             tableId: 'site-review',
             selectionField: 'selected',
             columns: [
@@ -226,12 +226,12 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
               { key: 'recommendation', label: 'Recommendation' },
             ],
             plannerSubmit: {
-              domain: 'site_list',
+              domain: 'item_list',
               submitIntent: 'submit_selected',
               selectedKeys: ['publisher_id', 'site_id', 'audience_id', 'relationship', 'recommendation'],
               toolGuidance: {
-                tool: 'steward-RecommendationPatch',
-                toolBundle: 'analyst-sitelist-tools',
+                tool: 'example-RecommendationPatch',
+                toolBundle: 'analyst-itemlist-tools',
                 useSelectedRowsOnly: true,
               },
             },
@@ -280,7 +280,7 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
 
       dispatchForgeUIAction({
         eventName: 'freq_cap_planner_submit',
-        selectedRows: [{ ad_order_id: 2661447, action: 'KEEP' }],
+        selectedRows: [{ record_order_id: 2661447, action: 'KEEP' }],
         callbackContext: {
           stageLifecycle: {
             currentStage: 'validate',
@@ -317,7 +317,7 @@ describe('forgeUIActions.connectForgeUIActionsToCallbacksOrChat', () => {
       dispatchForgeUIAction({
         eventName: 'freq_cap_planner_preview',
         actionId: 'preview-frequency-cap',
-        selectedRows: [{ ad_order_id: 2661447, action: 'KEEP' }],
+        selectedRows: [{ record_order_id: 2661447, action: 'KEEP' }],
         callbackContext: {
           stageLifecycle: {
             currentStage: 'review',

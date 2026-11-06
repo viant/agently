@@ -186,4 +186,6 @@ Useful commands:
 - `swift build`
 - `xcodebuild -project AgentlyApp.xcodeproj -scheme AgentlyApp -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build`
 
-The isolated app uses the SDK’s AG-UI-only conversation transport. Its tracked `Packages/AgentlySDKPackage` link targets `agently-core-ag-ui/sdk/ios`; the unique package path avoids colliding with the app package's `ios` identity. The supporting workspace, themes, report, lookup and UI bridge APIs use the same BFF session. Simulator builds and foundation/SDK tests are readiness checks; real Steward starter flows must pass separately.
+The isolated app uses the SDK’s AG-UI-only conversation transport. Its tracked `Packages/AgentlySDKPackage` link targets `agently-core-ag-ui/sdk/ios`; the unique package path avoids colliding with the app package's `ios` identity. The supporting workspace, themes, report, lookup and UI bridge APIs use the same BFF session. Simulator builds and foundation/SDK tests are readiness checks; producer-owned acceptance flows must pass separately.
+
+Local mobile workspace configuration belongs under the repository's ignored `local/` directory. Keep endpoint URLs and secret references there, and pass them through the existing launch arguments or environment variables. Native previews require an explicit window (`--previewWindow` on iOS, `window` intent extra on Android); parameters remain producer-owned. Xcode user state and `Configuration/*.local.xcconfig` files are ignored.

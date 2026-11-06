@@ -7,10 +7,10 @@ describe('workspace layout window actions', () => {
   it('reads window form values without requiring a datasource context', () => {
     const previous = activeWindows.peek(), previousId = selectedWindowId.peek();
     try {
-      activeWindows.value = [{windowId: 'plain-output', parameters: {campaignId: 'a'}}];
+      activeWindows.value = [{windowId: 'plain-output', parameters: {projectId: 'a'}}];
       selectedWindowId.value = 'plain-output';
-      getFormSignal('plain-output:windowForm').value = {campaignId: 'b', reportId: 'r'};
-      expect(selectedWindowInputs()).toEqual({campaignId: 'b', reportId: 'r'});
+      getFormSignal('plain-output:windowForm').value = {projectId: 'b', reportId: 'r'};
+      expect(selectedWindowInputs()).toEqual({projectId: 'b', reportId: 'r'});
     } finally {activeWindows.value = previous; selectedWindowId.value = previousId;}
   });
   it('keeps local and remote window identities distinct', () => {
@@ -19,7 +19,7 @@ describe('workspace layout window actions', () => {
     expect(resolveLayoutWindowKey({ provider: 'operations-ui', windowKey: 'overview' })).toBe('provider:operations-ui:overview');
   });
 
-  it.each(['advertisers', 'campaigns', 'spo'])('opens %s without requiring a chat host on the landing page', (windowKey) => {
+  it.each(['records', 'projects', 'spo'])('opens %s without requiring a chat host on the landing page', (windowKey) => {
     const options = resolveLayoutWindowOptions({windowKey, parameters: {executeOnOpen: true}}, '');
     expect(options).toEqual({parameters: {executeOnOpen: true}, conversationId: undefined,
       parentKey: 'chat/new', presentation: 'hosted', region: 'chat.top'});

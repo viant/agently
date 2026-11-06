@@ -119,14 +119,14 @@ describe('applyConversationMetaPatchToRows', () => {
     ];
 
     const got = applyConversationMetaPatchToRows(rows, 'conv-1', {
-      title: 'Campaign 4821 Underpacing',
+      title: 'Project 4821 Underpacing',
       summary: 'Needs attention'
     });
 
     expect(got).toHaveLength(2);
     expect(got.map((row) => row.Id)).toEqual(['conv-1', 'conv-2']);
-    expect(got[0].Title).toBe('Campaign 4821 Underpacing');
-    expect(got[0].title).toBe('Campaign 4821 Underpacing');
+    expect(got[0].Title).toBe('Project 4821 Underpacing');
+    expect(got[0].title).toBe('Project 4821 Underpacing');
     expect(got[0].Summary).toBe('Needs attention');
     expect(got[0].summary).toBe('Needs attention');
     expect(got[0].UpdatedAt).toBe('2026-04-15T00:00:00Z');

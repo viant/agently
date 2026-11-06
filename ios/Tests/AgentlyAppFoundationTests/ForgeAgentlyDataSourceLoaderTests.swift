@@ -325,9 +325,9 @@ final class ForgeAgentlyDataSourceLoaderTests: XCTestCase {
 
         let metadata = try await loader(
             ForgeRuntime.WindowMetadataRequest(
-                windowID: "advertiser-85141",
-                windowKey: "advertiser",
-                parameters: ["AdvertiserId": .array([.number(85141)])],
+                windowID: "record-85141",
+                windowKey: "record",
+                parameters: ["RecordId": .array([.number(85141)])],
                 conversationID: "conv-1"
             )
         )

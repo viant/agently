@@ -128,7 +128,7 @@ it('transports the server-admitted frame from current workspace metadata when th
  const resource={uri:'window://example/Orders',contentFingerprint:'opened'};
  const resourceTarget={selectionToken:'original-target'};
  const selectionBinding={token:'signed-original',instanceId:'opened',parametersDigest:'digest',actor:{subject:'original-actor'}};
- const parameters={AdOrderId:[2702590],CampaignId:[562914]};
+ const parameters={AdOrderId:[2702590],ProjectId:[562914]};
  findMetadataSignal.mockReturnValue({peek:()=>({resource,resourceTarget,selectionBinding})});
  const body={inputs:{Name:'edited-name'}};
  prepareAgentlyDataConnectorRequest({url:'/v1/api/datasources/order_patch/fetch',body,windowState:{windowId:'workspace-order',parameters}});

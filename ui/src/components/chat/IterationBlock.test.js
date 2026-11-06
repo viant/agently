@@ -137,16 +137,16 @@ describe('mapCanonicalExecutionGroups', () => {
     })).toBe('🛠');
     expect(displayLinkedConversationTitle()).toBe('Linked conversation');
     expect(displayLinkedConversationTitle({ title: 'Forecasting Child' })).toBe('Forecasting Child');
-    expect(displayLinkedConversationTitle({ agentId: 'steward-performance' })).toBe('Steward Performance');
+    expect(displayLinkedConversationTitle({ agentId: 'example-performance' })).toBe('Example Performance');
     expect(displayLinkedConversationTitle({
-      linkedConversationAgentId: 'steward-forecasting'
-    })).toBe('Steward Forecasting');
+      linkedConversationAgentId: 'example-forecasting'
+    })).toBe('Example Forecasting');
     expect(displayLinkedConversationSubtitle({ response: 'Working through the child run.' })).toBe('Working through the child run.');
-    expect(displayLinkedConversationSubtitle({ agentId: 'steward-performance' })).toBe('Steward Performance');
+    expect(displayLinkedConversationSubtitle({ agentId: 'example-performance' })).toBe('Example Performance');
     expect(displayLinkedConversationSubtitle({
-      linkedConversationAgentId: 'steward-forecasting',
+      linkedConversationAgentId: 'example-forecasting',
       linkedConversationId: 'child-123'
-    })).toBe('Steward Forecasting');
+    })).toBe('Example Forecasting');
     expect(displayLinkedConversationSubtitle({ linkedConversationId: 'child-123' })).toBe('');
     expect(displayLinkedConversationIcon()).toBe('🔗');
     expect(displayItemRowTitle({ toolName: 'resources/list' })).toBe('resources/list');
@@ -728,7 +728,7 @@ describe('mapCanonicalExecutionGroups', () => {
       turns: [
         {
           status: 'completed',
-          agentIdUsed: 'steward-forecasting',
+          agentIdUsed: 'example-forecasting',
           execution: {
             pages: [
               {
@@ -751,7 +751,7 @@ describe('mapCanonicalExecutionGroups', () => {
       ]
     });
 
-    expect(summary.agentId).toBe('steward-forecasting');
+    expect(summary.agentId).toBe('example-forecasting');
     expect(summary.status).toBe('completed');
     expect(summary.response).toBe('Forecast returned zero reach.');
     expect(summary.previewGroups).toHaveLength(2);
@@ -1939,7 +1939,7 @@ describe('mapCanonicalExecutionGroups', () => {
             handlers: {
               dataSource: {
                 peekFormData() {
-                  return { agent: 'steward' };
+                  return { agent: 'example' };
                 }
               }
             }
@@ -1952,9 +1952,9 @@ describe('mapCanonicalExecutionGroups', () => {
                 peekFormData() {
                   return {
                     agentOptions: [
-                      { value: 'steward', label: 'Steward' }
+                      { value: 'example', label: 'Example' }
                     ],
-                    defaults: { agent: 'steward' }
+                    defaults: { agent: 'example' }
                   };
                 }
               }
@@ -1965,7 +1965,7 @@ describe('mapCanonicalExecutionGroups', () => {
       }
     };
 
-    expect(resolveIterationAgentLabel({}, context)).toBe('Steward');
+    expect(resolveIterationAgentLabel({}, context)).toBe('Example');
   });
 
   it('falls back to execution-group request payload metadata agent id', () => {
@@ -2054,9 +2054,9 @@ describe('mapCanonicalExecutionGroups', () => {
 
   it('prefers explicit streamed agent name when present on the iteration data', () => {
     expect(resolveIterationAgentLabel({
-      agentIdUsed: 'steward-performance',
-      agentName: 'Steward-performance-Analyzer'
-    }, null)).toBe('Steward-performance-Analyzer');
+      agentIdUsed: 'example-performance',
+      agentName: 'Example-performance-Analyzer'
+    }, null)).toBe('Example-performance-Analyzer');
   });
 
   it('builds a synthetic model group when visible content exists without presentable execution rows', () => {

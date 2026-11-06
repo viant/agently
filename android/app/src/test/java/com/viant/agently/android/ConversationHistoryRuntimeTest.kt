@@ -11,7 +11,7 @@ class ConversationHistoryRuntimeTest {
             id = "private-id-1",
             title = "Order%20Performance%20Report",
             summary = "Daily spend and pacing",
-            agentId = "steward"
+            agentId = "example"
         ),
         Conversation(
             id = "private-id-2",
@@ -42,7 +42,7 @@ class ConversationHistoryRuntimeTest {
         assertEquals(
             "2e1c19a7-1f2b-42f3-aea9-c1bd1cdb3240",
             conversationIdFromHistorySearch(
-                "https://steward.agently.viantinc.com/v1/conversation/2e1c19a7-1f2b-42f3-aea9-c1bd1cdb3240"
+                "https://example.agently.viantinc.com/v1/conversation/2e1c19a7-1f2b-42f3-aea9-c1bd1cdb3240"
             )
         )
     }

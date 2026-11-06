@@ -31,7 +31,7 @@ func TestDecodeRemoteDefinition(t *testing.T) {
 }
 
 func TestDecodeProductionDescribeBuildsGenericRemotePackage(t *testing.T) {
-	body := []byte(`{"status":"ok","reports":[{"reportId":"channels","viewName":"Channels","visualProfile":"channels","fieldCatalog":{"reportId":"channels","columns":[{"name":"channel","type":"unknown","role":"dimension","nullable":true},{"name":"units","type":"unknown","role":"measure","format":"compactNumber","nullable":true}],"defaultDimensions":["channel"],"defaultMeasures":["units"],"allowedFilters":["advertiserId","campaignIds"],"resultSets":[{"name":"channelSummary","dimensions":["channel"],"measures":["units"],"fields":[{"name":"channel","role":"dimension"},{"name":"units","role":"measure"}]}]}}]}`)
+	body := []byte(`{"status":"ok","reports":[{"reportId":"channels","viewName":"Channels","visualProfile":"channels","fieldCatalog":{"reportId":"channels","columns":[{"name":"channel","type":"unknown","role":"dimension","nullable":true},{"name":"units","type":"unknown","role":"measure","format":"compactNumber","nullable":true}],"defaultDimensions":["channel"],"defaultMeasures":["units"],"allowedFilters":["recordId","projectIds"],"resultSets":[{"name":"channelSummary","dimensions":["channel"],"measures":["units"],"fields":[{"name":"channel","role":"dimension"},{"name":"units","role":"measure"}]}]}}]}`)
 	p, err := DecodeRemoteDefinition(body, "performance", "channels", "", "ReportRun")
 	if err != nil {
 		t.Fatal(err)
@@ -52,7 +52,7 @@ func TestMappedMCPRequestUsesProductionRequestShape(t *testing.T) {
 	contract := &MCPRequest{Arguments: Object{"request": Object{"action": "run", "groupId": "performance", "reportId": "channels"}}, RequestPath: "request"}
 	arguments, err := mappedMCPRequest(contract, Query{
 		Projection: &Projection{Dimensions: []Field{{Field: "channel"}}, Measures: []Field{{Field: "units"}}},
-		Filter:     &Predicate{And: []Predicate{{Field: "advertiserId", Op: "eq", Value: 7}, {Field: "options.mode", Op: "eq", Value: "current"}}},
+		Filter:     &Predicate{And: []Predicate{{Field: "recordId", Op: "eq", Value: 7}, {Field: "options.mode", Op: "eq", Value: "current"}}},
 		OrderBy:    []Order{{Field: "units", Direction: "desc"}},
 		Page:       &Page{Limit: 25, Offset: 50},
 	})
@@ -61,7 +61,7 @@ func TestMappedMCPRequestUsesProductionRequestShape(t *testing.T) {
 	}
 	request := arguments["request"].(map[string]any)
 	options := request["options"].(map[string]any)
-	if request["advertiserId"] != 7 || options["mode"] != "current" || request["limit"] != 25 || request["offset"] != 50 {
+	if request["recordId"] != 7 || options["mode"] != "current" || request["limit"] != 25 || request["offset"] != 50 {
 		t.Fatalf("production request mapping lost parameters: %+v", request)
 	}
 	if got := request["dimensions"].([]string); len(got) != 1 || got[0] != "channel" {

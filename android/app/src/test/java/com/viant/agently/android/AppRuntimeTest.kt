@@ -206,8 +206,8 @@ class AppRuntimeTest {
 
         val result = runBlocking {
             refreshAuthSession(
-                currentBaseUrl = "https://steward.agently.viantinc.com",
-                candidates = listOf("https://steward.agently.viantinc.com"),
+                currentBaseUrl = "https://example.agently.viantinc.com",
+                candidates = listOf("https://example.agently.viantinc.com"),
                 currentClient = client,
                 buildClient = { client },
                 loadOnSuccess = false,

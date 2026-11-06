@@ -10,7 +10,6 @@
 		19D84B7C4D8D4DFD8B615101 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 19D84B7C4D8D4DFD8B615102 /* Assets.xcassets */; };
 		0E122708033FF9D155DBB90E /* AgentlyAppFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = F0EE3BFDCBDF459405E2E664 /* AgentlyAppFoundation */; };
 		40143AAD886AD20509AD7A9C /* AgentlyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54B14961D6A4507F32CBC7D /* AgentlyApp.swift */; };
-		7C083DC2273F6FE5DF7F69A0 /* ForecastingPrefillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91E8795F12F3D76FDAE5F7DC /* ForecastingPrefillUITests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -27,7 +26,6 @@
 		19D84B7C4D8D4DFD8B615102 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		25F809D4CEBC765DAD010885 /* Agently.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Agently.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		285194AF4DD1D1314861F793 /* AgentlyAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentlyAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		91E8795F12F3D76FDAE5F7DC /* ForecastingPrefillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForecastingPrefillUITests.swift; sourceTree = "<group>"; };
 		B54B14961D6A4507F32CBC7D /* AgentlyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentlyApp.swift; sourceTree = "<group>"; };
 		D54098DCED9F43327E19B190 /* ios */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ios; path = .; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
@@ -74,7 +72,6 @@
 		B1603CB29C93922AE525E686 /* AgentlyAppUITests */ = {
 			isa = PBXGroup;
 			children = (
-				91E8795F12F3D76FDAE5F7DC /* ForecastingPrefillUITests.swift */,
 			);
 			name = AgentlyAppUITests;
 			path = UITests/AgentlyAppUITests;
@@ -195,7 +192,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				7C083DC2273F6FE5DF7F69A0 /* ForecastingPrefillUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

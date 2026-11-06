@@ -34,8 +34,8 @@ expect(resolveChatWindowRenderKey({windowId: 'chat/new', conversationInstanceVer
 describe('ConversationWorkspaceSurface', () => {
   it('renders a landing workspace without trying to mount a null chat window',()=>{
     const html=renderToStaticMarkup(<ConversationWorkspaceSurface activeSurface="workspace"
-      workspaceWindow={{windowId:'menu-advertisers',windowKey:'advertiserList',windowTitle:'Advertisers'}} chatWindow={null} />);
-    expect(html).toContain('data-window-id="menu-advertisers"');
+      workspaceWindow={{windowId:'menu-records',windowKey:'recordList',windowTitle:'Records'}} chatWindow={null} />);
+    expect(html).toContain('data-window-id="menu-records"');
     expect(html).not.toContain('data-window-id=""');
   });
   it('uses no tabs for one object and one tab per object for multiple objects by default', () => {
@@ -65,20 +65,20 @@ describe('ConversationWorkspaceSurface', () => {
 
   it('builds compact Chat-to-window breadcrumb ancestry', () => {
     const breadcrumbs = resolveWorkspaceBreadcrumbs({
-      windowId: 'advertiser-101705',
-      windowKey: 'advertiser',
+      windowId: 'record-101705',
+      windowKey: 'record',
       windowTitle: 'A_TEST',
-      navigation: { chipName: 'Advertiser', chipIcon: 'application' },
+      navigation: { chipName: 'Record', chipIcon: 'application' },
       navigationTrail: [{
-        windowId: 'advertiser-list',
-        windowKey: 'advertiserList',
-        windowTitle: 'Advertisers',
+        windowId: 'record-list',
+        windowKey: 'recordList',
+        windowTitle: 'Records',
         navigation: { chipName: 'List', chipIcon: 'grid-view' },
       }],
     });
     expect(breadcrumbs).toEqual([
-      { index: 0, windowId: 'advertiser-list', label: 'List', icon: 'grid-view', current: false },
-      { index: 1, windowId: 'advertiser-101705', label: 'Advertiser', icon: 'application', current: true },
+      { index: 0, windowId: 'record-list', label: 'List', icon: 'grid-view', current: false },
+      { index: 1, windowId: 'record-101705', label: 'Record', icon: 'application', current: true },
     ]);
   });
 
@@ -87,25 +87,25 @@ describe('ConversationWorkspaceSurface', () => {
       activeSurface="workspace"
       chatWindow={{ windowId: 'chat' }}
       workspaceWindow={{
-        windowId: 'advertiser-101705',
-        windowKey: 'advertiser',
+        windowId: 'record-101705',
+        windowKey: 'record',
         windowTitle: 'A_TEST',
-        navigation: { chipName: 'Advertiser', chipIcon: 'application' },
+        navigation: { chipName: 'Record', chipIcon: 'application' },
         navigationTrail: [{
-          windowId: 'advertiser-list',
-          windowKey: 'advertiserList',
-          windowTitle: 'Advertisers',
+          windowId: 'record-list',
+          windowKey: 'recordList',
+          windowTitle: 'Records',
           navigation: { chipName: 'List', chipIcon: 'grid-view' },
         }],
       }}
     />);
     expect(html).toContain('aria-label="Workspace navigation"');
     expect(html).toContain('title="List"');
-    expect(html).toContain('aria-label="Advertiser"');
+    expect(html).toContain('aria-label="Record"');
     expect(html).toContain('data-icon="grid-view"');
     expect(html).toContain('data-icon="application"');
     expect(html).toContain('aria-current="page"');
-    expect(html).not.toContain('>Advertiser</span>');
+    expect(html).not.toContain('>Record</span>');
   });
 
   it('shows a workspace link from Conversation without loading an unvisited workspace', () => {

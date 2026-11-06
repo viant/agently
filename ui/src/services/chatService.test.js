@@ -195,16 +195,16 @@ describe('resolveComposerProps', () => {
 
   it('keeps the current agent/model visible when metadata option arrays are empty', () => {
     const metaState = {
-      agent: 'steward',
+      agent: 'example',
       model: 'openai_gpt-5-mini',
       defaults: {
-        agent: 'steward',
+        agent: 'example',
         model: 'openai_gpt-5-mini',
       },
       agentOptions: [],
       modelOptions: [],
       agentInfo: {
-        steward: { id: 'steward', name: 'Steward' }
+        example: { id: 'example', name: 'Example' }
       },
       modelInfo: {
         'openai_gpt-5-mini': { id: 'openai_gpt-5-mini', title: 'GPT-5 Mini' }
@@ -237,7 +237,7 @@ describe('resolveComposerProps', () => {
     });
 
     expect(state.agentOptions).toEqual(
-      expect.arrayContaining([{ value: 'steward', label: 'Steward' }])
+      expect.arrayContaining([{ value: 'example', label: 'Example' }])
     );
     expect(state.modelOptions).toEqual(
       expect.arrayContaining([{ value: 'openai_gpt-5-mini', label: 'GPT-5 Mini' }])

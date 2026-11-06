@@ -61,7 +61,7 @@ private fun Intent.toPreviewRequest(): PreviewRequest {
     }
     return PreviewRequest(
         baseUrl = baseUrl,
-        windowKey = getStringExtra("window") ?: "advertiser",
+        windowKey = requireNotNull(getStringExtra("window")) { "Preview window is required" },
         parameters = getStringExtra("parameters") ?: "{}",
         sectionId = getStringExtra("section")?.trim().orEmpty(),
     )

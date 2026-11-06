@@ -106,8 +106,8 @@ class AppSettingsRuntimeTest {
 
     @Test
     fun resolveWorkspaceHeaderTitle_usesConfiguredAppNameThenWorkspaceTitle() {
-        val metadata = WorkspaceMetadata(appName = "Steward")
-        assertEquals("Steward", resolveWorkspaceHeaderTitle(metadata, "Viant Steward"))
+        val metadata = WorkspaceMetadata(appName = "Example")
+        assertEquals("Example", resolveWorkspaceHeaderTitle(metadata, "Viant Example"))
         assertEquals("Metrics", resolveWorkspaceHeaderTitle(null, "Metrics"))
         assertEquals("Agently", resolveWorkspaceHeaderTitle(null, ""))
     }

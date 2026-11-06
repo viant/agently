@@ -2121,7 +2121,7 @@ export function normalizeLegacyForgeFenceBlocks(content = '') {
     return `${prefix}\`\`\`${String(marker || '').toLowerCase()}\n${normalizedBody}\n\`\`\``;
   });
 
-  // Older Steward runs persisted the transport marker and JSON body without
+  // Older runs persisted the transport marker and JSON body without
   // markdown fences. Normalize that form before describeContent() sees it;
   // otherwise the full report payload leaks into the transcript and large
   // reports can block the browser while React lays out the JSON text.

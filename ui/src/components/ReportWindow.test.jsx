@@ -10,7 +10,7 @@ import ReportWindow from './ReportWindow.jsx';
 import 'forge/packs/blueprint';
 
 const pin = {uri: 'report://ar/overview', providerIdentity: 'producer-native', kind: 'working', contentFingerprint: 'bytes', authorityBinding: 'opaque', validUntil: '2030-01-01T00:00:00Z'};
-const entry = {windowKey: pin.uri, resourceRef: {uri: pin.uri}, windowTitle: 'Overview', parameters: {AdvertiserIds: [42]}};
+const entry = {windowKey: pin.uri, resourceRef: {uri: pin.uri}, windowTitle: 'Overview', parameters: {RecordIds: [42]}};
 afterEach(() => {cleanup(); vi.clearAllMocks();});
 
 it('uses the authored report title while required inputs are still incomplete', async () => {
@@ -54,11 +54,11 @@ it('resolves through the existing host and mounts the shared runtime with its op
   expect(services.reportStore.getReport).toHaveBeenCalledWith({resource: entry.resourceRef});
   let props = runtime.mock.calls.at(-1)[0];
   expect(props.container.parameters.reportResource).toBe(pin);
-  expect(props.container.parameters.prefill).toEqual({AdvertiserIds: [42]});
+  expect(props.container.parameters.prefill).toEqual({RecordIds: [42]});
   expect(props.context.handlers).toBe(services);
-  view.rerender(<ReportWindow window={{...entry, parameters: {AdvertiserIds: [0]}}}/>);
+  view.rerender(<ReportWindow window={{...entry, parameters: {RecordIds: [0]}}}/>);
   props = runtime.mock.calls.at(-1)[0];
-  expect(props.container.parameters.prefill).toEqual({AdvertiserIds: [0]});
+  expect(props.container.parameters.prefill).toEqual({RecordIds: [0]});
   expect(services.reportStore.getReport).toHaveBeenCalledOnce();
 });
 

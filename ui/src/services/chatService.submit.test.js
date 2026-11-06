@@ -209,7 +209,7 @@ describe('submitMessage', () => {
       context,
       message: 'Forecast inventory and uniques for this targeting set: ad deal 147540',
       model: 'openai_gpt-5_4',
-      agent: 'steward',
+      agent: 'example',
     });
 
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -246,7 +246,7 @@ describe('submitMessage', () => {
         return null;
       },
     };
-    const result = submitMessage({ context, message: 'Hello', agent: 'steward' });
+    const result = submitMessage({ context, message: 'Hello', agent: 'example' });
     const rejected = expect(result).rejects.toThrow('Forbidden');
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(form.running).toBe(true);
@@ -301,7 +301,7 @@ describe('submitMessage', () => {
     const context = { Context: name => name === 'conversations' ? { handlers: { dataSource: {
       peekFormData: () => form, setFormData: ({ values }) => Object.assign(form, values),
     } } } : null };
-    await expect(submitMessage({ context, message: 'Follow-up', agent: 'steward' })).rejects.toThrow('Queue rejected');
+    await expect(submitMessage({ context, message: 'Follow-up', agent: 'example' })).rejects.toThrow('Queue rejected');
     expect(applyEventToChatStore).toHaveBeenCalledWith(form.id, expect.objectContaining({
       type: 'turn_failed', clientRequestId: expect.any(String), error: 'Queue rejected',
     }));
@@ -365,15 +365,15 @@ describe('submitMessage', () => {
         displayQuery: 'Submit selected site recommendations.',
         context: {
           plannerSubmitEvent: {
-            eventName: 'site_list_planner_submit',
+            eventName: 'item_list_planner_submit',
             tableId: 'site-review',
             plannerSubmit: {
-              domain: 'site_list',
+              domain: 'item_list',
               submitIntent: 'submit_selected',
               selectedKeys: ['publisher_id', 'site_id'],
               toolGuidance: {
-                tool: 'steward-RecommendationPatch',
-                toolBundle: 'analyst-sitelist-tools',
+                tool: 'example-RecommendationPatch',
+                toolBundle: 'analyst-itemlist-tools',
                 useSelectedRowsOnly: true,
               },
             },
@@ -382,7 +382,7 @@ describe('submitMessage', () => {
         },
       },
       model: 'openai_gpt-5_4',
-      agent: 'steward',
+      agent: 'example',
     });
 
     expect(submitToChatStore).toHaveBeenCalledWith(expect.objectContaining({
@@ -395,23 +395,23 @@ describe('submitMessage', () => {
       displayQuery: 'Submit selected site recommendations.',
       context: expect.objectContaining({
         plannerSubmitEvent: {
-          eventName: 'site_list_planner_submit',
+          eventName: 'item_list_planner_submit',
           tableId: 'site-review',
             plannerSubmit: {
-              domain: 'site_list',
+              domain: 'item_list',
               submitIntent: 'submit_selected',
               selectedKeys: ['publisher_id', 'site_id'],
               toolGuidance: {
-                tool: 'steward-RecommendationPatch',
-                toolBundle: 'analyst-sitelist-tools',
+                tool: 'example-RecommendationPatch',
+                toolBundle: 'analyst-itemlist-tools',
                 useSelectedRowsOnly: true,
               },
             },
           selectedRows: [{ publisher_id: 37, site_id: 3945613211 }],
         },
       }),
-      tools: ['llm/agents:list', 'steward-RecommendationPatch'],
-      toolBundles: ['analyst-sitelist-tools'],
+      tools: ['llm/agents:list', 'example-RecommendationPatch'],
+      toolBundles: ['analyst-itemlist-tools'],
     }));
     expect(rememberSeedTitle).not.toHaveBeenCalled();
   });
@@ -480,7 +480,7 @@ describe('submitMessage', () => {
         }],
       },
       model: 'openai_gpt-5_4',
-      agent: 'steward',
+      agent: 'example',
     });
 
     expect(client.query).toHaveBeenCalledWith(expect.objectContaining({
@@ -766,7 +766,7 @@ describe('submitMessage', () => {
       context,
       message: 'show order 2656980',
       model: 'openai_gpt-5_4',
-      agent: 'steward',
+      agent: 'example',
     });
 
     expect(resetChatStoreConversation).toHaveBeenCalledWith('conv-1');
@@ -831,7 +831,7 @@ describe('submitMessage', () => {
       context,
       message: 'Analyze the business impact of deal 146901',
       model: 'openai_gpt-5_4',
-      agent: 'steward',
+      agent: 'example',
     });
 
     expect(syncConversationTransport).toHaveBeenCalledWith(context, 'conv-1');
@@ -896,7 +896,7 @@ describe('submitMessage', () => {
         context,
         message: 'Summarize this workspace state',
         model: 'openai_gpt-5_4',
-        agent: 'steward',
+        agent: 'example',
       });
     } finally {
       global.window = previousWindow;
@@ -969,7 +969,7 @@ describe('submitMessage', () => {
       context,
       message: 'Focus only on bid and floor evidence.',
       model: 'openai_gpt-5_4',
-      agent: 'steward',
+      agent: 'example',
     });
 
     expect(steerToChatStore).toHaveBeenCalledWith(expect.objectContaining({
@@ -1014,7 +1014,7 @@ describe('submitMessage', () => {
       },
     };
 
-    await submitMessage({ context, message: 'Give me more details.', model: 'openai_gpt-5_4', agent: 'steward' });
+    await submitMessage({ context, message: 'Give me more details.', model: 'openai_gpt-5_4', agent: 'example' });
 
     expect(getActiveTurnId).toHaveBeenCalledWith('conv-stale-turn');
     expect(client.steerTurn).not.toHaveBeenCalled();
@@ -1046,7 +1046,7 @@ describe('submitMessage', () => {
       },
     };
 
-    await expect(submitMessage({ context, message: 'More detail', model: 'openai_gpt-5_4', agent: 'steward' }))
+    await expect(submitMessage({ context, message: 'More detail', model: 'openai_gpt-5_4', agent: 'example' }))
       .rejects.toMatchObject({ status: 504 });
 
     expect(resetChatStoreConversation).toHaveBeenCalledWith('conv-steer-timeout');
@@ -1191,10 +1191,10 @@ describe('submitMessage', () => {
       context,
       message: 'Troubleshoot @{order:? "Order"} order for delivery issues.',
       model: 'openai_gpt-5_4',
-      agent: 'steward',
+      agent: 'example',
     });
 
-    expect(listLookupRegistry).toHaveBeenCalledWith('chat-composer','steward',{
+    expect(listLookupRegistry).toHaveBeenCalledWith('chat-composer','example',{
       owner:{uri:'window://owned/chat',revision:'working'},providerIdentity:'owned-provider',authorityBinding:'owned-actor',
     });
     expect(client.query).toHaveBeenCalledWith(expect.objectContaining({
@@ -1255,7 +1255,7 @@ describe('submitMessage', () => {
       context,
       message: 'show order 2656980',
       model: 'openai_gpt-5_4',
-      agent: 'steward',
+      agent: 'example',
     });
 
     expect(fetchConversation).toHaveBeenCalledWith('conv-fast');

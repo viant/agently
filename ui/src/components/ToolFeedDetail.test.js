@@ -122,7 +122,7 @@ describe('ToolFeedDetail', () => {
     const { FeedLookupPicker } = await import('./ToolFeedDetail.jsx');
     const columns = [
       { key: 'id', label: 'ID' },
-      { key: 'name', label: 'Advertiser' },
+      { key: 'name', label: 'Record' },
       { key: 'agencyName', label: 'Agency' },
     ];
 
@@ -411,10 +411,10 @@ describe('ToolFeedDetail', () => {
     getFeedDataMock.mockImplementation(() => ({
       data: {
         output: {
-          explanation: 'Hierarchy resolved successfully with campaign and agency names.',
+          explanation: 'Hierarchy resolved successfully with project and agency names.',
           plan: [
             { status: 'completed', step: 'Resolve canonical hierarchy' },
-            { status: 'in_progress', step: 'Pull campaign-level pacing metrics' },
+            { status: 'in_progress', step: 'Pull project-level pacing metrics' },
           ]
         }
       },
@@ -457,7 +457,7 @@ describe('ToolFeedDetail', () => {
 
     expect(html).toContain('data-testid="compact-feed-list"');
     expect(html).toContain('Resolve canonical hierarchy');
-    expect(html).toContain('Pull campaign-level pacing metrics');
+    expect(html).toContain('Pull project-level pacing metrics');
   });
 
   it('renders inline fallback for data-only feeds instead of a loading placeholder', async () => {

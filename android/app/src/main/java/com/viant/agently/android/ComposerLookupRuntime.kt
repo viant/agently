@@ -146,9 +146,6 @@ internal fun composerLookupRowSecondaryText(
         ?.takeIf { it.isNotBlank() }
     val identifier = declaredIdentifier
         ?: jsonElementDisplayString(row["entityId"])
-        ?: jsonElementDisplayString(row["adOrderId"])
-        ?: jsonElementDisplayString(row["orderId"])
-        ?: jsonElementDisplayString(row["order_id"])
         ?: jsonElementDisplayString(row["id"])
         ?: ""
     return listOf(group, identifier)

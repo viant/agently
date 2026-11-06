@@ -20,7 +20,7 @@ async function openStandaloneWindow(response) {
   vi.spyOn(React, 'useState').mockReturnValue([{ loading: true }, setState]);
   vi.spyOn(React, 'useEffect').mockImplementation((effect) => { effects.push(effect); });
   vi.stubGlobal('window', { location: { search: new URLSearchParams({
-    windowKey: 'advertiser', windowParams: JSON.stringify({ AdvertiserId: [111298] }),
+    windowKey: 'record', windowParams: JSON.stringify({ RecordId: [111298] }),
   }).toString() } });
   const fetch = vi.fn().mockResolvedValue(response);
   vi.stubGlobal('fetch', fetch);
@@ -33,18 +33,18 @@ async function openStandaloneWindow(response) {
 describe('standalone Forge window permission request', () => {
   it('sends the authored selection into server admission before rendering', async () => {
     const { fetch, setState } = await openStandaloneWindow({
-      ok: true, json: async () => ({ data: { namespace: 'Advertiser' } }),
+      ok: true, json: async () => ({ data: { namespace: 'Record' } }),
     });
     const [request, options] = fetch.mock.calls[0];
     const url = new URL(request, 'http://localhost');
-    expect(url.pathname).toBe('/v1/api/agently/forge/window/advertiser');
+    expect(url.pathname).toBe('/v1/api/agently/forge/window/record');
     expect(url.searchParams.get('applyPermission')).toBe('true');
-    expect(JSON.parse(url.searchParams.get('windowParams'))).toEqual({ AdvertiserId: [111298] });
+    expect(JSON.parse(url.searchParams.get('windowParams'))).toEqual({ RecordId: [111298] });
     expect(url.searchParams.get('platform')).toBe('web');
     expect(url.searchParams.get('formFactor')).toBe('desktop');
     expect(options).toEqual({ method: 'GET', credentials: 'include', headers: { Accept: 'application/json' } });
     expect(setState).toHaveBeenCalledWith(expect.objectContaining({
-      error: '', window: expect.objectContaining({ parameters: { AdvertiserId: [111298] } }),
+      error: '', window: expect.objectContaining({ parameters: { RecordId: [111298] } }),
     }));
   });
 

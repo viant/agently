@@ -31,8 +31,6 @@ type Config struct {
 	Root, Assets, Addr, MetadataRoot string
 	WorkspaceRoot                    string
 	MCPURL                           string
-	PlatformMCPURL                   string
-	StewardMCPURL                    string
 	DisableAuthorization             bool
 	ReadOnly                         bool
 }
@@ -195,13 +193,9 @@ func (a *App) hydrateWorkspaceDataSources() error {
 		if !ok {
 			return fmt.Errorf("preview datasource %s is absent from workspace metadata", id)
 		}
-		service := strings.ToLower(strings.TrimSpace(source.Backend.Service))
-		if service != "platform" && service != "steward" {
-			// Draft-only sources have no live MCP owner. In preview they use the
-			// synthetic Steward endpoint and are never allowed to reach production.
-			service = "steward"
-		}
-		source.Backend = Backend{Kind: "mcp_tool", Service: service, Method: id}
+		// The preview manifest owns synthetic routing; production metadata only
+		// supplies the datasource contract.
+		source.Backend = override.Backend
 		if override.AutoFetch != nil {
 			source.AutoFetch = override.AutoFetch
 		}
@@ -228,22 +222,14 @@ func (a *App) hydrateWorkspaceDataSources() error {
 }
 
 func (a *App) configureMCPEndpoints() error {
-	shared := strings.TrimRight(strings.TrimSpace(a.config.MCPURL), "/")
-	platform := strings.TrimRight(strings.TrimSpace(a.config.PlatformMCPURL), "/")
-	steward := strings.TrimRight(strings.TrimSpace(a.config.StewardMCPURL), "/")
-	if platform == "" {
-		platform = shared
+	endpoint := strings.TrimRight(strings.TrimSpace(a.config.MCPURL), "/")
+	if endpoint == "" {
+		return nil
 	}
-	if steward == "" {
-		steward = shared
+	if !strings.HasPrefix(endpoint, "http://127.0.0.1:") && !strings.HasPrefix(endpoint, "http://localhost:") {
+		return fmt.Errorf("MCP URL must be loopback HTTP")
 	}
-	for name, endpoint := range map[string]string{"platform": platform, "steward": steward} {
-		if endpoint == "" {
-			continue
-		}
-		if !strings.HasPrefix(endpoint, "http://127.0.0.1:") && !strings.HasPrefix(endpoint, "http://localhost:") {
-			return fmt.Errorf("%s MCP URL must be loopback HTTP", name)
-		}
+	for name := range a.workspace.Endpoints {
 		a.workspace.Endpoints[name] = datasource.Endpoint{Type: "mcp", Transport: "streamable", BaseURL: endpoint}
 	}
 	return nil
@@ -307,7 +293,7 @@ func (a *App) LoadWindowWithTarget(ctx context.Context, id string, target *meta.
 	}
 	// Production Agently supplies workspace-level Forge datasources alongside
 	// window metadata. Inject only the declared dependency set for this window:
-	// opening Advertiser must not initialize unrelated workspace contexts.
+	// opening a window must not initialize unrelated workspace contexts.
 	if w.DataSource == nil {
 		w.DataSource = map[string]types.DataSource{}
 	}
@@ -696,7 +682,7 @@ func (a *App) fetch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Preserve the public MCP envelope alongside the normalized rows. Forge
-	// datasource selectors are authored per source (for example, Advertiser
+	// datasource selectors are authored per source (for example, a record
 	// Properties selects `data`, while tables commonly select `rows`).
 	payload := map[string]any{"rows": rows, "dataInfo": map[string]any{"hasMore": obj["hasMore"]}}
 	for key, value := range obj {

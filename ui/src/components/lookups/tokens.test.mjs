@@ -15,8 +15,8 @@ import {
 
 const registry = [
   {
-    name: 'advertiser',
-    dataSource: 'advertiser',
+    name: 'record',
+    dataSource: 'record',
     required: true,
     display: '${name} (#${id})',
     token: { store: '${id}', display: '${name}', modelForm: '${id}' },
@@ -36,13 +36,13 @@ const adOrderRegistry = [
 // T12 — Rich token roundtrip
 const picked = { id: 789, name: 'Globex', region: 'EMEA' };
 const tok = serializeToken(registry[0], picked);
-assert.equal(tok, '@{advertiser:789 "Globex"}');
+assert.equal(tok, '@{record:789 "Globex"}');
 const stored = `Analyze performance for ${tok} in Q4.`;
 const parsed = parseTokens(stored);
 assert.equal(parsed.length, 1);
 assert.deepEqual(
   { name: parsed[0].name, id: parsed[0].id, label: parsed[0].label },
-  { name: 'advertiser', id: '789', label: 'Globex' }
+  { name: 'record', id: '789', label: 'Globex' }
 );
 console.log('T12 ✓ parse(serialize(x)) = x');
 
@@ -56,7 +56,7 @@ assert.equal(segs[1].id, '789');
 console.log('T15 ✓ rehydrate produces chip segment with id+label from storage');
 
 // T17 — Authored /name parse → flatten
-const authored = 'Analyze performance for /advertiser in Q4.';
+const authored = 'Analyze performance for /record in Q4.';
 const parts = parseAuthored(authored, registry);
 assert.equal(parts.length, 3);
 assert.equal(parts[1].kind, 'picker');
@@ -99,7 +99,7 @@ console.log('display-template ✓ adOrderName resolves into stored chip label');
 // parseTokens must match it, rehydrate must flag it unresolved, flattenStored
 // must throw for required bindings.  (tokens.js already imported at top.)
 import { isUnresolvedToken } from './tokens.js';
-const authoredStored = 'Analyze @{advertiser:? "?advertiser"} in Q4.';
+const authoredStored = 'Analyze @{record:? "?record"} in Q4.';
 const authoredParsed = parseTokens(authoredStored);
 assert.equal(authoredParsed.length, 1);
 assert.equal(authoredParsed[0].id, '?');
@@ -109,7 +109,7 @@ console.log('authored-placeholder ✓ parser matches @{name:? "?name"}');
 const rehydrated = rehydrate(authoredStored);
 const chip = rehydrated.find((s) => s.kind === 'chip');
 assert.ok(chip && chip.unresolved === true);
-assert.equal(chip.label, '?advertiser');
+assert.equal(chip.label, '?record');
 console.log('authored-placeholder ✓ rehydrate flags chip unresolved');
 
 assert.throws(
@@ -120,7 +120,7 @@ console.log('authored-placeholder ✓ flattenStored blocks required unresolved')
 
 assert.equal(
   flattenStored(authoredStored, registry, { allowUnresolvedRequired: true }),
-  'Analyze /advertiser in Q4.',
+  'Analyze /record in Q4.',
 );
 console.log('authored-placeholder ✓ flattenStored can preserve unresolved required token for submit-time fallback');
 
@@ -128,7 +128,7 @@ console.log('authored-placeholder ✓ flattenStored can preserve unresolved requ
 const nonReqRegistry = [{ ...registry[0], required: false }];
 assert.equal(
   flattenStored(authoredStored, nonReqRegistry),
-  'Analyze /advertiser in Q4.'
+  'Analyze /record in Q4.'
 );
 console.log('authored-placeholder ✓ non-required unresolved passes through');
 

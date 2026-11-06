@@ -50,13 +50,13 @@ function installLookupMocks() {
       })();
       const inputs = body?.inputs || {};
       if (inputs.id === '42') {
-        return mockResponse({ rows: [{ id: 42, name: 'Order 42', advertiser: 'Northwind' }] });
+        return mockResponse({ rows: [{ id: 42, name: 'Order 42', owner: 'Northwind' }] });
       }
       if (inputs.q != null) {
         const q = String(inputs.q || '').trim().toLowerCase();
         const rows = [
-          { id: 42, name: 'Order 42', advertiser: 'Northwind' },
-          { id: 84, name: 'Order 84', advertiser: 'Contoso' },
+          { id: 42, name: 'Order 42', owner: 'Northwind' },
+          { id: 84, name: 'Order 84', owner: 'Contoso' },
         ].filter((row) => row.name.toLowerCase().includes(q) || String(row.id).includes(q));
         return mockResponse({ rows });
       }
