@@ -14,7 +14,7 @@ import StandaloneForgeWindowSurface from './StandaloneForgeWindowSurface.jsx';
 import WindowManager from 'forge/components/WindowManager.jsx';
 
 const fixtureKey=value=>decodeURIComponent(String(value || '')).split('/').pop();
-const parameters={EntityID:['9007199254740993'],nested:{selection:{region:'west'}},Limit:7};
+const parameters={EntityID:['9007199254740993'],nested:{selection:{region:'west'}},Limit:7,ScopeChoices:[{label:'Summary',resourceUri:'report://example/summary',parameters:{entityId:7}},{label:'Details',resourceUri:'report://example/details',parameters:{entityId:8}}]};
 let root,element;
 let authoredChildNamespace = '';
 const authoredChild = key => authoredChildNamespace ? `window://${authoredChildNamespace}/${key}` : key;
