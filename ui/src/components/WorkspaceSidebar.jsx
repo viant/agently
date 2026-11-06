@@ -116,6 +116,11 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       const context = layoutContextRef.current;
       const current = () => live && sequence === requestSequence && JSON.stringify(context) === JSON.stringify(layoutContextRef.current);
       try {
+        // A recovered credential can reveal a different verified owner. Let
+        // auth/me's existing session-reset fence cancel this read before any
+        // retained scope parameters are sent with the new credential.
+        const principal = await getAuthMeSilently();
+        if (!current()) return;
         if (!background && reloadVersion > 0) workspaceResources.clear();
         const query = context ? '?' + new URLSearchParams({applicationId: context.applicationId, providerIdentity: context.providerIdentity, parameters: JSON.stringify(context.parameters)}) : '';
         const response = await fetch(`${sdkBaseURL}/workspace/layout${query}`, { credentials: 'include', headers: { Accept: 'application/json' } });
@@ -126,8 +131,6 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         const nextRevision = JSON.stringify([payload.workspaceId, payload.layoutRevision || payload.layout, payload.catalogRevisions, context]);
         if (background && nextRevision === revision) { setError(''); return; }
         const applications = Array.isArray(payload?.layout?.applications) ? payload.layout.applications : [];
-        const principal = await getAuthMeSilently();
-        if (!current()) return;
         applicationScope.configure(JSON.stringify([payload.workspaceId, principal?.subject || principal?.username || principal?.id || 'anonymous']), applications);
         const archives = payload?.layout?.resourceArchives || [];
         if (archives.length || applications.some(app => app.styleResources?.length)) {
@@ -210,7 +213,10 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       setError('');
       onTopbarActionsChange?.([]);
     };
-    const onAuthorized = () => { clearIdentity(); void load(); };
+    // Credential recovery is not an identity change. The auth client's
+    // session-reset event and the native scope's configure identity fence own
+    // clearing; retain mounted windows' scope ownership during recovery.
+    const onAuthorized = () => { void load(); };
     const refresh = () => { void load(true); };
     const timer = window.setInterval(refresh, 15000);
     window.addEventListener('focus', refresh);

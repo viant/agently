@@ -493,7 +493,7 @@ it('refreshes published menus on focus without reopening the current window or s
   expect(openWindow).toHaveBeenCalledTimes(1);
   const authCalls = getAuthMeSilently.mock.calls.length;
   await act(async () => { window.dispatchEvent(new Event('focus')); });
-  expect(getAuthMeSilently).toHaveBeenCalledTimes(authCalls);
+  expect(getAuthMeSilently).toHaveBeenCalledTimes(authCalls + 1);
   expect(openWindow).toHaveBeenCalledTimes(1);
 });
 
@@ -554,7 +554,7 @@ it.each([401,403])('clears previously admitted navigation after background HTTP 
   expect(topbar).toHaveBeenLastCalledWith([]);
 });
 
-it.each(['agently:session-reset','agently:logout','agently:authorized'])('discards retained identity and late reads on %s',async event=>{
+it.each(['agently:session-reset','agently:logout'])('discards retained identity and late reads on %s',async event=>{
   const initial=layoutPayload({applications:[{id:'restricted',title:'Restricted',menus:[{id:'records',title:'Restricted records',action:{type:'window',windowKey:'records'}}]}]});
   initial.layoutRevision='first-owner';
   let finishPrevious;
@@ -663,7 +663,7 @@ it('supersedes pending context pulls and ignores late responses without losing s
   applicationScope.clear();
 });
 
-it('clears selected context before an authorized session reload and ignores the old actor response',async()=>{
+it('clears selected context before a new actor session reload and ignores the old actor response',async()=>{
   const {applicationScope}=await import('../services/applicationScope');applicationScope.clear();
   const app={id:'scoped',providerIdentity:'owner',title:'Scoped app',scope:{keys:['entityId']},menus:[{id:'choose',title:'Choose context',action:{type:'window',windowKey:'selector'}}]};
   const initial=layoutPayload({applications:[app]});let finishOld;
@@ -672,7 +672,9 @@ it('clears selected context before an authorized session reload and ignores the 
   render(<WorkspaceSidebar/>);fireEvent.click(await screen.findByRole('button',{name:'Choose context'}));
   await act(async()=>applicationScope.set({identity:{windowId:'actor-selector'}},{entityId:7}));await waitFor(()=>expect(finishOld).toBeTypeOf('function'));
   getAuthMeSilently.mockResolvedValue({subject:'new-actor'});
+  await act(async()=>window.dispatchEvent(new Event('agently:session-reset')));
   await act(async()=>window.dispatchEvent(new Event('agently:authorized')));await screen.findByRole('button',{name:'Choose context'});
+  expect(()=>applicationScope.set({identity:{windowId:'actor-selector'}},{entityId:8})).toThrow('Application scope is unavailable');
   const last=new URL(fetch.mock.calls.at(-1)[0],window.location.origin);expect(last.searchParams.has('parameters')).toBe(false);expect(applicationScope.inputs(app)).toEqual({});
   const stale=structuredClone(initial);stale.layout.applications[0].menus.push({id:'stale',title:'Previous actor rows',action:{type:'window',windowKey:'stale'}});
   await act(async()=>finishOld(response(stale)));expect(screen.queryByRole('button',{name:'Previous actor rows'})).toBeNull();applicationScope.clear();
