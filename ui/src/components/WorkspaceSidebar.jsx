@@ -147,7 +147,9 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         onTopbarActionsChange?.(payload?.layout?.topbar?.actions || []);
         revision = nextRevision;
         const nextActive = applications.find(app => app.id === context?.applicationId && (app.providerIdentity || '') === context.providerIdentity) || applications[0];
-        loadedContextKey.current = JSON.stringify(nextActive ? {applicationId:nextActive.id,providerIdentity:nextActive.providerIdentity || '',parameters:applicationScope.inputs(nextActive)} : null);
+        // A response acknowledges its requested inputs, not a retained scope
+        // that may have changed while this request or sidebar was opening.
+        loadedContextKey.current = JSON.stringify(nextActive ? {applicationId:nextActive.id,providerIdentity:nextActive.providerIdentity || '',parameters:context?.applicationId === nextActive.id && context.providerIdentity === (nextActive.providerIdentity || '') ? context.parameters : {}} : null);
         if (background) {
           setLayout(payload.layout);
           setActiveApp(current => applications.some(app => app.id === current) ? current : (applications[0]?.id || ''));
