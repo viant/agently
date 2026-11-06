@@ -145,6 +145,14 @@ try {
     assert.equal(viewerGeometry.glyph, 18);
     if (viewport.width > 500) {assert.equal(viewerGeometry.headerHeight, 54); assert.equal(viewerGeometry.sideBySide, true); assert.equal(viewerGeometry.chatVisible, true);}
     else {assert.equal(viewerGeometry.headerHeight, 59); assert.equal(viewerGeometry.chatVisible, true); assert.equal(await viewer.getByRole('button', {name: 'Show composer', exact: true}).isVisible(), true); assert.equal(viewerGeometry.headerBasis, 'auto');}
+    if (viewport.width < 500) {
+      const content = viewer.locator('.app-summary-conversation > :not(.app-workspace-composer-toggle)').first();
+      assert.equal(await content.isVisible(), false, 'Collapsed composer content stays hidden');
+      await activate(viewer.getByRole('button', {name: 'Show composer', exact: true}));
+      assert.equal(await content.isVisible(), true, 'Expanded composer content remains available');
+      await activate(viewer.getByRole('button', {name: 'Hide composer', exact: true}));
+      assert.equal(await content.isVisible(), false, 'Collapsing restores hidden content');
+    }
     for (const name of ['Go back', 'Go forward']) assert.equal(await viewer.getByRole('button', {name, exact: true}).isVisible(), true);
     const closeGlyph = viewer.getByRole('button', {name: 'Close Example output', exact: true}).locator('svg');
     assert.equal(await closeGlyph.isVisible(), true, 'the tab-close glyph remains visible on phones');

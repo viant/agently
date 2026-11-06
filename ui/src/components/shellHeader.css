@@ -110,5 +110,5 @@
 
 /* Collapsed workspace composers retain their toggle without showing the transcript. */
 .app-summary-conversation.is-composer-only:not(.is-composer-expanded) > :not(.app-workspace-composer-toggle) {
-  display: none !important;
+  display: none;
 }

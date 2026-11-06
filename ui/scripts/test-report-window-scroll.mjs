@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import {createServer} from 'vite';
 import {chromium} from 'playwright';
-const server=await createServer({mode:'test',optimizeDeps:{entries:['report-window-scroll-proof.html']},server:{host:'127.0.0.1',port:0}});
+import viteConfig from '../vite.config.js';
+const config = viteConfig({command:'serve',mode:'test'});
+// Scan the complete proof graph, including the aliased Forge source dependencies.
+const server=await createServer({...config,configFile:false,cacheDir:'.vite/window-scroll-proof',optimizeDeps:{...config.optimizeDeps,exclude:[],entries:['report-window-scroll-proof.html']},server:{...config.server,host:'127.0.0.1',port:0}});
 await server.listen();
 const browser=await chromium.launch({headless:true});
 try {
