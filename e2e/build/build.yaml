@@ -1,0 +1,29 @@
+init:
+  repoPath: '$repoPath ? $repoPath : $WorkingDirectory(../..)'
+
+pipeline:
+  buildUI:
+    action: exec:run
+    env:
+      GOWORK: "off"
+    TimeoutMs: 600000
+    description: build and embed UI
+    checkError: true
+    commands:
+      - cd $repoPath
+      - ./e2e/build-ui-embed.sh
+
+  buildAgently:
+    action: exec:run
+    env:
+      GOWORK: "off"
+    TimeoutMs: 180000
+    description: build agently binary
+    checkError: true
+    commands:
+      - cd $repoPath
+      - export PATH=/usr/local/go/bin:$PATH
+      - export GOPATH=${env.GOPATH}
+      - mkdir -p $repoPath/bin
+      - go build -o $repoPath/bin/agently ./agently
+      - cp $repoPath/bin/agently $repoPath/agently/agently

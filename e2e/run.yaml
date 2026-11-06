@@ -1,0 +1,7 @@
+init:
+  repoPath: $WorkingDirectory(./..)
+pipeline:
+  build:
+    action: run
+    description: build embedded UI and agently binary
+    request: '@build/build'

@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Build the Agently UI and copy output into the deployment bundle.
+# Run from the agently repo root (github.com/viant/agently).
+# After this, rebuild the Go binary: cd agently && go build -o agently .
+
+set -e
+ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+cd "$ROOT"
+
+# npm ci removes node_modules before installation. Serialize the complete UI
+# build so concurrent Endly invocations cannot remove each other's tools.
+if [ "${AGENTLY_UI_BUILD_LOCK_HELD:-}" != "$ROOT" ]; then
+  exec python3 "$ROOT/scripts/with_ui_build_lock.py" "$ROOT" bash "$ROOT/e2e/build-ui-embed.sh"
+fi
+
+if ! command -v npm >/dev/null 2>&1; then
+  echo "Error: npm not found. Install Node/npm and try again." >&2
+  exit 1
+fi
+
+UI_DIR="${ROOT}/ui"
+DEPLOY="${ROOT}/deployment/ui"
+
+# Vite consumes the linked SDK sources directly. npm does not install a linked
+# package's dependencies when installing the UI, so install them separately.
+SDK_DIR="$(node -e '
+  const path = require("path");
+  const uiDir = process.argv[1];
+  const dependency = require(path.join(uiDir, "package.json")).dependencies["agently-core-ui-sdk"];
+  if (!dependency || !dependency.startsWith("file:")) {
+    throw new Error("Expected a local file: dependency for agently-core-ui-sdk");
+  }
+  process.stdout.write(path.resolve(uiDir, dependency.slice(5)));
+' "${UI_DIR}")"
+
+if [ ! -f "${SDK_DIR}/package.json" ]; then
+  echo "Error: local SDK missing at ${SDK_DIR}. Check out the repository referenced by ui/package.json." >&2
+  exit 1
+fi
+
+install_deps() {
+  local package_dir="$1"
+  echo "[build-ui-embed] Installing deps in ${package_dir}..."
+  if [ -f "${package_dir}/package-lock.json" ] || [ -f "${package_dir}/npm-shrinkwrap.json" ]; then
+    (cd "${package_dir}" && npm ci --include=dev)
+  else
+    (cd "${package_dir}" && npm install --include=dev)
+  fi
+}
+
+# Refresh even when node_modules exists: it may predate new dependencies.
+FORGE_DIR="$(node -e '
+  const path = require("path");
+  const uiDir = process.argv[1];
+  const dependency = require(path.join(uiDir, "package.json")).dependencies.forge;
+  if (!dependency || !dependency.startsWith("file:")) {
+    throw new Error("Expected a local file: dependency for forge");
+  }
+  process.stdout.write(path.resolve(uiDir, dependency.slice(5)));
+' "${UI_DIR}")"
+
+# Vite reads Forge source through the local link, so its package dependencies
+# must also be installed in a fresh checkout.
+install_deps "${FORGE_DIR}"
+install_deps "${SDK_DIR}"
+install_deps "${UI_DIR}"
+
+echo "[build-ui-embed] Building UI (${UI_DIR})..."
+(cd "${UI_DIR}" && npm run build)
+
+DIST="${UI_DIR}/dist"
+if [ ! -d "$DIST" ]; then
+  echo "Error: ${DIST} not found after build." >&2
+  exit 1
+fi
+
+echo "[build-ui-embed] Syncing the complete deployment bundle..."
+bash "${UI_DIR}/scripts/sync-deployment-ui.sh"
+(cd "${ROOT}" && go test ./deployment/ui)
+
+echo "[build-ui-embed] Done. Rebuild the binary: cd agently && go build -o agently ."
