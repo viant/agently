@@ -44,26 +44,42 @@ afterEach(()=>{
   window.localStorage.clear();
   for(const window of [...activeWindows.peek()])removeWindow(window.windowId);
   applicationScope.clear();vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
-it.each(['none','same actor','new actor','verified owner change','sidebar remount','pending unscoped response','denied scope','denied scope 403','denied scope in sections','denied scope in sections 403','denied scope in sections with identity reset','unauthorized scope 401'])('applies scope from a menu-opened native window with %s recovery',async recovery=>{
+it.each([
+  'none','same actor','new actor','verified owner change','sidebar remount','pending unscoped response',
+  'denied scope','denied scope 403','denied scope in sections','denied scope in sections 403',
+  'denied scope in sections with identity reset','unauthorized scope 401',
+  'omitted scoped application','omitted scoped application in sections',
+  'omitted scoped application zero','omitted scoped application false',
+  'omitted scoped application with peer','omitted scoped application in sections with peer',
+  'omitted scoped application catalog removal','omitted scoped application in sections catalog removal',
+  'omitted scoped application new actor','omitted scoped application in sections new actor',
+])('applies scope from a menu-opened native window with %s recovery',async recovery=>{
   const sections=recovery.includes('sections');
+  const omitted=recovery.startsWith('omitted scoped application');
   getAuthMeSilently.mockResolvedValue({subject:'scope-actor'});
+  if(omitted)vi.spyOn(window,'setInterval').mockReturnValue(12345);
   vi.stubGlobal('matchMedia',()=>({matches:false,addEventListener(){},removeEventListener(){}}));
   const app={id:'example',providerIdentity:'source',title:'Example',scope:{keys:['entityId']},menus:[{id:'select',title:'Choose entity',action:{type:'window',resourceUri:'window://example/selector'}}]};
   const peer={id:'peer',providerIdentity:'source',title:'Peer',menus:[{id:'peer-rows',title:'Peer rows',action:{type:'window',windowKey:'peer'}}]};
   const queries=[];
-  let holdNextLayout=false,releaseLayout;
+  let holdNextLayout=false,releaseLayout,omissionReturned=false,newActorNoApps=false;
   vi.stubGlobal('fetch',vi.fn(async url=>{
     const request=new URL(String(url),'http://localhost');
     if(request.pathname.endsWith('/workspace/layout')){
       const parameters=JSON.parse(request.searchParams.get('parameters')||'{}');queries.push(parameters);
-      if(parameters.entityId===3)return new Response('Projection unavailable',{status:recovery.includes('403')?403:recovery.includes('401')?401:503});
+      if(parameters.entityId===3 || (omitted && (parameters.entityId===0 || parameters.entityId===false)) || newActorNoApps || (omissionReturned && recovery.includes('catalog removal') && !Object.hasOwn(parameters,'entityId'))){
+        if(!omitted)return new Response('Projection unavailable',{status:recovery.includes('403')?403:recovery.includes('401')?401:503});
+        omissionReturned=true;
+        return new Response(JSON.stringify({workspaceId:'scope-workspace',layout:{...(sections?{left:{navigation:{presentation:'sections'}}}:{}),applications:recovery.includes('with peer')?[peer]:[]}}),{headers:{'Content-Type':'application/json'}});
+      }
       if(parameters.entityId){expect(request.searchParams.get('applicationId')).toBe('example');expect(request.searchParams.get('providerIdentity')).toBe('source');}
       const response=new Response(JSON.stringify({workspaceId:'scope-workspace',layout:{...(sections?{left:{navigation:{presentation:'sections'}}}:{}),applications:[{...app,menus:[...app.menus,...(parameters.entityId?[{id:'rows',title:'Selected rows',action:{type:'window',windowKey:'rows'}}]:[])]},peer]}}),{headers:{'Content-Type':'application/json'}});
       if(holdNextLayout){holdNextLayout=false;return new Promise(resolve=>{releaseLayout=()=>resolve(response);});}
       return response;
     }
-    if(request.pathname.includes('/forge/window/'))return new Response(JSON.stringify({data:{namespace:'fixture',dataSource:{},actionAliases:['actions'],actions:{code:'({select:({context,value})=>context.handlers.applicationScope.set(context,{entityId:Number(value)})})'},view:{content:{id:'selector-content',items:[{id:'entity',type:'select',label:'Scope entity',scope:'windowForm',dataField:'entityId',options:[{value:1,label:'First entity'},{value:2,label:'Second entity'},{value:3,label:'Unavailable entity'}],on:[{event:'onChange',handler:'actions.select'}]},{id:'draft',type:'text',label:'Local draft',scope:'windowForm',dataField:'draft'}]}}}}),{headers:{'Content-Type':'application/json'}});
+    if(request.pathname.includes('/forge/window/'))return new Response(JSON.stringify({data:{namespace:'fixture',dataSource:{},actionAliases:['actions'],actions:{code:'({select:({context,value})=>context.handlers.applicationScope.set(context,{entityId:value===false?false:Number(value)})})'},view:{content:{id:'selector-content',items:[{id:'entity',type:'select',label:'Scope entity',scope:'windowForm',dataField:'entityId',options:[{value:1,label:'First entity'},{value:2,label:'Second entity'},{value:3,label:'Unavailable entity'},{value:0,label:'Zero entity'},{value:false,label:'False entity'}],on:[{event:'onChange',handler:'actions.select'}]},{id:'draft',type:'text',label:'Local draft',scope:'windowForm',dataField:'draft'}]}}}}),{headers:{'Content-Type':'application/json'}});
     throw new Error(`Unexpected request ${request.pathname}`);
   }));
   const services={applicationScope};
@@ -76,6 +92,43 @@ it.each(['none','same actor','new actor','verified owner change','sidebar remoun
   fireEvent.click(apply);fireEvent.click(await screen.findByRole('menuitem',{name:'First entity'}));
   await waitFor(()=>expect(queries.at(-1)).toEqual({entityId:1}));
   const context=getWindowContext(windowId);
+  if(omitted){
+    await screen.findByRole('button',{name:'Selected rows'});
+    const omittedValue=recovery.includes('zero')?0:recovery.includes('false')?false:3;
+    const omittedLabel=omittedValue===0?'Zero entity':omittedValue===false?'False entity':'Unavailable entity';
+    const windowsBefore=activeWindows.peek().map(entry=>entry.windowId);
+    fireEvent.click(apply);fireEvent.click(await screen.findByRole('menuitem',{name:omittedLabel}));
+    await waitFor(()=>expect(screen.queryByRole('button',{name:'Selected rows'})).toBeNull());
+    expect(screen.queryByRole('button',{name:'Choose entity'})).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(applicationScope.inputs(app)).toEqual({entityId:omittedValue});
+    expect(context.handlers.applicationScope.get(context)).toEqual({entityId:omittedValue});
+    expect(activeWindows.peek().map(entry=>entry.windowId)).toEqual(windowsBefore);
+    expect(screen.getByLabelText('Local draft')).toBe(draft);expect(draft.value).toBe('Retain draft');
+    if(recovery.includes('with peer'))expect(screen.getByRole('tab',{name:'Peer'})).toBeTruthy();
+    if(recovery.includes('catalog removal')){
+      await act(async()=>context.handlers.applicationScope.set(context,{entityId:null}));
+      await waitFor(()=>expect(screen.queryByRole('tab',{name:'Example'})).toBeNull());
+      expect(applicationScope.inputs(app)).toEqual({});
+      expect(()=>context.handlers.applicationScope.set(context,{entityId:1})).toThrow('Application scope is unavailable');
+      return;
+    }
+    if(recovery.includes('new actor')){
+      newActorNoApps=true;getAuthMeSilently.mockResolvedValue({subject:'another-actor'});
+      await act(async()=>{window.dispatchEvent(new Event('agently:session-reset'));window.dispatchEvent(new Event('agently:authorized'));});
+      await waitFor(()=>expect(screen.queryByRole('tab',{name:'Example'})).toBeNull());
+      expect(applicationScope.inputs(app)).toEqual({});
+      expect(()=>context.handlers.applicationScope.set(context,{entityId:1})).toThrow('Application scope is unavailable');
+      return;
+    }
+    fireEvent.click(apply);fireEvent.click(await screen.findByRole('menuitem',{name:'First entity'}));
+    await screen.findByRole('button',{name:'Selected rows'});
+    expect(context.handlers.applicationScope.get(context)).toEqual({entityId:1});
+    expect(screen.getByLabelText('Local draft')).toBe(draft);
+    expect(selectedWindowId.peek()).toBe(windowId);
+    expect(screen.getAllByLabelText('Scope entity')).toHaveLength(1);
+    return;
+  }
   if(recovery==='unauthorized scope 401'){
     fireEvent.click(apply);fireEvent.click(await screen.findByRole('menuitem',{name:'Unavailable entity'}));
     await screen.findByRole('alert');

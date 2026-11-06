@@ -53,6 +53,8 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
   applicationScope.revision.value;
   const windowInputs = selectedWindowInputs();
   const [layout, setLayout] = useState(null);
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
   const [searchMount, setSearchMount] = useState(null);
   const [activeApp, setActiveApp] = useState('');
   // Reuse the declared application's retained context, never focused-window
@@ -130,7 +132,15 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         if (!current()) return;
         const nextRevision = JSON.stringify([payload.workspaceId, payload.layoutRevision || payload.layout, payload.catalogRevisions, context]);
         if (background && nextRevision === revision) { setError(''); return; }
-        const applications = Array.isArray(payload?.layout?.applications) ? payload.layout.applications : [];
+        let applications = Array.isArray(payload?.layout?.applications) ? payload.layout.applications : [];
+        const previous = context && layoutRef.current?.applications?.find(app => app.id === context.applicationId && (app.providerIdentity || '') === context.providerIdentity);
+        if (previous?.scope?.keys?.some(key => Object.hasOwn(context.parameters, key)) && !applications.some(app => app.id === previous.id && (app.providerIdentity || '') === (previous.providerIdentity || ''))) {
+          // Optional scoped publication can omit navigation without removing
+          // the open selector's declared UI context. Retain no prior actions.
+          const {id, title, scope, providerIdentity, resourceNamespace, resourceConnection} = previous;
+          applications = [...applications, {id, title, scope, providerIdentity, resourceNamespace, resourceConnection, menus: []}];
+          payload.layout = {...payload.layout, applications};
+        }
         applicationScope.configure(JSON.stringify([payload.workspaceId, principal?.subject || principal?.username || principal?.id || 'anonymous']), applications);
         const archives = payload?.layout?.resourceArchives || [];
         if (archives.length || applications.some(app => app.styleResources?.length)) {
@@ -197,6 +207,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
             setLayout(previous => previous && {...previous, applications: (previous.applications || []).map(app =>
               app.id === context.applicationId && (app.providerIdentity || '') === context.providerIdentity ? {...app, menus: []} : app)});
           } else if (!(background && revision !== null && transient)) {
+            layoutRef.current = null;
             revision = null; setLayout(null); onTopbarActionsChange?.([]);
           }
           setError(String(cause?.message || cause));
@@ -216,6 +227,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       sectionRouteSignature.current = '';
       layoutContextRef.current = null; loadedContextKey.current = 'null';
       applicationScope.clear();
+      layoutRef.current = null;
       setLayout(null);
       setError('');
       onTopbarActionsChange?.([]);
@@ -265,11 +277,13 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       : layout.topbar?.actions?.find(entry => `action:${entry.id}` === section);
     const publish = (entry, title = '', error = '') => sectionWindowRef.current?.(entry, title, section, destination, error);
     if (section === 'workspaces' && !destination) { sectionRouteSignature.current = ''; publish(null); return; }
-    if (!selected && error && sectionRouteSignature.current) {
-      const [openedSection, openedDestination, openedVisit] = JSON.parse(sectionRouteSignature.current);
-      // A failed contextual menu refresh does not close its already-open
-      // destination. The retained selector can supply a recoverable context.
-      if (openedSection === section && openedDestination === destination && openedVisit === destinationVisit) return;
+    if (!selected && sectionRouteSignature.current) {
+      const [openedSection, openedDestination, openedVisit, openedMenu] = JSON.parse(sectionRouteSignature.current);
+      const application = applications.find(app => app.id === openedMenu.applicationId && app.id === layoutContext?.applicationId && (app.providerIdentity || '') === layoutContext.providerIdentity);
+      const retainedContext = application?.menus?.length === 0 && application.scope?.keys?.some(key => Object.hasOwn(applicationScope.inputs(application), key));
+      // Unavailable contextual navigation does not close its already-open
+      // selector, which can still supply another context without a new open.
+      if ((error || retainedContext) && openedSection === section && openedDestination === destination && openedVisit === destinationVisit) return;
     }
     if (!selected || selected.disabled || !['window', 'report'].includes(selected.action?.type)) {
       sectionRouteSignature.current = '';
