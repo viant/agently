@@ -103,6 +103,14 @@ export const isForgeReportingModule = (id = '', sourceRoot = '') => {
     || moduleId.includes(`${root}/src/components/dashboard/`);
 };
 
+export const resolveForgeRoot = (uiRoot, env = {}) => {
+  if (env.FORGE_SOURCE_ROOT) return resolve(env.FORGE_SOURCE_ROOT);
+  const dependency = JSON.parse(fs.readFileSync(resolve(uiRoot, 'package.json'), 'utf8')).dependencies?.forge;
+  return dependency?.startsWith('file:')
+    ? resolve(uiRoot, dependency.slice(5))
+    : resolve(uiRoot, 'node_modules/forge');
+};
+
 export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const safeEnv = pickEnv(env, ['AUTH_URL', 'DATA_URL', 'APP_URL', 'APPSERVER_URL', 'VITE_FORGE_LOG_LEVEL']);
@@ -114,7 +122,7 @@ export default defineConfig(({ mode, command }) => {
   const devHost = resolveDevHost(env);
   const devPort = resolveDevPort(env);
   const uiRoot = fileURLToPath(new URL('.', import.meta.url));
-  const forgeRoot = resolve(env.FORGE_SOURCE_ROOT || resolve(uiRoot, '../../forge'));
+  const forgeRoot = resolveForgeRoot(uiRoot, env);
   const coreRoot = resolve(env.AGENTLY_CORE_SOURCE_ROOT || resolve(uiRoot, '../../agently-core'));
   const forgeNodeModules = resolve(uiRoot, 'node_modules/forge');
   const appNodeModules = resolve(uiRoot, 'node_modules');

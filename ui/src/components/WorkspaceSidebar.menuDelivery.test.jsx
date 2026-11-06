@@ -606,3 +606,74 @@ it.each(['split', 'sections'])('renders portable group and leaf drawings while p
   if (presentation === 'sections') expect(onSectionChange).toHaveBeenCalledWith('workspaces', JSON.stringify(['tools', 'group', 'leaf']));
   else expect(openWindow).toHaveBeenCalledWith('shapeInspector', 'Inspect shape', [], expect.objectContaining({parameters: {shape: 7}}));
 });
+
+it('refreshes query navigation with only the selected application context, preserving false and zero', async () => {
+  const {applicationScope} = await import('../services/applicationScope');
+  applicationScope.clear();
+  const apps = [
+    {id:'selected',providerIdentity:'source-one',title:'Selected app',scope:{keys:['entityId','enabled','labels']},menus:[{id:'choose',title:'Choose context',action:{type:'window',windowKey:'selector'}}]},
+    {id:'peer',providerIdentity:'source-two',title:'Peer app',scope:{keys:['entityId','privateValue']},menus:[]},
+  ];
+  const payload=layoutPayload({applications:apps});payload.layoutRevision='same-source-revision';
+  fetch.mockImplementation(async url=>{
+    const selected=new URL(url,window.location.origin).searchParams;
+    if(!selected.has('parameters'))return response(payload);
+    const next=structuredClone(payload);const context=JSON.parse(selected.get('parameters'));
+    if(Object.hasOwn(context,'entityId'))next.layout.applications[0].menus.push({id:'scoped',title:`Rows for ${context.entityId}`,action:{type:'window',windowKey:'rows'}});
+    return response(next);
+  });
+  openWindow.mockImplementation(()=>{const entry={windowId:'selector-root',parameters:{}};windowSignals.activeWindows.value=[entry];return entry;});
+  render(<WorkspaceSidebar/>);fireEvent.click(await screen.findByRole('button',{name:'Choose context'}));
+  const initialCalls=fetch.mock.calls.length;
+  await act(async()=>{
+    const peer={windowId:'peer-root',parameters:{}};windowSignals.activeWindows.value=[...windowSignals.activeWindows.value,peer];
+    applicationScope.register(peer,apps[1],{});applicationScope.set({identity:{windowId:peer.windowId}},{entityId:99,privateValue:'peer-only'});
+    windowSignals.selectedWindowId.value=peer.windowId;windowSignals.getFormSignal.mockReturnValue({value:{entityId:88,focusedOnly:'omit'}});
+  });
+  expect(fetch).toHaveBeenCalledTimes(initialCalls);
+  await act(async()=>applicationScope.set({identity:{windowId:'selector-root'}},{entityId:0,enabled:false,labels:['A']}));
+  await screen.findByRole('button',{name:'Rows for 0'});
+  const query=new URL(fetch.mock.calls.at(-1)[0],window.location.origin).searchParams;
+  expect(query.get('applicationId')).toBe('selected');expect(query.get('providerIdentity')).toBe('source-one');
+  expect(JSON.parse(query.get('parameters'))).toEqual({entityId:0,enabled:false,labels:['A']});
+  expect(screen.getByRole('tab',{name:'Selected app'}).getAttribute('aria-selected')).toBe('true');
+  expect(applicationScope.inputs(apps[0])).toEqual({entityId:0,enabled:false,labels:['A']});
+  applicationScope.clear();
+});
+
+it('supersedes pending context pulls and ignores late responses without losing selected application scope',async()=>{
+  const {applicationScope}=await import('../services/applicationScope');applicationScope.clear();
+  const app={id:'query',providerIdentity:'owner',title:'Query app',scope:{keys:['entityId']},menus:[{id:'choose',title:'Choose context',action:{type:'window',windowKey:'selector'}}]};
+  const initial=layoutPayload({applications:[app]});initial.layoutRevision='constant';
+  const pending=new Map();
+  fetch.mockImplementation(url=>{
+    const query=new URL(url,window.location.origin).searchParams;
+    if(!query.has('parameters'))return Promise.resolve(response(initial));
+    const context=JSON.parse(query.get('parameters'));
+    return new Promise(resolve=>pending.set(context.entityId,resolve));
+  });
+  openWindow.mockImplementation(()=>{const entry={windowId:'query-selector',parameters:{}};windowSignals.activeWindows.value=[entry];return entry;});
+  render(<WorkspaceSidebar/>);fireEvent.click(await screen.findByRole('button',{name:'Choose context'}));
+  await act(async()=>applicationScope.set({identity:{windowId:'query-selector'}},{entityId:1}));await waitFor(()=>expect(pending.has(1)).toBe(true));
+  await act(async()=>applicationScope.set({identity:{windowId:'query-selector'}},{entityId:2}));await waitFor(()=>expect(pending.has(2)).toBe(true));
+  const result=id=>{const payload=structuredClone(initial);payload.layout.applications[0].menus.push({id:'rows',title:`Rows ${id}`,action:{type:'window',windowKey:'rows'}});return response(payload);};
+  await act(async()=>pending.get(2)(result(2)));await screen.findByRole('button',{name:'Rows 2'});
+  await act(async()=>pending.get(1)(result(1)));expect(screen.queryByRole('button',{name:'Rows 1'})).toBeNull();
+  expect(screen.getByText('Query app',{exact:true})).toBeTruthy();expect(applicationScope.inputs(app)).toEqual({entityId:2});
+  applicationScope.clear();
+});
+
+it('clears selected context before an authorized session reload and ignores the old actor response',async()=>{
+  const {applicationScope}=await import('../services/applicationScope');applicationScope.clear();
+  const app={id:'scoped',providerIdentity:'owner',title:'Scoped app',scope:{keys:['entityId']},menus:[{id:'choose',title:'Choose context',action:{type:'window',windowKey:'selector'}}]};
+  const initial=layoutPayload({applications:[app]});let finishOld;
+  fetch.mockImplementation(url=>new URL(url,window.location.origin).searchParams.has('parameters')?new Promise(resolve=>finishOld=resolve):Promise.resolve(response(initial)));
+  openWindow.mockImplementation(()=>{const entry={windowId:'actor-selector',parameters:{}};windowSignals.activeWindows.value=[entry];return entry;});
+  render(<WorkspaceSidebar/>);fireEvent.click(await screen.findByRole('button',{name:'Choose context'}));
+  await act(async()=>applicationScope.set({identity:{windowId:'actor-selector'}},{entityId:7}));await waitFor(()=>expect(finishOld).toBeTypeOf('function'));
+  getAuthMeSilently.mockResolvedValue({subject:'new-actor'});
+  await act(async()=>window.dispatchEvent(new Event('agently:authorized')));await screen.findByRole('button',{name:'Choose context'});
+  const last=new URL(fetch.mock.calls.at(-1)[0],window.location.origin);expect(last.searchParams.has('parameters')).toBe(false);expect(applicationScope.inputs(app)).toEqual({});
+  const stale=structuredClone(initial);stale.layout.applications[0].menus.push({id:'stale',title:'Previous actor rows',action:{type:'window',windowKey:'stale'}});
+  await act(async()=>finishOld(response(stale)));expect(screen.queryByRole('button',{name:'Previous actor rows'})).toBeNull();applicationScope.clear();
+});

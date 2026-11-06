@@ -1,3 +1,4 @@
+import json
 import pathlib
 import os
 import shlex
@@ -49,6 +50,40 @@ class BuildLockTest(unittest.TestCase):
             self.assertTrue(reached.exists())
             self.assertFalse(installed.exists(), "the regression must not install packages")
             self.assertNotIn("Waiting", stdout)
+
+    def test_forge_install_follows_file_or_published_dependency(self):
+        repository = pathlib.Path(__file__).resolve().parent.parent
+        for dependency in ("file:../../forge", "https://codeload.github.com/viant/forge/tar.gz/published"):
+            with self.subTest(dependency=dependency), tempfile.TemporaryDirectory() as directory:
+                base = pathlib.Path(directory).resolve()
+                root, commands = base / "checkout", base / "commands"
+                (root / "e2e").mkdir(parents=True)
+                (root / "ui").mkdir()
+                sdk, forge = base / "sdk", base / "forge"
+                sdk.mkdir()
+                forge.mkdir()
+                commands.mkdir()
+                shutil.copyfile(repository / "e2e/build-ui-embed.sh", root / "e2e/build-ui-embed.sh")
+                (root / "ui/package.json").write_text(json.dumps({"dependencies": {
+                    "agently-core-ui-sdk": "file:../../sdk", "forge": dependency}}))
+                for package in (sdk, forge):
+                    (package / "package.json").write_text("{}")
+                    (package / "package-lock.json").write_text("{}")
+                calls = base / "npm-calls"
+                npm = commands / "npm"
+                npm.write_text('#!/bin/sh\nprintf "%s %s\\n" "$PWD" "$*" >> "$BUILD_TEST_CALLS"\n[ "$1" != run ] || exit 37\n')
+                npm.chmod(0o700)
+                result = subprocess.run(["bash", str(root / "e2e/build-ui-embed.sh")],
+                    env=dict(os.environ, PATH=str(commands) + os.pathsep + os.environ.get("PATH", ""),
+                        AGENTLY_UI_BUILD_LOCK_HELD=str(root), BUILD_TEST_CALLS=str(calls)),
+                    capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 37, result.stderr)
+                expected = []
+                if dependency.startswith("file:"):
+                    expected.append(str(forge) + " ci --include=dev")
+                expected.extend([str(sdk) + " ci --include=dev", str(root / "ui") + " install --include=dev",
+                    str(root / "ui") + " run build"])
+                self.assertEqual(calls.read_text().splitlines(), expected)
 
     def test_two_builds_are_serial_and_exit_releases_the_lock(self):
         helper = pathlib.Path(__file__).with_name("with_ui_build_lock.py")

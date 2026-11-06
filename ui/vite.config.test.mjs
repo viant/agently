@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { isForgeReportingModule, isLoopbackPeer, loopbackOnlyDevPlugin, resolveDevHost, resolveDevPort, resolveProxyTarget } from './vite.config.js';
+import { isForgeReportingModule, isLoopbackPeer, loopbackOnlyDevPlugin, resolveDevHost, resolveDevPort, resolveForgeRoot, resolveProxyTarget } from './vite.config.js';
 
 for (const root of ['/tmp/forge', '/tmp/forge-opening-clean']) {
   assert.equal(isForgeReportingModule(`${root}/src/components/dashboard/ReportBuilder.jsx`, root), true);
@@ -10,6 +10,21 @@ for (const root of ['/tmp/forge', '/tmp/forge-opening-clean']) {
 
 import createConfig from './vite.config.js';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+
+const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agently-forge-config-'));
+try {
+  for (const dependency of ['file:../../forge', 'https://codeload.github.com/viant/forge/tar.gz/published']) {
+    fs.writeFileSync(path.join(fixtureRoot, 'package.json'), JSON.stringify({dependencies: {forge: dependency}}));
+    assert.equal(resolveForgeRoot(fixtureRoot), dependency.startsWith('file:')
+      ? path.resolve(fixtureRoot, '../../forge') : path.join(fixtureRoot, 'node_modules/forge'));
+    assert.equal(resolveForgeRoot(fixtureRoot, {FORGE_SOURCE_ROOT: '/explicit/forge'}), '/explicit/forge');
+  }
+} finally {
+  fs.rmSync(fixtureRoot, {recursive: true, force: true});
+}
 
 assert.equal(
   resolveProxyTarget({ APPSERVER_URL: 'http://127.0.0.1:9191' }, { requireExplicit: true }),
@@ -45,6 +60,9 @@ assert.throws(
 console.log('vite.config proxy target contract ✓ explicit backend target required for dev');
 
 const config = createConfig({mode:'production',command:'build'});
+const forgeAlias = config.resolve.alias.find(entry => entry.find === 'forge');
+assert.equal(forgeAlias.replacement, path.join(resolveForgeRoot(fileURLToPath(new URL('.', import.meta.url)), process.env), 'src'));
+
 for (const name of ['forge/theme', 'forge/editor', 'forge/window-editor']) {
   const alias = config.resolve.alias.find(entry => entry.find instanceof RegExp && entry.find.test(name));
   assert.ok(alias, `missing public export ${name}`);

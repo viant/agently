@@ -53,15 +53,16 @@ FORGE_DIR="$(node -e '
   const path = require("path");
   const uiDir = process.argv[1];
   const dependency = require(path.join(uiDir, "package.json")).dependencies.forge;
-  if (!dependency || !dependency.startsWith("file:")) {
-    throw new Error("Expected a local file: dependency for forge");
+  if (dependency?.startsWith("file:")) {
+    process.stdout.write(path.resolve(uiDir, dependency.slice(5)));
   }
-  process.stdout.write(path.resolve(uiDir, dependency.slice(5)));
 ' "${UI_DIR}")"
 
-# Vite reads Forge source through the local link, so its package dependencies
-# must also be installed in a fresh checkout.
-install_deps "${FORGE_DIR}"
+# Only linked Forge sources need a separate dependency install. Published
+# packages and their dependencies are installed by the application's npm ci.
+if [ -n "${FORGE_DIR}" ]; then
+  install_deps "${FORGE_DIR}"
+fi
 install_deps "${SDK_DIR}"
 install_deps "${UI_DIR}"
 

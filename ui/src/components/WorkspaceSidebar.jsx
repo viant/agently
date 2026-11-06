@@ -55,6 +55,13 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
   const [layout, setLayout] = useState(null);
   const [searchMount, setSearchMount] = useState(null);
   const [activeApp, setActiveApp] = useState('');
+  // Reuse the declared application's retained context, never focused-window
+  // inputs or values held by another application.
+  const scopedApplication = layout?.applications?.find(app => app.id === activeApp) || layout?.applications?.[0];
+  const layoutContext = scopedApplication ? {applicationId: scopedApplication.id, providerIdentity: scopedApplication.providerIdentity || '', parameters: applicationScope.inputs(scopedApplication)} : null;
+  const layoutContextKey = JSON.stringify(layoutContext);
+  const layoutContextRef = useRef(null), loadedContextKey = useRef('null'), refreshLayoutRef = useRef(null);
+  layoutContextRef.current = layoutContext;
   const [collapsedGroups, setCollapsedGroups] = useState({});
   const [fraction, setFraction] = useState(DEFAULT_SPLIT);
   const [error, setError] = useState('');
@@ -102,26 +109,29 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
     let inFlight = false;
     let revision = null;
     if (!discoveryReady) { setLayout(null); onTopbarActionsChange?.([]); return undefined; }
-    const load = async (background = false) => {
-      if (background && (inFlight || document.hidden)) return;
+    const load = async (background = false, contextChanged = false) => {
+      if (background && !contextChanged && (inFlight || document.hidden)) return;
       inFlight = true;
       const sequence = ++requestSequence;
+      const context = layoutContextRef.current;
+      const current = () => live && sequence === requestSequence && JSON.stringify(context) === JSON.stringify(layoutContextRef.current);
       try {
         if (!background && reloadVersion > 0) workspaceResources.clear();
-        const response = await fetch(`${sdkBaseURL}/workspace/layout`, { credentials: 'include', headers: { Accept: 'application/json' } });
-        if (!live || sequence !== requestSequence) return;
+        const query = context ? '?' + new URLSearchParams({applicationId: context.applicationId, providerIdentity: context.providerIdentity, parameters: JSON.stringify(context.parameters)}) : '';
+        const response = await fetch(`${sdkBaseURL}/workspace/layout${query}`, { credentials: 'include', headers: { Accept: 'application/json' } });
+        if (!current()) return;
         if (!response.ok) throw Object.assign(new Error(`Workspace layout unavailable (${response.status})`), {status: response.status});
         const payload = await response.json();
-        if (!live || sequence !== requestSequence) return;
-        const nextRevision = JSON.stringify([payload.workspaceId, payload.layoutRevision || payload.layout, payload.catalogRevisions]);
+        if (!current()) return;
+        const nextRevision = JSON.stringify([payload.workspaceId, payload.layoutRevision || payload.layout, payload.catalogRevisions, context]);
         if (background && nextRevision === revision) { setError(''); return; }
         const applications = Array.isArray(payload?.layout?.applications) ? payload.layout.applications : [];
         const principal = await getAuthMeSilently();
-        if (!live || sequence !== requestSequence) return;
+        if (!current()) return;
         applicationScope.configure(JSON.stringify([payload.workspaceId, principal?.subject || principal?.username || principal?.id || 'anonymous']), applications);
         const archives = payload?.layout?.resourceArchives || [];
         if (archives.length || applications.some(app => app.styleResources?.length)) {
-          if (!live || sequence !== requestSequence) return;
+          if (!current()) return;
           const scope = JSON.stringify([payload.workspaceId, principal]);
           workspaceResources.configure(scope, archives);
           void getWorkspaceStyleManager().loadApplicationStyles(applications, {
@@ -133,6 +143,8 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         }
         onTopbarActionsChange?.(payload?.layout?.topbar?.actions || []);
         revision = nextRevision;
+        const nextActive = applications.find(app => app.id === context?.applicationId && (app.providerIdentity || '') === context.providerIdentity) || applications[0];
+        loadedContextKey.current = JSON.stringify(nextActive ? {applicationId:nextActive.id,providerIdentity:nextActive.providerIdentity || '',parameters:applicationScope.inputs(nextActive)} : null);
         if (background) {
           setLayout(payload.layout);
           setActiveApp(current => applications.some(app => app.id === current) ? current : (applications[0]?.id || ''));
@@ -154,7 +166,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
           return;
         }
         const me = principal;
-        if (!live || sequence !== requestSequence) return;
+        if (!current()) return;
         const principalId = String(me?.subject || me?.username || me?.email || me?.id || 'anonymous');
         const key = `agently.layoutPreferences.v1:${JSON.stringify([payload.workspaceId, principalId, payload.layout?.id || 'main'])}`;
         let prefs = {};
@@ -170,7 +182,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         setError('');
         if (error) window.dispatchEvent(new CustomEvent('forge:retry-window-metadata'));
       } catch (cause) {
-        if (live && sequence === requestSequence) {
+        if (current()) {
           // An unavailable refresh is not a new catalog. Keep the admitted
           // layout mounted so report runs and local drafts retain their owners.
           const transient = !cause?.status || cause.status >= 500 || cause.status === 408 || cause.status === 429;
@@ -183,6 +195,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         if (sequence === requestSequence) inFlight = false;
       }
     };
+    refreshLayoutRef.current = () => load(true, true);
     void load();
     const clearIdentity = () => {
       // A response started by the previous session must never repopulate the
@@ -191,6 +204,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       inFlight = false;
       revision = null;
       sectionRouteSignature.current = '';
+      layoutContextRef.current = null; loadedContextKey.current = 'null';
       applicationScope.clear();
       setLayout(null);
       setError('');
@@ -204,8 +218,15 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
     window.addEventListener('agently:authorized', onAuthorized);
     window.addEventListener('agently:session-reset', clearIdentity);
     window.addEventListener('agently:logout', clearIdentity);
-    return () => { live = false; window.clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); window.removeEventListener('agently:authorized', onAuthorized); window.removeEventListener('agently:session-reset', clearIdentity); window.removeEventListener('agently:logout', clearIdentity); };
+    return () => { live = false; refreshLayoutRef.current = null; window.clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); window.removeEventListener('agently:authorized', onAuthorized); window.removeEventListener('agently:session-reset', clearIdentity); window.removeEventListener('agently:logout', clearIdentity); };
   }, [reloadVersion, discoveryReady]);
+
+  useEffect(() => {
+    if (discoveryReady && layoutContext && layoutContextKey !== loadedContextKey.current) {
+      loadedContextKey.current = layoutContextKey;
+      void refreshLayoutRef.current?.();
+    }
+  }, [layoutContextKey, discoveryReady]);
 
   useEffect(() => {
     if (!preferenceKey) return;
