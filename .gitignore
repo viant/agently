@@ -72,3 +72,6 @@ ui/theme-proof-dist/
 /run/steward-local.Caddyfile
 /android/app/src/test/resources/actual-ios-f5-native-report.json
 /android/app/src/test/resources/completed-report-restore.json
+
+# Local design, planning, and execution notes.
+/doc/workspace-navigation-regression.md
