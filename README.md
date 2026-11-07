@@ -286,7 +286,7 @@ outputArtifacts:
 
 Replace the extension ID with the installed provider's ID and use its supported port name. Open the web UI in that Chrome profile and configure the UI origin in the provider's trusted-client settings. The tool catalog is registered through the existing browser MCP connection; the backend does not receive local credential values. The Coder agent includes a generic Mechanize operating skill and discovers application guides through the provider's `skills/list` and `skills/get` tools.
 
-Configured captures become owned artifacts before model-visible output. `resources/readImage` loads them into multimodal input; the screenshot role enables bounded preview resolution and retention of recent screenshots in active context while preserving durable history. See the [Core browser MCP design](https://github.com/viant/agently-core/blob/main/doc/browser-mcp-and-mcp-apps-plan.md) for transport and recovery behavior.
+Configured captures become owned artifacts before model-visible output. `resources/readImage` loads them into multimodal input; the screenshot role enables bounded preview resolution and retention of recent screenshots in active context while preserving durable history. See the [Core MCP integration guide](https://github.com/viant/agently-core/blob/main/doc/mcp-integration.md) for supported integration behavior.
 
 ## Credits and Acknowledgements
 

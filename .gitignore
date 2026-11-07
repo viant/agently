@@ -48,3 +48,27 @@ ui/theme-proof-dist/
 /ios/**/xcuserdata/
 /android/*.local.properties
 /run/steward-local*
+
+# Local design, planning, and execution notes.
+/generic-cleanup.md
+/dev/ag-ui/cross-platform-parity.md
+/dev/ag-ui/presentation-acceptance.md
+/dev/ag-ui/README.md
+/multi-platform.md
+/workspace-layout.md
+/preview/report/SPEC.md
+
+# Historical local planning and investigation paths.
+/_LOCAL_2610/conversation-audit-plan.md
+/dev/ag-ui/steward-workflow-acceptance.md
+/doc/conversation_deletion_plan.md
+/docs/domain-unification.md
+/plan.md
+
+# Private local captures and runtime state.
+/adapter/http/db/
+/run/steward-local-key.pem
+/run/steward-local-lan-key.pem
+/run/steward-local.Caddyfile
+/android/app/src/test/resources/actual-ios-f5-native-report.json
+/android/app/src/test/resources/completed-report-restore.json
