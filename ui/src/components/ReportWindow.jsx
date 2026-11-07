@@ -74,7 +74,7 @@ export default function ReportWindow({window: entry}) {
     setState({});
     Promise.resolve().then(() => {
       if (!isReportWindow(entry) || typeof store?.getReport !== 'function') throw new Error('Report reading is unavailable.');
-      return store.getReport({resource: resourceRef});
+      return store.getReport({resource: resourceRef, ...(entry.windowId ? {windowInstance: {windowId: entry.windowId, conversationId: entry.conversationId}} : {})});
     }).then(report => {
       if (!active) return;
       setState({report, identity});

@@ -1,3 +1,5 @@
+import {waitForUIBridgeReady, getActiveUIBridgeTransportContext, publishUIBridgeSnapshotNow} from 'forge/core';
+import {client} from './agentlyClient';
 import { executeReportingTool } from './reportingToolClient';
 
 const REPORT_STORE_CHANGED_EVENT = 'forge:report-store-changed';
@@ -27,9 +29,22 @@ export async function getReport(request = {}) {
   if (!request || typeof request !== 'object' || Array.isArray(request)) {
     throw new Error('get report request is required');
   }
-  const result = await executeReportingTool('reporting:get_report', request, 'report get request failed');
+  const {windowInstance, ...input} = request;
+  const result = await executeReportingTool('reporting:get_report', input, 'report get request failed');
   if (!result || typeof result !== 'object' || Array.isArray(result)) {
     throw new Error(`unexpected report get response: ${JSON.stringify(result)}`);
+  }
+  if (windowInstance && result.resource) {
+    await waitForUIBridgeReady();
+    const transport = getActiveUIBridgeTransportContext();
+    if (!transport?.clientId || !transport?.sessionId) throw new Error('Workspace UI transport is unavailable');
+    await client.applyPermission(result.resource.uri, {
+      windowId: windowInstance.windowId, conversationId: windowInstance.conversationId || '',
+      clientId: transport.clientId, bridgeSessionId: transport.sessionId, resolvedResource: result.resource,
+    });
+    const current = getActiveUIBridgeTransportContext();
+    if (current?.clientId !== transport.clientId || current?.sessionId !== transport.sessionId) throw new Error('Workspace UI transport changed');
+    await publishUIBridgeSnapshotNow();
   }
   return result;
 }

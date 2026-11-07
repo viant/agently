@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('forge/core', () => ({waitForUIBridgeReady:vi.fn(async()=>true),getActiveUIBridgeTransportContext:vi.fn(()=>({clientId:'client',sessionId:'session'})),publishUIBridgeSnapshotNow:vi.fn(async()=>{})}));
+vi.mock('./agentlyClient',()=>({client:{applyPermission:vi.fn(async()=>({bound:true}))}}));
+import {client} from './agentlyClient';
+import {publishUIBridgeSnapshotNow} from 'forge/core';
+
 vi.mock('./reportingToolClient', () => ({
   executeReportingTool: vi.fn(async (name, args) => ({
     tool: name,
@@ -152,4 +157,21 @@ describe('reportStoreService', () => {
     );
     expect(result).toMatchObject({ artifactId: 'report-1' });
   });
+});
+
+it('binds restored reports without adding tool payloads',async()=>{
+ const resource={uri:'report://example/summary',revision:'1'};
+ executeReportingTool.mockResolvedValueOnce({resource,resourceDefinition:{title:'Summary'}});
+ const result=await getReport({resource:{uri:resource.uri},windowInstance:{windowId:'restored',conversationId:'chat'}});
+ expect(executeReportingTool).toHaveBeenLastCalledWith('reporting:get_report',{resource:{uri:resource.uri}},expect.any(String));
+ expect(client.applyPermission).toHaveBeenLastCalledWith(resource.uri,{windowId:'restored',conversationId:'chat',clientId:'client',bridgeSessionId:'session',resolvedResource:resource});
+ expect(publishUIBridgeSnapshotNow).toHaveBeenCalled();
+ expect(result.resource).toBe(resource);
+});
+it('does not publish a restored snapshot when binding fails',async()=>{
+ const before=publishUIBridgeSnapshotNow.mock.calls.length;
+ executeReportingTool.mockResolvedValueOnce({resource:{uri:'report://example/summary'}});
+ client.applyPermission.mockRejectedValueOnce(Error('Unavailable'));
+ await expect(getReport({windowInstance:{windowId:'restored'}})).rejects.toThrow('Unavailable');
+ expect(publishUIBridgeSnapshotNow.mock.calls.length).toBe(before);
 });

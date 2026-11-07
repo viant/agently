@@ -191,3 +191,12 @@ it('applies typed manual dates after a relative default without restoring the pr
     expect(screen.getByLabelText('Period to').value).toBe('2026-11-01');
   }finally{vi.unstubAllGlobals();}
 });
+
+it('passes the restored instance to the existing report loader', async () => {
+  const resource = {uri:'report://example/summary'};
+  services.reportStore.getReport.mockResolvedValueOnce({resource, resourceDefinition:{}});
+  render(<ReportWindow window={{windowId:'restored-instance',windowKey:resource.uri,conversationId:'owned-chat',parameters:{executeOnOpen:false}}}/>);
+  await screen.findByText('Shared report runtime');
+  expect(services.reportStore.getReport).toHaveBeenLastCalledWith({resource,windowInstance:{windowId:'restored-instance',conversationId:'owned-chat'}});
+  expect(runtime.mock.calls.at(-1)[0].container.parameters.executeOnOpen).toBe(false);
+});
