@@ -65,8 +65,9 @@ it.each(['records','window://example/records'])('keeps the three-level parent na
   expect(view.container.querySelector('[role=tablist]')).toBeNull();
   await act(async()=>fireEvent.click(screen.getByRole('button',{name:'Open detail'})));
   await act(async()=>fireEvent.click(screen.getByRole('button',{name:'Open detail'})));
-  expect(within(header).getAllByRole('tab')).toHaveLength(3);
-  expect(header.querySelectorAll('.forge-icon')).toHaveLength(3);
+  const tabs = within(header).getAllByRole('tab');
+  expect(tabs).toHaveLength(3);
+  for (const tab of tabs) expect(tab.querySelectorAll('.forge-icon')).toHaveLength(1);
   await act(async()=>fireEvent.click(within(header).getByRole('tab',{name:'Detail'})));
   const detail=windowKey.startsWith('window://')?'window://example/detail':'detail';
   expect(visible(screen.getByText(`${detail} content`))).toBe(true);
