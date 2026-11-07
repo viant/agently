@@ -63,6 +63,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
   const layoutContext = scopedApplication ? {applicationId: scopedApplication.id, providerIdentity: scopedApplication.providerIdentity || '', parameters: applicationScope.inputs(scopedApplication)} : null;
   const layoutContextKey = JSON.stringify(layoutContext);
   const layoutContextRef = useRef(null), loadedContextKey = useRef('null'), refreshLayoutRef = useRef(null);
+  const scopeSessionRef = useRef('');
   layoutContextRef.current = layoutContext;
   const [collapsedGroups, setCollapsedGroups] = useState({});
   const [fraction, setFraction] = useState(DEFAULT_SPLIT);
@@ -130,7 +131,8 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         if (!response.ok) throw Object.assign(new Error(`Workspace layout unavailable (${response.status})`), {status: response.status});
         const payload = await response.json();
         if (!current()) return;
-        const nextRevision = JSON.stringify([payload.workspaceId, payload.layoutRevision || payload.layout, payload.catalogRevisions, context]);
+        const scopeSession = JSON.stringify([payload.workspaceId, principal?.subject || principal?.username || principal?.id || 'anonymous']);
+        const nextRevision = JSON.stringify([scopeSession, payload.layoutRevision || payload.layout, payload.catalogRevisions, context]);
         if (background && nextRevision === revision) { setError(''); return; }
         let applications = Array.isArray(payload?.layout?.applications) ? payload.layout.applications : [];
         const previous = context && layoutRef.current?.applications?.find(app => app.id === context.applicationId && (app.providerIdentity || '') === context.providerIdentity);
@@ -141,7 +143,9 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
           applications = [...applications, {id, title, scope, providerIdentity, resourceNamespace, resourceConnection, menus: []}];
           payload.layout = {...payload.layout, applications};
         }
-        applicationScope.configure(JSON.stringify([payload.workspaceId, principal?.subject || principal?.username || principal?.id || 'anonymous']), applications);
+        if (scopeSessionRef.current !== scopeSession) sectionRouteSignature.current = null;
+        scopeSessionRef.current = scopeSession;
+        applicationScope.configure(scopeSession, applications);
         const archives = payload?.layout?.resourceArchives || [];
         if (archives.length || applications.some(app => app.styleResources?.length)) {
           if (!current()) return;
@@ -224,7 +228,8 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       ++requestSequence;
       inFlight = false;
       revision = null;
-      sectionRouteSignature.current = '';
+      sectionRouteSignature.current = null;
+      scopeSessionRef.current = '';
       layoutContextRef.current = null; loadedContextKey.current = 'null';
       applicationScope.clear();
       layoutRef.current = null;
@@ -267,18 +272,18 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
   const history = layout?.left?.history || {};
   const sections = navigationEnabled && layout?.left?.navigation?.presentation === 'sections';
   useEffect(() => { onSectionPresentationChange?.(sections); }, [sections, onSectionPresentationChange]);
-  const sectionRouteSignature = useRef('');
+  const sectionRouteSignature = useRef(null);
   const sectionWindowRef = useRef(onSectionWindow);
   sectionWindowRef.current = onSectionWindow;
   useEffect(() => {
-    if (!sections || section === 'chat') { sectionRouteSignature.current = ''; return; }
+    if (!sections || section === 'chat') { sectionRouteSignature.current = null; return; }
     const selected = section === 'workspaces'
       ? layoutWindowDestinations(layout).find(entry => entry.destination === destination)
       : layout.topbar?.actions?.find(entry => `action:${entry.id}` === section);
     const publish = (entry, title = '', error = '') => sectionWindowRef.current?.(entry, title, section, destination, error);
-    if (section === 'workspaces' && !destination) { sectionRouteSignature.current = ''; publish(null); return; }
+    if (section === 'workspaces' && !destination) { sectionRouteSignature.current = null; publish(null); return; }
     if (!selected && sectionRouteSignature.current) {
-      const [openedSection, openedDestination, openedVisit, openedMenu] = JSON.parse(sectionRouteSignature.current);
+      const {section: openedSection, destination: openedDestination, visit: openedVisit, menu: openedMenu} = sectionRouteSignature.current;
       const application = applications.find(app => app.id === openedMenu.applicationId && app.id === layoutContext?.applicationId && (app.providerIdentity || '') === layoutContext.providerIdentity);
       const retainedContext = application?.menus?.length === 0 && application.scope?.keys?.some(key => Object.hasOwn(applicationScope.inputs(application), key));
       // Unavailable contextual navigation does not close its already-open
@@ -286,26 +291,51 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       if ((error || retainedContext) && openedSection === section && openedDestination === destination && openedVisit === destinationVisit) return;
     }
     if (!selected || selected.disabled || !['window', 'report'].includes(selected.action?.type)) {
-      sectionRouteSignature.current = '';
+      sectionRouteSignature.current = null;
       publish(null, '', 'This destination is unavailable. Choose another destination from the menu.');
       return;
     }
     const application = applications.find(app => app.id === selected.applicationId);
     const scopeInputs = applicationScope.inputs(application, selectedWindowInputs());
-    const options = selected.action.type === 'report'
-      ? resolveLayoutReportOptions(selected.action, '', scopeInputs)
-      : resolveLayoutWindowOptions(selected.action, '', scopeInputs);
+    const resolveOptions = inputs => selected.action.type === 'report'
+      ? resolveLayoutReportOptions(selected.action, '', inputs)
+      : resolveLayoutWindowOptions(selected.action, '', inputs);
+    const options = resolveOptions(scopeInputs);
     if (!options) {
-      sectionRouteSignature.current = '';
+      sectionRouteSignature.current = null;
       publish(null, selected.title, 'Select the required context before opening this destination.');
       return;
     }
-    const signature = JSON.stringify([section, destination, destinationVisit, selected, options]);
-    if (sectionRouteSignature.current === signature) return;
-    sectionRouteSignature.current = signature;
+    const previous = sectionRouteSignature.current;
+    const scope = applicationScope.inputs(application);
+    const scopeKeys = Array.isArray(application?.scope?.keys) ? application.scope.keys : [];
+    const scopeOwner = JSON.stringify([scopeSessionRef.current, application?.providerIdentity || '', application?.id || '', scopeKeys]);
+    const sameDestination = previous && previous.section === section && previous.destination === destination
+      && previous.visit === destinationVisit && previous.scopeOwner === scopeOwner
+      && JSON.stringify(previous.menu) === JSON.stringify(selected);
+    const previousWindowIsLive = previous && activeWindows.peek().some(window => window.windowId === previous.windowId);
+    if (sameDestination && (!scopeKeys.length || previousWindowIsLive)
+      && JSON.stringify(previous.options) === JSON.stringify(options)) {
+      sectionRouteSignature.current = {...previous, scope};
+      return;
+    }
+    // applicationScope.set already retains its selector and invalidates other
+    // dependent windows. A scoped menu refresh must keep that live selector:
+    // replacing it can let its pending action reparent a child to the old root.
+    if (sameDestination && previousWindowIsLive && scopeKeys.length
+      && JSON.stringify(previous.scope) !== JSON.stringify(scope)) {
+      const previousScopeInputs = {...scopeInputs};
+      scopeKeys.forEach(key => { delete previousScopeInputs[key]; });
+      Object.assign(previousScopeInputs, previous.scope);
+      if (JSON.stringify(resolveOptions(previousScopeInputs)) === JSON.stringify(previous.options)) {
+        sectionRouteSignature.current = {...previous, options, scope};
+        return;
+      }
+    }
     if (selected.applicationId) setActiveApp(selected.applicationId);
     const entry = openWindow(resolveLayoutWindowKey(selected.action), selected.title, selected.action.refreshDataSources || [],
       {...options, parentKey: null, region: 'app.section'});
+    sectionRouteSignature.current = {section, destination, visit: destinationVisit, menu: selected, options, scope, scopeOwner, windowId: entry?.windowId};
     applicationScope.register(entry, application, selected.action);
     publish(entry, selected.title);
   }, [sections, layout, section, destination, destinationVisit, error]);

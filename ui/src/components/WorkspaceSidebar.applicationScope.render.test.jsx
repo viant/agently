@@ -46,6 +46,135 @@ afterEach(()=>{
   applicationScope.clear();vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
+it('keeps a bound section selector and its late-opened child when its own application scope changes',async()=>{
+  getAuthMeSilently.mockResolvedValue({subject:'bound-selector-actor'});
+  vi.stubGlobal('matchMedia',()=>({matches:false,addEventListener(){},removeEventListener(){}}));
+  const app={id:'example',providerIdentity:'source',title:'Example',scope:{keys:['entityId']},menus:[{
+    id:'select',title:'Choose entity',action:{type:'window',resourceUri:'window://example/selector',
+      parameterBindings:{EntityId:{array:true,from:['entityId'],optional:true},filterValue:{from:['filterValue'],optional:true}}},
+  }]};
+  const queries=[];
+  let releaseFirstChoice,choiceCount=0,publicationRevision=1;
+  const choiceResponse=()=>new Response(JSON.stringify({ready:true}),{headers:{'Content-Type':'application/json'}});
+  vi.stubGlobal('fetch',vi.fn(async url=>{
+    const request=new URL(String(url),'http://localhost');
+    if(request.pathname.endsWith('/workspace/layout')){
+      queries.push(JSON.parse(request.searchParams.get('parameters')||'{}'));
+      return new Response(JSON.stringify({workspaceId:'bound-selector-workspace',layoutRevision:publicationRevision,layout:{left:{navigation:{presentation:'sections'}},applications:[app]}}),{headers:{'Content-Type':'application/json'}});
+    }
+    if(request.pathname==='/fixture/choices'){
+      choiceCount++;
+      if(choiceCount===1)return new Promise(resolve=>{releaseFirstChoice=()=>resolve(choiceResponse());});
+      return choiceResponse();
+    }
+    if(request.pathname.includes('/forge/window/')){
+      const detail=decodeURIComponent(request.pathname).endsWith('/detail');
+      const data=detail?{namespace:'detail',view:{content:{id:'detail-content',items:[{id:'value',type:'text',label:'Selected detail value',scope:'windowForm',dataField:'value'}]}}}:{
+        namespace:'fixture',parameters:[{name:'EntityId',type:'int[]',bindTo:'EntityId'}],dataSource:{first:{autoFetch:false},second:{autoFetch:false}},actionAliases:['actions'],
+        actions:{code:`(()=>{const discover=async context=>{if(!context.signals.windowForm.peek().EntityId?.[0])return;await fetch('/fixture/choices');context.handlers.window.openWindow({context,execution:{args:['window://example/detail','Selected detail']},parameters:{EntityId:[1]}});};return {initialize:({context})=>discover(context),select:async({context,value})=>{await context.handlers.applicationScope.set(context,{entityId:Number(value)});context.signals.windowForm.value={...context.signals.windowForm.peek(),EntityId:[Number(value)]};return discover(context);}};})()`},
+        window:{on:[{event:'onInit',handler:'actions.initialize'}]},
+        view:{content:{id:'selector-content',items:[{id:'entity',type:'select',label:'Scope entity',scope:'windowForm',dataField:'entityId',options:[{value:1,label:'First entity'}],on:[{event:'onChange',handler:'actions.select'}]},{id:'draft',type:'text',label:'Local draft',scope:'windowForm',dataField:'draft'}]}},
+      };
+      return new Response(JSON.stringify({data}),{headers:{'Content-Type':'application/json'}});
+    }
+    throw new Error(`Unexpected request ${request.pathname}`);
+  }));
+  render(<SettingProvider endpoints={{appAPI:{baseURL:'/v1/api'}}} connectorConfig={{window:{service:{uri:'agently/forge/window',endpoint:'appAPI'}}}} services={{applicationScope}}><Workspace sections/></SettingProvider>);
+  fireEvent.click(await screen.findByRole('button',{name:'Choose entity'}));
+  const draft=await screen.findByLabelText('Local draft');
+  fireEvent.change(draft,{target:{value:'Retain selected draft'}});
+  const selectorId=selectedWindowId.peek();
+  fireEvent.click(screen.getByLabelText('Scope entity'));
+  fireEvent.click(await screen.findByRole('menuitem',{name:'First entity'}));
+  await waitFor(()=>expect(queries.at(-1)).toEqual({entityId:1}));
+  await waitFor(()=>expect(releaseFirstChoice).toBeTypeOf('function'));
+  // A duplicate scoped selector can finish its lookup before the original
+  // selector. Finish every callback before checking the visible ownership tree.
+  if(choiceCount>1)await screen.findByLabelText('Selected detail value');
+  const currentChild=activeWindows.peek().find(window=>window.windowKey==='window://example/detail');
+  const visibleOwner=currentChild?.parentKey || selectorId;
+  await act(async()=>releaseFirstChoice());
+  expect(activeWindows.peek().find(window=>window.windowKey==='window://example/detail')?.parentKey).toBe(visibleOwner);
+  await screen.findByLabelText('Selected detail value');
+  expect(screen.getByLabelText('Local draft')).toBe(draft);
+  expect(draft.value).toBe('Retain selected draft');
+  const child=activeWindows.peek().find(window=>window.windowKey==='window://example/detail');
+  expect(child?.parentKey).toBe(selectorId);
+  // Non-scope bindings still reopen even on an otherwise unchanged scoped app.
+  await act(async()=>{
+    selectedWindowId.value=selectorId;
+    const context=getWindowContext(selectorId);
+    context.signals.windowForm.value={...context.signals.windowForm.peek(),filterValue:'changed'};
+  });
+  publicationRevision++;
+  fireEvent.focus(window);
+  await waitFor(()=>expect(screen.getByLabelText('Local draft')).not.toBe(draft));
+  const changedDraft=screen.getByLabelText('Local draft');
+  const changedId=changedDraft.closest('[data-window-id]').getAttribute('data-window-id');
+  expect(activeWindows.peek().find(window=>window.windowId===changedId)?.parameters).toEqual({EntityId:[1],filterValue:'changed'});
+  // An explicit revisit still resolves the current scoped parameters.
+  fireEvent.click(screen.getByRole('button',{name:'Choose entity'}));
+  await waitFor(()=>expect(screen.getByLabelText('Local draft')).not.toBe(changedDraft));
+  const revisitedDraft=screen.getByLabelText('Local draft');
+  const revisitedId=revisitedDraft.closest('[data-window-id]').getAttribute('data-window-id');
+  expect(activeWindows.peek().find(window=>window.windowId===revisitedId)?.parameters).toEqual({EntityId:[1]});
+  // A changed published action must not reuse the retained selector either.
+  app.menus[0].action.parameters={mode:'updated'};
+  publicationRevision++;
+  fireEvent.focus(window);
+  await waitFor(()=>expect(screen.getByLabelText('Local draft')).not.toBe(revisitedDraft));
+  const updatedId=screen.getByLabelText('Local draft').closest('[data-window-id]').getAttribute('data-window-id');
+  expect(activeWindows.peek().find(window=>window.windowId===updatedId)?.parameters).toEqual({mode:'updated',EntityId:[1]});
+  // A disposed section root is reopened on the next current catalog refresh.
+  await act(async()=>removeWindow(updatedId));
+  publicationRevision++;
+  fireEvent.focus(window);
+  await waitFor(()=>expect(screen.getByLabelText('Local draft').closest('[data-window-id]').getAttribute('data-window-id')).not.toBe(updatedId));
+});
+it.each(['provider','workspace','principal','scope declaration'])('does not retain a scoped section across a changed %s',async change=>{
+  getAuthMeSilently.mockResolvedValue({subject:'first-owner'});
+  vi.stubGlobal('matchMedia',()=>({matches:false,addEventListener(){},removeEventListener(){}}));
+  const app={id:'example',providerIdentity:'first-provider',title:'Example',scope:{keys:['entityId']},menus:[{
+    id:'select',title:'Choose entity',action:{type:'window',resourceUri:'window://foreign/selector',
+      parameterBindings:{EntityId:{array:true,from:['entityId'],optional:true}}},
+  }]};
+  let workspaceId='first-workspace',layoutRevision=1;
+  const queries=[];
+  vi.stubGlobal('fetch',vi.fn(async url=>{
+    const request=new URL(String(url),'http://localhost');
+    const json=data=>new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}});
+    if(request.pathname.endsWith('/workspace/layout')){
+      queries.push(JSON.parse(request.searchParams.get('parameters')||'{}'));
+      return json({workspaceId,layoutRevision,layout:{left:{navigation:{presentation:'sections'}},applications:[app]}});
+    }
+    if(request.pathname.includes('/forge/window/'))return json({data:{namespace:'fixture',view:{content:{id:'selector-content',items:[{id:'draft',type:'text',label:'Local draft',scope:'windowForm',dataField:'draft'}]}}}});
+    throw new Error(`Unexpected request ${request.pathname}`);
+  }));
+  render(<SettingProvider endpoints={{appAPI:{baseURL:'/v1/api'}}} connectorConfig={{window:{service:{uri:'agently/forge/window',endpoint:'appAPI'}}}} services={{applicationScope}}><Workspace sections/></SettingProvider>);
+  const choose=await screen.findByRole('button',{name:'Choose entity'});
+  fireEvent.click(choose);
+  const firstDraft=await screen.findByLabelText('Local draft');
+  const initialContext=getWindowContext(selectedWindowId.peek());
+  await act(async()=>initialContext.handlers.applicationScope.set(initialContext,{entityId:1}));
+  await waitFor(()=>expect(queries.at(-1)).toEqual({entityId:1}));
+  fireEvent.click(choose);
+  await waitFor(()=>expect(screen.getByLabelText('Local draft')).not.toBe(firstDraft));
+  const scopedDraft=screen.getByLabelText('Local draft');
+  const scopedId=scopedDraft.closest('[data-window-id]').getAttribute('data-window-id');
+  expect(activeWindows.peek().find(entry=>entry.windowId===scopedId)?.parameters).toEqual({EntityId:[1]});
+  if(change==='provider')app.providerIdentity='next-provider';
+  if(change==='workspace')workspaceId='next-workspace';
+  if(change==='principal')getAuthMeSilently.mockResolvedValue({subject:'next-owner'});
+  if(change==='scope declaration')app.scope={keys:['alternateId']};
+  if(change!=='principal')layoutRevision++;
+  fireEvent.focus(window);
+  await waitFor(()=>expect(screen.getByLabelText('Local draft')).not.toBe(scopedDraft));
+  const nextId=screen.getByLabelText('Local draft').closest('[data-window-id]').getAttribute('data-window-id');
+  expect(activeWindows.peek().find(entry=>entry.windowId===nextId)?.parameters).toEqual({});
+  const nextContext=getWindowContext(nextId);
+  const key=change==='scope declaration'?'alternateId':'entityId';
+  await act(async()=>expect(nextContext.handlers.applicationScope.set(nextContext,{[key]:2})).toBe(true));
+});
 it.each([
   'none','same actor','new actor','verified owner change','sidebar remount','pending unscoped response',
   'denied scope','denied scope 403','denied scope in sections','denied scope in sections 403',
