@@ -38,6 +38,26 @@ vi.mock('./agentlyClient', () => ({
   }
 }));
 
+describe('namespace starting task presentation', () => {
+  const alpha = 'startertask://alpha/default#review';
+  const beta = 'startertask://beta/default#review';
+  const legacy = {agentInfos:[{id:'example',starterTasks:[{id:'legacy',title:'Legacy',prompt:'Fallback prompt'}]}],defaults:{agent:'example'}};
+
+  it('honors the namespace override, preserves personal prompts, and never renders a revoked ID from preferences', () => {
+    const preferences = {hidden:[alpha],order:['personal#own',beta,alpha],own:[{id:'own',title:'Own',prompt:'Personal prompt'}]};
+    const metadata = normalizeMetaResponse({...legacy,starterTaskPreferences:preferences,namespaceStarterTasks:{tasks:[
+      {id:alpha,title:'Alpha',prompt:'Alpha prompt'},
+      {id:beta,title:'Beta',prompt:'Beta prompt'},
+    ]}});
+    expect(metadata.starterTasks.map(task=>task.id)).toEqual(['personal#own',beta]);
+    const withdrawn = normalizeMetaResponse({...legacy,starterTaskPreferences:preferences,namespaceStarterTasks:{tasks:[]}});
+    expect(withdrawn.starterTasks.map(task=>task.id)).toEqual(['personal#own']);
+    expect(withdrawn.starterTaskPresentationReady).toBe(true);
+    const fallback = normalizeMetaResponse({...legacy,starterTaskPreferences:preferences});
+    expect(fallback.starterTasks.map(task=>task.id)).toEqual(['personal#own','legacy']);
+  });
+});
+
 function createStorage() {
   const store = new Map();
   return {

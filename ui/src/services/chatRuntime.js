@@ -53,7 +53,9 @@ import {
 } from './conversationWindow';
 import { setStage } from './stageBus';
 import { replaceAgUiHostActivities } from './aguiHostActivities';
-import { client } from './agentlyClient';
+import { client, refreshWorkspaceMetadata } from './agentlyClient';
+import { starterTaskPreferenceEntries } from './starterTaskPreferences';
+import { publishWorkspaceMetadataSnapshot } from './workspaceMetadata';
 import {
   displayLabel,
   normalizeWorkspaceAgentInfos,
@@ -582,14 +584,7 @@ export function normalizeMetaResponse(payload) {
     data?.agent,
     defaults.agent
   );
-  const starterTasks = resolveStarterTasks({
-    agentInfos: normalizedAgentInfos,
-    selectedAgent
-  });
-  const starterTaskCategories = resolveStarterTaskCategories({
-    agentInfos: normalizedAgentInfos,
-    selectedAgent
-  });
+  const starterPresentation = resolveComposerStarterTasks({...data, agentInfos: normalizedAgentInfos}, selectedAgent);
   const normalizedAgentInfo = normalizedAgentInfos.reduce((acc, entry) => {
     if (entry?.id) acc[entry.id] = entry;
     return acc;
@@ -604,8 +599,7 @@ export function normalizeMetaResponse(payload) {
     embedder: sanitizeAutoSelection(data?.embedder || defaults.embedder || ''),
     agentInfos: normalizedAgentInfos,
     modelInfos: normalizedModelInfos,
-    starterTasks,
-    starterTaskCategories,
+    ...starterPresentation,
     agentInfo: normalizedAgentInfo,
     modelInfo: normalizedModelInfos.reduce((acc, entry) => {
       if (entry?.id) acc[entry.id] = entry;
@@ -656,6 +650,24 @@ function normalizeStarterTaskCategoryEntries(entries = [], agent = null) {
       agentName: String(agent?.name || '').trim()
     };
   }).filter(Boolean);
+}
+
+function resolveComposerStarterTasks(metadata, selectedAgent) {
+  const hasNamespaceSet = metadata.namespaceStarterTasks != null;
+  const entries = starterTaskPreferenceEntries(metadata);
+  const publishedAndOwnTasks = normalizeStarterTaskEntries(entries);
+  const agentOptions = {agentInfos: metadata.agentInfos || [], selectedAgent};
+  const starterTasks = hasNamespaceSet
+    ? publishedAndOwnTasks
+    : [...publishedAndOwnTasks, ...resolveStarterTasks(agentOptions)];
+  const starterTaskCategories = hasNamespaceSet
+    ? normalizeStarterTaskCategoryEntries(metadata.namespaceStarterTasks.categories)
+    : resolveStarterTaskCategories(agentOptions);
+  return {
+    starterTasks,
+    starterTaskCategories,
+    starterTaskPresentationReady: Array.isArray(metadata.agentInfos) || hasNamespaceSet || metadata.starterTaskPreferences != null,
+  };
 }
 
 export function resolveStarterTasks({ agentInfos = [], selectedAgent = '' } = {}) {
@@ -1397,9 +1409,7 @@ export function syncConversationComposerSelection(context, metadata = null) {
   const catalogReady=(Array.isArray(meta.agentInfos)&&meta.agentInfos.length>0)||(Array.isArray(meta.agentOptions)&&meta.agentOptions.length>0);
   const agent = ownedSelection ? sanitizeAutoSelection(ownedSelection.agent) : (!catalogReady && form.id && form.agent ? sanitizeAutoSelection(form.agent) : resolveVisibleSelectedAgent(meta,form.agent,meta.agent,meta.defaults?.agent));
   const model = ownedSelection?.explicit && ownedSelection.model==='' ? '' : sanitizeAutoSelection(form.model || meta.model || meta.defaults?.model || '');
-  const next = {...meta,agent,model,
-    starterTasks:resolveStarterTasks({agentInfos:meta.agentInfos || [],selectedAgent:agent}),
-    starterTaskCategories:resolveStarterTaskCategories({agentInfos:meta.agentInfos || [],selectedAgent:agent})};
+  const next = {...meta,agent,model,...resolveComposerStarterTasks(meta, agent)};
   metaDS.setFormData?.({values:next});
   const id=composerConversationID(context,form);
   if(id && !metadata) conversationComposerSelections.set(id,{agent,model,...(savedSelection?.explicit?{explicit:true}:{}),...(savedSelection?.confirmed?{confirmed:true}:{})});
@@ -3062,22 +3072,29 @@ export async function createNewConversation(context) {
     values: draftConversationValues(merged, metaDefaults, preferredAgent)
   });
   if (metaDS) {
-    const starterTasks = resolveStarterTasks({
-      agentInfos: Array.isArray(metaForm?.agentInfos) ? metaForm.agentInfos : [],
-      selectedAgent: preferredAgent
-    });
-    const starterTaskCategories = resolveStarterTaskCategories({
-      agentInfos: Array.isArray(metaForm?.agentInfos) ? metaForm.agentInfos : [],
-      selectedAgent: preferredAgent
-    });
+    const refreshStarterTasks = metaForm.capabilities?.namespaceStarterTasks === true;
+    // Clear the last namespace selection while the new home checks admission.
+    const starterMetadata = refreshStarterTasks && metaForm.namespaceStarterTasks
+      ? {...metaForm, namespaceStarterTasks: {tasks: []}}
+      : metaForm;
+    const starterPresentation = resolveComposerStarterTasks(starterMetadata, preferredAgent);
     metaDS.setFormData?.({
       values: {
-        ...metaForm,
+        ...starterMetadata,
         agent: preferredAgent || metaForm?.agent || '',
-        starterTasks,
-        starterTaskCategories
+        ...starterPresentation
       }
     });
+    if (refreshStarterTasks) {
+      const generation = chatState.conversationSelectionGeneration;
+      void refreshWorkspaceMetadata().then((metadata) => {
+        if (chatState.conversationSelectionGeneration === generation && !composerConversationID(context, conversationsDS.peekFormData?.())) {
+          const presentation = normalizeMetaResponse(metadata);
+          publishWorkspaceMetadataSnapshot(presentation);
+          syncConversationComposerSelection(context, presentation);
+        }
+      }).catch(() => {});
+    }
   }
   const messagesDS = context?.Context?.('messages')?.handlers?.dataSource;
   messagesDS?.setCollection?.([]);

@@ -59,8 +59,8 @@ export function resolveStarterTaskPresentation(metaForm = {}, workspaceMetadata 
   const snapshotTasks = Array.isArray(workspaceMetadata?.starterTasks) ? workspaceMetadata.starterTasks : [];
   const snapshotCategories = Array.isArray(workspaceMetadata?.starterTaskCategories) ? workspaceMetadata.starterTaskCategories : [];
   return {
-    starterTasks: localTasks.length > 0 ? localTasks : snapshotTasks,
-    starterTaskCategories: localCategories.length > 0 ? localCategories : snapshotCategories,
+    starterTasks: metaForm?.starterTaskPresentationReady || localTasks.length > 0 ? localTasks : snapshotTasks,
+    starterTaskCategories: metaForm?.starterTaskPresentationReady || localCategories.length > 0 ? localCategories : snapshotCategories,
   };
 }
 

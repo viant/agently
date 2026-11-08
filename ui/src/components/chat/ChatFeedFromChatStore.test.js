@@ -134,6 +134,13 @@ describe('ChatFeedFromChatStore', () => {
     });
   });
 
+  it('does not use an older snapshot after the current starter projection becomes empty', () => {
+    expect(resolveStarterTaskPresentation(
+      { starterTaskPresentationReady: true, starterTasks: [], starterTaskCategories: [] },
+      { starterTasks: [{ id: 'revoked' }], starterTaskCategories: [{ id: 'old' }] },
+    )).toEqual({ starterTasks: [], starterTaskCategories: [] });
+  });
+
   it('attaches a hosted workspace card to the final bubble from the opening turn only', () => {
     const rows = [
       {

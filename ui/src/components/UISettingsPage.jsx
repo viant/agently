@@ -3,6 +3,7 @@ import {ForgeThemeBoundary} from "forge/components";
 import WorkspaceAppearanceSettings from './WorkspaceAppearanceSettings';
 import React, { useState } from 'react';
 import ConnectorSettings from './ConnectorSettings';
+import StarterTaskSettings from './StarterTaskSettings';
 import './ConnectorSettings.css';
 import { Button, Icon, Switch } from '@blueprintjs/core';
 import { resetUIPreferences, setDeveloperMode, useDeveloperMode } from '../services/uiPreferences';
@@ -37,6 +38,7 @@ export default function UISettingsPage() {
       {tab === 'connectors' ? <div id="settings-panel-connectors" role="tabpanel" aria-labelledby="settings-connectors"><ConnectorSettings /></div> :
       <div id="settings-panel-preferences" role="tabpanel" aria-labelledby="settings-preferences">
       <ComposerDefaultsSettings />
+      <StarterTaskSettings />
       <WorkspaceAppearanceSettings />
       <section className="app-ui-settings-card app-ui-settings-developer">
         <div>
