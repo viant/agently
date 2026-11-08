@@ -105,8 +105,11 @@ export default function ReportWindow({window: entry}) {
       try {
         // Reuse the authenticated loader for the exact mounted report. Keep
         // local data, applied filters and unsaved edits intact on reconnect.
-        await store.getReport({resource:resourceRef,windowInstance:{windowId:entry.windowId,conversationId:entry.conversationId}});
-        if(active)boundTransport.current=current;
+        const admitted = await store.getReport({resource:resourceRef,windowInstance:{windowId:entry.windowId,conversationId:entry.conversationId}});
+        if(active){
+          boundTransport.current=current;
+          setState(previous=>({...previous,report:{...previous.report,resource:admitted.resource},error:null}));
+        }
       } catch(error) {
         if(active)setState(previous=>({...previous,error}));
       } finally {pending=false;}

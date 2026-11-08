@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import React from 'react';
 import {afterEach,expect,it,vi} from 'vitest';
+const transport=vi.hoisted(()=>({current:null}));
+vi.mock('forge/core',async original=>({...await original(),getActiveUIBridgeTransportContext:()=>transport.current}));
 import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
 import {SettingProvider,activeWindows,addWindow,selectedTabId,selectedWindowId,getViewSignal} from 'forge/core';
 import {restoreWindowsFromSnapshot} from 'forge/core/store/signals.js';
@@ -10,7 +12,7 @@ import AppSectionContent from './AppSectionContent.jsx';
 import WorkspaceWindowContent from './WorkspaceWindowContent.jsx';
 import {waitForWorkspaceReady} from 'forge/core/ui/workspaceReady.js';
 vi.mock('forge/components/dashboard/ReportRuntime.jsx',()=>({default:({reportSpec})=><output>{reportSpec.title}</output>}));
-afterEach(()=>{cleanup();activeWindows.value=[];selectedTabId.value=null;selectedWindowId.value=null;vi.restoreAllMocks();vi.unstubAllGlobals();});
+afterEach(()=>{transport.current=null;cleanup();activeWindows.value=[];selectedTabId.value=null;selectedWindowId.value=null;vi.restoreAllMocks();vi.unstubAllGlobals();});
 it.each([false,true])('acknowledges hosted report metadata admission and denial (denied=%s)',async denied=>{
  const pin={uri:'report://example/summary',providerIdentity:'example',kind:'published',contentFingerprint:'fixture',authorityBinding:'fixture'};
  let deliver;
@@ -212,4 +214,35 @@ it('keeps a typed custom range through real resource execution and metadata-stab
  view.rerender(<SettingProvider services={services}><AppSectionContent window={{...entry}}/></SettingProvider>);
  expect(screen.getByLabelText('Period from').value).toBe('2026-10-01');
  expect(screen.getByLabelText('Period to').value).toBe('2026-11-01');
+});
+
+it('readmits a mounted report after credential reconnect without rerunning or replacing its applied and draft range',async()=>{
+ const pin={uri:'report://example/summary',providerIdentity:'example',kind:'published',contentFingerprint:'fixture',authorityBinding:'before'};
+ const renewed={...pin,authorityBinding:'after'};
+ const definition={builderDefinition:{reportBuilder:{predicates:[{id:'period',label:'Period',kind:'dateRange',startParamPath:'filters.from',endParamPath:'filters.to',default:{start:'2026-01-01',end:'2026-01-10'}}]}}};
+ const services={reportStore:{getReport:vi.fn().mockResolvedValue({resource:pin,resourceDefinition:definition}),runReport:vi.fn().mockResolvedValue({resource:pin,reportSpec:{title:'Kept output',datasets:[],blocks:[]},reportFill:{datasets:[],blocks:[]}})},reportExport:{submitResource:vi.fn().mockResolvedValue({jobId:'example-job'}),getStatus:vi.fn().mockResolvedValue({status:'failed',error:'Example stop'})}};
+ transport.current={clientId:'reader',sessionId:'before'};
+ const entry=addWindow('Example report',null,pin.uri,'',true,{}, {region:'app.section',presentation:'hosted',resourceRef:{uri:pin.uri}});
+ render(<SettingProvider services={services}><AppSectionContent window={entry}/></SettingProvider>);
+ const start=await screen.findByLabelText('Period from');
+ fireEvent.change(start,{target:{value:'2026-01-02'}});
+ fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
+ await screen.findByRole('heading',{name:'Kept output'});
+ fireEvent.change(start,{target:{value:'2026-01-03'}});
+ const output=screen.getByText('Kept output',{selector:'output'});
+ services.reportStore.getReport.mockResolvedValue({resource:renewed,resourceDefinition:definition});
+ transport.current={clientId:'reader',sessionId:'after'};
+ await act(async()=>window.dispatchEvent(new CustomEvent('forge:retry-window-metadata',{detail:{reason:'transport-ready'}})));
+ await waitFor(()=>expect(services.reportStore.getReport).toHaveBeenCalledTimes(2));
+ expect(services.reportStore.runReport).toHaveBeenCalledTimes(1);
+ expect(screen.getByText('Kept output',{selector:'output'})).toBe(output);
+ expect(screen.getByLabelText('Period from')).toBe(start);
+ expect(start.value).toBe('2026-01-03');
+ expect(getViewSignal(entry.windowId).peek().report.parameters.from).toBe('2026-01-02');
+ expect(getViewSignal(entry.windowId).peek().report.draftParameters.from).toBe('2026-01-03');
+ fireEvent.click(screen.getByRole('button',{name:'Export PDF'}));
+ await waitFor(()=>expect(services.reportExport.submitResource).toHaveBeenCalledTimes(1));
+ expect(services.reportExport.submitResource.mock.calls[0][0].resolvedResource).toEqual(renewed);
+ expect(services.reportExport.submitResource.mock.calls[0][0].parameters.from).toBe('2026-01-02');
+ expect(services.reportStore.runReport).toHaveBeenCalledTimes(1);
 });

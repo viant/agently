@@ -203,7 +203,7 @@ it('passes the restored instance to the existing report loader', async () => {
 
 
 it('rebinds a mounted report after a transport restart without losing edits or rerunning', async () => {
-  const resource={uri:'report://example/summary',providerIdentity:'example',kind:'published',contentFingerprint:'fixture'};
+  const resource={uri:'report://example/summary',providerIdentity:'example',kind:'published',contentFingerprint:'fixture',authorityBinding:'before'};
   transport.current={clientId:'owner',sessionId:'before'};
   services.reportStore.getReport.mockResolvedValue({resource,resourceDefinition:{builderDefinition:{reportBuilder:{predicates:[{id:'region',label:'Region',kind:'text'}]}}}});
   const view=render(<ReportWindow window={{windowId:'kept-instance',windowKey:resource.uri,resourceRef:resource,conversationId:'chat',parameters:{region:'west',executeOnOpen:false}}}/>);
@@ -213,10 +213,12 @@ it('rebinds a mounted report after a transport restart without losing edits or r
   transport.current={clientId:'other',sessionId:'foreign'};
   fireEvent(window,new CustomEvent('forge:retry-window-metadata',{detail:{reason:'transport-ready'}}));
   expect(services.reportStore.getReport).toHaveBeenCalledTimes(1);
+  services.reportStore.getReport.mockResolvedValue({resource:{...resource,authorityBinding:'after'}});
   transport.current={clientId:'owner',sessionId:'after'};
   fireEvent(window,new CustomEvent('forge:retry-window-metadata',{detail:{reason:'transport-ready'}}));
   await waitFor(()=>expect(services.reportStore.getReport).toHaveBeenCalledTimes(2));
   expect(screen.getByLabelText('Region').value).toBe('east');
+  await waitFor(()=>expect(runtime.mock.calls.at(-1)[0].container.parameters.reportResource.authorityBinding).toBe('after'));
   expect(runtime.mock.calls.at(-1)[0].container.parameters.runTrigger).toBe(trigger);
   expect(runtime.mock.calls.at(-1)[0].container.parameters.prefill.region).toBe('west');
   fireEvent(window,new CustomEvent('forge:retry-window-metadata',{detail:{reason:'transport-ready'}}));
