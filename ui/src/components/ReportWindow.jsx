@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Button, Callout, Spinner} from '@blueprintjs/core';
 import {ReportResourceRuntime, ReportFilterBar} from 'forge/components';
+import {resolveHostedExecuteOnOpenHostAction} from 'forge/components/dashboard/reportBuilderHooks.js';
 import {normalizeReportDatePresets,useReportDatePresetDraft} from 'forge/reporting';
 import {initializeReportFilterParameters, applyReportFilterParameters} from '../services/reportFilterParameters';
 import {createReportChoiceLoader} from '../services/reportChoiceService';
@@ -69,6 +70,17 @@ export default function ReportWindow({window: entry}) {
   const resourceRef = entry.resourceRef?.uri ? entry.resourceRef : {uri: entry.windowKey};
   const identity = JSON.stringify(resourceRef);
   const parameterIdentity = JSON.stringify([identity, entry.parameters || {}]);
+  const historicalReplay = resolveHostedExecuteOnOpenHostAction({executeOnOpen:true,windowState:entry}) === 'restore';
+  const [restoredView] = useState(() => {
+    const report = historicalReplay && entry.windowId ? findViewSignal(entry.windowId)?.peek()?.report : null;
+    const inputs = value => value && typeof value === 'object' && !Array.isArray(value);
+    if (!report || report.resourceUri !== resourceRef.uri || !inputs(report.parameters) || !inputs(report.draftParameters)) return null;
+    return {windowId:entry.windowId,parameterIdentity,parameters:report.parameters,draftParameters:report.draftParameters};
+  });
+  // Restored view state is advisory. Only expose its filters after admitting
+  // the exact report, and leave its previous execution status behind.
+  const restored = state.report && state.identity === identity && historicalReplay && restoredView?.windowId === entry.windowId
+    && restoredView?.parameterIdentity === parameterIdentity ? restoredView : null;
   const initialParameters = useMemo(() => {const {executeOnOpen, ...inputs}=entry.parameters || {}; return initializeReportFilterParameters(state.report?.resourceDefinition, inputs);}, [state.report?.resourceDefinition, parameterIdentity]);
   useEffect(() => {
     let active = true;
@@ -115,7 +127,7 @@ export default function ReportWindow({window: entry}) {
   },[choiceLoader]);
   const declaredFields=reportParameterFields(state.report);
   const dates=useReportDatePresetDraft({ranges:declaredFields.filter(field=>field.kind==='dateRange'),
-    parameters:initialParameters,resetParameters:initialParameters,contextKey:parameterIdentity,loadCalendar,
+    parameters:restored?.draftParameters ?? initialParameters,resetParameters:initialParameters,contextKey:parameterIdentity,loadCalendar,
     onDefaultsReady:values=>{setApplied({identity:parameterIdentity,values:applyReportFilterParameters(values,declaredFields)});return values;}});
   const parameters=dates.draft;
   const reportContext={identity:{windowId:entry.windowId},windowState:{...entry,windowForm:parameters},handlers:services};
@@ -131,14 +143,13 @@ export default function ReportWindow({window: entry}) {
     const named=rows.find(row=>row?.name===binding?.parameter&&Array.isArray(row.choices));
     return {choices:named?named.choices:rows};
   };
-  const appliedParameters=applied?.identity===parameterIdentity?applied.values:initialParameters;
+  const appliedParameters=applied?.identity===parameterIdentity?applied.values:restored?.parameters ?? initialParameters;
   const publishReportView=useCallback(value=>{
     if(!entry.windowId)return;
     const signal=getViewSignal(entry.windowId),previous=signal.peek() || {};
     const report={...(previous.report?.resourceUri===resourceRef.uri?previous.report:{}),...value,resourceUri:resourceRef.uri};
     if(JSON.stringify(previous.report)!==JSON.stringify(report))signal.value={...previous,report};
   },[entry.windowId,identity]);
-  useEffect(()=>{publishReportView({parameters:appliedParameters});},[publishReportView,appliedParameters]);
   useEffect(()=>()=>{const signal=entry.windowId&&findViewSignal(entry.windowId);if(signal?.peek()?.report?.resourceUri===resourceRef.uri){const next={...signal.peek()};delete next.report;signal.value=next;}},[entry.windowId,identity]);
   if (state.identity === identity && state.error) return <Callout intent="danger" title="Report unavailable">This report could not be loaded. Please try again. <Button onClick={() => setAttempt(value => value + 1)}>Retry</Button></Callout>;
   if (state.identity !== identity || !state.report) return <Spinner aria-label="Loading report" size={24}/>;
@@ -159,7 +170,7 @@ export default function ReportWindow({window: entry}) {
       applyDisabled={missing.length>0||dates.dateBlocked} placement={state.report.resourceDefinition?.builderDefinition?.reportBuilder?.filterPresentation||state.report.resourceDefinition?.metadata?.filterPlacement||'top'}/>
     {missing.length>0&&<Callout intent="warning" title="Required report inputs">Complete these inputs before running the report: {missing.map(field=>field.label).join(', ')}.</Callout>}
     <ReportResourceRuntime onViewStateChange={publishReportView} container={{parameters:{reportResource:state.report.resource,reportTitle,
-      reportCapabilities:{run:appliedMissing.length===0,export:true,tableBlockSelection:true,workbookExport:true},prefill:fields.length?appliedParameters:parameters,
-      showRunControl:fields.length===0,executeOnOpen:appliedMissing.length===0&&(executeOnOpen||applied?.identity===parameterIdentity&&runTrigger>0),runTrigger:applied?.identity===parameterIdentity?runTrigger:0}}} context={reportContext}/>
+      reportCapabilities:{run:appliedMissing.length===0,export:true,tableBlockSelection:true,workbookExport:true},prefill:fields.length||restored?appliedParameters:parameters,
+      showRunControl:fields.length===0,executeOnOpen:appliedMissing.length===0&&(!historicalReplay&&executeOnOpen||applied?.identity===parameterIdentity&&runTrigger>0),runTrigger:applied?.identity===parameterIdentity?runTrigger:0}}} context={reportContext}/>
   </div>;
 }

@@ -11,7 +11,11 @@ vi.mock('../services/agentlyClient', async () => {
 
 vi.mock('forge/components', async () => ({ReportFilterBar:(await import('forge/components/dashboard/ReportFilterBar.jsx')).default, ReportResourceRuntime: (await import('forge/components/dashboard/ReportResourceRuntime.jsx')).default}));
 vi.mock('forge/components/dashboard/ReportRuntime.jsx', () => ({default: ({reportSpec}) => <output>{reportSpec.title}</output>}));
-vi.mock('forge/core', async (importOriginal) => ({...(await importOriginal()),useSetting: () => ({services: hostServices})}));
+vi.mock('forge/core', async (importOriginal) => ({...(await importOriginal()),useSetting: () => ({services: hostServices}),
+  waitForUIBridgeReady:async()=>true,
+  getActiveUIBridgeTransportContext:()=>({clientId:'owned-client',sessionId:'negotiated-session'}),
+  publishUIBridgeSnapshotNow:async()=>true,
+}));
 let hostServices;
 import {getReport, runReport} from '../services/reportStoreService';
 import {submitReportExportResource, getReportExportStatus, getReportExportArtifact} from '../services/reportExportService';
@@ -41,8 +45,13 @@ it('submits declared predicate IDs and date aliases rather than destination path
 
 it('renders the shared resource runtime and uses canonical SDK get/run/export routes with current scope and the producer pin', async () => {
   const pin = {providerIdentity:'native-producer', uri:'report://ar/overview', kind:'working', contentFingerprint:'exact', authorityBinding:'owned', validUntil:'2030-01-01T00:00:00Z'};
-  const calls=[];
+  const calls=[], bindings=[];
   vi.stubGlobal('fetch', async (url, init) => {
+    const request=new URL(url);
+    if(request.searchParams.get('applyPermission')==='true'){
+      bindings.push({request,init});
+      return new Response(JSON.stringify({data:{bound:true}}),{headers:{'content-type':'application/json'}});
+    }
     calls.push({url, init, args:JSON.parse(init.body)});
     const payload = url.includes('get_report') ? {resource:pin,title:'Overview'}
       : url.includes('run_report') ? {resource:pin,reportSpec:{title:'Server overview'},reportFill:{},reportPrint:{}}
@@ -55,7 +64,7 @@ it('renders the shared resource runtime and uses canonical SDK get/run/export ro
   const createURL=vi.fn(()=> 'blob:report');
   URL.createObjectURL=createURL; URL.revokeObjectURL=vi.fn();
   vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{});
-  const entry={windowId:'report-context',windowKey:pin.uri,resourceRef:{uri:pin.uri},parameters:{RecordIds:[42]}};
+  const entry={windowId:'report-context',windowKey:pin.uri,resourceRef:{uri:pin.uri},conversationId:'example-conversation',parameters:{RecordIds:[42]}};
   const view=render(<ReportWindow window={entry}/>);
   fireEvent.click(await screen.findByRole('button',{name:'Run report'}));
   await screen.findByRole('heading',{name:'Server overview'});
@@ -67,6 +76,11 @@ it('renders the shared resource runtime and uses canonical SDK get/run/export ro
   expect(calls.map(call=>call.url)).toEqual(['get_report','run_report','run_report','submit_export','get_export_status','get_artifact'].map(name=>`http://owned/v1/tools/reporting%3A${name}/execute`));
   const selected={resource:{uri:pin.uri,revision:'working'},resolvedResource:pin,parameters:{RecordIds:[0],Search:''}};
   expect(calls[0].args).toEqual({resource:{uri:pin.uri}});
+  expect(bindings).toHaveLength(1);
+  expect(bindings[0].request.pathname).toBe(`/v1/api/agently/forge/window/${encodeURIComponent(pin.uri)}`);
+  expect(Object.fromEntries(bindings[0].request.searchParams)).toMatchObject({windowId:entry.windowId,conversationId:entry.conversationId,clientId:'owned-client',resolvedResource:JSON.stringify(pin)});
+  expect(new Headers(bindings[0].init.headers).get('mcp-session-id')).toBe('negotiated-session');
+  expect(bindings[0].init.credentials).toBe('include');
   expect(calls[2].args).toEqual({...selected,fillOnly:true});
   expect(findViewSignal('report-context').peek().report).toMatchObject({title:'Server overview',status:'ready',parameters:{RecordIds:[0],Search:''}});
   expect(calls[3].args).toEqual({...selected,format:'csv'});

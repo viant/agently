@@ -3,6 +3,9 @@ import React from 'react';
 import {afterEach,expect,it,vi} from 'vitest';
 import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
 import {SettingProvider,activeWindows,addWindow,selectedTabId,selectedWindowId,getViewSignal} from 'forge/core';
+import {restoreWindowsFromSnapshot} from 'forge/core/store/signals.js';
+import {buildUISnapshot} from 'forge/core/ui/snapshot.js';
+import {runUICommand} from 'forge/core/ui/commands.js';
 import AppSectionContent from './AppSectionContent.jsx';
 import WorkspaceWindowContent from './WorkspaceWindowContent.jsx';
 import {waitForWorkspaceReady} from 'forge/core/ui/workspaceReady.js';
@@ -43,6 +46,43 @@ it('retains report output and draft filters across unrelated section rerenders',
  await waitFor(()=>expect(screen.getByRole('button',{name:'Export PDF'}).disabled).toBe(false));
  expect(services.reportStore.getReport).toHaveBeenCalledTimes(1);
  expect(services.reportStore.runReport).toHaveBeenCalledTimes(1);
+});
+
+it('restores applied and draft filters from a workspace snapshot without rerunning the report',async()=>{
+ const pin={uri:'report://example/summary',providerIdentity:'example',kind:'published',contentFingerprint:'fixture',authorityBinding:'fixture'};
+ const definition={builderDefinition:{reportBuilder:{predicates:[{id:'region',label:'Region',kind:'text'}]}}};
+ const services={reportStore:{getReport:vi.fn(async()=>({resource:pin,resourceDefinition:definition})),
+   runReport:vi.fn(async()=>({resource:pin,reportSpec:{title:'Executed example',datasets:[],blocks:[]},reportFill:{datasets:[],blocks:[]},reportPrint:{}}))}};
+ const entry=addWindow('Example report',null,pin.uri,'',true,{region:'launch',executeOnOpen:true},
+   {conversationId:'example-conversation',presentation:'hosted',resourceRef:{uri:pin.uri}});
+ const mount=window=><SettingProvider services={services}><WorkspaceWindowContent window={window}/></SettingProvider>;
+ const view=render(mount(entry));
+ await screen.findByRole('heading',{name:'Executed example'});
+ fireEvent.change(screen.getByLabelText('Region'),{target:{value:'applied'}});
+ fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
+ await waitFor(()=>expect(services.reportStore.runReport).toHaveBeenCalledTimes(2));
+ await screen.findByRole('heading',{name:'Executed example'});
+ fireEvent.change(screen.getByLabelText('Region'),{target:{value:'draft'}});
+ const read=()=>runUICommand({method:'ui.report.getCurrent',params:{windowId:entry.windowId}});
+ expect(await read()).toMatchObject({request:{parameters:{region:'applied'}},draftParameters:{region:'draft'},status:'ready',hasCompletedRun:true,reportSpec:{title:'Executed example'}});
+ expect(services.reportStore.runReport).toHaveBeenCalledTimes(2);
+ const snapshot=buildUISnapshot();
+ expect(snapshot.windows.find(window=>window.windowId===entry.windowId).viewState.report).toMatchObject({parameters:{region:'applied'},draftParameters:{region:'draft'},hasCompletedRun:true});
+ view.unmount();
+
+ restoreWindowsFromSnapshot(snapshot);
+ const restored=activeWindows.peek().find(window=>window.windowId===entry.windowId);
+ render(mount(restored));
+ const field=await screen.findByLabelText('Region');
+ await waitFor(()=>expect(field.value).toBe('draft'));
+ expect(services.reportStore.getReport).toHaveBeenLastCalledWith(expect.objectContaining({windowInstance:{windowId:entry.windowId,conversationId:'example-conversation'}}));
+ expect(services.reportStore.runReport).toHaveBeenCalledTimes(2);
+ expect(await read()).toMatchObject({request:{parameters:{region:'applied'}},draftParameters:{region:'draft'},status:'idle',hasCompletedRun:false});
+ expect(screen.getByRole('button',{name:'Export PDF'}).disabled).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
+ await screen.findByRole('heading',{name:'Executed example'});
+ expect(services.reportStore.runReport).toHaveBeenCalledTimes(3);
+ expect(services.reportStore.runReport.mock.lastCall[0].parameters).toEqual({region:'draft'});
 });
 
 vi.mock('./Sidebar',()=>({default:()=>null}));
