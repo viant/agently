@@ -2,7 +2,8 @@ import {findViewSignal} from 'forge/core';
 // @vitest-environment jsdom
 import React from 'react';
 import {afterEach, expect, it, vi} from 'vitest';
-import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import {invokeRegisteredControlAction} from 'forge/core/ui/controlActions.js';
 vi.mock('../services/agentlyClient', async () => {
   const {AgentlyClient} = await import('agently-core-ui-sdk');
   return {client: new AgentlyClient({baseURL:'http://owned/v1', useCookies:true, retries:0, fetchImpl:(url,init)=>globalThis.fetch(url,init)})};
@@ -43,8 +44,9 @@ it('submits declared predicate IDs and date aliases rather than destination path
   expect(calls[1].parameters).toEqual({tags:['alpha','beta'],begin:'2026-01-01',finish:'2026-01-02'});
 });
 
-it('renders the shared resource runtime and uses canonical SDK get/run/export routes with current scope and the producer pin', async () => {
-  const pin = {providerIdentity:'native-producer', uri:'report://ar/overview', kind:'working', contentFingerprint:'exact', authorityBinding:'owned', validUntil:'2030-01-01T00:00:00Z'};
+it('binds the exact report and exports its applied scope through the native workbook control', async () => {
+  const pin = {providerIdentity:'native-producer', uri:'report://example/overview', kind:'working', contentFingerprint:'exact', authorityBinding:'owned', validUntil:'2030-01-01T00:00:00Z'};
+  const definition={builderDefinition:{reportBuilder:{predicates:[{id:'Search',label:'Search',kind:'text'}]}}};
   const calls=[], bindings=[];
   vi.stubGlobal('fetch', async (url, init) => {
     const request=new URL(url);
@@ -53,26 +55,30 @@ it('renders the shared resource runtime and uses canonical SDK get/run/export ro
       return new Response(JSON.stringify({data:{bound:true}}),{headers:{'content-type':'application/json'}});
     }
     calls.push({url, init, args:JSON.parse(init.body)});
-    const payload = url.includes('get_report') ? {resource:pin,title:'Overview'}
+    const payload = url.includes('get_report') ? {resource:pin,title:'Overview',resourceDefinition:definition}
       : url.includes('run_report') ? {resource:pin,reportSpec:{title:'Server overview'},reportFill:{},reportPrint:{}}
       : url.includes('submit_export') ? {jobId:'export-1'}
       : url.includes('get_export_status') ? {status:'succeeded',artifactId:'artifact-1'}
-      : {artifactId:'artifact-1',jobId:'export-1',artifactRef:pin.uri,format:'csv',data:'YWJj'};
+      : {artifactId:'artifact-1',jobId:'export-1',artifactRef:pin.uri,format:'xlsx',data:'YWJj'};
     return new Response(JSON.stringify({result:JSON.stringify(payload)}),{headers:{'content-type':'application/json'}});
   });
   hostServices = {reportStore:{getReport,runReport}, reportExport:{submitResource:submitReportExportResource,getStatus:getReportExportStatus,getArtifact:getReportExportArtifact}};
   const createURL=vi.fn(()=> 'blob:report');
   URL.createObjectURL=createURL; URL.revokeObjectURL=vi.fn();
   vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{});
-  const entry={windowId:'report-context',windowKey:pin.uri,resourceRef:{uri:pin.uri},conversationId:'example-conversation',parameters:{RecordIds:[42]}};
+  const entry={windowId:'report-context',windowKey:pin.uri,resourceRef:{uri:pin.uri},conversationId:'example-conversation',parameters:{RecordIds:[42],Search:'initial'}};
   const view=render(<ReportWindow window={entry}/>);
-  fireEvent.click(await screen.findByRole('button',{name:'Run report'}));
+  fireEvent.click(await screen.findByRole('button',{name:'Apply filters'}));
   await screen.findByRole('heading',{name:'Server overview'});
   view.rerender(<ReportWindow window={{...entry,parameters:{RecordIds:[0],Search:''}}}/>);
-  fireEvent.click(screen.getByRole('button',{name:'Run report'}));
+  fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
   await screen.findByRole('heading',{name:'Server overview'});
-  fireEvent.click(screen.getByRole('button',{name:'Export CSV'}));
-  await waitFor(()=>expect(createURL).toHaveBeenCalledOnce());
+  fireEvent.change(screen.getByLabelText('Search'),{target:{value:'unapplied'}});
+  let exportAction;
+  await act(async()=>{exportAction=await invokeRegisteredControlAction({windowId:entry.windowId,controlId:'report-output:xlsx'},'click');});
+  expect(createURL).toHaveBeenCalledOnce();
+  expect(exportAction).toEqual({ok:true,controlId:'report-output:xlsx',dataSourceRef:null,action:'click',status:'succeeded',
+    receipt:{status:'succeeded',format:'xlsx',jobId:'export-1',artifactId:'artifact-1'}});
   expect(calls.map(call=>call.url)).toEqual(['get_report','run_report','run_report','submit_export','get_export_status','get_artifact'].map(name=>`http://owned/v1/tools/reporting%3A${name}/execute`));
   const selected={resource:{uri:pin.uri,revision:'working'},resolvedResource:pin,parameters:{RecordIds:[0],Search:''}};
   expect(calls[0].args).toEqual({resource:{uri:pin.uri}});
@@ -82,8 +88,9 @@ it('renders the shared resource runtime and uses canonical SDK get/run/export ro
   expect(new Headers(bindings[0].init.headers).get('mcp-session-id')).toBe('negotiated-session');
   expect(bindings[0].init.credentials).toBe('include');
   expect(calls[2].args).toEqual({...selected,fillOnly:true});
-  expect(findViewSignal('report-context').peek().report).toMatchObject({title:'Server overview',status:'ready',parameters:{RecordIds:[0],Search:''}});
-  expect(calls[3].args).toEqual({...selected,format:'csv'});
+  expect(findViewSignal('report-context').peek().report).toMatchObject({title:'Server overview',status:'ready',
+    parameters:{RecordIds:[0],Search:''},draftParameters:{RecordIds:[0],Search:'unapplied'}});
+  expect(calls[3].args).toEqual({...selected,format:'xlsx'});
   expect(calls.every(call=>call.init.credentials==='include')).toBe(true);
   expect(view.container.querySelector('iframe')).toBeNull();
 });
