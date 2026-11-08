@@ -22,6 +22,7 @@ vi.mock('./elicitationBus', () => ({
 
 import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, clearPendingConversationBootstrap, connectStream, createNewConversation, dsTick, enqueueConversationSwitch, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, getSettledConversationBootstrapSnapshot, handleStreamEvent, hasPendingConversationBootstrap, hydrateMeta, hydrateConversationComposerSelection, recordConversationComposerSelection, refreshGoalFeed, resetConversationSessionRuntime, refreshAfterElicitationResolution, syncConversationComposerSelection, hydrateConversationFromBootstrapSnapshot, installChatStoreMirror, isConversationLiveish, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolvePollingConversationSelection, resolveStarterTaskCategories, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
 import { client } from './agentlyClient';
+import { getWorkspaceMetadataSnapshot, publishWorkspaceMetadataSnapshot } from './workspaceMetadata';
 import { getAgUiHostActivities, replaceAgUiHostActivities } from './aguiHostActivities';
 import { applyFeedEvent, clearFeedState, getFeedData, getActiveFeeds } from './toolFeedBus';
 
@@ -42,6 +43,15 @@ describe('namespace starting task presentation', () => {
   const alpha = 'startertask://alpha/default#review';
   const beta = 'startertask://beta/default#review';
   const legacy = {agentInfos:[{id:'example',starterTasks:[{id:'legacy',title:'Legacy',prompt:'Fallback prompt'}]}],defaults:{agent:'example'}};
+
+  it('clears published and personal task metadata at the authenticated session reset', () => {
+    publishWorkspaceMetadataSnapshot({
+      namespaceStarterTasks: {tasks:[{id:alpha,title:'Alpha',prompt:'Published'}]},
+      starterTaskPreferences: {own:[{id:'own',title:'Own',prompt:'Personal'}]},
+    });
+    resetConversationSessionRuntime();
+    expect(getWorkspaceMetadataSnapshot()).toBeNull();
+  });
 
   it('honors the namespace override, preserves personal prompts, and never renders a revoked ID from preferences', () => {
     const preferences = {hidden:[alpha],order:['personal#own',beta,alpha],own:[{id:'own',title:'Own',prompt:'Personal prompt'}]};

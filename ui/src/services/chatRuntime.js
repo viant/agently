@@ -1373,6 +1373,7 @@ const conversationComposerSelections = new Map();
 const draftComposerSelections = new Map();
 let conversationComposerGeneration=0;
 export function resetConversationSessionRuntime() {
+  publishWorkspaceMetadataSnapshot(null);
   conversationComposerSelections.clear();
   draftComposerSelections.clear();
   conversationComposerGeneration++;
