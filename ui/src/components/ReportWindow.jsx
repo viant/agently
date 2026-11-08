@@ -64,24 +64,23 @@ export default function ReportWindow({window: entry}) {
   const [state, setState] = useState({});
   const [attempt, setAttempt] = useState(0);
   const boundTransport = useRef(null);
-  const [editedParameters, setEditedParameters] = useState(null);
-  const [applied, setApplied] = useState(null);
-  const [runTrigger, setRunTrigger] = useState(0);
   const resourceRef = entry.resourceRef?.uri ? entry.resourceRef : {uri: entry.windowKey};
   const identity = JSON.stringify(resourceRef);
-  const parameterIdentity = JSON.stringify([identity, entry.parameters || {}]);
+  const bindingIdentity = JSON.stringify([identity, entry.windowId, entry.conversationId]);
+  const parameterIdentity = JSON.stringify([bindingIdentity, entry.parameters || {}]);
   const historicalReplay = resolveHostedExecuteOnOpenHostAction({executeOnOpen:true,windowState:entry}) === 'restore';
-  const [restoredView] = useState(() => {
+  const [restoredView, setRestoredView] = useState(() => {
     const report = historicalReplay && entry.windowId ? findViewSignal(entry.windowId)?.peek()?.report : null;
     const inputs = value => value && typeof value === 'object' && !Array.isArray(value);
     if (!report || report.resourceUri !== resourceRef.uri || !inputs(report.parameters) || !inputs(report.draftParameters)) return null;
-    return {windowId:entry.windowId,parameterIdentity,parameters:report.parameters,draftParameters:report.draftParameters};
+    return {parameterIdentity,parameters:report.parameters,draftParameters:report.draftParameters};
   });
-  // Restored view state is advisory. Only expose its filters after admitting
-  // the exact report, and leave its previous execution status behind.
-  const restored = state.report && state.identity === identity && historicalReplay && restoredView?.windowId === entry.windowId
-    && restoredView?.parameterIdentity === parameterIdentity ? restoredView : null;
-  const initialParameters = useMemo(() => {const {executeOnOpen, ...inputs}=entry.parameters || {}; return initializeReportFilterParameters(state.report?.resourceDefinition, inputs);}, [state.report?.resourceDefinition, parameterIdentity]);
+  const restored = historicalReplay && restoredView?.parameterIdentity === parameterIdentity ? restoredView : null;
+  // A mounted window can receive new launch inputs. Retire its replay seed
+  // after the first scope change so returning to old inputs cannot reuse it.
+  useEffect(() => {
+    if (restoredView && !restored) setRestoredView(null);
+  }, [restoredView, restored]);
   useEffect(() => {
     let active = true;
     setState({});
@@ -91,12 +90,12 @@ export default function ReportWindow({window: entry}) {
     }).then(report => {
       if (!active) return;
       boundTransport.current = getActiveUIBridgeTransportContext();
-      setState({report, identity});
-    }).catch(error => { if (active) setState({error, identity}); });
+      setState({report, identity:bindingIdentity});
+    }).catch(error => { if (active) setState({error, identity:bindingIdentity}); });
     return () => { active = false; };
-  }, [identity, store, attempt]);
+  }, [bindingIdentity, store, attempt]);
   useEffect(() => {
-    if (!state.report || !entry.windowId) return;
+    if (state.identity !== bindingIdentity || !state.report || !entry.windowId) return;
     let active=true, pending=false;
     const rebind=async event=>{
       if(event?.detail?.reason!=='transport-ready' || pending)return;
@@ -114,36 +113,12 @@ export default function ReportWindow({window: entry}) {
     };
     globalThis.addEventListener?.('forge:retry-window-metadata',rebind);
     return ()=>{active=false;globalThis.removeEventListener?.('forge:retry-window-metadata',rebind);};
-  },[state.report,identity,store,entry.windowId,entry.conversationId]);
+  },[state.report,state.identity,bindingIdentity,store]);
   useEffect(() => {
-    if (state.identity !== identity) return;
+    if (state.identity !== bindingIdentity) return;
     if (state.error) setWorkspaceLifecycle(entry.windowId, 'failed');
     else if (state.report) setWorkspaceLifecycle(entry.windowId, 'ready');
-  }, [entry.windowId, identity, state]);
-  const choiceLoader=useMemo(()=>state.report?.resource ? createReportChoiceLoader(state.report.resource) : null,[JSON.stringify(state.report?.resource),store]);
-  const loadCalendar=useCallback((id,inputs,signal)=>{
-    if(!choiceLoader)throw Error('Calendar metadata is unavailable.');
-    return choiceLoader(id,inputs,{signal});
-  },[choiceLoader]);
-  const declaredFields=reportParameterFields(state.report);
-  const dates=useReportDatePresetDraft({ranges:declaredFields.filter(field=>field.kind==='dateRange'),
-    parameters:restored?.draftParameters ?? initialParameters,resetParameters:initialParameters,contextKey:parameterIdentity,loadCalendar,
-    onDefaultsReady:values=>{setApplied({identity:parameterIdentity,values:applyReportFilterParameters(values,declaredFields)});return values;}});
-  const parameters=dates.draft;
-  const reportContext={identity:{windowId:entry.windowId},windowState:{...entry,windowForm:parameters},handlers:services};
-  const setParameter=(key,value,raw)=>{
-    dates.editField(key);dates.writeDraft({...dates.draftRef.current,[key]:value});
-    setEditedParameters(previous=>({identity:parameterIdentity,text:{...(previous?.identity===parameterIdentity?previous.text:{}),[key]:raw}}));
-  };
-  const loadChoices=async(id,inputs,options)=>{
-    const response=await choiceLoader(id,inputs,options);
-    const binding=state.report.resourceDefinition?.metadata?.previewChoices?.find(value=>value.dataSourceRef===id);
-    const rows=response?.data;
-    if(!Array.isArray(rows))throw Error('Choice provider returned an invalid response.');
-    const named=rows.find(row=>row?.name===binding?.parameter&&Array.isArray(row.choices));
-    return {choices:named?named.choices:rows};
-  };
-  const appliedParameters=applied?.identity===parameterIdentity?applied.values:restored?.parameters ?? initialParameters;
+  }, [entry.windowId, bindingIdentity, state]);
   const publishReportView=useCallback(value=>{
     if(!entry.windowId)return;
     const signal=getViewSignal(entry.windowId),previous=signal.peek() || {};
@@ -151,26 +126,69 @@ export default function ReportWindow({window: entry}) {
     if(JSON.stringify(previous.report)!==JSON.stringify(report))signal.value={...previous,report};
   },[entry.windowId,identity]);
   useEffect(()=>()=>{const signal=entry.windowId&&findViewSignal(entry.windowId);if(signal?.peek()?.report?.resourceUri===resourceRef.uri){const next={...signal.peek()};delete next.report;signal.value=next;}},[entry.windowId,identity]);
-  if (state.identity === identity && state.error) return <Callout intent="danger" title="Report unavailable">This report could not be loaded. Please try again. <Button onClick={() => setAttempt(value => value + 1)}>Retry</Button></Callout>;
-  if (state.identity !== identity || !state.report) return <Spinner aria-label="Loading report" size={24}/>;
+  if (state.identity === bindingIdentity && state.error) return <Callout intent="danger" title="Report unavailable">This report could not be loaded. Please try again. <Button onClick={() => setAttempt(value => value + 1)}>Retry</Button></Callout>;
+  if (state.identity !== bindingIdentity || !state.report) return <Spinner aria-label="Loading report" size={24}/>;
+  // Seed the calendar draft only after authorization, with the full inputs for
+  // this scope. Parameter changes do not require another definition read.
+  return <AdmittedReportWindow key={parameterIdentity} entry={entry} report={state.report} services={services}
+    restored={restored} historicalReplay={historicalReplay} publishReportView={publishReportView}/>;
+}
+
+function AdmittedReportWindow({entry, report, services, restored, historicalReplay, publishReportView}) {
+  const [editedParameters, setEditedParameters] = useState({});
+  const [applied, setApplied] = useState(null);
+  const [runTrigger, setRunTrigger] = useState(0);
+  const initialParameters = useMemo(() => {
+    const {executeOnOpen, ...inputs} = entry.parameters || {};
+    return initializeReportFilterParameters(report.resourceDefinition, inputs);
+  }, [entry.parameters, report.resourceDefinition]);
+  const choiceLoader=useMemo(()=>report.resource ? createReportChoiceLoader(report.resource) : null,[JSON.stringify(report.resource),services.reportStore]);
+  const loadCalendar=useCallback((id,inputs,signal)=>{
+    if(!choiceLoader)throw Error('Calendar metadata is unavailable.');
+    return choiceLoader(id,inputs,{signal});
+  },[choiceLoader]);
+  const declaredFields=reportParameterFields(report);
+  const dates=useReportDatePresetDraft({ranges:declaredFields.filter(field=>field.kind==='dateRange'),
+    parameters:restored?.draftParameters ?? initialParameters,resetParameters:initialParameters,loadCalendar,
+    onDefaultsReady:values=>{
+      // A calendar response can complete an unfinished draft on replay. Only
+      // Apply may replace the report's last applied filters in that case.
+      if (!restored) setApplied(applyReportFilterParameters(values,declaredFields));
+      return values;
+    }});
+  const parameters=dates.draft;
+  const reportContext={identity:{windowId:entry.windowId},windowState:{...entry,windowForm:parameters},handlers:services};
+  const setParameter=(key,value,raw)=>{
+    dates.editField(key);dates.writeDraft({...dates.draftRef.current,[key]:value});
+    setEditedParameters(previous=>({...previous,[key]:raw}));
+  };
+  const loadChoices=async(id,inputs,options)=>{
+    const response=await choiceLoader(id,inputs,options);
+    const binding=report.resourceDefinition?.metadata?.previewChoices?.find(value=>value.dataSourceRef===id);
+    const rows=response?.data;
+    if(!Array.isArray(rows))throw Error('Choice provider returned an invalid response.');
+    const named=rows.find(row=>row?.name===binding?.parameter&&Array.isArray(row.choices));
+    return {choices:named?named.choices:rows};
+  };
+  const appliedParameters=applied ?? restored?.parameters ?? initialParameters;
   const fields=declaredFields.map(field=>dates.controls.find(range=>range.id===field.id)||field);
   const missing=missingReportInputs(fields,parameters);
   const appliedMissing=missingReportInputs(fields,appliedParameters);
   const executeOnOpen=typeof entry.parameters?.executeOnOpen==='boolean'
-    ? entry.parameters.executeOnOpen : state.report.resourceDefinition?.metadata?.executeOnOpen===true;
-  const reportTitle=state.report.resourceDefinition?.reportDocument?.title
-    || state.report.resourceDefinition?.reportSpec?.title
-    || state.report.title || entry.windowTitle;
+    ? entry.parameters.executeOnOpen : report.resourceDefinition?.metadata?.executeOnOpen===true;
+  const reportTitle=report.resourceDefinition?.reportDocument?.title
+    || report.resourceDefinition?.reportSpec?.title
+    || report.title || entry.windowTitle;
   return <div className="forge-report-filter-layout">
-    <ReportFilterBar context={reportContext} controls={fields} values={{...parameters,...Object.fromEntries(fields.filter(field=>field.multiple&&field.kind==='text'&&editedParameters?.identity===parameterIdentity&&editedParameters.text?.[field.id]!==undefined).map(field=>[field.id,editedParameters.text[field.id]]))}} scopeKey={JSON.stringify(state.report.resource)} loadChoices={loadChoices}
+    <ReportFilterBar context={reportContext} controls={fields} values={{...parameters,...Object.fromEntries(fields.filter(field=>field.multiple&&field.kind==='text'&&editedParameters[field.id]!==undefined).map(field=>[field.id,editedParameters[field.id]]))}} scopeKey={JSON.stringify(report.resource)} loadChoices={loadChoices}
       onChange={(id,value)=>{const field=fields.find(field=>field.id===id);setParameter(id,field?.multiple&&field.kind!=='choice'&&typeof value==='string'?reportParameterValue(value,field):value,value);}}
       onDatePreset={dates.requestPreset} onDateRange={dates.manualRange} onDateDraft={dates.cancelDraftRequests}
-      onApply={()=>{if(!missing.length&&!dates.dateBlocked){setApplied({identity:parameterIdentity,values:applyReportFilterParameters(parameters,fields)});setRunTrigger(value=>value+1);}}}
-      onReset={()=>{dates.reset();setEditedParameters(null);}}
-      applyDisabled={missing.length>0||dates.dateBlocked} placement={state.report.resourceDefinition?.builderDefinition?.reportBuilder?.filterPresentation||state.report.resourceDefinition?.metadata?.filterPlacement||'top'}/>
+      onApply={()=>{if(!missing.length&&!dates.dateBlocked){setApplied(applyReportFilterParameters(parameters,fields));setRunTrigger(value=>value+1);}}}
+      onReset={()=>{dates.reset();setEditedParameters({});}}
+      applyDisabled={missing.length>0||dates.dateBlocked} placement={report.resourceDefinition?.builderDefinition?.reportBuilder?.filterPresentation||report.resourceDefinition?.metadata?.filterPlacement||'top'}/>
     {missing.length>0&&<Callout intent="warning" title="Required report inputs">Complete these inputs before running the report: {missing.map(field=>field.label).join(', ')}.</Callout>}
-    <ReportResourceRuntime onViewStateChange={publishReportView} container={{parameters:{reportResource:state.report.resource,reportTitle,
+    <ReportResourceRuntime onViewStateChange={publishReportView} container={{parameters:{reportResource:report.resource,reportTitle,
       reportCapabilities:{run:appliedMissing.length===0,export:true,tableBlockSelection:true,workbookExport:true},prefill:fields.length||restored?appliedParameters:parameters,
-      showRunControl:fields.length===0,executeOnOpen:appliedMissing.length===0&&(!historicalReplay&&executeOnOpen||applied?.identity===parameterIdentity&&runTrigger>0),runTrigger:applied?.identity===parameterIdentity?runTrigger:0}}} context={reportContext}/>
+      showRunControl:fields.length===0,executeOnOpen:appliedMissing.length===0&&(!historicalReplay&&executeOnOpen||runTrigger>0),runTrigger}}} context={reportContext}/>
   </div>;
 }

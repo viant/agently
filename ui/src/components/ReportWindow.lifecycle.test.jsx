@@ -85,6 +85,73 @@ it('restores applied and draft filters from a workspace snapshot without rerunni
  expect(services.reportStore.runReport.mock.lastCall[0].parameters).toEqual({region:'draft'});
 });
 
+it.each([true, false])('keeps applied dates separate from a restored calendar draft (saved dates=%s)', async savedDates => {
+ const resource = {uri:'report://example/calendar',providerIdentity:'example',kind:'published',contentFingerprint:'fixture',authorityBinding:'fixture'};
+ const datePresets = {
+  calendar:{dataSourceRef:'calendar',input:{name:'ids',parameter:'entity',array:true},identityField:'id',timeZoneField:'zone',anchorField:'latestDate'},
+  default:'completed',
+  options:[{value:'completed',label:'Last week',range:{kind:'relativeDays',anchor:'sourceDate',startOffset:-6,endOffset:0}},{value:'custom',label:'Custom'}],
+ };
+ const resourceDefinition = {dataSources:{calendar:{cache:{enabled:false}}},builderDefinition:{reportBuilder:{predicates:[
+  {id:'period',label:'Period',kind:'dateRange',prefill:{start:'from',end:'to'},datePresets},
+ ]}}};
+ const services = {reportStore:{getReport:vi.fn(async()=>({resource,resourceDefinition})),runReport:vi.fn()}};
+ let resolveCalendar;
+ const fetchCalendar = vi.fn(()=>new Promise(resolve=>{resolveCalendar=resolve;}));
+ vi.stubGlobal('fetch',fetchCalendar);
+ const applied = {entity:17,from:'2026-01-01',to:'2026-01-07'};
+ const draft = savedDates ? {entity:17,from:'2026-01-08',to:'2026-01-14'} : {entity:17};
+ restoreWindowsFromSnapshot({windows:[{windowId:'calendar-replay',windowKey:resource.uri,parameters:{entity:17,executeOnOpen:true},
+  viewState:{report:{resourceUri:resource.uri,parameters:applied,draftParameters:draft}}}]});
+ const entry=activeWindows.peek()[0];
+ render(<SettingProvider services={services}><WorkspaceWindowContent window={entry}/></SettingProvider>);
+ const start=await screen.findByLabelText('Period from');
+ const end=screen.getByLabelText('Period to');
+ const read=()=>runUICommand({method:'ui.report.getCurrent',params:{windowId:entry.windowId}});
+ if(savedDates){
+  await waitFor(()=>expect(start.value).toBe(draft.from));
+  expect(end.value).toBe(draft.to);
+  expect(fetchCalendar).not.toHaveBeenCalled();
+ }else{
+  await waitFor(()=>expect(fetchCalendar).toHaveBeenCalledTimes(1));
+  expect((await read()).request.parameters).toEqual(applied);
+  await act(async()=>resolveCalendar({ok:true,json:async()=>({rows:[{id:17,zone:'UTC',latestDate:'2026-02-28'}]})}));
+  await waitFor(()=>expect(start.value).toBe('2026-02-22'));
+  expect(end.value).toBe('2026-02-28');
+ }
+ expect(await read()).toMatchObject({request:{parameters:applied},draftParameters:{entity:17,from:start.value,to:end.value},status:'idle'});
+ expect(services.reportStore.runReport).not.toHaveBeenCalled();
+});
+
+it('discards saved filter state when the mounted report changes its launch scope', async () => {
+ const pin = {uri:'report://example/first',providerIdentity:'example',kind:'published',contentFingerprint:'fixture',authorityBinding:'fixture'};
+ const resourceDefinition = {builderDefinition:{reportBuilder:{predicates:[{id:'region',label:'Region',kind:'text'}]}}};
+ const services = {reportStore:{getReport:vi.fn(async({resource})=>({resource:{...pin,...resource},resourceDefinition})),runReport:vi.fn()}};
+ restoreWindowsFromSnapshot({windows:[{windowId:'reused-report',windowKey:pin.uri,parameters:{region:'launch'},
+  viewState:{report:{resourceUri:pin.uri,parameters:{region:'applied'},draftParameters:{region:'draft'}}}}]});
+ const entry = activeWindows.peek()[0];
+ const mount = window => <SettingProvider services={services}><WorkspaceWindowContent window={window}/></SettingProvider>;
+ const view = render(mount(entry));
+ const read = () => runUICommand({method:'ui.report.getCurrent',params:{windowId:entry.windowId}});
+ const assertFilters = async (applied, draft) => {
+  await waitFor(()=>expect(screen.getByLabelText('Region').value).toBe(draft));
+  expect(await read()).toMatchObject({request:{parameters:{region:applied}},draftParameters:{region:draft},status:'idle'});
+ };
+ await assertFilters('applied', 'draft');
+ view.rerender(mount({...entry,parameters:{region:'changed'}}));
+ await assertFilters('changed', 'changed');
+ view.rerender(mount(entry));
+ await assertFilters('launch', 'launch');
+ expect(services.reportStore.getReport).toHaveBeenCalledTimes(1);
+ fireEvent.change(screen.getByLabelText('Region'),{target:{value:'new draft'}});
+
+ const second = {uri:'report://example/second'};
+ view.rerender(mount({...entry,windowKey:second.uri,resourceRef:second}));
+ await assertFilters('launch', 'launch');
+ expect(services.reportStore.getReport).toHaveBeenLastCalledWith(expect.objectContaining({resource:second}));
+ expect(services.reportStore.runReport).not.toHaveBeenCalled();
+});
+
 vi.mock('./Sidebar',()=>({default:()=>null}));
 vi.mock('../services/agentlyClient',async original=>({...await original(),getAuthMeSilently:vi.fn(async()=>({subject:'example-user'}))}));
 import WorkspaceSidebar from './WorkspaceSidebar.jsx';
