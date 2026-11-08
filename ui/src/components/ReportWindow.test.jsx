@@ -3,15 +3,15 @@ import React from 'react';
 import {afterEach, expect, it, vi} from 'vitest';
 import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 
-const {services, runtime} = vi.hoisted(() => ({services: {reportStore: {getReport: vi.fn()}}, runtime: vi.fn()}));
-vi.mock('forge/core', async original => ({...await original(), useSetting: () => ({services})}));
+const {services, runtime, transport} = vi.hoisted(() => ({transport: {current:null}, services: {reportStore: {getReport: vi.fn()}}, runtime: vi.fn()}));
+vi.mock('forge/core', async original => ({...await original(), useSetting: () => ({services}), getActiveUIBridgeTransportContext: () => transport.current}));
 vi.mock('forge/components', async () => ({ReportFilterBar:(await import('forge/components/dashboard/ReportFilterBar.jsx')).default, ReportResourceRuntime: props => {runtime(props); return <div>Shared report runtime</div>;}}));
 import ReportWindow from './ReportWindow.jsx';
 import 'forge/packs/blueprint';
 
 const pin = {uri: 'report://ar/overview', providerIdentity: 'producer-native', kind: 'working', contentFingerprint: 'bytes', authorityBinding: 'opaque', validUntil: '2030-01-01T00:00:00Z'};
 const entry = {windowKey: pin.uri, resourceRef: {uri: pin.uri}, windowTitle: 'Overview', parameters: {RecordIds: [42]}};
-afterEach(() => {cleanup(); vi.clearAllMocks();});
+afterEach(() => {cleanup(); vi.clearAllMocks(); transport.current=null;});
 
 it('uses the authored report title while required inputs are still incomplete', async () => {
   services.reportStore.getReport.mockResolvedValue({resource:pin,title:'314',resourceDefinition:{
@@ -199,4 +199,27 @@ it('passes the restored instance to the existing report loader', async () => {
   await screen.findByText('Shared report runtime');
   expect(services.reportStore.getReport).toHaveBeenLastCalledWith({resource,windowInstance:{windowId:'restored-instance',conversationId:'owned-chat'}});
   expect(runtime.mock.calls.at(-1)[0].container.parameters.executeOnOpen).toBe(false);
+});
+
+
+it('rebinds a mounted report after a transport restart without losing edits or rerunning', async () => {
+  const resource={uri:'report://example/summary',providerIdentity:'example',kind:'published',contentFingerprint:'fixture'};
+  transport.current={clientId:'owner',sessionId:'before'};
+  services.reportStore.getReport.mockResolvedValue({resource,resourceDefinition:{builderDefinition:{reportBuilder:{predicates:[{id:'region',label:'Region',kind:'text'}]}}}});
+  const view=render(<ReportWindow window={{windowId:'kept-instance',windowKey:resource.uri,resourceRef:resource,conversationId:'chat',parameters:{region:'west',executeOnOpen:false}}}/>);
+  const field=await screen.findByLabelText('Region');
+  fireEvent.change(field,{target:{value:'east'}});
+  const trigger=runtime.mock.calls.at(-1)[0].container.parameters.runTrigger;
+  transport.current={clientId:'other',sessionId:'foreign'};
+  fireEvent(window,new CustomEvent('forge:retry-window-metadata',{detail:{reason:'transport-ready'}}));
+  expect(services.reportStore.getReport).toHaveBeenCalledTimes(1);
+  transport.current={clientId:'owner',sessionId:'after'};
+  fireEvent(window,new CustomEvent('forge:retry-window-metadata',{detail:{reason:'transport-ready'}}));
+  await waitFor(()=>expect(services.reportStore.getReport).toHaveBeenCalledTimes(2));
+  expect(screen.getByLabelText('Region').value).toBe('east');
+  expect(runtime.mock.calls.at(-1)[0].container.parameters.runTrigger).toBe(trigger);
+  expect(runtime.mock.calls.at(-1)[0].container.parameters.prefill.region).toBe('west');
+  fireEvent(window,new CustomEvent('forge:retry-window-metadata',{detail:{reason:'transport-ready'}}));
+  expect(services.reportStore.getReport).toHaveBeenCalledTimes(2);
+  view.unmount();
 });

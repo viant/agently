@@ -1,11 +1,11 @@
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Button, Callout, Spinner} from '@blueprintjs/core';
 import {ReportResourceRuntime, ReportFilterBar} from 'forge/components';
 import {normalizeReportDatePresets,useReportDatePresetDraft} from 'forge/reporting';
 import {initializeReportFilterParameters, applyReportFilterParameters} from '../services/reportFilterParameters';
 import {createReportChoiceLoader} from '../services/reportChoiceService';
 import {setWorkspaceLifecycle} from '../services/useWorkspaceAdapters.js';
-import {useSetting, getViewSignal, findViewSignal} from 'forge/core';
+import {useSetting, getViewSignal, findViewSignal, getActiveUIBridgeTransportContext} from 'forge/core';
 
 export function isReportWindow(window = {}) {
   return String(window.windowKey || '').startsWith('report://')
@@ -62,6 +62,7 @@ export default function ReportWindow({window: entry}) {
   const store = services.reportStore;
   const [state, setState] = useState({});
   const [attempt, setAttempt] = useState(0);
+  const boundTransport = useRef(null);
   const [editedParameters, setEditedParameters] = useState(null);
   const [applied, setApplied] = useState(null);
   const [runTrigger, setRunTrigger] = useState(0);
@@ -77,10 +78,31 @@ export default function ReportWindow({window: entry}) {
       return store.getReport({resource: resourceRef, ...(entry.windowId ? {windowInstance: {windowId: entry.windowId, conversationId: entry.conversationId}} : {})});
     }).then(report => {
       if (!active) return;
+      boundTransport.current = getActiveUIBridgeTransportContext();
       setState({report, identity});
     }).catch(error => { if (active) setState({error, identity}); });
     return () => { active = false; };
   }, [identity, store, attempt]);
+  useEffect(() => {
+    if (!state.report || !entry.windowId) return;
+    let active=true, pending=false;
+    const rebind=async event=>{
+      if(event?.detail?.reason!=='transport-ready' || pending)return;
+      const current=getActiveUIBridgeTransportContext(), prior=boundTransport.current;
+      if(!current?.sessionId || !prior || current.clientId!==prior.clientId || current.url!==prior.url || current.sessionId===prior.sessionId)return;
+      pending=true;
+      try {
+        // Reuse the authenticated loader for the exact mounted report. Keep
+        // local data, applied filters and unsaved edits intact on reconnect.
+        await store.getReport({resource:resourceRef,windowInstance:{windowId:entry.windowId,conversationId:entry.conversationId}});
+        if(active)boundTransport.current=current;
+      } catch(error) {
+        if(active)setState(previous=>({...previous,error}));
+      } finally {pending=false;}
+    };
+    globalThis.addEventListener?.('forge:retry-window-metadata',rebind);
+    return ()=>{active=false;globalThis.removeEventListener?.('forge:retry-window-metadata',rebind);};
+  },[state.report,identity,store,entry.windowId,entry.conversationId]);
   useEffect(() => {
     if (state.identity !== identity) return;
     if (state.error) setWorkspaceLifecycle(entry.windowId, 'failed');
