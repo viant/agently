@@ -41,6 +41,14 @@ describe('UISettingsPage', () => {
     expect(html).not.toContain('Reset UI defaults');
   });
 
+  it('opens the dedicated starting tasks panel from its URL', () => {
+    vi.stubGlobal('window', { location: { search: '?tab=starting-tasks' } });
+    const html = renderToStaticMarkup(<UISettingsPage />);
+    expect(html).toContain('id="settings-starting-tasks" role="tab" aria-selected="true"');
+    expect(html).toContain('Loading starting tasks');
+    expect(html).not.toContain('Reset UI defaults');
+  });
+
   it('reflects an enabled Developer mode preference', () => {
     developerMode = true;
     const html = renderToStaticMarkup(<UISettingsPage />);
