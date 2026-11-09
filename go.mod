@@ -13,13 +13,13 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/viant/afs v1.30.1
 	github.com/viant/afsc v1.18.0
-	github.com/viant/agently-core v0.1.59-0.20261108010949-dfd419de977d
+	github.com/viant/agently-core v0.1.59-0.20261109153146-51d9fce3f87e
 	github.com/viant/datly v1.1.1-0.20261026153958-96e0bf4e9bfc
-	github.com/viant/embedius v0.5.7 // indirect
+	github.com/viant/embedius v0.5.8-0.20261108015858-2dbb2e0a515a // indirect
 	github.com/viant/forge v0.3.47-0.20261109143204-68db839cb78f
 	github.com/viant/jsonrpc v0.25.1
 	github.com/viant/linager v0.1.0 // indirect
-	github.com/viant/mcp v0.24.2-0.20261108010110-13b1b5ccde5a
+	github.com/viant/mcp v0.24.2-0.20261108032237-21edf2c50ace
 	github.com/viant/mcp-protocol v0.19.2-0.20261101165444-1c2b609f8dbf
 	github.com/viant/mcp-ui v0.2.1 // indirect
 	github.com/viant/scy v0.35.1
@@ -77,8 +77,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.4 // indirect
 	github.com/aws/smithy-go v1.28.5 // indirect
+	github.com/blevesearch/snowballstem v0.9.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2 // indirect
 	github.com/coder/websocket v1.8.15 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
