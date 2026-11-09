@@ -253,13 +253,17 @@ func internalServiceFactory(rt *executor.Runtime, workspaceRoot, name string) sv
 			templatesvc.WithConversationClient(rt.Conversation),
 			templatesvc.WithAgentFinder(finder),
 		)
-	case "prompt":
+	case "prompt", "playbook":
 		pRepo := runtimePlaybookRepository(rt)
 		var finder agentmdl.Finder
 		if rt.Agent != nil {
 			finder = rt.Agent.Finder()
 		}
-		return promptsvc.New(
+		factory := promptsvc.New
+		if name == "playbook" {
+			factory = promptsvc.NewPlaybook
+		}
+		return factory(
 			pRepo,
 			promptsvc.WithConversationClient(rt.Conversation),
 			promptsvc.WithAgentFinder(finder),

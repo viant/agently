@@ -46,6 +46,7 @@ func TestInternalServiceFactoryAppOwnedServices(t *testing.T) {
 		{name: "system platform", serviceName: "system/platform", expect: "system/platform"},
 		{name: "template", serviceName: "template", expect: "template"},
 		{name: "prompt", serviceName: "prompt", expect: "prompt"},
+		{name: "playbook", serviceName: "playbook", expect: "playbook"},
 	}
 
 	for _, tc := range testCases {
