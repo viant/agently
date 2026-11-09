@@ -32,3 +32,15 @@ it('initializes the existing chat when opened from a direct workspace route',()=
  const onOpen=vi.fn();render(<WorkspaceChatDock active onOpen={onOpen}><span>Conversation</span></WorkspaceChatDock>);
  expect(onOpen).not.toHaveBeenCalled();fireEvent.click(screen.getByRole('button',{name:'Chat'}));expect(onOpen).toHaveBeenCalledOnce();
 });
+
+it('opens split chat directly from the closed launcher', () => {
+  const onOpen = vi.fn();
+  render(<WorkspaceChatDock active onOpen={onOpen}><textarea aria-label="Message"/></WorkspaceChatDock>);
+  fireEvent.click(screen.getByRole('button', {name:'Open chat in split view'}));
+  expect(onOpen).toHaveBeenCalledOnce();
+  const chat = screen.getByRole('region', {name:'Workspace chat'});
+  expect(chat.classList.contains('is-split')).toBe(true);
+  fireEvent.click(screen.getByRole('button', {name:'Overlay'}));
+  expect(chat.classList.contains('is-overlay')).toBe(true);
+  expect(chat.classList.contains('is-split')).toBe(false);
+});

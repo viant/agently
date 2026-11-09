@@ -10,7 +10,7 @@ vi.mock('forge/core', async () => {
   const {signal} = await import('@preact/signals-react');
   const views=new Map();
   const getViewSignal=id=>{if(!views.has(id))views.set(id,signal({}));return views.get(id);};
-  return {getViewSignal,findViewSignal:id=>views.get(id),activeWindows: signal([]), selectedWindowId: signal(null), selectedTabId: signal(null), getFormSignal: () => signal({}), useSetting: () => ({services})};
+  return {getActiveUIBridgeTransportContext: () => null, getViewSignal,findViewSignal:id=>views.get(id),activeWindows: signal([]), selectedWindowId: signal(null), selectedTabId: signal(null), getFormSignal: () => signal({}), useSetting: () => ({services})};
 });
 vi.mock('forge/components', async () => {
   const {default: Typography, typographyProps} = await import('forge/components/Typography.jsx');
@@ -65,5 +65,5 @@ it('opens a menu report in the visible Workspaces pane while retaining its secti
   }
   expect(openWindow).toHaveBeenCalledWith(action.resourceUri, 'Example report', [], expect.objectContaining({region: 'app.section', parentKey: null, conversationId: undefined, parameters: action.parameters}));
   expect(onOpenWorkspace).not.toHaveBeenCalled();
-  expect(services.reportStore.getReport).toHaveBeenCalledWith({resource: {uri: action.resourceUri}});
+  expect(services.reportStore.getReport).toHaveBeenCalledWith({resource: {uri: action.resourceUri}, windowInstance: {windowId: "example-report-window", conversationId: undefined}});
 });

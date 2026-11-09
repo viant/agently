@@ -21,12 +21,13 @@ vi.mock('./elicitationBus', () => ({
 }));
 
 import { bindConversationWindowEvents, bootstrapConversationSelection, cacheSettledConversationBootstrapSnapshot, clearPendingConversationBootstrap, connectStream, createNewConversation, dsTick, enqueueConversationSwitch, ensureContextResources, ensureConversation, fetchConversation, fetchTranscript, filterCanonicalConversationForLiveOwnedTurns, getSettledConversationBootstrapSnapshot, handleStreamEvent, hasPendingConversationBootstrap, hydrateMeta, hydrateConversationComposerSelection, recordConversationComposerSelection, refreshGoalFeed, resetConversationSessionRuntime, refreshAfterElicitationResolution, syncConversationComposerSelection, hydrateConversationFromBootstrapSnapshot, installChatStoreMirror, isConversationLiveish, latestAssistantRowForTurn, mapTranscriptToRows, markPendingConversationBootstrap, normalizeMetaResponse, publishActiveConversation, queueTranscriptRefresh, renderMergedRowsForContext, resolveLastTranscriptCursor, resolvePollingConversationSelection, resolveStarterTaskCategories, resolveStarterTasks, resolveStreamEventConversationID, shouldProcessStreamEvent, shouldUseLiveStream, startPolling, stopPolling, switchConversation, syncMessagesSnapshot, unbindConversationWindowEvents } from './chatRuntime';
-import { client } from './agentlyClient';
+import { client, refreshWorkspaceMetadata } from './agentlyClient';
 import { getWorkspaceMetadataSnapshot, publishWorkspaceMetadataSnapshot } from './workspaceMetadata';
 import { getAgUiHostActivities, replaceAgUiHostActivities } from './aguiHostActivities';
 import { applyFeedEvent, clearFeedState, getFeedData, getActiveFeeds } from './toolFeedBus';
 
 vi.mock('./agentlyClient', () => ({
+  refreshWorkspaceMetadata: vi.fn(),
   getReportRestoreScope: vi.fn().mockReturnValue('test-session'),
   client: {
     getWorkspaceMetadata: vi.fn(),
@@ -2976,11 +2977,12 @@ describe('startPolling', () => {
 });
 
 describe('createNewConversation', () => {
-  it('restores starter tasks immediately after switching away from a populated conversation', async () => {
+  it.each([false, true])('resolves New Chat defaults while namespace task refresh is enabled=%s', async (refresh) => {
     const messageState = { collection: [{ id: 'old-msg', role: 'assistant', content: 'existing' }] };
     const conversationState = { values: { id: 'conv-old', agent: 'example', queuedTurns: [] } };
     const metaState = {
       values: {
+        capabilities: {namespaceStarterTasks: refresh},
         agent: 'example',
         defaults: { agent: 'example' },
         agentInfos: [
@@ -2990,6 +2992,7 @@ describe('createNewConversation', () => {
     };
 
     const context = {
+      identity: {windowId: "starter-refresh-test"},
       resources: {},
       Context(name) {
         if (name === 'messages') {
@@ -3026,10 +3029,19 @@ describe('createNewConversation', () => {
       }
     };
 
+    let finishRefresh;
+    if (refresh) refreshWorkspaceMetadata.mockReturnValueOnce(new Promise(resolve => { finishRefresh = resolve; }));
     await createNewConversation(context);
 
     expect(conversationState.values.id).toBe('');
     expect(messageState.collection).toHaveLength(0);
+    if (refresh) {
+      expect(metaState.values.starterTasks).toEqual([]);
+      expect(metaState.values.starterTaskPresentationReady).toBe(true);
+      finishRefresh({namespaceStarterTasks:{tasks:[{id:'published',title:'Published task',prompt:'Use the workflow'}]}});
+      await vi.waitFor(() => expect(getWorkspaceMetadataSnapshot().starterTasks.map(task => task.id)).toEqual(['published']));
+      return;
+    }
     expect(metaState.values.starterTasks).toHaveLength(1);
     expect(metaState.values.starterTasks[0]).toMatchObject({
       title: 'Analyze project performance',

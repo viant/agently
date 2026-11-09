@@ -3075,7 +3075,7 @@ export async function createNewConversation(context) {
   if (metaDS) {
     const refreshStarterTasks = metaForm.capabilities?.namespaceStarterTasks === true;
     // Clear the last namespace selection while the new home checks admission.
-    const starterMetadata = refreshStarterTasks && metaForm.namespaceStarterTasks
+    const starterMetadata = refreshStarterTasks
       ? {...metaForm, namespaceStarterTasks: {tasks: []}}
       : metaForm;
     const starterPresentation = resolveComposerStarterTasks(starterMetadata, preferredAgent);

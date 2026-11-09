@@ -156,8 +156,8 @@ export default function ConversationWorkspaceSurface({
   }, [workspaceActive, workspaceWindow?.windowId]);
   const [composerExpanded, setComposerExpanded] = useState(false);
   useEffect(() => {
-    if (workspaceActive && effectiveMode === 'focus') setComposerExpanded(false);
-  }, [workspaceActive, effectiveMode, workspaceWindow?.windowId]);
+    if (workspaceActive && effectiveMode === 'focus') setComposerExpanded(documentPresentation && !compact);
+  }, [workspaceActive, effectiveMode, workspaceWindow?.windowId, documentPresentation, compact]);
 
   return (
     <div ref={surfaceRef} className={`app-summary-surface-shell${documentPresentation ? ' is-document' : ''}${workspaceActive ? ` is-workspace${effectiveMode === 'split' ? ' is-split' : ''}` : ' is-conversation'}`} data-active-surface={workspaceActive ? 'workspace' : 'conversation'}>
@@ -177,7 +177,7 @@ export default function ConversationWorkspaceSurface({
         <div className={`app-shell-viewer-controls${compact ? ' is-compact' : ''}`}>
           <span className="app-shell-viewer-status" {...typographyProps('metadata')} role="status" aria-live="polite">{chatRunning ? 'Working…' : unreadCount > 0 ? `${unreadCount} new` : ''}</span>
           {workspaceActive ? <ShellIconButton icon={effectiveMode === 'focus' ? 'lucide:minimize' : 'lucide:maximize'}
-            className="app-shell-viewer-expand" label={effectiveMode === 'focus' ? 'Restore split view' : 'Expand workspace'}
+            className="app-shell-viewer-expand" label={effectiveMode === 'focus' ? 'Show chat on the left' : 'Show chat as overlay'}
             aria-pressed={effectiveMode === 'focus'} disabled={compact || capabilities.split === false}
             onClick={() => onChangeWorkspaceMode?.(effectiveMode === 'focus' ? 'split' : 'focus')}/> : null}
           {hasWorkspace ? <ShellIconButton icon="lucide:panel-right" label={workspaceActive ? 'Hide workspace' : 'Show workspace'}

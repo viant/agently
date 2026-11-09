@@ -621,7 +621,7 @@ export default function Root() {
     return !isCompactShellViewport(window.innerWidth);
   });
   const [layoutTopbarActions, setLayoutTopbarActions] = useState([]);
-  const [sectionNavigation, setSectionNavigation] = useState(false);
+  const [sectionNavigation, setSectionNavigation] = useState(null);
   const [appSection, setAppSection] = useState('chat');
   const [sectionDestination, setSectionDestination] = useState('');
   const [sectionView, setSectionView] = useState(null);
@@ -1507,6 +1507,7 @@ export default function Root() {
         onOpenWorkspace: activateWorkspaceAttachment,
       }}>
         <div
+          data-presentation-pending={sectionNavigation === null || undefined}
           data-agently-presentation={sectionNavigation ? 'document' : undefined}
           className={`app-shell${isCompactShell ? ' is-compact-shell' : ''}${sectionNavigation ? ' has-section-navigation' : ''}`}
           style={{

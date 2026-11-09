@@ -11,9 +11,10 @@ export const ShellIconButton = React.forwardRef(function ShellIconButton({icon, 
   </button>;
 });
 
-export function ShellLocation({title = 'New Chat', history, onToggleNavigation, navigationRef}) {
+export function ShellLocation({title = 'New Chat', history, onToggleNavigation, navigationRef, sidebarCollapsed = false, compact = false}) {
   return <>
-    <ShellIconButton ref={navigationRef} icon="lucide:menu" label="Open navigation"
+    <ShellIconButton ref={navigationRef} icon={compact ? 'lucide:menu' : 'lucide:panel-right'} label={compact ? 'Open navigation' : sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      aria-expanded={!sidebarCollapsed}
       className="app-shell-menu-toggle" data-testid="sidebar-toggle" disabled={!onToggleNavigation} onClick={onToggleNavigation}/>
     <nav className="app-shell-history" aria-label="Navigation history">
       <ShellIconButton icon="lucide:arrow-left" label="Go back" disabled={!history?.canGoBack} onClick={history?.back}/>

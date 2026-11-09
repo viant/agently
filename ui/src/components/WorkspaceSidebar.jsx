@@ -271,7 +271,9 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
   const historyEnabled = layout ? layout.left?.history?.enabled !== false : !!error;
   const history = layout?.left?.history || {};
   const sections = navigationEnabled && layout?.left?.navigation?.presentation === 'sections';
-  useEffect(() => { onSectionPresentationChange?.(sections); }, [sections, onSectionPresentationChange]);
+  useEffect(() => {
+    onSectionPresentationChange?.(layout || error ? sections : null);
+  }, [layout, error, sections, onSectionPresentationChange]);
   const sectionRouteSignature = useRef(null);
   const sectionWindowRef = useRef(onSectionWindow);
   sectionWindowRef.current = onSectionWindow;

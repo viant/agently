@@ -431,7 +431,7 @@ export default function MenuBar({
           <span className="app-brand-name">{appName}</span>
         </div>}
         {!brandMount ? <div className="app-topbar-divider" /> : null}
-        {sectionNavigation ? <ShellLocation title={heading} history={history} onToggleNavigation={onToggleSidebar} navigationRef={sidebarToggleRef}/> : null}
+        {sectionNavigation ? <ShellLocation sidebarCollapsed={sidebarCollapsed} compact={compactNavigation} title={heading} history={history} onToggleNavigation={onToggleSidebar} navigationRef={sidebarToggleRef}/> : null}
         {!compactViewerUtilities ? renderUtilityActions() : null}
       </div>
       {sectionNavigation ? <div className="app-shell-viewer-header" ref={viewerHeaderRef}/> : null}

@@ -26,7 +26,11 @@
 .app-shell-history { display: flex; gap: 2px; flex-shrink: 0; }
 .app-shell-history .app-shell-icon-button { width: 32px; height: 32px; }
 .app-shell-location { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.app-shell-menu-toggle { display: none; }
+.app-shell-menu-toggle { display: inline-grid; }
+.app-shell-menu-toggle .forge-icon { transform: scaleX(-1); }
+/* Workspace layout selects the starter renderer after the first layout read. */
+.app-shell[data-presentation-pending] .chat-starter-stage,
+.app-shell[data-agently-presentation="document"] .chat-starter-stage { display: none; }
 .app-topbar.is-document .app-topbar-actions { margin-inline-start: auto; gap: 2px; }
 .app-topbar.is-document .app-topbar-actions .app-shell-icon-button { width: 32px; height: 32px; }
 .app-shell-approvals.is-pending { color: var(--app-status-warning-foreground); background: var(--app-status-warning-background); }
@@ -56,6 +60,14 @@
 .app-summary-surface-shell.is-document.is-split .app-summary-conversation { flex: 0 0 380px; min-width: 0; }
 .app-summary-surface-shell.is-document.is-workspace:not(.is-split) .app-summary-conversation { display: none; }
 .app-summary-surface-shell.is-document.is-workspace:not(.is-split) .app-summary-conversation.is-composer-only { display: grid; order: 2; flex: 0 0 auto; overflow: visible; }
+.app-summary-surface-shell.is-document.is-workspace:not(.is-split) .app-summary-conversation.is-composer-only {
+  position: absolute; z-index: 2; inset-inline-end: 12px; bottom: 12px;
+  max-width: calc(100% - 24px);
+}
+.app-summary-surface-shell.is-document .is-composer-only.is-composer-expanded {
+  width: min(600px, calc(100% - 24px)); border: 1px solid var(--app-border);
+  border-radius: 12px; background: var(--app-surface); padding: 6px;
+}
 .app-summary-surface-shell.is-document:not(.is-split) .app-summary-workspace { border: 0; }
 .app-summary-surface-shell.is-document .app-summary-workspace-content { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; overflow: auto; padding: 0; }
 .app-shell-ancestor-navigation { display: flex; align-items: center; gap: var(--agently-theme-spacing-2, 8px); padding: var(--agently-theme-spacing-2, 8px); border-bottom: 1px solid var(--app-border); }
@@ -111,4 +123,7 @@
 /* Collapsed workspace composers retain their toggle without showing the transcript. */
 .app-summary-conversation.is-composer-only:not(.is-composer-expanded) > :not(.app-workspace-composer-toggle) {
   display: none;
+}
+.app-summary-surface-shell.is-document .app-summary-conversation.is-composer-only.is-composer-expanded [data-testid="chat-feed-stage"] {
+  display: flex !important; max-height: min(28vh, 220px); overflow-y: auto;
 }

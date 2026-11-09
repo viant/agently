@@ -284,12 +284,12 @@ it('keeps document chat beside an opened workspace whenever the available surfac
     // Opening the report must split immediately, without a viewport resize.
     await act(async () => root.render(<App active/>));
     expect(surface.classList.contains('is-split')).toBe(true);
-    expect(host.querySelector('[aria-label="Expand workspace"]').disabled).toBe(false);
+    expect(host.querySelector('[aria-label="Show chat as overlay"]').disabled).toBe(false);
     availableWidth = 759;
     await act(async () => notifyResize());
     expect(surface.classList.contains('is-split')).toBe(false);
     expect(host.querySelector('.app-shell-viewer-controls').classList.contains('is-compact')).toBe(true);
-    expect(host.querySelector('[aria-label="Restore split view"]').disabled).toBe(true);
+    expect(host.querySelector('[aria-label="Show chat on the left"]').disabled).toBe(true);
     const showComposer=host.querySelector('[aria-label="Show composer"]');
     expect(showComposer).not.toBeNull();
     await act(async()=>showComposer.click());
@@ -332,7 +332,7 @@ it('uses the same retained viewer with separate hide, expand and tab-close actio
     expect(header.querySelector('.app-shell-viewer-tabs').compareDocumentPosition(header.querySelector('.app-shell-viewer-controls')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(host.querySelector('[role="status"]').textContent).toBe('2 new');
     expect(host.querySelector('header [data-shared-icon="lucide:panel-right"]')).not.toBeNull();
-    await act(async () => host.querySelector('[aria-label="Expand workspace"]').click());
+    await act(async () => host.querySelector('[aria-label="Show chat as overlay"]').click());
     expect(split).toHaveBeenCalledWith('focus');
     expect(close).not.toHaveBeenCalled();
     await act(async () => host.querySelector('[aria-label="Hide workspace"]').click());
