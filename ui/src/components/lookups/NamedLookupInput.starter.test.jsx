@@ -47,8 +47,9 @@ it('blocks a scoped starter until picker selection, then sends the selected name
     await act(async () => complete(Response.json({entries: [], starterEntries: [entry]})));
     const chip = host.querySelector('[data-token]');
     expect(chip?.textContent).toBe('Advertiser');
+    expect(chip.tabIndex).toBe(0);
     expect(send().disabled).toBe(true);
-    await act(async () => chip.click());
+    await pressEnter(chip);
     expect(host.querySelector('input[data-testid="named-lookup-inline-editor-arAdvertiser"]')).toBeNull();
     await pressEnter(input());
     expect(send().disabled).toBe(true);

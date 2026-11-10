@@ -301,7 +301,7 @@ function syncEditorContent(root, segments, options = {}) {
     chip.setAttribute('data-name', segment.name);
     chip.setAttribute('contenteditable', 'false');
     chip.setAttribute('data-testid', `named-lookup-chip-${segment.name}`);
-    chip.tabIndex = -1;
+    chip.tabIndex = segment.lookupTitle ? 0 : -1;
     chip.className = `forge-lookup-chip${segment.unresolved ? ' is-unresolved' : ''}`;
     chip.style.margin = '0 2px';
     chip.style.userSelect = 'none';
@@ -606,7 +606,7 @@ export default function NamedLookupInput({
   }, [autoResolveAuthored, onChange, lookupRegistry, starterEntries, value]);
 
   const segments = useMemo(() => displaySegments(value).map(segment => {
-    if (!segment.unresolved || !starterEntries.length) return segment;
+    if (segment.kind !== 'chip' || !starterEntries.length) return segment;
     const title = starterEntries.find(entry => entry.name === segment.name)?.title;
     return title ? {...segment, lookupTitle: title} : segment;
   }), [starterEntries, value]);
