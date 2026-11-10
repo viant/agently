@@ -1393,6 +1393,8 @@ github.com/viant/forge v0.3.47-0.20261110194625-9797681caa41 h1:3wgGlTRoc4ZQ32Pz
 github.com/viant/forge v0.3.47-0.20261110194625-9797681caa41/go.mod h1:xsNdrrI9rKZJREv11SLxzUW90JTO68eqbD0wx6TCLxQ=
 github.com/viant/forge v0.3.47-0.20261110195432-b4aa4743ad3b h1:0rq8bJjJV0kvJck87tB+sHowZf/BfZp5jsnS16IDXhU=
 github.com/viant/forge v0.3.47-0.20261110195432-b4aa4743ad3b/go.mod h1:xsNdrrI9rKZJREv11SLxzUW90JTO68eqbD0wx6TCLxQ=
+github.com/viant/forge v0.3.47-0.20261110211246-c0eaa12f7cba h1:nej84J9lXaCJONa85b6aq9T7jGJhRVf7JvJWkLpOnEg=
+github.com/viant/forge v0.3.47-0.20261110211246-c0eaa12f7cba/go.mod h1:xsNdrrI9rKZJREv11SLxzUW90JTO68eqbD0wx6TCLxQ=
 github.com/viant/gds v0.6.0 h1:HdjogZeJrs5X0aR8yNCep7TxlhkhrH/lrSFW02RZzOI=
 github.com/viant/gds v0.6.0/go.mod h1:oLW99/zRR67jOhDj4qnVoquDMtQd1z2mWxVc9KRvOs4=
 github.com/viant/gmetric v0.3.2 h1:zTdW9QrPk2P0i/do9fokxtHesFQCvYqIc5Yktzmyxtg=
