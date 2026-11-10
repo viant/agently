@@ -717,3 +717,16 @@ to the menu title. Changed keys close dependent views in that application withou
 replaying queries; the selector stays open. Scope is kept only in memory and reset
 on an authenticated workspace/user change. See Forge's `doc/application-scope.md`
 for the shared store and nested-window contract.
+
+## Workspace chat overlay
+
+The document shell owns the overlay grid and its bounded height. Expanded chat
+keeps the composer visible below an independently scrolling transcript; flex
+children must not determine the overlay's intrinsic height. Collapsed chat hides
+the generated window host even when that host declares inline flex layout.
+Split and overlay modes reuse the same mounted chat and preserve the draft.
+
+NavigationSpecimen uses the real Forge Chat with long synthetic conversation
+content and a full-height flex host. The typography browser gate verifies the
+input and Send control are inside the expanded overlay, transcript scrolling,
+collapsed visibility, and draft preservation when switching back to split mode.

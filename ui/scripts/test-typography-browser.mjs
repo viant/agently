@@ -134,6 +134,28 @@ try {
     assert.equal(await navigation.locator('.app-section-menu').getAttribute('data-forge-type'), 'body');
     if (viewport.width < 500) assert.ok(await rail.getByRole('button', {name: 'Chat', exact: true}).evaluate(node => node.getBoundingClientRect().height >= 44));
     const viewer = navigation.locator('.app-header-specimen');
+    const verifyOverlayComposer = async () => {
+      const input = viewer.getByTestId('chat-composer-input');
+      await input.fill('Keep this draft across layout changes.');
+      const geometry = await viewer.locator('.app-summary-conversation').evaluate(overlay => {
+        const bounds = overlay.getBoundingClientRect();
+        const surface = overlay.parentElement.getBoundingClientRect();
+        const controls = ['chat-composer', 'chat-composer-input', 'chat-composer-send'].map(id => {
+          const node = overlay.querySelector(`[data-testid="${id}"]`); const box = node.getBoundingClientRect();
+          return {id, height: box.height, contained: box.top >= bounds.top && box.bottom <= bounds.bottom && box.left >= bounds.left && box.right <= bounds.right};
+        });
+        const feed = overlay.querySelector('[data-testid="chat-feed-stage"]');
+        return {height: bounds.height, contained: bounds.top >= surface.top && bounds.bottom <= surface.bottom, controls,
+          feedHeight: feed.clientHeight, feedScrollHeight: feed.scrollHeight};
+      });
+      console.log(JSON.stringify({viewport, overlayComposer: geometry}));
+      if(process.env.AGENTLY_TYPOGRAPHY_SCREENSHOTS) await viewer.screenshot({path:path.join(process.env.AGENTLY_TYPOGRAPHY_SCREENSHOTS, `workspace-overlay-${viewport.width}.png`)});
+      assert.equal(geometry.contained, true);
+      for (const control of geometry.controls) {assert.ok(control.height > 0, control.id); assert.equal(control.contained, true, `${control.id} must stay inside the expanded overlay`);}
+      assert.ok(geometry.feedHeight >= 40 && geometry.feedScrollHeight > geometry.feedHeight, 'Long history scrolls independently above the visible composer');
+      assert.equal(await viewer.getByTestId('chat-composer-send').isEnabled(), true);
+    };
+
     await viewer.getByRole('tab', {name: 'Example output', exact: true}).waitFor();
     const viewerGeometry = await viewer.evaluate(node => {
       const surface = node.querySelector('.app-summary-surface-shell');
@@ -159,6 +181,7 @@ try {
       assert.equal(await content.isVisible(), false, 'Collapsed composer content stays hidden');
       await activate(viewer.getByRole('button', {name: 'Show composer', exact: true}));
       assert.equal(await content.isVisible(), true, 'Expanded composer content remains available');
+      await verifyOverlayComposer();
       await activate(viewer.getByRole('button', {name: 'Hide composer', exact: true}));
       assert.equal(await content.isVisible(), false, 'Collapsing restores hidden content');
     }
@@ -187,6 +210,7 @@ try {
       assert.deepEqual(pointer.nextSize, pointer.size);
       assert.equal(pointer.gap, 2);
       assert.equal(pointer.inset, 12);
+      await verifyOverlayComposer();
       await restore.press('Tab');
       const keyboard = await hide.evaluate(node => ({focused: node === document.activeElement,
         visible: node.matches(':focus-visible'), outline: getComputedStyle(node).outlineWidth,
@@ -197,6 +221,7 @@ try {
       await activate(restore);
       assert.equal(await viewer.locator('.app-summary-surface-shell.is-split').count(), 1);
       assert.equal(await viewer.locator('.app-summary-conversation.is-composer-only').count(), 0);
+      assert.equal(await viewer.getByTestId('chat-composer-input').inputValue(), 'Keep this draft across layout changes.');
       console.log(JSON.stringify({viewport, shellPointerFocus: pointer, shellKeyboardFocus: keyboard}));
     }
 
