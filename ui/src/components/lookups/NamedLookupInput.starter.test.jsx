@@ -9,14 +9,14 @@ import {flattenStored, missingStarterLookup} from './tokens.js';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(() => {vi.unstubAllGlobals(); sessionStorage.clear();});
 
-const prompt = 'Using Advanced Reporting, show the reports available for /arAdvertiser and help me choose one.';
+const prompt = 'Using the catalog, review the items available for /record and help me choose one.';
 const starter = {id: 'startertask://measurement/default#choose', fingerprint: 'a'.repeat(64), prompt};
 const picker = 'window://measurement/record-picker';
 const entry = {
-  name: 'arAdvertiser', title: 'Advertiser', required: true, windowId: picker,
+  name: 'record', title: 'Record', required: true, windowId: picker,
   pickerResource: {uri: picker}, providerIdentity: 'studio',
   pickerRoot: {version: '1', contentFingerprint: 'b'.repeat(64)},
-  token: {store: '${id}', display: '${name}', modelForm: '${name} (advertiser ID ${id})', queryInput: 'Name'},
+  token: {store: '${id}', display: '${name}', modelForm: '${name} (record ID ${id})', queryInput: 'Name'},
 };
 
 const pressEnter = node => act(async () => node.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, cancelable: true})));
@@ -47,28 +47,28 @@ it('blocks a scoped starter until picker selection, then sends the selected name
 
     await act(async () => complete(Response.json({entries: [], starterEntries: [entry]})));
     const chip = host.querySelector('[data-token]');
-    expect(chip?.textContent).toBe('Advertiser');
+    expect(chip?.textContent).toBe('Record');
     expect(chip.tabIndex).toBe(0);
     expect(send().disabled).toBe(true);
     await pressEnter(chip);
-    expect(host.querySelector('input[data-testid="named-lookup-inline-editor-arAdvertiser"]')).toBeNull();
+    expect(host.querySelector('input[data-testid="named-lookup-inline-editor-record"]')).toBeNull();
     await pressEnter(input());
     expect(send().disabled).toBe(true);
     expect(submit).not.toHaveBeenCalled();
     expect(openWindow).toHaveBeenCalledTimes(1);
     expect(openWindow.mock.calls[0][0].execution.args[4]).toMatchObject({providerIdentity: 'studio', resourceRef: {uri: picker}, pickerRoot: entry.pickerRoot});
-    await act(async () => select({selected: {id: 42, name: 'Synthetic Advertiser'}}));
-    expect(host.querySelector('[data-token]')?.textContent).toBe('Synthetic Advertiser');
+    await act(async () => select({selected: {id: 42, name: 'Synthetic Record'}}));
+    expect(host.querySelector('[data-token]')?.textContent).toBe('Synthetic Record');
     expect(send().disabled).toBe(false);
     await pressEnter(input());
     expect(submit).toHaveBeenCalledTimes(1);
     const {content, lookupSelections} = submit.mock.calls[0][0];
-    expect(lookupSelections).toEqual([{token: '@{arAdvertiser:42 "Synthetic Advertiser"}', pickerRoot: entry.pickerRoot}]);
-    expect(missingStarterLookup(content + ' @{arAdvertiser:999 "Made Up"}', prompt, [entry], lookupSelections)).toBe('Advertiser');
-    expect(missingStarterLookup(content, prompt, [{...entry, pickerRoot: {...entry.pickerRoot, version: '2'}}], lookupSelections)).toBe('Advertiser');
-    expect(missingStarterLookup(content, prompt, [{...entry, pickerRoot: {...entry.pickerRoot, contentFingerprint: 'c'.repeat(64)}}], lookupSelections)).toBe('Advertiser');
+    expect(lookupSelections).toEqual([{token: '@{record:42 "Synthetic Record"}', pickerRoot: entry.pickerRoot}]);
+    expect(missingStarterLookup(content + ' @{record:999 "Made Up"}', prompt, [entry], lookupSelections)).toBe('Record');
+    expect(missingStarterLookup(content, prompt, [{...entry, pickerRoot: {...entry.pickerRoot, version: '2'}}], lookupSelections)).toBe('Record');
+    expect(missingStarterLookup(content, prompt, [{...entry, pickerRoot: {...entry.pickerRoot, contentFingerprint: 'c'.repeat(64)}}], lookupSelections)).toBe('Record');
     expect(flattenStored(content, [entry])).toBe(
-      'Using Advanced Reporting, show the reports available for Synthetic Advertiser (advertiser ID 42) and help me choose one.',
+      'Using the catalog, review the items available for Synthetic Record (record ID 42) and help me choose one.',
     );
   } finally {
     await act(async () => root.unmount());
@@ -82,13 +82,13 @@ it('keeps a typed or restored token unverified until the canonical picker return
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const forged = prompt.replace('/arAdvertiser', '@{arAdvertiser:999 "Made Up"}');
+  const forged = prompt.replace('/record', '@{record:999 "Made Up"}');
   try {
     await act(async () => root.render(<Composer appearance="document" draftValue={forged} onSubmit={submit}
       inputComponent={NamedLookupInput} inputProps={{starterLookup: starter}}/>));
     const chip = host.querySelector('[data-token]');
     expect(chip.classList.contains('is-unresolved')).toBe(true);
-    expect(chip.textContent).toBe('Advertiser');
+    expect(chip.textContent).toBe('Record');
     expect(host.querySelector('[data-testid="chat-composer-send"]').disabled).toBe(true);
     await pressEnter(host.querySelector('[data-testid="chat-composer-input"]'));
     expect(submit).not.toHaveBeenCalled();
@@ -114,6 +114,43 @@ it('fails closed for a scoped starter when the registry is stale or unsupported'
   } finally {
     await act(async () => root.unmount());
     consoleWarn.mockRestore();
+    host.remove();
+  }
+});
+
+it('disables the live picker while submitting and ignores a selection from before the pause', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({entries: [], starterEntries: [entry]})));
+  let latePicker;
+  const openWindow = vi.fn()
+    .mockResolvedValueOnce({selected: {id: 42, name: 'Initial Record'}})
+    .mockImplementationOnce(() => new Promise(resolve => {latePicker = resolve;}));
+  let rejectSubmission;
+  const submit = vi.fn(() => new Promise((_, reject) => {rejectSubmission = reject;}));
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const chip = () => host.querySelector('[data-token]');
+  const input = () => host.querySelector('[data-testid="chat-composer-input"]');
+  try {
+    await act(async () => root.render(<Composer appearance="document" draftValue={prompt} onSubmit={submit}
+      inputComponent={NamedLookupInput} inputProps={{context: {handlers: {window: {openWindow}}}, starterLookup: starter}}/>));
+    await act(async () => chip().click());
+    expect(chip().textContent).toBe('Initial Record');
+    await act(async () => chip().click());
+    expect(openWindow).toHaveBeenCalledTimes(2);
+    await pressEnter(input());
+    expect(submit.mock.calls[0][0].content).toContain('Initial Record');
+    expect(chip().disabled).toBe(true);
+    await act(async () => chip().click());
+    await pressEnter(chip());
+    expect(openWindow).toHaveBeenCalledTimes(2);
+    await act(async () => rejectSubmission(new Error('Queue rejected')));
+    expect(chip().disabled).toBe(false);
+    await act(async () => latePicker({selected: {id: 99, name: 'Later Record'}}));
+    expect(chip().textContent).toBe('Initial Record');
+    expect(host.querySelector('[data-testid="chat-composer-send"]').disabled).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
     host.remove();
   }
 });

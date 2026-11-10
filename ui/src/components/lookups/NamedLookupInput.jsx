@@ -153,6 +153,7 @@ function replaceChipToken(root, rawToken, nextToken, nextLabel) {
 
 function syncEditorContent(root, segments, options = {}) {
   const {
+    disabled = false,
     editingChip = null,
     setChipEditInputElement = null,
     onChipEditFocus = null,
@@ -199,6 +200,7 @@ function syncEditorContent(root, segments, options = {}) {
         setChipEditInputElement(input);
       }
       input.type = isDateChipName(segment.name) ? 'date' : 'text';
+      input.disabled = disabled;
       if (segment.name === 'money') {
         input.inputMode = 'decimal';
         input.setAttribute('aria-label', 'Money amount');
@@ -255,6 +257,7 @@ function syncEditorContent(root, segments, options = {}) {
 
       const button = document.createElement('button');
       button.type = 'button';
+      button.disabled = disabled;
       button.textContent = '▾';
       button.setAttribute('aria-label', `Open lookup for ${segment.name}`);
       button.setAttribute('title', `Browse ${segment.name}`);
@@ -298,6 +301,7 @@ function syncEditorContent(root, segments, options = {}) {
     }
     const chip = document.createElement('button');
     chip.setAttribute('type', 'button');
+    chip.disabled = disabled;
     chip.setAttribute('data-token', segment.raw);
     chip.setAttribute('data-name', segment.name);
     chip.setAttribute('contenteditable', 'false');
@@ -496,8 +500,13 @@ export default function NamedLookupInput({
   const lookupRegistry = useMemo(() => starterEntries.length
     ? [...starterEntries, ...registry.filter(entry => !starterEntries.some(starter => starter.name === entry.name))]
     : registry, [registry, starterEntries]);
-  const currentStarterKey = useRef(starterKey);
-  currentStarterKey.current = starterKey;
+  const pickerScope = useRef(null);
+  const scopedPaused = !!starterKey && !!disabled;
+  if (pickerScope.current?.starterKey !== starterKey || pickerScope.current?.paused !== scopedPaused) {
+    pickerScope.current = {starterKey, paused: scopedPaused};
+  }
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
   const [pickerSelections, setPickerSelections] = useState(null);
   const verifiedSelections = pickerSelections?.key === starterKey ? pickerSelections.tokens : EMPTY_ENTRIES;
   useEffect(() => {setPickerSelections(null);}, [starterKey]);
@@ -532,11 +541,17 @@ export default function NamedLookupInput({
   }, [skillOpen, skillAgentID, skillConversationID, skillRetry]);
   const [rows, setRows] = useState([]);
   const [rowsLoading, setRowsLoading] = useState(false);
+  useEffect(() => {
+    if (!scopedPaused) return;
+    setActiveTrigger(null);
+    setRows([]);
+    setRowsLoading(false);
+  }, [scopedPaused]);
   const [retainInlineEditor, setRetainInlineEditor] = useState(false);
   const [editingChip, setEditingChip] = useState(null);
   const [debugEvents, setDebugEvents] = useState([]);
   const editorRef = useRef(null);
-  const syncedPickerDisplay = useRef({entries: EMPTY_ENTRIES, selections: EMPTY_ENTRIES});
+  const syncedPickerDisplay = useRef({entries: EMPTY_ENTRIES, selections: EMPTY_ENTRIES, disabled: false});
   const inputRef = useRef(null);
   const chipEditInputRef = useRef(null);
   const fetchTimer = useRef(null);
@@ -904,6 +919,8 @@ export default function NamedLookupInput({
 
   const openLookupSurface = useCallback(
     async (entry, options = {}) => {
+      if (disabledRef.current) return true;
+      const openingScope = pickerScope.current;
       console.debug('[named-lookup][picker.route]', JSON.stringify({hasDialog:!!entry?.dialogId,hasWindow:!!entry?.windowId,hasResource:!!entry?.pickerResource?.uri,hasHandlers:!!context?.handlers?.window}));
       if (!entry?.dialogId && !entry?.windowId && !entry?.pickerResource?.uri) return false;
       const windowHandlers = context?.handlers?.window;
@@ -930,7 +947,7 @@ export default function NamedLookupInput({
           parameters: initialParameters,
           context,
         });
-        if (starterKey !== currentStarterKey.current) return true;
+        if (openingScope !== pickerScope.current) return true;
         const selected = unwrapSelection(record);
         if (!selected) return true;
 
@@ -973,12 +990,14 @@ export default function NamedLookupInput({
         lastSyncedValueRef.current = nextStored || token;
         return true;
       } catch (e) {
-        console.error('lookup open failed', e);
+        if (openingScope === pickerScope.current) console.error('lookup open failed', e);
         return true;
       } finally {
-        setRows([]);
-        setRowsLoading(false);
-        setActiveTrigger(null);
+        if (openingScope === pickerScope.current) {
+          setRows([]);
+          setRowsLoading(false);
+          setActiveTrigger(null);
+        }
       }
     },
     [activeTrigger, context, multiline, onChange, starterEntries, starterKey, value]
@@ -986,6 +1005,7 @@ export default function NamedLookupInput({
 
   const pickRow = useCallback(
     (entry, row) => {
+      if (disabledRef.current) return;
       const token = serializeToken(entry, row);
       const label = tokenLabel(token, resolveLookupRowLabel(row) || unresolvedChipLabel(entry?.name));
       let nextStored = '';
@@ -1012,6 +1032,7 @@ export default function NamedLookupInput({
 
   const handleChipClick = useCallback(
     async (chip) => {
+      if (disabledRef.current) return;
       emitNamedLookupDebug('chip.activate', {
         name: chip.name,
         raw: chip.raw,
@@ -1033,6 +1054,7 @@ export default function NamedLookupInput({
 
   const handleChipRowPick = useCallback(
     (entry, row) => {
+      if (disabledRef.current) return;
       const token = serializeToken(entry, row);
       const label = tokenLabel(token, resolveLookupRowLabel(row) || unresolvedChipLabel(entry?.name));
       let nextStored = '';
@@ -1058,6 +1080,7 @@ export default function NamedLookupInput({
   }, [activeTrigger, lookupRegistry]);
 
   const resolveEditingChip = useCallback(async (options = {}) => {
+    if (disabledRef.current) return false;
     const current = options.raw || options.name
       ? {
           raw: options.raw || editingChipRef.current?.raw || '',
@@ -1108,6 +1131,8 @@ export default function NamedLookupInput({
   }, [onChange, starterEntries, value]);
 
   const openEditingChipLookup = useCallback(async () => {
+    if (disabledRef.current) return;
+    const openingScope = pickerScope.current;
     const current = editingChip;
     const entry = editingChipEntry;
     if (!current || !entry) return;
@@ -1147,6 +1172,7 @@ export default function NamedLookupInput({
       chipRaw: current.raw,
       parameters: seededParameters,
     });
+    if (openingScope !== pickerScope.current) return;
     if (opened) {
       setEditingChip(null);
     } else if (entry && !entry.dialogId && !entry.windowId) {
@@ -1158,8 +1184,8 @@ export default function NamedLookupInput({
   useEffect(() => {
     if (!useInlineEditor || !editorRef.current) return;
     const previousDisplay = syncedPickerDisplay.current;
-    const pickerDisplayChanged = previousDisplay.entries !== starterEntries || previousDisplay.selections !== verifiedSelections;
-    syncedPickerDisplay.current = {entries: starterEntries, selections: verifiedSelections};
+    const pickerDisplayChanged = previousDisplay.entries !== starterEntries || previousDisplay.selections !== verifiedSelections || previousDisplay.disabled !== !!disabled;
+    syncedPickerDisplay.current = {entries: starterEntries, selections: verifiedSelections, disabled: !!disabled};
     const currentStored = serializeEditor(editorRef.current);
     const activeChipEditor = editorRef.current.querySelector?.('[data-chip-editor="true"]');
     const hasChipEditor = !!activeChipEditor;
@@ -1180,6 +1206,7 @@ export default function NamedLookupInput({
       return;
     }
     syncEditorContent(editorRef.current, segments, {
+      disabled,
       editingChip,
       setChipEditInputElement: (node) => {
         chipEditInputRef.current = node || null;
@@ -1442,6 +1469,7 @@ export default function NamedLookupInput({
                     >
                       <InputGroup
                         inputRef={chipEditInputRef}
+                        disabled={disabled}
                         type={isDateChipName(chip.name) ? 'date' : 'text'}
                         inputMode={chip.name === 'money' ? 'decimal' : undefined}
                         leftElement={chip.name === 'money' ? <span style={{ padding: '6px' }}>$</span> : undefined}
@@ -1477,6 +1505,7 @@ export default function NamedLookupInput({
                         }}
                         rightElement={isDirectInputChip(chip.name) ? undefined : (
                           <Button
+                            disabled={disabled}
                             icon="caret-down"
                             minimal
                             small
@@ -1516,7 +1545,7 @@ export default function NamedLookupInput({
                     <Tag
                       key={chip.raw + ':' + chip.id}
                       minimal
-                      interactive
+                      interactive={!disabled}
                       round
                       intent={chip.unresolved ? 'warning' : 'success'}
                       style={{ marginRight: 4 }}
@@ -1564,7 +1593,7 @@ export default function NamedLookupInput({
       <Popover
           targetProps={appearance === 'document' ? {style: {display: 'block'}} : undefined}
           isOpen={!!activeTrigger}
-          disabled={!activeTrigger}
+          disabled={disabled || !activeTrigger}
           onClose={() => { if (skillOpen) dismissedSkillValue.current = value; setActiveTrigger(null); }}
           content={popoverContent}
           placement="top-start"
