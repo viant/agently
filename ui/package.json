@@ -70,7 +70,7 @@
     "@tanstack/react-virtual": "^3.14.13",
     "@uiw/react-codemirror": "^4.23.8",
     "agently-core-ui-sdk": "file:../../agently-core/sdk/ts",
-    "forge": "https://codeload.github.com/viant/forge/tar.gz/9797681caa413223022fd69f8101eaef3634b458",
+    "forge": "https://codeload.github.com/viant/forge/tar.gz/b4aa4743ad3b0dd3d709e85e05938a3fd4ae144c",
     "lodash": "^4.17.21",
     "mermaid": "^11.12.3",
     "react": "^18.3.1",
