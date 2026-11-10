@@ -66,8 +66,8 @@ import {
 } from './chatRuntime';
 import { recordConversationProjectionUsage } from './usageProjectionStore';
 import NamedLookupInput from '../components/lookups/NamedLookupInput.jsx';
-import { flattenStored } from '../components/lookups/tokens.js';
-import { listLookupRegistry } from '../components/lookups/client.js';
+import { flattenStored, missingStarterLookup } from '../components/lookups/tokens.js';
+import { listLookupRegistry, readLookupRegistry } from '../components/lookups/client.js';
 import {lookupOwnerFromContext} from '../components/lookups/owner.js';
 import { composerPresentation } from './composerPresentation';
 import { publishWorkspaceMetadataSnapshot, getWorkspaceMetadataSnapshot } from './workspaceMetadata';
@@ -762,9 +762,21 @@ export async function submitMessage({ context, message, model, agent }) {
   const persistedAgent = sanitizeAutoSelection(getPersistedSelectedAgent());
   const effectiveAgentForLookup = resolveSubmitAgent({ selectedAgent, persistedAgent, metaForm, convForm }) || 'default';
   let query = rawQuery;
-  if (rawQuery && rawQuery.includes('@{')) {
+  const starter = message?.starterTask;
+  if (starter || (rawQuery && rawQuery.includes('@{'))) {
     try {
-      const registry = await listLookupRegistry('chat-composer', effectiveAgentForLookup, lookupOwnerFromContext(context));
+      const owner = lookupOwnerFromContext(context);
+      let registry;
+      if (starter) {
+        const task = metaForm.starterTasks?.find(task => task.id === starter.id && task.lookupFingerprint === starter.fingerprint);
+        if (!task) throw new Error('This task has changed or is unavailable. Reopen it to continue.');
+        const current = await readLookupRegistry('chat-composer', effectiveAgentForLookup, owner, starter);
+        const missing = missingStarterLookup(rawQuery, task.prompt, current.starterEntries);
+        if (missing) throw new Error(`Choose ${missing} before sending.`);
+        registry = [...current.entries, ...current.starterEntries];
+      } else {
+        registry = await listLookupRegistry('chat-composer', effectiveAgentForLookup, owner);
+      }
       query = flattenStored(rawQuery, registry, { allowUnresolvedRequired: true }).trim();
     } catch (err) {
       showToast(String(err?.message || err || 'Resolve required lookups before sending.'), { intent: 'warning' });

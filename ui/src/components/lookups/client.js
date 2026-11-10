@@ -22,22 +22,33 @@ function baseURL() {
  * @returns {Promise<Array<LookupRegistryEntry>>}
  */
 export async function listLookupRegistry(contextKind, contextID, owning = null) {
+  return (await readLookupRegistry(contextKind, contextID, owning)).entries;
+}
+
+export async function readLookupRegistry(contextKind, contextID, owning, starter) {
   const params = new URLSearchParams({context: `${contextKind}:${contextID}`});
   if (owning?.owner?.uri) {
     params.set('owner', owning.owner.uri);
     if (owning.owner.revision) params.set('revision', owning.owner.revision);
     if (owning.providerIdentity) params.set('providerIdentity', owning.providerIdentity);
   }
+  if (starter) {
+    params.set('starterTaskId', starter.id);
+    params.set('starterTaskFingerprint', starter.fingerprint);
+  }
   const res = await fetch(
     `${baseURL()}/v1/api/lookups/registry?${params}`,
     { credentials: 'include' }
   );
-  if (res.status === 501) return [];
+  if (res.status === 501 && !starter) return {entries: [], starterEntries: []};
   if (!res.ok) {
     throw new Error(`lookup registry: ${res.status} ${res.statusText}`);
   }
   const body = await res.json();
-  return body && Array.isArray(body.entries) ? body.entries : [];
+  const entries = Array.isArray(body?.entries) ? body.entries : [];
+  const starterEntries = Array.isArray(body?.starterEntries) ? body.starterEntries : [];
+  if (starter && !starterEntries.length) throw new Error('This task’s lookups are unavailable.');
+  return {entries, starterEntries};
 }
 
 /**

@@ -203,6 +203,21 @@ export function flattenStored(storedText, registry, options = {}) {
   });
 }
 
+export function missingStarterLookup(text, prompt, starterEntries) {
+  const required = parseAuthored(prompt, starterEntries).filter(segment => segment.kind === 'picker' && segment.entry.required);
+  const stored = parseTokens(text);
+  const available = new Map();
+  for (const token of stored) {
+    if (!isUnresolvedToken(token)) available.set(token.name, (available.get(token.name) || 0) + 1);
+  }
+  for (const {entry} of required) {
+    const count = available.get(entry.name) || 0;
+    if (!count) return entry.title || entry.name;
+    available.set(entry.name, count - 1);
+  }
+  return '';
+}
+
 /**
  * Rehydrate a stored string into segments suitable for chip rendering on
  * conversation reload. No network call.

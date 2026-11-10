@@ -20,14 +20,16 @@ import {
   serializeToken,
   serializeManualToken,
   isValidMoney,
+  missingStarterLookup,
 } from './tokens.js';
-import { listLookupRegistry, fetchDatasource } from './client.js';
+import { listLookupRegistry, readLookupRegistry, fetchDatasource } from './client.js';
 import {lookupOwnerFromContext} from './owner.js';
 import { resolveComposerPromptMacros } from '../chat/starterPromptMacros.js';
 import { applyResolvedChipToken, createEditingChipState, shouldSkipEditorSync, unwrapLookupSelection as unwrapSelection, draftWithEditedChip, lookupPlaceholderAtTrigger } from './chipEditing.js';
 import { DEFAULT_LOOKUP_TRIGGER, filterLookupRegistry, findLookupTriggerStart, shouldClearSoleLookupTrigger } from './lookupTrigger.js';
 
 const DEFAULT_TRIGGER = DEFAULT_LOOKUP_TRIGGER;
+const EMPTY_ENTRIES = [];
 const DATE_CHIP_NAMES = new Set(['date_from', 'date_to']);
 
 function isDateChipName(name = '') {
@@ -307,7 +309,7 @@ function syncEditorContent(root, segments, options = {}) {
     chip.style.lineHeight = 'inherit';
     chip.style.appearance = 'none';
     chip.textContent = segment.unresolved
-      ? unresolvedChipLabel(segment.name)
+      ? (segment.lookupTitle || unresolvedChipLabel(segment.name))
       : (segment.label || unresolvedChipLabel(segment.name));
     chip.addEventListener('mousedown', (event) => {
       event.preventDefault();
@@ -458,6 +460,7 @@ export default function NamedLookupInput({
   onValidityChange,
   onValueResolver,
   context,
+  starterLookup,
   contextKind = 'chat-composer',
   contextID = 'default',
   skillsEnabled = false,
@@ -486,6 +489,14 @@ export default function NamedLookupInput({
   const [registry, setRegistry] = useState([]);
   const owningLookup = lookupOwnerFromContext(context, {reactive: true});
   const owningLookupKey = JSON.stringify(owningLookup);
+  const starterKey = starterLookup ? `${owningLookupKey}:${contextID}:${starterLookup.id}:${starterLookup.fingerprint}` : '';
+  const [starterRegistry, setStarterRegistry] = useState(null);
+  const starterEntries = starterRegistry?.key === starterKey ? starterRegistry.entries : EMPTY_ENTRIES;
+  const lookupRegistry = useMemo(() => starterEntries.length
+    ? [...starterEntries, ...registry.filter(entry => !starterEntries.some(starter => starter.name === entry.name))]
+    : registry, [registry, starterEntries]);
+  const currentStarterKey = useRef(starterKey);
+  currentStarterKey.current = starterKey;
   const [activeTrigger, setActiveTrigger] = useState(null);
   const skillMenuID = React.useId();
   const dismissedSkillValue = useRef(null);
@@ -530,23 +541,28 @@ export default function NamedLookupInput({
   const editingChipRef = useRef(editingChip);
   const currentValueRef = useRef(value);
   currentValueRef.current = value;
-  const registryRef = useRef(registry);
+  const registryRef = useRef(lookupRegistry);
   const chipEditFocusedRef = useRef(false);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (typeof onValueResolver !== 'function') return;
     onValueResolver(() => {
       const draft = multiline && editorRef.current ? serializeEditor(editorRef.current) : currentValueRef.current;
       const chip = editingChipRef.current;
+      if (starterKey && (!starterEntries.length || missingStarterLookup(draft, starterLookup.prompt, starterEntries))) return null;
+      if (starterEntries.some(entry => entry.required && entry.name === chip?.name)) return draft;
       return draftWithEditedChip(draft, chip, chipEditInputRef.current?.value ?? chip?.value);
     });
-  }, [multiline, onValueResolver, value]);
+  }, [multiline, onValueResolver, starterKey, starterEntries, starterLookup?.prompt, value]);
 
   useEffect(() => {
     let cancelled = false;
     setRegistry([]);
-    listLookupRegistry(contextKind, contextID, owningLookup)
-      .then((entries) => {
+    setStarterRegistry(null);
+    const request = starterKey
+      ? readLookupRegistry(contextKind, contextID, owningLookup, starterLookup)
+      : listLookupRegistry(contextKind, contextID, owningLookup).then(entries => ({entries}));
+    request.then(({entries, starterEntries}) => {
         if (cancelled) return;
         emitNamedLookupDebug('registry.loaded', {
           context: `${contextKind}:${contextID}`,
@@ -554,11 +570,13 @@ export default function NamedLookupInput({
           hasOrder: entries.some((entry) => entry?.name === 'order'),
         });
         setRegistry(entries);
-        onRegistryLoaded?.(entries);
+        if (starterKey) setStarterRegistry({key: starterKey, entries: starterEntries});
+        onRegistryLoaded?.(starterEntries?.length ? [...entries, ...starterEntries] : entries);
       })
       .catch((e) => {
         if (cancelled) return;
         setRegistry([]);
+        if (starterKey) setStarterRegistry({key: starterKey, entries: [], error: true});
         onRegistryLoaded?.([]);
         emitNamedLookupDebug('registry.error', {
           context: `${contextKind}:${contextID}`,
@@ -569,24 +587,29 @@ export default function NamedLookupInput({
     return () => {
       cancelled = true;
     };
-  }, [contextKind, contextID, owningLookupKey, onRegistryLoaded]);
+  }, [contextKind, contextID, owningLookupKey, onRegistryLoaded, starterKey]);
 
   useEffect(() => {
     const expandedValue = resolveComposerPromptMacros(value);
     if (expandedValue !== value) { onChange(expandedValue); return; }
-    if (!autoResolveAuthored || registry.length === 0) return;
-    const segments = parseAuthored(value, registry);
+    if (!autoResolveAuthored || lookupRegistry.length === 0) return;
+    const segments = parseAuthored(value, lookupRegistry);
     if (!segments.some((s) => s.kind === 'picker')) return;
     const rebuilt = segments
       .map((segment) => {
         if (segment.kind === 'text') return segment.value;
-        return `@{${segment.entry.name}:? "${unresolvedChipLabel(segment.entry.name)}"}`;
+        const title = starterEntries.includes(segment.entry) ? segment.entry.title : '';
+        return `@{${segment.entry.name}:? "${(title || unresolvedChipLabel(segment.entry.name)).replace(/"/g, '\\"')}"}`;
       })
       .join('');
     if (rebuilt !== value) onChange(rebuilt);
-  }, [autoResolveAuthored, onChange, registry, value]);
+  }, [autoResolveAuthored, onChange, lookupRegistry, starterEntries, value]);
 
-  const segments = useMemo(() => displaySegments(value), [value]);
+  const segments = useMemo(() => displaySegments(value).map(segment => {
+    if (!segment.unresolved || !starterEntries.length) return segment;
+    const title = starterEntries.find(entry => entry.name === segment.name)?.title;
+    return title ? {...segment, lookupTitle: title} : segment;
+  }), [starterEntries, value]);
   const chips = useMemo(
     () => segments.filter((segment) => segment.kind === 'chip'),
     [segments]
@@ -598,14 +621,14 @@ export default function NamedLookupInput({
       chips.some((chip) => {
         if (!chip.unresolved) return false;
         if (chip.name === 'money') return true;
-        const entry = registry.find((item) => item.name === chip.name);
+        const entry = lookupRegistry.find((item) => item.name === chip.name);
         return !!entry?.required;
       }),
-    [chips, registry]
+    [chips, lookupRegistry]
   );
   const editingChipEntry = useMemo(
-    () => registry.find((entry) => entry.name === editingChip?.name) || null,
-    [editingChip?.name, registry]
+    () => lookupRegistry.find((entry) => entry.name === editingChip?.name) || null,
+    [editingChip?.name, lookupRegistry]
   );
 
   useEffect(() => {
@@ -613,8 +636,8 @@ export default function NamedLookupInput({
   }, [editingChip]);
 
   useEffect(() => {
-    registryRef.current = registry;
-  }, [registry]);
+    registryRef.current = lookupRegistry;
+  }, [lookupRegistry]);
 
   useEffect(() => {
     if (!namedLookupDebugEnabled()) return undefined;
@@ -627,9 +650,10 @@ export default function NamedLookupInput({
     return () => window.removeEventListener('named-lookup:debug', handleDebugEvent);
   }, []);
 
-  useEffect(() => {
-    onValidityChange?.(hasUnresolvedRequired);
-  }, [hasUnresolvedRequired, onValidityChange]);
+  const invalidStarter = !!starterKey && (!starterEntries.length || !!missingStarterLookup(value, starterLookup.prompt, starterEntries));
+  useLayoutEffect(() => {
+    onValidityChange?.(hasUnresolvedRequired || invalidStarter);
+  }, [hasUnresolvedRequired, invalidStarter, onValidityChange]);
 
   useEffect(() => {
     if (hasInlineChips) {
@@ -892,6 +916,7 @@ export default function NamedLookupInput({
           parameters: initialParameters,
           context,
         });
+        if (starterKey !== currentStarterKey.current) return true;
         const selected = unwrapSelection(record);
         if (!selected) return true;
 
@@ -933,7 +958,7 @@ export default function NamedLookupInput({
         setActiveTrigger(null);
       }
     },
-    [activeTrigger, context, multiline, onChange, value]
+    [activeTrigger, context, multiline, onChange, starterKey, value]
   );
 
   const pickRow = useCallback(
@@ -968,14 +993,19 @@ export default function NamedLookupInput({
         name: chip.name,
         raw: chip.raw,
         unresolved: !!chip.unresolved,
-        registryReady: registry.some((item) => item.name === chip.name),
+        registryReady: lookupRegistry.some((item) => item.name === chip.name),
       });
       setActiveTrigger(null);
       setRows([]);
       chipEditFocusedRef.current = false;
+      const attached = starterEntries.find(entry => entry.required && entry.name === chip.name);
+      if (attached && !attached.token?.resolveInput) {
+        await openLookupSurface(attached, {chipRaw: chip.raw});
+        return;
+      }
       setEditingChip(createEditingChipState(chip));
     },
-    [registry]
+    [lookupRegistry, openLookupSurface, starterEntries]
   );
 
   const handleChipRowPick = useCallback(
@@ -1001,8 +1031,8 @@ export default function NamedLookupInput({
 
   const nameMenuItems = useMemo(() => {
     if (!activeTrigger || activeTrigger.phase !== 'namePicker') return [];
-    return filterLookupRegistry(registry, activeTrigger.query);
-  }, [activeTrigger, registry]);
+    return filterLookupRegistry(lookupRegistry, activeTrigger.query);
+  }, [activeTrigger, lookupRegistry]);
 
   const resolveEditingChip = useCallback(async (options = {}) => {
     const current = options.raw || options.name
@@ -1029,6 +1059,10 @@ export default function NamedLookupInput({
       return false;
     }
     if (!entry && !isDirectInputChip(current.name)) return false;
+    if (starterEntries.some(item => item.required && item.name === current.name)) {
+      setEditingChip(prev => prev ? {...prev, error: 'Choose an option from the picker.'} : prev);
+      return false;
+    }
     const token = isDateChipName(current.name)
       ? serializeDateChip(current.name, raw)
       : serializeManualToken(current.name, raw);
@@ -1048,7 +1082,7 @@ export default function NamedLookupInput({
     chipEditFocusedRef.current = false;
     setEditingChip(null);
     return true;
-  }, [onChange, value]);
+  }, [onChange, starterEntries, value]);
 
   const openEditingChipLookup = useCallback(async () => {
     const current = editingChip;
@@ -1292,6 +1326,7 @@ export default function NamedLookupInput({
 
   const inputShell = (
     <div style={{ width: '100%', minWidth: 0 }}>
+      {starterKey && !starterEntries.length ? <span role="status">{starterRegistry?.error ? 'This task’s lookups are unavailable. Reopen the task to retry.' : 'Loading task lookups…'}</span> : null}
       {useInlineEditor ? (
         <div
           ref={editorRef}
@@ -1462,7 +1497,7 @@ export default function NamedLookupInput({
                       onClick={() => handleChipClick(chip)}
                     >
                       {chip.unresolved
-                        ? unresolvedChipLabel(chip.name)
+                        ? (chip.lookupTitle || unresolvedChipLabel(chip.name))
                         : (chip.label || unresolvedChipLabel(chip.name))}
                     </Tag>
                   )

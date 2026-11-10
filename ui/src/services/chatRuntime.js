@@ -629,6 +629,7 @@ function normalizeStarterTaskEntries(entries = [], agent = null) {
       description: String(entry.description || '').trim(),
       resultLabel: String(entry.resultLabel || '').trim(),
       icon: String(entry.icon || '').trim(),
+      ...(/^[0-9a-f]{64}$/.test(entry.lookupFingerprint || '') ? {lookupFingerprint: entry.lookupFingerprint} : {}),
       agentId: String(entry.agentId || agent?.id || '').trim(),
       agentName: String(entry.agentId && entry.agentId !== agent?.id ? entry.agentId : agent?.name || '').trim()
     };

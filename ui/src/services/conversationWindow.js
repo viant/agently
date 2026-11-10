@@ -1154,6 +1154,7 @@ export function requestNewConversationInMainWindow({resetStarter = false} = {}) 
     const url = new URL(window.location.href);
     url.searchParams.delete('starter');
     url.searchParams.delete('starterFrom');
+    url.searchParams.delete('starterFingerprint');
     window.history.replaceState(window.history.state, '', url);
   }
   removeWindowsForConversationChange('');
