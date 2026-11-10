@@ -17,5 +17,6 @@ export function lookupSurfaceInvocation(entry, context, parameters = []) {
     resourceRef: entry.pickerResource,
     providerIdentity: entry.providerIdentity,
     pickerDialogId: entry.dialogId || undefined,
+    ...(entry.pickerRoot ? {pickerRoot: entry.pickerRoot, newInstance: true} : {}),
   }]};
 }

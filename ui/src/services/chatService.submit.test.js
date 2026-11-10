@@ -80,6 +80,7 @@ vi.mock('./httpClient', () => ({
 
 vi.mock('../components/lookups/client.js', () => ({
   listLookupRegistry: vi.fn(),
+  readLookupRegistry: vi.fn(),
 }));
 
 vi.mock('./toolFeedBus', () => ({
@@ -100,7 +101,7 @@ import { client } from './agentlyClient';
 import { setStage } from './stageBus';
 import { onTranscript as applyTranscriptToChatStore, reset as resetChatStoreConversation, submit as submitToChatStore, steer as steerToChatStore, onSSE as applyEventToChatStore, getActiveTurnId } from './chatStore';
 import { onInit, prepareUpload, submitMessage } from './chatService';
-import { listLookupRegistry } from '../components/lookups/client.js';
+import { listLookupRegistry, readLookupRegistry } from '../components/lookups/client.js';
 import {
   dsTick,
   ensureContextResources,
@@ -309,6 +310,42 @@ describe('submitMessage', () => {
     expect(chatState.lastHasRunning).toBe(true);
     expect(disconnectStream).not.toHaveBeenCalled();
     expect(clearPendingConversationBootstrap).not.toHaveBeenCalled();
+  });
+
+  it('rejects a selection from an older picker and acknowledges a scoped draft only after the queue accepts it', async () => {
+    const pickerRoot = {version: '1', contentFingerprint: 'a'.repeat(64)};
+    const entry = {name: 'record', title: 'Record', required: true, pickerRoot};
+    const starter = {id: 'startertask://example/default#review', fingerprint: 'b'.repeat(64)};
+    const token = '@{record:42 "Example"}';
+    const message = {starterTask: starter, content: `Review ${token}.`, lookupSelections: [{token, pickerRoot}]};
+    const form = {id: 'starter-conversation'};
+    const context = {Context: name => {
+      if (name === 'meta') return {handlers: {dataSource: {peekFormData: () => ({starterTasks: [{id: starter.id, lookupFingerprint: starter.fingerprint, prompt: 'Review /record.'}]})}}};
+      if (name === 'conversations') return {handlers: {dataSource: {peekFormData: () => form, setFormData: ({values}) => Object.assign(form, values)}}};
+      return null;
+    }};
+    const onAccepted = vi.fn();
+    readLookupRegistry.mockResolvedValue({entries: [], starterEntries: [{...entry, pickerRoot: {...pickerRoot, version: '2'}}]});
+    await submitMessage({context, message, onAccepted});
+    expect(ensureConversation).not.toHaveBeenCalled();
+    expect(client.query).not.toHaveBeenCalled();
+    expect(onAccepted).not.toHaveBeenCalled();
+
+    readLookupRegistry.mockResolvedValue({entries: [], starterEntries: [entry]});
+    ensureConversation.mockResolvedValue(form.id);
+    ensureContextResources.mockReturnValue({lastHasRunning: false});
+    client.query.mockRejectedValueOnce(new Error('Queue rejected'));
+    await expect(submitMessage({context, message, onAccepted})).rejects.toThrow('Queue rejected');
+    expect(onAccepted).not.toHaveBeenCalled();
+
+    const accepted = queryDeferred();
+    client.query.mockReturnValueOnce(accepted.promise);
+    const pending = submitMessage({context, message, onAccepted});
+    await vi.waitFor(() => expect(client.query).toHaveBeenCalledTimes(2));
+    expect(onAccepted).not.toHaveBeenCalled();
+    accepted.resolve({});
+    await pending;
+    expect(onAccepted).toHaveBeenCalledTimes(1);
   });
 
   it('persists displayQuery to transcript while sending structured planner context to the agent', async () => {

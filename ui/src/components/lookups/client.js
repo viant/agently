@@ -47,7 +47,9 @@ export async function readLookupRegistry(contextKind, contextID, owning, starter
   const body = await res.json();
   const entries = Array.isArray(body?.entries) ? body.entries : [];
   const starterEntries = Array.isArray(body?.starterEntries) ? body.starterEntries : [];
-  if (starter && !starterEntries.length) throw new Error('This task’s lookups are unavailable.');
+  if (starter && (!starterEntries.length || starterEntries.some(entry => !entry.pickerRoot?.version || !entry.pickerRoot?.contentFingerprint))) {
+    throw new Error('This task’s lookups are unavailable.');
+  }
   return {entries, starterEntries};
 }
 

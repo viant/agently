@@ -735,7 +735,7 @@ export function onFetchQueuedTurns({ context, data, payload, collection, result 
   return queuedTurns;
 }
 
-export async function submitMessage({ context, message, model, agent }) {
+export async function submitMessage({ context, message, model, agent, onConversationCreated, onAccepted }) {
   const displayQuery = typeof message === 'object' && message
     ? String(message?.displayQuery || '').trim()
     : '';
@@ -751,7 +751,8 @@ export async function submitMessage({ context, message, model, agent }) {
   const rawQuery = typeof message === 'string'
     ? message.trim()
     : String(message?.content || message?.text || message?.value || '').trim();
-  const goalCommand = parseGoalCommand(rawQuery);
+  const starter = message?.starterTask;
+  const goalCommand = starter ? null : parseGoalCommand(rawQuery);
   if (goalCommand) {
     await handleGoalCommand({ context, command: goalCommand });
     return;
@@ -762,7 +763,6 @@ export async function submitMessage({ context, message, model, agent }) {
   const persistedAgent = sanitizeAutoSelection(getPersistedSelectedAgent());
   const effectiveAgentForLookup = resolveSubmitAgent({ selectedAgent, persistedAgent, metaForm, convForm }) || 'default';
   let query = rawQuery;
-  const starter = message?.starterTask;
   if (starter || (rawQuery && rawQuery.includes('@{'))) {
     try {
       const owner = lookupOwnerFromContext(context);
@@ -772,7 +772,7 @@ export async function submitMessage({ context, message, model, agent }) {
         if (!task) throw new Error('This task has changed or is unavailable. Reopen it to continue.');
         const current = await readLookupRegistry('chat-composer', effectiveAgentForLookup, owner, starter);
         const missing = missingStarterLookup(rawQuery, task.prompt, current.starterEntries, message.lookupSelections);
-        if (missing) throw new Error(`Choose ${missing} before sending.`);
+        if (missing) throw new Error(`Reopen the task and choose ${missing} before sending.`);
         registry = [...current.entries, ...current.starterEntries];
       } else {
         registry = await listLookupRegistry('chat-composer', effectiveAgentForLookup, owner);
@@ -822,7 +822,10 @@ export async function submitMessage({ context, message, model, agent }) {
     agent: selectedAgent,
     model: effectiveModel || selectedModel,
     immediateSubmit: true,
-    onCreated: id => landingWorkspaceSelection?.adoption?.commit(id)
+    onCreated: id => {
+      if (starter) onConversationCreated?.(id);
+      landingWorkspaceSelection?.adoption?.commit(id);
+    }
   });
   const chatState = ensureContextResources(context);
   const clientRequestId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
@@ -997,6 +1000,7 @@ export async function submitMessage({ context, message, model, agent }) {
       chatState.pendingInitialSubmitConversationID = '';
     }
   }
+  if (starter) onAccepted?.();
   logStreamDebug(chatState, 'submit-query-response', {
     conversationId: conversationID,
     hasInlineContent: String(queryResult?.content || '').trim() !== '',

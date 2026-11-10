@@ -21,6 +21,7 @@ import {
   serializeManualToken,
   isValidMoney,
   missingStarterLookup,
+  matchesPickerSelection,
 } from './tokens.js';
 import { listLookupRegistry, readLookupRegistry, fetchDatasource } from './client.js';
 import {lookupOwnerFromContext} from './owner.js';
@@ -620,7 +621,7 @@ export default function NamedLookupInput({
     return attached ? {
       ...segment,
       lookupTitle: attached.title || unresolvedChipLabel(segment.name),
-      unresolved: segment.unresolved || (attached.required && !verifiedSelections.includes(segment.raw)),
+      unresolved: segment.unresolved || (attached.required && !verifiedSelections.some(selection => matchesPickerSelection(selection, segment.raw, attached))),
     } : segment;
   }), [starterEntries, value, verifiedSelections]);
   const chips = useMemo(
@@ -962,9 +963,9 @@ export default function NamedLookupInput({
         if (starterEntries.includes(entry)) {
           setPickerSelections(previous => {
             const tokens = previous?.key === starterKey ? [...previous.tokens] : [];
-            const replaced = tokens.indexOf(replacedChipRaw);
+            const replaced = tokens.findIndex(selection => selection.token === replacedChipRaw);
             if (replaced >= 0) tokens.splice(replaced, 1);
-            tokens.push(token);
+            tokens.push({token, pickerRoot: entry.pickerRoot});
             return {key: starterKey, tokens};
           });
         }

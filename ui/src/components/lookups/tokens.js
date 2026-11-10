@@ -203,18 +203,23 @@ export function flattenStored(storedText, registry, options = {}) {
   });
 }
 
+export function matchesPickerSelection(selection, token, entry) {
+  return selection?.token === token && !!entry.pickerRoot?.version && !!entry.pickerRoot?.contentFingerprint &&
+    selection.pickerRoot?.version === entry.pickerRoot.version &&
+    selection.pickerRoot?.contentFingerprint === entry.pickerRoot.contentFingerprint;
+}
+
 export function missingStarterLookup(text, prompt, starterEntries, selections) {
   const required = parseAuthored(prompt, starterEntries).filter(segment => segment.kind === 'picker' && segment.entry.required);
   const requiredEntries = new Map(starterEntries.filter(entry => entry.required).map(entry => [entry.name, entry]));
-  const selected = new Map();
-  for (const raw of Array.isArray(selections) ? selections : []) selected.set(raw, (selected.get(raw) || 0) + 1);
+  const selected = Array.isArray(selections) ? [...selections] : [];
   const available = new Map();
   for (const token of parseTokens(text)) {
     const entry = requiredEntries.get(token.name);
     if (!entry) continue;
-    const count = selected.get(token.raw) || 0;
-    if (!count || isUnresolvedToken(token)) return entry.title || entry.name;
-    selected.set(token.raw, count - 1);
+    const match = selected.findIndex(selection => matchesPickerSelection(selection, token.raw, entry));
+    if (match < 0 || isUnresolvedToken(token)) return entry.title || entry.name;
+    selected.splice(match, 1);
     available.set(token.name, (available.get(token.name) || 0) + 1);
   }
   for (const {entry} of required) {

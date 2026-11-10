@@ -15,6 +15,7 @@ const picker = 'window://measurement/record-picker';
 const entry = {
   name: 'arAdvertiser', title: 'Advertiser', required: true, windowId: picker,
   pickerResource: {uri: picker}, providerIdentity: 'studio',
+  pickerRoot: {version: '1', contentFingerprint: 'b'.repeat(64)},
   token: {store: '${id}', display: '${name}', modelForm: '${name} (advertiser ID ${id})', queryInput: 'Name'},
 };
 
@@ -55,15 +56,17 @@ it('blocks a scoped starter until picker selection, then sends the selected name
     expect(send().disabled).toBe(true);
     expect(submit).not.toHaveBeenCalled();
     expect(openWindow).toHaveBeenCalledTimes(1);
-    expect(openWindow.mock.calls[0][0].execution.args[4]).toMatchObject({providerIdentity: 'studio', resourceRef: {uri: picker}});
+    expect(openWindow.mock.calls[0][0].execution.args[4]).toMatchObject({providerIdentity: 'studio', resourceRef: {uri: picker}, pickerRoot: entry.pickerRoot});
     await act(async () => select({selected: {id: 42, name: 'Synthetic Advertiser'}}));
     expect(host.querySelector('[data-token]')?.textContent).toBe('Synthetic Advertiser');
     expect(send().disabled).toBe(false);
     await pressEnter(input());
     expect(submit).toHaveBeenCalledTimes(1);
     const {content, lookupSelections} = submit.mock.calls[0][0];
-    expect(lookupSelections).toEqual(['@{arAdvertiser:42 "Synthetic Advertiser"}']);
+    expect(lookupSelections).toEqual([{token: '@{arAdvertiser:42 "Synthetic Advertiser"}', pickerRoot: entry.pickerRoot}]);
     expect(missingStarterLookup(content + ' @{arAdvertiser:999 "Made Up"}', prompt, [entry], lookupSelections)).toBe('Advertiser');
+    expect(missingStarterLookup(content, prompt, [{...entry, pickerRoot: {...entry.pickerRoot, version: '2'}}], lookupSelections)).toBe('Advertiser');
+    expect(missingStarterLookup(content, prompt, [{...entry, pickerRoot: {...entry.pickerRoot, contentFingerprint: 'c'.repeat(64)}}], lookupSelections)).toBe('Advertiser');
     expect(flattenStored(content, [entry])).toBe(
       'Using Advanced Reporting, show the reports available for Synthetic Advertiser (advertiser ID 42) and help me choose one.',
     );
