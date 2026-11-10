@@ -1423,6 +1423,7 @@ export function resolveIterationStatusDetail(data = {}) {
 export function resolveTerminalFailureMessage(errorMessage = '') {
   const text = String(errorMessage || '').trim();
   if (/api key is required/i.test(text)) return 'The selected model has no API key configured. Choose a configured model or add its provider API key, then try again.';
+  if (/^load template "/i.test(text)) return 'The selected output template could not be loaded.';
   if (resolveMCPLinkRequired(text)) {
     return 'A required connection needs authorization before this request can continue.';
   }

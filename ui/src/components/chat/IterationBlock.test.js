@@ -56,6 +56,13 @@ describe('resolveTerminalFailureMessage', () => {
       .toBe('Required tools are unavailable (required-tools). Check the configured connection or authorization, then retry.');
   });
 
+  it('identifies template binding failures without exposing resource names or backend causes', () => {
+    expect(resolveTerminalFailureMessage('load template "example-output": resource revision denied'))
+      .toBe('The selected output template could not be loaded.');
+    expect(resolveTerminalFailureMessage('load template "example-output": load intake profile "example": resource revision denied'))
+      .toBe('The selected output template could not be loaded.');
+  });
+
   it('does not expose arbitrary backend errors', () => {
     expect(resolveTerminalFailureMessage('private backend diagnostic'))
       .toBe('The assistant could not finish this request.');
