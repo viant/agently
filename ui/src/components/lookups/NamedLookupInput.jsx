@@ -497,6 +497,9 @@ export default function NamedLookupInput({
     : registry, [registry, starterEntries]);
   const currentStarterKey = useRef(starterKey);
   currentStarterKey.current = starterKey;
+  const [pickerSelections, setPickerSelections] = useState(null);
+  const verifiedSelections = pickerSelections?.key === starterKey ? pickerSelections.tokens : EMPTY_ENTRIES;
+  useEffect(() => {setPickerSelections(null);}, [starterKey]);
   const [activeTrigger, setActiveTrigger] = useState(null);
   const skillMenuID = React.useId();
   const dismissedSkillValue = useRef(null);
@@ -532,6 +535,7 @@ export default function NamedLookupInput({
   const [editingChip, setEditingChip] = useState(null);
   const [debugEvents, setDebugEvents] = useState([]);
   const editorRef = useRef(null);
+  const syncedPickerDisplay = useRef({entries: EMPTY_ENTRIES, selections: EMPTY_ENTRIES});
   const inputRef = useRef(null);
   const chipEditInputRef = useRef(null);
   const fetchTimer = useRef(null);
@@ -549,11 +553,16 @@ export default function NamedLookupInput({
     onValueResolver(() => {
       const draft = multiline && editorRef.current ? serializeEditor(editorRef.current) : currentValueRef.current;
       const chip = editingChipRef.current;
-      if (starterKey && (!starterEntries.length || missingStarterLookup(draft, starterLookup.prompt, starterEntries))) return null;
-      if (starterEntries.some(entry => entry.required && entry.name === chip?.name)) return draft;
+      if (starterKey) {
+        if (!starterEntries.length || missingStarterLookup(draft, starterLookup.prompt, starterEntries, verifiedSelections)) return null;
+        const content = starterEntries.some(entry => entry.required && entry.name === chip?.name)
+          ? draft
+          : draftWithEditedChip(draft, chip, chipEditInputRef.current?.value ?? chip?.value);
+        return {content, lookupSelections: verifiedSelections};
+      }
       return draftWithEditedChip(draft, chip, chipEditInputRef.current?.value ?? chip?.value);
     });
-  }, [multiline, onValueResolver, starterKey, starterEntries, starterLookup?.prompt, value]);
+  }, [multiline, onValueResolver, starterKey, starterEntries, starterLookup?.prompt, value, verifiedSelections]);
 
   useEffect(() => {
     let cancelled = false;
@@ -607,9 +616,13 @@ export default function NamedLookupInput({
 
   const segments = useMemo(() => displaySegments(value).map(segment => {
     if (segment.kind !== 'chip' || !starterEntries.length) return segment;
-    const title = starterEntries.find(entry => entry.name === segment.name)?.title;
-    return title ? {...segment, lookupTitle: title} : segment;
-  }), [starterEntries, value]);
+    const attached = starterEntries.find(entry => entry.name === segment.name);
+    return attached ? {
+      ...segment,
+      lookupTitle: attached.title || unresolvedChipLabel(segment.name),
+      unresolved: segment.unresolved || (attached.required && !verifiedSelections.includes(segment.raw)),
+    } : segment;
+  }), [starterEntries, value, verifiedSelections]);
   const chips = useMemo(
     () => segments.filter((segment) => segment.kind === 'chip'),
     [segments]
@@ -650,7 +663,7 @@ export default function NamedLookupInput({
     return () => window.removeEventListener('named-lookup:debug', handleDebugEvent);
   }, []);
 
-  const invalidStarter = !!starterKey && (!starterEntries.length || !!missingStarterLookup(value, starterLookup.prompt, starterEntries));
+  const invalidStarter = !!starterKey && (!starterEntries.length || !!missingStarterLookup(value, starterLookup.prompt, starterEntries, verifiedSelections));
   useLayoutEffect(() => {
     onValidityChange?.(hasUnresolvedRequired || invalidStarter);
   }, [hasUnresolvedRequired, invalidStarter, onValidityChange]);
@@ -946,6 +959,15 @@ export default function NamedLookupInput({
           const after = String(value || '').slice(triggerCaret);
           nextStored = before + token + after;
         }
+        if (starterEntries.includes(entry)) {
+          setPickerSelections(previous => {
+            const tokens = previous?.key === starterKey ? [...previous.tokens] : [];
+            const replaced = tokens.indexOf(replacedChipRaw);
+            if (replaced >= 0) tokens.splice(replaced, 1);
+            tokens.push(token);
+            return {key: starterKey, tokens};
+          });
+        }
         onChange(nextStored || token);
         lastSyncedValueRef.current = nextStored || token;
         return true;
@@ -958,7 +980,7 @@ export default function NamedLookupInput({
         setActiveTrigger(null);
       }
     },
-    [activeTrigger, context, multiline, onChange, starterKey, value]
+    [activeTrigger, context, multiline, onChange, starterEntries, starterKey, value]
   );
 
   const pickRow = useCallback(
@@ -1134,11 +1156,14 @@ export default function NamedLookupInput({
 
   useEffect(() => {
     if (!useInlineEditor || !editorRef.current) return;
+    const previousDisplay = syncedPickerDisplay.current;
+    const pickerDisplayChanged = previousDisplay.entries !== starterEntries || previousDisplay.selections !== verifiedSelections;
+    syncedPickerDisplay.current = {entries: starterEntries, selections: verifiedSelections};
     const currentStored = serializeEditor(editorRef.current);
     const activeChipEditor = editorRef.current.querySelector?.('[data-chip-editor="true"]');
     const hasChipEditor = !!activeChipEditor;
     const activeChipRaw = activeChipEditor?.getAttribute?.('data-token') || '';
-    if (shouldSkipEditorSync({
+    if (!pickerDisplayChanged && shouldSkipEditorSync({
       editingChip,
       currentStored,
       lastSyncedValue: lastSyncedValueRef.current,

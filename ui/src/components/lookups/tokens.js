@@ -203,12 +203,19 @@ export function flattenStored(storedText, registry, options = {}) {
   });
 }
 
-export function missingStarterLookup(text, prompt, starterEntries) {
+export function missingStarterLookup(text, prompt, starterEntries, selections) {
   const required = parseAuthored(prompt, starterEntries).filter(segment => segment.kind === 'picker' && segment.entry.required);
-  const stored = parseTokens(text);
+  const requiredEntries = new Map(starterEntries.filter(entry => entry.required).map(entry => [entry.name, entry]));
+  const selected = new Map();
+  for (const raw of Array.isArray(selections) ? selections : []) selected.set(raw, (selected.get(raw) || 0) + 1);
   const available = new Map();
-  for (const token of stored) {
-    if (!isUnresolvedToken(token)) available.set(token.name, (available.get(token.name) || 0) + 1);
+  for (const token of parseTokens(text)) {
+    const entry = requiredEntries.get(token.name);
+    if (!entry) continue;
+    const count = selected.get(token.raw) || 0;
+    if (!count || isUnresolvedToken(token)) return entry.title || entry.name;
+    selected.set(token.raw, count - 1);
+    available.set(token.name, (available.get(token.name) || 0) + 1);
   }
   for (const {entry} of required) {
     const count = available.get(entry.name) || 0;

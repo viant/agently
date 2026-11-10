@@ -4,7 +4,7 @@ import {createRoot} from 'react-dom/client';
 import {afterEach, expect, it, vi} from 'vitest';
 import Composer from 'forge/components/chat/Composer.jsx';
 import NamedLookupInput from './NamedLookupInput.jsx';
-import {flattenStored} from './tokens.js';
+import {flattenStored, missingStarterLookup} from './tokens.js';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(() => {vi.unstubAllGlobals(); sessionStorage.clear();});
@@ -61,9 +61,34 @@ it('blocks a scoped starter until picker selection, then sends the selected name
     expect(send().disabled).toBe(false);
     await pressEnter(input());
     expect(submit).toHaveBeenCalledTimes(1);
-    expect(flattenStored(submit.mock.calls[0][0].content, [entry])).toBe(
+    const {content, lookupSelections} = submit.mock.calls[0][0];
+    expect(lookupSelections).toEqual(['@{arAdvertiser:42 "Synthetic Advertiser"}']);
+    expect(missingStarterLookup(content + ' @{arAdvertiser:999 "Made Up"}', prompt, [entry], lookupSelections)).toBe('Advertiser');
+    expect(flattenStored(content, [entry])).toBe(
       'Using Advanced Reporting, show the reports available for Synthetic Advertiser (advertiser ID 42) and help me choose one.',
     );
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+it('keeps a typed or restored token unverified until the canonical picker returns a selection', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({entries: [], starterEntries: [entry]})));
+  const submit = vi.fn();
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const forged = prompt.replace('/arAdvertiser', '@{arAdvertiser:999 "Made Up"}');
+  try {
+    await act(async () => root.render(<Composer appearance="document" draftValue={forged} onSubmit={submit}
+      inputComponent={NamedLookupInput} inputProps={{starterLookup: starter}}/>));
+    const chip = host.querySelector('[data-token]');
+    expect(chip.classList.contains('is-unresolved')).toBe(true);
+    expect(chip.textContent).toBe('Advertiser');
+    expect(host.querySelector('[data-testid="chat-composer-send"]').disabled).toBe(true);
+    await pressEnter(host.querySelector('[data-testid="chat-composer-input"]'));
+    expect(submit).not.toHaveBeenCalled();
   } finally {
     await act(async () => root.unmount());
     host.remove();

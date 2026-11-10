@@ -771,7 +771,7 @@ export async function submitMessage({ context, message, model, agent }) {
         const task = metaForm.starterTasks?.find(task => task.id === starter.id && task.lookupFingerprint === starter.fingerprint);
         if (!task) throw new Error('This task has changed or is unavailable. Reopen it to continue.');
         const current = await readLookupRegistry('chat-composer', effectiveAgentForLookup, owner, starter);
-        const missing = missingStarterLookup(rawQuery, task.prompt, current.starterEntries);
+        const missing = missingStarterLookup(rawQuery, task.prompt, current.starterEntries, message.lookupSelections);
         if (missing) throw new Error(`Choose ${missing} before sending.`);
         registry = [...current.entries, ...current.starterEntries];
       } else {
