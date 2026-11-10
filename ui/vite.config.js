@@ -111,6 +111,19 @@ export const resolveForgeRoot = (uiRoot, env = {}) => {
     : resolve(uiRoot, 'node_modules/forge');
 };
 
+export function resolveForgePublicAliases(forgeRoot) {
+  const forgeExports = JSON.parse(fs.readFileSync(resolve(forgeRoot, 'package.json'), 'utf8')).exports || {};
+  return Object.entries(forgeExports).flatMap(([key, entry]) => {
+    const target = typeof entry === 'string' ? entry : entry.default;
+    if (!key.startsWith('./') || !target?.startsWith('./src/')) return [];
+    const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const extension = path.extname(target);
+    const wildcard = '(.+?)' + (extension ? '(?:' + escape(extension) + ')?' : '');
+    const suffix = key.slice(2).split('*').map(escape).join(wildcard);
+    return [{find: new RegExp('^forge/' + suffix + '$'), replacement: resolve(forgeRoot, target).replace('*', '$1')}];
+  });
+}
+
 export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const safeEnv = pickEnv(env, ['AUTH_URL', 'DATA_URL', 'APP_URL', 'APPSERVER_URL', 'VITE_FORGE_LOG_LEVEL']);
@@ -128,16 +141,7 @@ export default defineConfig(({ mode, command }) => {
   const appNodeModules = resolve(uiRoot, 'node_modules');
   const sharedDependency = name => fs.existsSync(resolve(appNodeModules, name))
     ? resolve(appNodeModules, name) : resolve(forgeRoot, 'node_modules', name);
-  const forgeExports = JSON.parse(fs.readFileSync(resolve(forgeRoot, 'package.json'), 'utf8')).exports || {};
-  const forgePublicAliases = Object.entries(forgeExports).flatMap(([key, entry]) => {
-    const target = typeof entry === 'string' ? entry : entry.default;
-    if (!key.startsWith('./') || !target?.startsWith('./src/')) return [];
-    const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const extension = path.extname(target);
-    const wildcard = '(.+?)' + (extension ? '(?:' + escape(extension) + ')?' : '');
-    const suffix = key.slice(2).split('*').map(escape).join(wildcard);
-    return [{find: new RegExp('^forge/' + suffix + '$'), replacement: resolve(forgeRoot, target).replace('*', '$1')}];
-  });
+  const forgePublicAliases = resolveForgePublicAliases(forgeRoot);
 
   return {
     base: '/',
@@ -227,7 +231,7 @@ export default defineConfig(({ mode, command }) => {
       }
     },
     optimizeDeps: {
-      include: ['@blueprintjs/core', '@blueprintjs/icons', '@phosphor-icons/react', '@preact/signals-react'],
+      include: ['@blueprintjs/core', '@blueprintjs/icons', '@phosphor-icons/react', '@preact/signals-react', 'fast-deep-equal', 'numeral', 'immutability-helper', 'lodash', 'scheduler', 'react/jsx-runtime'],
       exclude: ['forge']
     },
     test: {

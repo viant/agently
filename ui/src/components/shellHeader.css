@@ -62,7 +62,7 @@
 .app-summary-surface-shell.is-document.is-workspace:not(.is-split) .app-summary-conversation.is-composer-only { display: grid; order: 2; flex: 0 0 auto; overflow: visible; }
 .app-summary-surface-shell.is-document.is-workspace:not(.is-split) .app-summary-conversation.is-composer-only {
   position: absolute; z-index: 2; inset-inline-end: 12px; bottom: 12px;
-  max-width: calc(100% - 24px);
+  max-width: calc(100% - 24px); max-height: calc(100% - 24px); overflow-y: auto; box-sizing: border-box;
 }
 .app-summary-surface-shell.is-document .is-composer-only.is-composer-expanded {
   width: min(600px, calc(100% - 24px)); border: 1px solid var(--app-border);

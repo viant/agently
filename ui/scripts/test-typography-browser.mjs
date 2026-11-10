@@ -1,3 +1,4 @@
+import createHostConfig, {resolveForgeRoot} from '../vite.config.js';
 import {conversation as outputConversation} from '../src/components/outputHandoffFixture.js';
 import {verifyDocumentChat,verifyExecutionDetails} from './documentChat.browser.mjs';
 import {verifyTurnFeedback} from './turnFeedback.browser.mjs';
@@ -12,7 +13,8 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const dependencies = realpathSync(fileURLToPath(new URL('../node_modules', import.meta.url)));
 const cacheDir = fileURLToPath(new URL('../.vite/typography-proof', import.meta.url));
 const core = path.resolve(process.env.AGENTLY_CORE_SOURCE_ROOT || path.resolve(root, '../../agently-core'));
-const forge = path.resolve(process.env.FORGE_SOURCE_ROOT || path.resolve(root, '../../forge'));
+const forge = resolveForgeRoot(root, process.env);
+const hostConfig = createHostConfig({mode: 'test', command: 'serve'});
 const {verifyChartFoundation,verifyAuthoredCharts} = await import(pathToFileURL(path.join(forge,'src/demos/theme/chartFoundation.browser.mjs')));
 const proofDirectory = process.env.AGENTLY_TYPOGRAPHY_WORKSPACE_PROOF;
 const readProof = name => readFileSync(path.join(proofDirectory, name));
@@ -25,7 +27,7 @@ const server = await createServer({
   configFile: false,
   root,
   cacheDir,
-  resolve: {alias: {forge: path.join(forge,'src'), 'agently-core-ui-sdk':path.join(core,'sdk/ts/src'), react: path.join(dependencies,'react'), 'react-dom':path.join(dependencies,'react-dom'), '@preact/signals-react':path.join(dependencies,'@preact/signals-react')}},
+  resolve: hostConfig.resolve,
   plugins: [{name:'typography-proof-fixture',
     resolveId(source) { if (source === '/__typography/fixture.js') return '\0typography-fixture'; },
     load(id) { if (id === '\0typography-fixture') return `export default ${JSON.stringify({metadata,pilot})}`; },
@@ -44,7 +46,7 @@ const server = await createServer({
     });
   }}],
   // Scan both proof pages before interactions can discover dependencies and reload the page.
-  optimizeDeps: {entries: ['typography-proof.html', 'typography-components-proof.html']},
+  optimizeDeps: {...hostConfig.optimizeDeps, entries: ['typography-proof.html', 'typography-components-proof.html']},
   server: {host: '127.0.0.1', port: 0, fs: {allow: [root, dependencies, forge, core]}},
 });
 let browser;
@@ -79,9 +81,14 @@ try {
   // The feedback dialog and stable toolbar also cover the tablet breakpoint.
   {
     const page = await browser.newPage({viewport:{width:768,height:1024}});
+    const pageErrors = [];
+    page.on('pageerror', error => pageErrors.push(error.message));
     await page.clock.install();
     await page.goto(`${baseURL}/typography-components-proof.html`);
-    await page.locator('#foundation-chat .app-rich-prose').first().waitFor();
+    await page.locator('#foundation-chat .app-rich-prose').first().waitFor().catch(async error => {
+      console.error('Typography fixture diagnostics', JSON.stringify({pageErrors, text: (await page.locator('body').innerText()).slice(0, 2000)}));
+      throw error;
+    });
     await page.evaluate(() => document.fonts.ready);
     await verifyTurnFeedback(page);
     await page.close();
@@ -134,7 +141,9 @@ try {
       const panel = node.querySelector('.app-summary-workspace');
       const chat = node.querySelector('.app-summary-conversation');
       const glyph = header.querySelector(innerWidth < 761 ? '.app-shell-menu-toggle svg' : '.app-shell-history svg');
-      return {direction: getComputedStyle(surface).flexDirection, headerHeight: header.getBoundingClientRect().height,
+      const headerBox = header.getBoundingClientRect();
+      const controlsContained = [...header.querySelectorAll('button, [role=tab]')].every(control => {const box = control.getBoundingClientRect(); return box.height === 0 || (box.top >= headerBox.top && box.bottom <= headerBox.bottom);});
+      return {direction: getComputedStyle(surface).flexDirection, headerHeight: headerBox.height, headerMinHeight: parseFloat(getComputedStyle(header).minHeight), controlsContained,
         headerBasis: getComputedStyle(header.querySelector('.app-topbar-left')).flexBasis,
         sideBySide: panel.getBoundingClientRect().x > chat.getBoundingClientRect().x, chatVisible: getComputedStyle(chat).display !== 'none',
         glyph: glyph.getBoundingClientRect().width, role: header.querySelector('h1').dataset.forgeType,
@@ -143,8 +152,8 @@ try {
     assert.equal(viewerGeometry.direction, viewport.width > 500 ? 'row' : 'column');
     assert.equal(viewerGeometry.role, 'label');
     assert.equal(viewerGeometry.glyph, 18);
-    if (viewport.width > 500) {assert.equal(viewerGeometry.headerHeight, 54); assert.equal(viewerGeometry.sideBySide, true); assert.equal(viewerGeometry.chatVisible, true);}
-    else {assert.equal(viewerGeometry.headerHeight, 59); assert.equal(viewerGeometry.chatVisible, true); assert.equal(await viewer.getByRole('button', {name: 'Show composer', exact: true}).isVisible(), true); assert.equal(viewerGeometry.headerBasis, 'auto');}
+    if (viewport.width > 500) {assert.equal(viewerGeometry.headerMinHeight, 54); assert.ok(viewerGeometry.headerHeight >= viewerGeometry.headerMinHeight); assert.equal(viewerGeometry.controlsContained, true); assert.equal(viewerGeometry.sideBySide, true); assert.equal(viewerGeometry.chatVisible, true);}
+    else {assert.equal(viewerGeometry.headerMinHeight, 56); assert.ok(viewerGeometry.headerHeight >= viewerGeometry.headerMinHeight); assert.equal(viewerGeometry.controlsContained, true); assert.equal(viewerGeometry.chatVisible, true); assert.equal(await viewer.getByRole('button', {name: 'Show composer', exact: true}).isVisible(), true); assert.equal(viewerGeometry.headerBasis, 'auto');}
     if (viewport.width < 500) {
       const content = viewer.locator('.app-summary-conversation > :not(.app-workspace-composer-toggle)').first();
       assert.equal(await content.isVisible(), false, 'Collapsed composer content stays hidden');
@@ -158,8 +167,12 @@ try {
     assert.equal(await closeGlyph.isVisible(), true, 'the tab-close glyph remains visible on phones');
     const hide = viewer.getByRole('button', {name: 'Hide workspace', exact: true});
     if (viewport.width > 500) {
-      await activate(viewer.getByRole('button', {name: 'Expand workspace', exact: true}));
-      const restore = viewer.getByRole('button', {name: 'Restore split view', exact: true});
+      await activate(viewer.getByRole('button', {name: 'Show chat as overlay', exact: true}));
+      const restore = viewer.getByRole('button', {name: 'Show chat on the left', exact: true});
+      const overlayContained = await viewer.locator('.app-summary-conversation.is-composer-only').evaluate(node => { const box = node.getBoundingClientRect(); const surface = node.parentElement.getBoundingClientRect(); return box.top >= surface.top && box.bottom <= surface.bottom; });
+      assert.equal(overlayContained, true, 'Overlay composer stays inside the workspace and cannot cover header controls');
+      assert.equal(await viewer.locator('.app-summary-surface-shell.is-split').count(), 0);
+      assert.equal(await viewer.locator('.app-summary-conversation.is-composer-only').count(), 1);
       const pointer = await restore.evaluate(node => {
         const css = getComputedStyle(node), box = node.getBoundingClientRect();
         const next = node.parentElement.querySelector('[aria-expanded]'), other = next.getBoundingClientRect();
@@ -182,6 +195,8 @@ try {
       assert.equal(keyboard.visible, true);
       assert.equal(keyboard.outline, keyboard.expectedOutline);
       await activate(restore);
+      assert.equal(await viewer.locator('.app-summary-surface-shell.is-split').count(), 1);
+      assert.equal(await viewer.locator('.app-summary-conversation.is-composer-only').count(), 0);
       console.log(JSON.stringify({viewport, shellPointerFocus: pointer, shellKeyboardFocus: keyboard}));
     }
 
