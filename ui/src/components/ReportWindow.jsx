@@ -185,7 +185,7 @@ function AdmittedReportWindow({entry, report, services, restored, historicalRepl
   return <div className="forge-report-filter-layout">
     <ReportFilterBar context={reportContext} controls={fields} values={{...parameters,...Object.fromEntries(fields.filter(field=>field.multiple&&field.kind==='text'&&editedParameters[field.id]!==undefined).map(field=>[field.id,editedParameters[field.id]]))}} scopeKey={JSON.stringify(report.resource)} loadChoices={loadChoices}
       onChange={(id,value)=>{const field=fields.find(field=>field.id===id);setParameter(id,field?.multiple&&field.kind!=='choice'&&typeof value==='string'?reportParameterValue(value,field):value,value);}}
-      onDatePreset={dates.requestPreset} onDateRange={dates.manualRange} onDateDraft={dates.cancelDraftRequests}
+      onDatePreset={dates.requestPreset} onDateRange={dates.manualRange} onDateDraft={dates.cancelDraftRequests} onDateTimeZone={dates.setTimeZone}
       onApply={()=>{if(!missing.length&&!dates.dateBlocked){setApplied(applyReportFilterParameters(parameters,fields));setRunTrigger(value=>value+1);}}}
       onReset={()=>{dates.reset();setEditedParameters({});}}
       applyDisabled={missing.length>0||dates.dateBlocked} placement={report.resourceDefinition?.builderDefinition?.reportBuilder?.filterPresentation||report.resourceDefinition?.metadata?.filterPlacement||'top'}/>
