@@ -1432,7 +1432,7 @@ export function resolveTerminalFailureMessage(errorMessage = '') {
     const bundles = String(match[1] || '').trim();
     return `Required tools are unavailable${bundles ? ` (${bundles})` : ''}. Check the configured connection or authorization, then retry.`;
   }
-  return 'The assistant could not finish this request.';
+  return 'I couldn’t complete this request. You can review the details and retry.';
 }
 
 export function resolveMCPLinkRequired(errorMessage = '') {

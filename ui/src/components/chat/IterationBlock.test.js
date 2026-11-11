@@ -65,7 +65,7 @@ describe('resolveTerminalFailureMessage', () => {
 
   it('does not expose arbitrary backend errors', () => {
     expect(resolveTerminalFailureMessage('private backend diagnostic'))
-      .toBe('The assistant could not finish this request.');
+      .toBe('I couldn’t complete this request. You can review the details and retry.');
   });
 
   it('recognizes delegated MCP authorization without workspace-specific mappings', () => {
@@ -2461,5 +2461,21 @@ describe('visible execution group correlation', () => {
     expect(html).toContain('data-tool-call-ids="[&quot;native-tool&quot;]"');
     expect(html).toContain('data-tool-message-ids="[&quot;native-tool-message&quot;]"');
     expect(html).not.toContain('not-a-visible-attribute');
+  });
+});
+
+describe('terminal response without a final model message', () => {
+  it('owns a failed turn even when its last recorded tool completed successfully', () => {
+    const html = renderToStaticMarkup(React.createElement(IterationBlock, {
+      canonicalRow: {
+        kind: 'iteration', conversationId: 'conversation-terminal', turnId: 'turn-terminal', lifecycle: 'failed',
+        rounds: [{pageId: 'completed-step', status: 'completed', modelSteps: [], toolCalls: [
+          {toolCallId: 'discovery', toolName: 'tools/list', status: 'completed'},
+        ]}],
+      },
+      message: {id: 'terminal-row'}, context: null, retryPrompt: 'Update the draft',
+    }));
+    expect(html).toContain('I couldn’t complete this request. You can review the details and retry.');
+    expect(html).toContain('Try again');
   });
 });
