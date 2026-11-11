@@ -54,6 +54,13 @@
 .app-summary-surface-shell.is-document:is(.is-conversation, .is-workspace) { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: row; position: relative; inset: auto; z-index: auto; background: var(--app-surface); }
 .app-summary-surface-shell.is-document.is-workspace:not(.is-split) { position: relative; inset: auto; z-index: auto; background: var(--app-surface); flex-direction: column; }
 .app-summary-surface-shell.is-document .app-summary-conversation { order: 0; flex: 1; min-width: 0; min-height: 0; overflow: auto; }
+/* A conversation owning the whole surface can use the host's content width.
+ * Split and overlay chat retain the shared component's contained measure. */
+.app-summary-surface-shell.is-document.is-conversation .forge-document-chat:not(.is-starting) > .chat-feed-stage > :is(.app-chat-feed, .chat-feed),
+.app-summary-surface-shell.is-document.is-conversation .forge-document-chat:not(.is-starting) .forge-document-composer {
+  width: min(100%, var(--app-chat-max-width, 1440px));
+}
+
 .app-summary-surface-shell.is-document .app-summary-workspace { display: flex; flex-direction: column; overflow: hidden; order: 1; flex: 1; min-width: 0; min-height: 0; margin: 0; border: 0; border-radius: 0; border-inline-start: 1px solid var(--app-border); background: var(--app-surface); }
 .app-summary-surface-shell.is-document .app-summary-workspace.is-surface-hidden { display: none; }
 .app-summary-surface-shell.is-document.is-split .app-summary-workspace { flex: 1; min-height: 0; }

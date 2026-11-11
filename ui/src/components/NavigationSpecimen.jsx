@@ -19,7 +19,7 @@ export default function NavigationSpecimen() {
     signals: {collection: signal([]), control: signal({}), selection: signal(null), message: signal('')},
     handlers: {chat: {}}, Context: () => null,
     lookupHandler: name => name === 'chat.renderFeed'
-      ? () => <div>{Array.from({length: 12}, (_, index) => <Typography as="p" typeRole="body" key={index}>Example conversation item {index + 1}. The conversation remains available while reviewing the output.</Typography>)}</div>
+      ? () => <div className="app-chat-feed">{Array.from({length: 12}, (_, index) => <Typography as="p" typeRole="body" key={index}>Example conversation item {index + 1}. The conversation remains available while reviewing the output.</Typography>)}</div>
       : name === 'chat.resolveComposerProps' ? () => ({conversationId: 'specimen-workspace-chat'}) : undefined,
   }), []);
 

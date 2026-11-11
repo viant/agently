@@ -229,6 +229,28 @@ try {
     await activate(hide);
     assert.equal(await viewer.getByRole('tab', {name: 'Example output', exact: true}).count(), 0);
     assert.equal(await viewer.locator('[role="tabpanel"]').getAttribute('inert'), '');
+    const chatOnly = await viewer.evaluate(node => {
+      const chat = node.querySelector('.forge-document-chat');
+      const style = getComputedStyle(chat);
+      const available = chat.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const composer = chat.querySelector('.forge-document-composer').getBoundingClientRect();
+      const feed = chat.querySelector('.app-chat-feed, .chat-feed').getBoundingClientRect();
+      const stage = chat.querySelector('.chat-feed-stage');
+      const stageStyle = getComputedStyle(stage);
+      return {available, limit: parseFloat(getComputedStyle(node).getPropertyValue('--app-chat-max-width')) || 1440,
+        feedAvailable: stage.clientWidth - parseFloat(stageStyle.paddingLeft) - parseFloat(stageStyle.paddingRight),
+        composer: composer.width, feed: feed.width, pane: chat.getBoundingClientRect().width,
+        chatClass: chat.className, surfaceClass: node.querySelector('.app-summary-surface-shell').className};
+    });
+    console.log(JSON.stringify({viewport, chatOnly}));
+    const expectedChatWidth = Math.min(chatOnly.available, chatOnly.limit);
+    assert.ok(Math.abs(chatOnly.composer - expectedChatWidth) < 2, 'Chat-only composer uses the available host width');
+    assert.ok(Math.abs(chatOnly.feed - Math.min(chatOnly.feedAvailable, chatOnly.limit)) < 2, 'Chat-only feed uses its available width while preserving content gutters');
+    assert.ok(chatOnly.composer <= chatOnly.pane, 'Chat-only composer remains contained on phones');
+    if (process.env.AGENTLY_TYPOGRAPHY_SCREENSHOTS) {
+      mkdirSync(process.env.AGENTLY_TYPOGRAPHY_SCREENSHOTS, {recursive:true});
+      await viewer.screenshot({path:path.join(process.env.AGENTLY_TYPOGRAPHY_SCREENSHOTS,`chat-only-width-${viewport.width}.png`)});
+    }
     await activate(viewer.getByRole('button', {name: 'Show workspace', exact: true}));
     await viewer.getByRole('tab', {name: 'Example output', exact: true}).waitFor();
     console.log(JSON.stringify({viewport, shell: viewerGeometry}));
