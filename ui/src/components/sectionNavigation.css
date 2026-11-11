@@ -34,7 +34,7 @@
 .app-section-masthead { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: var(--agently-theme-spacing-2, 8px); min-height: 54px; padding-inline: var(--agently-theme-spacing-4, 16px); }
 .app-section-brand { display: flex; align-items: center; }
 .app-section-brand .app-brand-name { color: var(--app-text); border-inline-start: 1px solid var(--app-border); padding-inline-start: var(--agently-theme-spacing-2, 8px); }
-.app-section-brand .app-brand-logo { width: 36px; height: 17px; object-fit: contain; }
+.app-section-brand .app-brand-logo { width: auto; height: var(--agently-theme-spacing-5, 20px); object-fit: contain; }
 .app-section-profile { margin-top: auto; position: relative; }
 .app-section-profile .app-user-btn { width: 36px; min-width: 0; padding: 0; }
 .app-section-profile .app-user-menu { position: fixed; top: auto; right: auto; bottom: var(--agently-theme-spacing-4, 16px); left: var(--app-section-rail-width); width: min(240px, calc(100vw - 64px)); }
