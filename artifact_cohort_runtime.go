@@ -48,18 +48,28 @@ func activateArtifactCohorts(ctx, lifetimeCtx context.Context, rt *executor.Runt
 			}
 		}
 		timing := observe.Start(ctx, "startup.provider.preload", observe.Labels{Kind: "artifact"})
-		if err := binding.Source.Sync(ctx); err != nil {
-			timing.End(observe.OutcomeFor(err), observe.CacheUnknown)
-			return bindings, closeBindings, fmt.Errorf("artifact cohort preload %s: %w", providerIdentity, err)
+		syncErr := binding.Source.Sync(ctx)
+		timing.End(observe.OutcomeFor(syncErr), observe.CacheUnknown)
+		if err := syncErr; err != nil {
+			if ctx.Err() != nil || !binding.Optional {
+				return bindings, closeBindings, fmt.Errorf("artifact cohort preload %s: %w", providerIdentity, err)
+			}
+			log.Printf("optional artifact cohort unavailable: phase=preload provider=%q connection=%q cause=%v", providerIdentity, binding.ConnectionName, err)
+			if binding.Reconcile != nil {
+				binding.Reconcile()
+			}
 		}
-		timing.End(observe.OK, observe.CacheUnknown)
 		if binding.ConnectionName == "" || binding.Metadata == nil {
 			return bindings, closeBindings, fmt.Errorf("artifact cohort metadata source is required for %s", providerIdentity)
 		}
 		if err := rt.InstallPublishedMetadata(resources.Connection{Name: binding.ConnectionName, ProviderIdentity: providerIdentity}, binding.Namespaces, binding.Metadata, binding.ConnectionAliases...); err != nil {
 			return bindings, closeBindings, fmt.Errorf("install artifact cohort metadata %s: %w", providerIdentity, err)
 		}
-		log.Printf("artifact cohort ready: connection=%q aliases=%q provider=%q namespaces=%q metadata=local", binding.ConnectionName, binding.ConnectionAliases, providerIdentity, binding.Namespaces)
+		state := "ready"
+		if syncErr != nil {
+			state = "registered-unavailable"
+		}
+		log.Printf("artifact cohort %s: connection=%q aliases=%q provider=%q namespaces=%q metadata=local", state, binding.ConnectionName, binding.ConnectionAliases, providerIdentity, binding.Namespaces)
 		stops = append(stops, cohort.StartReconciliation(lifetimeCtx, binding))
 	}
 	return bindings, closeBindings, nil

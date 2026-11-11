@@ -19,7 +19,7 @@ export default function WorkspaceStyleProvider({metadata, accountKey = '', works
     manager.nonce = resolvedNonce;
     let active=true;
     const ready=manager.refresh(metadata, {accountKey, workspaceKey});
-    if(metadata?.uiStyleSource==='managed'&&!(metadata.uiStyleDiagnostics?.length&&!metadata.globalStyle)){
+    if(metadata?.uiStyleSource==='managed'){
       void ready.then(()=>{if(active)return manager.loadApplicationStyles([],{accountKey,styleSource:'managed',globalStyle:metadata.globalStyle,readResource});});
     }
     return()=>{active=false;};

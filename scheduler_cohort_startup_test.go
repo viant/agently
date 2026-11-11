@@ -59,6 +59,8 @@ func TestSchedulerLoadsConfiguredUserFactsBeforeRunning(t *testing.T) {
 }
 
 type schedulerMetadataFixture struct {
+	namespace string
+
 	syncs   atomic.Int64
 	syncErr error
 }
@@ -72,8 +74,12 @@ func (*schedulerMetadataFixture) AdmissionKey(context.Context) (string, error) {
 func (*schedulerMetadataFixture) CurrentHash(context.Context, string) (string, error) {
 	return "fixture", nil
 }
-func (*schedulerMetadataFixture) Namespaces(context.Context) ([]primitive.NamespaceCapabilities, error) {
-	return []primitive.NamespaceCapabilities{{ProviderIdentity: "producer", Namespace: "example"}}, nil
+func (s *schedulerMetadataFixture) Namespaces(context.Context) ([]primitive.NamespaceCapabilities, error) {
+	namespace := s.namespace
+	if namespace == "" {
+		namespace = "example"
+	}
+	return []primitive.NamespaceCapabilities{{ProviderIdentity: "producer", Namespace: namespace}}, nil
 }
 func (*schedulerMetadataFixture) List(context.Context, string, string) ([]primitive.ResourceState, error) {
 	return nil, nil
@@ -142,10 +148,14 @@ func TestSharedCohortStartupPreservesUserPublicAndPrivateCatalogs(t *testing.T) 
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close(context.Background())) })
 	source := &schedulerMetadataFixture{}
-	_, closeCohorts, err := activateArtifactCohorts(ctx, ctx, rt, "", []ArtifactCohortBinding{{ConnectionName: "mcp://workspace/publisher", ConnectionAliases: []string{"publisher"}, ProviderIdentity: "producer", Namespaces: []string{"example"}, Source: source, Metadata: source}}, nil)
+	optional := &schedulerMetadataFixture{namespace: "global", syncErr: fmt.Errorf("synthetic global publication unavailable")}
+	reconciled := 0
+	_, closeCohorts, err := activateArtifactCohorts(ctx, ctx, rt, "", []ArtifactCohortBinding{{ConnectionName: "mcp://workspace/publisher", ConnectionAliases: []string{"publisher"}, ProviderIdentity: "producer", Namespaces: []string{"example"}, Source: source, Metadata: source}, {Optional: true, Reconcile: func() { reconciled++ }, ConnectionName: "mcp://workspace/publisher#global", ProviderIdentity: "producer", Namespaces: []string{"global"}, Source: optional, Metadata: optional}}, nil)
 	defer closeCohorts()
 	require.NoError(t, err)
 	require.EqualValues(t, 1, source.syncs.Load())
+	require.EqualValues(t, 1, optional.syncs.Load())
+	require.Equal(t, 1, reconciled)
 	lister, ok := rt.Registry.(tool.ContextDefinitionLister)
 	require.True(t, ok)
 	for _, scheduled := range []bool{true, false} {
