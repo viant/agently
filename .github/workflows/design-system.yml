@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: viant/forge
-          ref: a5dba0f9fb79bbe6b94e43a5df66c7489a27c0ea
+          ref: eabf79b9a43b9915c24fb3a68eec567cb5a5c99e
           path: forge
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
