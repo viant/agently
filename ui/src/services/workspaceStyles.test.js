@@ -17,6 +17,7 @@ function fixture() {
   const document = {head: {
     appendChild(el) { const old = elements.indexOf(el); if (old >= 0) elements.splice(old, 1); elements.push(el); },
     get lastElementChild() { return elements.at(-1); },
+    get children() { return elements; },
   }, createElement() { const el = {dataset: {}, textContent: '', remove() { const index = elements.indexOf(el); if (index >= 0) elements.splice(index, 1); }}; return el; }};
   const media = {matches: false, listeners: new Set(), addEventListener(_, fn) { this.listeners.add(fn); }, removeEventListener(_, fn) { this.listeners.delete(fn); }};
   const storage = {getItem: key => stored.get(key) || null, setItem: (key, value) => stored.set(key, value), removeItem: key => stored.delete(key)};
@@ -173,59 +174,80 @@ describe('workspace style lifecycle', () => {
   });
 });
 
-describe('provider-scoped application resources', () => {
-  const app = namespace => ({allowStyleOverrides: true, providerIdentity: 'studio', resourceNamespace: namespace, resourceConnection: 'studio-mcp', styleResources: [`style://${namespace}/workspace`]});
-  const response = (uri, css = '.shared { color: red; }') => ({contents: [{uri, text: JSON.stringify({schemaVersion: 1, css, tokens: {'--edge': 'red'}})}]});
-  it('defaults provider CSS off and removes sheets when the host disables overrides', async () => {
+describe('one managed global stylesheet', () => {
+  const source = (styleRevision='1') => ({resourceUri:'style://shared/base',resourceConnection:'public-catalog',providerIdentity:'studio',styleRevision});
+  const namespaceStyles = [{allowStyleOverrides:true,providerIdentity:'studio',resourceNamespace:'one',resourceConnection:'private-catalog',styleResources:['style://one/workspace']}];
+  const response = (uri,css='.shared{color:red}',extra={}) => ({contents:[{uri,text:JSON.stringify({schemaVersion:1,css,tokens:{'--edge':'red'},...extra})}]});
+  it('ignores all namespace sheets and reads only the configured global base',async()=>{
+    const {manager,elements}=fixture();const reads=[];const readResource=async({uri})=>{reads.push(uri);return response(uri);};
+    await manager.loadApplicationStyles(namespaceStyles,{accountKey:'alice',styleSource:'managed',globalStyle:source(),readResource});
+    expect(reads).toEqual(['style://shared/base']);expect(elements).toHaveLength(1);expect(elements[0].textContent).not.toContain('@scope');
+    await manager.loadApplicationStyles(namespaceStyles,{accountKey:'alice',styleSource:'managed',globalStyle:source(),readResource});expect(reads).toHaveLength(1);
+    await manager.loadApplicationStyles(namespaceStyles,{accountKey:'alice',styleSource:'managed',readResource});expect(elements).toHaveLength(0);expect(reads).toHaveLength(1);
+    expect(manager.getSnapshot().diagnostics).toContain('Managed global style is unavailable.');manager.dispose();
+  });
+  it('uses local workspace CSS only in explicit local mode with no remote fallback',async()=>{
+    const {manager,elements}=fixture();await manager.refresh({...metadata(),uiStyleSource:'local'},{accountKey:'alice'});
+    const local=elements[0];let reads=0;
+    await manager.loadApplicationStyles(namespaceStyles,{accountKey:'alice',styleSource:'local',globalStyle:source(),readResource:async()=>{reads++;throw new Error('must not read remote');}});
+    expect(reads).toBe(0);expect(elements).toEqual([local]);manager.dispose();
+  });
+  it('refreshes a changed global revision and retains last admitted CSS only on transient failure',async()=>{
+    const {manager,elements}=fixture();let reads=0;
+    const readResource=async({uri,revision})=>{reads++;if(revision==='unavailable')throw new Error('Dependency unavailable');if(revision==='denied')throw Object.assign(new Error('Withdrawn'),{status:403});return response(uri,`.shared{color:${revision==='2'?'blue':'red'}}`);};
+    await manager.loadApplicationStyles([],{accountKey:'alice',styleSource:'managed',globalStyle:source(),readResource});
+    await manager.loadApplicationStyles([],{accountKey:'alice',styleSource:'managed',globalStyle:source('2'),readResource});expect(elements).toHaveLength(1);expect(elements[0].textContent).toContain('color:blue');
+    await manager.loadApplicationStyles([],{accountKey:'alice',styleSource:'managed',globalStyle:source('unavailable'),readResource});expect(elements[0].textContent).toContain('color:blue');
+    await manager.loadApplicationStyles([],{accountKey:'alice',styleSource:'managed',globalStyle:source('denied'),readResource});expect(elements).toHaveLength(0);expect(reads).toBe(4);manager.dispose();
+  });
+  it('does not install a pending sheet after withdrawal or logout',async()=>{
+    const {manager,elements}=fixture();let release;
+    const pending=manager.loadApplicationStyles([],{accountKey:'alice',styleSource:'managed',globalStyle:source(),readResource:({uri})=>new Promise(resolve=>{release=()=>resolve(response(uri));})});
+    await manager.loadApplicationStyles([],{accountKey:'alice',styleSource:'managed'});release();await pending;expect(elements).toHaveLength(0);
+    const next=manager.loadApplicationStyles([],{accountKey:'alice',styleSource:'managed',globalStyle:source('2'),readResource:({uri})=>new Promise(resolve=>{release=()=>resolve(response(uri));})});
+    manager.clear();release();await next;expect(elements).toHaveLength(0);manager.dispose();
+  });
+  it('retains embedded fonts on warm reads and cleans up only owned faces',async()=>{
+    const {manager,elements}=fixture();const unrelated={};manager.doc.fonts=new Set([unrelated]);const prior=globalThis.FontFace;let installs=0;
+    globalThis.FontFace=class{constructor(family){this.family=family;installs++;}load(){return Promise.resolve(this);}};
+    try{
+      const readResource=async({uri})=>response(uri,'.text{font-family:Sample}',{fonts:[{family:'Sample',format:'woff2',data:btoa('wOF2synthetic'),weight:400,style:'normal'}]});
+      await manager.loadApplicationStyles([],{accountKey:'alice',styleSource:'managed',globalStyle:source(),readResource});expect(installs).toBe(1);expect(elements[0].textContent).toContain([...manager.doc.fonts][1].family);
+      await manager.loadApplicationStyles([],{accountKey:'alice',styleSource:'managed',globalStyle:source(),readResource});expect(installs).toBe(1);
+      await manager.loadApplicationStyles([],{accountKey:'alice',styleSource:'managed',globalStyle:source('2'),readResource});expect(installs).toBe(2);expect(manager.doc.fonts.size).toBe(2);
+      manager.clearApplicationStyles();expect([...manager.doc.fonts]).toEqual([unrelated]);
+    }finally{globalThis.FontFace=prior;manager.dispose();}
+  });
+  it('never loads local CSS or catalog in Studio mode, including before the base arrives',async()=>{
+    const {manager,elements}=fixture();let localReads=0;manager.fetchAsset=async()=>{localReads++;throw new Error('Local asset forbidden');};
+    await manager.refresh({...metadata(),uiStyleSource:'managed'},{accountKey:'alice',workspaceKey:'root'});expect(localReads).toBe(0);expect(elements).toHaveLength(0);expect(manager.getSnapshot().catalog).toBeNull();
+    const remote=structuredClone(catalog);remote.defaultTheme='studio';remote.themes[0].id='studio';
+    await manager.loadApplicationStyles(namespaceStyles,{accountKey:'alice',styleSource:'managed',globalStyle:source(),readResource:async({uri})=>response(uri,'.shared{color:red}',{themeCatalog:remote})});
+    expect(manager.getSnapshot().themeId).toBe('studio');expect(elements).toHaveLength(1);
+    await manager.loadApplicationStyles(namespaceStyles,{accountKey:'alice',styleSource:'managed'});expect(elements).toHaveLength(0);expect(manager.getSnapshot().catalog).toBeNull();expect(manager.getSnapshot().themeId).toBe('');expect(localReads).toBe(0);manager.dispose();
+  });
+  it.each(['frame-first','layout-first'])('deduplicates %s startup and ignores pending null metadata',async order=>{
+    const {manager,elements}=fixture();let reads=0,localReads=0;
+    manager.fetchAsset=async()=>{localReads++;throw new Error('Local asset forbidden');};
+    const options={accountKey:'alice',styleSource:'managed',globalStyle:source(),readResource:async({uri})=>{reads++;return response(uri,'.shared{color:red}',{themeCatalog:catalog});}};
+    const frame=async()=>{await manager.refresh({uiStyleSource:'managed',workspaceRoot:'root',globalStyle:source()},{accountKey:'alice',workspaceKey:'endpoint'});await manager.loadApplicationStyles([],options);};
+    if(order==='layout-first'){await manager.loadApplicationStyles([],options);await manager.refresh(null,{workspaceKey:'endpoint'});await frame();}
+    else{await frame();await manager.loadApplicationStyles([],options);}
+    expect(reads).toBe(1);expect(localReads).toBe(0);expect(elements).toHaveLength(1);expect(manager.getSnapshot().revision).toBe(source().styleRevision);
+    await manager.refresh(null,{workspaceKey:'endpoint'});expect(elements).toHaveLength(1);manager.dispose();
+  });
+  it('a pending local load cannot flash after switching to Studio ownership',async()=>{
+    const {manager,elements}=fixture();let release;
+    manager.fetchAsset=url=>url.endsWith('.json')?Promise.resolve({ok:true,text:async()=>JSON.stringify(catalog)}):new Promise(resolve=>{release=()=>resolve({ok:true,text:async()=>'.old-local{color:red}'});});
+    const pending=manager.refresh({...metadata(),uiStyleSource:'local'},{accountKey:'alice'});
+    await manager.loadApplicationStyles([],{accountKey:'alice',styleSource:'managed',globalStyle:source(),readResource:async({uri})=>response(uri)});release();await pending;
+    expect(elements).toHaveLength(1);expect(elements[0].dataset.applicationResourceStyle).toBe(source().resourceUri);expect(elements.some(sheet=>sheet.textContent.includes('old-local'))).toBe(false);manager.dispose();
+  });
+  it('allows explicit retry without installing invalid CSS or crossing account ownership',async()=>{
     const {manager,elements}=fixture();let reads=0;const readResource=async({uri})=>{reads++;return response(uri);};
-    const disabled={...app('one')};delete disabled.allowStyleOverrides;
-    await manager.loadApplicationStyles([disabled],{accountKey:'alice',readResource});
-    expect(reads).toBe(0);expect(elements).toHaveLength(0);
-    await manager.loadApplicationStyles([app('one')],{accountKey:'alice',readResource});expect(elements).toHaveLength(1);
-    await manager.loadApplicationStyles([disabled],{accountKey:'alice',readResource});expect(elements).toHaveLength(0);expect(reads).toBe(1);
-    manager.dispose();
-  });
-  it('does not install a pending provider sheet after overrides are disabled', async () => {
-    const {manager, elements} = fixture();
-    let resolveRead;
-    const pending = manager.loadApplicationStyles([app('one')], {
-      accountKey: 'alice',
-      readResource: () => new Promise(resolve => { resolveRead = resolve; }),
-    });
-    await manager.loadApplicationStyles([{...app('one'), allowStyleOverrides: false}], {accountKey: 'alice'});
-    resolveRead(response('style://one/workspace'));
-    await pending;
-    expect(elements).toHaveLength(0);
-    manager.dispose();
-  });
-  it('installs separate scoped sheets and reuses the authenticated snapshot', async () => {
-    const {manager, elements} = fixture(); let reads = 0;
-    const readResource = async ({uri}) => { reads++; return response(uri, '@keyframes fade{to{opacity:0}}.shared{animation:fade 1s;color:red}'); };
-    await manager.loadApplicationStyles([app('one'), app('two')], {accountKey: 'alice', readResource});
-    expect(elements).toHaveLength(2);
-    expect(elements.some(element => element.textContent.includes('data-forge-resource-namespace="one"'))).toBe(true);
-    expect(elements.some(element => element.textContent.includes('data-forge-resource-namespace="two"'))).toBe(true);
-    expect(elements[0].textContent).not.toBe(elements[1].textContent);
-    await manager.loadApplicationStyles([app('one'), app('two')], {accountKey: 'alice', readResource});
-    expect(reads).toBe(2);
-    await manager.refresh(metadata(), {accountKey: 'alice', workspaceKey: 'root'});
-    expect(elements).toHaveLength(3);
-    manager.clear(); expect(elements).toHaveLength(0);
-  });
-  it('drops pending sheets on logout and allows explicit refresh', async () => {
-    const {manager, elements} = fixture(); let release;
-    const pending = manager.loadApplicationStyles([app('one')], {accountKey: 'alice', readResource: ({uri}) => new Promise(resolve => {release = () => resolve(response(uri));})});
-    manager.clear(); release(); await pending; expect(elements).toHaveLength(0);
-    let reads = 0; const readResource = async ({uri}) => {reads++; return response(uri);};
-    await manager.loadApplicationStyles([app('one')], {accountKey: 'bob', readResource});
-    await manager.loadApplicationStyles([app('one')], {accountKey: 'bob', readResource, force: true});
-    expect(reads).toBe(2); expect(elements).toHaveLength(1);
-  });
-  it('keeps other resources usable when one stylesheet is invalid', async () => {
-    const {manager, elements} = fixture();
-    await manager.loadApplicationStyles([app('one'), app('two')], {accountKey: 'alice', readResource: async ({uri}) => response(uri, uri.startsWith('style://one/') ? '@import "unscoped.css";' : '.valid {color:blue}')});
-    expect(elements).toHaveLength(1);
-    expect(manager.getSnapshot().diagnostics.some(message => message.includes('unsupported global'))).toBe(true);
+    await manager.loadApplicationStyles([],{accountKey:'alice',styleSource:'managed',globalStyle:source(),readResource});
+    await manager.loadApplicationStyles([],{accountKey:'alice',styleSource:'managed',globalStyle:source(),readResource,force:true});expect(reads).toBe(2);expect(elements).toHaveLength(1);
+    await manager.loadApplicationStyles([],{accountKey:'bob',styleSource:'managed',globalStyle:source(),readResource:async({uri})=>response(uri,'@import "foreign.css";')});expect(elements).toHaveLength(0);expect(manager.getSnapshot().diagnostics.some(message=>message.includes('unsupported global'))).toBe(true);manager.dispose();
   });
 });
 

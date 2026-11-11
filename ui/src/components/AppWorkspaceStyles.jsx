@@ -3,7 +3,8 @@ import React, {useCallback, useEffect, useRef, useState} from 'react';
 import WorkspaceStyleProvider from './WorkspaceStyleProvider';
 import {fetchWorkspaceStyleAsset, getAuthMeSilently, refreshWorkspaceMetadata} from '../services/agentlyClient';
 import {subscribeWorkspaceMetadata} from '../services/workspaceMetadata';
-import {getWorkspaceStyleManager} from '../services/workspaceStyles';
+import {request} from '../services/httpClient';
+import {getWorkspaceStyleManager,workspaceStyleAccountKey} from '../services/workspaceStyles';
 import {sdkBaseURL} from '../endpoint';
 
 export default function AppWorkspaceStyles({children}) {
@@ -17,8 +18,7 @@ export default function AppWorkspaceStyles({children}) {
     try {
       const [next, me] = await Promise.all([refreshWorkspaceMetadata(), getAuthMeSilently().catch(() => null)]);
       if (current !== generation.current || !authorized.current) return;
-      const subject = me?.subject || me?.email || me?.username || '';
-      setAccountKey(subject ? JSON.stringify([sdkBaseURL, me?.provider || '', subject]) : '');
+      setAccountKey(workspaceStyleAccountKey(me,sdkBaseURL));
       setMetadata(next);
     } catch (error) {
       if (current !== generation.current) return;
@@ -51,6 +51,7 @@ export default function AppWorkspaceStyles({children}) {
       window.removeEventListener('agently:authorized', recover);
     };
   }, [refresh]);
-  return <WorkspaceStyleProvider metadata={metadata} accountKey={accountKey} workspaceKey={sdkBaseURL}
+  const readResource=useCallback(({server,uri})=>request(`/api/mcp/resources/read?${new URLSearchParams({server,uri})}`,{retries:0}),[]);
+  return <WorkspaceStyleProvider readResource={readResource} metadata={metadata} accountKey={accountKey} workspaceKey={sdkBaseURL}
     fetchAsset={fetchWorkspaceStyleAsset} onRefresh={refresh}>{children}</WorkspaceStyleProvider>;
 }

@@ -14,7 +14,7 @@ import { MAIN_CHAT_WINDOW_ID } from '../services/conversationWindow';
 
 import { openLayoutURL, layoutWindowDestinations } from './layoutNavigation';
 import { workspaceResources } from '../services/workspaceResources';
-import { getWorkspaceStyleManager } from '../services/workspaceStyles';
+import { getWorkspaceStyleManager,workspaceStyleAccountKey } from '../services/workspaceStyles';
 import { request } from '../services/httpClient';
 
 const DEFAULT_SPLIT = 0.5;
@@ -147,12 +147,12 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         scopeSessionRef.current = scopeSession;
         applicationScope.configure(scopeSession, applications);
         const archives = payload?.layout?.resourceArchives || [];
-        if (archives.length || applications.some(app => app.styleResources?.length)) {
+        if (payload.uiStyleSource==='managed' || payload.globalStyle || archives.length || applications.some(app => app.styleResources?.length)) {
           if (!current()) return;
           const scope = JSON.stringify([payload.workspaceId, principal]);
           workspaceResources.configure(scope, archives);
           void getWorkspaceStyleManager().loadApplicationStyles(applications, {
-            accountKey: scope, force: reloadVersion > 0,
+            accountKey: workspaceStyleAccountKey(principal,sdkBaseURL), globalStyle: payload.globalStyle, styleSource: payload.uiStyleSource || 'local', force: !background && reloadVersion > 0,
             readResource: ({server, uri}) => request(`/api/mcp/resources/read?${new URLSearchParams({server, uri})}`, {retries: 0}),
           });
         } else {

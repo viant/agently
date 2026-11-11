@@ -6,7 +6,7 @@ const WorkspaceStyleContext = createContext(null);
 export const useWorkspaceStyle = () => useContext(WorkspaceStyleContext);
 const useClientLayoutEffect = typeof document === 'undefined' ? useEffect : useLayoutEffect;
 
-export default function WorkspaceStyleProvider({metadata, accountKey = '', workspaceKey = '', fetchAsset, onRefresh, nonce, children}) {
+export default function WorkspaceStyleProvider({metadata, accountKey = '', workspaceKey = '', fetchAsset, readResource, onRefresh, nonce, children}) {
   const resolvedNonce = nonce ?? (typeof document === 'undefined' ? '' :
     (document.querySelector?.('meta[name="agently-style-nonce"]')?.content || document.querySelector?.('script[nonce]')?.nonce || ''));
   const managerRef = useRef(null);
@@ -17,8 +17,13 @@ export default function WorkspaceStyleProvider({metadata, accountKey = '', works
   useEffect(() => {
     if (fetchAsset) manager.fetchAsset = fetchAsset;
     manager.nonce = resolvedNonce;
-    manager.refresh(metadata, {accountKey, workspaceKey});
-  }, [manager, metadata, accountKey, workspaceKey, fetchAsset, resolvedNonce]);
+    let active=true;
+    const ready=manager.refresh(metadata, {accountKey, workspaceKey});
+    if(metadata?.uiStyleSource==='managed'&&!(metadata.uiStyleDiagnostics?.length&&!metadata.globalStyle)){
+      void ready.then(()=>{if(active)return manager.loadApplicationStyles([],{accountKey,styleSource:'managed',globalStyle:metadata.globalStyle,readResource});});
+    }
+    return()=>{active=false;};
+  }, [manager, metadata, accountKey, workspaceKey, fetchAsset, readResource, resolvedNonce]);
   useClientLayoutEffect(() => {
     const root = typeof document === 'undefined' ? null : document.documentElement;
     applyApplicationThemeBoundary(root, state);

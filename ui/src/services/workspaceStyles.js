@@ -105,18 +105,25 @@ export function getWorkspaceStyleManager(options = {}) {
   return documentManagers.get(doc);
 }
 
+export function workspaceStyleAccountKey(principal, endpoint='') {
+  const subject=principal?.subject||principal?.email||principal?.username||principal?.id||'';
+  return subject?JSON.stringify([endpoint,principal?.provider||'',subject]):'';
+}
+const globalStyleEntry=style=>({uri:style.resourceUri,server:style.resourceConnection,providerIdentity:style.providerIdentity,namespace:'workspace',global:true,revision:style.styleRevision||''});
+
 export class WorkspaceStyleManager {
   constructor({document: doc = globalThis.document, fetchAsset = (...args) => fetch(...args), storage,
     matchMedia = globalThis.matchMedia?.bind(globalThis), nonce = ''} = {}) {
     this.doc = doc; this.fetchAsset = fetchAsset; this.nonce = nonce;
     try { this.storage = storage === undefined ? globalThis.localStorage : storage; } catch { this.storage = null; }
     this.listeners = new Set(); this.references = 0; this.sequence = 0; this.identity = ''; this.storageKey = ''; this.preference = null;
+    this.styleSource='';this.workspaceThemeCatalog = null;
     this.state = {catalog: null, revision: '', themeId: '', mode: 'light', modePreference: 'system', diagnostics: []};
     this.matchMedia = matchMedia; this.media = null; this.connected = false;
     this.onSystemChange = () => this.publish({...this.state, ...(this.externalSelection || resolveThemeSelection(this.state.catalog, this.preference, this.systemMode()))});
     this.onStorage = event => { if (this.storageKey && event.key === this.storageKey) { this.preference = this.readPreference(); this.onSystemChange(); } };
     this.observer = null;
-    this.applicationStyles = new Map(); this.applicationStyleGeneration = 0; this.applicationStyleKey = ''; this.applicationStyleAccount = '';
+    this.applicationStyles = new Map(); this.applicationStyleOrder = []; this.applicationStyleGeneration = 0; this.applicationStyleKey = ''; this.applicationStyleAccount = '';
   }
   retain() { this.references++; this.connect(); }
   release() { if (this.references > 0 && --this.references === 0) this.dispose(); }
@@ -134,7 +141,26 @@ export class WorkspaceStyleManager {
   subscribe = listener => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
   getSnapshot = () => this.state;
   publish(state) { this.state = state; this.listeners.forEach(listener => listener()); }
-  ensureOrder() { if (this.style && this.doc.head.lastElementChild !== this.style) this.doc.head.appendChild(this.style); }
+  ensureOrder() {
+    const ordered = [this.style, ...this.applicationStyleOrder.map(id => this.applicationStyles.get(id))].filter(Boolean);
+    const children = Array.from(this.doc.head.children || []);
+    if (ordered.some((style, index) => children[children.length - ordered.length + index] !== style)) {
+      for (const style of ordered) this.doc.head.appendChild(style);
+    }
+  }
+  effectiveCatalog() { return this.applicationStyleOrder.map(id=>this.applicationStyles.get(id)?.resourceThemeCatalog).find(Boolean) || this.workspaceThemeCatalog; }
+  effectiveRevision() { return this.styleSource==='managed' ? this.applicationStyles.get(this.applicationStyleOrder[0])?.dataset.applicationStyleRevision||'' : this.state.revision; }
+  themeSelection(catalog) {
+    const external=this.externalSelection,theme=catalog?.themes.find(theme=>theme.id===external?.themeId);
+    this.externalSelection=external&&(!external.themeId||theme?.modes?.[external.mode])?external:null;
+    return {...resolveThemeSelection(catalog,this.preference,this.systemMode()),...(this.externalSelection||{})};
+  }
+  publishCatalog() {
+    const catalog=this.effectiveCatalog(),revision=this.effectiveRevision();
+    const selected=this.themeSelection(catalog);
+    if(catalog===this.state.catalog&&revision===this.state.revision&&Object.entries(selected).every(([key,value])=>this.state[key]===value))return;
+    this.publish({...this.state,catalog,revision,...selected});
+  }
   readPreference() { try { return this.storageKey ? JSON.parse(this.storage?.getItem(this.storageKey) || 'null') : null; } catch { return null; } }
   applyExternalSelection(selection) {
     this.externalSelection = {themeId: selection.themeId === 'forge-default' ? '' : selection.themeId,
@@ -153,50 +179,76 @@ export class WorkspaceStyleManager {
     if (!preserveApplicationStyles) this.clearApplicationStyles();
     this.sequence++; this.style?.remove(); this.style = null;
     this.identity = ''; this.workspaceId = ''; this.externalSelection = null; this.storageKey = ''; this.preference = null; this.pending = null;
+    this.workspaceThemeCatalog=null;
     this.publish({catalog: null, revision: '', themeId: '', mode: 'light', modePreference: 'system', diagnostics: []});
+    this.publishCatalog();
   }
+  removeApplicationStyle(style) { style?.releaseResourceFonts?.(); style?.remove(); }
   clearApplicationStyles() {
     this.applicationStyleGeneration++;
-    for (const style of this.applicationStyles.values()) style.remove();
-    this.applicationStyles.clear(); this.applicationStyleKey = ''; this.applicationStyleAccount = ''; this.applicationStylePending = null;
+    for (const style of this.applicationStyles.values()) this.removeApplicationStyle(style);
+    this.applicationStyles.clear(); this.applicationStyleOrder = []; this.applicationStyleKey = ''; this.applicationStyleAccount = ''; this.applicationStylePending = null;
+    this.publishCatalog();
   }
-  loadApplicationStyles(applications, {accountKey = '', readResource, force = false} = {}) {
-    const entries = applications.filter(app => app.allowStyleOverrides === true).flatMap(app => (app.styleResources || []).map(uri => ({uri, server: app.resourceConnection, providerIdentity: app.providerIdentity, namespace: app.resourceNamespace})))
-      .filter(entry => entry.server && entry.providerIdentity && entry.namespace);
-    const key = JSON.stringify([accountKey, entries]);
+  loadApplicationStyles(applications, {accountKey = '', readResource, globalStyle, styleSource, force = false} = {}) {
+    const nextSource=styleSource||(globalStyle?'managed':this.styleSource);
+    if(nextSource!==this.styleSource){this.styleSource=nextSource;this.sequence++;}
+    if(this.styleSource==='local'){this.clearApplicationStyles();return Promise.resolve();}
+    if(this.styleSource==='managed'){this.style?.remove();this.style=null;this.workspaceThemeCatalog=null;this.publishCatalog();}
+    const entryID = ({revision, ...identity}) => JSON.stringify(identity);
+    const globals=globalStyle?[globalStyleEntry(globalStyle)]:[];
+    const entries=globals.filter(entry=>entry.server&&entry.providerIdentity);
+    const key = JSON.stringify([accountKey, this.styleSource, entries]);
     if (!force && key === this.applicationStyleKey) return this.applicationStylePending || Promise.resolve();
     if (accountKey !== this.applicationStyleAccount) this.clearApplicationStyles();
     this.applicationStyleAccount = accountKey; this.applicationStyleKey = key;
+    const missing='Managed global style is unavailable.';
+    const diagnostics=this.state.diagnostics.filter(message=>message!==missing);
+    if(styleSource==='managed'&&!globalStyle)diagnostics.push(missing);
+    if(diagnostics.join('\n')!==this.state.diagnostics.join('\n'))this.publish({...this.state,diagnostics});
     const generation = ++this.applicationStyleGeneration;
-    const wanted = new Set(entries.map(entry => JSON.stringify(entry)));
-    for (const [id, style] of this.applicationStyles) if (!wanted.has(id)) { style.remove(); this.applicationStyles.delete(id); }
+    this.applicationStyleOrder = entries.map(entryID);
+    const wanted = new Set(this.applicationStyleOrder);
+    for (const [id, style] of this.applicationStyles) if (!wanted.has(id)) { this.removeApplicationStyle(style); this.applicationStyles.delete(id); }
+    this.ensureOrder();this.publishCatalog();
     this.applicationStylePending = Promise.all(entries.map(async entry => {
-      const id = JSON.stringify(entry);
+      const id = entryID(entry);
+      if (!force && this.applicationStyles.get(id)?.dataset.applicationStyleRevision === entry.revision) return;
       try {
         if (!entry.uri.startsWith('style://') || typeof readResource !== 'function') throw new Error('Invalid application style reference');
         const response = await readResource(entry);
         const result = response?.result || response;
         if (result?.contents?.length !== 1 || result.contents[0].uri !== entry.uri || typeof result.contents[0].text !== 'string') throw new Error('Invalid application style response');
         const definition = JSON.parse(result.contents[0].text);
-        const {compileResourceCSS} = await import('forge/resources/scopedStyles');
-        const css = await compileResourceCSS(definition, entry);
+        const themeCatalog=entry.global&&definition.themeCatalog?validateThemeCatalog(definition.themeCatalog):null;
+        const {prepareResourceStyle} = await import('forge/resources/scopedStyles');
+        const prepared = await prepareResourceStyle(definition, {...entry, ...(entry.global ? {scopeSelector:'.agently-application, .agently-workspace, [data-forge-resource-provider]'} : {})});
         if (generation !== this.applicationStyleGeneration) return;
         const style = this.doc.createElement('style');
+        style.resourceThemeCatalog=themeCatalog;
         style.dataset.applicationResourceStyle = entry.uri;
+        style.dataset.applicationStyleRevision = entry.revision;
         if (this.nonce) style.nonce = this.nonce;
-        style.textContent = css; this.doc.head.appendChild(style);
-        if ('sheet' in style && (!style.sheet || !style.sheet.cssRules.length)) { style.remove(); throw new Error('Scoped CSS was rejected by this browser'); }
+        style.textContent = prepared.css;
+        style.releaseResourceFonts = prepared.installFonts({fontSet:this.doc.fonts,onError:()=>{if(generation===this.applicationStyleGeneration)this.publish({...this.state,diagnostics:[...this.state.diagnostics,`${entry.uri}: A workspace font could not be loaded.`]});}});
+        this.doc.head.appendChild(style);
+        if ('sheet' in style && (!style.sheet || !style.sheet.cssRules.length)) { this.removeApplicationStyle(style); throw new Error('Scoped CSS was rejected by this browser'); }
         const previous = this.applicationStyles.get(id);
-        this.applicationStyles.set(id, style); previous?.remove();
+        this.applicationStyles.set(id, style); this.removeApplicationStyle(previous); this.ensureOrder();this.publishCatalog();
       } catch (error) {
-        if (generation === this.applicationStyleGeneration) this.publish({...this.state, diagnostics: [...this.state.diagnostics, `${entry.uri}: ${error.message}`]});
+        if (generation === this.applicationStyleGeneration) {
+          if ([401, 403, 404].includes(error.status) || ['forbidden', 'denied', 'not_found'].includes(error.code)) {
+            this.removeApplicationStyle(this.applicationStyles.get(id)); this.applicationStyles.delete(id);this.publishCatalog();
+          }
+          this.publish({...this.state, diagnostics: [...this.state.diagnostics, `${entry.uri}: ${error.message}`]});
+        }
       }
     }));
     return this.applicationStylePending;
   }
   refresh(metadata, options = {}) {
     this.latestDiagnostics = Array.isArray(metadata?.uiStyleDiagnostics) ? metadata.uiStyleDiagnostics.filter(value => typeof value === 'string') : [];
-    const key = JSON.stringify([options.accountKey, options.workspaceKey, metadata?.workspaceId, metadata?.workspaceRoot, metadata?.uiStyles, metadata?.uiThemes]);
+    const key = JSON.stringify([options.accountKey, options.workspaceKey, metadata?.workspaceId, metadata?.workspaceRoot, metadata?.uiStyles, metadata?.uiThemes, metadata?.uiStyleSource]);
     if (this.pending?.key === key) {
       if (this.state.revision === metadata?.uiStyles?.revision) this.publish({...this.state, diagnostics: this.latestDiagnostics});
       return this.pending.promise;
@@ -207,23 +259,31 @@ export class WorkspaceStyleManager {
     return promise;
   }
   async load(metadata, {accountKey = '', workspaceKey = ''} = {}) {
+    if(!metadata)return;
     this.connect();
-    const identity = JSON.stringify([accountKey, metadata?.workspaceId || workspaceKey || metadata?.workspaceRoot || 'session']);
+    if(metadata?.uiStyleSource){this.styleSource=metadata.uiStyleSource;if(this.styleSource==='local')this.clearApplicationStyles();}
+    const scopeId=metadata?.workspaceId || (this.styleSource==='managed' ? metadata?.workspaceRoot||workspaceKey : '') || '';
+    const identity = JSON.stringify([accountKey, scopeId || workspaceKey || metadata?.workspaceRoot || 'session']);
     if (identity !== this.identity) {
-      this.clear({preserveApplicationStyles: !this.identity}); this.identity = identity;
-      this.storageKey = accountKey && metadata?.workspaceId ? `agently.theme.v1:${JSON.stringify([accountKey, metadata.workspaceId])}` : '';
+      const matchingGlobal=metadata.globalStyle&&this.applicationStyleKey===JSON.stringify([accountKey,'managed',[globalStyleEntry(metadata.globalStyle)]]);
+      this.clear({preserveApplicationStyles: (!this.identity&&(!this.applicationStyleAccount||this.applicationStyleAccount===accountKey))||!!matchingGlobal}); this.identity = identity;
+      this.storageKey = accountKey && scopeId ? `agently.theme.v1:${JSON.stringify([accountKey, scopeId])}` : '';
       this.preference = this.readPreference();
     }
-    this.workspaceId = metadata?.workspaceId || '';
+    this.workspaceId = scopeId;
     const request = ++this.sequence;
     const diagnostics = metadata?.uiStyleDiagnostics || [];
-    if (!metadata?.uiStyles) {
-      this.style?.remove(); this.style = null;
-      this.preference = null;
-      try { if (this.storageKey) this.storage?.removeItem(this.storageKey); } catch {}
-      this.publish({catalog: null, revision: '', themeId: '', mode: 'light', modePreference: 'system', diagnostics});
+    if (this.styleSource==='managed' || !metadata?.uiStyles) {
+      this.style?.remove(); this.style = null;this.workspaceThemeCatalog=null;
+      const catalog=this.effectiveCatalog();
+      if(!catalog&&this.styleSource!=='managed'){
+        this.preference=null;
+        try {if(this.storageKey)this.storage?.removeItem(this.storageKey);}catch{}
+      }
+      this.publish({catalog,revision:this.effectiveRevision(),diagnostics,...this.themeSelection(catalog)});
       return;
     }
+
     try {
       const styleURL = descriptorURL(metadata.uiStyles, 'styles');
       const catalogURL = metadata.uiThemes ? descriptorURL(metadata.uiThemes, 'themes') : null;
@@ -248,16 +308,18 @@ export class WorkspaceStyleManager {
       this.doc.head.appendChild(style);
       // Browsers leave sheet null if CSP rejects this style element.
       if ('sheet' in style && !style.sheet) { style.remove(); throw new Error('Workspace CSS was rejected by the document style policy'); }
-      const previous = this.style; this.style = style; previous?.remove();
+      const previous = this.style; this.style = style; previous?.remove(); this.ensureOrder();
+      this.workspaceThemeCatalog=catalog;
+      const effectiveCatalog=this.effectiveCatalog();
       const external = this.externalSelection;
-      const externalTheme = catalog?.themes.find(theme => theme.id === external?.themeId);
+      const externalTheme = effectiveCatalog?.themes.find(theme => theme.id === external?.themeId);
       this.externalSelection = external && (!external.themeId || externalTheme?.modes?.[external.mode]) ? external : null;
-      if (this.preference?.themeId !== 'forge-default' && !catalog?.themes.some(theme => theme.id === this.preference?.themeId)) {
+      if (this.preference?.themeId !== 'forge-default' && !effectiveCatalog?.themes.some(theme => theme.id === this.preference?.themeId)) {
         this.preference = null;
         try { if (this.storageKey) this.storage?.removeItem(this.storageKey); } catch {}
       }
-      this.publish({catalog, revision: metadata.uiStyles.revision, diagnostics: this.latestDiagnostics,
-        ...resolveThemeSelection(catalog, this.preference, this.systemMode()), ...(this.externalSelection || {})});
+      this.publish({catalog:effectiveCatalog, revision: metadata.uiStyles.revision, diagnostics: this.latestDiagnostics,
+        ...resolveThemeSelection(effectiveCatalog, this.preference, this.systemMode()), ...(this.externalSelection || {})});
     } catch (error) {
       if (request === this.sequence) this.publish({...this.state, diagnostics: [...this.latestDiagnostics, error.message]});
     }
