@@ -172,3 +172,32 @@ it('auto-runs once from defaults and waits for Apply before using filter edits',
   await waitFor(()=>expect(runs).toHaveLength(2));
   expect(runs[1].parameters).toEqual({region:'east'});
 });
+
+it('replaces optional scalar suite on mounted scope changes and omits a removed inherited suite on the wire',async()=>{
+ const pin={providerIdentity:'native-producer',uri:'report://example/optional-scope',kind:'working',contentFingerprint:'exact',authorityBinding:'owned',validUntil:'2030-01-01T00:00:00Z'};
+ const predicates=[{id:'entityId',label:'Entity',kind:'number',required:true,paramPath:'filters.entityId'},
+  {id:'suiteId',label:'Suite',kind:'number',pinned:true,prefill:{path:'suiteId'},required:false,paramPath:'filters.suiteId'}];
+ const calls=[];
+ vi.stubGlobal('fetch',async(url,init)=>{
+  if(new URL(url).searchParams.get('applyPermission')==='true')return new Response(JSON.stringify({data:{bound:true}}),{headers:{'content-type':'application/json'}});
+  const args=JSON.parse(init.body);calls.push({url,args});
+  const payload=url.includes('get_report')?{resource:pin,resourceDefinition:{builderDefinition:{reportBuilder:{predicates}}}}:
+   {resource:pin,reportSpec:{title:'Current optional scope'},reportFill:{},reportPrint:{}};
+  return new Response(JSON.stringify({result:JSON.stringify(payload)}),{headers:{'content-type':'application/json'}});
+ });
+ hostServices={reportStore:{getReport,runReport}};
+ const entry={windowId:'optional-suite-context',windowKey:pin.uri,resourceRef:{uri:pin.uri},parameters:{entityId:42,suiteId:27}};
+ const view=render(<ReportWindow window={entry}/>);
+ const runs=()=>calls.filter(call=>call.url.includes('run_report'));
+ for(const parameters of [entry.parameters,{entityId:42,suiteId:28},{entityId:43},{entityId:42}]){
+  view.rerender(<ReportWindow window={{...entry,parameters}}/>);
+  const button=await screen.findByRole('button',{name:'Apply filters'});
+  await waitFor(()=>expect(button.disabled).toBe(false));
+  const before=runs().length;
+  fireEvent.click(button);
+  await waitFor(()=>expect(runs()).toHaveLength(before+1));
+  expect(runs().at(-1).args.parameters).toEqual(parameters);
+  await screen.findByRole('heading',{name:'Current optional scope'});
+ }
+ expect(calls.filter(call=>call.url.includes('get_report'))).toHaveLength(1);
+});
