@@ -1,5 +1,12 @@
 # Workspace design-system foundation
 
+## Sidebar brand artwork
+
+Workspace branding uses the existing `appIconRef` metadata. Sidebar logos keep
+their intrinsic aspect ratio at the shared spacing-5 height (20px fallback),
+so horizontal wordmarks remain readable beside the application name. Keep brand
+artwork in the owning workspace; do not package workspace logos in the host.
+
 ## Consistent action states and icons
 
 Quiet shell actions use a semantic hover background without an added border or
