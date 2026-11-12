@@ -266,9 +266,9 @@ export function ElicitationDialog({ context, pending, index = 0, total = 1, appe
           <div style={{
             display: 'grid',
             gap: 14,
-            border: '1px solid #d8e1ee',
+            border: "1px solid var(--app-border, #d8e1ee)",
             borderRadius: 16,
-            background: '#ffffff',
+            background: "var(--app-surface, #ffffff)",
             padding: '16px 18px',
             marginBottom: 12,
           }}>
@@ -332,11 +332,11 @@ export function ElicitationDialog({ context, pending, index = 0, total = 1, appe
           </div>
         ) : null}
         {isResolvedHistory ? (
-            <p {...(documentPresentation ? typographyProps('metadata') : {})} style={documentPresentation ? undefined : { color: '#5f6b7c', marginTop: 8 }}>
+            <p {...(documentPresentation ? typographyProps('metadata') : {})} style={documentPresentation ? undefined : { color: "var(--app-text-secondary, #5f6b7c)", marginTop: 8 }}>
             Historical review state: {resolvedStatus}.
           </p>
         ) : null}
-        {error ? <p {...(documentPresentation ? typographyProps('body') : {})} role="alert" className={documentPresentation ? 'app-request-review-error' : undefined} style={documentPresentation ? undefined : { color: '#ef4444', marginTop: 8 }}>{error}</p> : null}
+        {error ? <p {...(documentPresentation ? typographyProps('body') : {})} role="alert" className={documentPresentation ? 'app-request-review-error' : undefined} style={documentPresentation ? undefined : { color: "var(--agently-theme-status-danger-foreground, #ef4444)", marginTop: 8 }}>{error}</p> : null}
       </div>
       <div className={Classes.DIALOG_FOOTER}>
         <div className={Classes.DIALOG_FOOTER_ACTIONS}>
@@ -402,17 +402,17 @@ export function ElicitationDialog({ context, pending, index = 0, total = 1, appe
 
 const plannerHeaderStyle = {
   textAlign: 'left',
-  color: '#6b7688',
+  color: "var(--app-muted, #6b7688)",
   fontSize: 12,
   letterSpacing: '0.06em',
   textTransform: 'uppercase',
   padding: '0 0 10px',
-  borderBottom: '1px solid #d8e1ee',
+  borderBottom: "1px solid var(--app-border, #d8e1ee)",
 };
 
 const plannerCellStyle = {
   padding: '14px 0',
-  borderBottom: '1px solid #eef2f8',
+  borderBottom: "1px solid var(--app-border, #eef2f8)",
   verticalAlign: 'top',
   fontSize: 14,
 };

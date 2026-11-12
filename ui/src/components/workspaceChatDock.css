@@ -19,8 +19,8 @@
 .app-workspace-chat-dock.is-overlay .forge-chat-task-back,
 .app-workspace-chat-dock.is-overlay .forge-document-chat.is-starting .chat-feed-stage { display:none; }
 .app-workspace-chat-dock.is-overlay .chat-feed-stage { flex:0 1 auto!important; max-height:180px; overflow:auto!important; }
-.app-workspace-chat-dock.is-overlay .app-chat-feed { border:1px solid var(--app-border,#d8dee8);border-radius:12px;background:var(--forge-surface,#fff);padding:12px;box-shadow:0 3px 14px rgb(0 0 0 / 12%); }
-.app-workspace-chat-dock.is-overlay .forge-document-composer-shell { padding:6px 12px;gap:0;box-shadow:0 3px 14px rgb(0 0 0 / 12%); }
+.app-workspace-chat-dock.is-overlay .app-chat-feed { border:1px solid var(--app-border,#d8dee8);border-radius:12px;background:var(--forge-surface,#fff);padding:12px;box-shadow:var(--app-shadow, 0 3px 14px rgb(0 0 0 / 12%)); }
+.app-workspace-chat-dock.is-overlay .forge-document-composer-shell { padding:6px 12px;gap:0;box-shadow:var(--app-shadow, 0 3px 14px rgb(0 0 0 / 12%)); }
 .app-workspace-chat-dock.is-overlay .forge-document-textarea { min-height:28px;max-height:96px; }
 @media (max-width:800px) {
   .app-chat-pane:has(> .app-workspace-chat-dock.is-split[data-expanded="true"]) { flex-direction:column; }

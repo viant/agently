@@ -4,21 +4,21 @@
   gap: 18px;
   min-height: 0;
   padding: 18px;
-  color: #1b1a16;
+  color: var(--app-text, #1b1a16);
   background:
-    radial-gradient(circle at top left, rgba(255, 244, 214, 0.78), transparent 28%),
-    radial-gradient(circle at bottom right, rgba(210, 227, 215, 0.72), transparent 24%),
-    linear-gradient(135deg, #f3efe5, #e5dbc8);
+    radial-gradient(circle at top left, color-mix(in srgb, var(--app-surface-soft, rgb(255 244 214)) 78%, transparent), transparent 28%),
+    radial-gradient(circle at bottom right, color-mix(in srgb, var(--app-surface-soft, rgb(210 227 215)) 72%, transparent), transparent 24%),
+    linear-gradient(135deg, var(--app-surface-soft, #f3efe5), var(--app-surface-soft, #e5dbc8));
 }
 
 .app-execution-toolbar,
 .app-execution-composer,
 .app-execution-page-card,
 .app-execution-timeline-entry {
-  border: 1px solid rgba(72, 58, 36, 0.12);
+  border: 1px solid color-mix(in srgb, var(--app-border, rgb(72 58 36)) 12%, transparent);
   border-radius: 24px;
-  background: rgba(255, 250, 241, 0.92);
-  box-shadow: 0 18px 50px rgba(41, 31, 20, 0.12);
+  background: color-mix(in srgb, var(--app-surface-soft, rgb(255 250 241)) 92%, transparent);
+  box-shadow: var(--app-shadow, 0 18px 50px rgba(41, 31, 20, 0.12));
 }
 
 .app-execution-toolbar {
@@ -33,7 +33,7 @@
   font-size: 0.72rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: #6d665c;
+  color: var(--app-text-secondary, #6d665c);
 }
 
 .app-execution-toolbar h2 {
@@ -46,7 +46,7 @@
 
 .app-execution-subtitle {
   margin-top: 6px;
-  color: #6d665c;
+  color: var(--app-muted, #6d665c);
   font-size: 0.86rem;
 }
 
@@ -66,9 +66,9 @@
 
 .app-execution-controls select,
 .app-execution-composer textarea {
-  border: 1px solid rgba(72, 58, 36, 0.12);
+  border: 1px solid color-mix(in srgb, var(--agently-theme-control-border, rgb(72 58 36)) 12%, transparent);
   border-radius: 14px;
-  background: rgba(255, 250, 241, 0.96);
+  background: color-mix(in srgb, var(--agently-theme-control-background, rgb(255 250 241)) 96%, transparent);
   padding: 10px 12px;
 }
 
@@ -78,7 +78,7 @@
   gap: 8px;
   padding: 10px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(72, 58, 36, 0.12);
+  border: 1px solid color-mix(in srgb, var(--app-border, rgb(72 58 36)) 12%, transparent);
   text-transform: capitalize;
 }
 
@@ -86,25 +86,25 @@
   width: 9px;
   height: 9px;
   border-radius: 999px;
-  background: #8b877f;
+  background: var(--app-surface-soft, #8b877f);
 }
 
 .app-execution-connection.tone-live .app-execution-dot,
 .app-execution-pill.tone-cool,
 .app-execution-timeline-entry.tone-cool strong {
-  background: #22543d;
+  background: var(--app-surface-soft, #22543d);
 }
 
 .app-execution-connection.tone-connecting .app-execution-dot,
 .app-execution-pill.tone-warm,
 .app-execution-timeline-entry.tone-warm strong {
-  background: #9c4221;
+  background: var(--app-surface-soft, #9c4221);
 }
 
 .app-execution-connection.tone-disconnected .app-execution-dot,
 .app-execution-pill.tone-alert,
 .app-execution-timeline-entry.tone-alert strong {
-  background: #9b2c2c;
+  background: var(--app-surface-soft, #9b2c2c);
 }
 
 .app-execution-composer {
@@ -134,7 +134,7 @@
 
 .app-execution-composer-actions p {
   margin: 0;
-  color: #6d665c;
+  color: var(--app-text-secondary, #6d665c);
   font-size: 0.88rem;
 }
 
@@ -142,8 +142,8 @@
   border: 0;
   border-radius: 16px;
   padding: 12px 16px;
-  color: #fef8ed;
-  background: linear-gradient(135deg, #1f6d52, #163b2d);
+  color: var(--app-text, #fef8ed);
+  background: linear-gradient(135deg, var(--app-surface-soft, #1f6d52), var(--app-surface-soft, #163b2d));
   cursor: pointer;
 }
 
@@ -156,8 +156,8 @@
   margin-top: 14px;
   padding: 12px 14px;
   border-radius: 16px;
-  color: #fef8ed;
-  background: linear-gradient(135deg, #9b2c2c, #6b1d1d);
+  color: var(--agently-theme-status-danger-foreground, #fef8ed);
+  background: linear-gradient(135deg, var(--agently-theme-status-danger-background, #9b2c2c), var(--agently-theme-status-danger-background, #6b1d1d));
 }
 
 .app-execution-board {
@@ -190,7 +190,7 @@
 }
 
 .app-execution-meta-text {
-  color: #6d665c;
+  color: var(--app-text-secondary, #6d665c);
   font-size: 0.82rem;
 }
 
@@ -201,9 +201,9 @@
   min-width: 36px;
   padding: 6px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(72, 58, 36, 0.12);
+  border: 1px solid color-mix(in srgb, var(--app-border, rgb(72 58 36)) 12%, transparent);
   font-size: 0.82rem;
-  color: #fff;
+  color: var(--app-text, #fff);
 }
 
 .app-execution-page-list,
@@ -236,15 +236,15 @@
 
 .app-execution-page-subtitle,
 .app-execution-timeline-body {
-  color: #6d665c;
+  color: var(--app-muted, #6d665c);
 }
 
 .app-execution-step-card {
   margin-top: 12px;
   padding: 12px 14px;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.58);
-  border: 1px solid rgba(72, 58, 36, 0.12);
+  background: color-mix(in srgb, var(--app-surface, rgb(255 255 255)) 58%, transparent);
+  border: 1px solid color-mix(in srgb, var(--app-border, rgb(72 58 36)) 12%, transparent);
 }
 
 .app-execution-step-card.is-clickable {
@@ -257,16 +257,16 @@
 
 .app-execution-step-card.is-clickable:hover {
   transform: translateY(-1px);
-  box-shadow: 0 14px 36px rgba(41, 31, 20, 0.12);
-  border-color: rgba(34, 84, 61, 0.24);
+  box-shadow: var(--app-shadow, 0 14px 36px rgba(41, 31, 20, 0.12));
+  border-color: color-mix(in srgb, var(--app-border, rgb(34 84 61)) 24%, transparent);
 }
 
 .app-execution-step-card.model {
-  border-left: 4px solid #22543d;
+  border-left: 4px solid var(--app-border, #22543d);
 }
 
 .app-execution-step-card.tool {
-  border-left: 4px solid #9c4221;
+  border-left: 4px solid var(--app-border, #9c4221);
 }
 
 .app-execution-step-meta,
@@ -276,7 +276,7 @@
   gap: 8px;
   margin-top: 8px;
   font-size: 0.78rem;
-  color: #6d665c;
+  color: var(--app-text-secondary, #6d665c);
 }
 
 .app-execution-step-actions {
@@ -292,45 +292,45 @@
   justify-content: center;
   padding: 4px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(72, 58, 36, 0.12);
-  background: rgba(255, 255, 255, 0.7);
-  color: #4b453d;
+  border: 1px solid color-mix(in srgb, var(--app-border, rgb(72 58 36)) 12%, transparent);
+  background: color-mix(in srgb, var(--app-surface, rgb(255 255 255)) 70%, transparent);
+  color: var(--app-text, #4b453d);
   font-size: 0.76rem;
   font-weight: 600;
 }
 
 .app-execution-badge.planned {
-  background: rgba(156, 66, 33, 0.1);
-  border-color: rgba(156, 66, 33, 0.22);
-  color: #7d3418;
+  background: color-mix(in srgb, var(--app-surface-soft, rgb(156 66 33)) 10%, transparent);
+  border-color: color-mix(in srgb, var(--app-border, rgb(156 66 33)) 22%, transparent);
+  color: var(--app-accent, #7d3418);
 }
 
 .app-execution-inline-button {
-  border: 1px solid rgba(34, 84, 61, 0.18);
+  border: 1px solid color-mix(in srgb, var(--app-border, rgb(34 84 61)) 18%, transparent);
   border-radius: 999px;
   padding: 4px 10px;
-  background: rgba(255, 255, 255, 0.78);
-  color: #22543d;
+  background: color-mix(in srgb, var(--app-surface, rgb(255 255 255)) 78%, transparent);
+  color: var(--app-text, #22543d);
   font-size: 0.76rem;
   font-weight: 600;
   cursor: pointer;
 }
 
 .app-execution-inline-button:hover {
-  background: rgba(231, 244, 236, 0.96);
+  background: color-mix(in srgb, var(--app-surface-soft, rgb(231 244 236)) 96%, transparent);
 }
 
 .app-execution-inline-button.is-active {
-  background: rgba(34, 84, 61, 0.12);
-  border-color: rgba(34, 84, 61, 0.28);
+  background: color-mix(in srgb, var(--app-selected-background, rgb(34 84 61)) 12%, transparent);
+  border-color: color-mix(in srgb, var(--app-accent, rgb(34 84 61)) 28%, transparent);
 }
 
 .app-execution-response {
   margin-top: 12px;
   padding: 14px 16px;
   border-radius: 18px;
-  background: rgba(255, 251, 243, 0.94);
-  border: 1px solid rgba(72, 58, 36, 0.12);
+  background: color-mix(in srgb, var(--app-surface, rgb(255 251 243)) 94%, transparent);
+  border: 1px solid color-mix(in srgb, var(--app-border, rgb(72 58 36)) 12%, transparent);
   line-height: 1.5;
   white-space: pre-wrap;
 }
@@ -342,9 +342,9 @@
 .app-execution-empty {
   padding: 16px;
   border-radius: 18px;
-  color: #6d665c;
-  background: rgba(255, 250, 241, 0.6);
-  border: 1px dashed rgba(72, 58, 36, 0.12);
+  color: var(--app-text-secondary, #6d665c);
+  background: color-mix(in srgb, var(--app-surface-soft, rgb(255 250 241)) 60%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--app-border, rgb(72 58 36)) 12%, transparent);
 }
 
 .app-execution-empty.large {

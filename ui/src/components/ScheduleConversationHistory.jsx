@@ -1,3 +1,4 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, InputGroup, Spinner } from '@blueprintjs/core';
 import { client } from '../services/agentlyClient';
@@ -88,7 +89,7 @@ export default function ScheduleConversationHistory({ window: windowEntry }) {
         </div>
         <Button
           minimal
-          icon="refresh"
+          icon={<UnifiedIcon name="refresh"/>}
           aria-label="Refresh schedule run history"
           title="Refresh schedule run history"
           loading={loading}
@@ -97,7 +98,7 @@ export default function ScheduleConversationHistory({ window: windowEntry }) {
       </div>
 
       <InputGroup
-        leftIcon="search"
+        leftIcon={<UnifiedIcon name="search"/>}
         placeholder="Search schedule runs"
         aria-label="Search schedule runs"
         value={query}
@@ -136,7 +137,7 @@ export default function ScheduleConversationHistory({ window: windowEntry }) {
               </button>
               <Button
                 minimal
-                icon="eye-open"
+                icon={<UnifiedIcon name="eye-open"/>}
                 aria-label={`Open ${title}`}
                 title="Open conversation"
                 onClick={open}
@@ -150,7 +151,7 @@ export default function ScheduleConversationHistory({ window: windowEntry }) {
         <div className="app-schedule-conversation-history-pagination">
           <Button
             minimal
-            icon="chevron-left"
+            icon={<UnifiedIcon name="chevron-left"/>}
             aria-label="Load newer schedule runs"
             disabled={!prevCursor || loading}
             onClick={() => void load('after', prevCursor)}
@@ -158,7 +159,7 @@ export default function ScheduleConversationHistory({ window: windowEntry }) {
           <span>{pageStatus}</span>
           <Button
             minimal
-            icon="chevron-right"
+            icon={<UnifiedIcon name="chevron-right"/>}
             aria-label="Load older schedule runs"
             disabled={!nextCursor || loading}
             onClick={() => void load('before', nextCursor)}

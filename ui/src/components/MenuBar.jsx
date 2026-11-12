@@ -1,10 +1,11 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import RequestReviewDialog, {ReviewAction,reviewDecisionError} from './RequestReviewDialog.jsx';
 import {ReviewTable} from 'forge/components';
 import { openLayoutURL } from './layoutNavigation';
 import { resolveBrandLogoSrc, resolveBrandMonogram, resolveStartupAuthAction, openWindow, APPROVALS_PAGE_SIZE, paginateApprovalItems, normalizeQueueApprovalDialog, extractSchemaDefaultValues, findApprovalItemById, resolveReturnFocusTarget, restoreReturnFocusTarget, nextApprovalDialogFocusReturn } from './menuBarHelpers';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {createPortal} from 'react-dom';
-import {Icon as SharedIcon, iconNames, Typography, SelectControl, typographyProps} from 'forge/components';
+import {Icon as SharedIcon, Typography, SelectControl, typographyProps} from 'forge/components';
 import {ShellIconButton, ShellLocation} from './ShellHeader.jsx';
 import { Button, Dialog, Spinner, Tooltip } from '@blueprintjs/core';
 import { activeWindows, getWindowContext, selectedTabId, selectedWindowId } from 'forge/core';
@@ -23,13 +24,13 @@ const plannerHeaderStyle = {
   textTransform: 'uppercase',
   color: 'var(--dark-gray3)',
   padding: '8px 10px',
-  borderBottom: '1px solid #d8e1ee',
+  borderBottom: "1px solid var(--app-border, #d8e1ee)",
   whiteSpace: 'nowrap',
 };
 
 const plannerCellStyle = {
   padding: '10px',
-  borderBottom: '1px solid #eef2f7',
+  borderBottom: "1px solid var(--app-border, #eef2f7)",
   verticalAlign: 'top',
   fontSize: 13,
 };
@@ -306,11 +307,11 @@ export default function MenuBar({
   const renderUtilityActions = (inMenu = false) => (
         <div className={`app-topbar-actions${inMenu ? ' is-menu' : ''}`} onClick={event => {if (inMenu && event.target.closest('button')) setUserMenuOpen(false);}}>
           {!sectionNavigation ? <Tooltip content="Toggle conversations" placement="bottom">
-            <Button ref={sidebarToggleRef} minimal icon="menu" aria-label="Toggle conversations" className="app-topbar-icon-btn is-conversations" data-testid="sidebar-toggle" onClick={onToggleSidebar} />
+            <Button ref={sidebarToggleRef} minimal icon={<UnifiedIcon name="menu"/>} aria-label="Toggle conversations" className="app-topbar-icon-btn is-conversations" data-testid="sidebar-toggle" onClick={onToggleSidebar} />
           </Tooltip> : null}
           {topbarActions.map((entry) => (
             <Tooltip key={entry.id} content={entry.title} placement="bottom">
-              <Button minimal icon={iconNames.includes(entry.icon) ? <SharedIcon name={entry.icon}/> : entry.icon || 'application'} aria-label={entry.title} disabled={entry.disabled}
+              <Button minimal icon={<SharedIcon name={entry.icon || 'lucide:layout-grid'}/>} aria-label={entry.title} disabled={entry.disabled}
                 className={`app-topbar-icon-btn${entry.className ? ` ${entry.className}` : ''}`} data-testid={`topbar-${entry.id}`}
                 {...(sectionNavigation ? typographyProps('label') : {})} role={inMenu ? 'menuitem' : undefined} text={inMenu ? entry.title : undefined}
                 onClick={() => {
@@ -518,9 +519,9 @@ export default function MenuBar({
                 <div style={{
                   display: 'grid',
                   gap: 14,
-                  border: '1px solid #d8e1ee',
+                  border: "1px solid var(--app-border, #d8e1ee)",
                   borderRadius: 16,
-                  background: '#ffffff',
+                  background: "var(--app-surface, #ffffff)",
                   padding: '16px 18px',
                   marginBottom: 12,
                 }}>
@@ -595,7 +596,7 @@ export default function MenuBar({
           ) : (
             <pre {...(sectionNavigation ? typographyProps('code') : {})}>{JSON.stringify(selected?.arguments || {}, null, 2)}</pre>
           )}
-          {approvalError ? <p {...(sectionNavigation ? typographyProps('body') : {})} role="alert" className={sectionNavigation ? "app-request-review-error" : undefined} style={sectionNavigation ? undefined : { color: '#ef4444', marginTop: 8 }}>{approvalError}</p> : null}
+          {approvalError ? <p {...(sectionNavigation ? typographyProps('body') : {})} role="alert" className={sectionNavigation ? "app-request-review-error" : undefined} style={sectionNavigation ? undefined : { color: "var(--agently-theme-status-danger-foreground, #ef4444)", marginTop: 8 }}>{approvalError}</p> : null}
           <div className="app-approval-dialog-actions">
             {approvalSubmitting ? <Spinner size={16} /> : null}
             <ReviewAction appearance={sectionNavigation ? 'document' : undefined} intent="danger" disabled={approvalSubmitting} onClick={() => handleApprovalDecision(selected, 'reject')}>Reject</ReviewAction>

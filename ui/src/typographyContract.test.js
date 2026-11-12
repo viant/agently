@@ -107,3 +107,28 @@ describe('anchored panel design-system adoption', () => {
     inspect(new URL('./',import.meta.url));
   });
 });
+
+
+describe('existing shell semantic paint', () => {
+  // Ignore neutral defaults and var() fallback recipes; actual component paint
+  // must consume the selected workspace roles. This guards future additions.
+  const stripFallbacks = source => {
+    let out = '';
+    for (let i = 0; i < source.length;) {
+      if (source.slice(i, i + 4) !== 'var(') { out += source[i++]; continue; }
+      let depth = 1; i += 4;
+      while (i < source.length && depth) { const c = source[i++]; if (c === '(') depth++; else if (c === ')') depth--; }
+    }
+    return out;
+  };
+  it('keeps component colors behind semantic roles while retaining neutral defaults', () => {
+    const files = ['shell', 'iteration', 'execution-workspace', 'conversation-usage', 'progress', 'detail-panel', 'steer', 'rich-content'];
+    for (const file of files) {
+      const source = read(`./styles/${file}.css`).replace(/\/\*[\s\S]*?\*\//g, '').replace(/:root\s*\{[^}]*\}/g, '');
+      expect(stripFallbacks(source), file).not.toMatch(/#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?)\(/i);
+    }
+    expect(stripFallbacks(read('./components/workspaceChatDock.css'))).not.toMatch(/#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?)\(/i);
+    expect(stripFallbacks('color: var(--app-text, #123456)')).not.toMatch(/#[0-9a-f]{3,8}/i);
+    expect(stripFallbacks('color: #123456')).toMatch(/#[0-9a-f]{3,8}/i);
+  });
+});

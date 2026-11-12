@@ -1,69 +1,41 @@
+import {Icon as SharedIcon} from 'forge/components';
 import React from 'react';
-import {
-  BugBeetle,
-  Buildings,
-  CalendarDots,
-  ChartPieSlice,
-  ChartLineUp,
-  ChatCircleText,
-  CirclesThree,
-  FileText,
-  Flask,
-  GlobeHemisphereWest,
-  Handshake,
-  ImageSquare,
-  Info,
-  EnvelopeSimple,
-  Palette,
-  Path,
-  PencilSimple,
-  RocketLaunch,
-  ClipboardText,
-  ShieldWarning,
-  Tag,
-  Target,
-  Pulse,
-  Stack,
-  TrendUp,
-  TreeStructure,
-  Wrench,
-} from '@phosphor-icons/react';
+
 import { resolveStarterPromptMacros } from './starterPromptMacros.js';
 
 const ICONS = {
-  bug: BugBeetle,
-  buildings: Buildings,
-  chat: ChatCircleText,
-  'calendar-report': CalendarDots,
-  'chart-arcs': ChartPieSlice,
-  'chart-line': ChartLineUp,
-  document: FileText,
-  email: EnvelopeSimple,
-  flask: Flask,
-  'globe-search': GlobeHemisphereWest,
-  help: Info,
-  handshake: Handshake,
-  image: ImageSquare,
-  palette: Palette,
-  clipboard: ClipboardText,
-  pencil: PencilSimple,
-  radar: Target,
-  pulse: Pulse,
-  rocket: RocketLaunch,
-  route: Path,
-  'shield-warning': ShieldWarning,
-  tags: Tag,
-  layers: Stack,
-  'trend-up': TrendUp,
-  'tree-structure': TreeStructure,
-  venn: CirclesThree,
-  wrench: Wrench,
+  bug: 'lucide:bug',
+  buildings: 'lucide:building',
+  chat: 'lucide:message-square',
+  'calendar-report': 'lucide:calendar',
+  'chart-arcs': 'lucide:chart-pie',
+  'chart-line': 'lucide:chart-no-axes-combined',
+  document: 'lucide:file-text',
+  email: 'lucide:mail',
+  flask: 'lucide:flask-conical',
+  'globe-search': 'lucide:globe',
+  help: 'lucide:info',
+  handshake: 'lucide:handshake',
+  image: 'lucide:image',
+  palette: 'lucide:palette',
+  clipboard: 'lucide:clipboard',
+  pencil: 'lucide:pencil',
+  radar: 'lucide:target',
+  pulse: 'lucide:activity',
+  rocket: 'lucide:rocket',
+  route: 'lucide:route',
+  'shield-warning': 'lucide:shield-alert',
+  tags: 'lucide:tag',
+  layers: 'lucide:layers',
+  'trend-up': 'lucide:trending-up',
+  'tree-structure': 'lucide:network',
+  venn: 'lucide:blend',
+  wrench: 'lucide:wrench',
 };
 
 function starterIcon(task = {}) {
   const key = String(task?.icon || '').trim().toLowerCase();
-  const Icon = ICONS[key] || ChatCircleText;
-  return <Icon size={18} weight="duotone" />;
+  return <SharedIcon name={ICONS[key] || 'lucide:message-square'}/>;
 }
 
 function categoryKey(category = {}) {
@@ -223,7 +195,7 @@ export default function StarterTasks({ message, context }) {
                       <span className="chat-starter-category-title">{category.title}</span>
                       {String(category.description || '').trim() ? <span className="chat-starter-category-description">{category.description}</span> : null}
                     </span>
-                    <span className="chat-starter-category-arrow" aria-hidden="true">›</span>
+                    <span className="chat-starter-category-arrow" aria-hidden="true"><SharedIcon name="lucide:chevron-right"/></span>
                   </button>
                 );
               })}

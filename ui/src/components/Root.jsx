@@ -1461,7 +1461,7 @@ export default function Root() {
 
   if (authState === 'checking') {
     return (
-      <div className="app-shell" style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', color: '#64748b', fontSize: 15 }}>
+      <div className="app-shell" style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: "var(--app-surface, #f8fafc)", color: "var(--app-text-secondary, #64748b)", fontSize: 15 }}>
         Checking authentication…
       </div>
     );
@@ -1469,16 +1469,16 @@ export default function Root() {
 
   if (authState === 'required') {
     return (
-      <div className="app-shell" style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' }}>
-        <div style={{ width: 'min(480px, 92vw)', padding: 28, borderRadius: 16, background: '#fff', boxShadow: '0 12px 36px rgba(15,23,42,0.10)', border: '1px solid #e5e7eb', textAlign: 'center' }}>
-          <div style={{ fontSize: 22, fontWeight: 600, color: '#0f172a', marginBottom: 10 }}>Sign in required</div>
-          <div style={{ color: '#64748b', lineHeight: 1.5, marginBottom: 18 }}>
+      <div className="app-shell" style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: "var(--app-surface, #f8fafc)" }}>
+        <div style={{ width: 'min(480px, 92vw)', padding: 28, borderRadius: 16, background: "var(--app-surface, #fff)", boxShadow: "var(--app-shadow, 0 12px 36px rgba(15,23,42,0.10))", border: "1px solid var(--app-border, #e5e7eb)", textAlign: 'center' }}>
+          <div style={{ fontSize: 22, fontWeight: 600, color: "var(--app-text, #0f172a)", marginBottom: 10 }}>Sign in required</div>
+          <div style={{ color: "var(--app-text-secondary, #64748b)", lineHeight: 1.5, marginBottom: 18 }}>
             This workspace requires OAuth authentication before conversations, approvals, and chat windows can load.
           </div>
           <button
             type="button"
             onClick={() => beginLogin()}
-            style={{ padding: '10px 18px', borderRadius: 10, border: '1px solid #d1d5db', background: '#1e293b', color: '#fff', fontWeight: 500, cursor: 'pointer', fontSize: 14 }}
+            style={{ padding: '10px 18px', borderRadius: 10, border: "1px solid var(--app-border, #d1d5db)", background: "var(--agently-theme-button-background, #1e293b)", color: "var(--agently-theme-button-foreground, #fff)", fontWeight: 500, cursor: 'pointer', fontSize: 14 }}
           >
             {oauthProviderLabel ? `Sign in with ${oauthProviderLabel}` : 'Sign in'}
           </button>

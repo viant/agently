@@ -545,5 +545,5 @@ it('renders authored Lucide header actions through the shared icon renderer',asy
   const {default:MenuBar}=await import('./MenuBar.jsx');renderedHeaderButtons.length=0;
   renderToStaticMarkup(React.createElement(MenuBar,{topbarActions:[{id:'history',title:'History',icon:'lucide:clock-3'},{id:'legacy',title:'Legacy time',icon:'time'}]}));
   expect(renderedHeaderButtons.find(button=>button['aria-label']==='History').icon.props.name).toBe('lucide:clock-3');
-  expect(renderedHeaderButtons.find(button=>button['aria-label']==='Legacy time').icon).toBe('time');
+  expect(renderedHeaderButtons.find(button=>button['aria-label']==='Legacy time').icon.props.name).toBe('time');
 });

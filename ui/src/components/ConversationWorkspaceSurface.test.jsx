@@ -102,8 +102,8 @@ describe('ConversationWorkspaceSurface', () => {
     expect(html).toContain('aria-label="Workspace navigation"');
     expect(html).toContain('title="List"');
     expect(html).toContain('aria-label="Record"');
-    expect(html).toContain('data-icon="grid-view"');
-    expect(html).toContain('data-icon="application"');
+    expect(html).toContain('data-shared-icon="grid-view"');
+    expect(html).toContain('data-shared-icon="application"');
     expect(html).toContain('aria-current="page"');
     expect(html).not.toContain('>Record</span>');
   });

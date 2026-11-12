@@ -124,7 +124,7 @@ export default function ElicitationForm({ message, context, onResolved = null })
             />
           </div>
         }
-        {error ? <p style={{ color: '#ef4444', marginTop: 8 }}>{error}</p> : null}
+        {error ? <p style={{ color: "var(--agently-theme-status-danger-foreground, #ef4444)", marginTop: 8 }}>{error}</p> : null}
       </div>
       <div className={Classes.DIALOG_FOOTER}>
         <div className={Classes.DIALOG_FOOTER_ACTIONS}>

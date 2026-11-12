@@ -74,8 +74,8 @@ export default function OAuthCallback() {
   if (status === 'error') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh', gap: 12 }}>
-        <div style={{ color: '#ef4444', fontWeight: 500 }}>Authentication failed</div>
-        <div style={{ color: '#9ca3af', fontSize: 13 }}>{error}</div>
+        <div style={{ color: "var(--agently-theme-status-danger-foreground, #ef4444)", fontWeight: 500 }}>Authentication failed</div>
+        <div style={{ color: "var(--app-muted, #9ca3af)", fontSize: 13 }}>{error}</div>
         <button onClick={() => window.location.replace('/')} style={{ marginTop: 8, cursor: 'pointer' }}>
           Return to app
         </button>
@@ -84,7 +84,7 @@ export default function OAuthCallback() {
   }
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', color: '#9ca3af' }}>
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', color: "var(--app-muted, #9ca3af)" }}>
       Completing authentication...
     </div>
   );

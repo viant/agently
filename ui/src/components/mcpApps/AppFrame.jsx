@@ -14,9 +14,9 @@ const AppFrame = forwardRef(function AppFrame({ srcDoc, src = '', sandbox = MCP_
       style={{
         width: '100%',
         minHeight: '240px',
-        border: '1px solid #d8dde6',
+        border: "1px solid var(--app-border, #d8dde6)",
         borderRadius: '10px',
-        background: '#fff',
+        background: "var(--app-surface, #fff)",
         ...style,
       }}
     />

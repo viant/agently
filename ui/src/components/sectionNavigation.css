@@ -6,7 +6,7 @@
   display: grid;
   grid-template-columns: var(--app-section-rail-width) minmax(0, 1fr);
   height: 100%; min-height: 0; min-width: 0;
-  background: var(--app-surface-soft);
+  background: var(--app-surface);
   color: var(--app-text);
 }
 .app-section-rail {
@@ -23,7 +23,7 @@
   border: 0; border-radius: var(--agently-theme-radius-control, 8px);
   background: transparent; color: var(--app-text-secondary); cursor: pointer;
 }
-.app-section-rail-button:hover { background: var(--app-surface); }
+.app-section-rail-button:hover { background: var(--app-surface-soft); }
 .app-section-rail-button[aria-current] { color: var(--app-accent); background: var(--app-selected-background); }
 .app-section-rail-button:disabled { opacity: .5; cursor: default; }
 .app-section-rail-button:focus-visible, .app-layout-sidebar.is-sections .app-layout-menu:focus-visible, .app-sidebar.is-document :where(button, input):focus-visible {
@@ -52,7 +52,7 @@
 .app-section-profile .app-user-btn { background: transparent; border: 0; box-shadow: none; -webkit-tap-highlight-color: transparent; }
 .app-section-profile .app-user-menu.is-document { background: var(--app-surface); color: var(--app-text); border: 1px solid var(--app-border); box-shadow: var(--agently-theme-overlay-shadow, var(--app-shadow)); }
 .app-section-profile .app-user-menu.is-document .bp6-button { color: var(--app-text-secondary); font: inherit; letter-spacing: inherit; }
-.app-section-profile .app-user-menu.is-document .bp6-button:hover { background: var(--app-surface-soft); }
+.app-section-profile .app-user-menu.is-document .bp6-button:hover { background: var(--forge-surface-subtle, var(--app-surface-soft)); }
 .app-layout-sidebar.is-sections .app-layout-menus { padding: var(--agently-theme-spacing-2, 8px); }
 .app-layout-sidebar.is-sections .app-layout-menu[aria-current] { color: var(--app-accent); background: var(--app-selected-background); }
 .app-sidebar-recovery { display: flex; flex-direction: column; align-items: flex-start; gap: var(--agently-theme-spacing-2, 8px); padding: var(--agently-theme-spacing-3, 12px) var(--agently-theme-spacing-2, 8px); color: var(--app-text-secondary); overflow-wrap: anywhere; }

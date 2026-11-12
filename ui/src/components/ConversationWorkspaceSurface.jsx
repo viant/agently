@@ -1,3 +1,4 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import InlineReportWorkspace from './InlineReportWorkspace.jsx';
 import {WorkspaceRuntimeTabs,WorkspaceRuntimePanels,shouldShowWorkspaceTabs as sharedShouldShowWorkspaceTabs} from 'forge/components/WorkspaceRuntimeSurface.jsx';
 import {resolveWorkspaceWindowTitle} from '../services/workspaceWindowTitle.js';
@@ -8,7 +9,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {createPortal} from 'react-dom';
 import SavedOutputInventory from './SavedOutputInventory.jsx';
 import {ShellIconButton} from './ShellHeader.jsx';
-import { Button, Icon, Tooltip } from '@blueprintjs/core';
+import {Button, Tooltip} from '@blueprintjs/core';
 import WindowContent from './WorkspaceWindowContent.jsx';
 import { Icon as SharedIcon, SelectControl, typographyProps } from 'forge/components';
 import AppRenderer from './mcpApps/AppRenderer.jsx';
@@ -189,7 +190,7 @@ export default function ConversationWorkspaceSurface({
           <Button
             minimal
             small
-            icon={navigation.icon}
+            icon={(iconName => iconName ? <UnifiedIcon name={iconName}/> : iconName)(navigation.icon)}
             text={navigation.label}
             aria-label={`Return to ${navigation.label}`}
             onClick={onOpenWorkspace}
@@ -206,7 +207,7 @@ export default function ConversationWorkspaceSurface({
                   <Button
                     minimal
                     small
-                    icon="chat"
+                    icon={<UnifiedIcon name="chat"/>}
                     className="app-summary-workspace-chat-action app-workspace-breadcrumb-chip is-icon-only"
                     aria-label="Return to chat"
                     title={unreadCount > 0 ? `Chat · ${unreadCount} new` : 'Chat'}
@@ -215,11 +216,11 @@ export default function ConversationWorkspaceSurface({
                 </Tooltip>
                 {breadcrumbs.map((breadcrumb) => (
                   <React.Fragment key={`${breadcrumb.windowId}:${breadcrumb.index}`}>
-                    <span className="app-workspace-breadcrumb-separator" aria-hidden="true">›</span>
+                    <span className="app-workspace-breadcrumb-separator" aria-hidden="true"><SharedIcon name="lucide:chevron-right"/></span>
                     {breadcrumb.current ? (
                       <Tooltip content={breadcrumb.label} placement="bottom" hoverOpenDelay={200}>
                         <span className={`app-workspace-breadcrumb-chip is-current${breadcrumb.icon ? ' is-icon-only' : ''}`} aria-current="page" aria-label={breadcrumb.label} title={breadcrumb.label}>
-                          {breadcrumb.icon ? <Icon icon={breadcrumb.icon} size={12} /> : null}
+                          {breadcrumb.icon ? <UnifiedIcon name={breadcrumb.icon}  /> : null}
                           {!breadcrumb.icon ? breadcrumb.label : null}
                         </span>
                       </Tooltip>
@@ -232,7 +233,7 @@ export default function ConversationWorkspaceSurface({
                           title={breadcrumb.label}
                           onClick={() => onNavigateWorkspaceBreadcrumb?.(breadcrumb.index)}
                         >
-                          {breadcrumb.icon ? <Icon icon={breadcrumb.icon} size={12} /> : null}
+                          {breadcrumb.icon ? <UnifiedIcon name={breadcrumb.icon}  /> : null}
                           {!breadcrumb.icon ? breadcrumb.label : null}
                         </button>
                       </Tooltip>
@@ -259,7 +260,7 @@ export default function ConversationWorkspaceSurface({
                   disabled={capabilities.close === false}
                   aria-label={`Close ${navigation.label}`} title={`Close ${navigation.label}`} onClick={onCloseWorkspace}>
                   <span className="app-workspace-control-dot" aria-hidden="true">
-                    <svg viewBox="0 0 10 10"><path d="M2 2l6 6M8 2L2 8" /></svg>
+                    <SharedIcon name="lucide:x"/>
                   </span>
                 </button>
                 <button type="button" className="app-workspace-window-control is-layout"
@@ -269,7 +270,7 @@ export default function ConversationWorkspaceSurface({
                   title={compact ? 'Workspace is maximized on small screens' : capabilities.split === false ? 'Split layout unavailable' : effectiveMode === 'focus' ? 'Restore split view' : 'Maximize workspace'}
                   onClick={() => onChangeWorkspaceMode?.(effectiveMode === 'focus' ? 'split' : 'focus')}>
                   <span className="app-workspace-control-dot" aria-hidden="true">
-                    <svg viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7" rx="0.6" />{effectiveMode === 'focus' ? <path d="M5 1.5v7" /> : null}</svg>
+                    <SharedIcon name={effectiveMode === 'focus' ? 'lucide:panel-right' : 'lucide:maximize-2'}/>
                   </span>
                 </button>
               </div>
@@ -280,7 +281,7 @@ export default function ConversationWorkspaceSurface({
             selectedId={workspaceWindow?.windowId} onSelect={onSelectWorkspaceTab} onClose={onCloseWorkspaceTab}
             visibility={workspaceTabsVisibility} className="app-window-split-workspace-tabs" itemClassName="app-workspace-object-chip" tabClassName="app-window-split-workspace-tab"
             onKeyboardSelect={()=>{keyboardNavigationRef.current=true;}}
-            renderLabel={tab=><><Icon icon="application" size={12}/> {tab.label}</>}/> : null}
+            renderLabel={tab=><><UnifiedIcon name="application" /> {tab.label}</>}/> : null}
           <div ref={contentRef} className="app-summary-workspace-content">
             <WorkspaceRuntimePanels id="conversation-workspace" entries={workspaceWindows.length?workspaceWindows:[workspaceWindow]} selectedId={workspaceWindow?.windowId} active={workspaceActive}
               preloadContent={entry=>entry.hostOpenState==='fresh' && entry.workspaceObject?.lifecycle?.state==='opening'}
@@ -301,7 +302,7 @@ export default function ConversationWorkspaceSurface({
           <Button
             minimal
             small
-            icon={composerExpanded ? 'chevron-down' : 'chevron-up'}
+            icon={(iconName => iconName ? <UnifiedIcon name={iconName}/> : iconName)(composerExpanded ? 'chevron-down' : 'chevron-up')}
             className="app-workspace-composer-toggle"
             aria-expanded={composerExpanded}
             aria-label={composerExpanded ? 'Hide composer' : 'Show composer'}

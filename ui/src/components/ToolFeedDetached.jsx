@@ -1,5 +1,6 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Drawer, Icon } from '@blueprintjs/core';
+import {Drawer} from '@blueprintjs/core';
 
 import { getActiveFeeds, onFeedChange } from '../services/toolFeedBus';
 import { activateExclusiveFeed } from '../services/toolFeedSelection';
@@ -55,7 +56,7 @@ export default function ToolFeedDetached({ conversationId = '', developerMode = 
           style={{ '--feed-accent': accent }}
           aria-label={`Open ${selected?.title || 'tool feed overlay'}`}
         >
-          <Icon icon={feedIconName(selected?.presentation)} size={15} />
+          <UnifiedIcon name={feedIconName(selected?.presentation)}  />
           <span>{selected?.title || 'Tool feed'}</span>
         </button>
       ) : null}
@@ -70,7 +71,7 @@ export default function ToolFeedDetached({ conversationId = '', developerMode = 
         <section className="app-tool-feed-detached" aria-label="Tool feed overlay">
           <header className="app-tool-feed-detached-header" style={{ '--feed-accent': accent }}>
             <div className="app-tool-feed-detached-title">
-              <Icon icon={feedIconName(selected?.presentation)} size={16} />
+              <UnifiedIcon name={feedIconName(selected?.presentation)}  />
               <span>{selected?.title || 'Tool feed'}</span>
             </div>
             <button type="button" className="app-tool-feed-surface-action" onClick={() => setOpen(false)} aria-label="Close tool feed overlay">Close</button>

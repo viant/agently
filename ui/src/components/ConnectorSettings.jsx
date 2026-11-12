@@ -1,3 +1,4 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button } from '@blueprintjs/core';
 import { connectProvider, disconnectProvider, finishConnectorReturn, listConnectors } from '../services/connectors';
@@ -56,7 +57,7 @@ export default function ConnectorSettings() {
     <div className="app-connectors-heading">
       <div><h2 id="connectors-heading" className="app-ui-settings-title">Connectors</h2>
         <p>Connect your accounts once. Agently uses your saved connection when a tool needs it.</p></div>
-      <Button minimal icon="refresh" text="Refresh" disabled={loading || !!busy} onClick={() => setRevision(value => value + 1)} />
+      <Button minimal icon={<UnifiedIcon name="refresh"/>} text="Refresh" disabled={loading || !!busy} onClick={() => setRevision(value => value + 1)} />
     </div>
     {notice && <p role="status">{notice}</p>}
     {error && <p role="alert" className="app-connectors-error">{error}</p>}

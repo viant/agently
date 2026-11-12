@@ -1,6 +1,7 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import {applicationScope} from '../services/applicationScope';
 import React, { useEffect, useRef, useState } from 'react';
-import { Button, Icon } from '@blueprintjs/core';
+import {Button} from '@blueprintjs/core';
 import { useSignals } from '@preact/signals-react/runtime';
 import { activeWindows, selectedWindowId, selectedTabId, getFormSignal } from 'forge/core';
 import { resolveNavigationParameters } from 'forge/utils/navigationParameters';
@@ -360,8 +361,8 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       const expanded = !collapsedGroups[groupKey];
       return <div className={`app-layout-menu-group ${menu.className || ''}`} key={menu.id}>
         <Button minimal fill alignText="left" className="app-layout-menu-group-title" aria-expanded={expanded} {...(sections ? typographyProps('label') : {})}
-          icon={sections || menu.iconSvg ? <SharedIcon name={menu.icon || (menu.iconSvg ? undefined : 'lucide:layout-grid')} iconSvg={menu.iconSvg} className="app-layout-group-icon"/> : <Icon icon={menu.icon || 'folder-close'} size={14} className="app-layout-group-icon" />}
-          endIcon={<Icon icon={expanded ? 'minus' : 'plus'} size={12} />}
+          icon={sections || menu.iconSvg ? <SharedIcon name={menu.icon || (menu.iconSvg ? undefined : 'lucide:layout-grid')} iconSvg={menu.iconSvg} className="app-layout-group-icon"/> : <UnifiedIcon name={menu.icon || 'folder-close'}  className="app-layout-group-icon" />}
+          endIcon={<UnifiedIcon name={expanded ? 'minus' : 'plus'}  />}
           onClick={() => setCollapsedGroups(previous => ({...previous, [groupKey]: !previous[groupKey]}))}>{menu.title}</Button>
         {expanded ? <div className="app-layout-menu-children">{menu.children.map(child => renderMenu(child, [...parentPath, menu.id]))}</div> : null}
       </div>;
@@ -370,7 +371,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
     const destinationId = JSON.stringify([active?.id, ...parentPath, menu.id]);
     const unavailable = sections && layoutWindowDestinations(layout).find(entry => entry.destination === destinationId)?.disabled;
     const MenuButton = sections ? SectionDestinationButton : Button;
-    return <MenuButton key={menu.id} minimal fill alignText="left" className={`app-layout-menu ${menu.className || ''}`} {...(sections ? {selected: section === 'workspaces' && destination === destinationId} : {})} icon={menu.icon || menu.iconSvg ? sections || menu.iconSvg ? <SharedIcon name={menu.icon} iconSvg={menu.iconSvg} className="app-layout-menu-icon"/> : <Icon icon={menu.icon} size={14} className="app-layout-menu-icon" /> : undefined} disabled={menu.disabled || active?.disabled || unavailable || missingInputs}
+    return <MenuButton key={menu.id} minimal fill alignText="left" className={`app-layout-menu ${menu.className || ''}`} {...(sections ? {selected: section === 'workspaces' && destination === destinationId} : {})} icon={menu.icon || menu.iconSvg ? sections || menu.iconSvg ? <SharedIcon name={menu.icon} iconSvg={menu.iconSvg} className="app-layout-menu-icon"/> : <UnifiedIcon name={menu.icon}  className="app-layout-menu-icon" /> : undefined} disabled={menu.disabled || active?.disabled || unavailable || missingInputs}
       onClick={() => {
         const action = menu.action;
         if (openLayoutURL(action)) { onNavigate?.(); return; }
@@ -475,28 +476,28 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
 
   return <div className={`app-layout-sidebar${collapsed ? ' is-collapsed' : ''}${shortSidebar ? ' is-short' : ''}`} ref={shellRef} hidden={drawerHidden} inert={drawerHidden ? '' : undefined}>
     {collapsed && navigationEnabled && applications.length > 0 ? <div className="app-layout-rail" aria-label="Applications">
-      {applications.map((app) => <Button key={app.id} minimal small disabled={app.disabled} icon={app.icon || undefined} className={app.className || undefined}
+      {applications.map((app) => <Button key={app.id} minimal small disabled={app.disabled} icon={(iconName => iconName ? <UnifiedIcon name={iconName}/> : iconName)(app.icon || undefined)} className={app.className || undefined}
         aria-label={`Open ${app.title} application menu`} title={app.title}
         onClick={() => { setActiveApp(app.id); onExpand?.(); }}>{app.icon ? null : Array.from(String(app.title || '?'))[0]}</Button>)}
     </div> : null}
     {!collapsed && navigationEnabled && applications.length > 0 ? <>
       <section className={`app-layout-navigation ${active?.className || ''}`} style={canSplit ? { '--app-navigation-basis': `calc((100% - 8px) * ${clampFraction(fraction)})`, '--app-navigation-min-height': `${minHeight}px` } : undefined} aria-label="Applications">
         {applications.length > 1 ? <div className="app-layout-tabbar">
-          {tabScroll.left || tabScroll.right ? <Button minimal small icon="chevron-left" aria-label="Scroll applications left" disabled={!tabScroll.left} onClick={() => scrollTabs(-1)} /> : null}
+          {tabScroll.left || tabScroll.right ? <Button minimal small icon={<UnifiedIcon name="chevron-left"/>} aria-label="Scroll applications left" disabled={!tabScroll.left} onClick={() => scrollTabs(-1)} /> : null}
           <div className="app-layout-tabs" role="tablist" aria-label="Applications" ref={tabsRef} onScroll={updateTabScroll}>
-          {applications.map((app) => <Button key={app.id} minimal small role="tab" aria-selected={app.id === active?.id} icon={app.icon || undefined} className={app.className || undefined}
+          {applications.map((app) => <Button key={app.id} minimal small role="tab" aria-selected={app.id === active?.id} icon={(iconName => iconName ? <UnifiedIcon name={iconName}/> : iconName)(app.icon || undefined)} className={app.className || undefined}
             active={app.id === active?.id} disabled={app.disabled} onClick={() => setActiveApp(app.id)}>{app.title}</Button>)}
           </div>
-          {tabScroll.left || tabScroll.right ? <Button minimal small icon="chevron-right" aria-label="Scroll applications right" disabled={!tabScroll.right} onClick={() => scrollTabs(1)} /> : null}
-          <Button minimal small icon="refresh" aria-label="Reload navigation" title="Reload navigation" onClick={() => setReloadVersion((value) => value + 1)} />
-        </div> : <div className="app-layout-heading"><span>{active?.icon ? <Icon icon={active.icon} /> : null}{active?.title}</span><Button minimal small icon="refresh" aria-label="Reload navigation" title="Reload navigation" onClick={() => setReloadVersion((value) => value + 1)} /></div>}
+          {tabScroll.left || tabScroll.right ? <Button minimal small icon={<UnifiedIcon name="chevron-right"/>} aria-label="Scroll applications right" disabled={!tabScroll.right} onClick={() => scrollTabs(1)} /> : null}
+          <Button minimal small icon={<UnifiedIcon name="refresh"/>} aria-label="Reload navigation" title="Reload navigation" onClick={() => setReloadVersion((value) => value + 1)} />
+        </div> : <div className="app-layout-heading"><span>{active?.icon ? <UnifiedIcon name={active.icon} /> : null}{active?.title}</span><Button minimal small icon={<UnifiedIcon name="refresh"/>} aria-label="Reload navigation" title="Reload navigation" onClick={() => setReloadVersion((value) => value + 1)} /></div>}
         <div className="app-layout-menus">{active?.menus?.map(menu => renderMenu(menu))}</div>
       </section>
       {canSplit && layout?.left?.split?.resizable !== false ? <div className="app-layout-divider" role="separator" aria-orientation="horizontal" aria-label="Resize navigation and conversations"
         tabIndex={0} onPointerDown={startResize}
         onKeyDown={(event) => { if (event.key === 'ArrowUp' || event.key === 'ArrowDown') { event.preventDefault(); setFraction((value) => clampFraction(value + (event.key === 'ArrowDown' ? 0.05 : -0.05))); } }} /> : null}
     </> : null}
-    {!collapsed && navigationEnabled && applications.length === 0 && !error ? <Button minimal small icon="refresh" onClick={() => setReloadVersion((value) => value + 1)}>Reload navigation</Button> : null}
+    {!collapsed && navigationEnabled && applications.length === 0 && !error ? <Button minimal small icon={<UnifiedIcon name="refresh"/>} onClick={() => setReloadVersion((value) => value + 1)}>Reload navigation</Button> : null}
     {error ? <div className="app-layout-error" role="alert">{error} <Button small minimal onClick={() => setReloadVersion((value) => value + 1)}>Retry</Button></div> : null}
     {historyEnabled ? <div className="app-layout-history"><Sidebar hidden={drawerHidden} history={history} collapsed={collapsed} onNavigate={onNavigate} onExpand={onExpand} showNewConversation={history.newConversation !== false} /></div> : null}
   </div>;
