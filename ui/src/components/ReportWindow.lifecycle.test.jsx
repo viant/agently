@@ -246,3 +246,39 @@ it('readmits a mounted report after credential reconnect without rerunning or re
  expect(services.reportExport.submitResource.mock.calls[0][0].parameters.from).toBe('2026-01-02');
  expect(services.reportStore.runReport).toHaveBeenCalledTimes(1);
 });
+
+
+it('recovers a changed publication with a distinct instance and retains applied/draft filters without running data',async()=>{
+ const uri='report://example/summary';
+ const old=addWindow('Example',null,uri,null,true,{region:'launch',executeOnOpen:true},{resourceRef:{uri,revision:'review'},presentation:'hosted',region:'app.section',conversationId:'example-chat'});
+ getViewSignal(old.windowId).value={report:{resourceUri:uri,parameters:{region:'applied'},draftParameters:{region:'draft'},hasCompletedRun:true,reportFill:{rows:[{private:'old output'}]}}};
+ const getReport=vi.fn(async request=>{
+  if(request.windowInstance.windowId===old.windowId)throw Object.assign(new Error('Existing instance belongs to another selected candidate'),{status:409});
+  return {resource:{uri,kind:'published',contentFingerprint:'current',authorityBinding:'current'},resourceDefinition:{builderDefinition:{reportBuilder:{predicates:[{id:'region',label:'Region',kind:'text'}]}}}};
+ });
+ const runReport=vi.fn();render(<SettingProvider services={{reportStore:{getReport,runReport}}}><AppSectionContent window={old}/></SettingProvider>);
+ await screen.findByText('Report unavailable');
+ fireEvent.click(screen.getByRole('button',{name:'Reopen report'}));
+ await waitFor(()=>expect(getReport).toHaveBeenCalledTimes(2));
+ const next=activeWindows.peek().find(window=>window.windowId!==old.windowId);
+ expect(next.windowId).not.toBe(old.windowId);expect(next.parentKey).toBe(old.windowId);
+ expect(next.resourceRef).toEqual({uri,revision:'review'});expect(next.conversationId).toBe('example-chat');
+ expect(next.parameters).toMatchObject({region:'applied',executeOnOpen:false});
+ expect(activeWindows.peek().find(window=>window.windowId===old.windowId)).toBe(old);
+ await screen.findByLabelText('Region');expect(screen.getByLabelText('Region').value).toBe('draft');
+ expect(getViewSignal(next.windowId).peek().report.parameters.region).toBe('applied');
+ expect(JSON.stringify(getViewSignal(next.windowId).peek())).not.toContain('old output');
+ expect(runReport).not.toHaveBeenCalled();
+});
+
+it.each([403,503])('ordinary %s errors retry the same instance without creating windows',async status=>{
+ const entry=addWindow('Example',null,'report://example/summary',null,true,{}, {resourceRef:{uri:'report://example/summary'},presentation:'hosted'});
+ const getReport=vi.fn(async()=>{throw Object.assign(new Error('Unavailable'),{status});});
+ render(<SettingProvider services={{reportStore:{getReport}}}><WorkspaceWindowContent window={entry}/></SettingProvider>);
+ await screen.findByText('Report unavailable');
+ expect(screen.queryByRole('button',{name:'Reopen report'})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Retry'}));
+ await waitFor(()=>expect(getReport).toHaveBeenCalledTimes(2));
+ expect(activeWindows.peek()).toHaveLength(1);
+ expect(getReport.mock.calls[1][0].windowInstance.windowId).toBe(entry.windowId);
+});

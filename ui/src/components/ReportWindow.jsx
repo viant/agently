@@ -5,6 +5,7 @@ import {resolveHostedExecuteOnOpenHostAction} from 'forge/components/dashboard/r
 import {normalizeReportDatePresets,useReportDatePresetDraft} from 'forge/reporting';
 import {initializeReportFilterParameters, applyReportFilterParameters} from '../services/reportFilterParameters';
 import {createReportChoiceLoader} from '../services/reportChoiceService';
+import {reopenReportWindow} from '../services/reportWindowRecovery';
 import {setWorkspaceLifecycle} from '../services/useWorkspaceAdapters.js';
 import {useSetting, getViewSignal, findViewSignal, getActiveUIBridgeTransportContext} from 'forge/core';
 
@@ -129,7 +130,9 @@ export default function ReportWindow({window: entry}) {
     if(JSON.stringify(previous.report)!==JSON.stringify(report))signal.value={...previous,report};
   },[entry.windowId,identity]);
   useEffect(()=>()=>{const signal=entry.windowId&&findViewSignal(entry.windowId);if(signal?.peek()?.report?.resourceUri===resourceRef.uri){const next={...signal.peek()};delete next.report;signal.value=next;}},[entry.windowId,identity]);
-  if (state.identity === bindingIdentity && state.error) return <Callout intent="danger" title="Report unavailable">This report could not be loaded. Please try again. <Button onClick={() => setAttempt(value => value + 1)}>Retry</Button></Callout>;
+  if (state.identity === bindingIdentity && state.error) return <Callout intent="danger" title="Report unavailable">{state.error.status === 409
+    ? <>This report revision changed. Reopen it in a new window to keep this window’s revision intact. <Button onClick={() => reopenReportWindow(entry)}>Reopen report</Button></>
+    : <>This report could not be loaded. Please try again. <Button onClick={() => setAttempt(value => value + 1)}>Retry</Button></>}</Callout>;
   if (state.identity !== bindingIdentity || !state.report) return <Spinner aria-label="Loading report" size={24}/>;
   // Seed the calendar draft only after authorization, with the full inputs for
   // this scope. Parameter changes do not require another definition read.
