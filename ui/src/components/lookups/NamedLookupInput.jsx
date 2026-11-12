@@ -1,3 +1,4 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import {Popover} from 'forge/components';
 import './skillHints.css';
 import {lookupSurfaceInvocation} from './surface.js';
@@ -1367,7 +1368,7 @@ export default function NamedLookupInput({
     minHeight: 40,
     maxHeight: '216px',
     overflowY: 'auto',
-    border: '1px solid #ced9e0',
+    border: "1px solid var(--app-border, #ced9e0)",
     padding: '10px 12px',
     lineHeight: 1.5,
     whiteSpace: 'pre-wrap',
@@ -1506,7 +1507,7 @@ export default function NamedLookupInput({
                         rightElement={isDirectInputChip(chip.name) ? undefined : (
                           <Button
                             disabled={disabled}
-                            icon="caret-down"
+                            icon={<UnifiedIcon name="caret-down"/>}
                             minimal
                             small
                             tabIndex={-1}
@@ -1515,10 +1516,10 @@ export default function NamedLookupInput({
                             title={`Browse ${chip.name}`}
                             style={{
                               borderRadius: 999,
-                              background: 'linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%)',
-                              border: '1px solid #d7e3f0',
-                              color: '#4b6480',
-                              boxShadow: '0 1px 1px rgba(15, 23, 42, 0.06)',
+                              background: "linear-gradient(180deg, var(--app-surface, #f8fbff) 0%, var(--app-surface-soft, #eef4fb) 100%)",
+                              border: "1px solid var(--app-border, #d7e3f0)",
+                              color: "var(--app-text-secondary, #4b6480)",
+                              boxShadow: "var(--app-shadow, 0 1px 1px rgba(15, 23, 42, 0.06))",
                               marginRight: 2,
                             }}
                             onMouseDown={(event) => {
@@ -1536,7 +1537,7 @@ export default function NamedLookupInput({
                         style={{ minWidth: 160 }}
                       />
                       {editingChip?.error ? (
-                        <div style={{ fontSize: 11, color: '#c23030', marginTop: 4, paddingLeft: 2 }}>
+                        <div style={{ fontSize: 11, color: "var(--agently-theme-status-danger-foreground, #c23030)", marginTop: 4, paddingLeft: 2 }}>
                           {editingChip.error}
                         </div>
                       ) : null}
@@ -1610,11 +1611,11 @@ export default function NamedLookupInput({
             marginTop: 6,
             padding: '6px 8px',
             borderRadius: 8,
-            background: '#f4f7fb',
-            border: '1px solid #d8e1ec',
-            color: '#4f5f73',
+            background: "var(--app-surface-soft, #f4f7fb)",
+            border: "1px solid var(--app-border, #d8e1ec)",
+            color: "var(--app-text-secondary, #4f5f73)",
             fontSize: 11,
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+            fontFamily: "var(--agently-theme-type-code-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace)",
             overflowX: 'auto',
             whiteSpace: 'nowrap',
           }}

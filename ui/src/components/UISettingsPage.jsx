@@ -1,3 +1,4 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import ComposerDefaultsSettings from "./ComposerDefaultsSettings";
 import {ForgeThemeBoundary} from "forge/components";
 import WorkspaceAppearanceSettings from './WorkspaceAppearanceSettings';
@@ -5,7 +6,7 @@ import React, { useState } from 'react';
 import ConnectorSettings from './ConnectorSettings';
 import StarterTaskSettings from './StarterTaskSettings';
 import './ConnectorSettings.css';
-import { Button, Icon, Switch } from '@blueprintjs/core';
+import {Button, Switch} from '@blueprintjs/core';
 import { resetUIPreferences, setDeveloperMode, useDeveloperMode } from '../services/uiPreferences';
 import { uiSettingsReturnHref } from '../services/uiSettingsNavigation';
 
@@ -31,7 +32,7 @@ export default function UISettingsPage() {
   return (
     <ForgeThemeBoundary windowKey="ui-settings"><main className="app-ui-settings" data-testid="ui-settings-page">
       <header className="app-ui-settings-header">
-        <a href={returnHref} className="app-ui-settings-back" aria-label="Back to Agently"><Icon icon="arrow-left" aria-hidden="true" /> Agently</a>
+        <a href={returnHref} className="app-ui-settings-back" aria-label="Back to Agently"><UnifiedIcon name="arrow-left" aria-hidden="true" /> Agently</a>
         <h1>UI Settings</h1>
       </header>
       <div role="tablist" aria-label="Settings" className="app-settings-tabs">
@@ -65,7 +66,7 @@ export default function UISettingsPage() {
           onChange={(event) => setDeveloperMode(event.target.checked)}
         />
       </section>
-      <Button className="app-ui-settings-reset" minimal icon="reset" text="Reset UI defaults" onClick={resetUIPreferences} />
+      <Button className="app-ui-settings-reset" minimal icon={<UnifiedIcon name="reset"/>} text="Reset UI defaults" onClick={resetUIPreferences} />
       </div>}
     </main></ForgeThemeBoundary>
   );

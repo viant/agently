@@ -1,3 +1,4 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import React from 'react';
 import { Dialog, Classes, Button, Tooltip } from '@blueprintjs/core';
 import { closeFileViewDialog, useFileViewDialogState } from '../utils/dialogBus';
@@ -11,9 +12,9 @@ function PlainCode({ text = '' }) {
         overflow: 'auto',
         padding: 12,
         borderRadius: 12,
-        background: '#101521',
-        color: '#edf2f7',
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+        background: "var(--app-surface-soft, #101521)",
+        color: "var(--app-text, #edf2f7)",
+        fontFamily: "var(--agently-theme-type-code-family, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace)",
         fontSize: 12,
         lineHeight: 1.45,
         whiteSpace: 'pre-wrap'
@@ -37,7 +38,7 @@ export default function FileViewDialog() {
                 <Button
                   small
                   minimal
-                  icon="clipboard"
+                  icon={<UnifiedIcon name="clipboard"/>}
                   onClick={() => { try { navigator.clipboard?.writeText?.(String(state.uri || '')); } catch (_) {} }}
                 />
               </Tooltip>

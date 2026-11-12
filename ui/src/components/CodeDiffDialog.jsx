@@ -1,3 +1,4 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import React from 'react';
 import { Dialog, Classes, Button, ButtonGroup, Tooltip } from '@blueprintjs/core';
 import { closeCodeDiffDialog, useCodeDiffDialogState } from '../utils/dialogBus';
@@ -35,9 +36,9 @@ function PlainCode({ text = '' }) {
         overflow: 'auto',
         padding: 12,
         borderRadius: 12,
-        background: '#101521',
-        color: '#edf2f7',
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+        background: "var(--app-surface-soft, #101521)",
+        color: "var(--app-text, #edf2f7)",
+        fontFamily: "var(--agently-theme-type-code-family, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace)",
         fontSize: 12,
         lineHeight: 1.45,
         whiteSpace: 'pre-wrap'
@@ -50,16 +51,16 @@ function PlainCode({ text = '' }) {
 
 function DiffView({ text = '' }) {
   return (
-    <pre style={{ margin: 0, overflow: 'auto', height: '100%', background: '#101521', color: '#edf2f7', padding: 12, borderRadius: 12 }}>
+    <pre style={{ margin: 0, overflow: 'auto', height: '100%', background: "var(--app-surface-soft, #101521)", color: "var(--app-text, #edf2f7)", padding: 12, borderRadius: 12 }}>
       {String(text || '').split(/\r?\n/).map((line, index) => {
         const style = line.startsWith('+')
-          ? { color: '#6ee7b7', background: 'rgba(16,185,129,0.12)' }
+          ? { color: "var(--agently-theme-status-success-foreground, #6ee7b7)", background: "var(--agently-theme-status-success-background, rgba(16,185,129,0.12))" }
           : line.startsWith('-')
-            ? { color: '#fca5a5', background: 'rgba(239,68,68,0.12)' }
+            ? { color: "var(--agently-theme-status-danger-foreground, #fca5a5)", background: "var(--agently-theme-status-danger-background, rgba(239,68,68,0.12))" }
             : line.startsWith('@@') || line.startsWith('---') || line.startsWith('+++')
-              ? { color: '#cbd5e1' }
+              ? { color: "var(--app-muted, #cbd5e1)" }
               : {};
-        return <div key={`diff-${index}`} style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', whiteSpace: 'pre-wrap', ...style }}>{line}</div>;
+        return <div key={`diff-${index}`} style={{ fontFamily: "var(--agently-theme-type-code-family, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace)", whiteSpace: 'pre-wrap', ...style }}>{line}</div>;
       })}
     </pre>
   );
@@ -92,16 +93,16 @@ export default function CodeDiffDialog() {
                 <Button
                   small
                   minimal
-                  icon="clipboard"
+                  icon={<UnifiedIcon name="clipboard"/>}
                   onClick={() => { try { navigator.clipboard?.writeText?.(String(state.currentUri || '')); } catch (_) {} }}
                 />
               </Tooltip>
             ) : null}
           </div>
           <ButtonGroup minimal>
-            {resolveCodeDiffTabs(state).includes('current') ? <Button icon="document" active={resolvedMode === 'current'} onClick={() => setMode('current')}>Current</Button> : null}
-            {showPrev && resolveCodeDiffTabs(state).includes('prev') ? <Button icon="history" active={resolvedMode === 'prev'} onClick={() => setMode('prev')}>Prev</Button> : null}
-            {resolveCodeDiffTabs(state).includes('diff') ? <Button icon="changes" active={resolvedMode === 'diff'} onClick={() => setMode('diff')}>Diff</Button> : null}
+            {resolveCodeDiffTabs(state).includes('current') ? <Button icon={<UnifiedIcon name="document"/>} active={resolvedMode === 'current'} onClick={() => setMode('current')}>Current</Button> : null}
+            {showPrev && resolveCodeDiffTabs(state).includes('prev') ? <Button icon={<UnifiedIcon name="history"/>} active={resolvedMode === 'prev'} onClick={() => setMode('prev')}>Prev</Button> : null}
+            {resolveCodeDiffTabs(state).includes('diff') ? <Button icon={<UnifiedIcon name="changes"/>} active={resolvedMode === 'diff'} onClick={() => setMode('diff')}>Diff</Button> : null}
           </ButtonGroup>
         </div>
         <div style={{ flex: 1, minHeight: 0 }}>

@@ -1,5 +1,6 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Drawer, Icon } from '@blueprintjs/core';
+import {Drawer} from '@blueprintjs/core';
 import { fetchFeedDataNow, getActiveFeeds, onFeedChange } from '../services/toolFeedBus';
 import {
   activateExclusiveFeed,
@@ -149,7 +150,7 @@ export default function ToolFeedWorkspace({ conversationId = '', developerMode =
             style={{ '--feed-accent': feedAccent(feed.presentation) }}
             onClick={() => selectFeed(feed, openDrawer)}
           >
-            <span className="app-tool-workspace-tab-icon" aria-hidden="true"><Icon icon={feedIconName(feed.presentation)} size={13} /></span>
+            <span className="app-tool-workspace-tab-icon" aria-hidden="true"><UnifiedIcon name={feedIconName(feed.presentation)}  /></span>
             <span className="app-tool-workspace-tab-label">{feed.title || feed.feedId}</span>
             {feed.itemCount > 0 ? <span className="app-tool-workspace-tab-count">{feed.itemCount}</span> : null}
           </button>

@@ -177,8 +177,8 @@ describe('WorkspaceSidebar menu delivery from the workspace layout', () => {
 
     const records = await screen.findByRole('button', { name: 'Records' });
     const projects = screen.getByRole('button', { name: 'Projects' });
-    expect(records.querySelector('.app-layout-menu-icon')?.classList.contains('bp6-icon-people')).toBe(true);
-    expect(projects.querySelector('.app-layout-menu-icon')?.classList.contains('bp6-icon-chart')).toBe(true);
+    expect(records.querySelector('.app-layout-menu-icon')?.classList.contains('lucide-users')).toBe(true);
+    expect(projects.querySelector('.app-layout-menu-icon')?.classList.contains('lucide-chart-no-axes-combined')).toBe(true);
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch.mock.calls[0][0]).toMatch(/\/workspace\/layout$/);
     expect(fetch.mock.calls[0][1]).toMatchObject({ credentials: 'include', headers: { Accept: 'application/json' } });

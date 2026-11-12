@@ -1,3 +1,4 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import React, { useEffect, useMemo, useState } from 'react';
 import {createPortal} from 'react-dom';
 import { Button, InputGroup, Spinner } from '@blueprintjs/core';
@@ -721,7 +722,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
       {!collapsed && (!documentAppearance || searchOpen) ? (
         <InputGroup
           autoFocus={documentAppearance}
-          leftIcon="search"
+          leftIcon={<UnifiedIcon name="search"/>}
           placeholder={search.placeholder || 'Search conversations'}
           aria-label={search.placeholder || 'Search conversations'}
           value={query}
@@ -736,7 +737,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
               void reload('latest', '', { force: true }).catch(() => {});
             }
           }}
-          rightElement={showSearchClear && query ? <Button minimal small icon="cross" aria-label="Clear search" onClick={() => setQuery('')} /> : undefined}
+          rightElement={showSearchClear && query ? <Button minimal small icon={<UnifiedIcon name="cross"/>} aria-label="Clear search" onClick={() => setQuery('')} /> : undefined}
           small
         />
       ) : null}
@@ -760,7 +761,7 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
             {documentAppearance ? <div>
               {!searchMount ? searchButton : null}
               <Button minimal small loading={loading} icon={<SharedIcon name="lucide:refresh-cw"/>} aria-label="Refresh conversations" onClick={() => void reload('latest', '').catch(() => {})}/>
-            </div> : <Button minimal small loading={loading} icon="refresh" onClick={() => void reload('latest', '').catch(() => {})}>Refresh</Button>}
+            </div> : <Button minimal small loading={loading} icon={<UnifiedIcon name="refresh"/>} onClick={() => void reload('latest', '').catch(() => {})}>Refresh</Button>}
           </div>
           {documentAppearance ? searchField : null}
           {error ? <div className="app-sidebar-recovery" role="alert">
@@ -779,18 +780,18 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
           {showPagination ? (
             <div className="app-sidebar-pagination">
               {paginationMode === 'pages' ? <>
-                <Button small minimal icon="chevron-left" className="app-sidebar-pagination-btn" disabled={!prevCursor}
+                <Button small minimal icon={<UnifiedIcon name="chevron-left"/>} className="app-sidebar-pagination-btn" disabled={!prevCursor}
                   aria-label="Load newer conversations" title="Load newer conversations"
                   onClick={() => { const request = sidebarPaginationRequest('newer', prevCursor); void reload(request.direction, request.cursor).catch(() => {}); }} />
                 <div className="app-sidebar-pagination-status">{pageStatusLabel}</div>
-                <Button small minimal icon="chevron-right" className="app-sidebar-pagination-btn" disabled={!nextCursor}
+                <Button small minimal icon={<UnifiedIcon name="chevron-right"/>} className="app-sidebar-pagination-btn" disabled={!nextCursor}
                   aria-label="Load older conversations" title="Load older conversations"
                   onClick={() => { const request = sidebarPaginationRequest('older', nextCursor); void reload(request.direction, request.cursor).catch(() => {}); }} />
               </> : <>
-              {prevCursor ? <Button small minimal icon="arrow-up" onClick={() => {
+              {prevCursor ? <Button small minimal icon={<UnifiedIcon name="arrow-up"/>} onClick={() => {
                 void reload('latest', '').then(() => { if (historyScrollRef.current) historyScrollRef.current.scrollTop = 0; }).catch(() => {});
               }}>Back to latest</Button> : null}
-              {nextCursor ? <Button small minimal icon="arrow-down" disabled={loading} onClick={() => {
+              {nextCursor ? <Button small minimal icon={<UnifiedIcon name="arrow-down"/>} disabled={loading} onClick={() => {
                 void reload('before', nextCursor, { append: true }).catch(() => {});
               }}>{loading ? 'Loading…' : error ? 'Retry loading older' : 'Load older conversations'}</Button> : <span>End of conversations</span>}
               </>}
@@ -799,8 +800,8 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
         </>
       ) : (
         <div className="app-sidebar-collapsed-tools">
-          <Button minimal small icon="search" aria-label="Expand and search conversations" onClick={() => onExpand?.()} />
-          <Button minimal small icon="history" aria-label="Expand conversation history" onClick={() => onExpand?.()} />
+          <Button minimal small icon={<UnifiedIcon name="search"/>} aria-label="Expand and search conversations" onClick={() => onExpand?.()} />
+          <Button minimal small icon={<UnifiedIcon name="history"/>} aria-label="Expand conversation history" onClick={() => onExpand?.()} />
         </div>
       )}
     </aside>

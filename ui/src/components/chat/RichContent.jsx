@@ -1,3 +1,4 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import WorkspaceOutputState from '../WorkspaceOutputState.jsx';
 import {readReportSection, rememberReportSection} from '../../services/workspaceSession.js';
 import {normalizeCanonicalReportAssembly, inlineReportWorkspaceDescriptor} from '../../services/workspaceAdapters.js';
@@ -10,7 +11,7 @@ import React from 'react';
 import { autoType, csvParse } from 'd3-dsv';
 import CodeBlock from './CodeBlock.jsx';
 import Mermaid from './Mermaid';
-import { Button, Dialog, Icon, Spinner, Tooltip } from '@blueprintjs/core';
+import {Button, Dialog, Spinner, Tooltip} from '@blueprintjs/core';
 import { Table as BpTable, Column as BpColumn, Cell as BpCell, ColumnHeaderCell as BpColumnHeaderCell } from '@blueprintjs/table';
 import {
   ResponsiveContainer,
@@ -132,9 +133,9 @@ function ForgeFenceLoading({ dataSourceCount = 0, blockCount = 0 }) {
         gap: 8,
         padding: '10px 12px',
         borderRadius: 12,
-        border: '1px solid #d8e1ee',
-        background: '#f7faff',
-        color: '#48607a',
+        border: "1px solid var(--app-border, #d8e1ee)",
+        background: "var(--app-surface, #f7faff)",
+        color: "var(--app-text-secondary, #48607a)",
         fontSize: 13,
         fontWeight: 600,
         margin: '6px 0'
@@ -145,14 +146,14 @@ function ForgeFenceLoading({ dataSourceCount = 0, blockCount = 0 }) {
       {dataSourceCount > 0 ? (
         <>
           <span aria-hidden="true">·</span>
-          <Icon icon="database" size={13} />
+          <UnifiedIcon name="database"  />
           <span>{dataSourceCount} data source{dataSourceCount === 1 ? '' : 's'}</span>
         </>
       ) : null}
       {blockCount > 0 ? (
         <>
           <span aria-hidden="true">·</span>
-          <Icon icon="layout-grid" size={13} />
+          <UnifiedIcon name="layout-grid"  />
           <span>{blockCount} block{blockCount === 1 ? '' : 's'}</span>
         </>
       ) : null}
@@ -1071,9 +1072,9 @@ class ForgeRenderErrorBoundary extends React.Component {
           style={{
             padding: '10px 12px',
             borderRadius: 8,
-            border: '1px solid #f5c542',
-            background: '#fff5d6',
-            color: '#8a5d00',
+            border: "1px solid var(--app-border, #f5c542)",
+            background: "var(--app-surface-soft, #fff5d6)",
+            color: "var(--agently-theme-status-warning-foreground, #8a5d00)",
             fontSize: 13,
             lineHeight: 1.45,
           }}
@@ -1193,7 +1194,7 @@ function ForgeUIFenceInner({ payload, dataBlocks = [], messageId = '' }) {
         {hasRenderableBlocks ? (
           <Tooltip content="Download as standalone HTML (styling preserved)" placement="bottom-end">
             <Button
-              icon="download"
+              icon={<UnifiedIcon name="download"/>}
               small
               minimal
               onClick={handleDownload}
@@ -1205,7 +1206,7 @@ function ForgeUIFenceInner({ payload, dataBlocks = [], messageId = '' }) {
         ) : null}
       </div>
       {exportError ? (
-        <div style={{ fontSize: 12, color: '#a82a2a' }}>
+        <div style={{ fontSize: 12, color: "var(--agently-theme-status-danger-foreground, #a82a2a)" }}>
           {exportError}
         </div>
       ) : null}
@@ -1227,7 +1228,7 @@ function ForgeUIFenceInner({ payload, dataBlocks = [], messageId = '' }) {
             // eslint-disable-next-line no-console
             console.warn('dashboard block render prep failed', kind, e);
             return (
-              <div key={String(block?.id || index)} style={{ color: '#8a5d00', fontSize: 12 }}>
+              <div key={String(block?.id || index)} style={{ color: "var(--agently-theme-status-warning-foreground, #8a5d00)", fontSize: 12 }}>
                 Skipped block “{kind}”: {e?.message || 'render error'}
               </div>
             );
@@ -1561,10 +1562,10 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
               </ExportButton>
             )}
             {!exportReady ? (
-              <span role="alert" data-forge-type={documentPresentation ? "metadata" : undefined} data-forge-status="danger" className="forge-report-document-notice" style={documentPresentation ? undefined : { color: "#b42318", fontSize: 12 }}>Resolve the report validation issues before exporting.</span>
+              <span role="alert" data-forge-type={documentPresentation ? "metadata" : undefined} data-forge-status="danger" className="forge-report-document-notice" style={documentPresentation ? undefined : { color: "var(--agently-theme-status-danger-foreground, #b42318)", fontSize: 12 }}>Resolve the report validation issues before exporting.</span>
             ) : null}
-            {lifecycleState.message ? <span data-forge-type={documentPresentation ? "metadata" : undefined} data-forge-status="success" className="forge-report-document-notice" style={documentPresentation ? undefined : { color: "#32704f", fontSize: 12 }}>{lifecycleState.message}</span> : null}
-            {lifecycleState.error ? <span role="alert" data-forge-type={documentPresentation ? "metadata" : undefined} data-forge-status="danger" className="forge-report-document-notice" style={documentPresentation ? undefined : { color: "#b42318", fontSize: 12 }}>{lifecycleState.error}</span> : null}
+            {lifecycleState.message ? <span data-forge-type={documentPresentation ? "metadata" : undefined} data-forge-status="success" className="forge-report-document-notice" style={documentPresentation ? undefined : { color: "var(--app-text-secondary, #32704f)", fontSize: 12 }}>{lifecycleState.message}</span> : null}
+            {lifecycleState.error ? <span role="alert" data-forge-type={documentPresentation ? "metadata" : undefined} data-forge-status="danger" className="forge-report-document-notice" style={documentPresentation ? undefined : { color: "var(--agently-theme-status-danger-foreground, #b42318)", fontSize: 12 }}>{lifecycleState.error}</span> : null}
           </div>
         ) : null;
 
@@ -1581,7 +1582,7 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
           <h3 className="app-rich-inline-report__title" style={{ margin: 0 }}>{compiled.reportDocument?.title || assembly?.source?.title}</h3>
         ) : null}
         {reportDiagnostics.length > 0 ? (
-          <div data-forge-type={documentPresentation ? 'metadata' : undefined} data-forge-status='warning' className='forge-report-document-notice' style={documentPresentation ? undefined : { display: 'flex', flexDirection: 'column', gap: 4, padding: '8px 10px', border: '1px solid #d8e1ee', borderRadius: 10, background: '#f7faff', fontSize: 12, color: '#48607a' }}>
+          <div data-forge-type={documentPresentation ? 'metadata' : undefined} data-forge-status='warning' className='forge-report-document-notice' style={documentPresentation ? undefined : { display: 'flex', flexDirection: 'column', gap: 4, padding: '8px 10px', border: "1px solid var(--app-border, #d8e1ee)", borderRadius: 10, background: "var(--app-surface, #f7faff)", fontSize: 12, color: "var(--app-text-secondary, #48607a)" }}>
             <strong>Report assembled with diagnostics</strong>
             {reportDiagnostics.slice(0, 3).map((entry, index) => (
               <span key={`${entry.code || 'diagnostic'}-${index}`}>{entry.message || entry.code}</span>
@@ -1589,11 +1590,11 @@ function ForgeReportFenceInner({ assembly, diagnostics = [], conversationId = ''
           </div>
         ) : null}
 				{materialization.loading ? (
-					<div role="status" data-forge-type={documentPresentation ? 'metadata' : undefined} className='forge-report-document-notice' style={documentPresentation ? undefined : { display: 'flex', alignItems: 'center', gap: 8, color: '#48607a', fontSize: 12 }}>
+					<div role="status" data-forge-type={documentPresentation ? 'metadata' : undefined} className='forge-report-document-notice' style={documentPresentation ? undefined : { display: 'flex', alignItems: 'center', gap: 8, color: "var(--app-text-secondary, #48607a)", fontSize: 12 }}>
 						<Spinner size={14} /> Loading live report data…
 					</div>
 				) : null}
-				{materialization.error ? <div role="alert" data-forge-type={documentPresentation ? "metadata" : undefined} data-forge-status="danger" className="forge-report-document-notice" style={documentPresentation ? undefined : { color: "#b42318", fontSize: 12 }}>{materialization.error?.message || String(materialization.error)}</div> : null}
+				{materialization.error ? <div role="alert" data-forge-type={documentPresentation ? "metadata" : undefined} data-forge-status="danger" className="forge-report-document-notice" style={documentPresentation ? undefined : { color: "var(--agently-theme-status-danger-foreground, #b42318)", fontSize: 12 }}>{materialization.error?.message || String(materialization.error)}</div> : null}
         {!documentPresentation ? reportActions : null}
         <ReportRuntime
           key={`${inlineReportRuntimeKey(assembly)}:${sectionOwner}`}
@@ -1639,7 +1640,7 @@ function ForgeReportAssemblyDiagnostic({ assembly, diagnostics = [] }) {
       className="app-rich-inline-report-diagnostic"
       data-forge-report-id={assembly?.id || ''}
       data-forge-report-status={assembly?.status || 'incomplete'}
-      style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '10px 12px', border: '1px solid #e4b8a9', borderRadius: 10, background: '#fff8f5', color: '#7d3927', fontSize: 12 }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '10px 12px', border: "1px solid var(--app-border, #e4b8a9)", borderRadius: 10, background: "var(--app-surface, #fff8f5)", color: "var(--agently-theme-status-danger-foreground, #7d3927)", fontSize: 12 }}
     >
       <strong>{assembly?.status === 'orphaned' ? 'Report data was not attached' : `Report ${assembly?.status || 'incomplete'}`}</strong>
       {reportDiagnostics.slice(0, 3).map((entry, index) => (
@@ -2021,7 +2022,7 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [], generatedFiles 
           <Button
             small
             minimal
-            icon="cog"
+            icon={<UnifiedIcon name="cog"/>}
             onClick={() => setShowCols(true)}
             title="Columns & display"
             aria-label="Columns and display"
@@ -2031,11 +2032,11 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [], generatedFiles 
           </span>
           {total > pageSize && (
             <div className="app-rich-data-table-pagination">
-              <Button small minimal icon="double-chevron-left" onClick={() => setPage(0)} disabled={safePage === 0} />
-              <Button small minimal icon="chevron-left" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={safePage === 0} />
+              <Button small minimal icon={<UnifiedIcon name="double-chevron-left"/>} onClick={() => setPage(0)} disabled={safePage === 0} />
+              <Button small minimal icon={<UnifiedIcon name="chevron-left"/>} onClick={() => setPage(p => Math.max(0, p - 1))} disabled={safePage === 0} />
               <span>Page {safePage + 1} of {pageCount}</span>
-              <Button small minimal icon="chevron-right" onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))} disabled={safePage >= pageCount - 1} />
-              <Button small minimal icon="double-chevron-right" onClick={() => setPage(pageCount - 1)} disabled={safePage >= pageCount - 1} />
+              <Button small minimal icon={<UnifiedIcon name="chevron-right"/>} onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))} disabled={safePage >= pageCount - 1} />
+              <Button small minimal icon={<UnifiedIcon name="double-chevron-right"/>} onClick={() => setPage(pageCount - 1)} disabled={safePage >= pageCount - 1} />
             </div>
           )}
         </div>
@@ -2043,7 +2044,7 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [], generatedFiles 
           className="app-rich-data-table-download"
           small
           minimal
-          icon="download"
+          icon={<UnifiedIcon name="download"/>}
           onClick={downloadCSV}
           title="Download CSV"
           aria-label="Download CSV"
@@ -2077,7 +2078,7 @@ function FencedPipeTable({ headers = [], rows = [], aligns = [], generatedFiles 
             <label style={{ fontSize: 12 }}>Truncate at</label>
             <input type="number" className="bp5-input bp5-small" min={20} max={1000} value={truncateAt}
               onChange={e => setTruncateAt(Math.max(20, Math.min(1000, Number(e.target.value) || 120)))} style={{ width: 90 }} />
-            <span style={{ fontSize: 12, color: '#6b7280' }}>(characters)</span>
+            <span style={{ fontSize: 12, color: "var(--app-text-secondary, #6b7280)" }}>(characters)</span>
           </div>
           {headers.map((h, i) => (
             <label key={`opt-${i}`} className="bp5-control bp5-checkbox">
@@ -2396,7 +2397,7 @@ function NativeRichContent({ content = '', renderedContent = null, generatedFile
       } catch (_) {
         if (!trailingForgeFence) {
           out.push(
-            <div key={`forge-ui-error-${idx++}`} style={{ color: '#c23030', fontSize: 13 }}>
+            <div key={`forge-ui-error-${idx++}`} style={{ color: "var(--agently-theme-status-danger-foreground, #c23030)", fontSize: 13 }}>
               Invalid forge-ui block
             </div>
           );

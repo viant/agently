@@ -3,9 +3,9 @@
   height: 100%;
   overflow: auto;
   border-left: 1px solid var(--app-border);
-  background: #fff;
+  background: var(--app-surface, #fff);
   padding: 12px;
-  box-shadow: -10px 0 22px rgba(20, 31, 53, 0.05);
+  box-shadow: var(--app-shadow, -10px 0 22px rgba(20, 31, 53, 0.05));
   position: sticky;
   top: 0;
   right: 0;
@@ -54,7 +54,7 @@
 }
 
 .app-detail-tool-name {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family:var(--agently-theme-type-code-family, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.01em;
@@ -64,10 +64,10 @@
   font-size: 11px;
   line-height: 1.2;
   text-transform: lowercase;
-  color: #5f6f86;
-  border: 1px solid #d6deee;
+  color: var(--app-text-secondary, #5f6f86);
+  border: 1px solid var(--app-border, #d6deee);
   border-radius: 999px;
-  background: #f7f9fd;
+  background: var(--app-surface, #f7f9fd);
   padding: 2px 8px;
 }
 
@@ -101,8 +101,8 @@
 }
 
 .app-detail-section-summary {
-  background: #f7f9fd;
-  border: 1px solid #e1e7f4;
+  background: var(--app-surface, #f7f9fd);
+  border: 1px solid var(--app-border, #e1e7f4);
   border-radius: 12px;
   padding: 10px 12px;
 }
@@ -116,19 +116,19 @@
 }
 
 .app-detail-token-chip {
-  border: 1px solid #d5dff1;
+  border: 1px solid var(--app-border, #d5dff1);
   border-radius: 999px;
-  background: #fff;
-  color: #3f4d65;
+  background: var(--app-surface, #fff);
+  color: var(--app-text-secondary, #3f4d65);
   font-size: 11px;
   line-height: 1.2;
   padding: 2px 8px;
 }
 
 .app-detail-token-chip-total {
-  border-color: #b8ccef;
-  color: #244f9a;
-  background: #eef4ff;
+  border-color: var(--app-border, #b8ccef);
+  color: var(--app-accent, #244f9a);
+  background: var(--app-surface-soft, #eef4ff);
 }
 
 .app-detail-tool-token-estimate {
@@ -137,7 +137,7 @@
 }
 
 .app-detail-token-estimate-note {
-  color: #69758a;
+  color: var(--app-muted, #69758a);
   font-size: 10px;
   line-height: 1.35;
 }
@@ -145,8 +145,8 @@
 .app-detail-token-overflow-note {
   padding: 5px 7px;
   border-radius: 7px;
-  background: #fff3d6;
-  color: #8a5507;
+  background: var(--agently-theme-status-warning-background, #fff3d6);
+  color: var(--agently-theme-status-warning-foreground, #8a5507);
   font-size: 10px;
   line-height: 1.35;
 }
@@ -167,8 +167,8 @@
 
 .app-detail-pill.bp6-button {
   border-radius: 999px;
-  border: 1px solid #d7deed;
-  background: #fff;
+  border: 1px solid var(--app-border, #d7deed);
+  background: var(--app-surface, #fff);
   font-size: 11px;
   min-height: 24px;
   height: 24px;
@@ -180,7 +180,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #5a6b85;
+  color: var(--app-text-secondary, #5a6b85);
   margin-top: 12px;
   padding: 0 2px;
 }
@@ -190,22 +190,22 @@
   gap: 6px;
   margin-top: 4px;
   padding-top: 8px;
-  border-top: 1px solid #e6ebf6;
+  border-top: 1px solid var(--app-border, #e6ebf6);
   flex-wrap: wrap;
   justify-content: flex-start;
 }
 
 .app-detail-thread-open.bp6-button {
-  background: #eef3fc !important;
-  border-color: #b0c4e8 !important;
-  color: #2d5a9e !important;
+  background: var(--app-surface-soft, #eef3fc) !important;
+  border-color: var(--app-border, #b0c4e8) !important;
+  color: var(--app-accent, #2d5a9e) !important;
   font-weight: 600;
 }
 
 .app-payload-dialog-body {
   padding: 10px 12px 12px;
-  background: #ffffff;
-  color: #182230;
+  background: var(--app-surface, #ffffff);
+  color: var(--app-text, #182230);
 }
 
 .app-payload-dialog-actions {
@@ -215,14 +215,14 @@
 }
 
 .app-detail-empty {
-  color: #415168;
-  background: #f6f8fc;
-  border: 1px solid #dbe3f1;
+  color: var(--app-text-secondary, #415168);
+  background: var(--app-surface, #f6f8fc);
+  border: 1px solid var(--app-border, #dbe3f1);
   border-radius: 8px;
   padding: 12px 14px;
 }
 
 .cm-editor {
-  border: 1px solid rgba(16, 22, 26, 0.15);
+  border: 1px solid color-mix(in srgb, var(--app-border, rgb(16 22 26)) 15%, transparent);
   border-radius: 8px;
 }

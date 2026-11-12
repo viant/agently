@@ -1,3 +1,4 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@blueprintjs/core';
 import {Button as SharedButton, Icon as SharedIcon, typographyProps} from 'forge/components';
@@ -2737,7 +2738,7 @@ function NativeIterationBlock({ message, canonicalRow = null, conversationId = '
               <Button
                 intent="primary"
                 small
-                icon="link"
+                icon={<UnifiedIcon name="link"/>}
                 loading={mcpConnectPending}
                 text={`Connect ${mcpLinkRequired.server}`}
                 onClick={connectRequiredMCP}
@@ -2747,12 +2748,12 @@ function NativeIterationBlock({ message, canonicalRow = null, conversationId = '
               <Button
                 minimal
                 small
-                icon="wrench"
+                icon={<UnifiedIcon name="wrench"/>}
                 text="Developer details"
                 onClick={() => showDetail?.(resolveCanonicalDetailStep(canonicalRow, terminalDetailStep))}
               />
             ) : null}
-            {String(retryPrompt || '').trim() ? <Button minimal small icon="redo" text="Try again" onClick={prefillRetry} /> : null}
+            {String(retryPrompt || '').trim() ? <Button minimal small icon={<UnifiedIcon name="redo"/>} text="Try again" onClick={prefillRetry} /> : null}
           </div>
           {mcpConnectError ? <div className="app-turn-terminal-message">{mcpConnectError}</div> : null}
         </section>

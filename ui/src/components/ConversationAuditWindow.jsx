@@ -1,3 +1,4 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Button, Callout, Spinner} from '@blueprintjs/core';
 import {BasicTable, SchemaBasedForm, Typography} from 'forge/components';
@@ -186,10 +187,10 @@ function AuditView({capabilities}) {
       style={{gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))'}}/>
     <Typography as="p" typeRole="metadata">Dates select when conversations were created, from inclusive to exclusive. Use a maximum of 31 days. An exact conversation ID takes precedence over dates. Times use the timezone shown in the date controls.</Typography>
     <div className="conversation-audit-actions">
-      <Button intent="primary" icon="search" loading={busy} onClick={apply}>Search turns</Button>
-      <Button icon="refresh" disabled={!applied || dirty || busy} onClick={() => search(applied, '', [], pageSize, true)}>Refresh</Button>
-      <Button icon="download" loading={exporting === 'csv'} disabled={!applied || dirty || busy || !!exporting} onClick={() => download('csv')}>Export CSV</Button>
-      <Button icon="download" loading={exporting === 'json'} disabled={!applied || dirty || busy || !!exporting} onClick={() => download('json')}>Export JSON</Button>
+      <Button intent="primary" icon={<UnifiedIcon name="search"/>} loading={busy} onClick={apply}>Search turns</Button>
+      <Button icon={<UnifiedIcon name="refresh"/>} disabled={!applied || dirty || busy} onClick={() => search(applied, '', [], pageSize, true)}>Refresh</Button>
+      <Button icon={<UnifiedIcon name="download"/>} loading={exporting === 'csv'} disabled={!applied || dirty || busy || !!exporting} onClick={() => download('csv')}>Export CSV</Button>
+      <Button icon={<UnifiedIcon name="download"/>} loading={exporting === 'json'} disabled={!applied || dirty || busy || !!exporting} onClick={() => download('json')}>Export JSON</Button>
       {dirty && applied && <Typography as="span" typeRole="metadata">Apply changed filters before exporting.</Typography>}
     </div>
     {error && <Callout intent="danger" title="Audit request failed" role="alert">{error}</Callout>}

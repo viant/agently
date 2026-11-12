@@ -1,3 +1,4 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import React from 'react';
 import { Button, Tooltip } from '@blueprintjs/core';
 import CodeMirror from '@uiw/react-codemirror';
@@ -90,7 +91,7 @@ export default function CodeBlock({ value = '', language = 'plaintext', height =
             <Button
               small
               minimal
-              icon={copied ? 'tick' : 'clipboard'}
+              icon={(iconName => iconName ? <UnifiedIcon name={iconName}/> : iconName)(copied ? 'tick' : 'clipboard')}
               onClick={doCopy}
               aria-label="Copy code"
             />

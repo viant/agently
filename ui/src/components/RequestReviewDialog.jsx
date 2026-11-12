@@ -1,3 +1,4 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import React from 'react';
 import {Dialog, Button as LegacyButton} from '@blueprintjs/core';
 import {Button, Typography, ForgeThemeBoundary} from 'forge/components';
@@ -10,7 +11,7 @@ export function reviewDecisionError(error) {
 }
 
 export function ReviewAction({appearance, intent, minimal, small, icon, children, ...props}) {
-  if (appearance !== 'document') return <LegacyButton intent={intent} minimal={minimal} small={small} icon={icon} {...props}>{children}</LegacyButton>;
+  if (appearance !== 'document') return <LegacyButton intent={intent} minimal={minimal} small={small} icon={(iconName => iconName ? <UnifiedIcon name={iconName}/> : iconName)(icon)} {...props}>{children}</LegacyButton>;
   return <Button variant={intent === 'primary' ? 'primary' : intent === 'danger' ? 'danger' : minimal ? 'ghost' : 'secondary'}
     size={small ? 'compact' : 'default'} {...props}>{children}</Button>;
 }

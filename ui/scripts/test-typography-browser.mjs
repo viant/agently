@@ -348,7 +348,7 @@ try {
     assert.equal(await review.getByRole('button',{name:'Download CSV',exact:true}).count(),0);
     for(const role of ['section','body','metadata','label']) {
       const target=review.locator(`[data-forge-type="${role}"]`).first();
-      assert.equal(await target.evaluate((node,role)=>{const s=getComputedStyle(node),p=`--forge-type-${role}-`;return s.fontSize===s.getPropertyValue(p+'size').trim() && s.fontWeight===s.getPropertyValue(p+'weight').trim();},role),true);
+      assert.equal(await target.evaluate((node,role)=>{const s=getComputedStyle(node),p=`--forge-type-${role}-`,probe=document.createElement('span');probe.style.fontSize=s.getPropertyValue(p+'size');node.appendChild(probe);const resolved=getComputedStyle(probe).fontSize;probe.remove();return s.fontSize===resolved && s.fontWeight===s.getPropertyValue(p+'weight').trim();},role),true);
     }
     await review.getByRole('button',{name:'Close example',exact:true}).click();
     const selected = await page.getByRole('combobox',{name:'Workspace theme',exact:true}).inputValue();
@@ -510,15 +510,32 @@ try {
       mkdirSync(process.env.AGENTLY_TYPOGRAPHY_SCREENSHOTS,{recursive:true});
       await page.screenshot({path:path.join(process.env.AGENTLY_TYPOGRAPHY_SCREENSHOTS,`foundation-${viewport.width}.png`),fullPage:true});
     }
+    // Quiet actions keep the same boundary on hover; only keyboard focus adds a ring.
+    if (viewport.width > 500) {
+      const quiet = [page.getByRole('button',{name:'Ghost action',exact:true}), page.getByRole('button',{name:'Reset example count',exact:true})];
+      for (const colorMode of ['light','dark']) {
+        await mode.selectOption(colorMode);
+        for (const action of quiet) {
+          await action.click();
+          await action.hover();
+          await page.waitForFunction(node=>getComputedStyle(node).backgroundColor!=='rgba(0, 0, 0, 0)',await action.elementHandle());
+          const hovered=await action.evaluate(node=>{const s=getComputedStyle(node);return {border:s.borderColor,outline:s.outlineWidth,outlineStyle:s.outlineStyle,shadow:s.boxShadow};});
+          assert.match(hovered.border,/transparent|rgba\(0, 0, 0, 0\)/,'Quiet hover must not add a border');
+          assert.ok(hovered.outlineStyle==='none'||parseFloat(hovered.outline)===0,'Hover must not draw a focus ring');
+          assert.equal(hovered.shadow,'none','Quiet hover must not add an outline-like shadow');
+        }
+      }
+      await mode.selectOption('light');
+    }
     const before = await size('.app-ui-settings-title');
-    await page.evaluate(content => { document.querySelector('style[data-workspace-style]').textContent += content; }, `.agently-application[data-agently-theme="${selected}"][data-agently-color-mode="light"] {--agently-theme-type-section-size:21px;--agently-theme-type-section-weight:400;--agently-theme-type-section-line-height:30px;--agently-theme-type-section-letter-spacing:0.02em;} .agently-workspace[data-forge-theme="${selected}"][data-forge-color-mode="light"] {--forge-type-section-size:21px;--forge-type-section-weight:400;--forge-type-section-line-height:30px;--forge-type-section-letter-spacing:0.02em;}`);
+    await page.evaluate(content => { document.querySelector('style[data-workspace-style]').textContent += content; }, `.agently-application[data-agently-theme="${selected}"][data-agently-color-mode="light"], .agently-application[data-agently-theme="${selected}"][data-agently-color-mode="light"] [data-agently-presentation] {--agently-theme-type-section-size:21px;--agently-theme-type-section-weight:400;--agently-theme-type-section-line-height:30px;--agently-theme-type-section-letter-spacing:0.02em;--forge-type-section-size:21px;--forge-type-section-weight:400;--forge-type-section-line-height:30px;--forge-type-section-letter-spacing:0.02em;} .agently-workspace[data-forge-theme="${selected}"][data-forge-color-mode="light"] {--forge-type-section-size:21px;--forge-type-section-weight:400;--forge-type-section-line-height:30px;--forge-type-section-letter-spacing:0.02em;}`);
     assert.notEqual(before, '21px');
     await page.waitForFunction(() => getComputedStyle(document.querySelector('.app-ui-settings-title')).fontSize === '21px');
     for (const selector of ['.app-ui-settings-title', '.forge-type-specimen [data-forge-type="section"]']) {
       const actual=await page.locator(selector).evaluate(node=>{const css=getComputedStyle(node);return [css.fontSize,css.fontWeight,css.lineHeight,css.letterSpacing];});
       assert.deepEqual(actual,['21px','400','30px','0.42px']);
     }
-    await page.evaluate(content => { document.querySelector('style[data-workspace-style]').textContent += content; }, `.agently-application[data-agently-theme="${selected}"][data-agently-color-mode="light"] {--agently-theme-type-metadata-size:13px;--agently-theme-type-metadata-weight:600;--agently-theme-type-metadata-line-height:18px;--agently-theme-type-metadata-letter-spacing:0.01em;--agently-theme-type-metadata-family:monospace;} .agently-workspace[data-forge-theme="${selected}"][data-forge-color-mode="light"] {--forge-type-metadata-size:13px;--forge-type-metadata-weight:600;--forge-type-metadata-line-height:18px;--forge-type-metadata-letter-spacing:0.01em;--forge-type-metadata-family:monospace;}`);
+    await page.evaluate(content => { document.querySelector('style[data-workspace-style]').textContent += content; }, `.agently-application[data-agently-theme="${selected}"][data-agently-color-mode="light"], .agently-application[data-agently-theme="${selected}"][data-agently-color-mode="light"] [data-agently-presentation] {--agently-theme-type-metadata-size:13px;--agently-theme-type-metadata-weight:600;--agently-theme-type-metadata-line-height:18px;--agently-theme-type-metadata-letter-spacing:0.01em;--agently-theme-type-metadata-family:monospace;--forge-type-metadata-size:13px;--forge-type-metadata-weight:600;--forge-type-metadata-line-height:18px;--forge-type-metadata-letter-spacing:0.01em;--forge-type-metadata-family:monospace;} .agently-workspace[data-forge-theme="${selected}"][data-forge-color-mode="light"] {--forge-type-metadata-size:13px;--forge-type-metadata-weight:600;--forge-type-metadata-line-height:18px;--forge-type-metadata-letter-spacing:0.01em;--forge-type-metadata-family:monospace;}`);
     for (const selector of ['.app-workspace-appearance-controls [data-forge-type="metadata"]', '.forge-type-specimen [data-forge-type="metadata"]', ...(pilot?.elements || []).filter(check => check.role === 'metadata').map(check => check.selector)]) {
       const consumers=await page.locator(selector).evaluateAll(nodes=>nodes.map(node=>{const css=getComputedStyle(node);return [css.fontSize,css.fontWeight,css.lineHeight,css.letterSpacing,css.fontFamily];}));
       assert.ok(consumers.length>0);

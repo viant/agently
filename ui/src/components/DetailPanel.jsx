@@ -1,3 +1,4 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Button } from '@blueprintjs/core';
 import {Button as SharedButton, Icon, Typography, typographyProps, WorkspaceRuntimeTabs} from 'forge/components';
@@ -348,12 +349,12 @@ function mergeHydratedToolCall(base = {}, incoming = {}) {
 function phaseLabel(step = {}) {
   const explicitRole = String(step?.executionRole || '').trim().toLowerCase();
   switch (explicitRole) {
-    case 'react': return '⌬';
-    case 'intake': return '⇢';
-    case 'narrator': return '✍';
-    case 'router': return '🧭';
-    case 'summary': return '≡';
-    case 'worker': return '⚙';
+    case 'react': return <UnifiedIcon name="lucide:bot"/>;
+    case 'intake': return <UnifiedIcon name="lucide:arrow-right"/>;
+    case 'narrator': return <UnifiedIcon name="lucide:pencil"/>;
+    case 'router': return <UnifiedIcon name="lucide:route"/>;
+    case 'summary': return <UnifiedIcon name="lucide:list"/>;
+    case 'worker': return <UnifiedIcon name="lucide:wrench"/>;
     default: return '';
   }
 }
@@ -560,7 +561,7 @@ export default function DetailPanel({ toolCall, onClose, appearance, headingId }
           ) : null}
           <span className="app-detail-status-chip">{String(effectiveToolCall?.status || '').toLowerCase() || 'unknown'}</span>
         </div>
-        <Button minimal small icon="cross" onClick={onClose} />
+        <Button minimal small icon={<UnifiedIcon name="cross"/>} onClick={onClose} />
         </>}
       </div>
 

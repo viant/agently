@@ -1,18 +1,20 @@
+import {Icon as SharedIcon} from 'forge/components';
 import {progressStatusPresentation} from '../services/progressPresentation.js';
 import React from 'react';
 import { useStage } from '../services/stageBus';
 
 const PHASE_ICON = {
-  ready: '●',
-  waiting: '⏳',
-  thinking: '🤔',
-  executing: '⚙',
-  streaming: '✍',
-  done: '✓',
-  error: '⚠',
-  attention: '●',
-  terminated: '■',
-  offline: '●'
+  ready: 'lucide:circle-check',
+  waiting: 'lucide:clock-3',
+  thinking: 'lucide:brain',
+  executing: 'lucide:wrench',
+  streaming: 'lucide:pencil',
+  done: 'lucide:check',
+  error: 'lucide:triangle-alert',
+  attention: 'lucide:circle-alert',
+  terminated: 'lucide:square',
+  offline: 'lucide:circle-alert',
+
 };
 
 const ELAPSED_PHASES = new Set(['waiting', 'thinking', 'executing', 'streaming']);
@@ -54,7 +56,7 @@ export default function StatusBar({ backendUnavailable = false, approvals = null
   return (
     <footer className={`app-statusbar phase-${phase}`} style={hidden ? { display: 'none' } : undefined} role="status" aria-label={import.meta.env.DEV ? `Verification ${globalThis.location?.pathname?.match(/\/(?:v1\/|ui\/)?conversation\/([a-f0-9-]{36})(?:\/)?$/)?.[1] || "no-conversation"} | aliases p:${browserAliases?.pendingCount ?? 0} exact:${browserAliases?.exactCount ?? 0} canon:${browserAliases?.canonicalCount ?? 0} slash:${browserAliases?.slashCount ?? 0} dash:${browserAliases?.dashCount ?? 0} | failure:${browserContinuation?.failure || "none"} stage:${browserContinuation?.stage || "none"} pending:${browserContinuation?.pendingCount ?? 0} interrupts:${browserContinuation?.interruptCount ?? 0} | ${browserLifecycleLabel} close:${browserCloseCause || "none"}` : undefined} aria-live="polite">
       {showStage ? <div className="app-statusbar-main">
-        <span className="app-statusbar-icon">{PHASE_ICON[phase] || '●'}</span>
+        <span className="app-statusbar-icon"><SharedIcon name={PHASE_ICON[phase] || 'lucide:circle'}/></span>
         <span className="app-statusbar-text">
           {text}
           {isElapsedActive ? ` ${formatElapsed(elapsedMs)}` : ''}

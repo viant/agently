@@ -1,3 +1,4 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import React, { useMemo, useState } from "react";
 import { Button } from "@blueprintjs/core";
 
@@ -79,7 +80,7 @@ export default function SteerQueue({ message, context }) {
                       marginRight: 8,
                       fontSize: 10,
                       fontWeight: 700,
-                      color: "#667085",
+                      color: "var(--app-text-secondary, #667085)",
                     }}
                   >
                     AUTO
@@ -88,7 +89,7 @@ export default function SteerQueue({ message, context }) {
                 {String(item?.preview || "").trim() || id}
               </div>
               {String(item?.statusReason || "").trim() ? (
-                <div style={{ marginTop: 4, fontSize: 12, color: "#667085" }}>
+                <div style={{ marginTop: 4, fontSize: 12, color: "var(--app-text-secondary, #667085)" }}>
                   {String(item?.statusReason || "").trim()}
                 </div>
               ) : null}
@@ -167,7 +168,7 @@ export default function SteerQueue({ message, context }) {
                 <Button
                   small
                   minimal
-                  icon="arrow-up"
+                  icon={<UnifiedIcon name="arrow-up"/>}
                   disabled={pending}
                   onClick={() =>
                     run(id, () =>
@@ -183,7 +184,7 @@ export default function SteerQueue({ message, context }) {
                 <Button
                   small
                   minimal
-                  icon="arrow-down"
+                  icon={<UnifiedIcon name="arrow-down"/>}
                   disabled={pending}
                   onClick={() =>
                     run(id, () =>
@@ -199,7 +200,7 @@ export default function SteerQueue({ message, context }) {
                 <Button
                   small
                   minimal
-                  icon="edit"
+                  icon={<UnifiedIcon name="edit"/>}
                   disabled={pending}
                   onClick={() => {
                     setEditingId(id);
@@ -209,7 +210,7 @@ export default function SteerQueue({ message, context }) {
                 <Button
                   small
                   minimal
-                  icon="trash"
+                  icon={<UnifiedIcon name="trash"/>}
                   disabled={pending}
                   onClick={() =>
                     run(id, () =>

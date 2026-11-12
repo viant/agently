@@ -1,5 +1,6 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import React, { useState, useEffect } from 'react';
-import { Icon } from '@blueprintjs/core';
+
 import { getActiveFeeds, onFeedChange, splitFeedKey } from '../services/toolFeedBus';
 import { getScopedConversationSelection, getSelectedWindow } from '../services/conversationWindow';
 import {
@@ -143,7 +144,7 @@ export default function ToolFeedBar() {
             tabIndex={0}
             style={{ '--feed-accent': feedAccent(feed.presentation) }}
           >
-            <span className="app-tool-feed-bar-icon"><Icon icon={feedIconName(feed.presentation)} size={13} /></span>
+            <span className="app-tool-feed-bar-icon"><UnifiedIcon name={feedIconName(feed.presentation)}  /></span>
             <span className="app-tool-feed-bar-title">{feed.title || feed.feedId}</span>
             {feed.itemCount > 0 ? (
               <span className="app-tool-feed-bar-badge">{feed.itemCount}</span>

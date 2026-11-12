@@ -87,11 +87,11 @@ export default function MCPUIVerifierRouteDebug() {
       data-testid="mcpui-verifier-route-debug"
       style={{
         padding: '10px 14px',
-        borderBottom: '1px solid #d8dee8',
-        background: '#eef4ff',
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+        borderBottom: "1px solid var(--app-border, #d8dee8)",
+        background: "var(--app-surface-soft, #eef4ff)",
+        fontFamily: "var(--agently-theme-type-code-family, ui-monospace, SFMono-Regular, Menlo, monospace)",
         fontSize: 12,
-        color: '#1d2939',
+        color: "var(--app-text, #1d2939)",
         display: 'grid',
         gap: 6,
       }}

@@ -1,5 +1,6 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Icon, Spinner } from '@blueprintjs/core';
+import {Button, Spinner} from '@blueprintjs/core';
 import { useParams } from 'react-router-dom';
 import { client } from '../services/agentlyClient';
 import {
@@ -16,7 +17,7 @@ import { readConversationProjectionUsage } from '../services/usageProjectionStor
 function MetricCard({ icon, label, value, detail, tone }) {
   return (
     <article className={`conversation-usage-metric is-${tone}`}>
-      <span className="conversation-usage-metric-icon"><Icon icon={icon} size={17} /></span>
+      <span className="conversation-usage-metric-icon"><UnifiedIcon name={icon}  /></span>
       <div>
         <span className="conversation-usage-metric-label">{label}</span>
         <strong>{value}</strong>
@@ -119,7 +120,7 @@ function ToolUsageRow({ call }) {
       </div>
       {overflow.overflow ? (
         <div className="conversation-usage-overflow-note">
-          <Icon icon="warning-sign" size={13} />
+          <UnifiedIcon name="warning-sign"  />
           <span>
             Output overflowed; the estimate covers only the result presented to the model.
             {overflow.remaining != null ? ` ${formatTokenCount(overflow.remaining)} units remain.` : ''}
@@ -176,13 +177,13 @@ export default function ConversationUsagePage() {
   return (
     <main className="conversation-usage-page" data-testid="conversation-usage-page">
       <header className="conversation-usage-header">
-        <a href={backHref} className="conversation-usage-back" aria-label="Back to conversation"><Icon icon="arrow-left" /> Conversation</a>
-        <Button minimal icon="refresh" aria-label="Refresh usage" onClick={load} loading={loading && !!conversation} />
+        <a href={backHref} className="conversation-usage-back" aria-label="Back to conversation"><UnifiedIcon name="arrow-left" /> Conversation</a>
+        <Button minimal icon={<UnifiedIcon name="refresh"/>} aria-label="Refresh usage" onClick={load} loading={loading && !!conversation} />
       </header>
       {loading && !conversation ? <div className="conversation-usage-loading"><Spinner size={28} /><span>Loading usage…</span></div> : null}
       {error ? (
         <section className="conversation-usage-error">
-          <Icon icon="error" size={22} />
+          <UnifiedIcon name="error"  />
           <div><strong>Usage is unavailable</strong><p>{error}</p></div>
           <Button small text="Try again" onClick={load} />
         </section>
@@ -227,10 +228,10 @@ export default function ConversationUsagePage() {
             </div>
             {toolUsage.overflowCallCount > 0 || toolUsage.projectionTokensFreed > 0 || toolUsage.unavailablePayloadCount > 0 || toolUsage.unpricedPayloadCount > 0 ? (
               <div className="conversation-usage-overflow-summary">
-                {toolUsage.overflowCallCount > 0 ? <span><Icon icon="warning-sign" size={13} />{toolUsage.overflowCallCount} overflowed tool result{toolUsage.overflowCallCount === 1 ? '' : 's'}</span> : null}
-                {toolUsage.projectionTokensFreed > 0 ? <span><Icon icon="filter" size={13} />≈{formatTokenCount(toolUsage.projectionTokensFreed)} context tokens freed</span> : null}
-                {toolUsage.unavailablePayloadCount > 0 ? <span><Icon icon="database" size={13} />{toolUsage.unavailablePayloadCount} unavailable payload{toolUsage.unavailablePayloadCount === 1 ? '' : 's'} excluded</span> : null}
-                {toolUsage.unpricedPayloadCount > 0 ? <span><Icon icon="dollar" size={13} />{toolUsage.unpricedPayloadCount} payload{toolUsage.unpricedPayloadCount === 1 ? '' : 's'} lack model pricing</span> : null}
+                {toolUsage.overflowCallCount > 0 ? <span><UnifiedIcon name="warning-sign"  />{toolUsage.overflowCallCount} overflowed tool result{toolUsage.overflowCallCount === 1 ? '' : 's'}</span> : null}
+                {toolUsage.projectionTokensFreed > 0 ? <span><UnifiedIcon name="filter"  />≈{formatTokenCount(toolUsage.projectionTokensFreed)} context tokens freed</span> : null}
+                {toolUsage.unavailablePayloadCount > 0 ? <span><UnifiedIcon name="database"  />{toolUsage.unavailablePayloadCount} unavailable payload{toolUsage.unavailablePayloadCount === 1 ? '' : 's'} excluded</span> : null}
+                {toolUsage.unpricedPayloadCount > 0 ? <span><UnifiedIcon name="dollar"  />{toolUsage.unpricedPayloadCount} payload{toolUsage.unpricedPayloadCount === 1 ? '' : 's'} lack model pricing</span> : null}
               </div>
             ) : null}
             {toolUsage.calls.length > 0 ? toolUsage.calls.map((call, index) => (

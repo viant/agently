@@ -383,7 +383,7 @@ export default function AppRenderer({ uri = '', title = 'MCP UI Preview', toolIn
     return <div data-testid="mcpui-loading">Loading MCP UI resource...</div>;
   }
   if (state.error) {
-    return <div role="alert" data-testid="mcpui-error" style={{ color: '#b42318' }}>{state.error}</div>;
+    return <div role="alert" data-testid="mcpui-error" style={{ color: "var(--agently-theme-status-danger-foreground, #b42318)" }}>{state.error}</div>;
   }
   if (!hosted && state.placement === 'workspace') {
     return <div className="app-mcpui-workspace-promoted">Opened in Workspace</div>;

@@ -26,7 +26,7 @@
   border: 1px solid var(--app-accent-strong);
   background: var(--app-accent);
   box-shadow: 0 7px 16px color-mix(in srgb, var(--app-accent) 20%, transparent);
-  color: #ffffff;
+  color: var(--agently-theme-button-foreground, #ffffff);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.01em;
@@ -40,7 +40,7 @@
 .app-rich-inline-report__export-button.app-rich-inline-report__download-link:hover {
   background: var(--app-accent-strong);
   border-color: var(--app-accent-strong);
-  color: #ffffff;
+  color: var(--agently-theme-disabled-foreground, #ffffff);
   box-shadow: 0 9px 20px color-mix(in srgb, var(--app-accent) 27%, transparent);
   transform: translateY(-1px);
   text-decoration: none;
@@ -49,7 +49,7 @@
 .app-rich-inline-report__export-button .bp6-icon,
 .app-rich-inline-report__export-button .bp5-icon {
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.16);
+  background: color-mix(in srgb, var(--app-surface, rgb(255 255 255)) 16%, transparent);
   padding: 3px;
 }
 
@@ -112,7 +112,7 @@
   border-radius: 6px;
   padding: 1px 4px;
   font-size: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family:var(--agently-theme-type-code-family, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
 }
 
 .app-rich-prose a,
@@ -171,7 +171,7 @@
   border: 1px solid var(--app-border);
   border-radius: 14px;
   background: var(--app-surface);
-  box-shadow: 0 8px 22px rgba(22, 34, 51, 0.055);
+  box-shadow: var(--app-shadow, 0 8px 22px rgba(22, 34, 51, 0.055));
 }
 
 .app-rich-table th,
@@ -281,7 +281,7 @@
   color: var(--app-text-secondary);
   border-radius: 50%;
   background: var(--app-surface);
-  box-shadow: 0 3px 8px rgba(41, 72, 118, 0.10);
+  box-shadow: var(--app-shadow, 0 3px 8px rgba(41, 72, 118, 0.10));
 }
 
 .app-rich-data-table-toolbar .bp6-button:hover,
@@ -299,7 +299,7 @@
   border: 1px solid var(--app-border);
   border-radius: 14px;
   background: var(--app-surface);
-  box-shadow: 0 8px 22px rgba(22, 34, 51, 0.055);
+  box-shadow: var(--app-shadow, 0 8px 22px rgba(22, 34, 51, 0.055));
 }
 
 .app-rich-data-table-frame .bp6-table-container,
@@ -370,14 +370,14 @@
   margin: 0;
   border-radius: 12px;
   border: 1px solid var(--app-border);
-  background: #0f172a;
-  color: #f8fafc;
+  background: var(--app-surface-soft, #0f172a);
+  color: var(--app-text, #f8fafc);
   padding: 12px;
   white-space: pre-wrap;
   overflow-x: auto;
   font-size: 12px;
   line-height: 1.5;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family:var(--agently-theme-type-code-family, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
 }
 
 .app-rich-mermaid {

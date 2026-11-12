@@ -1,6 +1,7 @@
+import {Icon as UnifiedIcon} from 'forge/components';
 import {Popover} from 'forge/components';
 import React from 'react';
-import { Button, Icon, Spinner, Tooltip } from '@blueprintjs/core';
+import {Button, Spinner, Tooltip} from '@blueprintjs/core';
 import {
   resolveActiveTurnProgress,
   summarizeExecutionTokenUsage,
@@ -296,7 +297,7 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
               <Tooltip content={<ToolDetails progress={progress} />} placement="bottom">
                 <button type="button" className="app-turn-progress-chip is-button">
                   {toolText}
-                  {progress.failedToolCount > 0 ? <Icon icon="warning-sign" size={12}
+                  {progress.failedToolCount > 0 ? <UnifiedIcon name="warning-sign"
                     className="app-turn-progress-warning"
                     aria-label="Some steps did not complete; work continues" /> : null}
                 </button>
@@ -312,7 +313,7 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
           ) : null}
         </div>
       </div>
-      {progress.canStop ? <Button minimal icon="stop" aria-label="Stop current request" onClick={stop} disabled={stopping} /> : null}
+      {progress.canStop ? <Button minimal icon={<UnifiedIcon name="stop"/>} aria-label="Stop current request" onClick={stop} disabled={stopping} /> : null}
     </section>
   );
 }

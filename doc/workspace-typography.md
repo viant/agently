@@ -1,5 +1,39 @@
 # Workspace design-system foundation
 
+## Consistent action states and icons
+
+Quiet shell actions use a semantic hover background without an added border or
+shadow ring. Active/selected state remains distinct, disabled controls remain
+unavailable, and keyboard focus keeps its visible semantic ring. Do not combine
+hover and focus selectors when adding an outline. The existing browser proof
+checks both Forge ghost and Blueprint minimal controls in Light/Dark.
+
+Shell, chat, starter cards and table controls use Forge Icon, backed by the
+installed Lucide React package. Preserve accessible action names and use
+explicit `lucide:` names for new controls. Existing known action names resolve
+to Lucide in Forge; unrecognized producer metadata retains its compatibility
+fallback and needs an explicit mapping review. Do not introduce direct
+Blueprint/Phosphor icon imports or hand-drawn replacement control glyphs.
+
+## Shell semantic color adoption
+
+The navigation, account menus, chat/composer, tabs, execution details, lookup
+surfaces and file/diff views consume the existing `--app-*`,
+`--agently-theme-*` and `--forge-*` roles. Components must not select a private
+brand color, font or token namespace. Workspace-owned styles map these roles to
+their semantic tokens through the existing style publication and theme provider.
+Keep light/dark selection at that provider; do not add component mode checks.
+Neutral root defaults and `var()` fallbacks preserve unthemed hosts. Intent and
+feedback states retain their existing semantic meaning.
+
+New component paint should use the same roles, including hover, active,
+disabled and focus states. The existing typography contract rejects direct
+component color literals in the migrated shell styles. The browser proof resolves
+CSS calculations before checking type roles and tests propagation at application,
+presentation and workspace boundaries. Local workspace proof fixtures may load
+an external compiled catalog without embedding private brand data in this repo.
+The conversation flex container keeps the empty split composer visible.
+
 ## Execution step inspector
 
 Document execution rows use quiet divided geometry, shared model/tool icons,
