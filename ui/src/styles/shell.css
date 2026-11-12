@@ -3629,7 +3629,7 @@ span.app-workspace-breadcrumb-chip.is-current { background: rgba(222, 234, 253, 
   min-width: 0;
 }
 .app-summary-conversation.is-composer-only [data-testid="chat-toolbar"],
-.app-summary-conversation.is-composer-only [data-testid="chat-feed-stage"] { display: none !important; }
+.app-summary-surface-shell:not(.is-document) .app-summary-conversation.is-composer-only [data-testid="chat-feed-stage"] { display: none !important; }
 .app-summary-conversation.is-composer-only [data-testid="chat-root"] { height: auto !important; padding-top: 0 !important; }
 
 .app-summary-conversation.is-composer-only:not(.is-composer-expanded) [data-testid="chat-composer"]:not(.forge-document-composer) {

@@ -136,11 +136,10 @@
 .app-workspace-output-state-actions { display: flex; flex-wrap: wrap; gap: var(--agently-theme-spacing-2, 8px); margin-top: var(--agently-theme-spacing-4, 16px); }
 
 /* Collapsed workspace composers retain their toggle without showing the transcript. */
-.app-summary-conversation.is-composer-only:not(.is-composer-expanded) > :not(.app-workspace-composer-toggle) {
-  display: none !important;
-}
+.app-summary-conversation-content { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.app-summary-conversation-content[hidden] { display: none; }
 .app-summary-surface-shell.is-document .app-summary-conversation.is-composer-only.is-composer-expanded [data-testid="chat-feed-stage"] {
-  display: flex !important; max-height: min(28vh, 220px); overflow-y: auto;
+  display: flex; max-height: min(28vh, 220px); overflow-y: auto;
 }
 
 /* Exercise the same full-height chat host used by workspace windows. */

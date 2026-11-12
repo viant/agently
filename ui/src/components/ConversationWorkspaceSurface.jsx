@@ -309,7 +309,9 @@ export default function ConversationWorkspaceSurface({
             onClick={() => setComposerExpanded((expanded) => !expanded)}
           />
         ) : null}
+        <div className="app-summary-conversation-content" hidden={workspaceActive && effectiveMode !== 'split' && !composerExpanded}>
         {renderConversation ? renderConversation() : (chatWindow ? <WindowContent key={resolveChatWindowRenderKey(chatWindow)} window={chatWindow} isInTab /> : null)}
+        </div>
       </section>
     </div>
   );

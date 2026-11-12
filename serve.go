@@ -433,9 +433,16 @@ func Serve(options ServeOptions) error {
 		})
 	}
 	metaRoot := "embed://localhost/"
+	windowMigrations, err := loadWindowMigrations(workspacePath)
+	if err != nil {
+		return err
+	}
 	rawMetaHandler := ui.NewEmbeddedHandler(metaRoot, &coremeta.FS)
 	if rt.PermittedResolver != nil || uiBridge.UsesWindowResourceResolution() || len(cohortSources) > 0 {
 		uiOptions := []ui.HandlerOption{ui.WithWindowResourceProvider(uiBridge)}
+		if windowMigrations != nil {
+			uiOptions = append(uiOptions, windowMigrations)
+		}
 		for providerIdentity, source := range cohortSources {
 			uiOptions = append(uiOptions, ui.WithArtifactCohortWindowSourceForNamespaces(providerIdentity, source, publishedBindings.Bind, cohortNamespaces[providerIdentity]...))
 		}

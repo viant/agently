@@ -369,3 +369,28 @@ it('inventories actual structured outputs before their first open and ignores or
   expect(projectedWorkspaceEntries(rows, 'b')).toEqual([]);
   expect(projectedWorkspaceEntries([{connectionProfile: 'standard', attachments: [attachment]}], 'a')).toEqual([]);
 });
+
+it('collapses the conversation host without overriding inline child display or losing its draft', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  const workspace = {windowId:'example-output',windowTitle:'Example'};
+  const conversation = () => <div style={{display:'flex'}}><textarea defaultValue="Retained draft"/></div>;
+  try {
+    await act(async () => root.render(<ConversationWorkspaceSurface presentation="document" activeSurface="workspace" workspaceMode="focus" workspaceWindow={workspace} renderConversation={conversation} renderWorkspace={() => <div>Output</div>}/>));
+    const content = host.querySelector('.app-summary-conversation-content');
+    const input = content.querySelector('textarea');
+    expect(content.hidden).toBe(false);
+    await act(async () => host.querySelector('[aria-label="Hide composer"]').click());
+    expect(content.hidden).toBe(true);
+    await act(async () => host.querySelector('[aria-label="Show composer"]').click());
+    expect(content.hidden).toBe(false);
+    expect(content.querySelector('textarea')).toBe(input);
+    expect(input.value).toBe('Retained draft');
+    await act(async () => host.querySelector('[aria-label="Hide composer"]').click());
+    expect(content.hidden).toBe(true);
+    expect(content.querySelector('textarea')).toBe(input);
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+  }
+});
