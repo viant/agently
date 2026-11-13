@@ -3,7 +3,7 @@
 .app-bubble-row.is-document.app-bubble-row-assistant:has(+ .app-turn-feedback.is-document) { margin-bottom: var(--forge-spacing-3, 12px); }
 .app-bubble-row.is-document.app-bubble-row-user { justify-content: flex-end; }
 .app-bubble-row.is-document > .app-bubble { flex: 0 1 auto; width: auto; min-width: 0; padding: 0; border: 0; box-shadow: none; background: transparent; border-radius: 0; }
-.app-bubble-row.is-document > .app-bubble-user { max-width: 88%; padding: 10px 16px; background: var(--forge-surface-subtle, var(--agently-theme-surface-subtle, var(--app-surface-soft))); color: var(--forge-text, var(--app-text)); border-radius: var(--agently-theme-radius-surface, 10px); }
+.app-bubble-row.is-document > .app-bubble-user { max-width: 88%; padding: 10px 16px; background: var(--forge-chat-user-background, var(--forge-surface-subtle, var(--agently-theme-surface-subtle, var(--app-surface-soft)))); color: var(--forge-chat-user-text, var(--forge-text, var(--app-text))); border-radius: var(--agently-theme-radius-surface, 10px); }
 .app-bubble-row.is-document > .app-bubble-assistant { width: 100%; }
 .app-bubble-row.is-document .app-bubble-content, .app-bubble-row.is-document .app-bubble-content :where(p, li, td, span:not([data-forge-type]), a) { font: inherit; letter-spacing: inherit; overflow-wrap: anywhere; }
 .app-bubble-row.is-document .app-bubble-content :where(p) { white-space: pre-wrap; }

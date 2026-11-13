@@ -43,7 +43,7 @@
   border: var(--forge-border-width, 1px) solid var(--forge-border-strong, var(--app-border));
   border-radius: var(--forge-radius-surface, var(--agently-theme-control-radius, 6px));
 }
-.app-turn-feedback-menu.bp6-popover { box-shadow: var(--forge-overlay-shadow, var(--forge-default-overlay-shadow)); }
+.app-turn-feedback-menu.bp6-popover { border-radius: var(--forge-menu-radius, var(--forge-radius-surface, var(--agently-theme-control-radius, 6px))); box-shadow: var(--forge-menu-shadow, var(--forge-overlay-shadow, var(--forge-default-overlay-shadow))); }
 .app-turn-feedback-menu .bp6-popover-content,
 .app-turn-feedback-menu .bp6-menu { color: inherit; background: inherit; border-radius: inherit; }
 .app-turn-feedback-menu .bp6-menu-item { color: inherit; }
