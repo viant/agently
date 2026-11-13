@@ -1283,6 +1283,8 @@ github.com/viant/agently-core v0.1.60-0.20261112182646-7051b0a96921 h1:2koASRBE2
 github.com/viant/agently-core v0.1.60-0.20261112182646-7051b0a96921/go.mod h1:g21F9xfFSVXWgRaCEyAlmOTYlHUPL27+Np1XaC8Rrms=
 github.com/viant/agently-core v0.1.60-0.20261112215235-c43b3574a5ad h1:hqx51w96yzg9AosY5RovSLVFYmKdzpEWSvxl1Z9tNgY=
 github.com/viant/agently-core v0.1.60-0.20261112215235-c43b3574a5ad/go.mod h1:g21F9xfFSVXWgRaCEyAlmOTYlHUPL27+Np1XaC8Rrms=
+github.com/viant/agently-core v0.1.60-0.20261113000731-ffa9e3fa9106 h1:e+obPApaVhENu/FY5i8RV3y1xE3BQhIo+jEy9+IMD70=
+github.com/viant/agently-core v0.1.60-0.20261113000731-ffa9e3fa9106/go.mod h1:g21F9xfFSVXWgRaCEyAlmOTYlHUPL27+Np1XaC8Rrms=
 github.com/viant/agently-core/protocol/primitive v0.1.0 h1:/N8XTuq5eQoNJjXFOTQ54xxDA49CePgr++kvghCg1kE=
 github.com/viant/agently-core/protocol/primitive v0.1.0/go.mod h1:Io9JPA84FX4oMjN4SbtoCTcFN6y+9KJ9JBQvsolcxso=
 github.com/viant/agently-core/protocol/resource v0.1.0 h1:O6K71OeFqATZr+D4yn7cWO6yklsUlra6rQTRpNOKQow=
