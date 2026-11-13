@@ -1,5 +1,16 @@
 # Workspace design-system foundation
 
+## Appearance profiles in source
+
+`ui/src/styles/shell.css` holds the shared application structure and incumbent
+Baseline values. `ui/src/styles/profiles/design-system-2.css` is the opt-in
+adapter for Steward's semantic colors, typography, menus and conversation
+roles. Component files keep neutral anatomy; 2.0-only visual states require
+the explicit `data-agently-theme="design-system-2"` boundary. The theme
+provider selects a profile and Light/Dark mode from the published catalog.
+Baseline remains the catalog default and keeps its original menu and chat
+treatments. Shared interaction behavior remains in the owning components.
+
 ## Sidebar brand artwork
 
 Workspace branding uses the existing `appIconRef` metadata. Sidebar logos keep

@@ -1,0 +1,60 @@
+/* Agently's Design System 2.0 adapter. Shared shell and chat anatomy remains
+ * in its component styles; these values and visual states apply only while the
+ * published Steward profile is selected. */
+:root:where(.agently-application[data-agently-theme="design-system-2"]) {
+  --app-bg: var(--forge-canvas, #f5f6f8);
+  --app-surface: var(--forge-surface, #ffffff);
+  --app-surface-soft: var(--forge-surface-subtle, #f1f3f7);
+  --app-border: var(--forge-border-color, #dde2eb);
+  --app-text: var(--forge-text, #171b26);
+  --app-text-secondary: var(--forge-text-secondary, #3f4a5e);
+  --app-muted: var(--forge-text-muted, #6d7586);
+  --app-accent: var(--forge-interaction-color, #2d6cdf);
+  --app-accent-strong: var(--forge-interaction-active-color, #2459bb);
+  --app-selected-background: var(--forge-selected-background, #eef4ff);
+  --app-status-info-background: var(--forge-status-info-background, #eef4ff);
+  --app-status-info-foreground: var(--forge-status-info-foreground, #215db0);
+  --app-status-success-background: var(--forge-status-success-background, #eef8f0);
+  --app-status-success-foreground: var(--forge-status-success-foreground, #0a6640);
+  --app-status-warning-background: var(--forge-status-warning-background, #fff9e6);
+  --app-status-warning-foreground: var(--forge-status-warning-foreground, #8a5d00);
+  --app-status-danger-background: var(--forge-status-danger-background, #fdecea);
+  --app-status-danger-foreground: var(--forge-status-danger-foreground, #a82a2a);
+  --app-radius: var(--forge-radius-surface, 14px);
+  --app-font-family: var(--forge-font-family, 'Avenir Next', 'SF Pro Display', 'Segoe UI', sans-serif);
+  --app-font-size: var(--forge-type-body-size, 14px);
+  --app-topbar-bg: color-mix(in srgb, var(--forge-surface, #ffffff) 92%, transparent);
+  --app-sidebar-bg: var(--forge-surface-subtle, linear-gradient(180deg, #f8f9fc 0%, #f1f4fa 100%));
+  --app-composer-bg: var(--forge-canvas, linear-gradient(to top, rgba(245, 246, 248, 0.98) 70%, rgba(245, 246, 248, 0)));
+  --app-shell-control-radius: var(--agently-theme-control-radius, 8px);
+  --app-shell-compact-radius: var(--agently-theme-control-radius, 8px);
+  --app-shell-menu-radius: var(--agently-theme-control-radius, 8px);
+  --app-shell-popup-radius: var(--agently-theme-control-radius, 8px);
+  --app-shell-icon-size: var(--agently-theme-icon-size, 16px);
+  --app-navigation-icon-size: var(--agently-theme-icon-size, 16px);
+}
+
+/* Menu values are deliberately separate from the incumbent Baseline rules. */
+.agently-application[data-agently-theme="design-system-2"] .app-topbar-settings-menu,
+.agently-application[data-agently-theme="design-system-2"] .app-user-menu {
+  border-radius: var(--forge-menu-radius, 6px);
+  box-shadow: var(--forge-menu-shadow, none);
+}
+.agently-application[data-agently-theme="design-system-2"] .app-user-menu .bp6-button.bp6-minimal,
+.agently-application[data-agently-theme="design-system-2"] .app-saved-output-list,
+.agently-application[data-agently-theme="design-system-2"] .app-turn-feedback-menu.bp6-popover {
+  border-radius: var(--forge-menu-radius, 6px);
+}
+.agently-application[data-agently-theme="design-system-2"] .app-turn-feedback-menu.bp6-popover {
+  box-shadow: var(--forge-menu-shadow, none);
+}
+
+/* Conversation roles come from Forge and Steward semantics. */
+.agently-application[data-agently-theme="design-system-2"] .app-bubble-row .app-bubble-avatar { display: none; }
+.agently-application[data-agently-theme="design-system-2"] .app-bubble-row-user { justify-content: flex-end; }
+.agently-application[data-agently-theme="design-system-2"] .app-bubble-user { flex: 0 1 auto; width: auto; max-width: min(780px, 88%); border-color: transparent; box-shadow: none; }
+.agently-application[data-agently-theme="design-system-2"] .app-bubble-assistant { border-color: transparent; background: transparent; box-shadow: none; }
+.agently-application[data-agently-theme="design-system-2"] .app-bubble-row.is-document > .app-bubble-user {
+  background: var(--forge-chat-user-background, var(--forge-surface-subtle));
+  color: var(--forge-chat-user-text, var(--forge-text));
+}

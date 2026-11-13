@@ -119,7 +119,7 @@
 .app-saved-outputs > summary:hover, .app-saved-outputs[open] > summary { background: var(--forge-surface-subtle, var(--app-surface-soft)); }
 .app-saved-outputs > summary:focus:not(:focus-visible) { outline: 0; }
 .app-saved-outputs > summary:focus-visible { outline: var(--agently-theme-focus-width, 2px) solid var(--agently-theme-focus); outline-offset: var(--agently-theme-focus-offset, 2px); }
-.app-saved-output-list { position: absolute; top: calc(100% + 8px); right: 0; width: 320px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 120px); overflow: auto; padding: var(--agently-theme-spacing-3, 12px); border: 1px solid var(--app-border); border-radius: var(--forge-menu-radius, var(--app-shell-popup-radius, 10px)); color: var(--app-text-secondary); background: var(--app-surface); z-index: 40; }
+.app-saved-output-list { position: absolute; top: calc(100% + 8px); right: 0; width: 320px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 120px); overflow: auto; padding: var(--agently-theme-spacing-3, 12px); border: 1px solid var(--app-border); border-radius: var(--app-shell-popup-radius, 10px); color: var(--app-text-secondary); background: var(--app-surface); z-index: 40; }
 .app-saved-output-list > button { display: flex; align-items: center; gap: var(--agently-theme-spacing-2, 8px); width: 100%; min-height: 52px; padding: 10px 8px; border: 0; border-radius: var(--app-shell-compact-radius, 6px); background: transparent; text-align: left; color: inherit; cursor: pointer; }
 .app-saved-output-list > button:hover { background: var(--forge-surface-subtle, var(--app-surface-soft)); }
 .app-saved-output-list > button > span { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
