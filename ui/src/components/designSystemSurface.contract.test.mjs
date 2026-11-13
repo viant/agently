@@ -5,6 +5,7 @@ const workspace = fs.readFileSync(new URL('./ConversationWorkspaceSurface.jsx', 
 const dock = fs.readFileSync(new URL('./WorkspaceChatDock.jsx', import.meta.url), 'utf8');
 const styles = fs.readFileSync(new URL('./workspaceChatDock.css', import.meta.url), 'utf8');
 const shell = fs.readFileSync(new URL('../styles/shell.css', import.meta.url), 'utf8');
+const designSystemProfile = fs.readFileSync(new URL('../styles/profiles/design-system-2.css', import.meta.url), 'utf8');
 
 assert.match(workspace, /data-forge-component="workspace-surface"/);
 assert.match(dock, /data-forge-component="chat-dock"/);
@@ -28,6 +29,9 @@ for (const role of [
   '--forge-font-family',
   '--forge-type-body-size',
   '--forge-radius-surface',
-]) assert.match(shell, new RegExp(`--app-[^:]+: var\\(${role.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}`));
+]) assert.match(designSystemProfile, new RegExp(`--app-[^:]+: var\\(${role.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}`));
+assert.match(shell, /\.app-user-menu\s*\{[^}]*border-radius: var\(--app-shell-menu-radius, 12px\)/s);
+assert.match(designSystemProfile, /data-agently-theme="design-system-2"\] \.app-user-menu/);
+assert.doesNotMatch(designSystemProfile, /data-agently-theme="baseline"/);
 
 console.log('Agently surface contract ✓ shell surfaces consume the shared Forge semantic geometry');

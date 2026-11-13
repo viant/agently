@@ -1,0 +1,39 @@
+.app-appearance-review {
+  position: fixed;
+  z-index: 1000;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-shell-popup-radius);
+  background: var(--app-surface);
+  color: var(--app-text);
+  box-shadow: var(--app-shadow);
+}
+.app-appearance-review label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.app-appearance-review .forge-select-control { min-width: 0; }
+@media (max-width: 600px) {
+  .app-appearance-review {
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    justify-content: space-between;
+    gap: 8px;
+    max-width: none;
+    padding: 8px;
+  }
+  .app-appearance-review-caption { display: none; }
+  .app-appearance-review label { gap: 4px; font-size: 12px; }
+  .app-appearance-review label:first-of-type .forge-select-control { width: clamp(110px, 35vw, 150px); }
+  .app-appearance-review label:last-of-type .forge-select-control { width: 80px; }
+}

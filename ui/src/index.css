@@ -11,6 +11,7 @@
 @import './styles/detail-panel.css';
 @import './styles/steer.css';
 @import './styles/rich-content.css';
+@import './styles/profiles/design-system-2.css';
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body, #root { height: 100%; }

@@ -1,3 +1,5 @@
+/* Shared application structure and incumbent Baseline values. Profile-specific
+ * Design System 2.0 selections live in profiles/design-system-2.css. */
 :root {
   /* Stable application-shell tokens. Workspace CSS may override these only
      inside the .agently-application boundary. */
@@ -38,41 +40,6 @@
   --app-composer-stack-height: 150px;
   --app-plan-feed-gap: -12px;
   --app-plan-feed-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--app-composer-stack-height) + var(--app-plan-feed-gap));
-}
-
-/* Product colors and type enter through the published Steward theme only when
-   Design System 2.0 is selected. Baseline keeps the original shell fallbacks. */
-:root:where(.agently-application[data-agently-theme="design-system-2"]) {
-  --app-bg: var(--forge-canvas, #f5f6f8);
-  --app-surface: var(--forge-surface, #ffffff);
-  --app-surface-soft: var(--forge-surface-subtle, #f1f3f7);
-  --app-border: var(--forge-border-color, #dde2eb);
-  --app-text: var(--forge-text, #171b26);
-  --app-text-secondary: var(--forge-text-secondary, #3f4a5e);
-  --app-muted: var(--forge-text-muted, #6d7586);
-  --app-accent: var(--forge-interaction-color, #2d6cdf);
-  --app-accent-strong: var(--forge-interaction-active-color, #2459bb);
-  --app-selected-background: var(--forge-selected-background, #eef4ff);
-  --app-status-info-background: var(--forge-status-info-background, #eef4ff);
-  --app-status-info-foreground: var(--forge-status-info-foreground, #215db0);
-  --app-status-success-background: var(--forge-status-success-background, #eef8f0);
-  --app-status-success-foreground: var(--forge-status-success-foreground, #0a6640);
-  --app-status-warning-background: var(--forge-status-warning-background, #fff9e6);
-  --app-status-warning-foreground: var(--forge-status-warning-foreground, #8a5d00);
-  --app-status-danger-background: var(--forge-status-danger-background, #fdecea);
-  --app-status-danger-foreground: var(--forge-status-danger-foreground, #a82a2a);
-  --app-radius: var(--forge-radius-surface, 14px);
-  --app-font-family: var(--forge-font-family, 'Avenir Next', 'SF Pro Display', 'Segoe UI', sans-serif);
-  --app-font-size: var(--forge-type-body-size, 14px);
-  --app-topbar-bg: color-mix(in srgb, var(--forge-surface, #ffffff) 92%, transparent);
-  --app-sidebar-bg: var(--forge-surface-subtle, linear-gradient(180deg, #f8f9fc 0%, #f1f4fa 100%));
-  --app-composer-bg: var(--forge-canvas, linear-gradient(to top, rgba(245, 246, 248, 0.98) 70%, rgba(245, 246, 248, 0)));
-  --app-shell-control-radius: var(--agently-theme-control-radius, 8px);
-  --app-shell-compact-radius: var(--agently-theme-control-radius, 8px);
-  --app-shell-menu-radius: var(--agently-theme-control-radius, 8px);
-  --app-shell-popup-radius: var(--agently-theme-control-radius, 8px);
-  --app-shell-icon-size: var(--agently-theme-icon-size, 16px);
-  --app-navigation-icon-size: var(--agently-theme-icon-size, 16px);
 }
 
 body {
