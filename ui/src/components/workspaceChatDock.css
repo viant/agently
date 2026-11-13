@@ -1,4 +1,5 @@
 .app-workspace-chat-dock { display:flex; flex:1 1 auto; flex-direction:column; min-width:0; min-height:0; }
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock { gap:var(--forge-spacing-2, 8px); }
 .app-chat-pane > .app-workspace-chat-dock.is-overlay {
   position:absolute; left:50%; bottom:16px; transform:translateX(-50%); z-index:30;
   width:min(720px, calc(100% - 32px)); height:min(320px, calc(100% - 48px)); max-height:calc(100% - 48px);
@@ -9,9 +10,13 @@
 .app-workspace-chat-toggle { display:flex; gap:4px; position:absolute; right:12px; bottom:12px; z-index:31; }
 .app-chat-pane:has(> .app-workspace-chat-dock.is-split[data-expanded="true"]) { flex-direction:row-reverse; }
 .app-chat-pane > .app-workspace-chat-dock.is-split {
-  flex:0 0 38%; min-width:320px; max-width:680px; border-right:1px solid var(--app-border, #d8dee8);
+  flex:0 0 38%; min-width:320px; max-width:680px;
+  border-right:1px solid var(--app-border, #d8dee8);
   background:var(--forge-surface, #fff); padding:8px; overflow:hidden;
 }
+.agently-application[data-agently-theme="design-system-2"] .app-chat-pane > .app-workspace-chat-dock.is-split {
+  border-right:var(--forge-border-width, 1px) solid var(--forge-border-color, var(--app-border, transparent));
+  background:var(--forge-surface, var(--app-surface, transparent)); padding:var(--forge-spacing-2, 8px); }
 .app-workspace-chat-dock.is-overlay .forge-document-chat {
   height:100%!important; min-height:0; max-height:100%; padding:0; gap:8px; background:transparent;
 }
@@ -19,12 +24,32 @@
 .app-workspace-chat-dock.is-overlay .forge-chat-task-back,
 .app-workspace-chat-dock.is-overlay .forge-document-chat.is-starting .chat-feed-stage { display:none; }
 .app-workspace-chat-dock.is-overlay .chat-feed-stage { flex:0 1 auto!important; max-height:180px; overflow:auto!important; }
-.app-workspace-chat-dock.is-overlay .app-chat-feed { border:1px solid var(--app-border,#d8dee8);border-radius:12px;background:var(--forge-surface,#fff);padding:12px;box-shadow:var(--app-shadow, 0 3px 14px rgb(0 0 0 / 12%)); }
-.app-workspace-chat-dock.is-overlay .forge-document-composer-shell { padding:6px 12px;gap:0;box-shadow:var(--app-shadow, 0 3px 14px rgb(0 0 0 / 12%)); }
+.app-workspace-chat-dock.is-overlay .app-chat-feed {
+  border:1px solid var(--app-border,#d8dee8);
+  border-radius:12px;
+  background:var(--forge-surface,#fff);
+  padding:12px;
+  box-shadow:var(--app-shadow, 0 3px 14px rgb(0 0 0 / 12%));
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay .app-chat-feed {
+  border:var(--forge-border-width, 1px) solid var(--forge-border-color, var(--app-border, transparent));
+  border-radius:var(--forge-radius-surface, var(--agently-theme-radius-surface, 12px));
+  background:var(--forge-surface, var(--app-surface, transparent));
+  padding:var(--forge-spacing-3, 12px);
+  box-shadow:var(--forge-overlay-shadow, var(--app-shadow, none)); }
+.app-workspace-chat-dock.is-overlay .forge-document-composer-shell {
+  padding:6px 12px;
+  gap:0;
+  box-shadow:var(--app-shadow, 0 3px 14px rgb(0 0 0 / 12%));
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay .forge-document-composer-shell {
+  padding:var(--forge-spacing-2, 8px) var(--forge-spacing-3, 12px);
+  box-shadow:var(--forge-overlay-shadow, var(--app-shadow, none)); }
 .app-workspace-chat-dock.is-overlay .forge-document-textarea { min-height:28px;max-height:96px; }
 @media (max-width:800px) {
   .app-chat-pane:has(> .app-workspace-chat-dock.is-split[data-expanded="true"]) { flex-direction:column; }
   .app-chat-pane > .app-workspace-chat-dock.is-split { flex:0 0 42%;min-width:0;max-width:none;width:100%;border-right:0;border-top:1px solid var(--app-border,#d8dee8); }
+  .agently-application[data-agently-theme="design-system-2"] .app-chat-pane > .app-workspace-chat-dock.is-split {border-top:var(--forge-border-width, 1px) solid var(--forge-border-color, var(--app-border, transparent)); }
 }
 
 .app-chat-pane > .app-workspace-chat-dock.is-overlay:has(.forge-document-chat.is-starting) { height:146px; }

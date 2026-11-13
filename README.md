@@ -56,6 +56,20 @@ BFF applies authentication across this interaction and the application APIs for
 history, metadata, uploads, reporting and management. All clients share the same
 execution and persistence services; Forge renders the workspace's authored UI.
 
+### Shared design-system release gate
+
+The web consumer must release against Forge `1.1.x` or newer so the shared
+pattern and responsive APIs are available. Verify a candidate Forge checkout
+and its runtime package boundary before packaging the UI:
+
+```bash
+cd ui
+FORGE_SOURCE_ROOT=/absolute/path/to/forge npm run test:forge-release
+```
+
+Agently owns shell and conversation composition; Forge owns reusable component
+anatomy and behavior, while workspace themes supply the semantic values.
+
 ## Capabilities
 
 | Area | What you can build or configure |

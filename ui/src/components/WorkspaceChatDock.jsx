@@ -19,7 +19,7 @@ export default function WorkspaceChatDock({active, children, onOpen}) {
       <Button variant="secondary" icon="lucide:panel-right" className="app-chat-left-toggle" aria-label="Open chat in split view"
         title="Open chat in split view" aria-controls={id} onClick={() => openChat('split')}/>
     </div>}
-    <div ref={content} id={id} className={`app-workspace-chat-dock${active ? ` is-${mode}` : ''}`}
+    <div ref={content} id={id} className={`app-workspace-chat-dock${active ? ` is-${mode}` : ''}`} data-forge-component="chat-dock"
       data-expanded={active?expanded:undefined} role={active?'region':undefined} aria-label={active?'Workspace chat':undefined}
       style={active&&!expanded?{display:'none'}:undefined}>
       {active&&expanded&&<div className="app-workspace-chat-controls">

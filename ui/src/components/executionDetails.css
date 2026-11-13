@@ -24,6 +24,7 @@
 .app-detail-panel.is-document .app-detail-token-chip { border: 0; border-radius: 0; background: transparent; color: var(--agently-theme-text, var(--forge-text, var(--app-text))); padding: 0; }
 .app-detail-panel.is-document :is(.app-detail-token-estimate-note,.app-detail-token-overflow-note) { color: var(--agently-theme-text-muted, var(--forge-text-muted, var(--app-muted, var(--agently-theme-text)))); background: transparent; padding: 0; }
 .app-detail-panel.is-document .app-detail-error { color: var(--agently-theme-status-danger-foreground, var(--forge-status-danger-foreground, var(--app-status-danger-foreground))); }
+.agently-application[data-agently-theme="design-system-2"] .app-detail-panel.is-document .app-detail-error { color: var(--forge-status-danger-foreground, var(--agently-theme-status-danger-foreground, var(--app-status-danger-foreground))); }
 .app-execution-payload { height: 100%; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .app-execution-payload-toolbar { flex: none; display: flex; align-items: center; gap: var(--agently-theme-spacing-3, var(--forge-spacing-3, 12px)); padding: var(--agently-theme-spacing-2, var(--forge-spacing-2, 8px)) var(--agently-theme-spacing-6, var(--forge-spacing-6, 24px)); border-bottom: 1px solid var(--agently-theme-border-strong, var(--agently-theme-control-border, var(--app-border))); }
 .app-execution-payload-toolbar > h3 { flex: 1; }
@@ -40,6 +41,7 @@
 .app-iteration-card.is-contained :is(.app-iteration-model-summary,.app-iteration-group-time) { color: var(--agently-theme-text-muted, var(--forge-text-muted, var(--app-muted, var(--agently-theme-text)))); }
 .app-iteration-card.is-contained .app-iteration-status { text-transform: capitalize; letter-spacing: normal; background: transparent; color: var(--agently-theme-text-muted, var(--forge-text-muted, var(--app-muted, var(--agently-theme-text)))); padding: 0; }
 .app-iteration-card.is-contained .app-iteration-status.tone-error { color: var(--agently-theme-status-danger-foreground, var(--forge-status-danger-foreground, var(--app-status-danger-foreground))); }
+.agently-application[data-agently-theme="design-system-2"] .app-iteration-card.is-contained .app-iteration-status.tone-error { color: var(--forge-status-danger-foreground, var(--agently-theme-status-danger-foreground, var(--app-status-danger-foreground))); }
 .app-iteration-card.is-contained .app-iteration-status.tone-success { color: var(--app-status-success-foreground, var(--agently-theme-text, var(--forge-text, var(--app-text)))); }
 .app-iteration-card.is-contained .app-iteration-tool-list { border-color: var(--agently-theme-border-strong, var(--agently-theme-control-border, var(--app-border))); border-width: 1px; padding-inline-start: var(--agently-theme-spacing-3, var(--forge-spacing-3, 12px)); }
 .app-iteration-card.is-contained :is(.app-iteration-model-icon,.app-iteration-tool-icon) { display: inline-flex; color: var(--agently-theme-text-muted, var(--forge-text-muted, var(--app-muted, var(--agently-theme-text)))); }

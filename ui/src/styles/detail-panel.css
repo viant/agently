@@ -151,6 +151,11 @@
   line-height: 1.35;
 }
 
+.agently-application[data-agently-theme="design-system-2"] .app-detail-token-overflow-note {
+  background: var(--forge-status-warning-background, var(--agently-theme-status-warning-background, #fff3d6));
+  color: var(--forge-status-warning-foreground, var(--agently-theme-status-warning-foreground, #8a5507));
+}
+
 .app-detail-thread-link {
   display: flex;
   align-items: center;

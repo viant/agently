@@ -23,7 +23,8 @@ const dimensions = {...requiredDimensions, ...optionalDimensions, ...foundationD
 const requiredTokenNames = new Set([...requiredColors, ...Object.keys(requiredDimensions), 'typography.family']);
 const roleFamilies = typographyRoles.map(role => `typography.${role}.family`);
 const tokenNames = new Set([...requiredTokenNames, ...optionalColors, ...Object.keys(optionalDimensions), ...roleFamilies, ...Object.keys(foundationDimensions)]);
-const fontFamilies = new Set(['system', 'workspace-primary', 'workspace-secondary', 'monospace']);
+const fontFamilies = new Set(['system', 'workspace-primary', 'workspace-secondary', 'workspace-tertiary', 'monospace']);
+const MAX_WORKSPACE_STYLE_BYTES = 768 * 1024;
 const identifier = /^[a-z][a-z0-9-]{0,63}$/;
 export const APPLICATION_THEME_CLASS = 'agently-application';
 const APPLICATION_THEME_ATTRIBUTE = 'data-agently-theme';
@@ -296,7 +297,7 @@ export class WorkspaceStyleManager {
         const contentType = response.headers?.get?.('content-type') || '';
         if (contentType && !contentType.startsWith(json ? 'application/json' : 'text/css')) throw new Error('Unexpected workspace asset type');
         const text = await response.text();
-        if (new TextEncoder().encode(text).length > 512 * 1024) throw new Error('Workspace style asset is too large');
+        if (new TextEncoder().encode(text).length > MAX_WORKSPACE_STYLE_BYTES) throw new Error('Workspace style asset is too large');
         return json ? validateThemeCatalog(JSON.parse(text)) : text;
       };
       const [css, catalog] = await Promise.all([read(styleURL, false), catalogURL ? read(catalogURL, true) : null]);

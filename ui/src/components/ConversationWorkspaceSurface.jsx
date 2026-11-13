@@ -199,7 +199,7 @@ export default function ConversationWorkspaceSurface({
       ) : null}
 
       {hasWorkspace ? (
-        <section id="conversation-workspace-viewer" className={`app-summary-workspace${workspaceActive ? '' : ' is-surface-hidden'}`} aria-label={`${navigation.label} workspace`} data-workspace-window-id={workspaceWindow?.windowId || ''} aria-hidden={!workspaceActive} inert={!workspaceActive ? '' : undefined}>
+        <section id="conversation-workspace-viewer" className={`app-summary-workspace${workspaceActive ? '' : ' is-surface-hidden'}`} data-forge-component="workspace-surface" aria-label={`${navigation.label} workspace`} data-workspace-window-id={workspaceWindow?.windowId || ''} aria-hidden={!workspaceActive} inert={!workspaceActive ? '' : undefined}>
           {!documentPresentation ? <header className="app-summary-workspace-header">
             <div className="app-summary-workspace-header-actions">
               <nav className="app-workspace-breadcrumbs" aria-label="Workspace navigation">

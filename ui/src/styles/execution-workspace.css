@@ -36,12 +36,24 @@
   color: var(--app-text-secondary, #6d665c);
 }
 
+.agently-application[data-agently-theme="design-system-2"] .app-execution-kicker {
+  font-size: var(--forge-type-metadata-size, 0.72rem);
+  letter-spacing: var(--forge-type-metadata-letter-spacing, 0.18em);
+}
+
 .app-execution-toolbar h2 {
   margin: 0;
   font-family: var(--app-font-family);
   font-size: 1.9rem;
   font-weight: 700;
   letter-spacing: -0.03em;
+}
+
+.agently-application[data-agently-theme="design-system-2"] .app-execution-toolbar h2 {
+  font-size: var(--forge-type-title-size, 1.9rem);
+  font-weight: var(--forge-type-title-weight, 700);
+  letter-spacing: var(--forge-type-title-letter-spacing, -0.03em);
+  line-height: var(--forge-type-title-line-height, 1.2);
 }
 
 .app-execution-subtitle {
@@ -89,10 +101,20 @@
   background: var(--app-surface-soft, #8b877f);
 }
 
+.agently-application[data-agently-theme="design-system-2"] .app-execution-dot {
+  background: var(--forge-text-muted, var(--app-muted, #8b877f));
+}
+
 .app-execution-connection.tone-live .app-execution-dot,
 .app-execution-pill.tone-cool,
 .app-execution-timeline-entry.tone-cool strong {
   background: var(--app-surface-soft, #22543d);
+}
+
+.agently-application[data-agently-theme="design-system-2"] .app-execution-connection.tone-live .app-execution-dot,
+.agently-application[data-agently-theme="design-system-2"] .app-execution-pill.tone-cool,
+.agently-application[data-agently-theme="design-system-2"] .app-execution-timeline-entry.tone-cool strong {
+  background: var(--forge-status-success-foreground, #22543d);
 }
 
 .app-execution-connection.tone-connecting .app-execution-dot,
@@ -101,10 +123,22 @@
   background: var(--app-surface-soft, #9c4221);
 }
 
+.agently-application[data-agently-theme="design-system-2"] .app-execution-connection.tone-connecting .app-execution-dot,
+.agently-application[data-agently-theme="design-system-2"] .app-execution-pill.tone-warm,
+.agently-application[data-agently-theme="design-system-2"] .app-execution-timeline-entry.tone-warm strong {
+  background: var(--forge-status-warning-foreground, #9c4221);
+}
+
 .app-execution-connection.tone-disconnected .app-execution-dot,
 .app-execution-pill.tone-alert,
 .app-execution-timeline-entry.tone-alert strong {
   background: var(--app-surface-soft, #9b2c2c);
+}
+
+.agently-application[data-agently-theme="design-system-2"] .app-execution-connection.tone-disconnected .app-execution-dot,
+.agently-application[data-agently-theme="design-system-2"] .app-execution-pill.tone-alert,
+.agently-application[data-agently-theme="design-system-2"] .app-execution-timeline-entry.tone-alert strong {
+  background: var(--forge-status-danger-foreground, #9b2c2c);
 }
 
 .app-execution-composer {
@@ -147,6 +181,11 @@
   cursor: pointer;
 }
 
+.agently-application[data-agently-theme="design-system-2"] .app-execution-composer-actions button {
+  color: var(--forge-button-text, var(--app-text, #fef8ed));
+  background: var(--forge-button-bg, #1f6d52);
+}
+
 .app-execution-composer-actions button:disabled {
   opacity: 0.72;
   cursor: wait;
@@ -158,6 +197,11 @@
   border-radius: 16px;
   color: var(--agently-theme-status-danger-foreground, #fef8ed);
   background: linear-gradient(135deg, var(--agently-theme-status-danger-background, #9b2c2c), var(--agently-theme-status-danger-background, #6b1d1d));
+}
+
+.agently-application[data-agently-theme="design-system-2"] .app-execution-error {
+  color: var(--forge-status-danger-foreground, var(--agently-theme-status-danger-foreground, #fef8ed));
+  background: var(--forge-status-danger-background, var(--agently-theme-status-danger-background, #9b2c2c));
 }
 
 .app-execution-board {

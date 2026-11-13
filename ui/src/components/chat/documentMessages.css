@@ -20,6 +20,7 @@
 
 /* Output links use the same compact document attachment in chat and specimens. */
 .app-workspace-attachment.is-document { width: 100%; max-width: 380px; padding: 13px; gap: 10px; border-color: var(--agently-theme-border-strong, var(--app-border)); border-radius: var(--agently-theme-radius-control, 8px); background: var(--app-surface); box-shadow: none; color: var(--app-accent); }
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-attachment.is-document { border-radius: var(--agently-theme-control-radius, 8px); }
 .app-workspace-attachment.is-document .app-workspace-attachment-icon { width: 18px; height: 18px; flex: none; border-radius: 0; background: transparent; }
 .app-workspace-attachment.is-document .app-workspace-attachment-copy { flex-direction: column; align-items: stretch; gap: 1px; }
 .app-workspace-attachment.is-document .app-workspace-attachment-copy :is(strong, span) { overflow-wrap: anywhere; white-space: normal; }

@@ -6,11 +6,12 @@
   display: grid;
   grid-template-columns: var(--app-section-rail-width) minmax(0, 1fr);
   height: 100%; min-height: 0; min-width: 0;
-  background: var(--app-surface);
+  background: var(--app-surface-soft);
   color: var(--app-text);
 }
+.agently-application[data-agently-theme="design-system-2"] .app-section-navigation { background: var(--app-surface); }
 .app-section-rail {
-  --forge-icon-size: 18px;
+  --forge-icon-size: var(--app-shell-icon-size, 18px);
   display: flex; flex-direction: column; align-items: center;
   gap: var(--agently-theme-spacing-2, 8px);
   padding-block: var(--agently-theme-spacing-3, 12px);
@@ -20,10 +21,11 @@
 .app-section-rail-button {
   -webkit-tap-highlight-color: transparent;
   display: grid; place-items: center; width: 36px; min-height: 36px;
-  border: 0; border-radius: var(--agently-theme-radius-control, 8px);
+  border: 0; border-radius: var(--app-shell-control-radius, 8px);
   background: transparent; color: var(--app-text-secondary); cursor: pointer;
 }
-.app-section-rail-button:hover { background: var(--app-surface-soft); }
+.app-section-rail-button:hover { background: var(--app-surface); }
+.agently-application[data-agently-theme="design-system-2"] .app-section-rail-button:hover { background: var(--app-surface-soft); }
 .app-section-rail-button[aria-current] { color: var(--app-accent); background: var(--app-selected-background); }
 .app-section-rail-button:disabled { opacity: .5; cursor: default; }
 .app-section-rail-button:focus-visible, .app-layout-sidebar.is-sections .app-layout-menu:focus-visible, .app-sidebar.is-document :where(button, input):focus-visible {
@@ -60,14 +62,14 @@
 .app-sidebar.is-document { --app-history-content-inset: 11px; width: 100%; min-width: 0; padding: 20px 10px 14px; gap: 0; background: transparent; border: 0; height: 100%; box-sizing: border-box; }
 .app-sidebar.is-document .app-sidebar-recovery { padding-inline: var(--app-history-content-inset); }
 .app-layout-sidebar.is-sections .app-sidebar.is-document { position: static; inset: auto; width: 100%; max-width: none; box-shadow: none; }
-.app-sidebar.is-document .app-sidebar-new { align-self: flex-start; min-height: 36px; padding: 7px var(--app-history-content-inset); gap: 8px; border-radius: var(--agently-theme-radius-control, 8px); color: var(--app-accent); }
+.app-sidebar.is-document .app-sidebar-new { align-self: flex-start; min-height: 36px; padding: 7px var(--app-history-content-inset); gap: 8px; border-radius: var(--app-shell-control-radius, 8px); color: var(--app-accent); }
 .app-sidebar.is-document .app-sidebar-new > * { margin-inline: 0; }
 .app-sidebar.is-document .app-sidebar-new .forge-icon { width: 16px; height: 16px; }
 .app-sidebar.is-document .app-sidebar-section { position: relative; margin: 0; padding: 12px 32px 6px var(--app-history-content-inset); display: flex; align-items: center; text-transform: none; flex-shrink: 0; }
 .app-sidebar.is-document .app-sidebar-section > div { position: absolute; right: 0; top: 8px; }
 .app-sidebar.is-document .app-sidebar-scroll { padding-right: 0; }
 .app-sidebar.is-document .app-conversation-list { gap: 0; }
-.app-sidebar.is-document .app-conversation-row { position: relative; padding: 0; border: 0; border-radius: var(--agently-theme-radius-control, 8px); background: transparent; box-shadow: none; min-height: 36px; }
+.app-sidebar.is-document .app-conversation-row { position: relative; padding: 0; border: 0; border-radius: var(--app-shell-control-radius, 8px); background: transparent; box-shadow: none; min-height: 36px; }
 .app-sidebar.is-document .app-conversation-row:hover { background: var(--app-surface); }
 .app-sidebar.is-document .app-conversation-row.is-selected { background: var(--app-selected-background); }
 .app-sidebar.is-document .app-conversation-row-body { min-width: 0; padding: 8px var(--app-history-content-inset); }
@@ -124,7 +126,8 @@
 .app-layout-sidebar.is-sections .app-section-applications {
   flex: 1 1 auto; flex-wrap: nowrap; overflow-x: auto;
 }
-.app-section-applications [role="tab"] { flex-shrink: 0; white-space: nowrap; }
+.app-section-applications [role="tab"] { flex-shrink: 0; white-space: nowrap; border-radius: var(--app-shell-control-radius, 8px) var(--app-shell-control-radius, 8px) 0 0; }
+.app-section-applications [role="tab"]:hover { background: var(--forge-surface-subtle, var(--app-surface-soft)); }
 .app-section-applications [role="tab"][aria-selected="true"] {
   color: var(--app-accent); background: var(--app-selected-background);
 }

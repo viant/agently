@@ -23,4 +23,41 @@ describe('shared response color delivery', () => {
     expect(richContent).toMatch(/\.app-rich-chart\s*{[^}]*border: 1px solid var\(--app-border\);[^}]*background: var\(--app-surface\);/s);
     expect(richContent).toMatch(/\.app-rich-mermaid-error\s*{[^}]*background: var\(--app-status-danger-background\);[^}]*color: var\(--app-status-danger-foreground\);/s);
   });
+
+  it('maps execution states and primary actions to Forge semantic roles', () => {
+    const execution = read('./styles/execution-workspace.css');
+    expect(execution).toMatch(/tone-live[\s\S]*?background: var\(--forge-status-success-foreground/);
+    expect(execution).toMatch(/tone-connecting[\s\S]*?background: var\(--forge-status-warning-foreground/);
+    expect(execution).toMatch(/tone-disconnected[\s\S]*?background: var\(--forge-status-danger-foreground/);
+    expect(execution).toMatch(/\.app-execution-composer-actions button\s*{[^}]*color: var\(--forge-button-text/);
+    expect(execution).toMatch(/\.app-execution-composer-actions button\s*{[^}]*background: var\(--forge-button-bg/);
+    expect(execution).toMatch(/\.app-execution-error\s*{[^}]*background: var\(--forge-status-danger-background/);
+  });
+
+  it('maps conversation usage roles, data series, and errors to Forge semantics', () => {
+    const usage = read('./styles/conversation-usage.css');
+    expect(usage).toMatch(/\.conversation-usage-model-heading \.conversation-usage-role\.is-intake[^}]*background: var\(--forge-status-warning-background[^}]*color: var\(--forge-status-warning-foreground/s);
+    expect(usage).toMatch(/\.conversation-usage-model-heading \.conversation-usage-role\.is-sidecar[^}]*background: var\(--forge-status-success-background[^}]*color: var\(--forge-status-success-foreground/s);
+    expect(usage).toMatch(/\.conversation-usage-model-bar span\.is-input[^}]*background: var\(--forge-data-categorical-1/);
+    expect(usage).toMatch(/\.conversation-usage-model-bar span\.is-output[^}]*background: var\(--forge-data-categorical-2/);
+    expect(usage).toMatch(/\.conversation-usage-error[^}]*border: 1px solid var\(--forge-status-danger-border[^}]*background: var\(--forge-status-danger-background[^}]*color: var\(--forge-status-danger-foreground/s);
+  });
+
+  it('keeps Design System 2.0 status rules semantic while Baseline retains its original colors', () => {
+    const files = [
+      './styles/shell.css',
+      './styles/iteration.css',
+      './styles/progress.css',
+      './styles/detail-panel.css',
+      './styles/steer.css',
+      './components/executionDetails.css',
+    ];
+    const directLegacyRole = /(?:color|background|border(?:-[a-z-]+)?|--app-[a-z-]+)\s*:\s*var\(--agently-theme-status-/;
+    for (const file of files) {
+      const scoped = Array.from(read(file).matchAll(/\.agently-application\[data-agently-theme="design-system-2"\][^{]*\{[^}]*\}/g), match => match[0]).join('\n');
+      expect(scoped).toContain('design-system-2');
+      expect(scoped).not.toMatch(directLegacyRole);
+    }
+    expect(read('./styles/shell.css')).toMatch(/\.app-sidebar-error\s*\{\s*color: var\(--agently-theme-status-danger-foreground/);
+  });
 });

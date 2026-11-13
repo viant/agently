@@ -76,3 +76,8 @@
   color: var(--agently-theme-status-danger-foreground, #af3026);
   font-size: 12px;
 }
+
+.agently-application[data-agently-theme="design-system-2"] .steer-queue-error {
+  border-top: 1px solid var(--forge-status-danger-border, var(--agently-theme-status-danger-border, #ebd8d5));
+  color: var(--forge-status-danger-foreground, var(--agently-theme-status-danger-foreground, #af3026));
+}

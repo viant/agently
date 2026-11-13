@@ -40,6 +40,11 @@ describe('portable theme catalog', () => {
     workspace.themes[0].modes.light['typography.family'] = 'ibm-plex-sans';
     expect(() => validateThemeCatalog(workspace)).toThrow('Invalid theme font');
   });
+  it('accepts a third registered family for a separate design system', () => {
+    const workspace = structuredClone(catalog);
+    workspace.themes[0].modes.light['typography.family'] = 'workspace-tertiary';
+    expect(validateThemeCatalog(workspace)).toBe(workspace);
+  });
   it('accepts validated optional semantic colors without requiring them', () => {
     const workspace = structuredClone(catalog);
     workspace.themes[0].modes.light['text.secondary'] = '#3a4460';
@@ -85,6 +90,21 @@ describe('application theme boundary', () => {
   });
 });
 describe('workspace style lifecycle', () => {
+  it('loads the complete Steward stylesheet and rejects an oversized replacement', async () => {
+    const {manager, elements} = fixture();
+    let css = 'a'.repeat(600 * 1024);
+    manager.fetchAsset = async url => ({ok: true, status: 200, text: async () => url.endsWith('.json') ? JSON.stringify(catalog) : css});
+    await manager.refresh(metadata());
+    expect(manager.state.revision).toBe(revision);
+    expect(elements[0].textContent).toHaveLength(600 * 1024);
+
+    css = 'a'.repeat(769 * 1024);
+    await manager.refresh(metadata('b'.repeat(64)));
+    expect(manager.state.revision).toBe(revision);
+    expect(elements[0].textContent).toHaveLength(600 * 1024);
+    expect(manager.state.diagnostics.join(' ')).toContain('too large');
+    manager.dispose();
+  });
   it('deduplicates, persists selections, observes system mode, and restores ordering', async () => {
     const {manager, elements, media, stored} = fixture();
     await manager.refresh(metadata(), {accountKey: 'user'});

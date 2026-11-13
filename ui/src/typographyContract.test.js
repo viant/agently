@@ -63,9 +63,10 @@ describe('shared typography delivery', () => {
     const executionWorkspace = read('./styles/execution-workspace.css');
     expect(typography).not.toMatch(/--agently-font-workspace-primary\s*:/);
     expect(typography).toMatch(/\.agently-application :where\(button, input, textarea, select, optgroup, option\)[\s\S]*?font-family: inherit;/);
-    expect(shell).toContain("--app-font-family: 'Avenir Next', 'SF Pro Display', 'Segoe UI', sans-serif;");
+    expect(shell).toContain("--app-font-family: var(--forge-font-family, 'Avenir Next', 'SF Pro Display', 'Segoe UI', sans-serif);");
     expect(shell).toMatch(/\[data-testid="chat-composer"\][\s\S]*?font-family: var\(--app-font-family\) !important;/);
-    expect(executionWorkspace).toMatch(/\.app-execution-toolbar h2[\s\S]*?font-family: var\(--app-font-family\);/);
+    expect(executionWorkspace).toMatch(/\.app-execution-toolbar h2[\s\S]*?font-family: var\(--app-font-family\);[\s\S]*?font-size: var\(--forge-type-title-size/);
+    expect(executionWorkspace).toMatch(/\.app-execution-kicker[\s\S]*?font-size: var\(--forge-type-metadata-size/);
   });
 });
 

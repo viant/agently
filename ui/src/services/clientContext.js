@@ -1,11 +1,17 @@
 import { ensureUIBridgeClientId } from 'forge/core';
+import * as ForgeComponents from 'forge/components';
+
+const responsiveResolverKey = ['forge', 'FormFactor', 'ForWidth'].join('');
+const forgeFormFactorForWidth = ForgeComponents[responsiveResolverKey] || ((width) => {
+  const value = Number(width);
+  if (value > 0 && value < 768) return 'phone';
+  if (value > 0 && value < 1100) return 'tablet';
+  return 'desktop';
+});
 
 export function detectWebFormFactor() {
   if (typeof window === 'undefined') return 'desktop';
-  const width = Number(window.innerWidth || 0);
-  if (width > 0 && width < 768) return 'phone';
-  if (width > 0 && width < 1100) return 'tablet';
-  return 'desktop';
+  return forgeFormFactorForWidth(window.innerWidth || 0);
 }
 
 export function subscribeWebFormFactor(onChange) {

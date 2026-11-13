@@ -26,12 +26,53 @@
   --app-topbar-bg: rgba(255, 255, 255, 0.92);
   --app-sidebar-bg: linear-gradient(180deg, #f8f9fc 0%, #f1f4fa 100%);
   --app-composer-bg: linear-gradient(to top, rgba(245, 246, 248, 0.98) 70%, rgba(245, 246, 248, 0));
+  --app-shell-control-radius: var(--agently-theme-control-radius, 8px);
+  --app-shell-compact-radius: var(--agently-theme-control-radius, 6px);
+  --app-shell-menu-radius: var(--agently-theme-control-radius, 8px);
+  --app-shell-popup-radius: var(--agently-theme-control-radius, 10px);
+  --app-shell-icon-size: var(--agently-theme-icon-size, 16px);
+  --app-navigation-icon-size: var(--agently-theme-icon-size, 16px);
   --app-sidebar-width: 320px;
   --app-chat-max-width: 1440px;
   --app-composer-bottom-gap: 0px;
   --app-composer-stack-height: 150px;
   --app-plan-feed-gap: -12px;
   --app-plan-feed-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--app-composer-stack-height) + var(--app-plan-feed-gap));
+}
+
+/* Product colors and type enter through the published Steward theme only when
+   Design System 2.0 is selected. Baseline keeps the original shell fallbacks. */
+:root:where(.agently-application[data-agently-theme="design-system-2"]) {
+  --app-bg: var(--forge-canvas, #f5f6f8);
+  --app-surface: var(--forge-surface, #ffffff);
+  --app-surface-soft: var(--forge-surface-subtle, #f1f3f7);
+  --app-border: var(--forge-border-color, #dde2eb);
+  --app-text: var(--forge-text, #171b26);
+  --app-text-secondary: var(--forge-text-secondary, #3f4a5e);
+  --app-muted: var(--forge-text-muted, #6d7586);
+  --app-accent: var(--forge-interaction-color, #2d6cdf);
+  --app-accent-strong: var(--forge-interaction-active-color, #2459bb);
+  --app-selected-background: var(--forge-selected-background, #eef4ff);
+  --app-status-info-background: var(--forge-status-info-background, #eef4ff);
+  --app-status-info-foreground: var(--forge-status-info-foreground, #215db0);
+  --app-status-success-background: var(--forge-status-success-background, #eef8f0);
+  --app-status-success-foreground: var(--forge-status-success-foreground, #0a6640);
+  --app-status-warning-background: var(--forge-status-warning-background, #fff9e6);
+  --app-status-warning-foreground: var(--forge-status-warning-foreground, #8a5d00);
+  --app-status-danger-background: var(--forge-status-danger-background, #fdecea);
+  --app-status-danger-foreground: var(--forge-status-danger-foreground, #a82a2a);
+  --app-radius: var(--forge-radius-surface, 14px);
+  --app-font-family: var(--forge-font-family, 'Avenir Next', 'SF Pro Display', 'Segoe UI', sans-serif);
+  --app-font-size: var(--forge-type-body-size, 14px);
+  --app-topbar-bg: color-mix(in srgb, var(--forge-surface, #ffffff) 92%, transparent);
+  --app-sidebar-bg: var(--forge-surface-subtle, linear-gradient(180deg, #f8f9fc 0%, #f1f4fa 100%));
+  --app-composer-bg: var(--forge-canvas, linear-gradient(to top, rgba(245, 246, 248, 0.98) 70%, rgba(245, 246, 248, 0)));
+  --app-shell-control-radius: var(--agently-theme-control-radius, 8px);
+  --app-shell-compact-radius: var(--agently-theme-control-radius, 8px);
+  --app-shell-menu-radius: var(--agently-theme-control-radius, 8px);
+  --app-shell-popup-radius: var(--agently-theme-control-radius, 8px);
+  --app-shell-icon-size: var(--agently-theme-icon-size, 16px);
+  --app-navigation-icon-size: var(--agently-theme-icon-size, 16px);
 }
 
 body {
@@ -191,6 +232,8 @@ body {
 .app-topbar-actions .app-topbar-icon-btn.is-usage { --topbar-icon-rgb: 20, 155, 146; color: var(--app-accent, #149b92); }
 .app-topbar-actions .app-topbar-icon-btn.app-approval-bell { --topbar-icon-rgb: 223, 91, 120; color: var(--app-accent, #df5b78); }
 .app-topbar-actions .app-topbar-icon-btn.app-approval-bell.is-pending { --topbar-icon-rgb: 217, 119, 6; color: var(--agently-theme-status-warning-foreground, #d97706); }
+.agently-application[data-agently-theme="design-system-2"] .app-topbar-actions .app-topbar-icon-btn.app-approval-bell.is-pending { color: var(--forge-status-warning-foreground, var(--agently-theme-status-warning-foreground, #d97706));
+}
 .app-topbar-actions .app-topbar-icon-btn.is-conversations:hover { background: color-mix(in srgb, var(--app-surface-soft, rgb(26 115 240)) 10%, transparent); color: var(--app-accent-strong, #155fc5); }
 .app-topbar-actions .app-topbar-icon-btn.is-automation:hover { background: color-mix(in srgb, var(--app-surface-soft, rgb(125 82 217)) 11%, transparent); color: var(--app-accent-strong, #6541b5); }
 .app-topbar-actions .app-topbar-icon-btn.is-runs:hover { background: color-mix(in srgb, var(--app-surface-soft, rgb(224 138 30)) 12%, transparent); color: var(--app-accent-strong, #b96e12); }
@@ -227,7 +270,7 @@ body {
   min-width: 196px;
   background: color-mix(in srgb, var(--app-surface, rgb(255 255 255)) 98%, transparent);
   border: 1px solid var(--app-border, #d9e0ea);
-  border-radius: 12px;
+  border-radius: var(--app-shell-menu-radius, 12px);
   padding: 6px;
   box-shadow: var(--app-shadow, 0 14px 34px rgba(15, 23, 42, 0.18));
   z-index: 100;
@@ -259,9 +302,16 @@ body {
 .app-user-menu .bp6-button.bp6-minimal:focus-visible { background: var(--forge-surface-subtle, var(--app-surface-soft)); color: var(--app-text, #101828); }
 .app-user-menu .bp6-button.bp6-minimal:focus-visible { outline: var(--agently-theme-focus-width, 2px) solid var(--agently-theme-focus, var(--app-accent)); outline-offset: var(--agently-theme-focus-offset, 2px); }
 .app-user-menu .app-user-menu-logout.bp6-button.bp6-minimal { color: var(--agently-theme-status-danger-foreground, #b42318); }
+.agently-application[data-agently-theme="design-system-2"] .app-user-menu .app-user-menu-logout.bp6-button.bp6-minimal { color: var(--forge-status-danger-foreground, var(--agently-theme-status-danger-foreground, #b42318));
+}
 .app-user-menu .app-user-menu-logout.bp6-button.bp6-minimal .bp6-icon { color: var(--agently-theme-status-danger-foreground, #d92d20); }
+.agently-application[data-agently-theme="design-system-2"] .app-user-menu .app-user-menu-logout.bp6-button.bp6-minimal .bp6-icon { color: var(--forge-status-danger-foreground, var(--agently-theme-status-danger-foreground, #d92d20));
+}
 .app-user-menu .app-user-menu-logout.bp6-button.bp6-minimal:hover,
 .app-user-menu .app-user-menu-logout.bp6-button.bp6-minimal:focus-visible { background: var(--forge-surface-subtle, var(--app-surface-soft)); color: var(--agently-theme-status-danger-foreground, #912018); }
+.agently-application[data-agently-theme="design-system-2"] .app-user-menu .app-user-menu-logout.bp6-button.bp6-minimal:hover,
+.agently-application[data-agently-theme="design-system-2"] .app-user-menu .app-user-menu-logout.bp6-button.bp6-minimal:focus-visible { color: var(--forge-status-danger-foreground, var(--agently-theme-status-danger-foreground, #912018));
+}
 
 .app-user-btn.bp6-button:focus:not(:focus-visible) {
   outline: none;
@@ -456,6 +506,11 @@ body {
   font-size: 13px;
 }
 
+.agently-application[data-agently-theme="design-system-2"] .app-approval-forge-error {
+  border: 1px solid var(--forge-status-danger-border, var(--agently-theme-status-danger-border, #f2b8b5));
+  color: var(--forge-status-danger-foreground, var(--agently-theme-status-danger-foreground, #8c1d18));
+}
+
 .app-main {
   display: flex;
   flex: 1;
@@ -523,7 +578,7 @@ body {
 .app-layout-tabs { display: flex; flex-wrap: nowrap; align-items: center; overflow-x: auto; gap: 4px; flex: 1 1 auto; min-width: 0; scrollbar-width: none; padding: 4px 0; }
 .app-layout-tabs::-webkit-scrollbar { display: none; }
 .app-layout-tabs > button { flex: 0 0 auto; white-space: nowrap; font-size: 12px; gap: 5px; }
-.app-layout-tabs > button > .bp6-icon, .app-layout-tabs > button > .bp6-icon svg { width: 14px; height: 14px; flex: 0 0 14px; }
+.app-layout-tabs > button > .bp6-icon, .app-layout-tabs > button > .bp6-icon svg { width: var(--app-navigation-icon-size, 14px); height: var(--app-navigation-icon-size, 14px); flex: 0 0 var(--app-navigation-icon-size, 14px); }
 .app-layout-tabs > [role="tab"]:nth-child(4n + 1) > .bp6-icon { color: var(--app-accent, #719bb8); }
 .app-layout-tabs > [role="tab"]:nth-child(4n + 2) > .bp6-icon { color: var(--app-muted, #a18aba); }
 .app-layout-tabs > [role="tab"]:nth-child(4n + 3) > .bp6-icon { color: var(--app-muted, #78a99b); }
@@ -542,7 +597,7 @@ body {
 .app-layout-menu-group:nth-child(4n + 4) { --navigation-icon-color: var(--app-muted, #bc957b); }
 .app-layout-menu-group-title > .app-layout-group-icon, .app-layout-menu .app-layout-menu-icon { color: var(--navigation-icon-color, #8b9eb8); }
 .app-layout-menu-children { display: flex; flex-direction: column; margin-left: 12px; padding-left: 8px; border-left: 1px solid var(--app-border); }
-.app-layout-menu .app-layout-menu-icon, .app-layout-menu .app-layout-menu-icon svg { width: 14px; height: 14px; flex: 0 0 14px; }
+.app-layout-menu .app-layout-menu-icon, .app-layout-menu .app-layout-menu-icon svg { width: var(--app-navigation-icon-size, 14px); height: var(--app-navigation-icon-size, 14px); flex: 0 0 var(--app-navigation-icon-size, 14px); }
 .app-layout-divider { height: 8px; flex: 0 0 8px; cursor: row-resize; background: var(--app-border); touch-action: none; }
 .app-layout-divider:focus-visible { outline: 2px solid var(--app-accent); }
 .app-main.is-compact-shell .app-layout-sidebar { overflow-y: auto; }
@@ -558,6 +613,8 @@ body {
 .app-layout-history { flex: 1; min-height: 0; display: flex; }
 .app-layout-history .app-sidebar { width: 100%; flex-basis: 100%; border-right: 0; }
 .app-layout-error { padding: 10px; color: var(--agently-theme-status-danger-foreground, #a82a2a); }
+.agently-application[data-agently-theme="design-system-2"] .app-layout-error { color: var(--forge-status-danger-foreground, var(--agently-theme-status-danger-foreground, #a82a2a));
+}
 
 .app-main.is-compact-shell .app-sidebar {
   position: absolute;
@@ -665,6 +722,10 @@ body {
   background: var(--agently-theme-status-success-background, #28c840);
 }
 
+.agently-application[data-agently-theme="design-system-2"] .app-conversation-status-dot.tone-success {
+  background: var(--forge-status-success-background, var(--agently-theme-status-success-background, #28c840));
+}
+
 .app-conversation-status-dot.tone-running {
   background: var(--app-surface-soft, #4a7cf7);
   animation: app-conv-dot-pulse 1.5s ease-in-out infinite;
@@ -672,6 +733,10 @@ body {
 
 .app-conversation-status-dot.tone-error {
   background: var(--agently-theme-status-danger-background, #ff5f57);
+}
+
+.agently-application[data-agently-theme="design-system-2"] .app-conversation-status-dot.tone-error {
+  background: var(--forge-status-danger-background, var(--agently-theme-status-danger-background, #ff5f57));
 }
 
 .app-conversation-status-dot.tone-idle {
@@ -720,6 +785,10 @@ body {
 .app-conversation-trash:hover {
   opacity: 1 !important;
   background: color-mix(in srgb, var(--agently-theme-status-danger-background, rgb(255 95 87)) 10%, transparent);
+}
+
+.agently-application[data-agently-theme="design-system-2"] .app-conversation-trash:hover {
+  background: color-mix(in srgb, var(--forge-status-danger-background, var(--agently-theme-status-danger-background, rgb(255 95 87))) 10%, transparent);
 }
 
 .app-conversation-topline {
@@ -821,6 +890,10 @@ body {
   color: var(--agently-theme-status-danger-foreground, #b9352e);
 }
 
+.agently-application[data-agently-theme="design-system-2"] .app-schedule-conversation-history-state.is-error {
+  color: var(--forge-status-danger-foreground, var(--agently-theme-status-danger-foreground, #b9352e));
+}
+
 .app-schedule-conversation-history-pagination {
   display: flex;
   align-items: center;
@@ -874,6 +947,10 @@ body {
 
 .app-sidebar-error {
   color: var(--agently-theme-status-danger-foreground, #b9352e);
+}
+
+.agently-application[data-agently-theme="design-system-2"] .app-sidebar-error {
+  color: var(--forge-status-danger-foreground, var(--agently-theme-status-danger-foreground, #b9352e));
 }
 
 .app-sidebar-pagination {
@@ -1292,16 +1369,28 @@ body {
   --app-tool-workspace-dot-color: var(--agently-theme-status-danger-foreground, #ff5f57);
 }
 
+.agently-application[data-agently-theme="design-system-2"] .app-tool-workspace-dot--close {
+  --app-tool-workspace-dot-color: var(--forge-status-danger-foreground, var(--agently-theme-status-danger-foreground, #ff5f57));
+}
+
 .app-tool-workspace-dot--close::after { content: '×'; }
 
 .app-tool-workspace-dot--collapse {
   --app-tool-workspace-dot-color: var(--agently-theme-status-warning-foreground, #febc2e);
 }
 
+.agently-application[data-agently-theme="design-system-2"] .app-tool-workspace-dot--collapse {
+  --app-tool-workspace-dot-color: var(--forge-status-warning-foreground, var(--agently-theme-status-warning-foreground, #febc2e));
+}
+
 .app-tool-workspace-dot--collapse::after { content: '−'; }
 
 .app-tool-workspace-dot--expand {
   --app-tool-workspace-dot-color: var(--agently-theme-status-success-foreground, #28c840);
+}
+
+.agently-application[data-agently-theme="design-system-2"] .app-tool-workspace-dot--expand {
+  --app-tool-workspace-dot-color: var(--forge-status-success-foreground, var(--agently-theme-status-success-foreground, #28c840));
 }
 
 .app-tool-workspace-dot--expand::after { content: '<>'; font-size: 7px; letter-spacing: -2px; padding-right: 2px; }
@@ -3035,11 +3124,23 @@ td[data-value="success"] .cell-content {
   color: var(--agently-theme-status-success-foreground, #0d7a3e);
 }
 
+.agently-application[data-agently-theme="design-system-2"] td[data-value="success"] .cell-content {
+  background: var(--forge-status-success-background, var(--agently-theme-status-success-background, #e6f9ee));
+  color: var(--forge-status-success-foreground, var(--agently-theme-status-success-foreground, #0d7a3e));
+}
+
 td[data-value="failed"] .cell-content,
 td[data-value="error"] .cell-content,
 td[data-value="timed-out"] .cell-content {
   background: var(--agently-theme-status-danger-background, #fce8e8);
   color: var(--agently-theme-status-danger-foreground, #b92525);
+}
+
+.agently-application[data-agently-theme="design-system-2"] td[data-value="failed"] .cell-content,
+.agently-application[data-agently-theme="design-system-2"] td[data-value="error"] .cell-content,
+.agently-application[data-agently-theme="design-system-2"] td[data-value="timed-out"] .cell-content {
+  background: var(--forge-status-danger-background, var(--agently-theme-status-danger-background, #fce8e8));
+  color: var(--forge-status-danger-foreground, var(--agently-theme-status-danger-foreground, #b92525));
 }
 
 td[data-value="running"] .cell-content,
@@ -3053,6 +3154,11 @@ td[data-value="pending"] .cell-content,
 td[data-value="queued"] .cell-content {
   background: var(--app-surface-soft, #f3f0ff);
   color: var(--agently-theme-status-warning-foreground, #6246b5);
+}
+
+.agently-application[data-agently-theme="design-system-2"] td[data-value="pending"] .cell-content,
+.agently-application[data-agently-theme="design-system-2"] td[data-value="queued"] .cell-content {
+  color: var(--forge-status-warning-foreground, var(--agently-theme-status-warning-foreground, #6246b5));
 }
 
 td[data-value="cancelled"] .cell-content,
@@ -3108,6 +3214,13 @@ td[data-col="completedAt"] .cell-content {
   font-size: 12.5px;
   color: var(--agently-theme-status-success-foreground, #546074);
   font-variant-numeric: tabular-nums;
+}
+.agently-application[data-agently-theme="design-system-2"] td[data-col="nextRunAt"] .cell-content,
+.agently-application[data-agently-theme="design-system-2"] td[data-col="lastRunAt"] .cell-content,
+.agently-application[data-agently-theme="design-system-2"] td[data-col="createdAt"] .cell-content,
+.agently-application[data-agently-theme="design-system-2"] td[data-col="startedAt"] .cell-content,
+.agently-application[data-agently-theme="design-system-2"] td[data-col="completedAt"] .cell-content {
+  color: var(--forge-status-success-foreground, var(--agently-theme-status-success-foreground, #546074));
 }
 
 /* ─── Duration column ─── */
@@ -3300,6 +3413,11 @@ td[data-col="enabled"] {
 .app-statusbar.phase-offline .app-statusbar-icon,
 .app-statusbar.phase-error .app-statusbar-icon {
   color: var(--agently-theme-status-danger-foreground, #c23030);
+}
+
+.agently-application[data-agently-theme="design-system-2"] .app-statusbar.phase-offline .app-statusbar-icon,
+.agently-application[data-agently-theme="design-system-2"] .app-statusbar.phase-error .app-statusbar-icon {
+  color: var(--forge-status-danger-foreground, var(--agently-theme-status-danger-foreground, #c23030));
 }
 
 .app-statusbar.phase-streaming .app-statusbar-icon,
@@ -3900,12 +4018,24 @@ span.app-workspace-breadcrumb-chip.is-current { background: color-mix(in srgb, v
   --app-window-dot-color: var(--agently-theme-status-danger-foreground, #ff5f57);
 }
 
+.agently-application[data-agently-theme="design-system-2"] .app-window-dot-close {
+  --app-window-dot-color: var(--forge-status-danger-foreground, var(--agently-theme-status-danger-foreground, #ff5f57));
+}
+
 .app-window-dot-collapse {
   --app-window-dot-color: var(--agently-theme-status-warning-foreground, #febc2e);
 }
 
+.agently-application[data-agently-theme="design-system-2"] .app-window-dot-collapse {
+  --app-window-dot-color: var(--forge-status-warning-foreground, var(--agently-theme-status-warning-foreground, #febc2e));
+}
+
 .app-window-dot-expand {
   --app-window-dot-color: var(--agently-theme-status-success-foreground, #28c840);
+}
+
+.agently-application[data-agently-theme="design-system-2"] .app-window-dot-expand {
+  --app-window-dot-color: var(--forge-status-success-foreground, var(--agently-theme-status-success-foreground, #28c840));
 }
 
 .app-window-split-workspace-body,

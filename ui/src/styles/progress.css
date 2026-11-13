@@ -67,6 +67,8 @@
 .app-turn-progress-chip.is-activity { background: var(--app-surface-soft, #dcecff); color: var(--app-accent, #1a73f0); }
 .app-turn-progress-chip.is-tokens { background: var(--app-surface-soft, #e7edf5); color: var(--app-text-secondary, #667085); }
 .app-turn-progress-warning { color: var(--agently-theme-status-warning-foreground, #8b7c55); margin-left: 5px; }
+.agently-application[data-agently-theme="design-system-2"] .app-turn-progress-warning { color: var(--forge-status-warning-foreground, var(--agently-theme-status-warning-foreground, #8b7c55));
+}
 .app-turn-progress-chip.is-button { cursor: pointer; }
 .app-turn-progress-chip.is-button:hover,
 .app-turn-progress-chip.is-button:focus-visible { outline: 2px solid color-mix(in srgb, var(--agently-theme-focus, rgb(26 115 240)) 35%, transparent); outline-offset: 1px; }

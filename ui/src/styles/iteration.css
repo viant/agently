@@ -17,6 +17,10 @@
   border-color: var(--agently-theme-status-success-border, #a8dfc0);
 }
 
+.agently-application[data-agently-theme="design-system-2"] .app-iteration-card:where(:not(.is-contained)).tone-success {
+  border-color: var(--forge-status-success-border, var(--agently-theme-status-success-border, #a8dfc0));
+}
+
 .app-iteration-card:where(:not(.is-contained)).tone-running {
   border-color: var(--app-border, #b8c4f6);
   box-shadow: var(--app-shadow, 0 2px 10px rgba(48, 67, 184, 0.08));
@@ -26,8 +30,16 @@
   border-color: var(--agently-theme-status-danger-border, #e8b4b4);
 }
 
+.agently-application[data-agently-theme="design-system-2"] .app-iteration-card:where(:not(.is-contained)).tone-error {
+  border-color: var(--forge-status-danger-border, var(--agently-theme-status-danger-border, #e8b4b4));
+}
+
 .app-iteration-card:where(:not(.is-contained)).tone-warning {
   border-color: var(--agently-theme-status-warning-border, #e8d49e);
+}
+
+.agently-application[data-agently-theme="design-system-2"] .app-iteration-card:where(:not(.is-contained)).tone-warning {
+  border-color: var(--forge-status-warning-border, var(--agently-theme-status-warning-border, #e8d49e));
 }
 
 /* ── Header bar ── */
@@ -61,6 +73,10 @@
   color: var(--agently-theme-status-success-foreground, #0d5e3c);
 }
 
+.agently-application[data-agently-theme="design-system-2"] .app-iteration-card:where(:not(.is-contained)).tone-success .app-iteration-head {
+  color: var(--forge-status-success-foreground, var(--agently-theme-status-success-foreground, #0d5e3c));
+}
+
 .app-iteration-card:where(:not(.is-contained)).tone-running .app-iteration-head {
   background: linear-gradient(135deg, var(--app-surface-soft, #edf1ff) 0%, var(--app-surface, #f3f5ff) 100%);
   color: var(--app-accent, #2a3da8);
@@ -71,9 +87,18 @@
   color: var(--agently-theme-status-danger-foreground, #a11d13);
 }
 
+.agently-application[data-agently-theme="design-system-2"] .app-iteration-card:where(:not(.is-contained)).tone-error .app-iteration-head {
+  color: var(--forge-status-danger-foreground, var(--agently-theme-status-danger-foreground, #a11d13));
+}
+
 .app-iteration-card:where(:not(.is-contained)).tone-warning .app-iteration-head {
   background: linear-gradient(135deg, var(--agently-theme-status-warning-background, #fef8e6) 0%, var(--app-surface-soft, #fffbf0) 100%);
   color: var(--agently-theme-status-warning-foreground, #8a5d00);
+}
+
+.agently-application[data-agently-theme="design-system-2"] .app-iteration-card:where(:not(.is-contained)).tone-warning .app-iteration-head {
+  background: linear-gradient(135deg, var(--forge-status-warning-background, var(--agently-theme-status-warning-background, #fef8e6)) 0%, var(--app-surface-soft, #fffbf0) 100%);
+  color: var(--forge-status-warning-foreground, var(--agently-theme-status-warning-foreground, #8a5d00));
 }
 
 .app-iteration-title {
@@ -204,6 +229,11 @@
   background: var(--agently-theme-status-success-background, #e4f5ec);
 }
 
+.agently-application[data-agently-theme="design-system-2"] .app-iteration-status.tone-success {
+  color: var(--forge-status-success-foreground, var(--agently-theme-status-success-foreground, #0d5e3c));
+  background: var(--forge-status-success-background, var(--agently-theme-status-success-background, #e4f5ec));
+}
+
 .app-iteration-status.tone-running {
   color: var(--app-accent, #2a3da8);
   background: var(--app-surface-soft, #e8edff);
@@ -214,9 +244,19 @@
   background: var(--agently-theme-status-danger-background, #fde8e8);
 }
 
+.agently-application[data-agently-theme="design-system-2"] .app-iteration-status.tone-error {
+  color: var(--forge-status-danger-foreground, var(--agently-theme-status-danger-foreground, #a11d13));
+  background: var(--forge-status-danger-background, var(--agently-theme-status-danger-background, #fde8e8));
+}
+
 .app-iteration-status.tone-warning {
   color: var(--agently-theme-status-warning-foreground, #8a5d00);
   background: var(--agently-theme-status-warning-background, #fef3d6);
+}
+
+.agently-application[data-agently-theme="design-system-2"] .app-iteration-status.tone-warning {
+  color: var(--forge-status-warning-foreground, var(--agently-theme-status-warning-foreground, #8a5d00));
+  background: var(--forge-status-warning-background, var(--agently-theme-status-warning-background, #fef3d6));
 }
 
 .app-iteration-status.tone-neutral {

@@ -1,17 +1,21 @@
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 import {dirname,resolve} from 'node:path';
+import {resolveForgePublicAliases} from '../../ui/vite.config.js';
 // Reuse agently/ui's dependency graph; Forge supplies only renderer libraries.
 const here=dirname(fileURLToPath(import.meta.url));
 const uiRoot=resolve(here,'../../ui');
 const require=createRequire(resolve(uiRoot,'package.json'));
 const reactModule=require('@vitejs/plugin-react');
 const react=reactModule.default||reactModule;
-const forgeRoot=resolve(here,'../../../forge-ag-ui');
+const forgeRoot=process.env.FORGE_SOURCE_ROOT
+ ? resolve(process.env.FORGE_SOURCE_ROOT)
+ : resolve(uiRoot,'node_modules/forge');
 export default {
  root:here,
  plugins:[react()],
  resolve:{dedupe:['react','react-dom','@preact/signals-react'],alias:[
+  ...resolveForgePublicAliases(forgeRoot),
   {find:'forge-runtime',replacement:resolve(forgeRoot,'index.js')},
   {find:'forge',replacement:resolve(forgeRoot,'src')},
   {find:'react',replacement:resolve(uiRoot,'node_modules/react')},
