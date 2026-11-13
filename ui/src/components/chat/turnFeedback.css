@@ -2,8 +2,8 @@
    typography, surface and selected-state roles. */
 .app-turn-feedback {
   --app-feedback-icon-slot: 28px;
-  --app-feedback-target-min: var(--forge-control-height, 36px);
-  --app-feedback-icon-inset: max(calc(var(--forge-spacing-2, 8px) + var(--forge-border-width, 1px)), calc((var(--app-feedback-target-min) - var(--app-feedback-icon-slot)) / 2));
+  --app-feedback-target-min: 28px;
+  --app-feedback-icon-inset: max(0px, calc((var(--app-feedback-target-min) - var(--app-feedback-icon-slot)) / 2));
   margin: -4px 0 12px 34px;
   min-width: 0;
   color: var(--forge-text-secondary, var(--app-text-secondary));
