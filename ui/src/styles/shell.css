@@ -5555,3 +5555,7 @@ span.app-workspace-breadcrumb-chip.is-current { background: color-mix(in srgb, v
 :is(.app-sidebar, .app-layout-navigation, .app-section-navigation) .bp6-button.bp6-minimal:not(:disabled) { color: var(--app-text); }
 :is(.app-sidebar, .app-layout-navigation, .app-section-navigation) .bp6-button.bp6-minimal:not(:disabled):hover { background: var(--forge-surface-subtle, var(--app-surface-soft)); }
 :is(.app-sidebar, .app-layout-navigation, .app-section-navigation) .bp6-button.bp6-minimal:not(:disabled):active { background: var(--app-selected-background); }
+
+/* The shared Popover owns account-menu positioning and dismissal. */
+.app-user-menu-popover.bp6-popover { background: transparent; box-shadow: none; }
+.app-user-menu-popover .app-user-menu { position: static; inset: auto; margin-top: 0; }

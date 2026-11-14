@@ -14,6 +14,7 @@ import {onTranscript, useChatProjection} from '../services/chatStore.js';
 import {ConversationViewContext} from '../context/ConversationViewContext.js';
 
 const recentExamples = async () => ({data: [{id: 'example', title: 'Example conversation', createdAt: '2026-10-21T16:42:00Z'}]});
+const chartExample={title:'Processed records by day',chart:{type:'line',x:{key:'Day'},y:[{key:'Processed records'}]},data:[12,18,14,22,16,24,28].map((value,index)=>({Day:`Jan ${index+1}`,'Processed records':value}))};
 
 const homeContext = {identity: {windowId: 'specimen-home'}, signals: {collection: signal([]), control: signal({}), selection: signal(null), message: signal('')}, handlers: {chat: {}}, Context: () => null, lookupHandler: name => name === 'chat.renderFeed' ? () => null : name === 'chat.resolveComposerProps' ? () => ({commandCenter: true, starterTasks: [{id:'home-example',title:'Review an example',description:'Prepare an editable request.',resultLabel:'Example output',prompt:'Review this example.'}]}) : undefined};
 
@@ -33,6 +34,7 @@ export default function ChatSpecimen() {
     <ConversationViewContext.Provider value={{presentation: 'document'}}>
       <BubbleMessage message={{id: 'example-user', role: 'user', content: 'Keep my question compact.\nPreserve line breaks.'}}/>
       <BubbleMessage message={{id: 'example-answer', role: 'assistant', content: 'The reply uses the shared body role, with no surrounding card.\n\nParagraphs keep a compact, consistent gap.\nDeliberate line breaks are preserved.', interim: 0}}/>
+      <BubbleMessage message={{id:'example-chart',role:'assistant',content:`Processed records over seven days. These values are invented for local review.\n\n\`\`\`chart\n${JSON.stringify(chartExample)}\n\`\`\``}}/>
       <TurnFeedback conversationId="specimen-feedback" turnId="example-answer" feedback={feedback} editable/>
       {messages.map((content, index) => <BubbleMessage key={index} message={{id: `local-${index}`, role: 'user', content}}/>)}
     </ConversationViewContext.Provider>
