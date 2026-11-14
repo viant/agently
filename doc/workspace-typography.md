@@ -18,12 +18,68 @@ their intrinsic aspect ratio at the shared spacing-5 height (20px fallback),
 so horizontal wordmarks remain readable beside the application name. Keep brand
 artwork in the owning workspace; do not package workspace logos in the host.
 
+Design System 2.0 remains an explicit appearance selection. Its chart palette,
+captions, surfaces and component typography are scoped to that profile. The
+native Workspace appearance selector switches the complete package; Baseline
+and legacy profiles retain their existing values and recipes.
+
+The workspace chat dock's Design System 2.0 overlay uses one floating surface,
+centered above the workspace's bottom edge, with its controls inside the header,
+a scrolling transcript and an inset composer. It remains a non-modal region and
+reuses the existing overlay/split,
+hide, conversation and draft lifecycle. Baseline retains its existing geometry.
+The workspace stylesheet may decorate an empty native input with a typing hint;
+the stable Message label and native placeholder remain accessible. Decorative
+copy belongs to the workspace style resource, disappears during draft entry,
+and stays static when reduced motion is requested.
+The profile stylesheet owns the animation. Workspace Global CSS supplies the
+optional `--app-composer-hint-prefix`, `--app-composer-hint-topic-1` through `-5`
+strings and `--app-composer-native-placeholder-color`. Only the Design System
+2.0 input consumes these values; an unconfigured profile keeps its native hint.
+Each phrase uses the original stepped typing and deletion with a readable hold;
+the five-phrase cycle changes topics only while the topic is fully hidden.
+Forge Chat reuses the menu scrollbar activity handler for native scroll events.
+In Design System 2.0, its transcript, composer and nested scrollers have thin,
+transparent thumbs at rest. Scrolling reveals the semantic thumb briefly, then
+it fades out. The same Chat root covers regular, split and overlay modes;
+scroll following, reading position and forced-color behavior stay native.
+The conversation delete icon consumes secondary text at rest. Its destructive
+hover foreground and surface remain workspace-authored semantic values.
+Design System 2.0 binds the existing chat measure to 748px so the full conversation,
+split view and overlay keep messages within the composer's centered column.
+Its Search Chat action sits below New Chat and expands in place, using the native
+conversation-history query, debounce and pagination. The heading is Chats and
+the field placeholder is “Search chat...”. Closing or pressing Escape
+clears the query and returns focus to Search Chat.
+If focus leaves the empty search, it returns to the Search Chat button without
+moving focus away from the next control. Whitespace counts as empty. Searches
+with text remain open; moving focus to the search's close action keeps it open.
+New Chat and Search Chat have
+full-row hover surfaces. The expanded search matches their 36px height (44px for
+coarse pointers), with a quiet active border and no outer focus ring.
+Both the placement and the chat measure require the selected Design System 2.0
+profile; other profiles keep their native masthead search and existing width.
+Composer Tools also uses Forge's existing themed dropdown listboxes for Agent,
+Model and Reasoning in Design System 2.0, preserving the current options and
+selection callbacks. Baseline and legacy profiles keep their existing pickers.
+All Design System 2.0 ghost dropdown triggers, including Plus and Tools, use the
+shared selected surface and foreground for as long as their own menu is open.
+The native expanded state owns this appearance and clears it on dismissal;
+hover and keyboard focus remain separate. New dropdowns reuse that same recipe.
+
 ## Consistent action states and icons
 
 Quiet shell actions use a semantic hover background without an added border or
-shadow ring. Active/selected state remains distinct, disabled controls remain
-unavailable, and keyboard focus keeps its visible semantic ring. Do not combine
-hover and focus selectors when adding an outline. The existing browser proof
+shadow ring. Active/selected state remains distinct and disabled controls remain
+unavailable. Design System 2.0 shows a semantic focus indicator only during
+keyboard navigation, inset inside the component border. Pointer clicks, touch
+activation and selection do not add a ring or glow. Compound fields use one
+indicator on their outer border; transparent inner inputs stay unboxed.
+ForgeThemeProvider reuses the installed Blueprint FocusStyleManager and shared
+foundations.css recipe, including portals. Do not add per-component modality
+listeners or combine hover/selected and keyboard-focus selectors. Every catalog
+entry and future component must follow this rule. Other profiles keep their
+native behavior. The existing browser proof
 checks both Forge ghost and Blueprint minimal controls in Light/Dark.
 
 Shell, chat, starter cards and table controls use Forge Icon, backed by the
@@ -43,6 +99,11 @@ their semantic tokens through the existing style publication and theme provider.
 Keep light/dark selection at that provider; do not add component mode checks.
 Neutral root defaults and `var()` fallbacks preserve unthemed hosts. Intent and
 feedback states retain their existing semantic meaning.
+
+Chat chart fences and default dashboard palettes consume Forge's existing six
+chart-series roles. Their axes, labels, legends and tooltip use semantic text,
+surface and border roles in both modes. Explicit producer palettes remain
+authored metadata; choose those colors from the workspace's approved library.
 
 New component paint should use the same roles, including hover, active,
 disabled and focus states. The existing typography contract rejects direct

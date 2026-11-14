@@ -57,3 +57,42 @@
 .app-chat-pane:has(> .app-workspace-chat-dock.is-split[data-expanded="true"]) > .app-section-page {
   flex: 1 1 auto; min-width: 0;
 }
+
+/* One non-modal floating surface; the workspace remains usable beside it. */
+.agently-application[data-agently-theme="design-system-2"] .app-chat-pane > .app-workspace-chat-dock.is-overlay {
+  left: 50%; right: auto; transform: translateX(-50%);
+  width: min(560px, calc(100% - 32px)); height: min(560px, calc(100% - 48px));
+  gap: 0; overflow: hidden; border: var(--forge-border-width, 1px) solid var(--forge-border-color);
+  border-radius: var(--forge-radius-surface, 12px);
+  background: var(--forge-surface); box-shadow: var(--forge-modal-shadow);
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay > .app-workspace-chat-controls {
+  align-items: center; padding: 8px 12px 8px 16px;
+  border-bottom: var(--forge-border-width, 1px) solid var(--forge-border-color);
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay > .app-workspace-chat-controls::before {
+  content: "Chat" / ""; margin-right: auto; color: var(--forge-text);
+  font-weight: var(--forge-type-label-weight, 600);
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay .forge-document-chat {
+  gap: 0; background: transparent;
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay .agently-workspace { background: transparent; }
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay .chat-feed-stage {
+  flex: 1 1 auto !important; max-height: none; min-height: 0;
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay .app-chat-feed {
+  margin: 0; padding: 16px; border: 0; border-radius: 0; background: transparent; box-shadow: none;
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay .forge-document-composer {
+  width: 100%; margin: 0; padding: 12px;
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay .forge-document-composer-shell { box-shadow: none; }
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay:has(.forge-document-chat.is-starting) { height: auto; }
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay .forge-document-chat.is-starting { height: auto !important; }
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay:has(.chat-feed-stage:empty) { height: auto; }
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay:has(.chat-feed-stage:empty) .forge-document-chat { height: auto !important; }
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay .chat-feed-stage:empty { display: none !important; }
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay:has(.chat-feed-stage:empty) :is(div, section):has(.forge-document-composer) {
+  flex: 0 0 auto !important; height: auto !important; width: 100%;
+}
