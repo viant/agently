@@ -8,7 +8,6 @@ import { resolveConversationSummary, resolveConversationTitle } from '../service
 import { isConnectivityError } from '../services/networkError';
 import { client } from '../services/agentlyClient';
 import { openConfirmDialog } from '../utils/dialogBus';
-import {useWorkspaceStyle} from './WorkspaceStyleProvider';
 import {
   getWindowById,
   detachWorkspaceWindowsFromConversation,
@@ -343,19 +342,8 @@ async function fetchPage({ query = '', direction = 'latest', cursor = '' }) {
 
 export default function Sidebar({ collapsed = false, onNavigate = null, onExpand = null, showNewConversation = true, history = {}, appearance = '', hidden = false, searchMount }) {
   const documentAppearance = appearance === 'document';
-  const workspaceStyle = useWorkspaceStyle();
-  const inlineSearch = documentAppearance && workspaceStyle?.state.themeId === 'design-system-2';
   const [searchOpen, setSearchOpen] = useState(false);
   const searchButtonRef = React.useRef(null);
-  const returnSearchFocusRef = React.useRef(false);
-  useEffect(() => {
-    if (inlineSearch && searchOpen) return () => {
-      if (returnSearchFocusRef.current) {
-        returnSearchFocusRef.current = false;
-        searchButtonRef.current?.focus();
-      }
-    };
-  }, [inlineSearch, searchOpen]);
   const search = history.search || {};
   const list = history.list || {};
   const pagination = history.pagination || {};
@@ -729,36 +717,27 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
     return () => window.removeEventListener('agently:conversation-title-seed', onSeed);
   }, []);
 
-  const searchButton = documentAppearance ? <Button minimal small={!inlineSearch} ref={searchButtonRef}
-    className={inlineSearch ? 'app-sidebar-search-trigger' : undefined}
-    icon={<SharedIcon name="lucide:search"/>} alignText={inlineSearch ? 'left' : undefined}
-    {...(inlineSearch ? typographyProps('body') : {})}
-    aria-label={inlineSearch ? 'Search Chat' : searchOpen ? 'Close conversation search' : 'Search conversations'}
-    aria-expanded={searchOpen} onClick={() => {setSearchOpen(value => !value); if (searchOpen) setQuery('');}}>
-    {inlineSearch && !collapsed ? 'Search Chat' : null}
-  </Button> : null;
-  const searchPlaceholder = inlineSearch ? 'Search chat...' : search.placeholder || 'Search conversations';
+  const searchButton = documentAppearance ? <Button minimal small ref={searchButtonRef} icon={<SharedIcon name="lucide:search"/>} aria-label={searchOpen ? 'Close conversation search' : 'Search conversations'} aria-expanded={searchOpen} onClick={() => {setSearchOpen(value => !value); if (searchOpen) setQuery('');}}/> : null;
   const searchField = (<>
       {!collapsed && (!documentAppearance || searchOpen) ? (
         <InputGroup
           autoFocus={documentAppearance}
           leftIcon={<UnifiedIcon name="search"/>}
-          placeholder={searchPlaceholder}
-          aria-label={inlineSearch ? 'Search chats' : searchPlaceholder}
+          placeholder={search.placeholder || 'Search conversations'}
+          aria-label={search.placeholder || 'Search conversations'}
           value={query}
           {...(documentAppearance ? typographyProps('body') : {})}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
             if (documentAppearance && event.key === 'Escape') {
               event.preventDefault(); event.stopPropagation();
-              returnSearchFocusRef.current = inlineSearch;
               setSearchOpen(false); setQuery(''); searchButtonRef.current?.focus();
             } else if (enterToSearch && event.key === 'Enter') {
               if (queryReloadTimerRef.current) clearTimeout(queryReloadTimerRef.current);
               void reload('latest', '', { force: true }).catch(() => {});
             }
           }}
-          rightElement={inlineSearch ? <Button minimal small icon={<SharedIcon name="lucide:x"/>} aria-label="Close conversation search" onClick={() => {returnSearchFocusRef.current = true; setSearchOpen(false); setQuery('');}}/> : showSearchClear && query ? <Button minimal small icon={<UnifiedIcon name="cross"/>} aria-label="Clear search" onClick={() => setQuery('')} /> : undefined}
+          rightElement={showSearchClear && query ? <Button minimal small icon={<UnifiedIcon name="cross"/>} aria-label="Clear search" onClick={() => setQuery('')} /> : undefined}
           small
         />
       ) : null}
@@ -773,23 +752,18 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
         {collapsed ? '' : documentAppearance ? 'New Chat' : 'New Conversation'}
       </Button> : null}
 
-      {inlineSearch ? <div className="app-sidebar-search" onBlur={event => {
-        if (searchOpen && !query.trim() && !event.currentTarget.contains(event.relatedTarget)) {
-          returnSearchFocusRef.current = false;
-          setSearchOpen(false); setQuery('');
-        }
-      }}>{searchOpen ? searchField : searchButton}</div> : searchMount && searchButton ? createPortal(searchButton, searchMount) : null}
+      {searchMount && searchButton ? createPortal(searchButton, searchMount) : null}
       {!documentAppearance ? searchField : null}
       {!collapsed ? (
         <>
           <div className="app-sidebar-section" style={documentAppearance ? undefined : { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }} {...(documentAppearance ? typographyProps('metadata') : {})}>
-            <span>{inlineSearch ? 'Chats' : 'Conversations'}</span>
+            <span>Conversations</span>
             {documentAppearance ? <div>
-              {!inlineSearch && !searchMount ? searchButton : null}
+              {!searchMount ? searchButton : null}
               <Button minimal small loading={loading} icon={<SharedIcon name="lucide:refresh-cw"/>} aria-label="Refresh conversations" onClick={() => void reload('latest', '').catch(() => {})}/>
             </div> : <Button minimal small loading={loading} icon={<UnifiedIcon name="refresh"/>} onClick={() => void reload('latest', '').catch(() => {})}>Refresh</Button>}
           </div>
-          {documentAppearance && !inlineSearch ? searchField : null}
+          {documentAppearance ? searchField : null}
           {error ? <div className="app-sidebar-recovery" role="alert">
             <Typography as="p" typeRole="small">{error.message}</Typography>
             <SharedButton variant="secondary" size="compact" disabled={loading} onClick={() => {

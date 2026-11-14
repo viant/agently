@@ -2,13 +2,11 @@
 import React, {act} from 'react';
 import {createRoot} from 'react-dom/client';
 import {describe,it,expect,vi} from 'vitest';
-const {applyPermission,executeTool,transport,appearance}=vi.hoisted(()=>({applyPermission:vi.fn(),executeTool:vi.fn(),transport:vi.fn(),appearance:{themeId:'baseline'}}));
-vi.mock('../WorkspaceStyleProvider.jsx',async()=>({...await vi.importActual('../WorkspaceStyleProvider.jsx'),useWorkspaceStyle:()=>({state:appearance})}));
+const {applyPermission,executeTool,transport}=vi.hoisted(()=>({applyPermission:vi.fn(),executeTool:vi.fn(),transport:vi.fn()}));
 vi.mock('../../services/agentlyClient',()=>({client:{applyPermission,executeTool}}));
 vi.mock('forge/core',async()=>({...await vi.importActual('forge/core'),getActiveUIBridgeTransportContext:transport}));
 vi.mock('./LazyRichContent',async()=>({default:(await import('./RichContent.jsx')).default}));
 import BubbleMessage from './BubbleMessage.jsx';
-import RichContent from './RichContent.jsx';
 
 describe('mounted report retains the original host frame',()=>{
  it('renders after a task-entry lease expires and opens before one exact report event',async()=>{
@@ -28,34 +26,4 @@ describe('mounted report retains the original host frame',()=>{
    expect(context.metadata.resource).toBe(original);
   }finally{await act(async()=>root.unmount());host.remove();delete globalThis.IS_REACT_ACT_ENVIRONMENT;}
  });
-});
-
-it('applies the chart palette only in Design System 2.0 and retains baseline, authored colors and exact values',async()=>{
- globalThis.IS_REACT_ACT_ENVIRONMENT=true;
- const width=Object.getOwnPropertyDescriptor(HTMLElement.prototype,'clientWidth'),height=Object.getOwnPropertyDescriptor(HTMLElement.prototype,'clientHeight');
- Object.defineProperty(HTMLElement.prototype,'clientWidth',{configurable:true,get:()=>600});
- Object.defineProperty(HTMLElement.prototype,'clientHeight',{configurable:true,get:()=>240});
- const Resize=globalThis.ResizeObserver;
- globalThis.ResizeObserver=class{constructor(callback){this.callback=callback;}observe(target){this.callback([{target,contentRect:{width:600,height:240}}]);}unobserve(){}disconnect(){}};
- const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
- const spec={title:'Synthetic daily records',chart:{type:'bar',x:{key:'day'},y:[{key:'records'}]},data:[{day:'First',records:12},{day:'Second',records:28}]};
- const render=async options=>{await act(async()=>root.render(<RichContent key={appearance.themeId} content={'```chart\n'+JSON.stringify({...spec,...options})+'\n```'}/>));await act(async()=>{await new Promise(resolve=>setTimeout(resolve,50));});};
- try{
-  appearance.themeId='baseline';await render({});
-  expect(host.querySelector('.recharts-legend-icon').getAttribute('fill')).toBe('#2563eb');
-  expect(host.querySelector('.recharts-default-tooltip').style.color).not.toContain('--forge-chart-text');
-  appearance.themeId='design-system-2';
-  await render({});
-  expect(host.querySelector('.app-rich-chart .recharts-legend-icon').getAttribute('fill')).toContain('--forge-chart-series-1');
-  expect(host.querySelector('.recharts-default-tooltip').style.color).toContain('--forge-chart-text');
-  await render({options:{palette:['#102030']}});
-  expect(host.querySelector('.recharts-legend-icon').getAttribute('fill')).toBe('#102030');
-  await act(async()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='Table').click());
-  expect(host.textContent).toContain('First');expect(host.textContent).toContain('12');expect(host.textContent).toContain('Second');expect(host.textContent).toContain('28');
- }finally{
-  await act(async()=>root.unmount());host.remove();
-  if(width)Object.defineProperty(HTMLElement.prototype,'clientWidth',width);else delete HTMLElement.prototype.clientWidth;
-  if(height)Object.defineProperty(HTMLElement.prototype,'clientHeight',height);else delete HTMLElement.prototype.clientHeight;
-  globalThis.ResizeObserver=Resize;appearance.themeId='baseline';delete globalThis.IS_REACT_ACT_ENVIRONMENT;
- }
 });

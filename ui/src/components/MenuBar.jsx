@@ -5,9 +5,8 @@ import { openLayoutURL } from './layoutNavigation';
 import { resolveBrandLogoSrc, resolveBrandMonogram, resolveStartupAuthAction, openWindow, APPROVALS_PAGE_SIZE, paginateApprovalItems, normalizeQueueApprovalDialog, extractSchemaDefaultValues, findApprovalItemById, resolveReturnFocusTarget, restoreReturnFocusTarget, nextApprovalDialogFocusReturn } from './menuBarHelpers';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {createPortal} from 'react-dom';
-import {Icon as SharedIcon, Typography, SelectControl, typographyProps, Popover} from 'forge/components';
+import {Icon as SharedIcon, Typography, SelectControl, typographyProps} from 'forge/components';
 import {ShellIconButton, ShellLocation} from './ShellHeader.jsx';
-import {useWorkspaceStyle} from './WorkspaceStyleProvider';
 import { Button, Dialog, Spinner, Tooltip } from '@blueprintjs/core';
 import { activeWindows, getWindowContext, selectedTabId, selectedWindowId } from 'forge/core';
 import SchemaBasedForm from 'forge/widgets/SchemaBasedForm.jsx';
@@ -74,7 +73,6 @@ export default function MenuBar({
     setSelected,
     decide
   } = approvals || {};
-  const themed = useWorkspaceStyle()?.state.themeId === 'design-system-2';
   const [user, setUser] = useState(null);
   const [branding, setBranding] = useState(() => resolveWorkspaceBranding(getWorkspaceMetadataSnapshot(), {
     fallbackName: 'Agently',
@@ -91,20 +89,23 @@ export default function MenuBar({
   const returnFocusRef = useRef(null);
   const wasApprovalDialogOpenRef = useRef(false);
 
-
-  // Preserve the incumbent inline account menu outside the opt-in profile.
   useEffect(() => {
-    if (themed || !userMenuOpen || typeof document === 'undefined') return;
-    const closeOutside = event => {if (!userMenuRef.current?.contains(event.target)) setUserMenuOpen(false);};
-    const closeOnEscape = event => {
+    if (!userMenuOpen || typeof document === 'undefined') return undefined;
+    const closeOutside = (event) => {
+      if (!userMenuRef.current?.contains(event.target)) setUserMenuOpen(false);
+    };
+    const closeOnEscape = (event) => {
       if (event.key !== 'Escape') return;
       setUserMenuOpen(false);
-      userMenuRef.current?.querySelector('[data-testid="user-menu-btn"]')?.focus();
+      try { userMenuRef.current?.querySelector('[data-testid="user-menu-btn"]')?.focus(); } catch (_) {}
     };
-    document.addEventListener('pointerdown',closeOutside);
-    document.addEventListener('keydown',closeOnEscape);
-    return () => {document.removeEventListener('pointerdown',closeOutside);document.removeEventListener('keydown',closeOnEscape);};
-  }, [themed,userMenuOpen]);
+    document.addEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [userMenuOpen]);
 
   const selectedQueueDialog = useMemo(() => normalizeQueueApprovalDialog(selected), [selected]);
   const selectedQueueSchema = selectedQueueDialog.preparedFormSchema;
@@ -364,8 +365,27 @@ export default function MenuBar({
           ) : null}
         </div>
   );
-  const profileMenu = (
-    <div className={`app-user-menu${sectionNavigation ? ' is-document' : ''}`} {...(sectionNavigation ? typographyProps('body') : {})} id="app-user-menu" data-testid="user-menu" role="menu">
+  const renderProfile = () => (
+    <div className="app-topbar-right" ref={userMenuRef}>
+        <Button
+          {...(sectionNavigation ? typographyProps('label') : {})}
+          minimal
+          icon={sectionNavigation ? undefined : profileMount ? <SharedIcon name="lucide:user"/> : 'user'}
+          className="app-user-btn"
+          aria-label={profileMount ? `Account: ${displayName || "Profile"}` : undefined}
+          title={profileMount ? displayName || "Profile" : undefined}
+          data-testid="user-menu-btn"
+          aria-haspopup="menu"
+          aria-expanded={userMenuOpen}
+          aria-controls={userMenuOpen ? 'app-user-menu' : undefined}
+          onClick={() => {
+            setUserMenuOpen((v) => !v);
+          }}
+        >
+          {sectionNavigation ? <Typography as="span" typeRole="caption" className="app-account-initials">{initials || <SharedIcon name="lucide:user"/>}</Typography> : profileMount ? null : displayName}
+        </Button>
+        {userMenuOpen ? (
+          <div className={`app-user-menu${sectionNavigation ? ' is-document' : ''}`} {...(sectionNavigation ? typographyProps('body') : {})} id="app-user-menu" data-testid="user-menu" role="menu">
             {user?.email ? <div className="app-user-menu-email">{user.email}</div> : null}
             {compactViewerUtilities ? renderUtilityActions(true) : null}
             {sectionNavigation && !compactNavigation ? <Button minimal role="menuitem" icon={<SharedIcon name="lucide:menu"/>}
@@ -392,32 +412,9 @@ export default function MenuBar({
               onClick={() => { setUserMenuOpen(false); handleLogout(); }}
             />
           </div>
-  );
-  const profileTrigger = (
-    <Button
-          {...(sectionNavigation ? typographyProps('label') : {})}
-          minimal
-          icon={sectionNavigation ? undefined : profileMount ? <SharedIcon name="lucide:user"/> : 'user'}
-          className="app-user-btn"
-          aria-label={profileMount ? `Account: ${displayName || "Profile"}` : undefined}
-          title={profileMount ? displayName || "Profile" : undefined}
-          data-testid="user-menu-btn"
-          aria-haspopup="menu"
-          aria-expanded={userMenuOpen}
-          aria-controls={userMenuOpen ? 'app-user-menu' : undefined}
-          onClick={themed ? undefined : () => setUserMenuOpen(value => !value)}
-        >
-          {sectionNavigation ? <Typography as="span" typeRole="caption" className="app-account-initials">{initials || <SharedIcon name="lucide:user"/>}</Typography> : profileMount ? null : displayName}
-        </Button>
-  );
-  const renderProfile = () => (
-    <div className="app-topbar-right" ref={userMenuRef}>
-      {themed ? <Popover menu minimal autoFocus placement="bottom-end" popupKind="menu" isOpen={userMenuOpen}
-        onInteraction={setUserMenuOpen} targetProps={{onKeyDown:undefined}}
-        popoverClassName="app-user-menu-popover" content={profileMenu}>
-        {profileTrigger}
-      </Popover> : <>{profileTrigger}{userMenuOpen ? profileMenu : null}</>}
-    </div>
+        ) : null}
+      </div>
+
   );
 
   return (
