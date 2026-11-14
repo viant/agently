@@ -50,20 +50,6 @@
 }
 
 /* Conversation roles come from Forge and Steward semantics. */
-.agently-application[data-agently-theme="design-system-2"] .forge-document-chat {
-  --app-chat-max-width: 748px;
-}
-/* Reserve the same native scrollbar space for transcript and composer so
- * their visible content stays aligned when the transcript overflows. */
-.agently-application[data-agently-theme="design-system-2"] .forge-document-chat:not(.is-starting) > .chat-feed-stage {
-  scrollbar-gutter: stable both-edges;
-}
-.agently-application[data-agently-theme="design-system-2"] .forge-chat-container.forge-document-chat:not(.is-starting) > .chat-composer.forge-document-composer {
-  width: 100%; overflow: hidden; scrollbar-gutter: stable both-edges;
-}
-.agently-application[data-agently-theme="design-system-2"] .forge-chat-container.forge-document-chat:not(.is-starting) > .forge-document-composer > :is(.forge-document-composer-shell, .composer-queue-tray) {
-  box-sizing: border-box; width: min(100%, var(--app-chat-max-width)); margin-inline: auto;
-}
 .agently-application[data-agently-theme="design-system-2"] .app-bubble-row .app-bubble-avatar { display: none; }
 .agently-application[data-agently-theme="design-system-2"] .app-bubble-row-user { justify-content: flex-end; }
 .agently-application[data-agently-theme="design-system-2"] .app-bubble-user { flex: 0 1 auto; width: auto; max-width: min(780px, 88%); border-color: transparent; box-shadow: none; }
@@ -71,98 +57,4 @@
 .agently-application[data-agently-theme="design-system-2"] .app-bubble-row.is-document > .app-bubble-user {
   background: var(--forge-chat-user-background, var(--forge-surface-subtle));
   color: var(--forge-chat-user-text, var(--forge-text));
-}
-.agently-application[data-agently-theme="design-system-2"] .app-conversation-trash {
-  color: var(--forge-text-secondary, var(--app-text-secondary));
-}
-.agently-application[data-agently-theme="design-system-2"] .app-sidebar-section > span {
-  font-weight: var(--forge-type-section-weight, 600);
-}
-.agently-application[data-agently-theme="design-system-2"] .app-sidebar-search {
-  --forge-control-height: 36px;
-  flex: none; min-width: 0;
-}
-.agently-application[data-agently-theme="design-system-2"] .app-sidebar-new,
-.agently-application[data-agently-theme="design-system-2"] .app-sidebar-search-trigger {
-  align-self: stretch; width: 100%;
-}
-.agently-application[data-agently-theme="design-system-2"] .app-sidebar-new:hover:not(:disabled),
-.agently-application[data-agently-theme="design-system-2"] .app-sidebar-search-trigger:hover:not(:disabled) {
-  background: var(--forge-surface-subtle, var(--app-surface-soft));
-}
-.agently-application[data-agently-theme="design-system-2"] .app-sidebar-search-trigger {
-  min-height: 36px; padding: 7px var(--app-history-content-inset); gap: var(--forge-spacing-2, 8px);
-  border-radius: var(--app-shell-control-radius, 8px); color: var(--app-text-secondary);
-}
-.agently-application[data-agently-theme="design-system-2"] .app-sidebar-search-trigger > * { margin-inline: 0; }
-.agently-application[data-agently-theme="design-system-2"] .app-sidebar-search-trigger .forge-icon { width: 16px; height: 16px; }
-.agently-application[data-agently-theme="design-system-2"] .app-sidebar-search .bp6-input-group {
-  margin-inline: 0;
-}
-.agently-application[data-agently-theme="design-system-2"] .app-sidebar-search .bp6-input-group > .forge-icon {
-  position: absolute; z-index: 1; inset-inline-start: 12px; top: 50%; transform: translateY(-50%);
-  width: 16px; height: 16px; color: var(--app-muted); pointer-events: none;
-}
-.agently-application[data-agently-theme="design-system-2"] .app-sidebar-search .bp6-input {
-  padding-inline: 36px !important;
-}
-.agently-application[data-agently-theme="design-system-2"] .app-sidebar-search .bp6-input:focus {
-  border-color: var(--forge-border-strong, var(--app-border));
-}
-.agently-application[data-agently-theme="design-system-2"] .app-sidebar-search .bp6-input-action {
-  top: 50%; right: 4px; transform: translateY(-50%);
-}
-.agently-application[data-agently-theme="design-system-2"] .app-sidebar-search .bp6-input-action > .bp6-button {
-  width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0;
-}
-@media (pointer: coarse) {
-  .agently-application[data-agently-theme="design-system-2"] .app-sidebar-search { --forge-control-height: 44px; }
-  .agently-application[data-agently-theme="design-system-2"] .app-sidebar-search-trigger { min-height: 44px; }
-}
-
-/* Workspace-authored, decorative copy; the native input and label stay intact. */
-.agently-application[data-agently-theme="design-system-2"] .forge-document-input:has(textarea:placeholder-shown:enabled) {
-  display: grid; grid-template-columns: max-content minmax(0, 1fr);
-  color: var(--chat-muted);
-  font-family: var(--forge-type-body-family);
-  font-size: var(--forge-type-body-size);
-  font-weight: var(--forge-type-body-weight);
-  line-height: var(--forge-type-body-line-height);
-  letter-spacing: var(--forge-type-body-letter-spacing);
-}
-.agently-application[data-agently-theme="design-system-2"] .forge-document-input:has(textarea:placeholder-shown:enabled) > .named-lookup-input { grid-area: 1 / 1 / 2 / 3; }
-.agently-application[data-agently-theme="design-system-2"] .forge-document-input:has(textarea:placeholder-shown:enabled) textarea::placeholder {
-  color: var(--app-composer-native-placeholder-color, var(--chat-muted));
-}
-.agently-application[data-agently-theme="design-system-2"] .forge-document-input:has(textarea:placeholder-shown:enabled)::before,
-.agently-application[data-agently-theme="design-system-2"] .forge-document-input:has(textarea:placeholder-shown:enabled)::after {
-  grid-row: 1; align-self: start; padding-top: 6px; pointer-events: none; white-space: pre;
-}
-.agently-application[data-agently-theme="design-system-2"] .forge-document-input:has(textarea:placeholder-shown:enabled)::before {
-  content: var(--app-composer-hint-prefix, "") / ""; grid-column: 1;
-}
-.agently-application[data-agently-theme="design-system-2"] .forge-document-input:has(textarea:placeholder-shown:enabled)::after {
-  content: var(--app-composer-hint-topic-1, "") / ""; grid-column: 2;
-  width: max-content; max-width: 100%; overflow: hidden;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .agently-application[data-agently-theme="design-system-2"] .forge-document-input:has(textarea:placeholder-shown:enabled)::after {
-    animation: agently-composer-topics 20s step-end infinite, agently-composer-typing 4s steps(9) infinite;
-  }
-}
-@media (max-width: 760px) {
-  .agently-application[data-agently-theme="design-system-2"] .forge-document-input:has(textarea:placeholder-shown:enabled) { font-size: 16px; }
-  .agently-application[data-agently-theme="design-system-2"] .forge-document-input:has(textarea:placeholder-shown:enabled)::before,
-  .agently-application[data-agently-theme="design-system-2"] .forge-document-input:has(textarea:placeholder-shown:enabled)::after { padding-top: 10px; }
-}
-@keyframes agently-composer-topics {
-  0%, 100% { content: var(--app-composer-hint-topic-1, "") / ""; }
-  20% { content: var(--app-composer-hint-topic-2, "") / ""; }
-  40% { content: var(--app-composer-hint-topic-3, "") / ""; }
-  60% { content: var(--app-composer-hint-topic-4, "") / ""; }
-  80% { content: var(--app-composer-hint-topic-5, "") / ""; }
-}
-@keyframes agently-composer-typing {
-  0%, 8%, 100% { clip-path: inset(0 100% 0 0); }
-  32%, 80% { clip-path: inset(0); }
 }

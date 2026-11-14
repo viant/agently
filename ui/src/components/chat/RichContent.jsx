@@ -1,4 +1,3 @@
-import {useWorkspaceStyle} from '../WorkspaceStyleProvider.jsx';
 import {Icon as UnifiedIcon} from 'forge/components';
 import WorkspaceOutputState from '../WorkspaceOutputState.jsx';
 import {readReportSection, rememberReportSection} from '../../services/workspaceSession.js';
@@ -1827,14 +1826,12 @@ function MinimalText({ text = '', generatedFiles = [], conversationId = '' }) {
 }
 
 function ChartSpecPanel({ spec = {} }) {
-  const isDesignSystem2=useWorkspaceStyle()?.state?.themeId==='design-system-2';
   const [mode, setMode] = React.useState('chart');
   const [canvasRef, canvasSize] = useMeasuredContainer();
   const [chartReady, setChartReady] = React.useState(false);
   const n = React.useMemo(() => normalizeChartSpec(spec), [spec]);
   const { rows, series } = React.useMemo(() => buildChartSeries(n), [n]);
-  const { type, xKey, title } = n;
-  const palette = !isDesignSystem2 || Array.isArray(spec.options?.palette) ? n.palette : n.palette.map((color,index)=>`var(--forge-chart-series-${index%6+1}, ${color})`);
+  const { type, xKey, palette, title } = n;
   const headers = React.useMemo(() => {
     const keys = new Set();
     (n.data || []).forEach((r) => Object.keys(r || {}).forEach((k) => keys.add(k)));
@@ -1850,31 +1847,29 @@ function ChartSpecPanel({ spec = {} }) {
     return () => window.cancelAnimationFrame(raf);
   }, [mode, canvasSize.width, canvasSize.height]);
 
-  const axisTick = isDesignSystem2 ? {fill:'var(--forge-chart-text-muted, var(--app-text-muted))',fontSize:'var(--forge-type-small-size, 12px)'} : undefined;
-  const tooltip = isDesignSystem2 ? <RcTooltip contentStyle={{background:'var(--forge-chart-surface, var(--app-surface))',color:'var(--forge-chart-text, var(--app-text))',border:'1px solid var(--forge-chart-border, var(--app-border))',borderRadius:'var(--forge-radius-surface, 12px)'}} itemStyle={{color:'var(--forge-chart-text, var(--app-text))'}} labelStyle={{color:'var(--forge-chart-text, var(--app-text))'}}/> : <RcTooltip/>;
   const chartCommon = (
     <>
-      <CartesianGrid strokeDasharray="3 3" stroke={isDesignSystem2?"var(--forge-chart-grid, var(--app-border))":undefined}/>
-      <XAxis dataKey={xKey} tick={axisTick}/>
-      <YAxis tick={axisTick}/>
-      {tooltip}
+      <CartesianGrid strokeDasharray="3 3" />
+      <XAxis dataKey={xKey} />
+      <YAxis />
+      <RcTooltip />
       <RcLegend />
     </>
   );
 
   const renderChart = () => {
-    if (!rows.length || !series.length) return <div style={isDesignSystem2?{ fontSize: 'var(--forge-type-small-size, 12px)', color: 'var(--forge-chart-text-muted, var(--app-text-muted))' }:{fontSize:12,color:'var(--dark-gray3)'}}>No chart data</div>;
+    if (!rows.length || !series.length) return <div style={{ fontSize: 12, color: 'var(--dark-gray3)' }}>No chart data</div>;
     if (type === 'area') return <AreaChart data={rows}>{chartCommon}{series.map((s, i) => <Area key={s} type="monotone" dataKey={s} stroke={palette[i % palette.length]} fill={palette[i % palette.length]} fillOpacity={0.2} />)}</AreaChart>;
     if (type === 'bar' || type === 'stacked_bar') {
       const stacked = type === 'stacked_bar';
       return <BarChart data={rows}>{chartCommon}{series.map((s, i) => <Bar key={s} dataKey={s} fill={palette[i % palette.length]} stackId={stacked ? 'a' : undefined} />)}</BarChart>;
     }
-    if (type === 'scatter') return <ScatterChart><CartesianGrid strokeDasharray="3 3" stroke={isDesignSystem2?"var(--forge-chart-grid, var(--app-border))":undefined}/><XAxis dataKey={xKey} tick={axisTick}/><YAxis dataKey={series[0]} tick={axisTick}/>{tooltip}<RcLegend/><Scatter name={series[0]} data={rows} fill={palette[0]} /></ScatterChart>;
+    if (type === 'scatter') return <ScatterChart><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey={xKey} /><YAxis dataKey={series[0]} /><RcTooltip /><RcLegend /><Scatter name={series[0]} data={rows} fill={palette[0]} /></ScatterChart>;
     if (type === 'pie' || type === 'donut') {
       const donut = type === 'donut';
       return (
         <PieChart>
-          {tooltip}
+          <RcTooltip />
           <RcLegend />
           <Pie
             data={n.data || []}
