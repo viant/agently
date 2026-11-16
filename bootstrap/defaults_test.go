@@ -1,6 +1,9 @@
 package bootstrap
 
 import (
+	"context"
+	resourcehost "github.com/viant/forge/backend/resourcehost"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -227,5 +230,30 @@ func TestDefaultCoderDiscoversInstalledToolsAndSkills(t *testing.T) {
 	}
 	if !allTools || len(cfg.Skills) != 1 || cfg.Skills[0] != "*" {
 		t.Fatalf("coder must discover installed tools and skills: %+v", cfg)
+	}
+}
+
+func TestBundledFeedsLoadThroughNativeStartupCatalog(t *testing.T) {
+	root := t.TempDir()
+	defaults, err := fs.Sub(DefaultsFS, "defaults/feeds")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.CopyFS(filepath.Join(root, "feeds"), defaults); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := fs.ReadDir(defaults, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := resourcehost.SnapshotToolfeedDefinitions(context.Background(), root, []resourcehost.ExtensionDirectory{resourcehost.ToolfeedDirectory("workspace", "feeds")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resourcehost.NewNativeAssetSnapshot(context.Background(), root, loaded); err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != len(entries) {
+		t.Fatalf("loaded %d of %d bundled feeds", len(loaded), len(entries))
 	}
 }

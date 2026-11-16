@@ -15,7 +15,10 @@ export function starterTaskPreferenceEntries(metadata, preferences = readStarter
   const ordered = new Map(preferences.order.map((id, index) => [id, index]));
   const entries = [
     ...namespace.map(task => ({...task, hidden: hidden.has(task.id)})),
-    ...preferences.own.map(task => ({...task, id: `personal#${task.id}`, personal: true})),
+    ...preferences.own.map(task => {
+      const id = `personal#${task.id}`;
+      return {...task, id, personal: true, hidden: hidden.has(id)};
+    }),
   ];
   return entries
     .filter(task => includeHidden || !task.hidden)

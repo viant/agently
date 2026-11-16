@@ -169,7 +169,7 @@ export async function request(path, options = {}) {
         path,
         transient: isRetryableStatus(response.status)
       });
-      if (shouldNotify || err.transient) {
+      if (shouldNotify || options.notify === undefined && err.transient) {
         showToast(
           err.transient
             ? `Temporary API failure (${response.status}) for ${path}.`

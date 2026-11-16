@@ -10,7 +10,7 @@ export function reopenReportWindow(entry) {
   const applied = object(retained?.parameters) ? retained.parameters : entry.parameters || {};
   const draft = object(retained?.draftParameters) ? retained.draftParameters : applied;
   const next = addWindow(entry.windowTitle, entry.windowId, entry.windowKey, null,
-    entry.inTab !== false, {...structuredClone(applied),executeOnOpen:false}, {
+    entry.inTab !== false, {...structuredClone(entry.parameters || {}),executeOnOpen:false}, {
       newInstance:true,resourceRef,linkedRevision:entry.linkedRevision,
       providerIdentity:entry.providerIdentity,conversationId:entry.conversationId,
       presentation:entry.presentation,region:entry.region,windowScopeId:entry.windowScopeId,
@@ -19,6 +19,8 @@ export function reopenReportWindow(entry) {
   // Reuse the existing replay seed for applied/draft inputs only. Completed
   // output belongs to the old revision and must not cross this boundary.
   getViewSignal(next.windowId).value={report:{resourceUri:resourceRef.uri,
-    parameters:structuredClone(applied),draftParameters:structuredClone(draft)}};
+    parameters:structuredClone(applied),draftParameters:structuredClone(draft),
+    ...(retained?.filterFingerprint ? {filterFingerprint:retained.filterFingerprint} :
+      retained?.filterDeclaration ? {filterDeclaration:structuredClone(retained.filterDeclaration)} : {})}};
   return next;
 }

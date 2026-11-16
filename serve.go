@@ -738,6 +738,7 @@ func newRouter(api http.Handler, meta http.Handler, speech http.Handler, uiDist 
 			path == "/mcp-ui/forge-window" ||
 			path == "/ui/mcp-ui/forge-window" ||
 			path == "/ui/settings" ||
+			path == "/ui/workspace" ||
 			strings.HasPrefix(path, "/conversation/") ||
 			strings.HasPrefix(path, "/ui/conversation/") ||
 			strings.HasPrefix(path, "/v1/conversation/") {

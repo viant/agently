@@ -76,3 +76,14 @@ it.each(['records','window://example/records'])('keeps the three-level parent na
   expect(visible(screen.getByText(`${detail} content`))).toBe(false);
  } finally {cleanup();header.remove();}
 });
+
+it('renders personal tiles from prepared menu entries and delegates exact launch selection',()=>{
+ const pin={id:'orders',title:'Pinned orders',action:{type:'window',resourceUri:'window://example/orders',providerIdentity:'example',parameters:{RecordId:[7]}}};
+ const onSelect=vi.fn(),onManage=vi.fn();
+ render(<AppSectionContent title="My workspace" overview={{groups:[{id:'weekly',title:'Weekly',children:[pin]}],onSelect,onManage}}/>);
+ fireEvent.click(screen.getByRole('button',{name:/Pinned orders/}));
+ expect(onSelect).toHaveBeenCalledWith(pin,['weekly']);
+ expect(screen.getByRole('heading',{name:'Weekly'})).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Manage Workspace'}));
+ expect(onManage).toHaveBeenCalledTimes(1);
+});

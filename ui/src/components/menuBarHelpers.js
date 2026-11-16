@@ -1,4 +1,5 @@
-import { addWindow, activeWindows, getWindowContext, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
+import { addWindow, activeWindows, getWindowContext, getViewSignal, removeWindow, selectedTabId, selectedWindowId } from 'forge/core';
+import { sectionWindowIds } from './sectionWindowTree.js';
 import { MAIN_CHAT_WINDOW_ID } from '../services/conversationWindow';
 import { extractPlannerElicitationMeta, prepareRenderableRequestedSchema } from './elicitationHelpers';
 import { selectPath } from '../services/feedForgeWiring';
@@ -94,6 +95,16 @@ export function openWindow(windowKey, windowTitle, refreshDataSources = [], opti
     && canonicalWindowParameters(entry?.resourceRef || {}) === desiredResourceIdentity
     && canonicalWindowParameters(entry?.parameters || {}) === desiredParameterIdentity;
   let existing = windows.find(matchesDestination);
+  // Restoring a shortcut must keep the explicitly reopened report revision
+  // selected. Its parent remains the original pinned window.
+  if (existing && options.restoreSelection && desiredRegion === 'app.section' && windowKey.startsWith('report://')) {
+    const current = windows.find(win => win.windowId === selectedWindowId.peek());
+    if (current?.parentKey && current.windowKey === windowKey
+      && current.region === desiredRegion && (current.conversationId || null) === desiredConversationId
+      && (current.providerIdentity || null) === desiredProviderIdentity
+      && canonicalWindowParameters(current.resourceRef || {}) === desiredResourceIdentity
+      && sectionWindowIds(windows, existing.windowId).has(current.windowId)) return existing;
+  }
   if (replaceMainChatTree) {
     const subtreeIds = windows
       .filter((entry) => {
@@ -153,6 +164,13 @@ export function openWindow(windowKey, windowTitle, refreshDataSources = [], opti
     });
   }
   if (existing?.windowId) {
+    if (options.reviewShortcutInputs && windowKey.startsWith('report://')) {
+      const view = getViewSignal(existing.windowId);
+      const previous = view.peek() || {};
+      if (!previous.report?.filterFingerprint && !previous.report?.shortcutInputsPending) {
+        view.value = {...previous, report: {...previous.report, resourceUri:windowKey, shortcutInputsPending:true}};
+      }
+    }
     if (desiredPresentation === 'hosted') activeWindows.value = activeWindows.peek().map(entry => entry.windowId === existing.windowId ? {...entry, workspaceCollapsed: false} : entry);
     selectedTabId.value = existing.windowId;
     selectedWindowId.value = existing.windowId;

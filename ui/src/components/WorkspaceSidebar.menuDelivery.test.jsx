@@ -2,12 +2,18 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {useState} from 'react';
+import {request} from '../services/httpClient';
+import {saveBrowserWorkspaceVisibility,workspaceVisibilityScope,workspaceApplicationKey,visibilityKey} from '../services/personalWorkspace';
 
 const openWindow = vi.fn();
 const getAuthMeSilently = vi.fn();
 const sidebarRender = vi.fn();
 
 vi.mock('../services/agentlyClient', () => ({ getAuthMeSilently }));
+vi.mock('../services/httpClient', async () => {
+ const original=await vi.importActual('../services/httpClient');
+ return {...original,request:vi.fn((path,options)=>path==='/v1/api/me/preferences'?Promise.resolve({workspace:{}}):original.request(path,options))};
+});
 vi.mock('./menuBarHelpers', () => ({ openWindow }));
 vi.mock('./Sidebar', () => ({ default: props => {sidebarRender(props); return <div data-testid="conversation-sidebar" hidden={props.hidden}/>;} }));
 // Use real shared primitives without loading unrelated report renderers.
@@ -678,4 +684,192 @@ it('clears selected context before a new actor session reload and ignores the ol
   const last=new URL(fetch.mock.calls.at(-1)[0],window.location.origin);expect(last.searchParams.has('parameters')).toBe(false);expect(applicationScope.inputs(app)).toEqual({});
   const stale=structuredClone(initial);stale.layout.applications[0].menus.push({id:'stale',title:'Previous actor rows',action:{type:'window',windowKey:'stale'}});
   await act(async()=>finishOld(response(stale)));expect(screen.queryByRole('button',{name:'Previous actor rows'})).toBeNull();applicationScope.clear();
+});
+
+it('opens exact personal window and report pins through existing menu dispatch', async () => {
+  const {request} = await import('../services/httpClient');
+  request.mockResolvedValueOnce({workspace:{enabled:true,groups:[{id:'weekly',label:'Weekly checks',items:[
+    {id:'personal-orders',kind:'window',provider:'example',uri:'window://example/orders',alias:'Pinned Orders'},
+    {id:'personal-overview',kind:'report',provider:'example',uri:'report://example/overview',alias:'Pinned Overview',parameters:{period:'month'}},
+  ]}]}});
+  fetch.mockResolvedValue(response(layoutPayload({applications:menuApplications})));
+  render(<WorkspaceSidebar conversationId="personal-conversation"/>);
+  fireEvent.click(await screen.findByRole('tab',{name:'My workspace'}));
+  fireEvent.click(await screen.findByRole('button',{name:'Pinned Orders'}));
+  expect(openWindow).toHaveBeenLastCalledWith('window://example/orders','Pinned Orders',[],expect.objectContaining({resourceRef:{uri:'window://example/orders'},providerIdentity:'example'}));
+  fireEvent.click(screen.getByRole('button',{name:'Pinned Overview'}));
+  expect(openWindow).toHaveBeenLastCalledWith('report://example/overview','Pinned Overview',[],expect.objectContaining({resourceRef:{uri:'report://example/overview'},parameters:{period:'month'}}));
+  expect(request.mock.calls.filter(([path,options])=>path==='/v1/api/me/preferences'&&options?.method==='PATCH')).toHaveLength(0);
+});
+
+it('refreshes changed personal preferences without fetching the published layout again', async () => {
+ const {request}=await import('../services/httpClient');
+ request.mockResolvedValueOnce({workspace:{}}).mockResolvedValueOnce({workspace:{enabled:true,groups:[{id:'weekly',label:'Weekly',items:[{id:'orders',kind:'window',provider:'example',uri:'window://example/orders',alias:'Pinned Orders'}]}]}});
+ fetch.mockResolvedValue(response(layoutPayload({applications:menuApplications})));
+ render(<WorkspaceSidebar/>);
+ await screen.findByRole('button',{name:'Records'});
+ await waitFor(()=>expect(request.mock.calls.some(([path])=>path==='/v1/api/me/preferences')).toBe(true));
+ const before=fetch.mock.calls.length;
+ await act(async()=>window.dispatchEvent(new CustomEvent('agently:workspace-preferences-changed')));
+ await screen.findByRole('tab',{name:'My workspace'});
+ expect(fetch.mock.calls.length).toBe(before);
+});
+
+it('hides an application only in presentation while retaining its exact open destination', async () => {
+ const {request}=await import('../services/httpClient');
+ request.mockResolvedValueOnce({workspace:{hiddenApplications:['["","advertising"]']}});
+ const payload=layoutPayload({applications:menuApplications});payload.layout.left.navigation.presentation='sections';
+ fetch.mockResolvedValue(response(payload));
+ render(<WorkspaceSidebar section="workspaces" destination='["advertising","records"]'/>);
+ await waitFor(()=>expect(openWindow).toHaveBeenCalledTimes(1));
+ await waitFor(()=>expect(screen.queryByRole('tab',{name:'Advertising'})).toBeNull());
+ expect(openWindow).toHaveBeenCalledWith('recordList','Records',[],expect.objectContaining({parameters:{source:'workspace-menu'}}));
+ expect(payload.layout.applications).toEqual(menuApplications);
+});
+
+it.each(['menu','tiles','both'])('uses the %s presentation without changing pin targets or reading the catalog again',async mode=>{
+ const {request}=await import('../services/httpClient');
+ request.mockResolvedValueOnce({workspace:{enabled:true,presentation:mode,groups:[{id:'weekly',label:'Weekly',items:[{id:'orders',kind:'window',provider:'example',uri:'window://example/orders',alias:'Pinned orders',parameters:{RecordId:[7]}}]}]}});
+ fetch.mockResolvedValue(response(layoutPayload({applications:menuApplications})));
+ const onSectionWindow=vi.fn(),onSectionChange=vi.fn();
+ render(<WorkspaceSidebar section="workspaces" onSectionWindow={onSectionWindow} onSectionChange={onSectionChange}/>);
+ const personal=await screen.findByRole('tab',{name:'My workspace'});
+ const reads=fetch.mock.calls.length;
+ fireEvent.click(personal);
+ await waitFor(()=>expect(personal.getAttribute('aria-selected')).toBe('true'));
+ if(mode==='tiles')expect(screen.queryByRole('button',{name:'Pinned orders'})).toBeNull();
+ else expect(screen.getByRole('button',{name:'Pinned orders'})).toBeTruthy();
+ if(mode!=='menu'){
+  expect(screen.getByRole('button',{name:'Open My workspace tiles'})).toBeTruthy();
+  await waitFor(()=>expect(onSectionWindow.mock.calls.at(-1)?.[5]).toBeTruthy());
+  const overview=onSectionWindow.mock.calls.at(-1)[5];
+  const pin=overview.groups[0].children[0];
+  await act(async()=>overview.onSelect(pin,['weekly']));
+  expect(openWindow).toHaveBeenCalledWith('window://example/orders','Pinned orders',[],expect.objectContaining({providerIdentity:'example',parameters:{RecordId:[7]},resourceRef:{uri:'window://example/orders'}}));
+ }else expect(screen.queryByRole('button',{name:'Open My workspace tiles'})).toBeNull();
+ expect(fetch.mock.calls.length).toBe(reads);
+});
+
+it('changing presentation retains the open pin and does not reopen its resource',async()=>{
+ const {request}=await import('../services/httpClient');
+ const prefs={enabled:true,presentation:'both',groups:[{id:'weekly',label:'Weekly',items:[{id:'orders',kind:'window',provider:'example',uri:'window://example/orders',alias:'Pinned orders'}]}]};
+ request.mockResolvedValueOnce({workspace:prefs}).mockResolvedValueOnce({workspace:{...prefs,presentation:'tiles'}});
+ const payload=layoutPayload({applications:menuApplications});payload.layout.left.navigation.presentation='sections';fetch.mockResolvedValue(response(payload));
+ openWindow.mockImplementation((key,title,refs,options)=>{const entry={windowId:'retained-personal',windowKey:key,parameters:options.parameters};windowSignals.activeWindows.value=[entry];return entry;});
+ const onSectionWindow=vi.fn();
+ render(<WorkspaceSidebar section="workspaces" destination='["agently.personal-workspace","weekly","orders"]' onSectionWindow={onSectionWindow}/>);
+ await waitFor(()=>expect(openWindow).toHaveBeenCalledTimes(1));
+ const reads=fetch.mock.calls.length;
+ await act(async()=>window.dispatchEvent(new CustomEvent('agently:workspace-preferences-changed')));
+ await waitFor(()=>expect(screen.queryByRole('button',{name:'Pinned orders'})).toBeNull());
+ expect(openWindow).toHaveBeenCalledTimes(1);
+ expect(windowSignals.activeWindows.value[0].windowId).toBe('retained-personal');
+ expect(fetch.mock.calls.length).toBe(reads);
+ expect(onSectionWindow.mock.calls.at(-1)?.[5]).toBeUndefined();
+});
+
+it('restores the personal application and retains it during a published layout refresh',async()=>{
+ const {request}=await import('../services/httpClient');
+ request.mockResolvedValueOnce({workspace:{enabled:true,presentation:'both',groups:[{id:'weekly',label:'Weekly',items:[{id:'orders',kind:'window',provider:'example',uri:'window://example/orders',alias:'Pinned orders'}]}]}});
+ const payload=layoutPayload({applications:menuApplications});payload.layout.left.navigation.presentation='sections';
+ fetch.mockResolvedValue(response(payload));
+ window.localStorage.setItem('agently.layoutPreferences.v1:'+JSON.stringify([payload.workspaceId,'menu-test-user',payload.layout.id]),JSON.stringify({activeApp:'agently.personal-workspace'}));
+ const onSectionWindow=vi.fn();
+ render(<WorkspaceSidebar section="workspaces" onSectionWindow={onSectionWindow}/>);
+ const tab=await screen.findByRole('tab',{name:'My workspace'});
+ await waitFor(()=>expect(tab.getAttribute('aria-selected')).toBe('true'));
+ await waitFor(()=>expect(onSectionWindow.mock.calls.at(-1)?.[5]).toBeTruthy());
+ const before=fetch.mock.calls.length;
+ await act(async()=>window.dispatchEvent(new Event('focus')));
+ await waitFor(()=>expect(fetch.mock.calls.length).toBeGreaterThan(before));
+ expect(screen.getByRole('tab',{name:'My workspace'}).getAttribute('aria-selected')).toBe('true');
+ expect(screen.getByRole('button',{name:'Pinned orders'})).toBeTruthy();
+});
+
+it('renames and hides published navigation per user without reopening its active window',async()=>{
+ const {request}=await import('../services/httpClient');
+ request.mockResolvedValueOnce({workspace:{}}).mockResolvedValueOnce({workspace:{applicationLabels:{'["","advertising"]':'My advertising'},menuLabels:{'["","advertising","records"]':'My records'},hiddenMenus:['["","advertising","records"]']}});
+ const payload=layoutPayload({applications:menuApplications});payload.layout.left.navigation.presentation='sections';fetch.mockResolvedValue(response(payload));
+ openWindow.mockImplementation((key,title,refs,options)=>{const entry={windowId:'kept-records',windowKey:key,parameters:options.parameters};windowSignals.activeWindows.value=[entry];return entry;});
+ render(<WorkspaceSidebar section="workspaces" destination='["advertising","records"]'/>);
+ await waitFor(()=>expect(openWindow).toHaveBeenCalledTimes(1));
+ const reads=fetch.mock.calls.length;
+ await act(async()=>window.dispatchEvent(new CustomEvent('agently:workspace-preferences-changed')));
+ await screen.findByRole('tab',{name:'My advertising'});
+ expect(screen.queryByRole('button',{name:'My records'})).toBeNull();
+ expect(openWindow).toHaveBeenCalledTimes(1);
+ expect(windowSignals.activeWindows.value[0].windowId).toBe('kept-records');
+ expect(fetch.mock.calls.length).toBe(reads);
+ expect(payload.layout.applications).toEqual(menuApplications);
+});
+
+it('applies browser-only visibility even when server preferences fail',async()=>{
+ const app={id:'example',title:'Example',menus:[]};
+ const scope=workspaceVisibilityScope('menu-test-workspace',{subject:'menu-test-user'});
+ saveBrowserWorkspaceVisibility(scope,{action:'set_application_visibility',applicationId:workspaceApplicationKey(app),hidden:true});
+ request.mockRejectedValueOnce(new Error('Server preferences unavailable'));
+ fetch.mockResolvedValue(response(layoutPayload({applications:[app,{id:'other',title:'Other',menus:[]}]})));
+ render(<WorkspaceSidebar/>);
+ await screen.findByRole('tab',{name:'Other'});
+ await waitFor(()=>expect(screen.queryByRole('tab',{name:'Example'})).toBeNull());
+ const reads=request.mock.calls.length;
+ await act(async()=>saveBrowserWorkspaceVisibility(scope,{action:'set_application_visibility',applicationId:workspaceApplicationKey(app),hidden:false}));
+ await screen.findByRole('tab',{name:'Example'});
+ expect(request.mock.calls.length).toBe(reads);
+});
+
+it.each(['remove','clear'])('restores navigation when browser visibility storage is %s',async operation=>{
+ const app={id:'example',title:'Example',menus:[]};
+ const scope=workspaceVisibilityScope('menu-test-workspace',{subject:'menu-test-user'});
+ saveBrowserWorkspaceVisibility(scope,{action:'set_application_visibility',applicationId:workspaceApplicationKey(app),hidden:true});
+ fetch.mockResolvedValue(response(layoutPayload({applications:[app,{id:'other',title:'Other',menus:[]}]})));
+ render(<WorkspaceSidebar/>);
+ await screen.findByRole('tab',{name:'Other'});
+ await waitFor(()=>expect(screen.queryByRole('tab',{name:'Example'})).toBeNull());
+ const reads=request.mock.calls.length;
+ await act(async()=>{if(operation==='clear')localStorage.clear();else localStorage.removeItem(visibilityKey(scope));window.dispatchEvent(new StorageEvent('storage',{key:operation==='clear'?null:visibilityKey(scope)}));});
+ await screen.findByRole('tab',{name:'Example'});
+ expect(request.mock.calls.length).toBe(reads);
+});
+
+it.each(['sections','navigation'])('keeps Manage Workspace available when all applications are hidden (%s)',async presentation=>{
+ const app={id:'example',title:'Example',menus:[{id:'orders',title:'Orders',action:{type:'window',windowKey:'orders'}}]};
+ const scope=workspaceVisibilityScope('menu-test-workspace',{subject:'menu-test-user'});
+ saveBrowserWorkspaceVisibility(scope,{action:'set_application_visibility',applicationId:workspaceApplicationKey(app),hidden:true});
+ const payload=layoutPayload({applications:[app]});
+ if(presentation==='sections')payload.layout.left.navigation.presentation='sections';
+ fetch.mockResolvedValue(response(payload));
+ const manage=vi.fn();
+ render(<WorkspaceSidebar section="workspaces" onManageWorkspace={manage}/>);
+ await waitFor(()=>expect(fetch).toHaveBeenCalled());
+ await act(async()=>{});
+ await waitFor(()=>expect(screen.queryByRole('tab',{name:'Example'})).toBeNull());
+ const button=screen.getByRole('button',{name:'Manage Workspace'});
+ expect(button.disabled).toBe(false);
+ fireEvent.click(button);expect(manage).toHaveBeenCalledTimes(1);
+ expect(openWindow).not.toHaveBeenCalled();
+});
+
+it.each(['global','user'])('keeps collapsed groups per user with %s sidebar width', async preferenceScope => {
+ const payload=layoutPayload({applications:[{id:'reports',title:'Reports',menus:[{id:'saved',title:'Saved reports',children:[
+   {id:'weekly',title:'Weekly report',action:{type:'report',resourceUri:'report://example/weekly'}},
+ ]}]}]});
+ payload.layout.left.width={...payload.layout.left.width,preferenceScope,preferenceKey:'fixture-width'};
+ fetch.mockResolvedValue(response(payload));
+ const show=async subject=>{
+   getAuthMeSilently.mockResolvedValue({subject});
+   const view=render(<WorkspaceSidebar/>);
+   return {view,toggle:await screen.findByRole('button',{name:'Saved reports'})};
+ };
+ let {view,toggle}=await show('alice');
+ fireEvent.click(toggle);
+ expect(toggle.getAttribute('aria-expanded')).toBe('false');
+ view.unmount();
+ ({view,toggle}=await show('bob'));
+ expect(toggle.getAttribute('aria-expanded')).toBe('true');
+ view.unmount();
+ ({view,toggle}=await show('alice'));
+ expect(toggle.getAttribute('aria-expanded')).toBe('false');
+ fireEvent.click(toggle);
+ expect(screen.getByRole('button',{name:'Weekly report'})).toBeTruthy();
 });

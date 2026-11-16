@@ -32,6 +32,8 @@ import {trackWorkspaceQueryFocus} from '../services/workspaceQueryContext.js';
 import {belongsToAppSection} from './sectionWindowTree.js';
 import StatusBar from './StatusBar';
 import WorkspaceSidebar from './WorkspaceSidebar';
+import {openWorkspaceSettingsWindow} from '../services/workspaceSettingsWindow';
+import WorkspaceSettingsDestination,{isWorkspaceSettingsWindow} from './WorkspaceSettingsDestination';
 import ScheduleConversationHistory from './ScheduleConversationHistory';
 import ElicitationOverlay from './ElicitationOverlay';
 import { useApprovalQueue } from '../hooks/useApprovalQueue';
@@ -669,7 +671,7 @@ export default function Root() {
   );
   const currentSectionView = sectionView?.section === appSection && sectionView?.destination === sectionDestination ? sectionView : null;
   const sectionWindow = activeWindows.value.find(entry => entry.windowId === currentSectionView?.windowId);
-  const showAppSection = sectionNavigation && appSection !== 'chat';
+  const showAppSection = sectionNavigation && appSection !== 'chat' || !!currentSectionView?.overview;
   const appSectionTitle = appSection === 'workspaces' ? 'Workspaces'
     : layoutTopbarActions.find(entry => `action:${entry.id}` === appSection)?.title || 'Workspace';
   const selectedWindowForTitle = attachResolvedMetrics(selectedWindow);
@@ -1555,9 +1557,13 @@ export default function Root() {
               section={appSection}
               destination={sectionDestination}
               onSectionChange={shellNavigation.selectSection}
+              onManageWorkspace={() => {
+                backendSelection.select('agently');shellNavigation.selectSection('chat');
+                openWorkspaceSettingsWindow(mainConversationId);setWorkspacePresentationMode('split');setActiveSurface('workspace');
+              }}
               onSectionPresentationChange={setSectionNavigation}
-              onSectionWindow={(entry, title, section, destination, error) => {
-                setSectionView({windowId: entry?.windowId, title, section, destination, error});
+              onSectionWindow={(entry, title, section, destination, error, overview) => {
+                setSectionView({windowId: entry?.windowId, title, section, destination, error, overview});
               }}
               brandRef={setBrandMount}
               profileRef={setProfileMount}
@@ -1592,7 +1598,7 @@ export default function Root() {
             />
           ) : null}
           <main className={`app-chat-pane${showChatChrome ? ' is-chat-main-window' : ''}`} inert={sectionNavigation && isCompactShell && isSidebarOpen ? '' : undefined}>
-            {showAppSection ? <AppSectionContent headerMount={viewerHeaderMount} window={sectionWindow} title={appSectionTitle} error={currentSectionView?.error}/> : null}
+            {showAppSection ? <AppSectionContent headerMount={viewerHeaderMount} window={sectionWindow} title={currentSectionView?.overview ? currentSectionView.overview.title || 'My workspace' : appSectionTitle} error={currentSectionView?.error} overview={currentSectionView?.overview}/> : null}
             {backendSelection.visited.map(connection => (
               <div key={connection.id} style={{ display: !showAppSection && backendSelection.selectedId === connection.id ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
                 <AgUiRemoteConversation connection={connection} active={backendSelection.selectedId === connection.id} />
@@ -1665,7 +1671,7 @@ export default function Root() {
                   windowFilter={entry => !belongsToAppSection(activeWindows.value, entry)}
                   isTabVisible={(windowEntry) => windowEntry?.region !== 'app.section' && String(windowEntry?.windowId || '').trim() !== MAIN_CHAT_WINDOW_ID}
                   renderWindowContent={({ window: windowEntry, defaultContent }) => (
-                    String(windowEntry?.presentation || '').trim().toLowerCase() === 'conversationhistory'
+                    isWorkspaceSettingsWindow(windowEntry) ? <WorkspaceSettingsDestination key={windowEntry.windowId}/> : String(windowEntry?.presentation || '').trim().toLowerCase() === 'conversationhistory'
                       ? <ScheduleConversationHistory window={windowEntry} />
                       : isConversationAuditWindow(windowEntry) ? <ConversationAuditWindow key={windowEntry.windowId}/>
                         : isReportWindow(windowEntry) ? <ReportWindow window={windowEntry}/> : defaultContent

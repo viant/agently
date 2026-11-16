@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('forge/core', () => ({waitForUIBridgeReady:vi.fn(async()=>true),getActiveUIBridgeTransportContext:vi.fn(()=>({clientId:'client',sessionId:'session'})),publishUIBridgeSnapshotNow:vi.fn(async()=>{})}));
+vi.mock('forge/core', () => ({waitForUIBridgeReady:vi.fn(async()=>true),getActiveUIBridgeTransportContext:vi.fn(()=>({clientId:'client',sessionId:'session'})),publishUIBridgeSnapshotNow:vi.fn(async()=>true)}));
 vi.mock('./agentlyClient',()=>({client:{applyPermission:vi.fn(async()=>({bound:true}))}}));
 import {client} from './agentlyClient';
 import {publishUIBridgeSnapshotNow} from 'forge/core';
@@ -166,12 +166,36 @@ it('binds restored reports without adding tool payloads',async()=>{
  expect(executeReportingTool).toHaveBeenLastCalledWith('reporting:get_report',{resource:{uri:resource.uri}},expect.any(String));
  expect(client.applyPermission).toHaveBeenLastCalledWith(resource.uri,{windowId:'restored',conversationId:'chat',clientId:'client',bridgeSessionId:'session',resolvedResource:resource});
  expect(publishUIBridgeSnapshotNow).toHaveBeenCalled();
+ expect(publishUIBridgeSnapshotNow.mock.invocationCallOrder.at(-1)).toBeLessThan(client.applyPermission.mock.invocationCallOrder.at(-1));
  expect(result.resource).toBe(resource);
 });
-it('does not publish a restored snapshot when binding fails',async()=>{
+it('publishes frame intent before binding but does not claim a failed bind succeeded',async()=>{
  const before=publishUIBridgeSnapshotNow.mock.calls.length;
  executeReportingTool.mockResolvedValueOnce({resource:{uri:'report://example/summary'}});
  client.applyPermission.mockRejectedValueOnce(Error('Unavailable'));
  await expect(getReport({windowInstance:{windowId:'restored'}})).rejects.toThrow('Unavailable');
- expect(publishUIBridgeSnapshotNow.mock.calls.length).toBe(before);
+ expect(publishUIBridgeSnapshotNow.mock.calls.length).toBe(before+1);
+});
+
+it('leaves ordinary admission with its owner when publication is unavailable',async()=>{
+ executeReportingTool.mockResolvedValueOnce({resource:{uri:'report://example/summary'}});
+ publishUIBridgeSnapshotNow.mockResolvedValueOnce(false);
+ const before=client.applyPermission.mock.calls.length;
+ await getReport({windowInstance:{windowId:'restored'}});
+ expect(client.applyPermission.mock.calls.length).toBe(before+1);
+});
+
+it('checks the publisher saved on a shortcut before binding the report', async () => {
+ const uri = 'report://example/summary';
+ const before = client.applyPermission.mock.calls.length;
+ const snapshots = publishUIBridgeSnapshotNow.mock.calls.length;
+ const request = {resource:{uri}, sourceProvider:'source-a', windowInstance:{windowId:'shortcut'}};
+ executeReportingTool.mockResolvedValueOnce({resource:{uri,providerIdentity:'source-b'}});
+ await expect(getReport(request)).rejects.toMatchObject({status:410});
+ expect(executeReportingTool).toHaveBeenLastCalledWith('reporting:get_report',{resource:{uri},sourceProvider:'source-a'},expect.any(String));
+ expect(client.applyPermission.mock.calls.length).toBe(before);
+ expect(publishUIBridgeSnapshotNow.mock.calls.length).toBe(snapshots);
+ executeReportingTool.mockResolvedValueOnce({resource:{uri,providerIdentity:'source-a'}});
+ expect((await getReport(request)).resource.providerIdentity).toBe('source-a');
+ expect(client.applyPermission.mock.calls.length).toBe(before+1);
 });

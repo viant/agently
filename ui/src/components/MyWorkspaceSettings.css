@@ -1,0 +1,55 @@
+.my-workspace-settings > p,
+.my-workspace-settings > [role="alert"] { max-width: 760px; margin-inline: auto; }
+.my-workspace-group-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.my-workspace-group-heading > div { display: flex; }
+.workspace-label-editor-summary > :is(h2, span) { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.my-workspace-pin-list { list-style: none; padding: 0; margin: 12px 0 0; }
+.my-workspace-pin-list > li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 8px; align-items: center; padding-block: 12px; border-top: 1px solid var(--forge-control-border, var(--app-border)); }
+.my-workspace-pin-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; overflow-wrap: anywhere; }
+.my-workspace-pin-kind { color: var(--forge-text-muted, var(--app-muted)); }
+.my-workspace-settings .app-settings-tabs button { padding-inline: 12px; }
+@media (max-width: 600px) {
+ .my-workspace-settings [data-workspace-move] { --forge-control-height: 44px; }
+ .my-workspace-settings .app-settings-tabs { gap: 4px; flex-wrap: wrap; }
+ .my-workspace-group-heading { flex-direction: column; align-items: stretch; gap: 8px; }
+ .my-workspace-group-heading > div:last-child { align-self: flex-end; }
+ .my-workspace-pin-list > li { gap: 4px; }
+ .my-workspace-pin-name { grid-column: 1 / -1; }
+ .my-workspace-pin-name + button { grid-column: 2; }
+ .my-workspace-pin-name .forge-select-control { max-width: 100%; }
+}
+.my-workspace-pin-list button,
+.my-workspace-group-heading button { min-block-size: 36px; min-inline-size: 36px; }
+@media (max-width: 600px) {
+ .my-workspace-settings .my-workspace-pin-list button,
+ .my-workspace-settings .my-workspace-group-heading button { min-block-size: 44px; min-inline-size: 44px; }
+}
+.my-workspace-settings .app-settings-tabs button[aria-pressed="true"] { border-bottom-color: currentColor; font-weight: 600; }
+.my-workspace-organize-actions { max-width: 760px; margin: 16px auto; }
+.my-workspace-pin-picker form { display: grid; gap: 16px; width: 100%; }
+.my-workspace-pin-picker label { display: grid; gap: 8px; min-width: 0; }
+.my-workspace-pin-picker p { margin-block: 0; }
+.my-workspace-resource-options { list-style: none; padding: 0; margin: 0; max-height: 260px; overflow-y: auto; border-block: 1px solid var(--forge-control-border, var(--app-border)); }
+.my-workspace-resource-options button { min-height: 44px; white-space: normal; overflow-wrap: anywhere; }
+.my-workspace-pin-fields { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 16px; }
+.my-workspace-pin-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.my-workspace-pin-actions button { min-height: 44px; }
+@media (max-width: 600px) { .my-workspace-pin-fields { grid-template-columns: 1fr; } }
+.my-workspace-settings.is-embedded { min-height: 0; height: 100%; overflow-y: auto; padding: 16px; }
+.my-workspace-organize-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.workspace-label-editor { flex: 1; min-width: 0; }
+.workspace-label-editor-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.workspace-label-editor form { display: grid; gap: 8px; }
+.workspace-label-editor form > label { display: grid; gap: 8px; }
+.workspace-label-editor form > div { display: flex; gap: 8px; justify-content: flex-end; }
+.workspace-application-settings > div { width: 100%; }
+.workspace-application-settings details { margin-top: 16px; }
+.workspace-application-settings summary { cursor: pointer; padding-block: 8px; }
+.workspace-application-menus { list-style: none; padding-inline-start: 16px; }
+.workspace-application-menus > li { padding-block: 12px; border-top: 1px solid var(--forge-control-border,var(--app-border)); }
+.workspace-new-group { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; width: 100%; }
+.workspace-new-group > label { display: grid; gap: 8px; flex: 1; }
+.my-workspace-settings .workspace-label-editor button { min-height: 36px; }
+@media (max-width: 600px) { .my-workspace-settings .workspace-label-editor button { min-height: 44px; } }
+.workspace-remove-group { padding: 20px; }
+.workspace-remove-group > div { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }

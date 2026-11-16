@@ -20,6 +20,7 @@
  */
 
 import { useSyncExternalStore } from 'react';
+import {isWorkspacePreferenceChange, notifyWorkspacePreferenceChange} from './personalWorkspace';
 import {
     chatStoreApplyEvent as applyEvent,
     chatStoreApplyLocalSubmit as applyLocalSubmit,
@@ -138,6 +139,7 @@ export function onSSE(conversationId, event) {
     const e = entry(conversationId);
     applyEvent(e.state, event);
     bump(e);
+    if (isWorkspacePreferenceChange(event)) notifyWorkspacePreferenceChange();
 }
 
 /**

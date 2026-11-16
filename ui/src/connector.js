@@ -35,6 +35,8 @@ function uiBridgeClientId() {
   }
 }
 
+import {setWorkspaceVisibility} from './services/workspaceVisibilityService';
+
 export const connectorConfig = {
   workspace: { tabs: String(import.meta.env.VITE_WORKSPACE_TABS || 'auto').trim().toLowerCase() },
   mcpUI: {
@@ -61,6 +63,7 @@ export const connectorConfig = {
   uiBridge: {
     url: '/v1/ui/rpc',
     transport: 'http',
+    setWorkspaceVisibility,
     // Agently refreshes its session with this event; Forge's default event
     // name is different, so an early unauthorized handshake needs this opt-in.
     authReadyEvents: ['agently:authorized', 'forge:authorized'],

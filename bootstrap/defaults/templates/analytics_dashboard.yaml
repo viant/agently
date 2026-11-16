@@ -102,12 +102,13 @@ instructions: |
   - Use `kind`, never `type`; use `dataSourceRef`, never `dataSource`.
   - Use `currency`, `compactNumber`, `percent`, or `percentFraction` formats as appropriate.
 
+  Example opening for the quarterly report:
+  ### Key findings
+  - Spend and delivered volume increased through the quarter.
+  - March recorded the highest impressions and spend.
+
 examples:
-  - title: Markdown plus quarterly performance report
-    markdown: |
-      ### Key findings
-      - Spend and delivered volume increased through the quarter.
-      - March recorded the highest impressions and spend.
+  - title: Quarterly performance report transactions
     fences:
       - lang: forge-data
         body:

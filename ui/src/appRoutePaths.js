@@ -5,6 +5,7 @@ export const appRoutePaths = [
   '/mcp-ui/forge-window',
   '/ui/mcp-ui/forge-window',
   '/ui/settings',
+  '/ui/workspace',
   '/conversation/:conversationId/usage',
   '*',
 ];

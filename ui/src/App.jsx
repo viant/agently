@@ -10,6 +10,7 @@ import OAuthCallback from './components/OAuthCallback';
 import LookupChipPreview from './lookupChipPreview.jsx';
 import MCPUIForgeWindowPage from './components/mcpApps/MCPUIForgeWindowPage.jsx';
 import UISettingsPage from './components/UISettingsPage.jsx';
+import MyWorkspaceSettings from './components/MyWorkspaceSettings.jsx';
 import ConversationUsagePage from './components/ConversationUsagePage.jsx';
 import { endpoints } from './endpoint';
 import { connectorConfig } from './connector';
@@ -61,6 +62,7 @@ export const routes = [
   { path: '/mcp-ui/forge-window', element: <MCPUIForgeWindowPage /> },
   { path: '/ui/mcp-ui/forge-window', element: <MCPUIForgeWindowPage /> },
   { path: '/ui/settings', element: <UISettingsPage /> },
+  { path: '/ui/workspace', element: <MyWorkspaceSettings /> },
   { path: '/conversation/:conversationId/usage', element: <ConversationUsagePage /> },
   { path: '*', element: <Root /> }
 ].map(route => ({...route,errorElement:<ApplicationRouteError/>}));

@@ -34,17 +34,20 @@ export async function getReport(request = {}) {
   if (!result || typeof result !== 'object' || Array.isArray(result)) {
     throw new Error(`unexpected report get response: ${JSON.stringify(result)}`);
   }
+  if (input.sourceProvider && result.resource?.providerIdentity !== input.sourceProvider) {
+    throw Object.assign(new Error('This report is unavailable from its saved publisher.'), {status:410});
+  }
   if (windowInstance && result.resource) {
     await waitForUIBridgeReady();
     const transport = getActiveUIBridgeTransportContext();
     if (!transport?.clientId || !transport?.sessionId) throw new Error('Workspace UI transport is unavailable');
+    await publishUIBridgeSnapshotNow();
     await client.applyPermission(result.resource.uri, {
       windowId: windowInstance.windowId, conversationId: windowInstance.conversationId || '',
       clientId: transport.clientId, bridgeSessionId: transport.sessionId, resolvedResource: result.resource,
     });
     const current = getActiveUIBridgeTransportContext();
     if (current?.clientId !== transport.clientId || current?.sessionId !== transport.sessionId) throw new Error('Workspace UI transport changed');
-    await publishUIBridgeSnapshotNow();
   }
   return result;
 }

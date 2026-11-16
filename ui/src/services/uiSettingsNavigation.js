@@ -3,6 +3,7 @@ const SETTINGS_PATH = '/ui/settings';
 export function safeUIReturnPath(value = '') {
   const candidate = String(value || '').trim();
   if (!candidate.startsWith('/') || candidate.startsWith('//')) return '/';
+  if (candidate === '/ui/workspace' || candidate.startsWith('/ui/workspace?') || candidate.startsWith('/ui/workspace#')) return '/';
   if (candidate === SETTINGS_PATH || candidate.startsWith(`${SETTINGS_PATH}?`) || candidate.startsWith(`${SETTINGS_PATH}#`)) return '/';
   return candidate;
 }
@@ -22,4 +23,9 @@ export function uiSettingsReturnHref(locationLike = globalThis?.window?.location
   } catch (_) {
     return '/';
   }
+}
+
+export function workspaceSettingsHref(locationLike = globalThis?.window?.location) {
+ const source = uiSettingsHref(locationLike);
+ return source.replace('/ui/settings?', '/ui/workspace?');
 }

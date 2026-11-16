@@ -23,7 +23,6 @@ dataSource:
       - field: output
     source: output.commands
 
-countSource: commands
 
 
 ui:

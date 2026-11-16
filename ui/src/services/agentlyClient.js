@@ -68,9 +68,9 @@ export function getAuthenticatedWindowCacheScope() {
   return authMeCacheReady && principal ? protocolSessionOwner : '';
 }
 
-function resetProtocolSession() {
+function resetProtocolSession(owner = '') {
   client.resetAgUiInteractions?.();
-  protocolSessionOwner = '';
+  protocolSessionOwner = owner;
   if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
     window.dispatchEvent(new CustomEvent('agently:session-reset'));
   }
@@ -117,8 +117,8 @@ async function probeAuthMe() {
   return false;
 }
 
-export async function getAuthMeSilently() {
-  if (authMeCacheReady) {
+export async function getAuthMeSilently({refresh = false} = {}) {
+  if (authMeCacheReady && !refresh && !authMeInFlight) {
     return authMeCacheValue;
   }
   if (authMeInFlight) {
@@ -132,12 +132,19 @@ export async function getAuthMeSilently() {
       try {
         const next = await response.json();
         if (ownerGeneration !== workspaceMetadataGeneration) return null;
-        authMeCacheValue = next;
         // This server-issued fence changes on account/credential rotation. It
         // only invalidates cached UI state and is never sent as authorization.
-        const owner = JSON.stringify([authMeCacheValue?.provider || '', authMeCacheValue?.subject || authMeCacheValue?.email || authMeCacheValue?.username || '', authMeCacheValue?.sessionBinding || '']);
-        if (protocolSessionOwner && protocolSessionOwner !== owner) resetProtocolSession();
-        protocolSessionOwner = owner;
+        const owner = JSON.stringify([next?.provider || '', next?.subject || next?.email || next?.username || '', next?.sessionBinding || '']);
+        const changed = Boolean(protocolSessionOwner && protocolSessionOwner !== owner);
+        if (changed) clearAuthMeCache();
+        authMeCacheValue = next;
+        authMeCacheReady = true;
+        if (changed) {
+          resetProtocolSession(owner);
+          dispatchAuthRecovered();
+        } else {
+          protocolSessionOwner = owner;
+        }
       } catch (_) {
         if (ownerGeneration !== workspaceMetadataGeneration) return null;
         authMeCacheValue = null;
@@ -146,6 +153,11 @@ export async function getAuthMeSilently() {
       return authMeCacheValue;
     }
     if (response.status === 401 || response.status === 403) {
+      if (refresh && protocolSessionOwner) {
+        clearAuthMeCache();
+        resetProtocolSession();
+        requireLoginOnce();
+      }
       authMeCacheValue = null;
       authMeCacheReady = true;
       return null;

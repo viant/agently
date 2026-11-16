@@ -201,3 +201,39 @@ it('replaces optional scalar suite on mounted scope changes and omits a removed 
  }
  expect(calls.filter(call=>call.url.includes('get_report'))).toHaveLength(1);
 });
+
+it.each([true, false])('searches a declared lookup and submits its scalar ID (required=%s)', async required => {
+  const pin={providerIdentity:'example',uri:'report://example/locations',kind:'published',contentFingerprint:'exact',authorityBinding:'owner'};
+  const searches=[], runs=[];
+  vi.stubGlobal('fetch', async (url,init) => {
+    const args=JSON.parse(init.body);
+    if(url.includes('/datasources/places/fetch')){
+      searches.push(args);
+      const rows=args.inputs.query==='Valley'?[{id:42,name:'Valley district'}]:[];
+      return new Response(JSON.stringify({rows,dataInfo:{recordCount:rows.length}}));
+    }
+    if(url.includes('run_report')) runs.push(args.parameters);
+    const payload=url.includes('get_report')?{resource:pin,resourceDefinition:{
+      dataSources:{places:{}},builderDefinition:{reportBuilder:{predicates:[{
+        id:'place',label:'Place',kind:'number',required,lookup:{
+          dataSource:'places',queryInput:'query',valueField:'id',display:'name',inputs:[{name:'region'}]
+        }
+      }]}}
+    }}:{resource:pin,reportSpec:{title:'Regional activity'},reportFill:{},reportPrint:{}};
+    return new Response(JSON.stringify({result:JSON.stringify(payload)}),{headers:{'content-type':'application/json'}});
+  });
+  hostServices={reportStore:{getReport,runReport}};
+  render(<ReportWindow window={{windowKey:pin.uri,parameters:{region:3}}}/>);
+  const choose=await screen.findByRole('button',{name:'Choose Place'});
+  expect(screen.queryByRole('spinbutton')).toBeNull();
+  expect(screen.getByRole('button',{name:'Apply filters'}).disabled).toBe(required);
+  fireEvent.click(choose);
+  fireEvent.change(await screen.findByRole('searchbox',{name:'Search place'}),{target:{value:'Valley'}});
+  fireEvent.click(await screen.findByRole('button',{name:'Select Valley district'}));
+  expect(choose.textContent).toContain('Valley district');
+  expect(searches.at(-1)).toEqual({owner:{uri:pin.uri},inputs:{query:'Valley',region:3}});
+  fireEvent.click(screen.getByRole('button',{name:'Apply filters'}));
+  await waitFor(()=>expect(runs).toEqual([{region:3,place:42}]));
+  fireEvent.click(screen.getByRole('button',{name:'Clear Place'}));
+  expect(screen.getByRole('button',{name:'Apply filters'}).disabled).toBe(required);
+});

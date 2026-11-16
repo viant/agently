@@ -4,7 +4,6 @@ import {ForgeThemeBoundary} from "forge/components";
 import WorkspaceAppearanceSettings from './WorkspaceAppearanceSettings';
 import React, { useState } from 'react';
 import ConnectorSettings from './ConnectorSettings';
-import StarterTaskSettings from './StarterTaskSettings';
 import './ConnectorSettings.css';
 import {Button, Switch} from '@blueprintjs/core';
 import { resetUIPreferences, setDeveloperMode, useDeveloperMode } from '../services/uiPreferences';
@@ -12,7 +11,6 @@ import { uiSettingsReturnHref } from '../services/uiSettingsNavigation';
 
 const settingsTabs = [
   {id: 'preferences', label: 'Preferences'},
-  {id: 'starting-tasks', label: 'Starting tasks'},
   {id: 'connectors', label: 'Connectors'},
 ];
 
@@ -34,6 +32,7 @@ export default function UISettingsPage() {
       <header className="app-ui-settings-header">
         <a href={returnHref} className="app-ui-settings-back" aria-label="Back to Agently"><UnifiedIcon name="arrow-left" aria-hidden="true" /> Agently</a>
         <h1>UI Settings</h1>
+        <a href={`/ui/workspace?returnTo=${encodeURIComponent(returnHref)}`}>Manage Workspace</a>
       </header>
       <div role="tablist" aria-label="Settings" className="app-settings-tabs">
         {settingsTabs.map(({id: value, label}, index) => <button key={value} id={`settings-${value}`} role="tab" aria-selected={tab === value} aria-controls={`settings-panel-${value}`} tabIndex={tab === value ? 0 : -1} onClick={() => selectTab(value)} onKeyDown={(event) => {
@@ -48,7 +47,6 @@ export default function UISettingsPage() {
         }}>{label}</button>)}
       </div>
       {tab === 'connectors' ? <div id="settings-panel-connectors" role="tabpanel" aria-labelledby="settings-connectors"><ConnectorSettings /></div> :
-      tab === 'starting-tasks' ? <div id="settings-panel-starting-tasks" role="tabpanel" aria-labelledby="settings-starting-tasks"><StarterTaskSettings /></div> :
       <div id="settings-panel-preferences" role="tabpanel" aria-labelledby="settings-preferences">
       <ComposerDefaultsSettings />
       <WorkspaceAppearanceSettings />

@@ -10,7 +10,6 @@ activation:
   kind: history
   scope: all
 
-countSource: reads
 
 dataSource:
   reads:

@@ -1,0 +1,10 @@
+.personal-workspace-tiles { padding: 24px; width: 100%; overflow-y: auto; }
+.personal-workspace-tiles > header { display: flex; justify-content: space-between; align-items: start; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+.personal-workspace-tiles h1,.personal-workspace-tiles h2 { margin-top: 0; }
+.personal-workspace-tiles section + section { margin-top: 24px; }
+.personal-workspace-tile-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(min(240px,100%),1fr)); gap: 16px; }
+.personal-workspace-tile { min-height: 104px; padding: 20px !important; width: 100%; text-align: left; }
+.personal-workspace-tile > .bp6-button-text { display: flex; align-items: center; gap: 16px; width: 100%; min-width: 0; }
+.personal-workspace-tile .bp6-button-text > span:not(.forge-icon) { display: grid; gap: 8px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.personal-workspace-tile .bp6-button-text > .forge-icon { flex-shrink: 0; }
+@media(max-width:600px) { .personal-workspace-tiles { padding: 16px; } }

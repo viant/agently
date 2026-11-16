@@ -5,6 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 let developerMode = false;
 
 vi.mock('@blueprintjs/core', () => ({
+  Dialog:({isOpen,children})=>isOpen?<div>{children}</div>:null,
+  InputGroup:props=><input {...props}/>,
+  Callout:({children})=><div>{children}</div>,
+  FormGroup:({children})=><div>{children}</div>,
+  TextArea:props=><textarea {...props}/>,
   Icon: ({ icon, ...props }) => <span {...props} data-icon={icon} />,
   Button: ({ text = '', icon = '', minimal: _minimal, ...props }) => <button {...props} data-icon={icon}>{text}</button>,
   Switch: ({ checked, ...props }) => <input {...props} type="checkbox" checked={checked} readOnly />,
@@ -41,12 +46,15 @@ describe('UISettingsPage', () => {
     expect(html).not.toContain('Reset UI defaults');
   });
 
-  it('opens the dedicated starting tasks panel from its URL', () => {
+  it('keeps workspace editing out of user settings even at the old starting-task URL', () => {
     vi.stubGlobal('window', { location: { search: '?tab=starting-tasks' } });
     const html = renderToStaticMarkup(<UISettingsPage />);
-    expect(html).toContain('id="settings-starting-tasks" role="tab" aria-selected="true"');
-    expect(html).toContain('Loading starting tasks');
-    expect(html).not.toContain('Reset UI defaults');
+    expect(html).toContain('Manage Workspace');
+    expect(html).not.toContain('id="settings-starting-tasks"');
+    expect(html).not.toContain('Loading starting tasks');
+    expect(html).toContain('Reset UI defaults');
+    expect(html).toContain('href="/ui/workspace?returnTo=');
+    expect(html).not.toContain('aria-label="Manage Workspace"');
   });
 
   it('reflects an enabled Developer mode preference', () => {

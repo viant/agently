@@ -6,7 +6,7 @@ vi.mock('forge/core',async original=>({...await original(),getActiveUIBridgeTran
 import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
 import {SettingProvider,activeWindows,addWindow,selectedTabId,selectedWindowId,getViewSignal} from 'forge/core';
 import {restoreWindowsFromSnapshot} from 'forge/core/store/signals.js';
-import {buildUISnapshot} from 'forge/core/ui/snapshot.js';
+import {buildUISnapshot,snapshotForRestore} from 'forge/core/ui/snapshot.js';
 import {runUICommand} from 'forge/core/ui/commands.js';
 import AppSectionContent from './AppSectionContent.jsx';
 import WorkspaceWindowContent from './WorkspaceWindowContent.jsx';
@@ -263,7 +263,7 @@ it('recovers a changed publication with a distinct instance and retains applied/
  const next=activeWindows.peek().find(window=>window.windowId!==old.windowId);
  expect(next.windowId).not.toBe(old.windowId);expect(next.parentKey).toBe(old.windowId);
  expect(next.resourceRef).toEqual({uri,revision:'review'});expect(next.conversationId).toBe('example-chat');
- expect(next.parameters).toMatchObject({region:'applied',executeOnOpen:false});
+ expect(next.parameters).toMatchObject({region:'launch',executeOnOpen:false});
  expect(activeWindows.peek().find(window=>window.windowId===old.windowId)).toBe(old);
  await screen.findByLabelText('Region');expect(screen.getByLabelText('Region').value).toBe('draft');
  expect(getViewSignal(next.windowId).peek().report.parameters.region).toBe('applied');
@@ -281,4 +281,227 @@ it.each([403,503])('ordinary %s errors retry the same instance without creating 
  await waitFor(()=>expect(getReport).toHaveBeenCalledTimes(2));
  expect(activeWindows.peek()).toHaveLength(1);
  expect(getReport.mock.calls[1][0].windowInstance.windowId).toBe(entry.windowId);
+});
+
+it.each(['revision','open-time'])('reloads the exact same draft only after an explicit workspace open %s',async mode=>{
+ const uri='report://example/personal';
+ const getReport=vi.fn().mockResolvedValueOnce({resource:{uri,kind:'working',contentFingerprint:'before',authorityBinding:'owner'},resourceDefinition:{reportDocument:{title:'Before edit'}}}).mockResolvedValueOnce({resource:{uri,kind:'working',contentFingerprint:'after',authorityBinding:'owner'},resourceDefinition:{reportDocument:{title:'After edit'}}});
+ const runReport=vi.fn();
+ const entry={windowId:'same-slot',windowKey:uri,resourceRef:{uri,revision:'working'},workspaceObject:{revision:1,lifecycle:{updatedAt:'2026-01-01T00:00:00Z'},lastActivatedBy:{toolName:'ui/view/open',toolCallId:'open-before'}}};
+ const services={reportStore:{getReport,runReport}};
+ const content=window=><SettingProvider services={services}><WorkspaceWindowContent window={window}/></SettingProvider>;
+ const view=render(content(entry));
+ await screen.findByRole('heading',{name:'Before edit'});
+ view.rerender(content({...entry,windowTitle:'Unrelated layout title',workspaceObject:{...entry.workspaceObject,lastActivatedBy:{toolName:'ui/window/show',toolCallId:'focus-only'}}}));
+ expect(getReport).toHaveBeenCalledTimes(1);
+ view.rerender(content({...entry,workspaceObject:{revision:mode==='revision'?2:1,lifecycle:{updatedAt:mode==='open-time'?'2026-01-01T00:00:01Z':'2026-01-01T00:00:00Z'}}}));
+ await screen.findByRole('heading',{name:'After edit'});
+ expect(getReport).toHaveBeenCalledTimes(2);
+ expect(getReport.mock.calls[1][0].windowInstance.windowId).toBe('same-slot');
+ expect(runReport).not.toHaveBeenCalled();
+});
+
+
+it('retires previous report readiness while an explicit same-URI reopen awaits admission',async()=>{
+ const uri='report://example/readiness';
+ let admit;
+ const getReport=vi.fn().mockResolvedValueOnce({resource:{uri,kind:'working',contentFingerprint:'old',authorityBinding:'owner'},resourceDefinition:{reportDocument:{title:'Old title'}}}).mockImplementationOnce(()=>new Promise(resolve=>{admit=resolve;}));
+ const services={reportStore:{getReport,runReport:vi.fn()}};
+ const first=addWindow('Old title',null,uri,null,true,{}, {windowId:'readiness-slot',resourceRef:{uri,revision:'working'},workspaceObject:{revision:1,lifecycle:{state:'ready',updatedAt:'2026-01-01T00:00:00Z'}}});
+ const content=entry=><SettingProvider services={services}><WorkspaceWindowContent window={entry}/></SettingProvider>;
+ const view=render(content(first));
+ await screen.findByRole('heading',{name:'Old title'});
+ getViewSignal(first.windowId).value={report:{resourceUri:uri,status:'ready',hasCompletedRun:true,title:'Old title'}};
+ const reopened={...activeWindows.peek().find(entry=>entry.windowId===first.windowId),workspaceObject:{...first.workspaceObject,lifecycle:{state:'ready',updatedAt:'2026-01-01T00:00:01Z'}}};
+ activeWindows.value=[reopened];
+ view.rerender(content(reopened));
+ await waitFor(()=>expect(getReport).toHaveBeenCalledTimes(2));
+ expect(getViewSignal(first.windowId).peek().report).toMatchObject({status:'opening',hasCompletedRun:false});
+ expect(getViewSignal(first.windowId).peek().report.title).toBeUndefined();
+ const pending=buildUISnapshot().windows.find(entry=>entry.windowId===first.windowId);
+ expect(pending.workspaceObject.lifecycle.state).toBe('opening');
+ expect(screen.queryByRole('heading',{name:'Old title'})).toBeNull();
+ await act(async()=>admit({resource:{uri,kind:'working',contentFingerprint:'new',authorityBinding:'owner'},resourceDefinition:{reportDocument:{title:'New title'}}}));
+ await screen.findByRole('heading',{name:'New title'});
+ expect(activeWindows.peek().find(entry=>entry.windowId===first.windowId).workspaceObject.lifecycle.state).toBe('ready');
+ expect(services.reportStore.runReport).not.toHaveBeenCalled();
+});
+
+it.each([false,true,'keep'])('waits for native reopen admission and reconciles changed predicates (%s)',async changedPredicates=>{
+ const uri='report://example/native-reopen';
+ let admit;
+ const definition=title=>({reportDocument:{title},builderDefinition:{reportBuilder:{predicates:title==='New report'&&changedPredicates?[{id:'newRegion',label:'New region',kind:'text',default:'new authored default'}]:[{id:'region',label:'Region',kind:'text'}]}}});
+ const getReport=vi.fn().mockResolvedValueOnce({resource:{uri,kind:'working',contentFingerprint:'old',authorityBinding:'owner'},resourceDefinition:definition('Old report')}).mockImplementationOnce(()=>new Promise(resolve=>{admit=resolve;}));
+ const services={reportStore:{getReport,runReport:vi.fn()}};
+ const descriptor={version:1,revision:1,objectId:'workspace:native-slot',kind:'report',content:{renderer:'forgeWindow',windowId:'native-slot',windowKey:uri},lifecycle:{state:'opening',updatedAt:'2026-01-01T00:00:00Z'}};
+ const entry=addWindow('Original',null,uri,null,true,{region:'launch',executeOnOpen:false}, {windowId:'native-slot',region:'app.section',presentation:'hosted',resourceRef:{uri,revision:'working'},workspaceObject:descriptor});
+ render(<SettingProvider services={services}><AppSectionContent window={entry}/></SettingProvider>);
+ await screen.findByRole('heading',{name:'Old report'});
+ fireEvent.change(screen.getByLabelText('Region'),{target:{value:'unsaved draft'}});
+ await waitFor(()=>expect(getViewSignal(entry.windowId).peek().report.draftParameters.region).toBe('unsaved draft'));
+ getViewSignal(entry.windowId).value={report:{...getViewSignal(entry.windowId).peek().report,parameters:{region:'applied choice'},status:'ready',hasCompletedRun:true,title:'Old report'}};
+ const before=buildUISnapshot().windows.find(value=>value.windowId===entry.windowId);
+ let acknowledged=false,opening;
+ await act(async()=>{
+  opening=runUICommand({method:'ui.window.open',params:{windowId:entry.windowId,windowKey:uri,windowTitle:'New report',parameters:{executeOnOpen:false,region:'launch'},expectedRevision:before.operationRevision,options:{parentKey:null,region:'app.section',presentation:'hosted',resourceRef:{uri,revision:'working'},workspaceObject:{...descriptor,lifecycle:{state:'opening',updatedAt:'2026-01-01T00:00:01Z'}}}}}).then(value=>{acknowledged=true;return value;});
+ });
+ await waitFor(()=>expect(getReport).toHaveBeenCalledTimes(2));
+ expect(acknowledged).toBe(false);
+ expect(buildUISnapshot().windows.find(value=>value.windowId===entry.windowId).workspaceObject.lifecycle.state).toBe('opening');
+ expect(getViewSignal(entry.windowId).peek().report.hasCompletedRun).toBe(false);
+ expect(screen.queryByRole('heading',{name:'Old report'})).toBeNull();
+ await act(async()=>admit({resource:{uri,kind:'working',contentFingerprint:'new',authorityBinding:'owner'},resourceDefinition:definition('New report')}));
+ if(changedPredicates){
+  const choice=await screen.findByRole('checkbox',{name:'region'});
+  expect(screen.queryByRole('heading',{name:'New report'})).toBeNull();
+  expect(services.reportStore.runReport).not.toHaveBeenCalled();
+  if(changedPredicates==='keep')fireEvent.click(choice);
+  fireEvent.click(screen.getByRole('button',{name:'Continue'}));
+ }
+ await screen.findByRole('heading',{name:'New report'});
+ expect((await opening).workspaceObject.lifecycle.state).toBe('ready');
+ const current=await runUICommand({method:'ui.report.getCurrent',params:{windowId:entry.windowId}});
+ if(changedPredicates){
+  expect(screen.queryByLabelText('Region')).toBeNull();
+  expect(screen.getByLabelText('New region').value).toBe('new authored default');
+  expect(current.request.parameters.newRegion).toBe('new authored default');
+  expect(JSON.stringify(current)).not.toContain('unsaved draft');
+  if(changedPredicates==='keep')expect(current.request.parameters.region).toBe('launch');
+  else {
+   expect(current.request.parameters).not.toHaveProperty('region');
+   expect(buildUISnapshot().windows.find(row=>row.windowId===entry.windowId).parameters).not.toHaveProperty('region');
+  }
+ }else{
+  expect(screen.getByLabelText('Region').value).toBe('unsaved draft');
+  expect(current.request.parameters.region).toBe('applied choice');
+ }
+ const admitted=activeWindows.peek().find(value=>value.windowId===entry.windowId);
+ await act(async()=>{await runUICommand({method:'ui.window.activate',params:{windowId:entry.windowId,workspaceObject:{...admitted.workspaceObject,lastActivatedBy:{toolName:'ui/window/show',toolCallId:'focus-only'}}}});});
+ expect(getReport).toHaveBeenCalledTimes(2);
+ expect(screen.getByRole('heading',{name:'New report'})).toBeTruthy();
+ expect(activeWindows.peek()).toHaveLength(1);
+ expect(services.reportStore.runReport).not.toHaveBeenCalled();
+});
+
+it.each([false,true,'same-id'])('reconciles working report filters after snapshot restore (changed=%s)',async changed=>{
+ const uri='report://users/example/editable';
+ let definition={builderDefinition:{reportBuilder:{predicates:[{id:'region',label:'Region',kind:'text',default:'initial'}]}}};
+ const services={reportStore:{getReport:vi.fn(async()=>({resource:{uri,kind:'working',contentFingerprint:changed?'second':'first'},resourceDefinition:definition})),runReport:vi.fn()}};
+ const entry=addWindow('Editable report',null,uri,'',true,{}, {conversationId:'editable-chat',presentation:'hosted',resourceRef:{uri}});
+ const mount=window=><SettingProvider services={services}><WorkspaceWindowContent window={window}/></SettingProvider>;
+ const view=render(mount(entry));
+ fireEvent.change(await screen.findByLabelText('Region'),{target:{value:'unsaved draft'}});
+ await waitFor(()=>expect(getViewSignal(entry.windowId).peek().report.draftParameters.region).toBe('unsaved draft'));
+ const snapshot=JSON.parse(JSON.stringify(buildUISnapshot()));view.unmount();
+ if(changed)definition={builderDefinition:{reportBuilder:{predicates:[{id:changed==='same-id'?'region':'newRegion',label:changed==='same-id'?'Region':'New region',kind:'text',default:'new default'}]}}};
+ restoreWindowsFromSnapshot(snapshot);
+ render(mount(activeWindows.peek().find(item=>item.windowId===entry.windowId)));
+ const field=await screen.findByLabelText(changed===true?'New region':'Region');
+ await waitFor(()=>expect(field.value).toBe(changed?'new default':'unsaved draft'));
+ const current=await runUICommand({method:'ui.report.getCurrent',params:{windowId:entry.windowId}});
+ if(changed===true){expect(current.draftParameters.region).toBeUndefined();expect(current.request.parameters.region).toBeUndefined();}
+ if(changed==='same-id'){expect(current.draftParameters.region).toBe('new default');expect(current.request.parameters.region).toBe('new default');}
+ if(!changed)expect(current.request.parameters.region).toBe('initial');
+ expect(services.reportStore.runReport).not.toHaveBeenCalled();
+ expect(services.reportStore.getReport).toHaveBeenCalledTimes(2);
+});
+
+it('preserves a working draft without WebCrypto when JSON object keys are reordered',async()=>{
+ vi.stubGlobal('crypto',undefined);
+ const changed=false;
+ const uri='report://users/example/editable';
+ let definition={builderDefinition:{reportBuilder:{predicates:[{id:'region',label:'Region',kind:'text',default:'initial'}]}}};
+ const services={reportStore:{getReport:vi.fn(async()=>({resource:{uri,kind:'working',contentFingerprint:changed?'second':'first'},resourceDefinition:definition})),runReport:vi.fn()}};
+ const entry=addWindow('Editable report',null,uri,'',true,{}, {conversationId:'editable-chat',presentation:'hosted',resourceRef:{uri}});
+ const mount=window=><SettingProvider services={services}><WorkspaceWindowContent window={window}/></SettingProvider>;
+ const view=render(mount(entry));
+ fireEvent.change(await screen.findByLabelText('Region'),{target:{value:'unsaved draft'}});
+ await waitFor(()=>expect(getViewSignal(entry.windowId).peek().report.draftParameters.region).toBe('unsaved draft'));
+ const snapshot=JSON.parse(JSON.stringify(buildUISnapshot()));view.unmount();
+ definition={builderDefinition:{reportBuilder:{predicates:[{default:'initial',kind:'text',label:'Region',id:'region'}]}}};
+ restoreWindowsFromSnapshot(snapshot);
+ render(mount(activeWindows.peek().find(item=>item.windowId===entry.windowId)));
+ const field=await screen.findByLabelText(changed===true?'New region':'Region');
+ await waitFor(()=>expect(field.value).toBe(changed?'new default':'unsaved draft'));
+ const current=await runUICommand({method:'ui.report.getCurrent',params:{windowId:entry.windowId}});
+ if(changed===true){expect(current.draftParameters.region).toBeUndefined();expect(current.request.parameters.region).toBeUndefined();}
+ if(changed==='same-id'){expect(current.draftParameters.region).toBe('new default');expect(current.request.parameters.region).toBe('new default');}
+ if(!changed)expect(current.request.parameters.region).toBe('initial');
+ expect(services.reportStore.runReport).not.toHaveBeenCalled();
+ expect(services.reportStore.getReport).toHaveBeenCalledTimes(2);
+});
+
+it.each(['working','published'])('preserves date drafts through serialized snapshots and pending admission (%s)',async kind=>{
+ const uri='report://example/date-restore';
+ const definition={builderDefinition:{reportBuilder:{predicates:[{id:'period',label:'Period',kind:'dateRange',startParamPath:'filters.from',endParamPath:'filters.to',default:{start:'2026-01-01',end:'2026-01-07'}}]}}};
+ const report={resource:{uri,kind,contentFingerprint:'stable'},resourceDefinition:definition};
+ let finish;
+ const getReport=vi.fn().mockResolvedValueOnce(report).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;})).mockResolvedValue(report);
+ const services={reportStore:{getReport,runReport:vi.fn()}};
+ const entry=addWindow('Dates',null,uri,'',true,{}, {conversationId:'date-replay',presentation:'hosted',resourceRef:{uri}});
+ const mount=window=><SettingProvider services={services}><WorkspaceWindowContent window={window}/></SettingProvider>;
+ const view=render(mount(entry));
+ fireEvent.change(await screen.findByLabelText('Period from'),{target:{value:'2026-01-03'}});
+ await waitFor(()=>expect(getViewSignal(entry.windowId).peek().report.draftParameters.from).toBe('2026-01-03'));
+ let snapshot=JSON.parse(JSON.stringify(buildUISnapshot()));view.unmount();
+ restoreWindowsFromSnapshot(snapshot);
+ const pending=render(mount(activeWindows.peek().find(item=>item.windowId===entry.windowId)));
+ await waitFor(()=>expect(finish).toBeTypeOf('function'));
+ snapshot=JSON.parse(JSON.stringify(buildUISnapshot()));pending.unmount();
+ restoreWindowsFromSnapshot(snapshot);
+ render(mount(activeWindows.peek().find(item=>item.windowId===entry.windowId)));
+ const field=await screen.findByLabelText('Period from');
+ await waitFor(()=>expect(field.value).toBe('2026-01-03'));
+ const current=await runUICommand({method:'ui.report.getCurrent',params:{windowId:entry.windowId}});
+ expect(current.request.parameters.from).toBe('2026-01-01');
+ expect(current).not.toHaveProperty('filterDeclaration');
+ expect(services.reportStore.runReport).not.toHaveBeenCalled();
+ await act(async()=>finish(report));
+ expect(field.value).toBe('2026-01-03');
+});
+
+it('retains a working input draft through the actual snapshot size limits',async()=>{
+ const uri='report://users/example/many-options';
+ const applied=Array.from({length:120},(_,i)=>i+1);
+ const draft=Array.from({length:137},(_,i)=>i+501);
+ const report={resource:{uri,kind:'working',contentFingerprint:'same'},resourceDefinition:{builderDefinition:{reportBuilder:{predicates:[{id:'selection',label:'Selection',kind:'value',multiple:true,default:applied,description:'Example declaration '.repeat(1500)}]}}}};
+ const services={reportStore:{getReport:vi.fn(async()=>report),runReport:vi.fn()}};
+ const entry=addWindow('Options',null,uri,'',true,{}, {conversationId:'options-chat',presentation:'hosted',resourceRef:{uri}});
+ const mount=window=><SettingProvider services={services}><WorkspaceWindowContent window={window}/></SettingProvider>;
+ const view=render(mount(entry));
+ fireEvent.change(await screen.findByLabelText('Selection'),{target:{value:draft.join(',')}});
+ await waitFor(()=>expect(getViewSignal(entry.windowId).peek().report.draftParameters.selection).toEqual(draft));
+ const snapshot=JSON.parse(JSON.stringify(snapshotForRestore(buildUISnapshot({includeCollection:true,includeInlineMetadata:true,includeFullWindowForm:true}))));
+ const saved=snapshot.windows.find(item=>item.windowId===entry.windowId).viewState.report;
+ expect(saved.filterFingerprint).toMatch(/^[a-f0-9]{64}$/);expect(saved).not.toHaveProperty('filterDeclaration');
+ view.unmount();restoreWindowsFromSnapshot(snapshot);
+ render(mount(activeWindows.peek().find(item=>item.windowId===entry.windowId)));
+ const field=await screen.findByLabelText('Selection');
+ await waitFor(()=>expect(field.value.split(',').map(Number)).toEqual(draft));
+ expect(getViewSignal(entry.windowId).peek().report.parameters.selection).toEqual(applied);
+ expect(services.reportStore.runReport).not.toHaveBeenCalled();
+});
+
+it.each([true,false])('reviews additional inputs on first open of a personal shortcut (keep=%s)',async keep=>{
+ const {openWindow}=await import('./menuBarHelpers');
+ const {resolveLayoutReportOptions}=await import('./WorkspaceSidebar');
+ const {PERSONAL_WORKSPACE_ID}=await import('../services/personalWorkspace');
+ const uri='report://example/first-shortcut-open';
+ const definition={reportDocument:{title:'First shortcut open'},builderDefinition:{reportBuilder:{predicates:[{id:'period',label:'Period',kind:'text'}]}}};
+ const services={reportStore:{getReport:vi.fn(async()=>({resource:{uri,kind:'working',providerIdentity:'example',authorityBinding:'owner'},resourceDefinition:definition})),runReport:vi.fn()}};
+ const action={type:'report',providerIdentity:'example',resourceUri:uri,parameters:{formerRegion:'west',period:'monthly',executeOnOpen:false}};
+ const options=resolveLayoutReportOptions(action,'',{},PERSONAL_WORKSPACE_ID);
+ const entry=openWindow(uri,'Monthly',[],options);
+ render(<SettingProvider services={services}><WorkspaceWindowContent window={entry}/></SettingProvider>);
+ const choice=await screen.findByRole('checkbox',{name:'formerRegion'});
+ expect(screen.queryByRole('checkbox',{name:'period'})).toBeNull();
+ expect(services.reportStore.runReport).not.toHaveBeenCalled();
+ if(keep)fireEvent.click(choice);
+ fireEvent.click(screen.getByRole('button',{name:'Continue'}));
+ await screen.findByRole('heading',{name:'First shortcut open'});
+ await waitFor(()=>expect(getViewSignal(entry.windowId).peek().report.parameters.period).toBe('monthly'));
+ const current=getViewSignal(entry.windowId).peek().report;
+ expect(current.parameters.formerRegion).toBe(keep?'west':undefined);
+ expect(current.shortcutInputsPending).toBeUndefined();
+ expect(services.reportStore.runReport).not.toHaveBeenCalled();
 });
