@@ -18,8 +18,6 @@ import (
 	reportprint "github.com/viant/forge/backend/reporting/print"
 )
 
-const defaultActivateTool = "aistudio_reports_activate"
-
 // activateCaller is the transport boundary; tests can supply a caller without
 // changing the CLI's decoding and rendering path.
 type activateCaller func(context.Context, string, string, map[string]any) (json.RawMessage, error)
@@ -37,7 +35,7 @@ func runActivateCLI(ctx context.Context, args []string, out, errOut io.Writer, c
 	fs := flag.NewFlagSet("report-preview activate", flag.ContinueOnError)
 	fs.SetOutput(errOut)
 	endpoint := fs.String("mcp-url", "", "MCP streamable endpoint URL")
-	tool := fs.String("tool", defaultActivateTool, "MCP activation tool name")
+	tool := fs.String("tool", "", "producer-declared MCP activation tool name")
 	groupID := fs.String("group-id", "", "report group identity")
 	reportID := fs.String("report-id", "", "report identity")
 	contextFile := fs.String("context", "", "context JSON object file")
@@ -53,14 +51,11 @@ func runActivateCLI(ctx context.Context, args []string, out, errOut io.Writer, c
 	if strings.TrimSpace(*endpoint) == "" || strings.TrimSpace(*tool) == "" || strings.TrimSpace(*groupID) == "" || strings.TrimSpace(*reportID) == "" {
 		return fmt.Errorf("activate requires --mcp-url, --group-id, --report-id and a nonempty --tool")
 	}
-	if *limit < 1 || *limit > 1000 {
-		return fmt.Errorf("--limit must be 1..1000")
+	if *limit < 1 {
+		return fmt.Errorf("--limit must be positive")
 	}
 	contextValue, err := readActivateObject(*contextFile)
 	if err != nil {
-		return fmt.Errorf("--context: %w", err)
-	}
-	if err := validateActivationContext(contextValue); err != nil {
 		return fmt.Errorf("--context: %w", err)
 	}
 	parameters, err := readActivateObject(*parametersFile)
@@ -133,6 +128,7 @@ func readActivateObject(path string) (map[string]any, error) {
 	}
 	var value map[string]any
 	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
 	if err := decoder.Decode(&value); err != nil {
 		return nil, err
 	}
@@ -143,28 +139,4 @@ func readActivateObject(path string) (map[string]any, error) {
 		return nil, fmt.Errorf("expected a single JSON object")
 	}
 	return value, nil
-}
-
-func validateActivationContext(value map[string]any) error {
-	for key, raw := range value {
-		if key != "entities" {
-			return fmt.Errorf("only entities may narrow the report context")
-		}
-		entities, ok := raw.([]any)
-		if !ok || len(entities) > 1000 {
-			return fmt.Errorf("entities must be an array of at most 1000 selections")
-		}
-		for _, entry := range entities {
-			entity, ok := entry.(map[string]any)
-			if !ok || len(entity) != 2 {
-				return fmt.Errorf("each entity requires type and id")
-			}
-			entityType, typeOK := entity["type"].(string)
-			entityID, idOK := entity["id"].(string)
-			if !typeOK || !idOK || strings.TrimSpace(entityType) == "" || strings.TrimSpace(entityID) == "" {
-				return fmt.Errorf("each entity requires nonempty type and id")
-			}
-		}
-	}
-	return nil
 }

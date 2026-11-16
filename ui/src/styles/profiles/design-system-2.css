@@ -1,6 +1,6 @@
 /* Agently's Design System 2.0 adapter. Shared shell and chat anatomy remains
  * in its component styles; these values and visual states apply only while the
- * published Steward profile is selected. */
+ * published appearance profile is selected. */
 :root:where(.agently-application[data-agently-theme="design-system-2"]) {
   --app-bg: var(--forge-canvas, #f5f6f8);
   --app-surface: var(--forge-surface, #ffffff);
@@ -49,7 +49,7 @@
   box-shadow: var(--forge-menu-shadow, none);
 }
 
-/* Conversation roles come from Forge and Steward semantics. */
+/* Conversation roles come from the selected profile’s semantic tokens. */
 .agently-application[data-agently-theme="design-system-2"] .app-bubble-row .app-bubble-avatar { display: none; }
 .agently-application[data-agently-theme="design-system-2"] .app-bubble-row-user { justify-content: flex-end; }
 .agently-application[data-agently-theme="design-system-2"] .app-bubble-user { flex: 0 1 auto; width: auto; max-width: min(780px, 88%); border-color: transparent; box-shadow: none; }

@@ -44,28 +44,40 @@ go run ./preview/cmd/report-preview export ./preview/report/examples/demo \
   --out operations.csv --block operationsTable
 go run ./preview/cmd/report-preview export ./preview/report/examples/demo \
   --out operations.xlsx --block operationsTable
-
-go run ./preview/cmd/report-preview activate \
-  --mcp-url http://127.0.0.1:9000/mcp --group-id sample --report-id operations \
-  --tool aistudio_reports_activate --context context.json \
-  --parameters parameters.json --limit 1000 --out report.pdf
 ```
 
-`activate` calls the named MCP tool directly. It defaults to
-`aistudio_reports_activate`; `--tool` selects a different tool explicitly. It
-requires `--mcp-url`, `--group-id`, and `--report-id`, takes optional JSON object
-files for `--context` and `--parameters`, and defaults to a 1,000 row limit per
-dataset. Without `--out`, it prints the validated activated report as JSON.
-Context may contain only a narrowing `entities` array, for example
-`{"entities":[{"type":"project","id":"101"}]}`; it cannot supply roles or
-an authorization context.
-An `.html` or `.pdf` output path renders every page from the validated Forge
-`ReportPrint`; any other output extension writes JSON. No fixture folder is used.
-The standalone preview CLI does not attach OAuth credentials. For a protected
-AI Studio MCP endpoint, an Agently host should invoke the tool through its
-configured MCP manager and pass the response to Agently Core's shared
-`DecodeActivatedMCPReport` function; the local CLI is suited to mock or
-otherwise accessible endpoints.
+For a published report, use the authenticated Agently host that has the namespace's
+cohort. Search its report catalog, then run the `resource` returned for your
+selection, including its publisher and revision. The example uses a sample namespace.
+
+```sh
+agently mcp run --api "$AGENTLY_API" --name reporting:list_reports \
+  --args '{"namespace":"sample","search":"operations"}'
+
+# selected.json contains {"resolvedResource": <resource from the listing>,
+#                         "parameters": <inputs for this report>}.
+agently mcp run --api "$AGENTLY_API" --name reporting:run_report \
+  --args @selected.json
+```
+
+The host resolves the selected report through its published definition and
+enforces current access to its data sources. If the catalog marks the report
+unavailable, it has no executable resource pin. For a producer-declared context filter, pass a namespace and a typed `scope` such as `{"key":"collection","value":"western"}`. Continue with `nextCursor` even if the current scoped page has no matches.
+
+For a standalone producer that implements the activated-report protocol, supply
+its endpoint and the tool name from its published tool catalog explicitly:
+
+```sh
+go run ./preview/cmd/report-preview activate \
+  --mcp-url "$MCP_URL" --tool "$ACTIVATION_TOOL" --group-id sample --report-id operations \
+  --context context.json --parameters parameters.json --out report.pdf
+```
+
+The standalone client forwards the supplied context and parameters as JSON objects.
+The producer owns their schema and validates the requested row limit (default
+1,000 per dataset). The CLI checks the returned group/report identity and renders
+the Forge print artifact as HTML or PDF, or writes the activated report as JSON.
+This standalone utility does not attach OAuth credentials.
 
 Use `--parameters parameters.json` for report parameter values, `--variant name`
 for overlays, and `--request -` to read a query from stdin. Flags may appear before

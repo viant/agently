@@ -4,7 +4,7 @@
 
 `ui/src/styles/shell.css` holds the shared application structure and incumbent
 Baseline values. `ui/src/styles/profiles/design-system-2.css` is the opt-in
-adapter for Steward's semantic colors, typography, menus and conversation
+adapter for the selected profile’s semantic colors, typography, menus and conversation
 roles. Component files keep neutral anatomy; 2.0-only visual states require
 the explicit `data-agently-theme="design-system-2"` boundary. The theme
 provider selects a profile and Light/Dark mode from the published catalog.

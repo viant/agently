@@ -26,21 +26,21 @@ describe('MCPUIForgeWindowPage current helpers', () => {
   });
 
   it('shows the authored title without source prefixes while retaining routing identity', () => {
-    const key = 'window://platform/deliver/orders';
+    const key = 'window://example/detail/records';
     expect(buildWindowPayload(key, { data: {
-      namespace: 'AI Studio', title: 'Orders', resource: { providerIdentity: 'aistudio' },
+      namespace: 'Example workspace', title: 'Records', resource: { providerIdentity: 'example-publisher' },
     } }, {})).toMatchObject({
-      windowKey: key, namespace: 'AI Studio', windowTitle: 'Orders',
-      resource: { providerIdentity: 'aistudio' },
+      windowKey: key, namespace: 'Example workspace', windowTitle: 'Records',
+      resource: { providerIdentity: 'example-publisher' },
     });
   });
 
   it('uses the original window title or a neutral fallback instead of source or panel labels', () => {
     expect(buildWindowPayload('window://platform/reports', {
-      data: { namespace: 'AI Studio', viewMetadata: { title: 'Reports' } },
+      data: { namespace: 'Example workspace', viewMetadata: { title: 'Reports' } },
     }, {}).windowTitle).toBe('Reports');
     expect(buildWindowPayload('window://platform/reports', {
-      data: { namespace: 'AI Studio', windowTitle: 'AI Studio: Reports', view: { content: { title: 'Panel' } } },
+      data: { namespace: 'Example workspace', windowTitle: 'Example workspace: Reports', view: { content: { title: 'Panel' } } },
     }, {}).windowTitle).toBe('Workspace');
   });
 

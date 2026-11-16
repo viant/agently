@@ -104,11 +104,11 @@ instructions: |
 
   Example opening for the quarterly report:
   ### Key findings
-  - Spend and delivered volume increased through the quarter.
-  - March recorded the highest impressions and spend.
+  - Completed records rose from 1,150 in January to 1,680 in March.
+  - March had 20 unprocessed records, compared with 50 in January.
 
 examples:
-  - title: Quarterly performance report transactions
+  - title: Quarterly processing report transactions
     fences:
       - lang: forge-data
         body:
@@ -121,17 +121,17 @@ examples:
           mode: replace
           data:
             - month: January
-              impressions: 1250000
-              clicks: 18750
-              spend: 45210.75
+              received: 1200
+              completed: 1150
+              operatingCost: 860.40
             - month: February
-              impressions: 1385000
-              clicks: 21430
-              spend: 49880.20
+              received: 1450
+              completed: 1410
+              operatingCost: 981.50
             - month: March
-              impressions: 1492000
-              clicks: 23890
-              spend: 53440.60
+              received: 1700
+              completed: 1680
+              operatingCost: 1062.25
       - lang: forge-report
         body:
           version: 1
@@ -140,31 +140,31 @@ examples:
           sequence: 2
           mode: start
           grammar: dashboard-v1
-          title: Quarterly Media Performance
+          title: Quarterly Processing Activity
           blocks:
             - id: quarterly_summary
               kind: dashboard.summary
               dataSourceRef: monthly_performance
               metrics:
-                - field: impressions
-                  label: Impressions
+                - field: received
+                  label: Records received
                   format: compactNumber
-                - field: clicks
-                  label: Clicks
+                - field: completed
+                  label: Records completed
                   format: compactNumber
-                - field: spend
-                  label: Spend
+                - field: operatingCost
+                  label: Operating cost
                   format: currency
-            - id: spend_timeline
+            - id: cost_timeline
               kind: dashboard.timeline
-              title: Monthly Spend
+              title: Monthly operating cost
               dataSourceRef: monthly_performance
               chart:
                 type: line
                 xAxis:
                   dataKey: month
                 series:
-                  valueKey: spend
+                  valueKey: operatingCost
             - id: monthly_table
               kind: dashboard.table
               title: Monthly Detail
@@ -172,14 +172,14 @@ examples:
               columns:
                 - key: month
                   label: Month
-                - key: impressions
-                  label: Impressions
+                - key: received
+                  label: Records received
                   format: compactNumber
-                - key: clicks
-                  label: Clicks
+                - key: completed
+                  label: Records completed
                   format: compactNumber
-                - key: spend
-                  label: Spend
+                - key: operatingCost
+                  label: Operating cost
                   format: currency
       - lang: forge-report
         body:

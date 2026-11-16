@@ -113,13 +113,17 @@ func TestActivateCallerAndValidation(t *testing.T) {
 	called := false
 	caller := func(_ context.Context, endpoint, tool string, values map[string]any) (json.RawMessage, error) {
 		called = true
-		if endpoint != "http://localhost:1/mcp" || tool != defaultActivateTool || values["limit"] != 1000 {
+		if endpoint != "http://localhost:1/mcp" || tool != "chosen_activation" || values["limit"] != 1000 {
 			t.Fatalf("unexpected default call: %s %s %+v", endpoint, tool, values)
 		}
 		return body, nil
 	}
+	if err := runActivateCLI(context.Background(), args, &output, &output, caller); err == nil || called {
+		t.Fatalf("missing tool must fail before dispatch: %v, called=%v", err, called)
+	}
+	args = append(args, "--tool", "chosen_activation")
 	if err := runActivateCLI(context.Background(), args, &output, &output, caller); err != nil || !called {
-		t.Fatalf("default caller: %v, called=%v", err, called)
+		t.Fatalf("explicit caller: %v, called=%v", err, called)
 	}
 	output.Reset()
 	bad := strings.Replace(string(body), `"groupId":"sample"`, `"groupId":"other"`, 1)
@@ -132,15 +136,20 @@ func TestActivateCallerAndValidation(t *testing.T) {
 	if err := runActivateCLI(context.Background(), append(args, "--limit", "0"), &output, &output, caller); err == nil {
 		t.Fatal("accepted invalid limit")
 	}
-	if err := runActivateCLI(context.Background(), append(args, "--limit", "1001"), &output, &output, caller); err == nil {
-		t.Fatal("accepted limit above the server cap")
-	}
-	contextFile := filepath.Join(t.TempDir(), "invalid-context.json")
-	if err := os.WriteFile(contextFile, []byte(`{"auth":{"roles":["admin"]}}`), 0600); err != nil {
+	contextFile := filepath.Join(t.TempDir(), "producer-context.json")
+	if err := os.WriteFile(contextFile, []byte(`{"period":"evening","partition":9007199254740993}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := runActivateCLI(context.Background(), append(args, "--context", contextFile), &output, &output, caller); err == nil {
-		t.Fatal("caller-supplied auth context was accepted")
+	err = runActivateCLI(context.Background(), append(args, "--context", contextFile, "--limit", "1200"), &output, &output,
+		func(_ context.Context, _, _ string, values map[string]any) (json.RawMessage, error) {
+			want := map[string]any{"period": "evening", "partition": json.Number("9007199254740993")}
+			if !reflect.DeepEqual(values["context"], want) || values["limit"] != 1200 {
+				t.Fatalf("producer input changed: %#v", values)
+			}
+			return body, nil
+		})
+	if err != nil {
+		t.Fatal(err)
 	}
 	if err := os.WriteFile(contextFile, []byte(strings.Repeat(" ", (64<<10)+1)), 0600); err != nil {
 		t.Fatal(err)
