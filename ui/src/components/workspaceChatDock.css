@@ -57,3 +57,90 @@
 .app-chat-pane:has(> .app-workspace-chat-dock.is-split[data-expanded="true"]) > .app-section-page {
   flex: 1 1 auto; min-width: 0;
 }
+
+/* One non-modal floating surface; the workspace remains usable beside it. */
+.agently-application[data-agently-theme="design-system-2"] .app-chat-pane > .app-workspace-chat-dock.is-overlay {
+  left: 50%; right: auto; transform: translateX(-50%);
+  width: min(560px, calc(100% - 32px)); height: min(560px, calc(100% - 48px));
+  gap: 0; overflow: hidden; border: var(--forge-border-width, 1px) solid var(--forge-border-color);
+  border-radius: var(--forge-radius-surface, 12px);
+  background: var(--forge-surface); box-shadow: var(--forge-modal-shadow);
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay > .app-workspace-chat-controls {
+  align-items: center; padding: 8px 12px 8px 16px;
+  border-bottom: var(--forge-border-width, 1px) solid var(--forge-border-color);
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay > .app-workspace-chat-controls::before {
+  content: "Chat" / ""; margin-right: auto; color: var(--forge-text);
+  font-weight: var(--forge-type-label-weight, 600);
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay .forge-document-chat {
+  gap: 0; background: transparent;
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay .agently-workspace { background: transparent; }
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay .chat-feed-stage {
+  flex: 1 1 auto !important; max-height: none; min-height: 0;
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay .app-chat-feed {
+  margin: 0; padding: 16px; border: 0; border-radius: 0; background: transparent; box-shadow: none;
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay .forge-document-composer {
+  width: 100%; margin: 0; padding: 12px;
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay .forge-document-composer-shell { box-shadow: none; }
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay:has(.forge-document-chat.is-starting) { height: auto; }
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay .forge-document-chat.is-starting { height: auto !important; }
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay:has(.chat-feed-stage:empty) { height: auto; }
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay:has(.chat-feed-stage:empty) .forge-document-chat { height: auto !important; }
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay .chat-feed-stage:empty { display: none !important; }
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-dock.is-overlay:has(.chat-feed-stage:empty) :is(div, section):has(.forge-document-composer) {
+  flex: 0 0 auto !important; height: auto !important; width: 100%;
+}
+
+/* Local DS2 positioning controls reuse the mounted chat and native drag owner. */
+.agently-application[data-agently-theme="design-system-2"] .app-chat-pane:has(> .app-workspace-chat-dock.is-split[data-expanded="true"][data-chat-side="left"]) {
+  flex-direction: row-reverse;
+}
+.agently-application[data-agently-theme="design-system-2"] .app-chat-pane > .app-workspace-chat-dock.is-split[data-chat-side="left"] {
+  border-inline-start: 0;
+  border-inline-end: var(--forge-border-width, 1px) solid var(--forge-border-color);
+}
+.agently-application[data-agently-theme="design-system-2"] .app-chat-pane > .app-workspace-chat-dock.is-split[data-chat-side="right"] {
+  border-inline-end: 0;
+  border-inline-start: var(--forge-border-width, 1px) solid var(--forge-border-color);
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-title {
+  margin-inline-end: auto;
+  font-family: var(--forge-type-label-family);
+  font-size: var(--forge-type-label-size);
+  line-height: var(--forge-type-label-line-height);
+  font-weight: var(--forge-type-label-weight);
+  color: var(--forge-text);
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-controls[data-chat-options="true"]::before {
+  display: none;
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-controls[data-chat-options="true"] {
+  align-items: center;
+  gap: var(--forge-spacing-1);
+  padding: var(--forge-spacing-2) var(--forge-spacing-3) var(--forge-spacing-2) var(--forge-spacing-4);
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-controls[data-movable="true"] {
+  cursor: grab;
+  touch-action: none;
+}
+.agently-application[data-agently-theme="design-system-2"] .react-draggable-dragging > .app-workspace-chat-controls[data-movable="true"] {
+  cursor: grabbing;
+}
+.agently-application[data-agently-theme="design-system-2"] .app-workspace-chat-controls[data-movable="true"] button {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+@media (max-width: 800px) {
+  .agently-application[data-agently-theme="design-system-2"] .app-chat-pane:has(> .app-workspace-chat-dock.is-split[data-expanded="true"][data-chat-side]) {
+    flex-direction: column;
+  }
+  .agently-application[data-agently-theme="design-system-2"] .app-chat-pane > .app-workspace-chat-dock.is-split[data-chat-side] {
+    border-inline: 0;
+  }
+}

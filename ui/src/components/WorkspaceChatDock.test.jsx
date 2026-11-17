@@ -2,9 +2,11 @@
 import React, {useEffect, useState} from 'react';
 import {render, fireEvent, screen, cleanup} from '@testing-library/react';
 import {afterEach, expect, it, vi} from 'vitest';
-vi.mock('forge/components',async()=>({Button:(await import('forge/components/Button.jsx')).default}));
+const theme = vi.hoisted(() => ({id: 'baseline'}));
+vi.mock('./WorkspaceStyleProvider', () => ({useWorkspaceStyle: () => ({state: {themeId: theme.id}})}));
+vi.mock('forge/components',async()=>({Button:(await import('forge/components/Button.jsx')).default, DropdownMenu:(await import('forge/components/DropdownMenu.jsx')).default}));
 import WorkspaceChatDock from './WorkspaceChatDock.jsx';
-afterEach(cleanup);
+afterEach(() => {cleanup(); theme.id = 'baseline';});
 it('retains one conversation and draft across opening, closing, and leaving a workspace',()=>{
   let mounts=0;
   function Conversation(){const [value,setValue]=useState('');useEffect(()=>{mounts++;},[]);return <input aria-label="Message" value={value} onChange={event=>setValue(event.target.value)}/>;}
@@ -43,4 +45,44 @@ it('opens split chat directly from the closed launcher', () => {
   fireEvent.click(screen.getByRole('button', {name:'Overlay'}));
   expect(chat.classList.contains('is-overlay')).toBe(true);
   expect(chat.classList.contains('is-split')).toBe(false);
+});
+
+it('changes split position only in DS2 without replacing the conversation or draft', () => {
+  theme.id = 'design-system-2';
+  let mounts = 0;
+  function Conversation() {
+    useEffect(() => {mounts++;}, []);
+    return <textarea aria-label="Message" defaultValue="Keep my draft"/>;
+  }
+  const view = render(<WorkspaceChatDock active><Conversation/></WorkspaceChatDock>);
+  fireEvent.click(screen.getByRole('button', {name: 'Open chat in split view'}));
+  const message = screen.getByLabelText('Message');
+  const dock = screen.getByRole('region', {name: 'Workspace chat'});
+  expect(dock.dataset.chatSide).toBe('left');
+  fireEvent.click(screen.getByRole('button', {name: 'Chat options'}));
+  fireEvent.click(screen.getByRole('menuitem', {name: 'Split on left'}));
+  expect(dock.dataset.chatSide).toBe('left');
+  fireEvent.click(screen.getByRole('button', {name: 'Chat options'}));
+  expect(screen.getByRole('menuitem', {name: 'Split on left'}).getAttribute('aria-current')).toBe('true');
+  fireEvent.click(screen.getByRole('menuitem', {name: 'Split on right'}));
+  expect(dock.dataset.chatSide).toBe('right');
+  fireEvent.click(screen.getByRole('button', {name: 'Chat options'}));
+  fireEvent.click(screen.getByRole('menuitem', {name: 'Overlay'}));
+  const moveHeader = screen.getByRole('group', {name: /Move chat/});
+  fireEvent.keyDown(moveHeader, {key: 'ArrowLeft'});
+  expect(dock.style.transform).toContain('-16px');
+  fireEvent.click(screen.getByRole('button', {name: 'Chat options'}));
+  fireEvent.click(screen.getByRole('menuitem', {name: 'Reset position'}));
+  expect(dock.style.transform).not.toContain('-16px');
+  fireEvent.keyDown(moveHeader, {key: 'ArrowUp'});
+  fireEvent.keyDown(moveHeader, {key: 'Home'});
+  expect(dock.style.transform).not.toContain('-16px');
+  expect(screen.getByLabelText('Message')).toBe(message);
+  expect(message.value).toBe('Keep my draft');
+  theme.id = 'baseline';
+  view.rerender(<WorkspaceChatDock active><Conversation/></WorkspaceChatDock>);
+  expect(screen.queryByRole('button', {name: 'Chat options'})).toBeNull();
+  expect(dock.dataset.chatSide).toBeUndefined();
+  expect(screen.getByLabelText('Message')).toBe(message);
+  expect(mounts).toBe(1);
 });

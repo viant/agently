@@ -782,3 +782,11 @@ NavigationSpecimen uses the real Forge Chat with long synthetic conversation
 content and a full-height flex host. The typography browser gate verifies the
 input and Send control are inside the expanded overlay, transcript scrolling,
 collapsed visibility, and draft preservation when switching back to split mode.
+
+## DS2 workspace chat placement
+
+The existing WorkspaceChatDock keeps its single mounted conversation while changing presentation. DS2 opens split chat on the left by default and uses one ghost three-dot Chat options trigger with Split on left, Split on right and Overlay choices. The current choice uses the shared semantic selected background and foreground without a decorative checkmark. The native dropdown owns dismissal, keyboard movement, Escape, focus return and the expanded ghost-trigger treatment. Baseline retains its existing controls.
+
+The overlay moves by its header using the installed drag library, remains within the workspace and reclamps after resize. Reset position returns it to its centered starting position. Keyboard users can focus the header and use arrow keys to move or Home to reset. Focus stays inside the existing border through the shared keyboard-only recipe; pointer activation adds no outer ring. Drafts stay mounted across placement, closing, reopening and theme changes. The local placement preview uses these actual controls with independently authored sample content and the exact shared Global CSS definition.
+
+Design reference: ChatGPT's compact, movable [companion window](https://help.openai.com/en/articles/9295241-accessing-the-launcher-chatgpt-macos-app). The left/right choice is this host's workspace control.
