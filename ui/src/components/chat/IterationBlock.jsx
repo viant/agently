@@ -3,6 +3,7 @@ import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@blueprintjs/core';
 import {Button as SharedButton, Icon as SharedIcon, typographyProps} from 'forge/components';
 import RunProgressView, {RunActivity, RunNotice} from '../RunProgressView.jsx';
+import {useWorkspaceStyle} from '../WorkspaceStyleProvider';
 import {ReviewAction} from '../RequestReviewDialog.jsx';
 import '../../styles/iteration.css';
 import '../executionDetails.css';
@@ -1803,6 +1804,16 @@ export function resolveCanonicalDetailStep(canonicalRow = null, step = {}) {
 function NativeIterationBlock({ message, canonicalRow = null, conversationId = '', progress = null, context, showToolFeedDetail = true, suppressBubble = false, retryPrompt = '', attachment = null }) {
   const { showDetail } = useContext(DetailContext);
   const { developerMode = false, showIntakeDetails = false, toolFeedDock = 'inline', presentation } = useContext(ConversationViewContext);
+  const workspaceStyle = useWorkspaceStyle();
+  const stateIcons = presentation === 'document' && workspaceStyle?.state.themeId === 'design-system-2';
+  const stepStatusIcon = (status, fallback) => {
+    if (!stateIcons) return fallback;
+    const tone = statusTone(status);
+    return <SharedIcon name={tone === 'success' ? 'lucide:check'
+      : tone === 'error' || tone === 'warning' ? 'lucide:circle-alert'
+        : tone === 'running' ? 'lucide:loader-circle' : 'lucide:circle'}
+      className={tone === 'running' ? 'app-run-progress-spinner' : undefined} aria-hidden="true"/>;
+  };
   const executionDetailsId = React.useId();
   const ReviewRequestButton = presentation === 'document' ? SharedButton : Button;
   const data = buildIterationDataFromCanonicalRow(canonicalRow, message);
@@ -2307,7 +2318,7 @@ function NativeIterationBlock({ message, canonicalRow = null, conversationId = '
         <React.Fragment key={nodeKey}>
           <div className="app-iteration-tool-row">
             <div className="app-iteration-tool-row-main">
-              <span className="app-iteration-tool-icon">{presentation === 'document' ? <SharedIcon name="lucide:sliders-horizontal"/> : displayItemRowIcon(toolStep)}</span>
+              <span className="app-iteration-tool-icon">{stepStatusIcon(toolStep?.status, presentation === 'document' ? <SharedIcon name="lucide:sliders-horizontal"/> : displayItemRowIcon(toolStep))}</span>
               <span {...(presentation === 'document' ? typographyProps('label') : {})} className="app-iteration-tool-row-title">{displayItemRowTitle(toolStep)}</span>
               {canInspect && toolStepSummaryText(toolStep) ? (
                 <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className="app-iteration-model-summary">{toolStepSummaryText(toolStep)}</span>
@@ -2354,7 +2365,7 @@ function NativeIterationBlock({ message, canonicalRow = null, conversationId = '
       {modelStep ? (
         <div className="app-iteration-model-row">
           <div className="app-iteration-tool-row-main">
-            <span className="app-iteration-model-icon">{presentation === 'document' ? <SharedIcon name="lucide:message-square"/> : displayStepIcon({ ...modelStep, kind: 'model' })}</span>
+            <span className="app-iteration-model-icon">{stepStatusIcon(modelStep?.status, presentation === 'document' ? <SharedIcon name="lucide:message-square"/> : displayStepIcon({ ...modelStep, kind: 'model' }))}</span>
             <span {...(presentation === 'document' ? typographyProps('label') : {})} className="app-iteration-model-title">{canInspect ? stepTitle({ ...modelStep, kind: 'model' }) : 'Preparing response'}</span>
             {canInspect && phaseBadgeLabel(group) ? (
               <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className="app-iteration-model-summary">{phaseBadgeLabel(group)}</span>
@@ -2382,7 +2393,7 @@ function NativeIterationBlock({ message, canonicalRow = null, conversationId = '
       {showToolOnlyHeader ? (
         <div className="app-iteration-model-row">
           <div className="app-iteration-tool-row-main">
-            <span className="app-iteration-model-icon">{presentation === 'document' ? <SharedIcon name="lucide:sliders-horizontal"/> : phaseBadgeLabel(group) || displayStepIcon({ kind: 'tool' })}</span>
+            <span className="app-iteration-model-icon">{stepStatusIcon(group?.status, presentation === 'document' ? <SharedIcon name="lucide:sliders-horizontal"/> : phaseBadgeLabel(group) || displayStepIcon({ kind: 'tool' }))}</span>
             <span {...(presentation === 'document' ? typographyProps('label') : {})} className="app-iteration-model-title">{String(group?.title || '').trim() || 'Execution step'}</span>
           </div>
           <div className="app-iteration-tool-row-meta">
@@ -2402,7 +2413,7 @@ function NativeIterationBlock({ message, canonicalRow = null, conversationId = '
             {lifecycleTools.map((toolStep, toolIndex) => (
               <div className="app-iteration-tool-row" key={`${group.id}:lifecycle:${toolIndex}:${stepKey(toolStep)}`}>
                 <div className="app-iteration-tool-row-main">
-                  <span className="app-iteration-tool-icon">{presentation === 'document' ? <SharedIcon name="lucide:sliders-horizontal"/> : displayItemRowIcon(toolStep)}</span>
+                  <span className="app-iteration-tool-icon">{stepStatusIcon(toolStep?.status, presentation === 'document' ? <SharedIcon name="lucide:sliders-horizontal"/> : displayItemRowIcon(toolStep))}</span>
                   <span {...(presentation === 'document' ? typographyProps('label') : {})} className="app-iteration-tool-row-title">{displayItemRowTitle(toolStep)}</span>
                   {canInspect && toolStepSummaryText(toolStep) ? (
                     <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className="app-iteration-model-summary">{toolStepSummaryText(toolStep)}</span>
@@ -2439,7 +2450,7 @@ function NativeIterationBlock({ message, canonicalRow = null, conversationId = '
         {modelStep ? (
           <div className="app-iteration-model-row">
             <div className="app-iteration-tool-row-main">
-              <span className="app-iteration-model-icon">{presentation === 'document' ? <SharedIcon name="lucide:message-square"/> : displayStepIcon({ ...modelStep, kind: 'model' })}</span>
+              <span className="app-iteration-model-icon">{stepStatusIcon(modelStep?.status, presentation === 'document' ? <SharedIcon name="lucide:message-square"/> : displayStepIcon({ ...modelStep, kind: 'model' }))}</span>
               <span {...(presentation === 'document' ? typographyProps('label') : {})} className="app-iteration-model-title">{stepTitle({ ...modelStep, kind: 'model' })}</span>
               {preview?.title && preview.title !== stepTitle({ ...modelStep, kind: 'model' }) ? (
                 <span {...(presentation === 'document' ? typographyProps('metadata') : {})} className="app-iteration-model-summary">{preview.title}</span>
@@ -2463,7 +2474,7 @@ function NativeIterationBlock({ message, canonicalRow = null, conversationId = '
             {toolSteps.map((toolStep, toolIndex) => (
               <div className="app-iteration-tool-row" key={`${String(preview?.id || previewIndex)}:tool:${toolIndex}`}>
                 <div className="app-iteration-tool-row-main">
-                  <span className="app-iteration-tool-icon">{presentation === 'document' ? <SharedIcon name="lucide:sliders-horizontal"/> : displayItemRowIcon(toolStep)}</span>
+                  <span className="app-iteration-tool-icon">{stepStatusIcon(toolStep?.status, presentation === 'document' ? <SharedIcon name="lucide:sliders-horizontal"/> : displayItemRowIcon(toolStep))}</span>
                   <span {...(presentation === 'document' ? typographyProps('label') : {})} className="app-iteration-tool-row-title">{displayItemRowTitle(toolStep)}</span>
                 </div>
                 <div className="app-iteration-tool-row-meta">
