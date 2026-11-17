@@ -212,16 +212,16 @@ export default function TurnProgressStatus({ conversationId = '', developerMode 
   // Requested tools can also belong to a real approval. Only the scoped
   // SDK interruption hint identifies automatic client execution.
   const pendingElicitations = [row.elicitation, ...(Array.isArray(row.elicitations) ? row.elicitations : [])];
-  const executingClientTool = !stopping && row.waitKind === 'client_tool'
-    && !pendingElicitations.some(item => {
-      if (!item) return false;
-      // Match ElicitationOverlay's unresolved legacy and canonical statuses.
-      const status = String(item.status || '').trim().toLowerCase();
-      return !status || ['pending', 'open', 'waiting_for_user', 'running'].includes(status);
-    });
+  const waitingForUser = pendingElicitations.some(item => {
+    if (!item) return false;
+    // Match ElicitationOverlay's unresolved legacy and canonical statuses.
+    const status = String(item.status || '').trim().toLowerCase();
+    return !status || ['pending', 'open', 'waiting_for_user', 'running'].includes(status);
+  });
+  const executingClientTool = !stopping && row.waitKind === 'client_tool' && !waitingForUser;
   const status = stopping
     ? 'stopping'
-    : executingClientTool ? 'running' : String(latestRound?.status || row?.lifecycle || (stage?.phase === 'waiting' ? 'waiting_for_user' : '')).trim();
+    : waitingForUser ? 'waiting_for_user' : executingClientTool ? 'running' : String(latestRound?.status || row?.lifecycle || (stage?.phase === 'waiting' ? 'waiting_for_user' : '')).trim();
   const progress = resolveActiveTurnProgress({
     turnId: row?.turnId || '',
     status,

@@ -1094,7 +1094,7 @@ class ForgeRenderErrorBoundary extends React.Component {
   }
 }
 
-function ForgeUIFenceInner({ payload, dataBlocks = [], messageId = '' }) {
+function ForgeUIFenceInner({ payload, dataBlocks = [], messageId = '', context = null }) {
   const scoped = React.useMemo(
     () => scopeForgeDashboardPayload(payload, dataBlocks, messageId),
     [payload, dataBlocks, messageId]
@@ -1146,7 +1146,8 @@ function ForgeUIFenceInner({ payload, dataBlocks = [], messageId = '' }) {
     } catch (_) {}
   }, [dashboardKey, dataStore, messageId, ui]);
 
-  const hasRenderableBlocks = Array.isArray(ui.blocks) && ui.blocks.length > 0;
+  // Conversational result widgets have no legacy dashboard HTML export.
+  const hasExportableBlocks = ui.blocks.some((block) => !['dashboard.reportRuntime', 'dashboard.guidedResult'].includes(String(block?.kind || '').trim()));
 
   const handleDownload = React.useCallback(() => {
     setExportError(null);
@@ -1186,12 +1187,12 @@ function ForgeUIFenceInner({ payload, dataBlocks = [], messageId = '' }) {
       className="app-rich-dashboard"
       style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
     >
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+      {ui.title || ui.subtitle || hasExportableBlocks ? <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 auto', minWidth: 0 }}>
           {ui.title ? <div className="app-rich-chart-title">{ui.title}</div> : null}
           {ui.subtitle ? <div style={{ fontSize: 12, color: 'var(--dark-gray3)' }}>{ui.subtitle}</div> : null}
         </div>
-        {hasRenderableBlocks ? (
+        {hasExportableBlocks ? (
           <Tooltip content="Download as standalone HTML (styling preserved)" placement="bottom-end">
             <Button
               icon={<UnifiedIcon name="download"/>}
@@ -1204,7 +1205,7 @@ function ForgeUIFenceInner({ payload, dataBlocks = [], messageId = '' }) {
             </Button>
           </Tooltip>
         ) : null}
-      </div>
+      </div> : null}
       {exportError ? (
         <div style={{ fontSize: 12, color: "var(--agently-theme-status-danger-foreground, #a82a2a)" }}>
           {exportError}
@@ -1216,14 +1217,19 @@ function ForgeUIFenceInner({ payload, dataBlocks = [], messageId = '' }) {
           try {
             const normalizedPayload = normalizeDashboardPayload(forgePayload);
             const normalizedBlock = normalizedPayload.blocks[index] || block;
-            return (
+            const renderedBlock = (
               <DashboardBlock
                 key={String(block?.id || `${block?.kind || 'dashboard'}-${index}`)}
                 container={normalizedBlock}
                 context={buildForgeDashboardContext(normalizedPayload, dataStore, normalizedBlock, dashboardKey)}
                 isActive={true}
+                onAction={context ? async (action) => {
+                  const {submitMessage} = await import('../../services/chatService.js');
+                  return submitMessage({context, message:action.prompt});
+                } : undefined}
               />
             );
+            return kind === 'dashboard.guidedResult' ? <ForgeThemeBoundary key={String(block?.id || `guided-result-${index}`)} presentation="document" windowKey={`inline-guided-result-${messageId}-${index}`}>{renderedBlock}</ForgeThemeBoundary> : renderedBlock;
           } catch (e) {
             // eslint-disable-next-line no-console
             console.warn('dashboard block render prep failed', kind, e);
@@ -1247,10 +1253,10 @@ function ForgeUIFenceInner({ payload, dataBlocks = [], messageId = '' }) {
   );
 }
 
-function ForgeUIFence({ payload, dataBlocks = [], messageId = '' }) {
+function ForgeUIFence({ payload, dataBlocks = [], messageId = '', context = null }) {
   return (
     <ForgeRenderErrorBoundary>
-      <ForgeUIFenceInner payload={payload} dataBlocks={dataBlocks} messageId={messageId} />
+      <ForgeUIFenceInner payload={payload} dataBlocks={dataBlocks} messageId={messageId} context={context} />
     </ForgeRenderErrorBoundary>
   );
 }
@@ -2242,8 +2248,13 @@ function NativeRichContent({ content = '', renderedContent = null, generatedFile
   const view = React.useContext(ConversationViewContext);
   const entityAliasVersion = React.useSyncExternalStore(subscribeFeedEntityAliases, getFeedEntityAliasVersion, getFeedEntityAliasVersion);
   const textNorm = React.useMemo(() => normalizeBrokenMarkdownLayout(
-    normalizeLegacyForgeFenceBlocks(stripLeadingTemplateDescriptor(rewriteFeedEntityAliases(String(content || ''), conversationId)))
-  ), [content, conversationId, entityAliasVersion]);
+    normalizeLegacyForgeFenceBlocks(stripLeadingTemplateDescriptor(rewriteFeedEntityAliases(
+      Array.isArray(renderedContent?.parts) && renderedContent.parts.length > 0
+        ? renderedContent.parts.map((part) => part?.source ?? part?.text ?? '').join('')
+        : String(content || ''),
+      conversationId,
+    )))
+  ), [content, renderedContent, conversationId, entityAliasVersion]);
   const descriptors = React.useMemo(
     () => normalizeLegacyForgeDescriptors(describeContent(textNorm)),
     [textNorm]
@@ -2393,7 +2404,7 @@ function NativeRichContent({ content = '', renderedContent = null, generatedFile
     if (isForgeUIFence(fence)) {
       try {
         const payload = parseForgeFenceBody(body);
-        out.push(<ForgeUIFence key={`forge-ui-${idx++}`} payload={payload} dataBlocks={forgeDataBlocks} messageId={messageId} />);
+        out.push(<ForgeUIFence key={`forge-ui-${idx++}`} payload={payload} dataBlocks={forgeDataBlocks} messageId={messageId} context={context} />);
       } catch (_) {
         if (!trailingForgeFence) {
           out.push(

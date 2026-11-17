@@ -28,7 +28,19 @@ export function attachHistoryScroll(feed, viewport, environment = globalThis, co
     frame = null;
     if (viewport.clientHeight <= 0) return;
     const active = feed.dataset?.requestActive === 'true';
-    if (wasActive && !active) {restoreTop = null; following = false; remember();}
+    if (wasActive && !active) {
+      if (following) {
+        const rows = [...feed.querySelectorAll('.app-bubble-row')];
+        const answer = rows.slice(rows.findLastIndex(row => row.classList.contains('app-bubble-row-user')) + 1)
+          .find(row => row.classList.contains('app-bubble-row-assistant') && row.getBoundingClientRect().height > 0);
+        // Final content can mount after the request's completion update.
+        if (!answer) return;
+        const bounds = answer.getBoundingClientRect(), visible = viewport.getBoundingClientRect();
+        if (bounds.bottom > visible.bottom) viewport.scrollTop += Math.max(0, bounds.top - visible.top);
+        lastTop = viewport.scrollTop;
+      }
+      restoreTop = null; following = false; remember();
+    }
     wasActive = active;
     if (restoreTop !== null) {
       viewport.scrollTop = Math.min(restoreTop, Math.max(0, viewport.scrollHeight - viewport.clientHeight));
@@ -42,6 +54,7 @@ export function attachHistoryScroll(feed, viewport, environment = globalThis, co
     if ((following || restoreTop !== null) && frame === null) frame = environment.requestAnimationFrame(scroll);
   };
   const onScroll = () => {
+    if (viewport.scrollTop === lastTop) return;
     if (bottom()) following = true;
     else if (viewport.scrollTop < lastTop) following = false;
     lastTop = viewport.scrollTop;
@@ -51,6 +64,12 @@ export function attachHistoryScroll(feed, viewport, environment = globalThis, co
   const onKey = event => {
     if (event.target?.closest?.('input, textarea, [contenteditable="true"]')) return;
     if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) {restoreTop = null; following = false; remember();}
+  };
+  const onClick = event => {
+    // Opening a disclosure is a reading action, even at the conversation bottom.
+    if (event.target?.closest?.('[aria-expanded], [data-forge-part="section-header"].bp6-interactive')) {
+      restoreTop = null; following = false; remember();
+    }
   };
   let touchY = null;
   const onTouchStart = event => { touchY = event.touches?.[0]?.clientY ?? null; };
@@ -64,6 +83,7 @@ export function attachHistoryScroll(feed, viewport, environment = globalThis, co
   viewport.addEventListener('scroll', onScroll, { passive: true });
   viewport.addEventListener('wheel', onWheel, { passive: true });
   viewport.addEventListener('keydown', onKey);
+  viewport.addEventListener('click', onClick, true);
   viewport.addEventListener('touchstart', onTouchStart, { passive: true });
   viewport.addEventListener('touchmove', onTouchMove, { passive: true });
   const observer = environment.ResizeObserver ? new environment.ResizeObserver(schedule) : null;
@@ -78,6 +98,7 @@ export function attachHistoryScroll(feed, viewport, environment = globalThis, co
     viewport.removeEventListener('scroll', onScroll);
     viewport.removeEventListener('wheel', onWheel);
     viewport.removeEventListener('keydown', onKey);
+    viewport.removeEventListener('click', onClick, true);
     viewport.removeEventListener('touchstart', onTouchStart);
     viewport.removeEventListener('touchmove', onTouchMove);
   };

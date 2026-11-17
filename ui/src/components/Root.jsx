@@ -1495,6 +1495,7 @@ export default function Root() {
         developerMode,
         presentation: sectionNavigation ? 'document' : undefined,
         reportsInWorkspace: sectionNavigation,
+        inlineQuestionConversationId: sectionNavigation && !showAppSection && !backendSelection.isRemote ? mainConversationId : '',
         showIntakeDetails: false,
         toolFeedDock: showChatChrome ? 'right' : 'inline',
         workspaceWindow: showWorkspacePane ? activeWorkspaceWindow : null,
@@ -1741,7 +1742,8 @@ export default function Root() {
         initialDraft={goalDraftState.initialDraft}
         onClose={() => setGoalDraftState((state) => ({ ...state, isOpen: false, initialDraft: '' }))}
       />
-      <ElicitationOverlay context={null} appearance={sectionNavigation ? 'document' : undefined} />
+      <ElicitationOverlay context={null} appearance={sectionNavigation ? 'document' : undefined}
+        inlineConversationId={sectionNavigation && !showAppSection && !backendSelection.isRemote ? mainConversationId : ''}/>
     </DetailContext.Provider>
   );
 }

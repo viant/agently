@@ -14,6 +14,7 @@ import {
 import { DetailContext } from '../../context/DetailContext';
 import { ConversationViewContext } from '../../context/ConversationViewContext';
 import { openLinkedConversationWindow } from '../../services/conversationWindow';
+import {isInlineQuestion, isOrdinaryQuestion} from '../elicitationHelpers.js';
 import { openElicitationDialog } from '../../services/elicitationBus';
 import { client } from '../../services/agentlyClient';
 import { beginBrowserMCPAuth, clearPendingMCPAuth, pendingMCPAuth } from '../../services/mcpAuth';
@@ -1086,10 +1087,10 @@ export function shouldShowNarrationBubble(visibleGroups = [], visibleText = '', 
   return sdkShouldShowNarrationBubble(visibleGroups, visibleText, responseContent);
 }
 
-export function hasPendingElicitationStep(visibleGroups = []) {
+export function hasPendingElicitationStep(visibleGroups = [], isInline = () => false) {
   return (Array.isArray(visibleGroups) ? visibleGroups : []).some((group) =>
     (Array.isArray(group?.toolSteps) ? group.toolSteps : []).some((step) => {
-      if (String(step?.kind || '').trim().toLowerCase() !== 'elicitation') return false;
+      if (String(step?.kind || '').trim().toLowerCase() !== 'elicitation' || isInline(step)) return false;
       return isPendingElicitationStatus(step?.status);
     })
   );
@@ -1113,10 +1114,10 @@ export function hasPendingVisibleElicitationPrompt(data = {}) {
   );
 }
 
-function hasAnyElicitationStep(visibleGroups = []) {
+function hasAnyElicitationStep(visibleGroups = [], isInline = () => false) {
   return (Array.isArray(visibleGroups) ? visibleGroups : []).some((group) =>
     (Array.isArray(group?.toolSteps) ? group.toolSteps : []).some((step) => (
-      String(step?.kind || '').trim().toLowerCase() === 'elicitation'
+      String(step?.kind || '').trim().toLowerCase() === 'elicitation' && !isInline(step)
     ))
   );
 }
@@ -1803,7 +1804,7 @@ export function resolveCanonicalDetailStep(canonicalRow = null, step = {}) {
 
 function NativeIterationBlock({ message, canonicalRow = null, conversationId = '', progress = null, context, showToolFeedDetail = true, suppressBubble = false, retryPrompt = '', attachment = null }) {
   const { showDetail } = useContext(DetailContext);
-  const { developerMode = false, showIntakeDetails = false, toolFeedDock = 'inline', presentation } = useContext(ConversationViewContext);
+  const { developerMode = false, showIntakeDetails = false, toolFeedDock = 'inline', presentation, inlineQuestionConversationId } = useContext(ConversationViewContext);
   const workspaceStyle = useWorkspaceStyle();
   const stateIcons = presentation === 'document' && workspaceStyle?.state.themeId === 'design-system-2';
   const stepStatusIcon = (status, fallback) => {
@@ -2039,9 +2040,12 @@ function NativeIterationBlock({ message, canonicalRow = null, conversationId = '
     [allGroupEntries, data, linkedStatusValues]
   );
   const useLiveWallClock = isLatestIteration && isActiveIteration;
+  const inlineQuestionScope = presentation === 'document' && inlineQuestionConversationId === iterationConversationId;
+  const questionItems = [data?.elicitation, ...(data?.elicitations || []), ...allGroupEntries.flatMap(group => group.toolSteps || []).filter(step => step.kind === 'elicitation')];
+  const awaitingQuestion = inlineQuestionScope && questionItems.some(item => isInlineQuestion({...item, conversationId:iterationConversationId}, inlineQuestionConversationId));
   const hasExecutionElicitation = useMemo(
-    () => hasAnyElicitationStep(allGroupEntries),
-    [allGroupEntries]
+    () => hasAnyElicitationStep(allGroupEntries, step => inlineQuestionScope && isOrdinaryQuestion(step)),
+    [allGroupEntries, inlineQuestionScope]
   );
 
   const iterationDisplayStatus = useMemo(
@@ -2239,10 +2243,10 @@ function NativeIterationBlock({ message, canonicalRow = null, conversationId = '
       })),
     });
   }, [data, displayGroupEntries, iterationDisplayStatus, message?.id, visiblePreambleText, visibleRenderedText]);
-  const hasPendingVisibleElicitation = hasPendingVisibleElicitationPrompt(data);
+  const hasPendingVisibleElicitation = !awaitingQuestion && hasPendingVisibleElicitationPrompt(data);
   const hasPendingExecutionElicitation = useMemo(
-    () => hasPendingElicitationStep(visibleGroups),
-    [visibleGroups]
+    () => hasPendingElicitationStep(visibleGroups, step => inlineQuestionScope && isOrdinaryQuestion(step)),
+    [visibleGroups, inlineQuestionScope]
   );
   const summaryContent = String(summaryModeMessageContent(data?.summary)).trim();
   const generatedFiles = Array.isArray(message?.generatedFiles) ? message.generatedFiles : [];

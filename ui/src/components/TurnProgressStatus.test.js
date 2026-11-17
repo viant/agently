@@ -49,6 +49,14 @@ describe('TurnProgressStatus helpers', () => {
     }
   });
 
+  it('shows a pending user question while the latest model round still says running', () => {
+    projectedRows = [{kind:'iteration',turnId:'question-turn',lifecycle:'running',waitKind:'client_tool',elicitation:{elicitationId:'example-question',status:'pending'},rounds:[{pageId:'question-page',status:'running',phase:'main'}]}];
+    const html = renderToStaticMarkup(React.createElement(TurnProgressStatus,{conversationId:'example',appearance:'document'}));
+    expect(html).toContain('Needs your input');
+    expect(html).not.toContain('Preparing response');
+    expect(html).not.toContain('Waiting for the service');
+  });
+
   it('keeps failure distinct from completion in tool details', () => {
     expect(statusLabel('failed')).toBe('Failed');
     expect(statusLabel('error')).toBe('Failed');

@@ -136,6 +136,21 @@ cover both progress variants, unsafe input and the mounted execution header.
 
 ## Document summary spacing
 
+Native rich messages consume their ordered canonical `renderedContent.parts`,
+including retained Forge sources. The public text projection may contain only
+an interactive-content placeholder; it is not the rich rendering input. Keep
+standalone message identity when its typed content arrives during later work.
+Use the existing document report runtime and neutral info panel for compact
+authored result cards. Business guidance and copy remain workspace-owned.
+
+For an interactive structured result, use Forge's `dashboard.guidedResult`.
+Its status/checks, example and evidence remain producer-authored. The shared
+component's one action passes a plain-language prompt to the existing chat
+submission path. This path loads only when the action is invoked; passive
+foreign backends never mount it. Guided results and embedded report runtimes
+do not receive the legacy dashboard HTML-download toolbar. Canonical full
+reports keep their native PDF export action.
+
 Assistant Markdown uses normal HTML whitespace so the renderer's line-break
 elements do not combine with preserved source newlines. User-authored line breaks
 and fenced code keep their existing behavior. Empty rich content emits no text
@@ -703,9 +718,15 @@ same place and size. Historical replies do not acquire new live-progress records
 on reload. Stable responsive control geometry and the return-later note from the
 accepted start prevent ordinary phase changes from adding/removing rows.
 
-The existing history-scroll controller holds the reader's position when native
-document work ends instead of jumping to the bottom of the appended answer. A
-new submission resumes following. Footer approval controls keep their alignment.
+The existing history-scroll controller preserves deliberate reading positions
+when native document work ends. For someone still following, reveal the current
+answer's beginning if needed, then hold instead of jumping to a long answer's
+bottom. Wait for final content that mounts after completion. A new submission
+resumes following. Footer approval controls keep their alignment.
+User activation of an existing disclosure releases following before its content
+resizes, preserving the reading position and focused control. The same controller
+handles native expanded controls and interactive shared section headers. Other clicks retain
+their ordinary following behavior; a new chat submission resumes following.
 
 RunProgressView observes a stable active-turn progress key. Thirty seconds without
 a changed activity, public update, model step, tool state or canonical report fact
@@ -790,3 +811,23 @@ The existing WorkspaceChatDock keeps its single mounted conversation while chang
 The overlay moves by its header using the installed drag library, remains within the workspace and reclamps after resize. Reset position returns it to its centered starting position. Keyboard users can focus the header and use arrow keys to move or Home to reset. Focus stays inside the existing border through the shared keyboard-only recipe; pointer activation adds no outer ring. Drafts stay mounted across placement, closing, reopening and theme changes. The local placement preview uses these actual controls with independently authored sample content and the exact shared Global CSS definition.
 
 Design reference: ChatGPT's compact, movable [companion window](https://help.openai.com/en/articles/9295241-accessing-the-launcher-chatgpt-macos-app). The left/right choice is this host's workspace control.
+## Questions in the conversation
+
+In document chat, ordinary schema questions in the active native conversation
+use Forge's exported `AccessibleSection appearance="document"`, existing
+`SchemaBasedForm` field tracks and shared actions. The producer supplies the
+question, neutral choices and any defaults. A no-default radio enum stays
+unselected; the form owns required-field validation. Continue submits through
+the existing authoritative callback. Skip/Cancel send an empty response.
+Errors retain the answer and do not resume the run.
+
+`ElicitationOverlay` and the chat feed share the existing pending-elicitation
+bus and display each question once. Permissions, planner reviews, sign-in/OOB
+requests, resolved history, other conversations and legacy chat retain their
+existing dialogs. No business-specific schema, new endpoint or parallel state
+is installed in the host. The UI does not infer an answer from ordinary chat.
+
+The actual shared section and disclosure appear in FoundationSpecimen. The
+required typography suite includes native form/response tests and desktop/touch
+section geometry, typography and keyboard disclosure checks. Real workspace
+integration should also be reviewed locally with its own authored question.
