@@ -69,10 +69,10 @@ export default function WorkspaceChatDock({active, children, onOpen}) {
   };
   return <>
     {active && !expanded && <div className="app-workspace-chat-toggle" role="group" aria-label="Open workspace chat">
-      <Button variant="secondary" icon="lucide:message-square" title="Open overlay chat"
-        aria-controls={id} aria-expanded={false} onClick={() => openChat('overlay')}>Chat</Button>
-      <Button variant="secondary" icon="lucide:panel-right" className="app-chat-left-toggle" aria-label="Open chat in split view"
-        title="Open chat in split view" aria-controls={id} onClick={() => openChat('split')}/>
+      <Button variant="secondary" icon="lucide:message-square" title={isDesignSystem2 ? 'Overlay Chat' : 'Open overlay chat'}
+        aria-controls={id} aria-expanded={false} onClick={() => openChat('overlay')}>{isDesignSystem2 ? 'Overlay Chat' : 'Chat'}</Button>
+      <Button variant="secondary" icon="lucide:panel-right" className="app-chat-left-toggle" aria-label={isDesignSystem2 ? 'Split Chat' : 'Open chat in split view'}
+        title={isDesignSystem2 ? 'Split Chat' : 'Open chat in split view'} aria-controls={id} onClick={() => openChat('split')}>{isDesignSystem2 ? 'Split Chat' : null}</Button>
     </div>}
     <Draggable nodeRef={content} disabled={!movable} handle=".app-workspace-chat-controls"
       cancel="button, a, input, select, textarea, [role=button]" bounds={bounds}
