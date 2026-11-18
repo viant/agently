@@ -15,19 +15,22 @@ export default function WorkspaceAppearanceSettings() {
     <div>
       <h2 {...text('section')} className="app-ui-settings-title">Workspace appearance</h2>
       <p {...text('body')}>Choose how workspace windows and their controls appear.</p>
-      {state.catalog ? <div className="app-workspace-appearance-controls">
-        <label {...text('label')}>Theme <SelectControl {...text('body')} aria-label="Workspace theme" value={state.themeId || 'forge-default'}
-          onChange={event => manager.setPreference(event.target.value, state.modePreference)}>
-          <option value="forge-default">Forge default</option>
-          {state.catalog.themes.map(theme => <option key={theme.id} value={theme.id}>{theme.label}</option>)}
-        </SelectControl></label>
-        <label {...text('label')}>Color mode <SelectControl {...text('body')} aria-label="Workspace color mode" value={state.modePreference} disabled={!selected}
-          onChange={event => manager.setPreference(state.themeId, event.target.value)}>
+      <div className="app-workspace-appearance-controls">
+        {state.catalog ? (
+          <label {...text('label')}>Theme <SelectControl {...text('body')} aria-label="Workspace theme" value={state.themeId || 'forge-default'}
+            onChange={event => manager.setPreference(event.target.value, state.modePreference)}>
+            <option value="forge-default">Forge default</option>
+            {state.catalog.themes.map(theme => <option key={theme.id} value={theme.id}>{theme.label}</option>)}
+          </SelectControl></label>
+        ) : null}
+        <label {...text('label')}>Color mode <SelectControl {...text('body')} aria-label="Workspace color mode" value={state.modePreference}
+          onChange={event => manager.setColorMode ? manager.setColorMode(event.target.value) : manager.setPreference(state.themeId || 'forge-default', event.target.value)}>
           {['system', 'light', 'dark'].map(mode => <option key={mode} value={mode}
             disabled={mode !== 'system' && selected && !selected.modes[mode]}>{mode.charAt(0).toUpperCase() + mode.slice(1)}</option>)}
         </SelectControl></label>
         <span {...text('metadata')} aria-live="polite">Currently {state.mode}</span>
-      </div> : <p {...text('body')}>No named themes are configured for this workspace.</p>}
+      </div>
+      {!state.catalog ? <p {...text('metadata')}>Using built-in light and dark appearance modes.</p> : null}
       {state.diagnostics.length > 0 && <div {...text('metadata')} role="status">{state.diagnostics.join(' · ')}</div>}
       {refresh && <RefreshButton {...(sharedActions ? {variant: 'ghost', icon: 'lucide:refresh-cw'} : {minimal: true, icon: 'refresh'})} onClick={refresh}>Reload workspace appearance</RefreshButton>}
     </div>

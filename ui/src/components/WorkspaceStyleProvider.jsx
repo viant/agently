@@ -26,8 +26,15 @@ export default function WorkspaceStyleProvider({metadata, accountKey = '', works
   }, [manager, metadata, accountKey, workspaceKey, fetchAsset, readResource, resolvedNonce]);
   useClientLayoutEffect(() => {
     const root = typeof document === 'undefined' ? null : document.documentElement;
+    const body = typeof document === 'undefined' ? null : document.body;
     applyApplicationThemeBoundary(root, state);
-    return () => clearApplicationThemeBoundary(root);
+    if (body) {
+      body.classList?.toggle('bp6-dark', state.mode === 'dark');
+    }
+    return () => {
+      clearApplicationThemeBoundary(root);
+      body?.classList?.remove('bp6-dark');
+    };
   }, [state.themeId, state.mode]);
   return <WorkspaceStyleContext.Provider value={{state, manager, refresh: onRefresh}}><ForgeThemeProvider themeId={state.themeId} mode={state.mode}>
     {typeof children === 'function' ? children(state, manager) : children}

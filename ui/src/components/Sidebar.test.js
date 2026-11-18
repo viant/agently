@@ -407,4 +407,35 @@ describe('conversation delete helpers', () => {
     expect(calls).toEqual(['delete', 'terminate', 'delete']);
     expect(api.terminateConversation).toHaveBeenCalledWith('conv-running');
   });
+
+  it('allows selecting multiple conversations and deleting them in bulk', async () => {
+    const React = (await import('react')).default;
+    const { fireEvent, render, screen, waitFor } = await import('@testing-library/react');
+    const dialogBus = await import('../utils/dialogBus');
+    const { client } = await import('../services/agentlyClient');
+    const Sidebar = (await import('./Sidebar.jsx')).default;
+
+    const rows = [
+      { Id: 'conv-1', Title: 'Old alert 1', Status: 'succeeded' },
+      { Id: 'conv-2', Title: 'Old alert 2', Status: 'succeeded' },
+    ];
+    client.listConversations = vi.fn().mockResolvedValue({ data: rows, page: {} });
+    client.deleteConversation = vi.fn().mockResolvedValue(undefined);
+    const openSpy = vi.spyOn(dialogBus, 'openConfirmDialog').mockImplementation(async (opts) => {
+      await opts.onConfirm?.();
+    });
+
+    render(React.createElement(Sidebar, { history: { list: { virtualized: false } } }));
+    await screen.findByText('Old alert 1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select chats to delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select all' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete (2)' }));
+
+    await waitFor(() => {
+      expect(client.deleteConversation).toHaveBeenCalledWith('conv-1');
+      expect(client.deleteConversation).toHaveBeenCalledWith('conv-2');
+    });
+    openSpy.mockRestore();
+  });
 });

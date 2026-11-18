@@ -258,6 +258,11 @@ export default defineConfig(({ mode, command }) => {
       cssCodeSplit: true,
       brotliSize: false,
       chunkSizeWarningLimit: 1200,
+      modulePreload: {
+        resolveDependencies(_filename, deps) {
+          return deps.filter((dep) => !dep.includes('mermaid') && !dep.includes('cynefin') && !dep.includes('code-editor'));
+        }
+      },
       rollupOptions: {
         input: { main: resolve(uiRoot, 'index.html'), mcpAppSandbox: resolve(uiRoot, 'mcp-app-sandbox.html') },
         output: {

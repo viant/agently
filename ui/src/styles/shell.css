@@ -35,7 +35,7 @@
   --app-shell-icon-size: var(--agently-theme-icon-size, 16px);
   --app-navigation-icon-size: var(--agently-theme-icon-size, 16px);
   --app-sidebar-width: 320px;
-  --app-chat-max-width: 1440px;
+  --app-chat-max-width: 920px;
   --app-composer-bottom-gap: 0px;
   --app-composer-stack-height: 150px;
   --app-plan-feed-gap: -12px;
@@ -5555,3 +5555,171 @@ span.app-workspace-breadcrumb-chip.is-current { background: color-mix(in srgb, v
 :is(.app-sidebar, .app-layout-navigation, .app-section-navigation) .bp6-button.bp6-minimal:not(:disabled) { color: var(--app-text); }
 :is(.app-sidebar, .app-layout-navigation, .app-section-navigation) .bp6-button.bp6-minimal:not(:disabled):hover { background: var(--forge-surface-subtle, var(--app-surface-soft)); }
 :is(.app-sidebar, .app-layout-navigation, .app-section-navigation) .bp6-button.bp6-minimal:not(:disabled):active { background: var(--app-selected-background); }
+
+/* ── Cursor-like agentic chat layout, docked composer, & visible/bulk delete ── */
+.app-sidebar-section-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.app-sidebar-bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 5px 8px;
+  margin: 0 4px 6px;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: var(--app-surface-soft);
+}
+
+.app-sidebar-bulk-bar .bp6-button {
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-height: 26px;
+  padding: 2px 8px;
+}
+
+.app-conversation-bulk-check {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin: 0 2px;
+  accent-color: var(--app-accent);
+  cursor: pointer;
+}
+
+.app-conversation-row.is-selected .app-conversation-trash {
+  opacity: 0.72;
+}
+
+.app-conversation-row:is(:hover, :focus-within) .app-conversation-trash {
+  opacity: 1;
+}
+
+.app-conversation-trash svg {
+  width: 14px;
+  height: 14px;
+}
+
+.app-confirm-dialog-error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--app-status-danger-foreground);
+  background: var(--app-status-danger-background);
+  color: var(--app-status-danger-foreground);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+/* Docked composer — never overlaps bottom tables or messages */
+.app-chat-pane .app-chat-content-column {
+  min-height: 0;
+  overflow: hidden !important;
+}
+
+.app-chat-pane [data-testid="chat-feed"] {
+  flex: 1 1 0% !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  padding: 16px 24px 20px !important;
+  width: 100%;
+  max-width: min(var(--app-chat-max-width), 100%);
+  margin: 0 auto;
+}
+
+.app-chat-pane:has(.app-plan-feed-composer_top) [data-testid="chat-feed"],
+.app-chat-pane:has(.app-tool-feed-bar) [data-testid="chat-feed"],
+.app-chat-pane:has(.app-change-feed-composer_top) [data-testid="chat-feed"],
+.app-chat-pane:has(.app-change-feed-composer_top):has(.app-plan-feed-composer_top) [data-testid="chat-feed"] {
+  padding-bottom: 24px !important;
+}
+
+.app-chat-pane [data-testid="chat-composer"]:not(.forge-document-composer) {
+  position: relative !important;
+  bottom: auto !important;
+  flex: 0 0 auto;
+  width: min(var(--app-chat-max-width), calc(100% - 24px));
+  margin: 0 auto;
+  padding: 6px 0 12px;
+  background: transparent;
+}
+
+.app-chat-pane [data-testid="chat-composer-shell"]:not(.forge-document-composer-shell) {
+  border-radius: 14px !important;
+  box-shadow: var(--app-composer-shadow, 0 4px 16px rgba(15, 23, 42, 0.06));
+}
+
+/* Cursor-like message & execution rhythm */
+.app-chat-pane .app-bubble-row {
+  margin: 10px 0;
+  gap: 8px;
+}
+
+.app-chat-pane .app-bubble-user {
+  border-radius: 10px;
+  padding: 9px 13px;
+  box-shadow: none;
+}
+
+.app-chat-pane .app-bubble-assistant {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 6px;
+  padding: 4px 2px;
+}
+
+.app-chat-pane .app-iteration-card:where(:not(.is-contained)) {
+  border-radius: 9px;
+  box-shadow: none;
+  margin: 4px 0 8px;
+}
+
+.app-chat-pane .app-iteration-head {
+  padding: 7px 11px;
+}
+
+.app-chat-pane .app-rich-table {
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+/* Match Cursor-like comfortable reading width and non-overlapping docked composer in Forge document chat */
+.app-chat-pane .forge-document-chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.app-chat-pane .forge-document-chat.is-starting {
+  overflow-y: auto;
+  padding: 40px 28px 36px;
+}
+
+.app-chat-pane .forge-document-chat.is-starting > *,
+.app-chat-pane .forge-document-chat > .chat-feed-stage > :is(.app-chat-feed, .chat-feed),
+.app-chat-pane .forge-document-chat:not(.is-starting) > .chat-feed-stage > :is(.app-chat-feed, .chat-feed),
+.app-chat-pane .forge-document-chat:not(.is-starting) > .forge-document-composer,
+.app-chat-pane .forge-document-composer {
+  width: min(100%, var(--app-chat-max-width));
+}
+
+.app-chat-pane .forge-document-chat:not(.is-starting) > .chat-feed-stage {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px 20px;
+}
+
+.app-chat-pane .forge-document-chat:not(.is-starting) > .forge-document-composer {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 6px 16px 14px;
+}
+

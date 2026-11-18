@@ -378,6 +378,9 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
   const [error, setError] = useState('');
   const [deleteError, setDeleteError] = useState('');
   const [deletingID, setDeletingID] = useState('');
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkSelectedIDs, setBulkSelectedIDs] = useState([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const rowsRef = React.useRef([]);
   const queryRef = React.useRef('');
   const prevCursorRef = React.useRef('');
@@ -468,12 +471,69 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
             // The delete itself succeeded; keep the locally removed row state if refill fails.
           }
         } catch (err) {
-          setDeleteError(conversationDeleteErrorMessage(err));
-          throw err;
+          const msg = conversationDeleteErrorMessage(err);
+          setDeleteError(msg);
+          throw new Error(msg);
         } finally {
           setDeletingID('');
         }
       }
+    });
+  };
+
+  const toggleBulkRow = (id) => {
+    if (!id || bulkDeleting) return;
+    setBulkSelectedIDs((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
+  };
+
+  const requestBulkDeleteConversations = () => {
+    const targets = bulkSelectedIDs.filter((id) => rowsRef.current.some((row) => conversationID(row) === id));
+    if (!targets.length || bulkDeleting) return;
+    openConfirmDialog({
+      title: `Delete ${targets.length} conversation${targets.length === 1 ? '' : 's'}`,
+      message: `Permanently delete ${targets.length} selected conversation${targets.length === 1 ? '' : 's'} and their history? This cannot be undone.`,
+      confirmText: `Delete ${targets.length}`,
+      loadingText: `Deleting ${targets.length}...`,
+      intent: 'danger',
+      onConfirm: async () => {
+        setBulkDeleting(true);
+        const deleted = [];
+        const failures = [];
+        try {
+          for (const id of targets) {
+            try {
+              await deleteConversationWithTermination(client, id);
+              detachWorkspaceWindowsFromConversation(id);
+              deleted.push(id);
+            } catch (err) {
+              failures.push(`${id.slice(0, 8)}: ${conversationDeleteErrorMessage(err)}`);
+            }
+          }
+          if (deleted.length > 0) {
+            const deletedSet = new Set(deleted);
+            const nextRows = rowsRef.current.filter((row) => !deletedSet.has(conversationID(row)));
+            setRows(nextRows);
+            setBulkSelectedIDs((prev) => prev.filter((id) => !deletedSet.has(id)));
+            if (deletedSet.has(selectedID) || deletedSet.has(getScopedConversationSelection(MAIN_CHAT_WINDOW_ID))) {
+              setSelectedID('');
+              requestNewConversationInMainWindow();
+            }
+            if (nextRows.length === 0) {
+              void reload('latest', '', { force: true }).catch(() => {});
+            }
+          }
+          if (failures.length > 0) {
+            const summary = `Deleted ${deleted.length}/${targets.length}. Failed: ${failures.slice(0, 2).join('; ')}${failures.length > 2 ? ` (+${failures.length - 2} more)` : ''}`;
+            setDeleteError(summary);
+            throw new Error(summary);
+          }
+          setDeleteError('');
+          setBulkMode(false);
+          setBulkSelectedIDs([]);
+        } finally {
+          setBulkDeleting(false);
+        }
+      },
     });
   };
 
@@ -603,24 +663,39 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
             const subtitle = String(row?.Agent || row?.agent || '').trim();
             const relative = formatRelativeTime(conversationTimestamp(row));
             const isSelected = id && id === selectedID;
+            const isBulkChecked = bulkMode && id && bulkSelectedIDs.includes(id);
             const tone = conversationStatusTone(row);
             const hoverText = summary || title;
             return (
               <div
                 key={id}
-                className={`app-conversation-row ${isSelected ? 'is-selected' : ''}`}
+                className={`app-conversation-row ${isSelected ? 'is-selected' : ''} ${isBulkChecked ? 'is-bulk-checked' : ''}`}
                 data-index={virtualized ? virtualRow.index : undefined}
                 data-conversation-id={id}
                 ref={virtualized ? rowVirtualizer.measureElement : undefined}
                 style={virtualized ? { position: 'absolute', width: '100%', top: 0, left: 0, transform: `translateY(${virtualRow.start}px)` } : undefined}
               >
-                {!documentAppearance ? <span className={`app-conversation-status-dot tone-${tone}`} title={tone} /> : null}
+                {bulkMode ? (
+                  <input
+                    type="checkbox"
+                    className="app-conversation-bulk-check"
+                    aria-label={`Select ${title}`}
+                    checked={Boolean(isBulkChecked)}
+                    disabled={bulkDeleting}
+                    onChange={() => toggleBulkRow(id)}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (!documentAppearance ? <span className={`app-conversation-status-dot tone-${tone}`} title={tone} /> : null)}
                 <button
                   className="app-conversation-row-body"
                   title={hoverText}
                   aria-label={hoverText}
                   aria-current={isSelected ? 'page' : undefined}
                   onClick={() => {
+                    if (bulkMode) {
+                      toggleBulkRow(id);
+                      return;
+                    }
                     setSelectedID(id);
                     openConversationInMainWindow(id);
                     navigate();
@@ -632,25 +707,27 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
                   </div>
                   {!documentAppearance && subtitle ? <div className="app-conversation-subtitle" title={subtitle}>{subtitle}</div> : null}
                 </button>
-                <button
-                  className="app-conversation-trash"
-                  title="Delete conversation"
-                  aria-label="Delete conversation"
-                  disabled={conversationDeleteButtonDisabled(row, deletingID)}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    requestDeleteConversation(row);
-                  }}
-                >
-                  {documentAppearance ? <SharedIcon name="lucide:trash-2"/> : '🗑'}
-                </button>
+                {!bulkMode ? (
+                  <button
+                    className="app-conversation-trash"
+                    title="Delete conversation"
+                    aria-label="Delete conversation"
+                    disabled={conversationDeleteButtonDisabled(row, deletingID)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      requestDeleteConversation(row);
+                    }}
+                  >
+                    <SharedIcon name="lucide:trash-2"/>
+                  </button>
+                ) : null}
               </div>
             );
           })}
         </div>
       </>
     );
-  }, [rows, loading, error, deleteError, selectedID, seedVersion, deletingID, navigate, query, rowVirtualizer, virtualized, list.emptyText, list.noMatchesText, documentAppearance, virtualRows, virtualHeight]);
+  }, [rows, loading, error, deleteError, selectedID, seedVersion, deletingID, bulkMode, bulkSelectedIDs, bulkDeleting, navigate, query, rowVirtualizer, virtualized, list.emptyText, list.noMatchesText, documentAppearance, virtualRows, virtualHeight]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
@@ -784,11 +861,29 @@ export default function Sidebar({ collapsed = false, onNavigate = null, onExpand
         <>
           <div className="app-sidebar-section" style={documentAppearance ? undefined : { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }} {...(documentAppearance ? typographyProps('metadata') : {})}>
             <span>{inlineSearch ? 'Chats' : 'Conversations'}</span>
-            {documentAppearance ? <div>
+            {documentAppearance ? <div className="app-sidebar-section-actions">
               {!inlineSearch && !searchMount ? searchButton : null}
+              <Button minimal small active={bulkMode} icon={<SharedIcon name="lucide:list"/>} title={bulkMode ? 'Cancel selection' : 'Select chats to delete'} aria-label={bulkMode ? 'Cancel chat selection' : 'Select chats to delete'} onClick={() => { setBulkMode((v) => !v); setBulkSelectedIDs([]); }}/>
               <Button minimal small loading={loading} icon={<SharedIcon name="lucide:refresh-cw"/>} aria-label="Refresh conversations" onClick={() => void reload('latest', '').catch(() => {})}/>
-            </div> : <Button minimal small loading={loading} icon={<UnifiedIcon name="refresh"/>} onClick={() => void reload('latest', '').catch(() => {})}>Refresh</Button>}
+            </div> : <div className="app-sidebar-section-actions">
+              <Button minimal small active={bulkMode} icon={<SharedIcon name="lucide:list"/>} title={bulkMode ? 'Cancel selection' : 'Select chats to delete'} aria-label={bulkMode ? 'Cancel chat selection' : 'Select chats to delete'} onClick={() => { setBulkMode((v) => !v); setBulkSelectedIDs([]); }}/>
+              <Button minimal small loading={loading} icon={<SharedIcon name="lucide:refresh-cw"/>} aria-label="Refresh" title="Refresh conversations" onClick={() => void reload('latest', '').catch(() => {})}/>
+            </div>}
           </div>
+          {bulkMode && rows.length > 0 ? (
+            <div className="app-sidebar-bulk-bar" role="toolbar" aria-label="Bulk conversation actions">
+              <Button minimal small onClick={() => {
+                const visibleIDs = rows.map(conversationID).filter(Boolean);
+                const allSelected = visibleIDs.length > 0 && visibleIDs.every((id) => bulkSelectedIDs.includes(id));
+                setBulkSelectedIDs(allSelected ? [] : visibleIDs);
+              }}>
+                {rows.length > 0 && rows.map(conversationID).filter(Boolean).every((id) => bulkSelectedIDs.includes(id)) ? 'Clear all' : 'Select all'}
+              </Button>
+              <Button small intent="danger" icon={<SharedIcon name="lucide:trash-2"/>} disabled={bulkSelectedIDs.length === 0 || bulkDeleting} loading={bulkDeleting} onClick={requestBulkDeleteConversations}>
+                {`Delete (${bulkSelectedIDs.length})`}
+              </Button>
+            </div>
+          ) : null}
           {documentAppearance && !inlineSearch ? searchField : null}
           {error ? <div className="app-sidebar-recovery" role="alert">
             <Typography as="p" typeRole="small">{error.message}</Typography>

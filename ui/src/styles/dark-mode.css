@@ -1,0 +1,175 @@
+/* Built-in Dark Mode palette (works with or without a server theme catalog). */
+:root:where(.agently-application[data-agently-color-mode="dark"]) {
+  color-scheme: dark;
+  --app-bg: #121418;
+  --app-surface: #191c22;
+  --app-surface-soft: #21252e;
+  --app-border: #2d3340;
+  --app-text: #e6e9ef;
+  --app-text-secondary: #b5becc;
+  --app-muted: #848e9f;
+  --app-accent: #5893ff;
+  --app-accent-strong: #80adff;
+  --app-selected-background: rgba(88, 147, 255, 0.15);
+  --app-status-info-background: rgba(88, 147, 255, 0.14);
+  --app-status-info-foreground: #93b9ff;
+  --app-status-success-background: rgba(46, 160, 67, 0.16);
+  --app-status-success-foreground: #56d364;
+  --app-status-warning-background: rgba(210, 153, 34, 0.16);
+  --app-status-warning-foreground: #e3b341;
+  --app-status-danger-background: rgba(248, 81, 73, 0.16);
+  --app-status-danger-foreground: #ff7b72;
+  --app-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --app-topbar-bg: rgba(25, 28, 34, 0.92);
+  --app-sidebar-bg: #15181e;
+  --app-composer-bg: #121418;
+  --app-user-message-background: #232834;
+  --app-user-message-border: #333b4a;
+  --app-user-message-text: #eef2f7;
+  --app-composer-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --app-table-even-bg: rgba(255, 255, 255, 0.02);
+  --app-table-header-bg: #202633;
+  --forge-canvas: #121418;
+  --forge-surface: #191c22;
+  --forge-surface-subtle: #21252e;
+  --forge-border-color: #2d3340;
+  --forge-text: #e6e9ef;
+  --forge-text-secondary: #b5becc;
+  --forge-text-muted: #848e9f;
+  --forge-control-bg: #1c2028;
+  --forge-control-border: #323946;
+  --forge-control-text: #e6e9ef;
+  --forge-table-header-surface: #202530;
+  --forge-selected-background: rgba(88, 147, 255, 0.15);
+  --forge-chat-user-background: #232834;
+  --forge-chat-user-text: #eef2f7;
+}
+
+.agently-application[data-agently-color-mode="dark"] body {
+  background: var(--app-bg);
+  color: var(--app-text);
+}
+
+.agently-application[data-agently-color-mode="dark"] [data-testid="chat-composer-shell"]:not(.forge-document-composer-shell) {
+  border-color: var(--app-border) !important;
+  background: var(--app-surface) !important;
+  color: var(--app-text) !important;
+  box-shadow: var(--app-composer-shadow);
+}
+
+.agently-application[data-agently-color-mode="dark"] .app-rich-table th {
+  background: var(--app-table-header-bg);
+}
+
+.agently-application[data-agently-color-mode="dark"] .app-rich-table tbody tr:nth-child(even) td {
+  background: var(--app-table-even-bg);
+}
+
+.agently-application[data-agently-color-mode="dark"] .app-backend-select,
+.agently-application[data-agently-color-mode="dark"] .app-user-menu,
+.agently-application[data-agently-color-mode="dark"] .app-topbar-settings-menu,
+.agently-application[data-agently-color-mode="dark"] .app-approval-popover {
+  background: var(--app-surface);
+  border-color: var(--app-border);
+  color: var(--app-text);
+}
+
+.agently-application[data-agently-color-mode="dark"] .app-sidebar .bp6-input-group .bp6-input,
+.agently-application[data-agently-color-mode="dark"] .bp6-input,
+.agently-application[data-agently-color-mode="dark"] textarea.bp6-input,
+.agently-application[data-agently-color-mode="dark"] .bp6-html-select select {
+  background: var(--app-surface-soft) !important;
+  border-color: var(--app-border) !important;
+  color: var(--app-text) !important;
+}
+
+.agently-application[data-agently-color-mode="dark"] .app-sidebar .bp6-input-group .bp6-input::placeholder,
+.agently-application[data-agently-color-mode="dark"] .bp6-input::placeholder {
+  color: var(--app-muted) !important;
+}
+
+.agently-application[data-agently-color-mode="dark"] .bp6-dialog,
+.agently-application[data-agently-color-mode="dark"] .bp6-dialog-header,
+.agently-application[data-agently-color-mode="dark"] .bp6-dialog-body,
+.agently-application[data-agently-color-mode="dark"] .bp6-dialog-footer,
+.agently-application[data-agently-color-mode="dark"] .bp6-popover-content {
+  background: var(--app-surface) !important;
+  color: var(--app-text) !important;
+  border-color: var(--app-border) !important;
+}
+
+.agently-application[data-agently-color-mode="dark"] .app-layout-error,
+.agently-application[data-agently-color-mode="dark"] .app-window-error,
+.agently-application[data-agently-color-mode="dark"] .app-sidebar-error,
+.agently-application[data-agently-color-mode="dark"] .app-sidebar-recovery {
+  background: var(--app-status-danger-background);
+  border-color: var(--app-border);
+  color: var(--app-status-danger-foreground);
+}
+
+/* Override ForgeThemeProvider / ForgeThemeBoundary and document-chat tokens in dark mode */
+.agently-application[data-agently-color-mode="dark"] :where([data-forge-theme], .forge-document-chat, .forge-theme-boundary, .agently-workspace) {
+  --forge-canvas: #121418;
+  --forge-surface: #191c22;
+  --forge-surface-subtle: #21252e;
+  --forge-border-color: #2d3340;
+  --forge-border-strong: #3a4252;
+  --forge-text: #e6e9ef;
+  --forge-text-secondary: #b5becc;
+  --forge-text-muted: #848e9f;
+  --forge-control-bg: #1c2028;
+  --forge-control-border: #323946;
+  --forge-control-text: #e6e9ef;
+  --forge-table-header-surface: #202530;
+  --forge-selected-background: rgba(88, 147, 255, 0.15);
+  --forge-chat-user-background: #232834;
+  --forge-chat-user-text: #eef2f7;
+  --forge-button-bg: #2d6cdf;
+  --forge-button-text: #ffffff;
+  --agently-theme-canvas: #121418;
+  --agently-theme-surface: #191c22;
+  --agently-theme-surface-subtle: #21252e;
+  --agently-theme-text: #e6e9ef;
+  --agently-theme-text-muted: #848e9f;
+  --agently-theme-border: #2d3340;
+  --agently-theme-border-strong: #3a4252;
+  --agently-theme-selected-background: rgba(88, 147, 255, 0.15);
+  --chat-surface: #191c22;
+  --chat-subtle: #21252e;
+  --chat-text: #e6e9ef;
+  --chat-muted: #848e9f;
+  --chat-divider: #2d3340;
+  --chat-border: #323946;
+}
+
+.agently-application[data-agently-color-mode="dark"] .forge-document-chat,
+.agently-application[data-agently-color-mode="dark"] .forge-document-chat.is-starting {
+  background: var(--app-bg) !important;
+  color: var(--app-text) !important;
+}
+
+.agently-application[data-agently-color-mode="dark"] .forge-document-composer-shell {
+  background: var(--app-surface) !important;
+  border-color: var(--app-border) !important;
+  color: var(--app-text) !important;
+  box-shadow: var(--app-composer-shadow);
+}
+
+.agently-application[data-agently-color-mode="dark"] .forge-document-textarea {
+  color: var(--app-text) !important;
+  caret-color: var(--app-text) !important;
+}
+
+.agently-application[data-agently-color-mode="dark"] .forge-starter-card,
+.agently-application[data-agently-color-mode="dark"] [class*="starter"] button {
+  border-color: var(--app-border);
+  color: var(--app-text);
+}
+
+.agently-application[data-agently-color-mode="dark"] [aria-pressed="true"] {
+  color: var(--app-accent-strong) !important;
+  background: var(--app-selected-background) !important;
+}
+
+
+
