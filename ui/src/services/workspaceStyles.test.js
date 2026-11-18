@@ -301,3 +301,33 @@ it('accepts bounded presentation references without changing selection and rejec
   expect(()=>validateThemeCatalog(invalid)).toThrow('Invalid presentation profile');
  }
 });
+
+describe('standalone light/dark color mode', () => {
+  it('toggles and persists light and dark mode even when no theme catalog is configured', async () => {
+    const { manager, stored } = fixture();
+    await manager.refresh({ workspaceId: 'anchor-empty' }, { accountKey: 'user' });
+    expect(manager.getSnapshot().catalog).toBeNull();
+    expect(manager.getSnapshot().mode).toBe('light');
+
+    manager.setColorMode('dark');
+    expect(manager.getSnapshot().mode).toBe('dark');
+    expect(manager.getSnapshot().modePreference).toBe('dark');
+    expect(stored.get('agently.colorMode.v1')).toBe('dark');
+
+    manager.toggleColorMode();
+    expect(manager.getSnapshot().mode).toBe('light');
+    expect(stored.get('agently.colorMode.v1')).toBe('light');
+
+    const classes = new Set();
+    const attrs = new Map();
+    const el = {
+      classList: { add: (v) => classes.add(v), remove: (v) => classes.delete(v) },
+      setAttribute: (k, v) => attrs.set(k, v),
+      removeAttribute: (k) => attrs.delete(k),
+    };
+    applyApplicationThemeBoundary(el, { themeId: '', mode: 'dark' });
+    expect(classes.has('bp6-dark')).toBe(true);
+    expect(attrs.get('data-agently-color-mode')).toBe('dark');
+    manager.dispose();
+  });
+});

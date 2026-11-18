@@ -29,23 +29,35 @@ const identifier = /^[a-z][a-z0-9-]{0,63}$/;
 export const APPLICATION_THEME_CLASS = 'agently-application';
 const APPLICATION_THEME_ATTRIBUTE = 'data-agently-theme';
 const APPLICATION_MODE_ATTRIBUTE = 'data-agently-color-mode';
+const STANDALONE_COLOR_MODE_KEY = 'agently.colorMode.v1';
 
 export function applyApplicationThemeBoundary(element, state = {}) {
   if (!element) return;
   element.classList?.add(APPLICATION_THEME_CLASS);
   const themeId = String(state.themeId || '').trim();
+  const isDark = state.mode === 'dark';
+  if (isDark) {
+    element.classList?.add('bp6-dark');
+  } else {
+    element.classList?.remove('bp6-dark');
+  }
   if (!themeId) {
     element.removeAttribute?.(APPLICATION_THEME_ATTRIBUTE);
-    element.removeAttribute?.(APPLICATION_MODE_ATTRIBUTE);
+    if (isDark) {
+      element.setAttribute?.(APPLICATION_MODE_ATTRIBUTE, 'dark');
+    } else {
+      element.removeAttribute?.(APPLICATION_MODE_ATTRIBUTE);
+    }
     return;
   }
   element.setAttribute?.(APPLICATION_THEME_ATTRIBUTE, themeId);
-  element.setAttribute?.(APPLICATION_MODE_ATTRIBUTE, state.mode === 'dark' ? 'dark' : 'light');
+  element.setAttribute?.(APPLICATION_MODE_ATTRIBUTE, isDark ? 'dark' : 'light');
 }
 
 export function clearApplicationThemeBoundary(element) {
   if (!element) return;
   element.classList?.remove(APPLICATION_THEME_CLASS);
+  element.classList?.remove('bp6-dark');
   element.removeAttribute?.(APPLICATION_THEME_ATTRIBUTE);
   element.removeAttribute?.(APPLICATION_MODE_ATTRIBUTE);
 }
@@ -119,10 +131,20 @@ export class WorkspaceStyleManager {
     try { this.storage = storage === undefined ? globalThis.localStorage : storage; } catch { this.storage = null; }
     this.listeners = new Set(); this.references = 0; this.sequence = 0; this.identity = ''; this.storageKey = ''; this.preference = null;
     this.styleSource='';this.workspaceThemeCatalog = null;
-    this.state = {catalog: null, revision: '', themeId: '', mode: 'light', modePreference: 'system', diagnostics: []};
+    this.standaloneModePreference = this.readStandaloneColorMode();
+    const initialMode = this.standaloneModePreference === 'dark' ? 'dark' : (this.standaloneModePreference === 'light' ? 'light' : 'light');
+    this.state = {catalog: null, revision: '', themeId: '', mode: initialMode, modePreference: this.standaloneModePreference, diagnostics: []};
     this.matchMedia = matchMedia; this.media = null; this.connected = false;
-    this.onSystemChange = () => this.publish({...this.state, ...(this.externalSelection || resolveThemeSelection(this.state.catalog, this.preference, this.systemMode()))});
-    this.onStorage = event => { if (this.storageKey && event.key === this.storageKey) { this.preference = this.readPreference(); this.onSystemChange(); } };
+    this.onSystemChange = () => this.publish({...this.state, ...(this.externalSelection || this.resolveEffectiveSelection(this.state.catalog))});
+    this.onStorage = event => {
+      if (event.key === STANDALONE_COLOR_MODE_KEY) {
+        this.standaloneModePreference = this.readStandaloneColorMode();
+        this.onSystemChange();
+      } else if (this.storageKey && event.key === this.storageKey) {
+        this.preference = this.readPreference();
+        this.onSystemChange();
+      }
+    };
     this.observer = null;
     this.applicationStyles = new Map(); this.applicationStyleOrder = []; this.applicationStyleGeneration = 0; this.applicationStyleKey = ''; this.applicationStyleAccount = '';
   }
@@ -137,8 +159,26 @@ export class WorkspaceStyleManager {
     const Observer = this.doc?.defaultView?.MutationObserver;
     this.observer = Observer ? new Observer(() => this.ensureOrder()) : null;
     if (this.doc?.head) this.observer?.observe(this.doc.head, {childList: true});
+    if (!this.state.catalog && this.standaloneModePreference === 'system') {
+      const nextMode = this.systemMode();
+      if (nextMode !== this.state.mode) this.publish({...this.state, mode: nextMode});
+    }
   }
   systemMode() { return this.media?.matches ? 'dark' : 'light'; }
+  readStandaloneColorMode() {
+    try {
+      const raw = String(this.storage?.getItem(STANDALONE_COLOR_MODE_KEY) || '').trim().toLowerCase();
+      return ['light', 'dark', 'system'].includes(raw) ? raw : 'system';
+    } catch { return 'system'; }
+  }
+  resolveEffectiveSelection(catalog) {
+    if (!catalog || this.preference?.themeId === 'forge-default') {
+      const modePreference = this.standaloneModePreference || 'system';
+      const mode = modePreference === 'system' ? this.systemMode() : modePreference;
+      return {themeId: '', mode, modePreference};
+    }
+    return resolveThemeSelection(catalog, this.preference, this.systemMode());
+  }
   subscribe = listener => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
   getSnapshot = () => this.state;
   publish(state) { this.state = state; this.listeners.forEach(listener => listener()); }
@@ -154,7 +194,7 @@ export class WorkspaceStyleManager {
   themeSelection(catalog) {
     const external=this.externalSelection,theme=catalog?.themes.find(theme=>theme.id===external?.themeId);
     this.externalSelection=external&&(!external.themeId||theme?.modes?.[external.mode])?external:null;
-    return {...resolveThemeSelection(catalog,this.preference,this.systemMode()),...(this.externalSelection||{})};
+    return {...this.resolveEffectiveSelection(catalog),...(this.externalSelection||{})};
   }
   publishCatalog() {
     const catalog=this.effectiveCatalog(),revision=this.effectiveRevision();
@@ -168,12 +208,34 @@ export class WorkspaceStyleManager {
       modePreference: selection.modePreference, mode: selection.mode};
     this.publish({...this.state, ...this.externalSelection});
   }
+  setColorMode(modePreference = 'system') {
+    if (!['light', 'dark', 'system'].includes(modePreference)) return;
+    this.standaloneModePreference = modePreference;
+    try { this.storage?.setItem(STANDALONE_COLOR_MODE_KEY, modePreference); } catch { /* session selection still works */ }
+    if (this.state.catalog && this.state.themeId) {
+      this.setPreference(this.state.themeId, modePreference);
+      return;
+    }
+    this.externalSelection = null;
+    this.onSystemChange();
+  }
+  toggleColorMode() {
+    const next = this.state.mode === 'dark' ? 'light' : 'dark';
+    this.setColorMode(next);
+  }
   setPreference(themeId, modePreference = 'system') {
     if (themeId !== 'forge-default' && !this.state.catalog?.themes.some(theme => theme.id === themeId)) return;
     if (!['light', 'dark', 'system'].includes(modePreference)) return;
     this.externalSelection = null;
     this.preference = {themeId, modePreference};
-    try { if (this.storageKey) this.storage?.setItem(this.storageKey, JSON.stringify(this.preference)); } catch { /* session selection still works */ }
+    this.standaloneModePreference = modePreference;
+    try {
+      if (this.storageKey) {
+        this.storage?.setItem(this.storageKey, JSON.stringify(this.preference));
+      } else {
+        this.storage?.setItem(STANDALONE_COLOR_MODE_KEY, modePreference);
+      }
+    } catch { /* session selection still works */ }
     this.onSystemChange();
   }
   clear({preserveApplicationStyles = false} = {}) {
@@ -181,7 +243,8 @@ export class WorkspaceStyleManager {
     this.sequence++; this.style?.remove(); this.style = null;
     this.identity = ''; this.workspaceId = ''; this.externalSelection = null; this.storageKey = ''; this.preference = null; this.pending = null;
     this.workspaceThemeCatalog=null;
-    this.publish({catalog: null, revision: '', themeId: '', mode: 'light', modePreference: 'system', diagnostics: []});
+    const fallback = this.resolveEffectiveSelection(null);
+    this.publish({catalog: null, revision: '', ...fallback, diagnostics: []});
     this.publishCatalog();
   }
   removeApplicationStyle(style) { style?.releaseResourceFonts?.(); style?.remove(); }

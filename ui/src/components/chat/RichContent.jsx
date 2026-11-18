@@ -9,9 +9,10 @@ import {ConversationViewContext} from '../../context/ConversationViewContext.js'
 
 import React from 'react';
 import { autoType, csvParse } from 'd3-dsv';
-import CodeBlock from './CodeBlock.jsx';
-import Mermaid from './Mermaid';
 import {Button, Dialog, Spinner, Tooltip} from '@blueprintjs/core';
+
+const CodeBlock = React.lazy(() => import('./CodeBlock.jsx'));
+const Mermaid = React.lazy(() => import('./Mermaid'));
 import { Table as BpTable, Column as BpColumn, Cell as BpCell, ColumnHeaderCell as BpColumnHeaderCell } from '@blueprintjs/table';
 import {
   ResponsiveContainer,
@@ -2415,7 +2416,9 @@ function NativeRichContent({ content = '', renderedContent = null, generatedFile
       case 'mermaid':
         out.push(
           <div key={`mermaid-${idx++}`} className="app-rich-mermaid">
-            <Mermaid code={body} />
+            <React.Suspense fallback={<pre className="app-rich-code-fallback">{body}</pre>}>
+              <Mermaid code={body} />
+            </React.Suspense>
           </div>
         );
         break;
@@ -2430,7 +2433,9 @@ function NativeRichContent({ content = '', renderedContent = null, generatedFile
       default:
         out.push(
           <div key={`code-${idx++}`} style={{ borderRadius: 8, overflow: 'hidden', margin: '6px 0' }}>
-            <CodeBlock value={body} language={fence.lang} height={'auto'} />
+            <React.Suspense fallback={<pre className="app-rich-code-fallback"><code>{body}</code></pre>}>
+              <CodeBlock value={body} language={fence.lang} height={'auto'} />
+            </React.Suspense>
           </div>
         );
         break;

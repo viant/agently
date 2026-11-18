@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import './typography.js';
 import './index.css';
+import './styles/dark-mode.css';
 import './components/mcpApps/HostedWindowApp.jsx';
 import './services/perfDiagnostics.js';
 

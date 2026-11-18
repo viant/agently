@@ -32,6 +32,7 @@ export default function BubbleMessage({ message, messageIndex = 0, conversationI
   const {presentation} = useContext(ConversationViewContext);
   const documentAppearance = presentation === 'document';
   const rowRef = useRef(null);
+  const lastScrollAtRef = useRef(0);
   const role = String(message?.role || 'assistant').toLowerCase();
   const isUser = role === 'user';
   const isPreamble = !!message?._narrationBubble;
@@ -43,15 +44,18 @@ export default function BubbleMessage({ message, messageIndex = 0, conversationI
 
   useEffect(() => {
     if (!isStreaming || typeof window === 'undefined') return undefined;
+    const now = Date.now();
+    if (now - lastScrollAtRef.current < 80) return undefined;
     const rowNode = rowRef.current;
     if (!rowNode) return undefined;
-    const scrollContainer = getScrollContainer(rowNode);
-    const rowRect = rowNode.getBoundingClientRect();
-    const containerRect = scrollContainer && scrollContainer !== document.body && scrollContainer !== document.documentElement
-      ? scrollContainer.getBoundingClientRect()
-      : { bottom: window.innerHeight };
-    if (!shouldAutoScrollStreamingRow(rowRect, containerRect)) return undefined;
     const rafId = window.requestAnimationFrame(() => {
+      const scrollContainer = getScrollContainer(rowNode);
+      const rowRect = rowNode.getBoundingClientRect();
+      const containerRect = scrollContainer && scrollContainer !== document.body && scrollContainer !== document.documentElement
+        ? scrollContainer.getBoundingClientRect()
+        : { bottom: window.innerHeight };
+      if (!shouldAutoScrollStreamingRow(rowRect, containerRect)) return;
+      lastScrollAtRef.current = Date.now();
       rowNode.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'auto' });
     });
     return () => window.cancelAnimationFrame(rafId);

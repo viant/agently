@@ -11,12 +11,13 @@ import ReportWindow, {isReportWindow} from './ReportWindow.jsx';
 import ConversationAuditWindow, {isConversationAuditWindow} from './ConversationAuditDestination.jsx';
 import { DetailContext } from '../context/DetailContext';
 import { ConversationViewContext } from '../context/ConversationViewContext';
-import DetailPanel from './DetailPanel';
-import DetailPopoutWindow from './DetailPopoutWindow';
-import CodeDiffDialog from './CodeDiffDialog';
 import ConfirmDialog from './ConfirmDialog';
-import FileViewDialog from './FileViewDialog';
 import GoalDraftDialog from './GoalDraftDialog';
+
+const DetailPanel = React.lazy(() => import('./DetailPanel'));
+const DetailPopoutWindow = React.lazy(() => import('./DetailPopoutWindow'));
+const CodeDiffDialog = React.lazy(() => import('./CodeDiffDialog'));
+const FileViewDialog = React.lazy(() => import('./FileViewDialog'));
 import MenuBar from './MenuBar';
 import { openWindow, refreshWindowDataSources } from './menuBarHelpers';
 import {createDiagnosticPublishedWindowOpener,registerReadyDiagnosticPublishedWindowOpener} from '../services/perfDiagnostics';
@@ -1606,7 +1607,7 @@ export default function Root() {
             ))}
             <WorkspaceChatDock active={showAppSection && !backendSelection.isRemote} onOpen={() => ensureMainChatWindow({focus:false})}>
             <div className={`app-chat-layout${showChatChrome ? ' has-tool-workspace' : ''}`} style={backendSelection.isRemote ? { display: 'none' } : undefined}>
-            <div className="app-chat-content-column" style={{ flex: 1, minHeight: 0, overflow: 'visible', display: 'flex', flexDirection: 'column' }}>
+            <div className="app-chat-content-column" style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
               {!showAppSection && shouldShowMainWindowHeader(selectedWindow) && !activeWorkspaceWindow ? (
                 <div className="app-main-window-header">
                   <button
@@ -1703,6 +1704,7 @@ export default function Root() {
       >
         <div className="app-detail-dialog-shell">
           <ForgeThemeBoundary presentation={sectionNavigation ? 'document' : undefined} windowKey="execution-details">
+          <React.Suspense fallback={<div style={{ padding: 24 }}>Loading detail…</div>}>
           <DetailPanel
             toolCall={selectedTool}
             headingId={detailHeadingId}
@@ -1713,11 +1715,13 @@ export default function Root() {
             onDockRight={() => setMode('right')}
             onDockLeft={() => setMode('left')}
           />
+          </React.Suspense>
           </ForgeThemeBoundary>
         </div>
       </Dialog>
 
       {isPanelOpen && detailMode === 'window' ? (
+        <React.Suspense fallback={null}>
         <DetailPopoutWindow title="Execution Detail" onClose={value.closeDetail}>
           <div className="app-detail-popout-shell">
             <DetailPanel
@@ -1731,10 +1735,15 @@ export default function Root() {
             />
           </div>
         </DetailPopoutWindow>
+        </React.Suspense>
       ) : null}
-      <CodeDiffDialog />
+      <React.Suspense fallback={null}>
+        <CodeDiffDialog />
+      </React.Suspense>
       <ConfirmDialog />
-      <FileViewDialog />
+      <React.Suspense fallback={null}>
+        <FileViewDialog />
+      </React.Suspense>
       <GoalDraftDialog
         isOpen={goalDraftState.isOpen}
         conversationId={goalDraftState.conversationId}

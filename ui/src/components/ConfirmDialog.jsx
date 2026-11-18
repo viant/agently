@@ -12,12 +12,13 @@ export default function ConfirmDialog() {
 
   const handleConfirm = async () => {
     if (state.loading) return;
-    updateConfirmDialog({ loading: true });
+    updateConfirmDialog({ loading: true, error: '' });
     try {
       await state.onConfirm?.();
       closeConfirmDialog();
-    } catch (_) {
-      updateConfirmDialog({ loading: false });
+    } catch (err) {
+      const msg = String(err?.message || err || 'Action failed.').trim();
+      updateConfirmDialog({ loading: false, error: msg });
     }
   };
 
@@ -30,6 +31,11 @@ export default function ConfirmDialog() {
     >
       <div className={Classes.DIALOG_BODY}>
         <p>{state.message}</p>
+        {state.error ? (
+          <div className="app-confirm-dialog-error" role="alert">
+            {state.error}
+          </div>
+        ) : null}
       </div>
       <div className={Classes.DIALOG_FOOTER}>
         <div className={Classes.DIALOG_FOOTER_ACTIONS}>

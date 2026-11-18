@@ -16,6 +16,7 @@ import { MAIN_CHAT_WINDOW_ID, resolveConversationSelection } from '../services/c
 import { uiSettingsHref } from '../services/uiSettingsNavigation';
 import { conversationUsageHref, shouldShowConversationUsage } from '../services/conversationUsage';
 import { getWorkspaceMetadataSnapshot, resolveWorkspaceBranding, subscribeWorkspaceMetadata } from '../services/workspaceMetadata';
+import { useWorkspaceStyle } from './WorkspaceStyleProvider';
 
 const plannerHeaderStyle = {
   textAlign: 'left',
@@ -302,6 +303,11 @@ export default function MenuBar({
   }, [selectedQueuePlannerMeta, setSelected]);
 
   const ActionButton = sectionNavigation ? ShellIconButton : Button;
+  const workspaceStyle = useWorkspaceStyle();
+  const isDarkMode = workspaceStyle?.state?.mode === 'dark';
+  const toggleThemeMode = workspaceStyle?.manager?.toggleColorMode
+    ? () => workspaceStyle.manager.toggleColorMode()
+    : null;
   const initials = displayName.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase();
   const compactViewerUtilities = sectionNavigation && compactNavigation && viewerVisible;
   const renderUtilityActions = (inMenu = false) => (
@@ -337,6 +343,19 @@ export default function MenuBar({
               className="app-backend-select" onChange={event => {onBackendChange?.(event.target.value);if(inMenu)setUserMenuOpen(false);}}>
               {backendConnections.map(connection => <option key={connection.id} value={connection.id}>{connection.label}</option>)}
             </select>
+          ) : null}
+          {toggleThemeMode ? (
+            <Tooltip content={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'} placement="bottom">
+              <ActionButton
+                minimal
+                icon={sectionNavigation ? (isDarkMode ? 'lucide:lightbulb' : 'lucide:palette') : <SharedIcon name={isDarkMode ? 'lucide:lightbulb' : 'lucide:palette'}/>}
+                aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+                className={sectionNavigation ? 'app-shell-theme-toggle' : 'app-topbar-icon-btn is-theme-toggle'}
+                role={inMenu ? 'menuitem' : undefined}
+                data-testid="color-mode-toggle"
+                onClick={() => { if (inMenu) onNativeAction?.(); toggleThemeMode(); }}
+              >{inMenu ? (isDarkMode ? 'Light mode' : 'Dark mode') : null}</ActionButton>
+            </Tooltip>
           ) : null}
           <Tooltip content={pendingCount > 0 ? `${pendingCount} pending approvals` : 'Approvals'} placement="bottom">
             <ActionButton
