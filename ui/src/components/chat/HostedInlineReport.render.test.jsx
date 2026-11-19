@@ -103,3 +103,20 @@ it('upgrades only legacy presentation in the opted-in viewer without modifying s
  expect(normalizeCanonicalReportAssembly(explicit,'document').source).toBe(explicit.source);
  expect(normalizeCanonicalReportAssembly({...saved,source:JSON.stringify(source)},'document').source.viewer.appearance).toBe('document');
 });
+
+
+it('preserves fixed KPI precision through hosted report planning without rounding source data',()=>{
+  for (const appearance of ['document',undefined]) {
+    for (const [value,whole,decimal] of [[1234.26,'1,234','1,234.3'],[-1234.26,'-1,234','-1,234.3'],[12,'12','12.0'],[0,'0','0.0']]) {
+      const assembly={id:'precision',scope:'message',grammar:'report-document-v1',status:'committed',authoritative:true,sequence:1,
+        source:{title:'Precision specimen',viewer:appearance?{appearance}:undefined,blocks:[{id:'measurement',kind:'kpiBlock',datasetRef:'records',valueField:'value',valueLabel:'Whole',valueFormat:'number0',secondaryField:'value',secondaryLabel:'Decimal',secondaryFormat:'number1'}]},
+        dataSources:{records:{id:'records',format:'json',data:[{value}]}}};
+      const before=JSON.stringify(assembly);
+      const node=document.createElement('div');
+      node.innerHTML=renderToStaticMarkup(<HostedInlineReport assembly={assembly}/>);
+      expect(node.textContent).toContain(whole);
+      expect(node.textContent).toContain(decimal);
+      expect(JSON.stringify(assembly)).toBe(before);
+    }
+  }
+});
