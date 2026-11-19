@@ -103,6 +103,90 @@ try {
     await page.locator('.app-ui-settings-title[data-forge-type="section"]').waitFor();
     if (pilot?.themeId) await page.getByRole('combobox',{name:'Workspace theme',exact:true}).selectOption(pilot.themeId);
     await page.evaluate(() => document.fonts.ready);
+    const section = page.locator('#foundation-inline-section');
+    const questionSection = section.locator('.forge-section').first();
+    assert.equal(await questionSection.getByRole('heading', {name:'Choose the next check'}).getAttribute('data-forge-type'), 'section');
+    // A late legacy stylesheet must not repaint a declared document section.
+    const lateBlueprint = await page.addStyleTag({path:path.join(dependencies, '@blueprintjs/core/lib/css/blueprint.css')});
+    await section.evaluate(node => node.classList.add('bp6-dark'));
+    try {
+      const paint = await questionSection.evaluate(node => {
+        const probe = document.createElement('span');
+        probe.style.background = 'var(--forge-surface)';
+        probe.style.color = 'var(--forge-text)';
+        node.append(probe);
+        const expected = getComputedStyle(probe);
+        const actual = getComputedStyle(node);
+        const result = {background:actual.backgroundColor, expectedBackground:expected.backgroundColor,
+          shadow:actual.boxShadow, title:getComputedStyle(node.querySelector('[data-forge-part="section-title"]')).color,
+          expectedTitle:expected.color};
+        probe.remove();
+        return result;
+      });
+      assert.equal(paint.background, paint.expectedBackground, 'Document section keeps its semantic surface after late Blueprint dark CSS');
+      assert.equal(paint.title, paint.expectedTitle, 'Document section heading keeps its semantic foreground');
+      assert.equal(paint.shadow, 'none', 'Document section retains its quiet border');
+    } finally {
+      await lateBlueprint.evaluate(node => node.remove());
+      await section.evaluate(node => node.classList.remove('bp6-dark'));
+    }
+    for (const node of await section.locator('.forge-section, [data-forge-part="section-actions"] button').all()) {
+      const bounds = await node.boundingBox();
+      assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= viewport.width + 1, 'Inline sections and actions fit the viewport');
+    }
+    const evidenceToggle = section.getByRole('button', {name:'Expand Example evidence'});
+    assert.equal(await evidenceToggle.getAttribute('aria-expanded'), 'false');
+    await evidenceToggle.focus();
+    await evidenceToggle.press('Enter');
+    assert.equal(await section.getByRole('button', {name:'Collapse Example evidence'}).getAttribute('aria-expanded'), 'true');
+    await section.getByText('Supporting details expand with the same section control.').waitFor();
+    await section.getByRole('button', {name:'Collapse Example evidence'}).press('Space');
+    assert.equal(await section.getByRole('button', {name:'Expand Example evidence'}).getAttribute('aria-expanded'), 'false');
+    const guided = page.locator('#foundation-guided-result');
+    const guidedStyle = await guided.getAttribute('style');
+    await guided.evaluate(node => {node.style.maxWidth='350px';node.style.overflowWrap='anywhere';});
+    const guidedCopy = guided.getByRole('button', {name:'Copy',exact:true});
+    const copyLines = await guidedCopy.evaluate(node => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      return range.getClientRects().length;
+    });
+    await guided.evaluate((node, style) => {if(style === null) node.removeAttribute('style');else node.setAttribute('style',style);}, guidedStyle);
+    assert.equal(copyLines, 1, 'A long recorded-example title must not wrap the Copy label');
+    const receipt = guided.locator('.forge-guided-result--receipt');
+    const fixToggle = receipt.getByRole('button', {name:'Expand How to fix this',exact:true});
+    const detailToggle = receipt.getByRole('button', {name:'Expand Check details',exact:true});
+    const closedLayout = await receipt.evaluate(node => {
+      const body=node.querySelector(':scope > [data-forge-part="section-content"]');
+      return {inset:parseFloat(getComputedStyle(body).paddingTop),expected:parseFloat(getComputedStyle(body).getPropertyValue('--forge-spacing-4').trim()||'16px'),gap:node.querySelector('.forge-guided-result__scope').getBoundingClientRect().top-node.querySelector(':scope > [data-forge-part="section-header"]').getBoundingClientRect().bottom,fixHeight:node.querySelector('.forge-guided-result__next').getBoundingClientRect().height,evidenceHeight:node.querySelector('.forge-guided-result__evidence').getBoundingClientRect().height};
+    });
+    assert.equal(closedLayout.inset, closedLayout.expected, 'The receipt keeps its semantic top inset');
+    assert.equal(closedLayout.gap, closedLayout.expected, 'The first observation is separated from the receipt header');
+    assert.ok(Math.abs(closedLayout.fixHeight-closedLayout.evidenceHeight)<=1, 'Matching collapsed disclosures use matching geometry');
+    assert.equal(await fixToggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(await detailToggle.getAttribute('aria-expanded'), 'false');
+    await fixToggle.press('Enter');
+    assert.equal(await receipt.locator('.forge-guided-result__next ol > li').count(), 2);
+    assert.equal(await detailToggle.getAttribute('aria-expanded'), 'false');
+    await detailToggle.press('Space');
+    assert.equal(await receipt.getByRole('button', {name:'Collapse How to fix this',exact:true}).getAttribute('aria-expanded'), 'true');
+    assert.equal(await receipt.getByRole('button', {name:'Collapse Check details',exact:true}).getAttribute('aria-expanded'), 'true');
+    for (const title of ['How to fix this', 'Check details']) {
+      const toggle=receipt.getByRole('button', {name:`Collapse ${title}`,exact:true});
+      await toggle.press('ArrowRight');
+      const focus=await toggle.evaluate(node => {
+        const style=getComputedStyle(node),bounds=node.getBoundingClientRect();
+        const clip=node.closest('.forge-guided-result__disclosure').getBoundingClientRect();
+        const outset=parseFloat(style.outlineWidth)+parseFloat(style.outlineOffset);
+        return {visible:node.matches(':focus-visible'),outset,fits:bounds.left-outset>=clip.left && bounds.right+outset<=clip.right && bounds.top-outset>=clip.top && bounds.bottom+outset<=clip.bottom};
+      });
+      assert.equal(focus.visible,true,'Disclosure keyboard focus remains visible');
+      assert.ok(focus.outset>0 && focus.fits,'The complete native focus outline fits inside its disclosure');
+    }
+    const receiptLayout = await receipt.evaluate(node => ({fits:node.scrollWidth<=node.clientWidth,divider:getComputedStyle(node.querySelector(':scope > [data-forge-part="section-header"]')).borderBottomWidth,coarse:matchMedia('(pointer:coarse)').matches,targets:[...node.querySelectorAll('button')].map(button=>({width:button.getBoundingClientRect().width,height:button.getBoundingClientRect().height}))}));
+    assert.equal(receiptLayout.fits, true, 'Inspection receipt and expanded details fit their host');
+    assert.notEqual(receiptLayout.divider, '0px', 'The receipt remains visually separate from its finding');
+    if(receiptLayout.coarse) assert.ok(receiptLayout.targets.every(target=>target.width>=44 && target.height>=44), 'Disclosure targets fit touch input');
     const navigation = page.getByRole('region', {name: 'Section navigation specimen'});
     const rail = navigation.getByRole('navigation', {name: 'App sections'});
     await activate(rail.getByRole('button', {name: 'Workspaces', exact: true}));

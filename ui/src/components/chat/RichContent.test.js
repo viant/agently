@@ -1,9 +1,15 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
-import React from 'react';
+import React, {act} from 'react';
+import {createRoot} from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
+import {ForgeThemeProvider} from 'forge/components';
 
-const { getReportExportArtifactMock } = vi.hoisted(() => ({ getReportExportArtifactMock: vi.fn() }));
+const { getReportExportArtifactMock, submitMessageMock } = vi.hoisted(() => ({ getReportExportArtifactMock: vi.fn(), submitMessageMock: vi.fn(async () => {}) }));
+
+vi.mock('../../services/chatService.js', async () => ({
+  ...await vi.importActual('../../services/chatService.js'), submitMessage: submitMessageMock,
+}));
 
 vi.mock('../../services/reportExportService.js', async () => ({
   ...await vi.importActual('../../services/reportExportService.js'),
@@ -27,6 +33,87 @@ function createScratchpadClickEvent(artifactId) {
 }
 
 describe('RichContent fence parsing', () => {
+  it('renders a structured result and sends its action through ordinary chat', async () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+    const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
+    const context={id:'host-context'};
+    const prompt='Help me review the original mapping.';
+    const payload={version:1,blocks:[{id:'result',kind:'dashboard.guidedResult',guidedResult:{
+      title:'A value needs attention',status:{label:'Needs review',tone:'warning'},
+      checks:[{label:'Records received',status:'Confirmed',tone:'success'}],
+      nextStep:{title:'Review the mapping',action:{label:'Show the next check',prompt}},
+      evidence:{title:'What was checked',items:[{label:'Limit',value:'The result is not verified.'}]},
+    }}]};
+    const source='```forge-ui\n'+JSON.stringify(payload)+'\n```';
+    submitMessageMock.mockClear();
+    try {
+      await act(async()=>root.render(React.createElement(ForgeThemeProvider,{themeId:'test-theme'},React.createElement(RichContent,{context,content:'[Interactive content]',renderedContent:{schemaVersion:'1',parts:[{kind:'forgeUI',source,payload}]}}))));
+      expect(host.textContent).toContain('Records received');
+      expect(host.querySelector('[data-forge-status="success"]').textContent).toBe('Confirmed');
+      expect(host.querySelector('.agently-workspace[data-forge-presentation="document"]')).not.toBeNull();
+      expect(host.querySelector('[aria-label="Download dashboard as HTML"]')).toBeNull();
+      const action=[...host.querySelectorAll('button')].find(button=>button.textContent==='Show the next check');
+      expect(action.disabled).toBe(false);
+      await act(async()=>{action.click();await vi.dynamicImportSettled();});
+      expect(submitMessageMock).toHaveBeenCalledTimes(1);
+      expect(submitMessageMock).toHaveBeenCalledWith({context,message:prompt});
+    } finally {await act(async()=>root.unmount());host.remove();}
+  });
+  it('retains inspection receipts and supplied-step disclosures in raw and canonical saved content', () => {
+    const payload={version:1,blocks:[{id:'inspection',kind:'dashboard.guidedResult',guidedResult:{
+      receipt:{title:'Source checked',subject:'example.test',detail:'Public settings reviewed October 5',tone:'success'},
+      title:'A value needs attention',values:[{label:'Amount',value:'[Amount]',tone:'warning'}],
+      limit:'A completed transaction was not tested.',
+      nextStep:{title:'How to fix this',collapsible:true,description:'1. Review the source.\n2. Validate its value.'},
+      evidence:{title:'Check details',items:[{label:'Source',value:'Synthetic public definition.'}]},
+    }}]};
+    const source='```forge-ui\n'+JSON.stringify(payload)+'\n```';
+    for(const props of [{content:source},{content:'[Interactive content]',renderedContent:{schemaVersion:'1',parts:[{kind:'forgeUI',source,payload}]}}]) {
+      const html=renderToStaticMarkup(React.createElement(RichContent,{...props,messageId:'saved-inspection'}));
+      expect(html).toContain('forge-guided-result--receipt');
+      expect(html).toContain('Source checked');
+      expect(html).toContain('[Amount]');
+      expect(html).toContain('A completed transaction was not tested.');
+      expect(html).toContain('Expand How to fix this');
+      expect(html).toContain('Expand Check details');
+      expect(html).not.toContain('Download dashboard as HTML');
+    }
+  });
+  it('renders an existing document runtime as an inline response card', () => {
+    const reportSpec = {title:'',viewer:{appearance:'document'},datasets:[],blocks:[
+      {id:'finding',kind:'infoPanelBlock',title:'Some values need attention',tone:'neutral',body:'The supplied records contain unresolved labels.'},
+      {id:'action',kind:'markdownBlock',title:'Next step',markdown:'Review the source settings before making a change.'},
+    ]};
+    const reportFill = {datasets:[],blocks:reportSpec.blocks,diagnostics:[]};
+    const payload = {version:1,blocks:[{id:'response',kind:'dashboard.reportRuntime',reportRuntime:{reportSpec,reportFill,presentationMode:'report',showContextSummary:false}}]};
+    const content = '```forge-ui\n'+JSON.stringify(payload)+'\n```';
+    for (const props of [
+      {content},
+      {content:'[Interactive content]',renderedContent:{schemaVersion:'1',parts:[
+        {kind:'markdown',text:'Saved finding.\n'},
+        {kind:'forgeUI',language:'forge-ui',source:content,payload},
+        {kind:'markdown',text:'\nUse the published settings.'},
+      ]}},
+    ]) {
+      const html = renderToStaticMarkup(React.createElement(RichContent,{...props,messageId:'native-card'}));
+      expect(html).toContain('Some values need attention');
+      expect(html).toContain('Review the source settings');
+      expect(html).toContain('data-forge-report-appearance="document"');
+      expect(html).not.toContain('Unsupported forge-ui block kind');
+      expect(html).not.toContain('```forge-ui');
+      expect(html).not.toContain('[Interactive content]');
+      expect(html).not.toContain('Download dashboard as HTML');
+      if (props.renderedContent) {
+        expect(html.indexOf('Saved finding.')).toBeLessThan(html.indexOf('Some values need attention'));
+        expect(html.indexOf('Some values need attention')).toBeLessThan(html.indexOf('Use the published settings.'));
+      }
+    }
+  });
+  it('retains HTML export for a supported legacy dashboard', () => {
+    const payload={version:1,blocks:[{id:'summary',kind:'dashboard.summary',items:[{label:'Records',value:12}]}]};
+    const html=renderToStaticMarkup(React.createElement(RichContent,{content:'```forge-ui\n'+JSON.stringify(payload)+'\n```'}));
+    expect(html).toContain('Download dashboard as HTML');
+  });
   it('does not reserve an empty text line above a report-only attachment', () => {
     expect(renderToStaticMarkup(React.createElement(RichContent, {content: ''}))).toBe('');
     expect(renderToStaticMarkup(React.createElement(RichContent, {content: '   \n\n'}))).toBe('');

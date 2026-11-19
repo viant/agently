@@ -11,7 +11,7 @@
     "proof:browser": "node scripts/browser-proof-runner.mjs",
     "test:forge-release": "node scripts/verify-forge-release.mjs",
     "test:window-scroll": "node scripts/test-report-window-scroll.mjs",
-    "test:typography": "vitest run src/components/chat/HostedInlineReport.render.test.jsx src/services/feedForgeWiring.test.js --testTimeout=15000 && node scripts/test-typography-browser.mjs",
+    "test:typography": "vitest run src/components/ElicitationOverlay.render.test.jsx src/components/chat/HostedInlineReport.render.test.jsx src/services/feedForgeWiring.test.js src/components/chat/historyScroll.test.js --testTimeout=15000 && node scripts/test-typography-browser.mjs",
     "proof:report-builder-preview": "node scripts/browser-proof-runner.mjs ../../forge/tests/report-builder-preview-proof.scenario.json test-results/forecasting-proof-harness-dev",
     "proof:report-builder-preview:categorical": "node scripts/browser-proof-runner.mjs ../../forge/tests/report-builder-preview-categorical.scenario.json test-results/forecasting-proof-harness-dev",
     "proof:report-builder-preview:manual": "node scripts/browser-proof-runner.mjs ../../forge/tests/report-builder-preview-manual.scenario.json test-results/forecasting-proof-harness-dev",

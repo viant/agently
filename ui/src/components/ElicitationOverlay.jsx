@@ -1,9 +1,9 @@
 import ElicitationTiming from './ElicitationTiming';
 import ElicitationMessage from './ElicitationMessage';
 import RequestReviewDialog, {ReviewAction,reviewDecisionError} from './RequestReviewDialog.jsx';
-import {ReviewTable, Typography, typographyProps} from 'forge/components';
+import {AccessibleSection, ReviewTable, Typography, typographyProps} from 'forge/components';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Dialog, Classes, Spinner } from '@blueprintjs/core';
+import { Classes, Spinner } from '@blueprintjs/core';
 import SchemaBasedForm from 'forge/widgets/SchemaBasedForm.jsx';
 import { client } from '../services/agentlyClient';
 import { refreshAfterElicitationResolution } from '../services/chatRuntime';
@@ -13,6 +13,7 @@ import {
   elicitationDataBindingKey,
   extractToolApprovalMeta,
   extractPlannerElicitationMeta,
+  isInlineQuestion,
   prepareRequestedSchema,
   resolveElicitationTarget,
   resolveElicitationSubmitAction,
@@ -31,7 +32,7 @@ import {
 
 const EMPTY_FORM_DATA = Object.freeze({});
 
-export default function ElicitationOverlay({ context, appearance }) {
+export function usePendingQuestions() {
   const [pendingItems, setPendingItems] = useState(getPendingElicitations);
 
   useEffect(() => {
@@ -40,7 +41,20 @@ export default function ElicitationOverlay({ context, appearance }) {
     });
   }, []);
 
+  return pendingItems;
+}
+
+export function ConversationQuestions({context, conversationId}) {
+  const items = usePendingQuestions().filter(item => isInlineQuestion(item, conversationId));
+  return items.map((item, index) => <ElicitationDialog
+    key={`${item.conversationId}::${item.elicitationId}`} context={context}
+    pending={item} index={index} total={items.length} appearance="document" inline/>);
+}
+
+export default function ElicitationOverlay({ context, appearance, inlineConversationId = '' }) {
+  const pendingItems = usePendingQuestions();
   const visibleItems = pendingItems.filter((item) => {
+    if (appearance === 'document' && isInlineQuestion(item, inlineConversationId)) return false;
     const schema = item?.requestedSchema || null;
     const url = item?.url || '';
     const mode = item?.mode || '';
@@ -66,7 +80,7 @@ export default function ElicitationOverlay({ context, appearance }) {
   );
 }
 
-export function ElicitationDialog({ context, pending, index = 0, total = 1, appearance }) {
+export function ElicitationDialog({ context, pending, index = 0, total = 1, appearance, inline = false }) {
   const documentPresentation = appearance === 'document';
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -232,21 +246,9 @@ export function ElicitationDialog({ context, pending, index = 0, total = 1, appe
     try { return new URL(url).host; } catch (_) { return url; }
   })();
 
-  return (
-    <RequestReviewDialog appearance={appearance} busy={submitting}
-      isOpen={true}
-      canEscapeKeyClose={!submitting}
-      canOutsideClickClose={!submitting}
-      onClose={() => (isResolvedHistory ? removePendingElicitation({ conversationId, elicitationId }, { allConversationsForElicitation: true }) : resolve('cancel', {}))}
-      hasBackdrop={false}
-      enforceFocus={false}
-      autoFocus={false}
-      title={`${approvalMeta?.title || 'Needs your input'}${total > 1 ? ` - ${index + 1} of ${total}` : ''}`}
-      style={{ width: 'calc(100vw - 32px)', maxWidth: 680, marginTop: index ? 32 * index : undefined }}
-    >
-      <div className={Classes.DIALOG_BODY}>
-        <ElicitationMessage message={prompt} appearance={appearance}/>
-        {!approvalMeta && !isOOB && !isResolvedHistory ? <ElicitationTiming source={pending} /> : null}
+  const body = <>
+        <ElicitationMessage message={prompt} appearance={appearance} inline={inline}/>
+        {!inline && !approvalMeta && !isOOB && !isResolvedHistory ? <ElicitationTiming source={pending} /> : null}
         {documentPresentation && approvalMeta?.toolName ? <Typography as="p" typeRole="metadata" className="app-request-review-tool">Action: {approvalMeta.toolName}</Typography> : approvalMeta?.toolName ? (
           <div style={{ marginBottom: 12 }}>
             <strong>Tool:</strong> {approvalMeta.toolName}
@@ -337,9 +339,9 @@ export function ElicitationDialog({ context, pending, index = 0, total = 1, appe
           </p>
         ) : null}
         {error ? <p {...(documentPresentation ? typographyProps('body') : {})} role="alert" className={documentPresentation ? 'app-request-review-error' : undefined} style={documentPresentation ? undefined : { color: "var(--agently-theme-status-danger-foreground, #ef4444)", marginTop: 8 }}>{error}</p> : null}
-      </div>
-      <div className={Classes.DIALOG_FOOTER}>
-        <div className={Classes.DIALOG_FOOTER_ACTIONS}>
+
+  </>;
+  const actions = <>
           {submitting ? <Spinner size={16} /> : null}
           {isResolvedHistory ? (
             <ReviewAction appearance={appearance} onClick={() => removePendingElicitation({ conversationId, elicitationId }, { allConversationsForElicitation: true })}>Close</ReviewAction>
@@ -389,17 +391,34 @@ export function ElicitationDialog({ context, pending, index = 0, total = 1, appe
                     resolve(submitAction);
                   }
                 }}>
-                  {approvalMeta?.acceptLabel || 'Submit'}
+                  {approvalMeta?.acceptLabel || (inline ? 'Continue' : 'Submit')}
                 </ReviewAction>
               )}
             </>
           )}
-        </div>
-      </div>
+
+  </>;
+  const title = `${approvalMeta?.title || 'Needs your input'}${total > 1 ? ` - ${index + 1} of ${total}` : ''}`;
+  if (inline) return <AccessibleSection appearance="document" role="region" title={title}
+    aria-busy={submitting} collapsible={false} actions={actions}>{body}</AccessibleSection>;
+
+  return (
+    <RequestReviewDialog appearance={appearance} busy={submitting}
+      isOpen={true}
+      canEscapeKeyClose={!submitting}
+      canOutsideClickClose={!submitting}
+      onClose={() => (isResolvedHistory ? removePendingElicitation({ conversationId, elicitationId }, { allConversationsForElicitation: true }) : resolve('cancel', {}))}
+      hasBackdrop={false}
+      enforceFocus={false}
+      autoFocus={false}
+      title={title}
+      style={{ width: 'calc(100vw - 32px)', maxWidth: 680, marginTop: index ? 32 * index : undefined }}
+    >
+      <div className={Classes.DIALOG_BODY}>{body}</div>
+      <div className={Classes.DIALOG_FOOTER}><div className={Classes.DIALOG_FOOTER_ACTIONS}>{actions}</div></div>
     </RequestReviewDialog>
   );
 }
-
 const plannerHeaderStyle = {
   textAlign: 'left',
   color: "var(--app-muted, #6b7688)",

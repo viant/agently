@@ -28,6 +28,7 @@ import MCPUIBubble from './MCPUIBubble.jsx';
 import StandardAppRenderer from '../mcpApps/StandardAppRenderer.jsx';
 import { useAgUiHostActivities } from '../../services/aguiHostActivities.js';
 import StarterTasks from './StarterTasks.jsx';
+import {ConversationQuestions, usePendingQuestions} from '../ElicitationOverlay.jsx';
 import WorkspaceAttachmentCard from './WorkspaceAttachmentCard.jsx';
 import { ConversationViewContext } from '../../context/ConversationViewContext.js';
 import { resolveWorkspaceAttachmentOwnerIndex, projectedWorkspaceEntries } from '../../services/workspaceAttachment.js';
@@ -39,6 +40,7 @@ import {
 export { resolveWorkspaceAttachmentOwnerIndex } from '../../services/workspaceAttachment.js';
 
 import { client } from '../../services/agentlyClient.js';
+import {isInlineQuestion} from '../elicitationHelpers.js';
 
 // Ephemeral browser app instances belong to the active local MCP connection,
 // never to workspace window/navigation state or a saved Forge definition.
@@ -166,6 +168,7 @@ export function documentChatRows(rows = []) {
  *                    `useChatProjection(conversationId)`.
  */
 export default function ChatFeedFromChatStore({ conversationId, rowsOverride, context }) {
+  const pendingQuestions = usePendingQuestions();
   const hostActivities = useAgUiHostActivities(conversationId);
   const viewContext = useContext(ConversationViewContext);
   const [workspaceMetadata, setWorkspaceMetadata] = React.useState(() => getWorkspaceMetadataSnapshot() || {});
@@ -176,6 +179,7 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
   const projectedRows = rowsOverride !== undefined ? rowsOverride : subscribed;
   const rows = React.useMemo(() => viewContext?.presentation === 'document' && viewContext?.reportsInWorkspace && Array.isArray(projectedRows)
     ? documentChatRows(projectedRows) : projectedRows, [projectedRows, viewContext?.presentation, viewContext?.reportsInWorkspace]);
+  const awaitingQuestion = pendingQuestions.some(item => isInlineQuestion(item, viewContext?.inlineQuestionConversationId));
   const feedRef = React.useRef(null);
   const hasRows = Array.isArray(rows) && rows.length > 0;
   React.useEffect(() => {
@@ -251,7 +255,7 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
   }
   const workspaceAttachmentFor = (index) => {
     const entries = attachmentsByOwner.get(index)?.filter(entry => !(viewContext?.presentation === 'document'
-      && entry.workspaceObject?.content?.renderer === 'inlineReport' && activeTurnIds.has(entry.workspaceObject.origin?.turnId)));
+      && entry.workspaceObject?.content?.renderer === 'inlineReport' && activeTurnIds.has(entry.workspaceObject.origin?.turnId) && !awaitingQuestion));
     if (!entries?.length) return null;
     return <div className="app-workspace-attachments" role="group" aria-label={entries.length > 1 ? `${entries.length} workspaces` : 'Workspace'}>
       {entries.length > 1 ? <span>{entries.length} workspaces</span> : null}
@@ -301,7 +305,7 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
             context,
             conversationId,
             allowHostEffects ? workspaceAttachmentFor(index) : null,
-            allowHostEffects && viewContext?.presentation === 'document' && activeTurnIds.has(turnId)
+            allowHostEffects && viewContext?.presentation === 'document' && activeTurnIds.has(turnId) && !awaitingQuestion
           );
           return [
             <React.Fragment key={row.renderKey}>{rendered}</React.Fragment>,
@@ -330,6 +334,7 @@ export default function ChatFeedFromChatStore({ conversationId, rowsOverride, co
           ...appRows,
         ];
       })}
+      {viewContext?.inlineQuestionConversationId === conversationId && <ConversationQuestions context={context} conversationId={conversationId}/>}
       <BrowserAppFeed conversationId={conversationId} />
     </div>
   );

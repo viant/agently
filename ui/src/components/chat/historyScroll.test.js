@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
 import { attachHistoryScroll } from './historyScroll.js';
 
@@ -8,6 +9,7 @@ function fixture(conversationId = '', feed = {}) {
   let resize;
   const viewport = {
     scrollTop: 0, scrollHeight: 1200, clientHeight: 400,
+    getBoundingClientRect: () => ({top: 0, bottom: 400}),
     addEventListener: (name, callback) => listeners.set(name, callback),
     removeEventListener: name => listeners.delete(name),
   };
@@ -33,14 +35,60 @@ function fixture(conversationId = '', feed = {}) {
 }
 
 describe('history viewport scrolling', () => {
-  it('keeps the reading position on completion and resumes following a new submission', () => {
+  it('holds reading position when a disclosure is activated and resumes on a new submission', () => {
+    const feed={dataset:{requestActive:'false'}},f=fixture('',feed);f.flush();
+    expect(f.viewport.scrollTop).toBe(800);
+    f.viewport.scrollHeight=1800;f.resize();
+    f.listeners.get('click')({target:{closest:()=>({})}});f.flush();
+    expect(f.viewport.scrollTop).toBe(800);
+    f.viewport.scrollHeight=2400;f.resize();f.flush();
+    expect(f.viewport.scrollTop).toBe(800);
+    f.listeners.get('forge:chat-submitted')();feed.dataset.requestActive='true';f.flush();
+    expect(f.viewport.scrollTop).toBe(2000);f.dispose();
+  });
+  it.each([
+    ['receipt title', '#receipt-title', 1400],
+    ['ordinary text', '#body', 1400],
+    ['interactive section title', '#disclosure-title', 800],
+    ['disclosure caret', 'button span', 800],
+  ])('distinguishes %s from an interactive disclosure', (_label, selector, expectedTop) => {
+    const host=document.createElement('div');
+    host.innerHTML='<div data-forge-part="section-header"><h3 id="receipt-title">Source checked</h3></div><p id="body">Source observation</p><div data-forge-part="section-header" class="bp6-interactive"><h3 id="disclosure-title">Details</h3><button aria-expanded="false"><span>Expand</span></button></div>';
+    const f=fixture();f.flush();
+    f.listeners.get('click')({target:host.querySelector(selector)});
+    f.viewport.scrollHeight=1800;f.resize();f.flush();
+    expect(f.viewport.scrollTop).toBe(expectedTop);f.dispose();
+  });
+  it.each([false, true])('reveals the start of the current answer and holds it, delayed mount=%s', delayed => {
+    const feed=document.createElement('div');feed.dataset.requestActive='true';
+    feed.innerHTML='<div class="app-bubble-row app-bubble-row-assistant">Old answer</div><div class="app-bubble-row app-bubble-row-user">New question</div><div class="app-bubble-row app-bubble-row-assistant" id="answer">New answer</div><div class="app-bubble-row app-bubble-row-assistant">Report</div>';
+    let height=delayed?0:1000;
+    feed.querySelector('#answer').getBoundingClientRect=()=>({top:700,bottom:700+height,height});
+    const f=fixture('',feed);f.flush();
+    feed.dataset.requestActive='false';f.viewport.scrollHeight=2200;f.resize();f.flush();
+    if(delayed){expect(f.viewport.scrollTop).toBe(800);height=1000;f.resize();f.flush();}
+    expect(f.viewport.scrollTop).toBe(1500);
+    f.viewport.scrollHeight=3000;f.resize();f.flush();expect(f.viewport.scrollTop).toBe(1500);
+    f.listeners.get('forge:chat-submitted')();feed.dataset.requestActive='true';f.flush();
+    expect(f.viewport.scrollTop).toBe(2600);f.dispose();
+  });
+  it('does not reposition someone reading when work completes', () => {
     const feed={dataset:{requestActive:'true'}},f=fixture('',feed);f.flush();
-    expect(f.viewport.scrollTop).toBe(800);
-    feed.dataset.requestActive='false';f.viewport.scrollHeight=1800;f.resize();f.flush();
-    expect(f.viewport.scrollTop).toBe(800);
-    f.listeners.get('forge:chat-submitted')();feed.dataset.requestActive='true';
-    f.viewport.scrollHeight=2000;f.resize();f.flush();
-    expect(f.viewport.scrollTop).toBe(1600);f.dispose();
+    f.listeners.get('wheel')({deltaY:-100});f.viewport.scrollTop=400;f.listeners.get('scroll')({});
+    feed.dataset.requestActive='false';f.viewport.scrollHeight=2400;f.resize();f.flush();
+    expect(f.viewport.scrollTop).toBe(400);f.dispose();
+  });
+  it.each([
+    [{top:400,bottom:600,height:200},1200],
+    [{top:50,bottom:300,height:250},800],
+  ])('holds a short finished answer through later resize: %o', (bounds,expectedTop) => {
+    const feed=document.createElement('div');feed.dataset.requestActive='true';
+    feed.innerHTML='<div class="app-bubble-row app-bubble-row-user">Question</div><div class="app-bubble-row app-bubble-row-assistant">Answer</div>';
+    feed.lastChild.getBoundingClientRect=()=>bounds;
+    const f=fixture('',feed);f.flush();
+    feed.dataset.requestActive='false';f.viewport.scrollHeight=1600;f.resize();f.flush();
+    expect(f.viewport.scrollTop).toBe(expectedTop);
+    f.viewport.scrollHeight=2400;f.resize();f.flush();expect(f.viewport.scrollTop).toBe(expectedTop);f.dispose();
   });
   it('opens at the bottom and follows late rendering and viewport resizing', () => {
     const f = fixture(); f.flush();

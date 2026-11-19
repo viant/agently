@@ -257,3 +257,18 @@ export function triggerElicitationFormSubmit(formWrapperId = '') {
   } catch (_) {}
   return false;
 }
+
+export function isOrdinaryQuestion(item) {
+  const mode = String(item?.mode || '').trim().toLowerCase();
+  const schema = item?.requestedSchema;
+  return (!mode || mode === 'form') && !item?.url
+    && Object.keys(schema?.properties || {}).some(key => !key.startsWith('_'))
+    && !extractToolApprovalMeta(schema) && !extractPlannerElicitationMeta(schema);
+}
+
+export function isInlineQuestion(item, conversationId) {
+  const status = String(item?.status || '').trim().toLowerCase();
+  return !!conversationId && item?.conversationId === conversationId
+    && (!status || ['pending', 'open', 'waiting_for_user', 'running'].includes(status))
+    && isOrdinaryQuestion(item);
+}
