@@ -18,6 +18,10 @@ their intrinsic aspect ratio at the shared spacing-5 height (20px fallback),
 so horizontal wordmarks remain readable beside the application name. Keep brand
 artwork in the owning workspace; do not package workspace logos in the host.
 
+The collapsed DS2 launch actions read "Overlay Chat" and "Split Chat". The
+existing footer spacing is retained. Opening either action preserves the existing
+conversation and draft; Baseline keeps its prior controls.
+
 ## Consistent action states and icons
 
 Quiet shell actions use a semantic hover background without an added border or

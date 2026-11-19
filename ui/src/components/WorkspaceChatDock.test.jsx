@@ -55,7 +55,8 @@ it('changes split position only in DS2 without replacing the conversation or dra
     return <textarea aria-label="Message" defaultValue="Keep my draft"/>;
   }
   const view = render(<WorkspaceChatDock active><Conversation/></WorkspaceChatDock>);
-  fireEvent.click(screen.getByRole('button', {name: 'Open chat in split view'}));
+  expect(screen.getByRole('button', {name: 'Overlay Chat'})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', {name: 'Split Chat'}));
   const message = screen.getByLabelText('Message');
   const dock = screen.getByRole('region', {name: 'Workspace chat'});
   expect(dock.dataset.chatSide).toBe('left');
