@@ -38,7 +38,7 @@ export default function NavigationSpecimen() {
       </SectionNavigation>
     </div>
     <Typography as="h3" typeRole="section">Shell and viewer controls</Typography>
-    <div className="app-header-specimen">
+    <div className="app-header-specimen" style={{'--app-border': 'var(--forge-border-color)'}}>
       <header className={`app-topbar is-document${open && surface === 'workspace' ? ' has-viewer' : ''}${mode === 'focus' ? ' viewer-expanded' : ''}`}>
         <div className="app-topbar-left"><ShellLocation title="Example conversation"/></div>
         <div className="app-shell-viewer-header" ref={setMount}/>
