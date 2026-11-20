@@ -64,10 +64,10 @@
   width: min(100%, var(--app-chat-max-width, 1440px));
 }
 
-.app-summary-surface-shell.is-document .app-summary-workspace { display: flex; flex-direction: column; overflow: hidden; order: 1; flex: 1; min-width: 0; min-height: 0; margin: 0; border: 0; border-radius: 0; border-inline-start: 1px solid var(--app-border); background: var(--app-surface); }
+.app-summary-surface-shell.is-document .app-summary-workspace { display: flex; flex-direction: column; overflow: hidden; order: 1; flex: 1; min-width: 0; min-height: 0; margin: 0; border: 0; border-radius: 0; background: var(--app-surface); }
 .app-summary-surface-shell.is-document .app-summary-workspace.is-surface-hidden { display: none; }
 .app-summary-surface-shell.is-document.is-split .app-summary-workspace { flex: 1; min-height: 0; }
-.app-summary-surface-shell.is-document.is-split .app-summary-conversation { flex: 0 0 380px; min-width: 0; }
+.app-summary-surface-shell.is-document.is-split .app-summary-conversation { flex: 0 0 380px; min-width: 0; border-inline-end: 1px solid var(--app-border); }
 .app-summary-surface-shell.is-document.is-workspace:not(.is-split) .app-summary-conversation { display: none; }
 .app-summary-surface-shell.is-document.is-workspace:not(.is-split) .app-summary-conversation.is-composer-only { display: grid; order: 2; flex: 0 0 auto; overflow: visible; }
 .app-summary-surface-shell.is-document.is-workspace:not(.is-split) .app-summary-conversation.is-composer-only {

@@ -11,6 +11,12 @@ provider selects a profile and Light/Dark mode from the published catalog.
 Baseline remains the catalog default and keeps its original menu and chat
 treatments. Shared interaction behavior remains in the owning components.
 
+In document split view, the conversation owns the inline-end divider in both
+the header and body. Keep its 380px border-box width unchanged so the painted
+lines meet without a one-pixel step. Focus and compact layouts have no body
+split divider. The existing navigation specimen and typography browser check
+cover this shared geometry.
+
 ## Sidebar brand artwork
 
 Workspace branding uses the existing `appIconRef` metadata. Sidebar logos keep
