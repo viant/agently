@@ -246,11 +246,16 @@ try {
       const header = node.querySelector('header');
       const panel = node.querySelector('.app-summary-workspace');
       const chat = node.querySelector('.app-summary-conversation');
+      const headerChat = header.querySelector('.app-topbar-left');
       const glyph = header.querySelector(innerWidth < 761 ? '.app-shell-menu-toggle svg' : '.app-shell-history svg');
       const headerBox = header.getBoundingClientRect();
       const controlsContained = [...header.querySelectorAll('button, [role=tab]')].every(control => {const box = control.getBoundingClientRect(); return box.height === 0 || (box.top >= headerBox.top && box.bottom <= headerBox.bottom);});
       return {direction: getComputedStyle(surface).flexDirection, headerHeight: headerBox.height, headerMinHeight: parseFloat(getComputedStyle(header).minHeight), controlsContained,
         headerBasis: getComputedStyle(header.querySelector('.app-topbar-left')).flexBasis,
+        headerDividerX: headerChat.getBoundingClientRect().right - parseFloat(getComputedStyle(headerChat).borderInlineEndWidth),
+        chatDividerX: chat.getBoundingClientRect().right - parseFloat(getComputedStyle(chat).borderInlineEndWidth),
+        chatDividerWidth: parseFloat(getComputedStyle(chat).borderInlineEndWidth),
+        panelDividerWidth: parseFloat(getComputedStyle(panel).borderInlineStartWidth),
         sideBySide: panel.getBoundingClientRect().x > chat.getBoundingClientRect().x, chatVisible: getComputedStyle(chat).display !== 'none',
         glyph: glyph.getBoundingClientRect().width, role: header.querySelector('h1').dataset.forgeType,
         titleSize: getComputedStyle(header.querySelector('h1')).fontSize};
@@ -260,6 +265,11 @@ try {
     assert.equal(viewerGeometry.glyph, 18);
     if (viewport.width > 500) {assert.equal(viewerGeometry.headerMinHeight, 54); assert.ok(viewerGeometry.headerHeight >= viewerGeometry.headerMinHeight); assert.equal(viewerGeometry.controlsContained, true); assert.equal(viewerGeometry.sideBySide, true); assert.equal(viewerGeometry.chatVisible, true);}
     else {assert.equal(viewerGeometry.headerMinHeight, 56); assert.ok(viewerGeometry.headerHeight >= viewerGeometry.headerMinHeight); assert.equal(viewerGeometry.controlsContained, true); assert.equal(viewerGeometry.chatVisible, true); assert.equal(await viewer.getByRole('button', {name: 'Show composer', exact: true}).isVisible(), true); assert.equal(viewerGeometry.headerBasis, 'auto');}
+    if (viewport.width > 500) {
+      assert.equal(viewerGeometry.chatDividerX, viewerGeometry.headerDividerX, 'The split divider must meet the header without a one-pixel step');
+      assert.equal(viewerGeometry.chatDividerWidth, 1);
+      assert.equal(viewerGeometry.panelDividerWidth, 0, 'Only the conversation owns the split divider');
+    }
     if (viewport.width < 500) {
       const content = viewer.locator('.app-summary-conversation > :not(.app-workspace-composer-toggle)').first();
       assert.equal(await content.isVisible(), false, 'Collapsed composer content stays hidden');
