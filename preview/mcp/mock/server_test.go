@@ -43,13 +43,6 @@ func setup(t *testing.T) (string, *datasource.Client) {
 func TestRealMCPFixtureQuery(t *testing.T) {
 	_, client := setup(t)
 	ctx := context.Background()
-	tools, e := client.ListTools(ctx)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if len(tools.Tools) != 1 || tools.Tools[0].Name != "projects" {
-		t.Fatalf("unexpected tools: %+v", tools)
-	}
 	body, e := client.Call(ctx, "projects", map[string]any{"query": map[string]any{"filter": map[string]any{"field": "project", "op": "eq", "value": "Alpha"}, "projection": map[string]any{"fields": []any{"owner", map[string]any{"field": "units", "alias": "total"}}}, "orderBy": []any{map[string]any{"field": "total", "direction": "desc"}}, "page": map[string]any{"limit": 1, "offset": 1}}})
 	if e != nil {
 		t.Fatal(e)

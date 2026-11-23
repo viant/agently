@@ -71,9 +71,6 @@ func Dial(ctx context.Context, endpoint string) (*Client, error) {
 	return &Client{cli, tr}, nil
 }
 func (c *Client) Close() { c.client.Close(); _ = c.transport.Close() }
-func (c *Client) ListTools(ctx context.Context) (*schema.ListToolsResult, error) {
-	return c.client.ListTools(ctx, nil)
-}
 func (c *Client) Call(ctx context.Context, tool string, args map[string]any) (json.RawMessage, error) {
 	params, err := schema.NewCallToolRequestParams(tool, args)
 	if err != nil {
