@@ -52,6 +52,7 @@ describe('TurnFeedback', () => {
   it('saves positive feedback without opening a form, edits through options, flips and clears', async () => {
     render(<Feed/>);
     const rate = screen.getByRole('button', {name:'Rate response'});
+    expect(screen.queryByRole('button',{name:'Feedback options'})).toBeNull();
     expect(rate.getAttribute('data-forge-variant')).toBe('ghost');
     await choose('Good response', 'Rate response');
     expect(client.setTurnFeedback).toHaveBeenLastCalledWith('c','t',{rating:1,comment:null});
@@ -85,7 +86,8 @@ describe('TurnFeedback', () => {
     fireEvent.click(screen.getByRole('button',{name:'Remove negative feedback'}));
     await screen.findByRole('button',{name:'Rate response'});
     expect(client.clearTurnFeedback).toHaveBeenCalledWith('c','t');
-    const menu = await openMenu();
+    expect(screen.queryByRole('button',{name:'Feedback options'})).toBeNull();
+    const menu = await openMenu('Rate response');
     expect(within(menu).queryByRole('menuitem',{name:/comment/})).toBeNull();
   }, 15000);
 
@@ -99,7 +101,7 @@ describe('TurnFeedback', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     const trigger = screen.getByRole('button',{name:'Rate response'});
     expect(trigger.disabled).toBe(true);
-    expect(screen.getByRole('button',{name:'Feedback options'}).disabled).toBe(true);
+    expect(screen.queryByRole('button',{name:'Feedback options'})).toBeNull();
     fireEvent.click(trigger);
     expect(client.setTurnFeedback).toHaveBeenCalledTimes(1);
     await act(async () => finish());

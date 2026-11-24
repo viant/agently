@@ -181,13 +181,15 @@ export default function TurnFeedback({ conversationId, turnId, feedback, editabl
               </span>}
               onClick={event => rating !== 0 ? save(0, '', {trigger: event.currentTarget}) : onClick(event)}/>
           </span>}/>
-        <Popover {...popoverProps('more')} renderTarget={({ref, className, onClick}) =>
-          <span ref={ref} className={className}>
-            <Button variant="ghost" size="compact" hideLabel data-feedback-action="more"
-              aria-label="Feedback options" title="Feedback options" disabled={pending || editing}
-              aria-haspopup="menu" aria-expanded={menu === 'more'} onClick={onClick}
-              icon="lucide:ellipsis"/>
-          </span>}/>
+        {rating !== 0 && (
+          <Popover {...popoverProps('more')} renderTarget={({ref, className, onClick}) =>
+            <span ref={ref} className={className}>
+              <Button variant="ghost" size="compact" hideLabel data-feedback-action="more"
+                aria-label="Feedback options" title="Feedback options" disabled={pending || editing}
+                aria-haspopup="menu" aria-expanded={menu === 'more'} onClick={onClick}
+                icon="lucide:ellipsis"/>
+            </span>}/>
+        )}
         <span {...typographyProps('metadata')} className="app-turn-feedback-status" role="status">{pending ? 'Saving…' : commentSaved ? 'Comment saved' : ''}</span>
       </div>
       {error && !editing ? <p {...typographyProps('metadata')} className="app-turn-feedback-error" role="alert">{error}</p> : null}

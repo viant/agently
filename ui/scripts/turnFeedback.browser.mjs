@@ -37,17 +37,17 @@ export async function verifyTurnFeedback(page, {touch = false} = {}) {
     const more = toolbar.querySelector('[data-feedback-action="more"]');
     const textBox = text.getBoundingClientRect();
     const ratingBox = rating.getBoundingClientRect();
-    const moreBox = more.getBoundingClientRect();
+    const moreBox = more?.getBoundingClientRect();
     const css = getComputedStyle(rating);
     const glyphs = [...rating.querySelectorAll('svg')].map(svg => svg.getBoundingClientRect().width);
     const paragraphs = [...row.querySelectorAll('.app-rich-prose > p')];
     return {
       alignment: rating.querySelector('svg').getBoundingClientRect().left - textBox.left,
       answerGap: toolbar.getBoundingClientRect().top - row.getBoundingClientRect().bottom,
-      controlGap: moreBox.left - ratingBox.right,
+      controlGap: moreBox ? moreBox.left - ratingBox.right : null,
       ratingSize: [ratingBox.width, ratingBox.height],
-      moreSize: [moreBox.width, moreBox.height],
-      moreOffset: moreBox.left - textBox.left,
+      moreSize: moreBox ? [moreBox.width, moreBox.height] : null,
+      moreOffset: moreBox ? moreBox.left - textBox.left : null,
       glyphs,
       paragraphGap: paragraphs[1].getBoundingClientRect().top - paragraphs[0].getBoundingClientRect().bottom,
       lastParagraphMargin: getComputedStyle(paragraphs.at(-1)).marginBottom,
@@ -72,17 +72,18 @@ export async function verifyTurnFeedback(page, {touch = false} = {}) {
       assert.equal(actual.paragraphGap,12,'Paragraphs must not stack literal newlines and blank-line breaks');
       assert.equal(actual.lastParagraphMargin,'0px','The final paragraph must not add space before feedback');
       assert.equal(actual.preservedBreaks,1);
-      assert.equal(actual.controlGap,4);
+      assert.equal(actual.controlGap,state === 'unrated' ? null : 4);
       assert.deepEqual(actual.glyphs, state === 'unrated' ? [14,14] : [16]);
       if (state !== 'unrated') {
         assert.notEqual(actual.color,geometry.find(previous => previous.mode === value).color,'Selected thumb must retain the accent color');
         assert.notEqual(actual.background,'rgba(0, 0, 0, 0)','Selected thumb must retain its subtle background');
       }
-      if (touch) for (const size of [actual.ratingSize,actual.moreSize]) assert.ok(size.every(value => value >= 44));
+      if (touch) for (const size of [actual.ratingSize,actual.moreSize].filter(Boolean)) assert.ok(size.every(value => value >= 44));
       else assert.equal(actual.ratingSize[1],28);
       if (geometry.length) {
         assert.deepEqual(actual.ratingSize,geometry[0].ratingSize,'Rating must not shift on selection');
-        assert.equal(actual.moreOffset,geometry[0].moreOffset,'Options must not shift on selection');
+        const previousRated = geometry.find(previous => previous.moreSize);
+        if (previousRated) assert.equal(actual.moreOffset,previousRated.moreOffset,'Options must not shift between ratings');
       }
       geometry.push({state,mode:value,...actual});
       await capture(footer, `${state}-${value}`);
