@@ -16,9 +16,8 @@ export default function WorkspaceAppearanceSettings() {
       <h2 {...text('section')} className="app-ui-settings-title">Workspace appearance</h2>
       <p {...text('body')}>Choose how workspace windows and their controls appear.</p>
       {state.catalog ? <div className="app-workspace-appearance-controls">
-        <label {...text('label')}>Theme <SelectControl {...text('body')} aria-label="Workspace theme" value={state.themeId || 'forge-default'}
+        <label {...text('label')}>Theme <SelectControl {...text('body')} aria-label="Workspace theme" value={state.themeId || state.catalog.defaultTheme}
           onChange={event => manager.setPreference(event.target.value, state.modePreference)}>
-          <option value="forge-default">Forge default</option>
           {state.catalog.themes.map(theme => <option key={theme.id} value={theme.id}>{theme.label}</option>)}
         </SelectControl></label>
         <label {...text('label')}>Color mode <SelectControl {...text('body')} aria-label="Workspace color mode" value={state.modePreference} disabled={!selected}

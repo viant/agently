@@ -84,7 +84,7 @@ export function validateThemeCatalog(catalog) {
 }
 
 export function resolveThemeSelection(catalog, preference, systemMode = 'light') {
-  if (!catalog || preference?.themeId === 'forge-default') return {themeId: '', mode: 'light', modePreference: 'system'};
+  if (!catalog) return {themeId: '', mode: 'light', modePreference: 'system'};
   const saved = catalog.themes.find(theme => theme.id === preference?.themeId);
   const theme = saved || catalog.themes.find(theme => theme.id === catalog.defaultTheme);
   const modePreference = saved && ['light', 'dark', 'system'].includes(preference?.modePreference) ? preference.modePreference : catalog.defaultMode;

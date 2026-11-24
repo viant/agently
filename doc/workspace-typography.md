@@ -843,3 +843,17 @@ The actual shared section and disclosure appear in FoundationSpecimen. The
 required typography suite includes native form/response tests and desktop/touch
 section geometry, typography and keyboard disclosure checks. Real workspace
 integration should also be reviewed locally with its own authored question.
+
+
+### Managed appearance choices
+
+The managed theme catalog supplies the complete list of choices. Do not add an
+unthemed Forge default option to that picker. A saved selection for a retired or
+unavailable profile resolves through the existing catalog default; applications
+without a catalog remain unthemed. Retained theme values and font registrations
+stay intact.
+
+In DS2, Chat defaults reuses the existing Forge SelectControl for Agent and Model
+and the shared Skeleton while their native metadata request is pending.
+Connections uses the same Skeleton through its existing loading state. Preserve
+the original callbacks, saved preferences, loading announcements and recovery.

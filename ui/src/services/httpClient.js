@@ -57,6 +57,18 @@ export function showToast(message, { intent = 'danger', key = '', ttlMs = 4200 }
   if (now - seenAt < TOAST_DEDUP_MS) return;
   recentToasts.set(dedupeKey, now);
 
+  const themeRoot = document.querySelector?.('.agently-application[data-agently-theme="design-system-2"]');
+  if (themeRoot) {
+    let dismissed = false;
+    let dismissNative;
+    import('./designSystemToast.jsx').then(async ({showDesignSystemToast}) => {
+      if (dismissed) return;
+      dismissNative = await showDesignSystemToast(themeRoot, text, {intent,ttlMs});
+      if (dismissed) dismissNative?.();
+    }).catch(error => console.error('Could not display notification', error));
+    return () => {dismissed = true; dismissNative?.();};
+  }
+
   const id = `toast:${now}:${Math.random().toString(36).slice(2, 9)}`;
   const rootId = 'agently-toast-root';
   let root = document.getElementById(rootId);
