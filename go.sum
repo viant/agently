@@ -1207,6 +1207,8 @@ github.com/viant/agently-core v0.1.60-0.20261119232810-d0325326ee71 h1:wdyV37Kd2
 github.com/viant/agently-core v0.1.60-0.20261119232810-d0325326ee71/go.mod h1:TOU2hilgRm5ygR/rjtNHao4bwFqVUHtf8ZxvlYD/B0w=
 github.com/viant/agently-core v0.1.60-0.20261124022759-0f9c545a72fa h1:sSVIPSPa8SEWOMF4iT6+rrnRoiclu1syrJNAg0BSU4I=
 github.com/viant/agently-core v0.1.60-0.20261124022759-0f9c545a72fa/go.mod h1:/i8fmKViw7FkLlqdPcXBO5M2bnbqzi1rjw1oUBd//6s=
+github.com/viant/agently-core v0.1.60-0.20261124025448-a950cf774320 h1:DX6VJfZjrsToWv8rrnUk+KlsVwf68CNGbAE9cnoVwxg=
+github.com/viant/agently-core v0.1.60-0.20261124025448-a950cf774320/go.mod h1:kq/LSEBIL4OUWqr7WdiN8bO80qQDYIKtFJIGpy3lbBg=
 github.com/viant/agently-core v0.1.60-0.20261124031429-414191813502 h1:YOs4CuWdC/2nWspHBKw8OiQ2/3JNxW5BB/0MnMBNiCI=
 github.com/viant/agently-core v0.1.60-0.20261124031429-414191813502/go.mod h1:v+fP/osYgiMTZHMp14/0o/O6DFmzGYmA+v94NRGA2/E=
 github.com/viant/agently-core/protocol/primitive v0.1.1-0.20261116175539-0774cb0aa2b2 h1:BAz2DgZmV7OPOOl3W3LGRdHQw2pmqOOBk0TiIqV2lEY=
@@ -1251,6 +1253,8 @@ github.com/viant/forge v0.3.47-0.20261121115128-ccc65116002e h1:CvY/uPQK09bkwToL
 github.com/viant/forge v0.3.47-0.20261121115128-ccc65116002e/go.mod h1:i9dXOfxy/xXnWaTub7fLVG5RxMCiEt7j/SUy2DLR8pU=
 github.com/viant/forge v0.3.47-0.20261123153255-0a8bf305df0a h1:9HCVQxnJyepRQx4MXd/0O3quNxP6AIuLFgrX/c1J4V0=
 github.com/viant/forge v0.3.47-0.20261123153255-0a8bf305df0a/go.mod h1:i9dXOfxy/xXnWaTub7fLVG5RxMCiEt7j/SUy2DLR8pU=
+github.com/viant/forge v0.3.47-0.20261124021614-01883bd86761 h1:jjopSpSHKuvKQTP9zfsPk7J+ahTgGPCvp41YGSUs64g=
+github.com/viant/forge v0.3.47-0.20261124021614-01883bd86761/go.mod h1:i9dXOfxy/xXnWaTub7fLVG5RxMCiEt7j/SUy2DLR8pU=
 github.com/viant/forge v0.3.47-0.20261124022105-73fbcf1c541c h1:Ic1HxbyjUPwlZP907ob55trv0krse46F3ICit1tpDts=
 github.com/viant/forge v0.3.47-0.20261124022105-73fbcf1c541c/go.mod h1:i9dXOfxy/xXnWaTub7fLVG5RxMCiEt7j/SUy2DLR8pU=
 github.com/viant/forge v0.3.47-0.20261124030645-8e57c970c613 h1:kqpM+eo5MRGeRBxGiKc+/VVTBrslYVLv0PIAexkwI5g=
