@@ -104,8 +104,12 @@ import {
 import { runReportLifecycleAction } from './reportLifecycleService';
 import { getReportSharedArtifact, listReportSharedArtifacts } from './reportSharedArtifactService';
 import { forgeHostServices } from './forgeHostServices';
+import {showToast} from './httpClient';
 
 describe('forgeHostServices', () => {
+  it('exposes the existing host notification service to authored page actions',()=>{
+    expect(forgeHostServices.notifications.show).toBe(showToast);
+  });
   it('exposes the hosted Forge service bundle including reporting services', async () => {
     expect(forgeHostServices.chat).toBe(chatService);
     expect(typeof forgeHostServices.applyPermission).toBe('function');
