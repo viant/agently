@@ -226,7 +226,11 @@ export default defineConfig(({ mode, command }) => {
           }
         },
         '/healthz': proxyTarget,
-        '/upload': proxyTarget,
+        '/upload': {
+          target: proxyTarget,
+          // Preserve browser origin for the native cookie-authenticated upload check.
+          changeOrigin: false
+        },
         '/download': proxyTarget
       }
     },

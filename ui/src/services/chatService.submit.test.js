@@ -1024,6 +1024,41 @@ describe('submitMessage', () => {
     expect(submitToChatStore).not.toHaveBeenCalled();
   });
 
+  it.each(['Review the updated file.', ''])('queues attachments during an active turn with prompt %j', async content => {
+    getActiveTurnId.mockReturnValue('turn-active');
+    client.query.mockResolvedValue({});
+    client.steerTurn = vi.fn();
+    client.attachArtifact.mockResolvedValue({ id: 'file-updated', name: 'setup.json', uri: '/v1/files/file-updated?conversationId=conv-active-file', mimeType: 'application/json', size: 16 });
+    ensureConversation.mockResolvedValue('conv-active-file');
+    resolveUserID.mockReturnValue('');
+    ensureContextResources.mockReturnValue({ lastHasRunning: false });
+    dsTick.mockResolvedValue({ conversationID: 'conv-active-file', hasRunning: true });
+    const form = { id: 'conv-active-file' };
+    const context = {
+      Context(name) {
+        if (name === 'conversations') return { handlers: { dataSource: {
+          peekFormData: () => form,
+          setFormData: vi.fn(({ values }) => Object.assign(form, values)),
+        } } };
+        return null;
+      },
+    };
+
+    await submitMessage({ context, message: { content, attachments: [{ name: 'setup.json', uri: 'scratchpad://artifact/owned-updated-file', mime: 'application/json', size: 16 }] }, agent: 'example' });
+
+    expect(client.steerTurn).not.toHaveBeenCalled();
+    expect(steerToChatStore).not.toHaveBeenCalled();
+    expect(client.query).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: 'conv-active-file',
+      query: content,
+      attachments: [expect.objectContaining({ id: 'file-updated', mime: 'application/json' })],
+    }));
+    expect(client.attachArtifact.mock.invocationCallOrder[0]).toBeLessThan(client.query.mock.invocationCallOrder[0]);
+    expect(setStage).toHaveBeenCalledWith(expect.objectContaining({ text: 'Queued follow-up…' }));
+    expect(submitToChatStore).not.toHaveBeenCalled();
+    expect(disconnectStream).not.toHaveBeenCalled();
+  });
+
   it('queues a follow-up when a stream hint outlives the canonical running turn', async () => {
     client.query.mockResolvedValue({});
     client.steerTurn = vi.fn();
