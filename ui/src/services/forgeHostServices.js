@@ -8,8 +8,10 @@ import {workspaceResources} from './workspaceResources';
 import {createPublishedManagementHostWindow} from './publishedManagementHostWindow';
 import {getAuthenticatedWindowCacheScope} from './agentlyClient';
 import {recoverPublishedWindowBinding} from './publishedWindowBindingRecovery';
+import {showToast} from './httpClient';
 
 export const forgeHostServices = {
+  notifications: {show: showToast},
   applicationScope,
   createHostWindow:createPublishedManagementHostWindow,
   windowModelCacheScope:getAuthenticatedWindowCacheScope,

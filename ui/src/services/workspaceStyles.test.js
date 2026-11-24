@@ -26,6 +26,10 @@ function fixture() {
   return {manager, elements, stored, media, fetchAsset};
 }
 describe('portable theme catalog', () => {
+  it.each(['forge-default', 'retired-preview', 'unknown-theme'])('uses the catalog default for an unavailable saved theme: %s', themeId => {
+    expect(resolveThemeSelection(catalog, {themeId, modePreference: 'light'}, 'dark')).toMatchObject({themeId: catalog.defaultTheme, mode: 'dark'});
+    expect(resolveThemeSelection(null, {themeId}, 'dark')).toMatchObject({themeId: '', mode: 'light'});
+  });
   it('accepts the shared native fixture and applies system/explicit modes', () => {
     validateThemeCatalog(catalog);
     expect(resolveThemeSelection(catalog, null, 'dark')).toMatchObject({themeId: 'baseline', mode: 'dark'});
