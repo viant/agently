@@ -4,8 +4,9 @@ The conversation owner can rate a completed final answer using the combined
 thumbs action, which opens Good response / Bad response. After saving, it shows
 the selected thumb with an accent background; clicking it clears both the rating
 and comment.
-The Feedback options ellipsis menu also offers the ratings, preserving the saved
-comment when switching, and Add comment / Edit comment after a rating exists.
+After a rating is saved, the Feedback options ellipsis appears. Use it to
+change the rating, add a comment, or edit the saved comment. Switching ratings
+preserves the saved comment.
 Saved comments have no inline preview.
 
 A positive rating saves immediately without opening a form. A negative rating
