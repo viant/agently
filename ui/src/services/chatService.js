@@ -897,8 +897,9 @@ export async function submitMessage({ context, message, model, agent, onConversa
   // The transcript projection owns turn lifecycle. Runtime stream hints can
   // outlive a terminal event and must not steer a completed turn.
   const activeTurnID = String(getActiveTurnId(conversationID) || '').trim();
-  const steeringDuringActiveTurn = !!activeTurnID;
-  const queueingDuringActiveTurn = !steeringDuringActiveTurn && !!chatState?.lastHasRunning;
+  // Native steering is text-only; file submissions use normal queued query admission.
+  const steeringDuringActiveTurn = !!activeTurnID && queryAttachments.length === 0;
+  const queueingDuringActiveTurn = !steeringDuringActiveTurn && (!!activeTurnID || !!chatState?.lastHasRunning);
   const submittedAt = Date.now();
   chatState.activeConversationID = conversationID;
   chatState.liveOwnedConversationID = conversationID;
