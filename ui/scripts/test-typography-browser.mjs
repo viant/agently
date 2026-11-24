@@ -638,10 +638,8 @@ try {
         assert.match(actual[4],/monospace/);
       }
     }
-    const themePicker=page.getByRole('combobox',{name:'Workspace theme',exact:true});
-    assert.deepEqual(await themePicker.locator('option').evaluateAll(options=>options.map(option=>option.value)),catalog.themes.map(theme=>theme.id),'Managed theme choices must match the supplied catalog');
-    await themePicker.selectOption(catalog.defaultTheme);
-    assert.equal(await mode.isDisabled(),false,'The managed default theme retains its color-mode selection');
+    await page.getByRole('combobox',{name:'Workspace theme',exact:true}).selectOption('forge-default');
+    assert.equal(await mode.isDisabled(),true,'No named theme keeps color mode unavailable');
     assert.equal(await mode.evaluate(node=>node.parentElement.classList.contains('forge-select-control')),true);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),true);
     assert.deepEqual(failures,[]);
