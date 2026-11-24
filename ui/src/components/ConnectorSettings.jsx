@@ -1,9 +1,11 @@
-import {Icon as UnifiedIcon} from 'forge/components';
+import {Icon as UnifiedIcon, SoftSkeleton} from 'forge/components';
+import {useWorkspaceStyle} from './WorkspaceStyleProvider';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button } from '@blueprintjs/core';
 import { connectProvider, disconnectProvider, finishConnectorReturn, listConnectors } from '../services/connectors';
 
 export default function ConnectorSettings() {
+  const ds2 = useWorkspaceStyle()?.state.themeId === 'design-system-2';
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -61,7 +63,7 @@ export default function ConnectorSettings() {
     </div>
     {notice && <p role="status">{notice}</p>}
     {error && <p role="alert" className="app-connectors-error">{error}</p>}
-    {loading ? <p role="status">Loading connections…</p> : !error && rows.length === 0 ?
+    {loading ? ds2 ? <div className="app-connectors-loading" role="status" aria-label="Loading connections" aria-busy="true"><span className="bp6-visually-hidden">Loading connections…</span><div aria-hidden="true">{[0,1,2].map(row=><div key={row} className="app-ui-settings-card"><SoftSkeleton lines={3}/></div>)}</div></div> : <p role="status">Loading connections…</p> : !error && rows.length === 0 ?
       <p>No connectors are configured for this workspace.</p> :
       <ul className="app-connectors-list">{rows.map(row => <li key={`${row.provider}:${row.server || ''}`}>
         <div><h3>{row.provider}</h3>{row.server && row.server !== row.provider && <p>{row.server}</p>}
