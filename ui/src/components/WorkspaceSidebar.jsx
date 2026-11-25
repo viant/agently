@@ -1,7 +1,7 @@
 import {Icon as UnifiedIcon} from 'forge/components';
 import {applicationScope} from '../services/applicationScope';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {Button} from '@blueprintjs/core';
+import {Button, Menu, MenuItem} from '@blueprintjs/core';
 import { useSignals } from '@preact/signals-react/runtime';
 import { activeWindows, selectedWindowId, selectedTabId, getFormSignal } from 'forge/core';
 import { resolveNavigationParameters } from 'forge/utils/navigationParameters';
@@ -9,7 +9,8 @@ import { sdkBaseURL } from '../endpoint';
 import { getAuthMeSilently } from '../services/agentlyClient';
 import Sidebar from './Sidebar';
 import SectionNavigation, {SectionDestinationButton} from './SectionNavigation.jsx';
-import {Icon as SharedIcon, Typography, typographyProps} from 'forge/components';
+import NavigationFlyout, {NavigationSubmenu} from 'forge/components/NavigationFlyout.jsx';
+import {Button as SharedButton, Icon as SharedIcon, Typography, typographyProps} from 'forge/components';
 import { openWindow } from './menuBarHelpers';
 import { MAIN_CHAT_WINDOW_ID } from '../services/conversationWindow';
 
@@ -17,6 +18,8 @@ import { openLayoutURL, layoutWindowDestinations } from './layoutNavigation';
 import { workspaceResources } from '../services/workspaceResources';
 import { getWorkspaceStyleManager,workspaceStyleAccountKey } from '../services/workspaceStyles';
 import { request } from '../services/httpClient';
+import {useWorkspaceStyle} from './WorkspaceStyleProvider.jsx';
+import {iconNames} from 'forge/components/Icon.jsx';
 
 import {personalWorkspaceLayout, browserWorkspaceVisibility, workspaceVisibilityScope, visibilityKey, visibleWorkspaceApplications, PERSONAL_WORKSPACE_ID, WORKSPACE_PREFERENCE_STORAGE_KEY, workspaceShowsTiles, workspaceShowsMenu, visibleWorkspaceMenus} from '../services/personalWorkspace';
 
@@ -56,6 +59,18 @@ export function selectedWindowInputs() {
 
 export default function WorkspaceSidebar({ discoveryReady = true, conversationId = '', collapsed = false, onNavigate, onExpand, onOpenWorkspace, onManageWorkspace, onTopbarActionsChange, section = 'chat', destination = '', onSectionChange, onSectionWindow, onSectionPresentationChange, brandRef, profileRef, drawerHidden = false, drawerMode = false, onDismiss, returnFocusRef }) {
   useSignals();
+  const workspaceStyle = useWorkspaceStyle();
+  const themeId = workspaceStyle?.state.themeId;
+  const fixedRail = themeId === 'design-system-2';
+  const fixedSecondary = fixedRail && section === 'workspaces';
+  const nextColorMode = workspaceStyle?.state.mode === 'dark' ? 'light' : 'dark';
+  const colorModeAction = `Switch to ${nextColorMode} mode`;
+  const navigationIcon = (icon, fallback = 'lucide:folder') => {
+    const alias = {'volume-up': 'megaphone', exchange: 'handshake', media: 'image', shop: 'building', 'group-objects': 'users', tags: 'tag', 'timeline-events': 'calendar', 'timeline-line-chart': 'chart-no-axes-combined', 'predictive-analysis': 'trending-up'}[icon] || icon;
+    const name = `lucide:${String(alias || '').replace(/^lucide:/, '')}`;
+    return iconNames.includes(name) ? name : fallback;
+  };
+  const applicationIcon = app => fixedRail ? navigationIcon(app?.icon, 'lucide:layout-grid') : app?.icon;
   applicationScope.revision.value;
   const windowInputs = selectedWindowInputs();
   const [layout, setLayout] = useState(null);
@@ -64,7 +79,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
   const [personalPreferences, setPersonalPreferences] = useState({});
   const personalPreferenceOwner = useRef('');
   const serverPreferences = useRef({});
-  const presentedLayout = useMemo(() => personalWorkspaceLayout(layout, personalPreferences), [layout, personalPreferences]);
+  const presentedLayout = useMemo(() => personalWorkspaceLayout(layout, personalPreferences, themeId), [layout, personalPreferences, themeId]);
   useEffect(() => {
     const controller = new AbortController();
     const owner = personalScope ? JSON.parse(personalScope)[0] : '';
@@ -76,6 +91,10 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
   layoutRef.current = layout;
   const [searchMount, setSearchMount] = useState(null);
   const [activeApp, setActiveApp] = useState('');
+  // A direct destination can belong to another application without replacing
+  // the navigation collection the user is browsing. Native activeApp still
+  // owns scoped metadata loading and window registration.
+  const [navigationAppId, setNavigationAppId] = useState('');
   // Reuse the declared application's retained context, never focused-window
   // inputs or values held by another application.
   const scopedApplication = layout?.applications?.find(app => app.id === activeApp) || layout?.applications?.[0];
@@ -240,6 +259,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       revision = null;
       sectionRouteSignature.current = null;
       scopeSessionRef.current = '';
+      setNavigationAppId('');
       setPersonalScope(''); setPersonalPreferences({});
       setPreferenceKey(''); setCollapsedGroups({});
       layoutContextRef.current = null; loadedContextKey.current = 'null';
@@ -291,9 +311,22 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
   const applications = presentedLayout?.applications || [];
   const displayedApplications = visibleWorkspaceApplications(presentedLayout, personalPreferences);
   const active = displayedApplications.find((app) => app.id === activeApp) || displayedApplications[0];
+  const navigationApp = fixedRail
+    ? displayedApplications.find(app => app.id === navigationAppId)
+      || (active?.id === PERSONAL_WORKSPACE_ID ? active : displayedApplications[0])
+    : active;
   const personalTiles = active?.id === PERSONAL_WORKSPACE_ID && workspaceShowsTiles(personalPreferences);
   const personalMenu = active?.id !== PERSONAL_WORKSPACE_ID || workspaceShowsMenu(personalPreferences);
-  const displayedMenus = useMemo(() => visibleWorkspaceMenus(active, personalPreferences), [active, personalPreferences]);
+  const displayedMenus = useMemo(() => visibleWorkspaceMenus(navigationApp, personalPreferences), [navigationApp, personalPreferences]);
+  const applicationLinks = fixedRail && navigationApp?.id !== PERSONAL_WORKSPACE_ID
+    ? displayedApplications.flatMap(app => {
+      if (app.id === navigationApp?.id) return [];
+      // A published scope-label destination is the application's existing
+      // context selector. Do not guess a landing page from report ordering.
+      const selectors = visibleWorkspaceMenus(app, personalPreferences).filter(menu =>
+        menu.scopeLabelKey && !menu.children?.length && ['window', 'report'].includes(menu.action?.type));
+      return selectors.length === 1 ? [{application: app, menu: selectors[0]}] : [];
+    }) : [];
   const navigationEnabled = layout?.left?.navigation?.enabled !== false;
   const historyEnabled = layout ? layout.left?.history?.enabled !== false : !!error;
   const history = layout?.left?.history || {};
@@ -412,39 +445,68 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
     setCollapsedGroups(update);
   };
 
-  const renderMenu = (menu, parentPath = []) => {
-    const groupKey = JSON.stringify([active?.id, parentPath, menu.id]);
+  const renderMenu = (menu, parentPath = [], inFlyout = false, application = active) => {
+    const groupKey = JSON.stringify([application?.id, parentPath, menu.id]);
     if (Array.isArray(menu.children) && menu.children.length) {
+      if (sections && fixedRail) {
+        const path = [...parentPath, menu.id];
+        const containsDestination = (entry, ids) => entry.children?.length
+          ? entry.children.some(child => containsDestination(child, [...ids, child.id]))
+          : section === 'workspaces' && destination === JSON.stringify([application?.id, ...ids]);
+        const current = containsDestination(menu, path);
+        const children = menu.children.map(child => renderMenu(child, path, true, application));
+        if (inFlyout) return <NavigationSubmenu key={menu.id} text={menu.title} active={current}
+          disabled={menu.disabled || application?.disabled}>
+          {children}
+        </NavigationSubmenu>;
+        return <NavigationFlyout key={menu.id} title={menu.title} icon={navigationIcon(menu.icon)}
+          current={current} disabled={menu.disabled || application?.disabled} className={`app-secondary-rail-button ${menu.className || ''}`} >
+          <Menu aria-label={menu.title}>{children}</Menu>
+        </NavigationFlyout>;
+      }
       const expanded = !collapsedGroups[groupKey];
       return <div className={`app-layout-menu-group ${menu.className || ''}`} key={menu.id}>
         <Button minimal fill alignText="left" className="app-layout-menu-group-title" aria-expanded={expanded} {...(sections ? typographyProps('label') : {})}
           icon={sections || menu.iconSvg ? <SharedIcon name={menu.icon || (menu.iconSvg ? undefined : 'lucide:layout-grid')} iconSvg={menu.iconSvg} className="app-layout-group-icon"/> : <UnifiedIcon name={menu.icon || 'folder-close'}  className="app-layout-group-icon" />}
           endIcon={<UnifiedIcon name={expanded ? 'minus' : 'plus'}  />}
           onClick={() => toggleGroup(groupKey)}>{menu.title}</Button>
-        {expanded ? <div className="app-layout-menu-children">{menu.children.map(child => renderMenu(child, [...parentPath, menu.id]))}</div> : null}
+        {expanded ? <div className="app-layout-menu-children">{menu.children.map(child => renderMenu(child, [...parentPath, menu.id], false, application))}</div> : null}
       </div>;
     }
-    const missingInputs = ['window', 'report'].includes(menu.action?.type) && resolveNavigationParameters(menu.action, applicationScope.inputs(active, windowInputs)).missing;
-    const destinationId = JSON.stringify([active?.id, ...parentPath, menu.id]);
+    const missingInputs = ['window', 'report'].includes(menu.action?.type) && resolveNavigationParameters(menu.action, applicationScope.inputs(application, windowInputs)).missing;
+    const destinationId = JSON.stringify([application?.id, ...parentPath, menu.id]);
     const unavailable = sections && layoutWindowDestinations(presentedLayout).find(entry => entry.destination === destinationId)?.disabled;
     const MenuButton = sections ? SectionDestinationButton : Button;
-    return <MenuButton key={menu.id} minimal fill alignText="left" className={`app-layout-menu ${menu.className || ''}`} {...(sections ? {selected: section === 'workspaces' && destination === destinationId} : {})} icon={menu.icon || menu.iconSvg ? sections || menu.iconSvg ? <SharedIcon name={menu.icon} iconSvg={menu.iconSvg} className="app-layout-menu-icon"/> : <UnifiedIcon name={menu.icon}  className="app-layout-menu-icon" /> : undefined} disabled={menu.disabled || active?.disabled || unavailable || missingInputs}
-      onClick={() => activateMenu(menu, parentPath)}>{menu.title}{menu.scopeLabelKey && applicationScope.inputs(active)[menu.scopeLabelKey] ? `: ${applicationScope.inputs(active)[menu.scopeLabelKey]}` : ''}</MenuButton>;
+    const title = `${menu.title}${menu.scopeLabelKey && applicationScope.inputs(application)[menu.scopeLabelKey] ? `: ${applicationScope.inputs(application)[menu.scopeLabelKey]}` : ''}`;
+    const disabled = menu.disabled || application?.disabled || unavailable || missingInputs;
+    if (inFlyout) return <MenuItem key={menu.id} text={title} disabled={disabled}
+      active={section === 'workspaces' && destination === destinationId}
+      aria-current={section === 'workspaces' && destination === destinationId ? 'page' : undefined}
+      className={menu.className || ''} onClick={() => activateMenu(menu, parentPath, application)}/>;
+    if (sections && fixedRail) return <Button key={menu.id} minimal {...typographyProps('metadata')}
+      className={`forge-navigation-trigger app-secondary-rail-button ${menu.className || ''}`}
+      aria-current={section === 'workspaces' && destination === destinationId ? 'page' : undefined}
+      disabled={disabled} onClick={() => activateMenu(menu, parentPath, application)}>
+      <SharedIcon name={navigationIcon(menu.icon, menu.scopeLabelKey ? 'lucide:sliders-horizontal' : 'lucide:file-text')}/>
+      <span className="forge-navigation-label">{title}</span>
+    </Button>;
+    return <MenuButton key={menu.id} minimal fill alignText="left" className={`app-layout-menu ${menu.className || ''}`} {...(sections ? {selected: section === 'workspaces' && destination === destinationId} : {})} icon={menu.icon || menu.iconSvg ? sections || menu.iconSvg ? <SharedIcon name={menu.icon} iconSvg={menu.iconSvg} className="app-layout-menu-icon"/> : <UnifiedIcon name={menu.icon}  className="app-layout-menu-icon" /> : undefined} disabled={menu.disabled || application?.disabled || unavailable || missingInputs}
+      onClick={() => activateMenu(menu, parentPath, application)}>{menu.title}{menu.scopeLabelKey && applicationScope.inputs(application)[menu.scopeLabelKey] ? `: ${applicationScope.inputs(application)[menu.scopeLabelKey]}` : ''}</MenuButton>;
   };
 
-  function activateMenu(menu, parentPath = []) {
-    const destinationId = JSON.stringify([active?.id, ...parentPath, menu.id]);
+  function activateMenu(menu, parentPath = [], application = active) {
+    const destinationId = JSON.stringify([application?.id, ...parentPath, menu.id]);
     if (!sections) onSectionChange?.('chat');
     const action = menu.action;
     if (openLayoutURL(action)) { onNavigate?.(); return; }
     if (action?.type === 'report') {
-      const options = resolveLayoutReportOptions(action, conversationId, applicationScope.inputs(active, selectedWindowInputs()), active?.id);
+      const options = resolveLayoutReportOptions(action, conversationId, applicationScope.inputs(application, selectedWindowInputs()), application?.id);
       if (!options) return;
       if (sections) {
         if (section === 'workspaces' && destination === destinationId) setDestinationVisit(value => value + 1);
         onSectionChange?.('workspaces', destinationId);
       } else {
-        applicationScope.register(openWindow(action.resourceUri, menu.title, [], options), active, action);
+        applicationScope.register(openWindow(action.resourceUri, menu.title, [], options), application, action);
         onOpenWorkspace?.();
       }
       onNavigate?.();
@@ -452,13 +514,13 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
     }
     if (action?.type === 'window') {
       const windowKey = resolveLayoutWindowKey(action);
-      const options = resolveLayoutWindowOptions(action, conversationId, applicationScope.inputs(active, selectedWindowInputs()));
+      const options = resolveLayoutWindowOptions(action, conversationId, applicationScope.inputs(application, selectedWindowInputs()));
       if (!options) return;
       if (sections) {
         if (section === 'workspaces' && destination === destinationId) setDestinationVisit(value => value + 1);
         onSectionChange?.('workspaces', destinationId);
       } else {
-        applicationScope.register(openWindow(windowKey, menu.title, action.refreshDataSources || [], options), active, action);
+        applicationScope.register(openWindow(windowKey, menu.title, action.refreshDataSources || [], options), application, action);
         onOpenWorkspace?.();
       }
       onNavigate?.();
@@ -466,6 +528,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
   }
   function selectApplication(app) {
     setActiveApp(app.id);
+    setNavigationAppId(app.id);
     if (app.id === PERSONAL_WORKSPACE_ID && workspaceShowsTiles(personalPreferences)) {
       onSectionChange?.('workspaces', '');onNavigate?.();
     }
@@ -488,7 +551,7 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       const destination = actions.find(entry => `action:${entry.id}` === next);
       if (destination?.disabled) return;
       if (destination && openLayoutURL(destination.action)) return;
-      if (collapsed) onExpand?.();
+      if (collapsed && !fixedSecondary) onExpand?.();
       onSectionChange?.(next);
       if (next === 'chat') {
         selectedWindowId.value = MAIN_CHAT_WINDOW_ID;
@@ -496,8 +559,42 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       }
       if (next !== 'workspaces') onNavigate?.();
     };
-    return <div className={`app-layout-sidebar is-sections${collapsed ? ' is-collapsed' : ''}`} hidden={drawerHidden} inert={drawerHidden ? '' : undefined}>
-      <SectionNavigation section={section} actions={actions} onSelect={selectSection} brandRef={brandRef} headingActionsRef={setSearchMount} profileRef={profileRef} drawerOpen={drawerMode && !drawerHidden} onDismiss={onDismiss} returnFocusRef={returnFocusRef}>
+    return <div className={`app-layout-sidebar is-sections${fixedSecondary ? ' has-fixed-secondary' : collapsed ? ' is-collapsed' : ''}`} hidden={!fixedSecondary && drawerHidden} inert={!fixedSecondary && drawerHidden ? '' : undefined}>
+      <SectionNavigation section={section} actions={actions} onSelect={selectSection} brandRef={brandRef} headingActionsRef={setSearchMount} profileRef={profileRef}
+        drawerOpen={!fixedSecondary && drawerMode && !drawerHidden} onDismiss={onDismiss} returnFocusRef={returnFocusRef}
+        workspaceNavigation={<>
+          <div className="app-secondary-rail-items" aria-label={`${navigationApp?.title || 'Application'} navigation`}>
+            {displayedApplications.length > 0 ? <NavigationFlyout title={navigationApp?.title || 'Applications'} icon={applicationIcon(navigationApp)} current={!!navigationApp}>
+              <Menu aria-label="Applications">{displayedApplications.map(app => <MenuItem key={app.id} text={app.title}
+                active={app.id === navigationApp?.id} aria-current={app.id === navigationApp?.id ? 'true' : undefined} disabled={app.disabled} onClick={() => selectApplication(app)}/>)}</Menu>
+            </NavigationFlyout> : null}
+            <Button minimal className="forge-navigation-trigger app-secondary-rail-button" {...typographyProps('metadata')}
+              aria-current={section === 'workspaces' && !destination ? 'page' : undefined}
+              onClick={() => {onSectionChange?.('workspaces'); onNavigate?.();}}>
+              <SharedIcon name="lucide:layout-grid"/><span className="forge-navigation-label">Overview</span>
+            </Button>
+            {personalTiles && <Button minimal fill icon={<SharedIcon name="lucide:layout-grid"/>} onClick={() => {onSectionChange?.('workspaces', '');onNavigate?.();}}>Open My workspace tiles</Button>}
+            {personalMenu && displayedMenus.map(menu => renderMenu(menu, [], false, navigationApp))}
+            {applicationLinks.map(({application, menu}) => <Button key={application.id} minimal {...typographyProps('metadata')}
+              className="forge-navigation-trigger app-secondary-rail-button" aria-label={application.title}
+              aria-current={section === 'workspaces' && layoutWindowDestinations({applications:[application]}).some(entry => entry.destination === destination) ? 'page' : undefined}
+              disabled={application.disabled || menu.disabled || resolveNavigationParameters(menu.action, applicationScope.inputs(application, windowInputs)).missing}
+              onClick={() => activateMenu(menu, [], application)}>
+              <SharedIcon name={applicationIcon(application)}/><span className="forge-navigation-label">{application.title}</span>
+            </Button>)}
+            {personalMenu && !displayedMenus.length && !applicationLinks.length ? <Typography typeRole="small" role="status">No navigation is available.</Typography> : null}
+          </div>
+          <div className="app-secondary-rail-footer">
+            <SharedButton variant="ghost" size="compact" hideLabel icon={`lucide:${nextColorMode === 'dark' ? 'moon' : 'sun'}`}
+              aria-label={colorModeAction} title={colorModeAction}
+              disabled={!workspaceStyle?.state.catalog?.themes.find(theme => theme.id === workspaceStyle.state.themeId)?.modes[nextColorMode]}
+              onClick={() => workspaceStyle.manager.setPreference(workspaceStyle.state.themeId, nextColorMode)}/>
+            <Button minimal small aria-label="Manage Workspace" title="Manage Workspace" disabled={!onManageWorkspace}
+              icon={<SharedIcon name="lucide:settings"/>} onClick={() => {onManageWorkspace?.();onNavigate?.();}}/>
+            <Button minimal small icon={<SharedIcon name="lucide:refresh-cw"/>} aria-label="Reload navigation" onClick={() => setReloadVersion(value => value + 1)}/>
+          </div>
+          {error ? <div role="alert">{error}</div> : null}
+        </>}>
         <div className="app-section-history" hidden={section !== 'chat'} data-section-hidden={section !== 'chat' ? '' : undefined}>
           {historyEnabled ? <Sidebar appearance="document" hidden={drawerHidden || section !== 'chat'} searchMount={searchMount} history={history} onNavigate={onNavigate} showNewConversation={history.newConversation !== false}/> : null}
         </div>

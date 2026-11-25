@@ -1,3 +1,6 @@
+import {resolveLayoutLabels, workspaceApplicationKey, workspaceMenuKey} from '../components/layoutNavigation';
+export {workspaceApplicationKey, workspaceMenuKey} from '../components/layoutNavigation';
+
 export const PERSONAL_WORKSPACE_ID = 'agently.personal-workspace';
 // UI copy only. Keep transport diagnostics on the original error, never in
 // settings callouts where a server payload may contain implementation details.
@@ -11,23 +14,6 @@ export function workspaceErrorMessage(error, recovery) {
 export const workspacePresentation = preferences => preferences?.presentation || 'menu';
 export const workspaceShowsTiles = preferences => ['tiles','both'].includes(workspacePresentation(preferences));
 export const workspaceShowsMenu = preferences => workspacePresentation(preferences) !== 'tiles';
-export const workspaceApplicationKey = app => JSON.stringify([app.providerIdentity || '', app.id]);
-export const workspaceMenuKey = (app, path) => JSON.stringify([app.providerIdentity || '', app.id, ...path]);
-
-function navigationLabels(app, preferences) {
- const visit = (items, parents=[]) => {
-  if (!items) return items;
-  const result = items.map(item => {
-   const path=[...parents,item.id], children=visit(item.children,path);
-   const title=preferences.menuLabels?.[workspaceMenuKey(app,path)] || item.title;
-   return title===item.title && children===item.children ? item : {...item,title,...(children ? {children} : {})};
-  });
-  return result.every((item,index)=>item===items[index]) ? items : result;
- };
- const menus=visit(app.menus),title=preferences.applicationLabels?.[workspaceApplicationKey(app)] || app.title;
- return menus===app.menus && title===app.title ? app : {...app,title,menus};
-}
-
 // Hiding is a final rendering projection. Routing keeps the complete metadata
 // so hiding a menu never closes its open window or disables an LLM resource.
 export function visibleWorkspaceMenus(app, preferences={}) {
@@ -45,9 +31,10 @@ export function visibleWorkspaceMenus(app, preferences={}) {
 
 // This is only the final navigation projection. It does not modify catalog
 // metadata, provider configuration, datasource scope or LLM discovery.
-export function personalWorkspaceLayout(layout, preferences = {}) {
+export function personalWorkspaceLayout(layout, preferences = {}, themeId = '') {
   if (!layout) return layout;
-  const applications = (layout.applications || []).filter(app => app.id !== PERSONAL_WORKSPACE_ID).map(app=>navigationLabels(app,preferences));
+  const labeled = resolveLayoutLabels(layout, themeId, preferences);
+  const applications = (labeled.applications || []).filter(app => app.id !== PERSONAL_WORKSPACE_ID);
   if (preferences.enabled !== true && !(preferences.groups || []).length) return {...layout, applications};
   const titles = workspaceResourceTitles({applications});
   const menus = (preferences.groups || []).filter(group => group.items?.length).map(group => ({id:group.id, title:group.label, icon:'lucide:folder', children:group.items.map(item => ({

@@ -1,3 +1,30 @@
+export const workspaceApplicationKey = app => JSON.stringify([app.providerIdentity || '', app.id]);
+export const workspaceMenuKey = (app, path) => JSON.stringify([app.providerIdentity || '', app.id, ...path]);
+
+// Display names are a projection of the authorized layout. Theme defaults are
+// workspace-owned metadata; an explicit personal name has the final say.
+export function resolveLayoutLabels(layout, themeId = '', preferences = {}) {
+  if (!layout) return layout;
+  const defaults = layout.left?.navigation?.labelsByTheme?.[themeId] || {};
+  const applications = (layout.applications || []).map(app => {
+    const visit = (items, parents = []) => {
+      if (!items) return items;
+      const result = items.map(item => {
+        const path = [...parents, item.id];
+        const children = visit(item.children, path);
+        const key = workspaceMenuKey(app, path);
+        const title = preferences.menuLabels?.[key] || defaults[key] || item.title;
+        return title === item.title && children === item.children ? item : {...item, title, ...(children ? {children} : {})};
+      });
+      return result.every((item, index) => item === items[index]) ? items : result;
+    };
+    const menus = visit(app.menus);
+    const title = preferences.applicationLabels?.[workspaceApplicationKey(app)] || app.title;
+    return menus === app.menus && title === app.title ? app : {...app, title, menus};
+  });
+  return applications.every((app, index) => app === layout.applications[index]) ? layout : {...layout, applications};
+}
+
 // Navigation URLs come from trusted catalogs; still reject executable schemes
 // and credentials, and allow plain HTTP only for local development hosts.
 export function resolveLayoutURL(action = {}) {
