@@ -1,6 +1,7 @@
 import React from 'react';
 import {Icon, typographyProps} from 'forge/components';
 import {Button} from '@blueprintjs/core';
+import ThemeModeMenu from './ThemeModeMenu.jsx';
 import './sectionNavigation.css';
 
 export function SectionDestinationButton({selected = false, className = '', ...props}) {
@@ -51,6 +52,7 @@ export default function SectionNavigation({section = 'chat', actions = [], onSel
         onClick={() => onSelect?.(destination.id)}>
         <Icon name={destination.icon || 'lucide:clock-3'}/>
       </button>)}
+      <ThemeModeMenu/>
       <div className="app-section-profile" ref={profileRef}/>
     </nav>
     <div className="app-section-menu" {...typographyProps('body')}>

@@ -332,6 +332,18 @@ shell suites. The typography browser proof exercises the specimen at desktop and
 phone widths. Making checks merge-required remains an administrator dependency.
 
 
+### Navigation appearance menu
+
+SectionNavigation places ThemeModeMenu immediately above the account control.
+It reuses WorkspaceStyleProvider and the existing appearance preference manager
+for Light, Dark and System, including local persistence and settings synchronization.
+The shared Forge Popover prefers right-end placement so the menu bottom aligns
+with the trigger, while its native viewport containment, dismissal and focus
+return remain intact. Menu options support Arrow keys, Home and End. The control
+is unavailable until the theme catalog loads. Legacy split navigation is unchanged.
+ThemeModeMenu.test.jsx exercises the real Popover and icons in the existing
+design-system check; authenticated workspace integration remains separate evidence.
+
 ## Document shell header and viewer
 
 `MenuBar` selects the shared document header only with the existing section
