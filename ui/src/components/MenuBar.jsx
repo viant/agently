@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {createPortal} from 'react-dom';
 import {Icon as SharedIcon, Typography, SelectControl, typographyProps} from 'forge/components';
 import {ShellIconButton, ShellLocation} from './ShellHeader.jsx';
+import {useWorkspaceStyle} from './WorkspaceStyleProvider';
 import { Button, Dialog, Spinner, Tooltip } from '@blueprintjs/core';
 import { activeWindows, getWindowContext, selectedTabId, selectedWindowId } from 'forge/core';
 import SchemaBasedForm from 'forge/widgets/SchemaBasedForm.jsx';
@@ -52,11 +53,13 @@ export default function MenuBar({
   heading = 'New Chat',
   history,
   viewerHeaderRef,
+  chatHeaderRef,
   viewerVisible = false,
   viewerExpanded = false,
   sidebarCollapsed = false,
   compactNavigation = false,
 }) {
+  const themed = useWorkspaceStyle()?.state.themeId === 'design-system-2';
   const {
     items = [],
     pendingCount = 0,
@@ -433,6 +436,7 @@ export default function MenuBar({
         </div>}
         {!brandMount ? <div className="app-topbar-divider" /> : null}
         {sectionNavigation ? <ShellLocation sidebarCollapsed={sidebarCollapsed} compact={compactNavigation} title={heading} history={history} onToggleNavigation={onToggleSidebar} navigationRef={sidebarToggleRef}/> : null}
+        {sectionNavigation && themed && chatHeaderRef ? <div className="app-shell-chat-controls" ref={chatHeaderRef}/> : null}
         {!compactViewerUtilities ? renderUtilityActions() : null}
       </div>
       {sectionNavigation ? <div className="app-shell-viewer-header" ref={viewerHeaderRef}/> : null}

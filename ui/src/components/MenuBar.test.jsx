@@ -538,6 +538,18 @@ describe('MenuBar component boundary', () => {
     expect(Object.keys(component)).toEqual(['default']);
     expect(() => renderToStaticMarkup(React.createElement(component.default, {}))).not.toThrow();
   });
+
+  it('renders the document chat header while its native theme context initializes', async () => {
+    const React = await import('react');
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const { default: MenuBar } = await import('./MenuBar.jsx');
+    const html = renderToStaticMarkup(React.createElement(MenuBar, {
+      sectionNavigation: true,
+      heading: 'Report conversation',
+      chatHeaderRef: () => {},
+    }));
+    expect(html).toContain('Report conversation');
+  });
 });
 
 it('renders authored Lucide header actions through the shared icon renderer',async()=>{
