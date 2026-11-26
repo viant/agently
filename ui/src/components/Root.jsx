@@ -645,6 +645,7 @@ export default function Root() {
   const [profileMount, setProfileMount] = useState(null);
   const navigationTriggerRef = useRef(null);
   const [viewerHeaderMount, setViewerHeaderMount] = useState(null);
+  const [chatHeaderMount, setChatHeaderMount] = useState(null);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     return SIDEBAR_DEFAULT_WIDTH;
   });
@@ -1545,6 +1546,7 @@ export default function Root() {
             heading={showAppSection ? (sectionWindow ? resolveMainWindowHeaderTitle(sectionWindow) : appSectionTitle) : linkedChildWindow ? activeWindowTitle : conversationHeading}
             history={shellNavigation}
             viewerHeaderRef={setViewerHeaderMount}
+            chatHeaderRef={setChatHeaderMount}
             viewerVisible={!showAppSection && !backendSelection.isRemote && activeSurface === 'workspace' && showWorkspacePane}
             viewerExpanded={workspacePresentationMode === 'full'}
             sidebarCollapsed={!isSidebarOpen}
@@ -1657,6 +1659,7 @@ export default function Root() {
                 <ConversationWorkspaceSurface
                   presentation={sectionNavigation ? 'document' : undefined}
                   headerMount={viewerHeaderMount}
+                  chatHeaderMount={chatHeaderMount}
                   headerActive={!showAppSection && !backendSelection.isRemote}
                   activeSurface={showAppSection ? 'conversation' : activeSurface}
                   unreadCount={unreadChatCount}

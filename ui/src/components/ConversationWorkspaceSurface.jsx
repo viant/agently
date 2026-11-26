@@ -13,6 +13,8 @@ import {Button, Tooltip} from '@blueprintjs/core';
 import WindowContent from './WorkspaceWindowContent.jsx';
 import { Icon as SharedIcon, SelectControl, typographyProps } from 'forge/components';
 import AppRenderer from './mcpApps/AppRenderer.jsx';
+import ChatPlacementMenu from './ChatPlacementMenu.jsx';
+import {useWorkspaceStyle} from './WorkspaceStyleProvider';
 
 const ICONS = new Set(['application', 'chart', 'dashboard', 'document', 'folder-open', 'grid-view']);
 
@@ -89,11 +91,12 @@ export default function ConversationWorkspaceSurface({
   conversationId,
   onOpenSavedOutput,
   headerMount,
+  chatHeaderMount,
   headerActive = true,
   activeSurface = 'conversation',
   unreadCount = 0,
   chatRunning = false,
-  workspaceMode = 'focus',
+  workspaceMode,
   onChangeWorkspaceMode,
   chatWindow = null,
   renderConversation,
@@ -112,6 +115,8 @@ export default function ConversationWorkspaceSurface({
   onSelectWorkspaceTab,
 }) {
   const documentPresentation = presentation === 'document';
+  const isDesignSystem2 = useWorkspaceStyle()?.state.themeId === 'design-system-2';
+  const [chatSide, setChatSide] = useState('left');
   const hasWorkspace = !!workspaceWindow;
   const showObjectTabs = shouldShowWorkspaceTabs(workspaceTabs.length, workspaceTabsVisibility);
   const workspaceActive = hasWorkspace && activeSurface === 'workspace';
@@ -134,7 +139,14 @@ export default function ConversationWorkspaceSurface({
     return () => query.removeEventListener('change', update);
   }, [documentPresentation]);
   const capabilities = workspaceWindow?.workspaceObject?.capabilities || {};
-  const effectiveMode = compact || capabilities.split === false ? 'focus' : workspaceMode;
+  const effectiveMode = compact || capabilities.split === false ? 'focus' : workspaceMode ?? (isDesignSystem2 ? 'split' : 'focus');
+  const reportChat = isDesignSystem2 && workspaceActive;
+  const chatPlacement = effectiveMode === 'split' ? chatSide : 'overlay';
+  const menuInShellHeader = reportChat && documentPresentation && headerActive && effectiveMode === 'split' && chatHeaderMount;
+  const changeChatPlacement = next => {
+    if (next !== 'overlay') setChatSide(next);
+    onChangeWorkspaceMode?.(next === 'overlay' ? 'focus' : 'split');
+  };
   const navigation = resolveWorkspaceNavigation(workspaceWindow);
   const breadcrumbs = resolveWorkspaceBreadcrumbs(workspaceWindow);
   const headingRef = useRef(null);
@@ -161,7 +173,7 @@ export default function ConversationWorkspaceSurface({
   }, [workspaceActive, effectiveMode, workspaceWindow?.windowId, documentPresentation, compact]);
 
   return (
-    <div ref={surfaceRef} className={`app-summary-surface-shell${documentPresentation ? ' is-document' : ''}${workspaceActive ? ` is-workspace${effectiveMode === 'split' ? ' is-split' : ''}` : ' is-conversation'}`} data-active-surface={workspaceActive ? 'workspace' : 'conversation'}>
+    <div ref={surfaceRef} className={`app-summary-surface-shell${documentPresentation ? ' is-document' : ''}${workspaceActive ? ` is-workspace${effectiveMode === 'split' ? ' is-split' : ''}` : ' is-conversation'}`} data-active-surface={workspaceActive ? 'workspace' : 'conversation'} data-chat-placement={reportChat ? chatPlacement : undefined}>
       {documentPresentation && headerMount && headerActive && (hasWorkspace || savedOutputs.length > 0) ? createPortal(<>
         {workspaceActive ? <WorkspaceRuntimeTabs id="conversation-workspace"
           entries={(workspaceTabs.length ? workspaceTabs : [{windowId: workspaceWindow.windowId, label: navigation.label}]).map(tab => ({...tab, closable: (workspaceWindows.find(entry => entry.windowId === tab.windowId) || workspaceWindow)?.workspaceObject?.capabilities?.close !== false}))}
@@ -177,7 +189,7 @@ export default function ConversationWorkspaceSurface({
         <SavedOutputInventory entries={savedOutputs} conversationId={conversationId} onOpen={onOpenSavedOutput}/>
         <div className={`app-shell-viewer-controls${compact ? ' is-compact' : ''}`}>
           <span className="app-shell-viewer-status" {...typographyProps('metadata')} role="status" aria-live="polite">{chatRunning ? 'Working…' : unreadCount > 0 ? `${unreadCount} new` : ''}</span>
-          {workspaceActive ? <ShellIconButton icon={effectiveMode === 'focus' ? 'lucide:minimize' : 'lucide:maximize'}
+          {workspaceActive && !isDesignSystem2 ? <ShellIconButton icon={effectiveMode === 'focus' ? 'lucide:minimize' : 'lucide:maximize'}
             className="app-shell-viewer-expand" label={effectiveMode === 'focus' ? 'Show chat on the left' : 'Show chat as overlay'}
             aria-pressed={effectiveMode === 'focus'} disabled={compact || capabilities.split === false}
             onClick={() => onChangeWorkspaceMode?.(effectiveMode === 'focus' ? 'split' : 'focus')}/> : null}
@@ -185,6 +197,10 @@ export default function ConversationWorkspaceSurface({
             aria-expanded={workspaceActive} aria-controls="conversation-workspace-viewer" onClick={workspaceActive ? onBackToConversation : onOpenWorkspace}/> : null}
         </div>
       </>, headerMount) : null}
+      {menuInShellHeader ? createPortal(
+        <ChatPlacementMenu placement={chatPlacement} onChange={changeChatPlacement} splitDisabled={compact || capabilities.split === false}/>,
+        chatHeaderMount
+      ) : null}
       {!documentPresentation && !workspaceActive && hasWorkspace && !suppressConversationWorkspaceLink ? (
         <div className="app-summary-surface-navigation">
           <Button
@@ -263,7 +279,7 @@ export default function ConversationWorkspaceSurface({
                     <SharedIcon name="lucide:x"/>
                   </span>
                 </button>
-                <button type="button" className="app-workspace-window-control is-layout"
+                {!isDesignSystem2 ? <button type="button" className="app-workspace-window-control is-layout"
                   disabled={compact || capabilities.split === false}
                   aria-label={compact ? 'Workspace is maximized on small screens' : effectiveMode === 'focus' ? 'Restore split view' : 'Maximize workspace'}
                   aria-pressed={effectiveMode === 'focus'}
@@ -272,7 +288,7 @@ export default function ConversationWorkspaceSurface({
                   <span className="app-workspace-control-dot" aria-hidden="true">
                     <SharedIcon name={effectiveMode === 'focus' ? 'lucide:panel-right' : 'lucide:maximize-2'}/>
                   </span>
-                </button>
+                </button> : null}
               </div>
             </div>
           </header> : <span ref={headingRef} tabIndex={-1} role="heading" aria-level={2} className="app-shell-focus-heading">{navigation.label}</span>}
@@ -297,8 +313,12 @@ export default function ConversationWorkspaceSurface({
         </section>
       ) : null}
 
-      <section className={`app-summary-conversation${workspaceActive && effectiveMode !== 'split' ? ` is-composer-only${composerExpanded ? ' is-composer-expanded' : ''}` : ''}`} aria-label="Conversation">
-        {workspaceActive && effectiveMode === 'focus' ? (
+      <section className={`app-summary-conversation${reportChat ? ' app-report-chat' : workspaceActive && effectiveMode !== 'split' ? ` is-composer-only${composerExpanded ? ' is-composer-expanded' : ''}` : ''}`} aria-label="Conversation">
+        {reportChat && !menuInShellHeader ? <div className="app-workspace-chat-controls app-report-chat-controls">
+          <span className="app-workspace-chat-title" {...typographyProps('label')}>Chat</span>
+          <ChatPlacementMenu placement={chatPlacement} onChange={changeChatPlacement} splitDisabled={compact || capabilities.split === false}/>
+        </div> : null}
+        {!isDesignSystem2 && workspaceActive && effectiveMode === 'focus' ? (
           <Button
             minimal
             small
@@ -310,7 +330,7 @@ export default function ConversationWorkspaceSurface({
             onClick={() => setComposerExpanded((expanded) => !expanded)}
           />
         ) : null}
-        <div className="app-summary-conversation-content" hidden={workspaceActive && effectiveMode !== 'split' && !composerExpanded}>
+        <div className="app-summary-conversation-content" hidden={!reportChat && workspaceActive && effectiveMode !== 'split' && !composerExpanded}>
         {renderConversation ? renderConversation() : (chatWindow ? <WindowContent key={resolveChatWindowRenderKey(chatWindow)} window={chatWindow} isInTab /> : null)}
         </div>
       </section>

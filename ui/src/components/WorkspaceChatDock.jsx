@@ -1,7 +1,7 @@
 import React, {useId, useRef, useState, useEffect, useLayoutEffect, useCallback} from 'react';
 import Draggable from 'react-draggable';
-import {Button, DropdownMenu} from 'forge/components';
-import {Menu, MenuDivider, MenuItem} from '@blueprintjs/core';
+import {Button} from 'forge/components';
+import ChatPlacementMenu from './ChatPlacementMenu.jsx';
 import {useWorkspaceStyle} from './WorkspaceStyleProvider';
 import './workspaceChatDock.css';
 
@@ -90,17 +90,9 @@ export default function WorkspaceChatDock({active, children, onOpen}) {
         onKeyDown={moveWithKeyboard}>
         {isDesignSystem2 ? <>
           <span className="app-workspace-chat-title">Chat</span>
-          <DropdownMenu placement="bottom-end" content={<Menu aria-label="Chat layout">
-            <MenuItem text="Split on left" aria-current={mode === 'split' && side === 'left' ? 'true' : undefined}
-              onClick={() => {setSide('left');setMode('split');}}/>
-            <MenuItem text="Split on right" aria-current={mode === 'split' && side === 'right' ? 'true' : undefined}
-              onClick={() => {setSide('right');setMode('split');}}/>
-            <MenuItem text="Overlay" aria-current={mode === 'overlay' ? 'true' : undefined} onClick={() => setMode('overlay')}/>
-            {mode === 'overlay' && <><MenuDivider/><MenuItem text="Reset position" disabled={!position.x && !position.y}
-              onClick={() => moveTo({x: 0, y: 0})}/></>}
-          </Menu>}>
-            <Button variant="ghost" size="compact" hideLabel icon="lucide:ellipsis" aria-label="Chat options" title="Chat options"/>
-          </DropdownMenu>
+          <ChatPlacementMenu placement={mode === 'overlay' ? 'overlay' : side}
+            onChange={next => {if (next !== 'overlay') setSide(next);setMode(next === 'overlay' ? 'overlay' : 'split');}}
+            onResetPosition={() => moveTo({x: 0, y: 0})} resetDisabled={!position.x && !position.y}/>
         </> : <Button variant="ghost" icon={mode==='overlay'?'lucide:panel-right':'lucide:panel-right-close'} onClick={()=>setMode(value=>value==='overlay'?'split':'overlay')}>
           {mode==='overlay'?'Split view':'Overlay'}
         </Button>}
