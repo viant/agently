@@ -857,3 +857,45 @@ In DS2, Chat defaults reuses the existing Forge SelectControl for Agent and Mode
 and the shared Skeleton while their native metadata request is pending.
 Connections uses the same Skeleton through its existing loading state. Preserve
 the original callbacks, saved preferences, loading announcements and recovery.
+
+## DS2 application navigation
+
+WorkspaceSidebar renders the current authorized layout without substituting
+reference-design labels or actions. In DS2, Overview and the first visible
+producer application's categories appear directly in the rail. Each additional
+authorized application with visible destinations follows as an icon-and-label
+entry. Keep the DSP/application switcher and the personal My workspace entry
+out of this rail; do not repeat the application collection around its categories.
+Saved collection selection continues to own native context loading but does not
+replace these primary categories. The personal workspace configuration and its
+existing resource routes remain intact, and other profiles retain their native
+application selection and personal workspace UI.
+
+Application labels and Lucide icons come from the signed-in account metadata
+after explicit personal visibility preferences. Hover opens each additional
+application's original options through NavigationFlyout, including a single
+option. Click, tap and keyboard open the same menu; only choosing an option
+follows its original route. Preserve context selectors, required inputs,
+disabled states, provider ownership, scoped routes and the original menu tree.
+Hidden or empty additional applications add no entry. Do not infer access from
+the reviewing account, hard-code available applications or guess a landing page
+from report order. Navigation appearance never grants publication or data access.
+
+The number and order of additional applications and their options come from
+native layout metadata; no product-name allowlist or fixed count is used. Each
+newly admitted application follows the same entry and menu recipe. Resolve its
+icon through the existing Lucide registry, using the existing application-icon
+fallback when a declared icon is absent or unsupported. Preserve native rail
+scrolling and viewport-safe menu placement/scrolling as collections grow; do not
+remove options to fit. Check multiple applications, long option collections,
+long names, icon fallback and access refresh independently of visual examples.
+
+Overview, unavailable destination states, category groups, Manage Workspace and
+Reload navigation retain their existing actions. Known legacy icon names use
+the matching existing Lucide glyphs in DS2. Native aria-current follows the
+actual destination; opening another menu keeps the neutral hover treatment.
+Tab/Shift+Tab reaches the visible categories and applications in rail order;
+Enter/Space opens the existing menu, arrow keys reach its available options,
+and Escape dismisses it. Reuse the native keyboard-only inset focus policy and
+existing semantic values in both modes. No alternate router, scope store,
+permission check or focus mechanism is added.

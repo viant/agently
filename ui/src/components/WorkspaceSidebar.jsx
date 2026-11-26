@@ -91,10 +91,6 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
   layoutRef.current = layout;
   const [searchMount, setSearchMount] = useState(null);
   const [activeApp, setActiveApp] = useState('');
-  // A direct destination can belong to another application without replacing
-  // the navigation collection the user is browsing. Native activeApp still
-  // owns scoped metadata loading and window registration.
-  const [navigationAppId, setNavigationAppId] = useState('');
   // Reuse the declared application's retained context, never focused-window
   // inputs or values held by another application.
   const scopedApplication = layout?.applications?.find(app => app.id === activeApp) || layout?.applications?.[0];
@@ -259,7 +255,6 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
       revision = null;
       sectionRouteSignature.current = null;
       scopeSessionRef.current = '';
-      setNavigationAppId('');
       setPersonalScope(''); setPersonalPreferences({});
       setPreferenceKey(''); setCollapsedGroups({});
       layoutContextRef.current = null; loadedContextKey.current = 'null';
@@ -312,20 +307,17 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
   const displayedApplications = visibleWorkspaceApplications(presentedLayout, personalPreferences);
   const active = displayedApplications.find((app) => app.id === activeApp) || displayedApplications[0];
   const navigationApp = fixedRail
-    ? displayedApplications.find(app => app.id === navigationAppId)
-      || (active?.id === PERSONAL_WORKSPACE_ID ? active : displayedApplications[0])
+    ? displayedApplications.find(app => app.id !== PERSONAL_WORKSPACE_ID)
     : active;
   const personalTiles = active?.id === PERSONAL_WORKSPACE_ID && workspaceShowsTiles(personalPreferences);
   const personalMenu = active?.id !== PERSONAL_WORKSPACE_ID || workspaceShowsMenu(personalPreferences);
   const displayedMenus = useMemo(() => visibleWorkspaceMenus(navigationApp, personalPreferences), [navigationApp, personalPreferences]);
-  const applicationLinks = fixedRail && navigationApp?.id !== PERSONAL_WORKSPACE_ID
+  const applicationLinks = fixedRail
     ? displayedApplications.flatMap(app => {
-      if (app.id === navigationApp?.id) return [];
-      // A published scope-label destination is the application's existing
-      // context selector. Do not guess a landing page from report ordering.
-      const selectors = visibleWorkspaceMenus(app, personalPreferences).filter(menu =>
-        menu.scopeLabelKey && !menu.children?.length && ['window', 'report'].includes(menu.action?.type));
-      return selectors.length === 1 ? [{application: app, menu: selectors[0]}] : [];
+      if (app.id === navigationApp?.id || app.id === PERSONAL_WORKSPACE_ID) return [];
+      const menus = visibleWorkspaceMenus(app, personalPreferences);
+      if (!menus.length) return [];
+      return [{application: app, menus}];
     }) : [];
   const navigationEnabled = layout?.left?.navigation?.enabled !== false;
   const historyEnabled = layout ? layout.left?.history?.enabled !== false : !!error;
@@ -528,7 +520,6 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
   }
   function selectApplication(app) {
     setActiveApp(app.id);
-    setNavigationAppId(app.id);
     if (app.id === PERSONAL_WORKSPACE_ID && workspaceShowsTiles(personalPreferences)) {
       onSectionChange?.('workspaces', '');onNavigate?.();
     }
@@ -564,25 +555,20 @@ export default function WorkspaceSidebar({ discoveryReady = true, conversationId
         drawerOpen={!fixedSecondary && drawerMode && !drawerHidden} onDismiss={onDismiss} returnFocusRef={returnFocusRef}
         workspaceNavigation={<>
           <div className="app-secondary-rail-items" aria-label={`${navigationApp?.title || 'Application'} navigation`}>
-            {displayedApplications.length > 0 ? <NavigationFlyout title={navigationApp?.title || 'Applications'} icon={applicationIcon(navigationApp)} current={!!navigationApp}>
-              <Menu aria-label="Applications">{displayedApplications.map(app => <MenuItem key={app.id} text={app.title}
-                active={app.id === navigationApp?.id} aria-current={app.id === navigationApp?.id ? 'true' : undefined} disabled={app.disabled} onClick={() => selectApplication(app)}/>)}</Menu>
-            </NavigationFlyout> : null}
             <Button minimal className="forge-navigation-trigger app-secondary-rail-button" {...typographyProps('metadata')}
               aria-current={section === 'workspaces' && !destination ? 'page' : undefined}
               onClick={() => {onSectionChange?.('workspaces'); onNavigate?.();}}>
               <SharedIcon name="lucide:layout-grid"/><span className="forge-navigation-label">Overview</span>
             </Button>
-            {personalTiles && <Button minimal fill icon={<SharedIcon name="lucide:layout-grid"/>} onClick={() => {onSectionChange?.('workspaces', '');onNavigate?.();}}>Open My workspace tiles</Button>}
-            {personalMenu && displayedMenus.map(menu => renderMenu(menu, [], false, navigationApp))}
-            {applicationLinks.map(({application, menu}) => <Button key={application.id} minimal {...typographyProps('metadata')}
-              className="forge-navigation-trigger app-secondary-rail-button" aria-label={application.title}
-              aria-current={section === 'workspaces' && layoutWindowDestinations({applications:[application]}).some(entry => entry.destination === destination) ? 'page' : undefined}
-              disabled={application.disabled || menu.disabled || resolveNavigationParameters(menu.action, applicationScope.inputs(application, windowInputs)).missing}
-              onClick={() => activateMenu(menu, [], application)}>
-              <SharedIcon name={applicationIcon(application)}/><span className="forge-navigation-label">{application.title}</span>
-            </Button>)}
-            {personalMenu && !displayedMenus.length && !applicationLinks.length ? <Typography typeRole="small" role="status">No navigation is available.</Typography> : null}
+            {displayedMenus.map(menu => renderMenu(menu, [], false, navigationApp))}
+            {applicationLinks.map(({application, menus}) => {
+              const current = section === 'workspaces' && layoutWindowDestinations({applications:[application]}).some(entry => entry.destination === destination);
+              return <NavigationFlyout key={application.id} title={application.title}
+                icon={applicationIcon(application)} current={current} disabled={application.disabled} className="app-secondary-rail-button">
+                <Menu aria-label={application.title}>{menus.map(entry => renderMenu(entry, [], true, application))}</Menu>
+              </NavigationFlyout>;
+            })}
+            {!displayedMenus.length && !applicationLinks.length ? <Typography typeRole="small" role="status">No navigation is available.</Typography> : null}
           </div>
           <div className="app-secondary-rail-footer">
             <SharedButton variant="ghost" size="compact" hideLabel icon={`lucide:${nextColorMode === 'dark' ? 'moon' : 'sun'}`}

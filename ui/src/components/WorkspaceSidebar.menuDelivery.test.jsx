@@ -56,28 +56,156 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn());
 });
 
-it('retains Manage Workspace and application switching in the DS2 fixed navigation', async () => {
+it('keeps DS2 categories and additional application menus without a workspace switcher or personal entry', async () => {
   appearance.themeId = 'design-system-2';
+  request.mockResolvedValueOnce({workspace:{enabled:true}});
   const payload = layoutPayload({applications: [
     {id: 'first', title: 'First workspace', icon: 'application', menus: [{id: 'records', title: 'Records', children: [{id: 'list', title: 'Record list', action: {type: 'window', windowKey: 'recordList'}}]}]},
-    {id: 'second', title: 'Second workspace', icon: 'chart', menus: [{id: 'reports', title: 'Report collection', children: [{id: 'history', title: 'Report history', action: {type: 'window', windowKey: 'reportHistory'}}]}]},
+    {id: 'second', title: 'Second workspace', icon: 'chart', menus: [{id: 'history', title: 'Report history', action: {type: 'window', windowKey: 'reportHistory'}}]},
   ]});
   payload.layout.left.navigation.presentation = 'sections';
   fetch.mockResolvedValue(response(payload));
   const manage = vi.fn();
   render(<WorkspaceSidebar section="workspaces" onManageWorkspace={manage}/>);
-  const picker = await screen.findByRole('button', {name: 'First workspace'});
+  const category = await screen.findByRole('button', {name: 'Records'});
+  expect(category.closest('.app-secondary-rail-items')).not.toBeNull();
+  expect(screen.queryByRole('button', {name: 'First workspace', exact: true})).toBeNull();
+  expect(screen.queryByRole('button', {name: 'My workspace', exact: true})).toBeNull();
+  expect(screen.queryByRole('menu', {name: 'Applications'})).toBeNull();
   expect([...document.querySelectorAll('.app-secondary-rail-footer button')].map(button => button.getAttribute('aria-label')))
     .toEqual(['Switch to dark mode', 'Manage Workspace', 'Reload navigation']);
   fireEvent.click(screen.getByRole('button', {name: 'Manage Workspace'}));
   expect(manage).toHaveBeenCalledOnce();
-  fireEvent.click(picker);
-  fireEvent.click(await screen.findByRole('menuitem', {name: 'Second workspace'}));
-  expect(await screen.findByRole('button', {name: 'Report collection'})).not.toBeNull();
-  expect(screen.queryByRole('button', {name: 'Records'})).toBeNull();
+  fireEvent.click(screen.getByRole('button', {name: 'Second workspace'}));
+  expect(screen.getByRole('button', {name: 'Records'})).not.toBeNull();
   expect([...document.querySelectorAll('.app-section-navigation svg')].every(icon => icon.classList.contains('lucide'))).toBe(true);
-  fireEvent.click(screen.getByRole('button', {name: 'Report collection'}));
   expect((await screen.findByRole('menuitem', {name: 'Report history'})).querySelector('svg')).toBeNull();
+});
+
+it.each(['agently.personal-workspace','second'])('keeps the primary DS2 categories after restoring the previous %s collection', async activeApp => {
+  appearance.themeId = 'design-system-2';
+  request.mockResolvedValueOnce({workspace:{enabled:true,presentation:'tiles'}});
+  const payload=layoutPayload({applications:[
+    {id:'first',title:'First workspace',menus:[{id:'records',title:'Records',action:{type:'window',windowKey:'records'}}]},
+    {id:'second',title:'Second workspace',menus:[{id:'reports',title:'Original report',action:{type:'report',resourceUri:'report://example/summary'}}]},
+  ]});
+  payload.layout.left.navigation.presentation='sections';
+  window.localStorage.setItem('agently.layoutPreferences.v1:'+JSON.stringify([payload.workspaceId,'menu-test-user',payload.layout.id]),JSON.stringify({activeApp}));
+  fetch.mockResolvedValue(response(payload));
+  render(<WorkspaceSidebar section="workspaces"/>);
+  expect(await screen.findByRole('button',{name:'Records',exact:true})).toBeTruthy();
+  expect(screen.getByRole('button',{name:'Second workspace',exact:true})).toBeTruthy();
+  expect(screen.queryByRole('button',{name:'First workspace',exact:true})).toBeNull();
+  expect(screen.queryByRole('button',{name:'My workspace',exact:true})).toBeNull();
+  expect(screen.queryByRole('button',{name:'Open My workspace tiles',exact:true})).toBeNull();
+});
+
+it('shows even a single destination in the additional application hover menu on the DS2 rail', async () => {
+  appearance.themeId = 'design-system-2';
+  const payload = layoutPayload({applications: [
+    {id:'primary',title:'Primary workspace',menus:[]},
+    {id:'analysis',title:'Analysis workspace',providerIdentity:'analysis-owner',menus:[
+      {id:'summary',title:'Original summary',action:{type:'report',resourceUri:'report://analysis/summary',parameters:{Period:'month'}}},
+    ]},
+  ]});
+  const original = JSON.stringify(payload);
+  payload.layout.left.navigation.presentation = 'sections';
+  fetch.mockResolvedValue(response(payload));
+  const onSectionChange = vi.fn();
+  render(<WorkspaceSidebar section="workspaces" onSectionChange={onSectionChange}/>);
+  const entry = await screen.findByRole('button',{name:'Analysis workspace',exact:true});
+  expect(entry.closest('.app-secondary-rail-items')).not.toBeNull();
+  expect(screen.queryByRole('menu',{name:'Applications'})).toBeNull();
+  fireEvent.mouseEnter(entry);
+  fireEvent.mouseEnter(entry.parentElement);
+  const option = await screen.findByRole('menuitem',{name:'Original summary',exact:true});
+  expect(onSectionChange).not.toHaveBeenCalled();
+  fireEvent.click(option);
+  expect(onSectionChange).toHaveBeenCalledWith('workspaces','["analysis","summary"]');
+  expect(payload.layout.applications[1].menus[0].action).toEqual(JSON.parse(original).layout.applications[1].menus[0].action);
+});
+
+it('uses the existing flyout for additional application menus and retains disabled destinations', async () => {
+  appearance.themeId = 'design-system-2';
+  const payload = layoutPayload({applications: [
+    {id:'primary',title:'Primary workspace',menus:[]},
+    {id:'review',title:'Review workspace',menus:[
+      {id:'locked',title:'Unavailable record',disabled:true,action:{type:'window',windowKey:'locked'}},
+      {id:'records',title:'Available records',action:{type:'window',resourceUri:'window://review/records',providerIdentity:'review-owner'}},
+    ]},
+  ]});
+  payload.layout.left.navigation.presentation = 'sections';
+  fetch.mockResolvedValue(response(payload));
+  const onSectionChange = vi.fn();
+  render(<WorkspaceSidebar section="workspaces" onSectionChange={onSectionChange}/>);
+  fireEvent.click(await screen.findByRole('button',{name:'Review workspace',exact:true}));
+  const locked = await screen.findByRole('menuitem',{name:'Unavailable record',exact:true});
+  expect(locked.getAttribute('aria-disabled')).toBe('true');
+  fireEvent.click(locked);
+  expect(onSectionChange).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('menuitem',{name:'Available records',exact:true}));
+  expect(onSectionChange).toHaveBeenCalledWith('workspaces','["review","records"]');
+});
+
+it('renders multiple metadata-owned application entries and every option in a larger native menu', async () => {
+  appearance.themeId = 'design-system-2';
+  const options=Array.from({length:24},(_,index)=>({id:`option-${index}`,title:`Collection option ${index+1}`,action:{type:'window',windowKey:`collectionWindow${index}`}}));
+  const payload=layoutPayload({applications:[
+    {id:'primary',title:'Primary collection',menus:[{id:'records',title:'Records',action:{type:'window',windowKey:'records'}}]},
+    {id:'analysis',title:'Analysis collection',icon:'lucide:chart-no-axes-combined',menus:options},
+    {id:'research',title:'Research collection',icon:'lucide:flask-conical',menus:[{id:'research',title:'Research records',action:{type:'window',windowKey:'research'}}]},
+    {id:'future',title:'Future collection',icon:'not-installed',menus:[{id:'future',title:'Future records',action:{type:'window',windowKey:'future'}}]},
+  ]});
+  payload.layout.left.navigation.presentation='sections';
+  const original=JSON.stringify(payload.layout.applications);
+  fetch.mockResolvedValue(response(payload));
+  const change=vi.fn();
+  render(<WorkspaceSidebar section="workspaces" onSectionChange={change}/>);
+  const analysis=await screen.findByRole('button',{name:'Analysis collection',exact:true});
+  expect(analysis.querySelector('svg.lucide-chart-no-axes-combined')).not.toBeNull();
+  expect(screen.getByRole('button',{name:'Research collection',exact:true}).querySelector('svg.lucide-flask-conical')).not.toBeNull();
+  expect(screen.getByRole('button',{name:'Future collection',exact:true}).querySelector('svg.lucide-layout-grid')).not.toBeNull();
+  fireEvent.mouseEnter(analysis);
+  fireEvent.mouseEnter(analysis.parentElement);
+  const menu=await screen.findByRole('menu',{name:'Analysis collection',exact:true});
+  expect([...menu.querySelectorAll('[role="menuitem"]')].map(option=>option.textContent)).toEqual(options.map(option=>option.title));
+  expect(change).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('menuitem',{name:'Collection option 24',exact:true}));
+  expect(change).toHaveBeenCalledWith('workspaces','["analysis","option-23"]');
+  expect(JSON.stringify(payload.layout.applications)).toBe(original);
+});
+
+it('removes revoked direct applications from the DS2 rail on the native layout refresh', async () => {
+  appearance.themeId = 'design-system-2';
+  const initial = layoutPayload({applications:[
+    {id:'primary',title:'Primary workspace',menus:[]},
+    {id:'optional',title:'Optional workspace',menus:[{id:'records',title:'Optional records',action:{type:'window',windowKey:'optionalRecords'}}]},
+  ]});
+  initial.layout.left.navigation.presentation = 'sections';
+  initial.layoutRevision = 'before-revocation';
+  const next = structuredClone(initial);
+  next.layout.applications.pop();
+  next.layoutRevision = 'after-revocation';
+  fetch.mockResolvedValueOnce(response(initial)).mockResolvedValue(response(next));
+  render(<WorkspaceSidebar section="workspaces"/>);
+  await screen.findByRole('button',{name:'Optional workspace',exact:true});
+  await act(async()=>window.dispatchEvent(new Event('focus')));
+  await waitFor(()=>expect(screen.queryByRole('button',{name:'Optional workspace',exact:true})).toBeNull());
+  expect(screen.getByRole('button',{name:'Overview',exact:true})).not.toBeNull();
+  expect(screen.queryByRole('button',{name:'Primary workspace',exact:true})).toBeNull();
+});
+
+it.each(['baseline','legacy'])('keeps additional applications in the native %s application tabs', async themeId => {
+  appearance.themeId = themeId;
+  const payload = layoutPayload({applications:[
+    {id:'primary',title:'Primary workspace',menus:[]},
+    {id:'optional',title:'Optional workspace',menus:[{id:'records',title:'Optional records',action:{type:'window',windowKey:'optionalRecords'}}]},
+  ]});
+  payload.layout.left.navigation.presentation = 'sections';
+  fetch.mockResolvedValue(response(payload));
+  render(<WorkspaceSidebar section="workspaces"/>);
+  expect(await screen.findByRole('tab',{name:'Optional workspace',exact:true})).not.toBeNull();
+  expect(screen.queryByRole('button',{name:'Optional workspace',exact:true})).toBeNull();
 });
 
 it('keeps Manage Workspace available when DS2 applications are unavailable', async () => {
@@ -135,7 +263,7 @@ function contextApplicationPayload() {
   return payload;
 }
 
-it('opens another application context selector directly while retaining the DS2 navigation collection and native scope ownership', async () => {
+it('opens another application context selector from its DS2 menu while retaining collection and native scope ownership', async () => {
   appearance.themeId='design-system-2';
   const {applicationScope}=await import('../services/applicationScope');
   applicationScope.clear();
@@ -157,9 +285,10 @@ it('opens another application context selector directly while retaining the DS2 
   const primaryGroup=screen.getByRole('button',{name:'Reports',exact:true});
   expect(primaryGroup.compareDocumentPosition(link)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   fireEvent.click(link);
+  fireEvent.click(await screen.findByRole('menuitem',{name:'Entity',exact:true}));
   await waitFor(()=>expect(openWindow).toHaveBeenCalledWith('window://review/entities','Entity',[],expect.objectContaining({parameters:{Chooser:true},providerIdentity:'review-provider',region:'app.section'})));
   expect(screen.getByRole('button',{name:'Reports',exact:true})).toBeTruthy();
-  expect(screen.getByRole('button',{name:'Review workspace',exact:true}).getAttribute('aria-current')).toBe('page');
+  expect(screen.getByRole('button',{name:'Review workspace',exact:true}).getAttribute('aria-current')).toBe('true');
   expect(screen.getByLabelText('Records workspace navigation')).toBeTruthy();
   await act(async()=>applicationScope.set({identity:{windowId:'opened-window://review/entities'}},{entityId:12,entityName:'Example entity'}));
   expect(applicationScope.inputs(payload.layout.applications[1]).entityId).toBe(12);
@@ -181,8 +310,13 @@ it.each(['application','selector'])('retains the native disabled state of the %s
   const change=vi.fn();
   render(<WorkspaceSidebar section="workspaces" onSectionChange={change}/>);
   const link=await screen.findByRole('button',{name:'Review workspace',exact:true});
-  expect(link.disabled).toBe(true);
+  expect(link.disabled).toBe(owner==='application');
   fireEvent.click(link);
+  if(owner==='selector') {
+    const option=await screen.findByRole('menuitem',{name:'Entity',exact:true});
+    expect(option.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(option);
+  }
   expect(change).not.toHaveBeenCalled();
   expect(openWindow).not.toHaveBeenCalled();
 });
@@ -195,8 +329,8 @@ it('honors hidden context menus instead of exposing a second path through a DS2 
   render(<WorkspaceSidebar section="workspaces"/>);
   await screen.findByRole('button',{name:'Reports',exact:true});
   await waitFor(()=>expect(screen.queryByRole('button',{name:'Review workspace',exact:true})).toBeNull());
-  fireEvent.click(screen.getByRole('button',{name:'Records workspace',exact:true}));
-  expect(await screen.findByRole('menuitem',{name:'Review workspace',exact:true})).toBeTruthy();
+  expect(screen.queryByRole('button',{name:'Records workspace',exact:true})).toBeNull();
+  expect(screen.queryByRole('menu',{name:'Applications',exact:true})).toBeNull();
 });
 
 it('uses workspace theme defaults for rail and flyout names and restores original names in other profiles', async () => {
