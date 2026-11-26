@@ -33,6 +33,7 @@ import {belongsToAppSection} from './sectionWindowTree.js';
 import StatusBar from './StatusBar';
 import WorkspaceSidebar from './WorkspaceSidebar';
 import {openWorkspaceSettingsWindow} from '../services/workspaceSettingsWindow';
+import {workspaceSettingsHref} from '../services/uiSettingsNavigation';
 import WorkspaceSettingsDestination,{isWorkspaceSettingsWindow} from './WorkspaceSettingsDestination';
 import ScheduleConversationHistory from './ScheduleConversationHistory';
 import ElicitationOverlay from './ElicitationOverlay';
@@ -51,6 +52,7 @@ import { resolveWorkspaceAttachmentOwnerIndex, projectedWorkspaceEntries } from 
 import { currentPendingMCPAuth, resumePendingMCPAuth } from '../services/mcpAuth';
 import {useShellNavigation} from '../hooks/useShellNavigation';
 import {useConversationHeading} from '../hooks/useConversationHeading';
+import {useWorkspaceStyle} from './WorkspaceStyleProvider.jsx';
 
 const SIDEBAR_DEFAULT_WIDTH = 320;
 const SIDEBAR_MIN_WIDTH = 220;
@@ -480,6 +482,16 @@ function resolveMetadataBoundWindowTitle(windowEntry = null) {
         }
         break;
     }
+    // Honor the same native title template as WindowContent so the shell and
+    // workspace tab agree, including a presentation's constant page title.
+    const template = String(binding?.template || '').trim();
+    if (template) {
+      const title = template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, token) => {
+        const value = resolvePathValue(data || {}, String(token || '').trim());
+        return value == null ? '' : String(value);
+      }).replace(/\s{2,}/g, ' ').trim();
+      if (title) return title;
+    }
     const resolved = resolvePathValue(data, selector);
     if (resolved != null && String(resolved).trim() !== '') {
       return String(resolved).trim();
@@ -625,6 +637,8 @@ export default function Root() {
   const [layoutTopbarActions, setLayoutTopbarActions] = useState([]);
   const [sectionNavigation, setSectionNavigation] = useState(null);
   const [appSection, setAppSection] = useState('chat');
+  const workspaceThemeId = useWorkspaceStyle()?.state.themeId;
+  const fixedNavigation = workspaceThemeId === 'design-system-2' && sectionNavigation && appSection === 'workspaces';
   const [sectionDestination, setSectionDestination] = useState('');
   const [sectionView, setSectionView] = useState(null);
   const [brandMount, setBrandMount] = useState(null);
@@ -1534,14 +1548,14 @@ export default function Root() {
             viewerVisible={!showAppSection && !backendSelection.isRemote && activeSurface === 'workspace' && showWorkspacePane}
             viewerExpanded={workspacePresentationMode === 'full'}
             sidebarCollapsed={!isSidebarOpen}
-            compactNavigation={isCompactShell}
-            inert={sectionNavigation && isCompactShell && isSidebarOpen}
-            onToggleSidebar={() => setIsSidebarOpen((open) => !open)}
+            compactNavigation={isCompactShell && !fixedNavigation}
+            inert={!fixedNavigation && sectionNavigation && isCompactShell && isSidebarOpen}
+            onToggleSidebar={fixedNavigation ? undefined : () => setIsSidebarOpen((open) => !open)}
             conversationId={backendSelection.isRemote ? '' : conversationIDFromPath(typeof window !== 'undefined' ? window.location.pathname : '')}
           />
 
         <div className={`app-main${isCompactShell ? ' is-compact-shell' : ''}`}>
-          {isCompactShell && isSidebarOpen ? (
+          {!fixedNavigation && isCompactShell && isSidebarOpen ? (
             <button
               type="button"
               className="app-sidebar-scrim"
@@ -1551,14 +1565,15 @@ export default function Root() {
           ) : null}
             <WorkspaceSidebar
               discoveryReady={navigationReady}
-              drawerHidden={isCompactShell && !isSidebarOpen}
-              drawerMode={isCompactShell}
+              drawerHidden={!fixedNavigation && isCompactShell && !isSidebarOpen}
+              drawerMode={!fixedNavigation && isCompactShell}
               onDismiss={() => setIsSidebarOpen(false)}
               returnFocusRef={navigationTriggerRef}
               section={appSection}
               destination={sectionDestination}
               onSectionChange={shellNavigation.selectSection}
               onManageWorkspace={() => {
+                if (workspaceThemeId === 'design-system-2') { window.location.href = workspaceSettingsHref(); return; }
                 backendSelection.select('agently');shellNavigation.selectSection('chat');
                 openWorkspaceSettingsWindow(mainConversationId);setWorkspacePresentationMode('split');setActiveSurface('workspace');
               }}
@@ -1574,7 +1589,7 @@ export default function Root() {
                 setWorkspacePresentationMode('full');
                 setActiveSurface('workspace');
               }}
-              collapsed={!isCompactShell && !isSidebarOpen}
+              collapsed={!fixedNavigation && !isCompactShell && !isSidebarOpen}
               onExpand={() => setIsSidebarOpen(true)}
               onTopbarActionsChange={setLayoutTopbarActions}
               onNavigate={() => {
@@ -1582,7 +1597,7 @@ export default function Root() {
                 if (isCompactShell) setIsSidebarOpen(false);
               }}
             />
-          {!isCompactShell && isSidebarOpen ? (
+          {!fixedNavigation && !isCompactShell && isSidebarOpen ? (
             <div
               className="app-sidebar-resizer"
               role="separator"
@@ -1598,7 +1613,7 @@ export default function Root() {
               }}
             />
           ) : null}
-          <main className={`app-chat-pane${showChatChrome ? ' is-chat-main-window' : ''}`} inert={sectionNavigation && isCompactShell && isSidebarOpen ? '' : undefined}>
+          <main className={`app-chat-pane${showChatChrome ? ' is-chat-main-window' : ''}`} inert={!fixedNavigation && sectionNavigation && isCompactShell && isSidebarOpen ? '' : undefined}>
             {showAppSection ? <AppSectionContent headerMount={viewerHeaderMount} window={sectionWindow} title={currentSectionView?.overview ? currentSectionView.overview.title || 'My workspace' : appSectionTitle} error={currentSectionView?.error} overview={currentSectionView?.overview}/> : null}
             {backendSelection.visited.map(connection => (
               <div key={connection.id} style={{ display: !showAppSection && backendSelection.selectedId === connection.id ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>

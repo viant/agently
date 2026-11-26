@@ -8,8 +8,10 @@ import {saveBrowserWorkspaceVisibility,workspaceVisibilityScope,workspaceApplica
 const openWindow = vi.fn();
 const getAuthMeSilently = vi.fn();
 const sidebarRender = vi.fn();
+const appearance = {themeId: 'baseline'};
 
 vi.mock('../services/agentlyClient', () => ({ getAuthMeSilently }));
+vi.mock('./WorkspaceStyleProvider.jsx', () => ({useWorkspaceStyle: () => ({state: appearance})}));
 vi.mock('../services/httpClient', async () => {
  const original=await vi.importActual('../services/httpClient');
  return {...original,request:vi.fn((path,options)=>path==='/v1/api/me/preferences'?Promise.resolve({workspace:{}}):original.request(path,options))};
@@ -20,7 +22,8 @@ vi.mock('./Sidebar', () => ({ default: props => {sidebarRender(props); return <d
 vi.mock('forge/components', async () => {
   const {default: Typography, typographyProps} = await import('forge/components/Typography.jsx');
   const {default: Icon} = await import('forge/components/Icon.jsx');
-  return {Typography, typographyProps, Icon};
+  const {default: Button} = await import('forge/components/Button.jsx');
+  return {Typography, typographyProps, Icon, Button};
 });
 vi.mock('forge/core', async () => {
   const {signal} = await import('@preact/signals-react');
@@ -41,6 +44,7 @@ afterAll(() => {
 });
 
 beforeEach(() => {
+  appearance.themeId = 'baseline';
   cleanup?.();
   window.localStorage.clear();
   openWindow.mockReset();
@@ -50,6 +54,175 @@ beforeEach(() => {
   windowSignals.getFormSignal.mockReset().mockReturnValue({value: {}});
   getAuthMeSilently.mockReset().mockResolvedValue({ subject: 'menu-test-user' });
   vi.stubGlobal('fetch', vi.fn());
+});
+
+it('retains Manage Workspace and application switching in the DS2 fixed navigation', async () => {
+  appearance.themeId = 'design-system-2';
+  const payload = layoutPayload({applications: [
+    {id: 'first', title: 'First workspace', icon: 'application', menus: [{id: 'records', title: 'Records', children: [{id: 'list', title: 'Record list', action: {type: 'window', windowKey: 'recordList'}}]}]},
+    {id: 'second', title: 'Second workspace', icon: 'chart', menus: [{id: 'reports', title: 'Report collection', children: [{id: 'history', title: 'Report history', action: {type: 'window', windowKey: 'reportHistory'}}]}]},
+  ]});
+  payload.layout.left.navigation.presentation = 'sections';
+  fetch.mockResolvedValue(response(payload));
+  const manage = vi.fn();
+  render(<WorkspaceSidebar section="workspaces" onManageWorkspace={manage}/>);
+  const picker = await screen.findByRole('button', {name: 'First workspace'});
+  expect([...document.querySelectorAll('.app-secondary-rail-footer button')].map(button => button.getAttribute('aria-label')))
+    .toEqual(['Switch to dark mode', 'Manage Workspace', 'Reload navigation']);
+  fireEvent.click(screen.getByRole('button', {name: 'Manage Workspace'}));
+  expect(manage).toHaveBeenCalledOnce();
+  fireEvent.click(picker);
+  fireEvent.click(await screen.findByRole('menuitem', {name: 'Second workspace'}));
+  expect(await screen.findByRole('button', {name: 'Report collection'})).not.toBeNull();
+  expect(screen.queryByRole('button', {name: 'Records'})).toBeNull();
+  expect([...document.querySelectorAll('.app-section-navigation svg')].every(icon => icon.classList.contains('lucide'))).toBe(true);
+  fireEvent.click(screen.getByRole('button', {name: 'Report collection'}));
+  expect((await screen.findByRole('menuitem', {name: 'Report history'})).querySelector('svg')).toBeNull();
+});
+
+it('keeps Manage Workspace available when DS2 applications are unavailable', async () => {
+  appearance.themeId = 'design-system-2';
+  const payload=layoutPayload({applications: []});
+  payload.layout.left.navigation.presentation='sections';
+  fetch.mockResolvedValue(response(payload));
+  const manage=vi.fn();
+  render(<WorkspaceSidebar section="workspaces" onManageWorkspace={manage}/>);
+  await waitFor(() => expect(document.querySelector('.app-secondary-rail-footer')).not.toBeNull());
+  const button=screen.getByRole('button', {name:'Manage Workspace'});
+  expect(button.closest('.app-secondary-rail-footer')).not.toBeNull();
+  fireEvent.click(button);
+  expect(manage).toHaveBeenCalledOnce();
+});
+
+it('retains the compact DS2 Chat drawer dismissal and return focus', async () => {
+  appearance.themeId = 'design-system-2';
+  const payload = layoutPayload({applications: []});
+  payload.layout.left.navigation.presentation = 'sections';
+  fetch.mockResolvedValue(response(payload));
+  const opener = document.createElement('button');
+  opener.textContent = 'Open navigation';
+  document.body.appendChild(opener);
+  opener.focus();
+  const onDismiss = vi.fn();
+  const returnFocusRef = {current: opener};
+  const props = {section:'chat', drawerMode:true, onDismiss, returnFocusRef};
+  const mounted = render(<WorkspaceSidebar {...props} drawerHidden/>);
+  await waitFor(() => expect(document.querySelector('.app-layout-sidebar.is-sections')).not.toBeNull());
+  expect(document.querySelector('.app-layout-sidebar').hidden).toBe(true);
+  expect(screen.queryByRole('dialog', {name:'Navigation'})).toBeNull();
+  mounted.rerender(<WorkspaceSidebar {...props} drawerHidden={false}/>);
+  expect(screen.getByRole('dialog', {name:'Navigation'})).not.toBeNull();
+  expect(document.activeElement).toBe(screen.getByRole('button', {name:'Chat', exact:true}));
+  fireEvent.keyDown(document.activeElement, {key:'Escape'});
+  expect(onDismiss).toHaveBeenCalledOnce();
+  mounted.rerender(<WorkspaceSidebar {...props} drawerHidden/>);
+  expect(screen.queryByRole('dialog', {name:'Navigation'})).toBeNull();
+  expect(document.querySelector('.app-layout-sidebar').hidden).toBe(true);
+  expect(document.activeElement).toBe(opener);
+  opener.remove();
+});
+
+function contextApplicationPayload() {
+  const payload=layoutPayload({applications:[
+    {id:'records-app',title:'Records workspace',scope:{keys:['entityId']},menus:[
+      {id:'reports',title:'Reports',children:[{id:'summary',title:'Record summary',action:{type:'window',windowKey:'recordSummary',parameterBindings:{Entity:{from:'entityId',optional:true}}}}]},
+    ]},
+    {id:'review-app',title:'Review workspace',icon:'chart',providerIdentity:'review-provider',scope:{keys:['entityId','entityName']},menus:[
+      {id:'entities',title:'Entity',scopeLabelKey:'entityName',action:{type:'window',resourceUri:'window://review/entities',providerIdentity:'review-provider',parameters:{Chooser:true},parameterBindings:{Entity:{from:'entityId',optional:true}}}},
+    ]},
+  ]});
+  payload.layout.left.navigation.presentation='sections';
+  return payload;
+}
+
+it('opens another application context selector directly while retaining the DS2 navigation collection and native scope ownership', async () => {
+  appearance.themeId='design-system-2';
+  const {applicationScope}=await import('../services/applicationScope');
+  applicationScope.clear();
+  const payload=contextApplicationPayload();
+  fetch.mockResolvedValue(response(payload));
+  openWindow.mockImplementation((key,title,refs,options)=>{
+    const entry={windowId:`opened-${key}`,windowKey:key,parameters:options.parameters};
+    windowSignals.activeWindows.value=[...windowSignals.activeWindows.value,entry];
+    return entry;
+  });
+  windowSignals.activeWindows.value=[{windowId:'foreign-context',parameters:{entityId:999}}];
+  windowSignals.selectedWindowId.value='foreign-context';
+  function RoutedSidebar() {
+    const [destination,setDestination]=useState('');
+    return <WorkspaceSidebar section="workspaces" destination={destination} onSectionChange={(_,next='')=>setDestination(next)}/>;
+  }
+  render(<RoutedSidebar/>);
+  const link=await screen.findByRole('button',{name:'Review workspace',exact:true});
+  const primaryGroup=screen.getByRole('button',{name:'Reports',exact:true});
+  expect(primaryGroup.compareDocumentPosition(link)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(link);
+  await waitFor(()=>expect(openWindow).toHaveBeenCalledWith('window://review/entities','Entity',[],expect.objectContaining({parameters:{Chooser:true},providerIdentity:'review-provider',region:'app.section'})));
+  expect(screen.getByRole('button',{name:'Reports',exact:true})).toBeTruthy();
+  expect(screen.getByRole('button',{name:'Review workspace',exact:true}).getAttribute('aria-current')).toBe('page');
+  expect(screen.getByLabelText('Records workspace navigation')).toBeTruthy();
+  await act(async()=>applicationScope.set({identity:{windowId:'opened-window://review/entities'}},{entityId:12,entityName:'Example entity'}));
+  expect(applicationScope.inputs(payload.layout.applications[1]).entityId).toBe(12);
+  expect(applicationScope.inputs(payload.layout.applications[0]).entityId).toBeUndefined();
+  await waitFor(()=>expect(fetch.mock.calls.some(([url])=>String(url).includes('applicationId=review-app'))).toBe(true));
+  fireEvent.click(screen.getByRole('button',{name:'Reports',exact:true}));
+  fireEvent.click(await screen.findByRole('menuitem',{name:'Record summary',exact:true}));
+  await waitFor(()=>expect(openWindow).toHaveBeenLastCalledWith('recordSummary','Record summary',[],expect.objectContaining({parameters:{}})));
+  expect(screen.getByRole('button',{name:'Review workspace',exact:true}).getAttribute('aria-current')).toBeNull();
+  applicationScope.clear();
+});
+
+it.each(['application','selector'])('retains the native disabled state of the %s in a DS2 context shortcut',async owner=>{
+  appearance.themeId='design-system-2';
+  const payload=contextApplicationPayload();
+  if(owner==='application')payload.layout.applications[1].disabled=true;
+  else payload.layout.applications[1].menus[0].disabled=true;
+  fetch.mockResolvedValue(response(payload));
+  const change=vi.fn();
+  render(<WorkspaceSidebar section="workspaces" onSectionChange={change}/>);
+  const link=await screen.findByRole('button',{name:'Review workspace',exact:true});
+  expect(link.disabled).toBe(true);
+  fireEvent.click(link);
+  expect(change).not.toHaveBeenCalled();
+  expect(openWindow).not.toHaveBeenCalled();
+});
+
+it('honors hidden context menus instead of exposing a second path through a DS2 application shortcut',async()=>{
+  appearance.themeId='design-system-2';
+  const payload=contextApplicationPayload();
+  request.mockResolvedValueOnce({workspace:{hiddenMenus:[JSON.stringify(['review-provider','review-app','entities'])]}});
+  fetch.mockResolvedValue(response(payload));
+  render(<WorkspaceSidebar section="workspaces"/>);
+  await screen.findByRole('button',{name:'Reports',exact:true});
+  await waitFor(()=>expect(screen.queryByRole('button',{name:'Review workspace',exact:true})).toBeNull());
+  fireEvent.click(screen.getByRole('button',{name:'Records workspace',exact:true}));
+  expect(await screen.findByRole('menuitem',{name:'Review workspace',exact:true})).toBeTruthy();
+});
+
+it('uses workspace theme defaults for rail and flyout names and restores original names in other profiles', async () => {
+  appearance.themeId = 'design-system-2';
+  const payload = layoutPayload({applications: [{id:'example',providerIdentity:'example-provider',title:'Example',menus:[
+    {id:'group',title:'Original group',children:[{id:'records',title:'Record list',action:{type:'window',windowKey:'recordList'}}]},
+    {id:'people',title:'Original people',action:{type:'window',windowKey:'peopleList'}},
+  ]}]});
+  payload.layout.left.navigation.presentation = 'sections';
+  payload.layout.left.navigation.labelsByTheme = {'design-system-2':{
+    '["example-provider","example","group"]':'Records',
+    '["example-provider","example","people"]':'People',
+  }};
+  fetch.mockResolvedValue(response(payload));
+  const onSectionChange=vi.fn();
+  const mounted=render(<WorkspaceSidebar section="workspaces" onSectionChange={onSectionChange}/>);
+  fireEvent.click(await screen.findByRole('button',{name:'Records',exact:true}));
+  expect(screen.getByText('Records',{selector:'.forge-navigation-flyout-heading'})).not.toBeNull();
+  fireEvent.click(await screen.findByRole('menuitem',{name:'Record list',exact:true}));
+  expect(onSectionChange).toHaveBeenCalledWith('workspaces','["example","group","records"]');
+  expect(screen.getByRole('button',{name:'People',exact:true})).not.toBeNull();
+  appearance.themeId='baseline';
+  mounted.rerender(<WorkspaceSidebar section="workspaces" onSectionChange={onSectionChange}/>);
+  expect(screen.getByRole('button',{name:'Original group',exact:true})).not.toBeNull();
+  expect(screen.getByRole('button',{name:'Original people',exact:true})).not.toBeNull();
+  expect(screen.queryByRole('button',{name:'People',exact:true})).toBeNull();
 });
 
 function response(payload, status = 200) {

@@ -1,6 +1,7 @@
 import React from 'react';
 import {Icon, typographyProps} from 'forge/components';
 import {Button} from '@blueprintjs/core';
+import {useWorkspaceStyle} from './WorkspaceStyleProvider.jsx';
 import './sectionNavigation.css';
 
 export function SectionDestinationButton({selected = false, className = '', ...props}) {
@@ -10,7 +11,8 @@ export function SectionDestinationButton({selected = false, className = '', ...p
 
 // Section selection never changes a conversation or opens a business window.
 // The host supplies those actions through the existing layout contract.
-export default function SectionNavigation({section = 'chat', actions = [], onSelect, brandRef, headingActionsRef, profileRef, children, drawerOpen = false, onDismiss, returnFocusRef}) {
+export default function SectionNavigation({section = 'chat', actions = [], onSelect, brandRef, headingActionsRef, profileRef, children, workspaceNavigation, drawerOpen = false, onDismiss, returnFocusRef}) {
+  const fixedRail = useWorkspaceStyle()?.state.themeId === 'design-system-2';
   const rootRef = React.useRef(null);
   const dismissRef = React.useRef(onDismiss);
   dismissRef.current = onDismiss;
@@ -41,7 +43,7 @@ export default function SectionNavigation({section = 'chat', actions = [], onSel
     {id: 'workspaces', title: 'Workspaces', icon: 'lucide:layout-grid'},
     ...actions.map(action => ({...action, id: `action:${action.id}`})),
   ];
-  return <div className="app-section-navigation" ref={rootRef} role={drawerOpen ? 'dialog' : undefined} aria-modal={drawerOpen ? true : undefined} aria-label={drawerOpen ? 'Navigation' : undefined}>
+  return <div className={`app-section-navigation${fixedRail && section === 'workspaces' ? ' has-fixed-secondary' : ''}`} ref={rootRef} role={drawerOpen ? 'dialog' : undefined} aria-modal={drawerOpen ? true : undefined} aria-label={drawerOpen ? 'Navigation' : undefined}>
     <nav className="app-section-rail" aria-label="App sections">
       {drawerOpen ? <button type="button" className="app-section-rail-button" aria-label="Close navigation" onClick={onDismiss}><Icon name="lucide:x"/></button> : null}
       {destinations.map(destination => <button key={destination.id} type="button"
@@ -55,7 +57,7 @@ export default function SectionNavigation({section = 'chat', actions = [], onSel
     </nav>
     <div className="app-section-menu" {...typographyProps('body')}>
       <div className="app-section-masthead"><div className="app-section-brand" ref={brandRef}/><div ref={headingActionsRef} hidden={section !== 'chat'}/></div>
-      {children}
+      {fixedRail && section === 'workspaces' ? workspaceNavigation : children}
     </div>
   </div>;
 }

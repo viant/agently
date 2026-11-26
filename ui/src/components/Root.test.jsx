@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import './requestLifecycle.contract.test.jsx';
 import { describe, expect, it, vi } from 'vitest';
-import { activeWindows, selectedWindowId, selectedTabId } from 'forge/core';
+import { activeWindows, selectedWindowId, selectedTabId, getMetadataSignal } from 'forge/core';
 import { MAIN_CHAT_WINDOW_ID, CHAT_WINDOW_KEY, openConversationInMainWindow, setScopedActiveSurface, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow.js';
 
 import {
@@ -542,6 +542,18 @@ describe('Root window selection helpers', () => {
     expect(resolveMainWindowCloseConversationId(' conv-123 ')).toBe('conv-123');
     expect(resolveMainWindowCloseConversationId('')).toBe('');
     expect(resolveMainWindowCloseConversationId(null)).toBe('');
+  });
+
+  it('uses an authored constant title before records load instead of the selector route label', () => {
+    const windowId = 'authored-title-example';
+    const metadata = getMetadataSignal(windowId);
+    const previous = metadata.peek();
+    try {
+      metadata.value = {window:{titleBinding:{dataSourceRef:'records',template:'Records'}}};
+      expect(resolveMainWindowHeaderTitle({windowId,windowKey:'recordPicker',windowTitle:'Context selector'})).toBe('Records');
+    } finally {
+      metadata.value = previous;
+    }
   });
 
   it('shows the main window header only for non-chat windows with a title', () => {

@@ -77,3 +77,12 @@ test('an actionable parent stays available when its children are hidden',()=>{
  const menus=visibleWorkspaceMenus(app,{hiddenMenus:[workspaceMenuKey(app,['parent','child'])]});
  expect(menus).toHaveLength(1);expect(menus[0].children).toEqual([]);expect(menus[0].action.resourceUri).toBe('window://example/parent');
 });
+
+test('workspace theme defaults precede personal labels and stay out of other themes',()=>{
+ const key=workspaceMenuKey(source.applications[0],['orders']);
+ const layout={...source,left:{navigation:{labelsByTheme:{'design-system-2':{[key]:'Records'}}}}};
+ expect(personalWorkspaceLayout(layout,{},'design-system-2').applications[0].menus[0].title).toBe('Records');
+ expect(personalWorkspaceLayout(layout,{},'baseline').applications[0].menus[0].title).toBe('Orders');
+ expect(personalWorkspaceLayout(layout,{menuLabels:{[key]:'My records'}},'design-system-2').applications[0].menus[0].title).toBe('My records');
+ expect(layout.applications[0].menus[0].title).toBe('Orders');
+});

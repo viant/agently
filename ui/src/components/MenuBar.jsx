@@ -388,7 +388,7 @@ export default function MenuBar({
           <div className={`app-user-menu${sectionNavigation ? ' is-document' : ''}`} {...(sectionNavigation ? typographyProps('body') : {})} id="app-user-menu" data-testid="user-menu" role="menu">
             {user?.email ? <div className="app-user-menu-email">{user.email}</div> : null}
             {compactViewerUtilities ? renderUtilityActions(true) : null}
-            {sectionNavigation && !compactNavigation ? <Button minimal role="menuitem" icon={<SharedIcon name="lucide:menu"/>}
+            {sectionNavigation && !compactNavigation && onToggleSidebar ? <Button minimal role="menuitem" icon={<SharedIcon name="lucide:menu"/>}
               {...typographyProps('label')} text={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
               onClick={() => {setUserMenuOpen(false); onToggleSidebar?.();}} className="app-navigation-collapse"/> : null}
             <Button
