@@ -899,3 +899,27 @@ Enter/Space opens the existing menu, arrow keys reach its available options,
 and Escape dismisses it. Reuse the native keyboard-only inset focus policy and
 existing semantic values in both modes. No alternate router, scope store,
 permission check or focus mechanism is added.
+
+### Appearance before application chrome
+
+Agently's existing workspace style provider completes its metadata and Global CSS
+load before exposing the interactive application. Its readiness follows the
+existing load promises, including stylesheet preparation and theme selection;
+it does not add a cache, assume Design System 2.0, or change preference ownership.
+The existing account/workspace-scoped selection wins when available. Unavailable
+saved themes use the catalog's configured default, and intentional unthemed
+workspaces continue to use their existing appearance after metadata resolves.
+Color-mode resolution remains owned by the same manager.
+
+The routes stay mounted but hidden during initial appearance loading and native
+sign-in recovery, preserving auth discovery and in-memory drafts. OAuth callbacks
+and the native sign-in screen must remain reachable. An initial load failure
+keeps unthemed app controls hidden and exposes the existing application recovery
+action. UI Settings uses the native router in both directions to retain the
+active provider and avoid another document/theme bootstrap.
+
+Accessibility: pending app content uses the native hidden state and is absent
+from keyboard navigation; a status announces appearance loading. Ready controls
+retain their component-owned semantics and focus recipes. Theme loading does not
+add a focus or input-modality listener. Check pointer and Tab/Shift+Tab navigation
+in both color modes and preserve other themes' native focus behavior.

@@ -3,6 +3,7 @@ import ComposerDefaultsSettings from "./ComposerDefaultsSettings";
 import {ForgeThemeBoundary} from "forge/components";
 import WorkspaceAppearanceSettings from './WorkspaceAppearanceSettings';
 import React, { useState } from 'react';
+import {Link} from 'react-router-dom';
 import ConnectorSettings from './ConnectorSettings';
 import './ConnectorSettings.css';
 import {Button, Switch} from '@blueprintjs/core';
@@ -30,7 +31,7 @@ export default function UISettingsPage() {
   return (
     <ForgeThemeBoundary windowKey="ui-settings"><main className="app-ui-settings" data-testid="ui-settings-page">
       <header className="app-ui-settings-header">
-        <a href={returnHref} className="app-ui-settings-back" aria-label="Back to Agently"><UnifiedIcon name="arrow-left" aria-hidden="true" /> Agently</a>
+        <Link to={returnHref} className="app-ui-settings-back" aria-label="Back to Agently"><UnifiedIcon name="arrow-left" aria-hidden="true" /> Agently</Link>
         <h1>UI Settings</h1>
         <a href={`/ui/workspace?returnTo=${encodeURIComponent(returnHref)}`}>Manage Workspace</a>
       </header>

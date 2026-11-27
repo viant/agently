@@ -4,6 +4,7 @@ import {ReviewTable} from 'forge/components';
 import { openLayoutURL } from './layoutNavigation';
 import { resolveBrandLogoSrc, resolveBrandMonogram, resolveStartupAuthAction, openWindow, APPROVALS_PAGE_SIZE, paginateApprovalItems, normalizeQueueApprovalDialog, extractSchemaDefaultValues, findApprovalItemById, resolveReturnFocusTarget, restoreReturnFocusTarget, nextApprovalDialogFocusReturn } from './menuBarHelpers';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {useNavigate} from 'react-router-dom';
 import {createPortal} from 'react-dom';
 import {Icon as SharedIcon, Typography, SelectControl, typographyProps} from 'forge/components';
 import {ShellIconButton, ShellLocation} from './ShellHeader.jsx';
@@ -59,6 +60,7 @@ export default function MenuBar({
   sidebarCollapsed = false,
   compactNavigation = false,
 }) {
+  const navigate = useNavigate();
   const themed = useWorkspaceStyle()?.state.themeId === 'design-system-2';
   const {
     items = [],
@@ -402,7 +404,7 @@ export default function MenuBar({
               className="app-user-menu-settings"
               data-testid="ui-settings-link"
               role="menuitem"
-              onClick={() => { setUserMenuOpen(false); window.location.href = uiSettingsHref(); }}
+              onClick={() => { setUserMenuOpen(false); navigate(uiSettingsHref()); }}
             />
             <Button
               minimal
