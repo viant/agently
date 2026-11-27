@@ -6,7 +6,7 @@ import {useWorkspaceStyle} from './WorkspaceStyleProvider';
 export default function WorkspaceAppearanceSettings() {
   const appearance = useWorkspaceStyle();
   if (!appearance) return null;
-  const {state, manager, refresh} = appearance;
+  const {state, manager, refresh, ready, error} = appearance;
   const selected = state.catalog?.themes.find(theme => theme.id === state.themeId);
   const text = role => selected?.modes[state.mode]?.[`typography.${role}.weight`] === undefined ? {} : typographyProps(role);
   const sharedActions = !!text('label')['data-forge-type'];
@@ -26,7 +26,7 @@ export default function WorkspaceAppearanceSettings() {
             disabled={mode !== 'system' && selected && !selected.modes[mode]}>{mode.charAt(0).toUpperCase() + mode.slice(1)}</option>)}
         </SelectControl></label>
         <span {...text('metadata')} aria-live="polite">Currently {state.mode}</span>
-      </div> : <p {...text('body')}>No named themes are configured for this workspace.</p>}
+      </div> : <p {...text('body')} role={ready === false ? 'status' : undefined}>{ready === false ? 'Loading workspace appearance…' : error ? 'Workspace appearance could not be loaded.' : 'No named themes are configured for this workspace.'}</p>}
       {state.diagnostics.length > 0 && <div {...text('metadata')} role="status">{state.diagnostics.join(' · ')}</div>}
       {refresh && <RefreshButton {...(sharedActions ? {variant: 'ghost', icon: 'lucide:refresh-cw'} : {minimal: true, icon: 'refresh'})} onClick={refresh}>Reload workspace appearance</RefreshButton>}
     </div>

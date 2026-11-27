@@ -1,4 +1,4 @@
-import React, {createContext, useContext, useEffect, useLayoutEffect, useRef, useSyncExternalStore} from 'react';
+import React, {createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore} from 'react';
 import {ForgeThemeProvider} from 'forge/components';
 import {applyApplicationThemeBoundary, clearApplicationThemeBoundary, getWorkspaceStyleManager} from '../services/workspaceStyles';
 
@@ -13,15 +13,28 @@ export default function WorkspaceStyleProvider({metadata, accountKey = '', works
   if (!managerRef.current) managerRef.current = getWorkspaceStyleManager({fetchAsset, nonce: resolvedNonce});
   const manager = managerRef.current;
   const state = useSyncExternalStore(manager.subscribe, manager.getSnapshot, manager.getSnapshot);
+  const [settled, setSettled] = useState(null);
+  const completed = !!metadata && settled?.metadata === metadata && settled?.accountKey === accountKey && settled?.workspaceKey === workspaceKey;
+  const ready = completed && (!settled.themed || !!state.catalog);
+  const appearance = {ready, error: completed ? settled.error : null};
   useEffect(() => { manager.retain(); return () => manager.release(); }, [manager]);
   useEffect(() => {
     if (fetchAsset) manager.fetchAsset = fetchAsset;
     manager.nonce = resolvedNonce;
     let active=true;
-    const ready=manager.refresh(metadata, {accountKey, workspaceKey});
-    if(metadata?.uiStyleSource==='managed'){
-      void ready.then(()=>{if(active)return manager.loadApplicationStyles([],{accountKey,styleSource:'managed',globalStyle:metadata.globalStyle,readResource});});
-    }
+    if (metadata) void (async () => {
+      let error = null;
+      try {
+        await manager.refresh(metadata, {accountKey, workspaceKey});
+        if (!active) return;
+        if (metadata.uiStyleSource === 'managed') {
+          await manager.loadApplicationStyles([], {accountKey, styleSource:'managed', globalStyle:metadata.globalStyle, readResource});
+        }
+        const snapshot = manager.getSnapshot();
+        if (!snapshot.catalog && snapshot.diagnostics.length) error = new Error(snapshot.diagnostics.join(' · '));
+      } catch (failure) { error = failure; }
+      if (active) setSettled({metadata, accountKey, workspaceKey, error, themed: !!manager.getSnapshot().catalog});
+    })();
     return()=>{active=false;};
   }, [manager, metadata, accountKey, workspaceKey, fetchAsset, readResource, resolvedNonce]);
   useClientLayoutEffect(() => {
@@ -29,7 +42,7 @@ export default function WorkspaceStyleProvider({metadata, accountKey = '', works
     applyApplicationThemeBoundary(root, state);
     return () => clearApplicationThemeBoundary(root);
   }, [state.themeId, state.mode]);
-  return <WorkspaceStyleContext.Provider value={{state, manager, refresh: onRefresh}}><ForgeThemeProvider themeId={state.themeId} mode={state.mode}>
-    {typeof children === 'function' ? children(state, manager) : children}
+  return <WorkspaceStyleContext.Provider value={{state, manager, refresh: onRefresh, ...appearance}}><ForgeThemeProvider themeId={state.themeId} mode={state.mode}>
+    {typeof children === 'function' ? children(state, manager, appearance) : children}
   </ForgeThemeProvider></WorkspaceStyleContext.Provider>;
 }

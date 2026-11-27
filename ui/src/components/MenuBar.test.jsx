@@ -1,3 +1,4 @@
+import {MemoryRouter} from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { windowMetadataEndpoint } from 'forge/components/windowMetadataEndpoint.js';
 const {renderedHeaderButtons}=vi.hoisted(()=>({renderedHeaderButtons:[]}));
@@ -536,18 +537,18 @@ describe('MenuBar component boundary', () => {
     const { renderToStaticMarkup } = await import('react-dom/server');
     const component = await import('./MenuBar.jsx');
     expect(Object.keys(component)).toEqual(['default']);
-    expect(() => renderToStaticMarkup(React.createElement(component.default, {}))).not.toThrow();
+    expect(() => renderToStaticMarkup(React.createElement(MemoryRouter,null,React.createElement(component.default, {})))).not.toThrow();
   });
 
   it('renders the document chat header while its native theme context initializes', async () => {
     const React = await import('react');
     const { renderToStaticMarkup } = await import('react-dom/server');
     const { default: MenuBar } = await import('./MenuBar.jsx');
-    const html = renderToStaticMarkup(React.createElement(MenuBar, {
+    const html = renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(MenuBar, {
       sectionNavigation: true,
       heading: 'Report conversation',
       chatHeaderRef: () => {},
-    }));
+    })));
     expect(html).toContain('Report conversation');
   });
 });
@@ -555,7 +556,7 @@ describe('MenuBar component boundary', () => {
 it('renders authored Lucide header actions through the shared icon renderer',async()=>{
   const React=await import('react');const {renderToStaticMarkup}=await import('react-dom/server');
   const {default:MenuBar}=await import('./MenuBar.jsx');renderedHeaderButtons.length=0;
-  renderToStaticMarkup(React.createElement(MenuBar,{topbarActions:[{id:'history',title:'History',icon:'lucide:clock-3'},{id:'legacy',title:'Legacy time',icon:'time'}]}));
+  renderToStaticMarkup(React.createElement(MemoryRouter,null,React.createElement(MenuBar,{topbarActions:[{id:'history',title:'History',icon:'lucide:clock-3'},{id:'legacy',title:'Legacy time',icon:'time'}]})));
   expect(renderedHeaderButtons.find(button=>button['aria-label']==='History').icon.props.name).toBe('lucide:clock-3');
   expect(renderedHeaderButtons.find(button=>button['aria-label']==='Legacy time').icon.props.name).toBe('time');
 });

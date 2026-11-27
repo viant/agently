@@ -1,4 +1,5 @@
 import React from 'react';
+import {MemoryRouter} from 'react-router-dom';
 import {createRoot} from 'react-dom/client';
 import {Typography, SelectControl, ForgeThemeBoundary} from 'forge/components';
 import WidgetRenderer from 'forge/runtime/WidgetRenderer.jsx';
@@ -99,4 +100,4 @@ function AppearanceReviewControls() {
   </div>;
 }
 
-createRoot(document.getElementById('root')).render(<WorkspaceStyleProvider metadata={fixture.metadata} accountKey="proof" workspaceKey="proof"><NavigationReview/><AppearanceReviewControls/></WorkspaceStyleProvider>);
+createRoot(document.getElementById('root')).render(<MemoryRouter><WorkspaceStyleProvider metadata={fixture.metadata} accountKey="proof" workspaceKey="proof"><NavigationReview/><AppearanceReviewControls/></WorkspaceStyleProvider></MemoryRouter>);
