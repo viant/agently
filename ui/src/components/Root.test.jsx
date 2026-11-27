@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import './requestLifecycle.contract.test.jsx';
+import {MemoryRouter} from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { activeWindows, selectedWindowId, selectedTabId, getMetadataSignal } from 'forge/core';
 import { MAIN_CHAT_WINDOW_ID, CHAT_WINDOW_KEY, openConversationInMainWindow, setScopedActiveSurface, setScopedWorkspaceSelection, setScopedWorkspaceState } from '../services/conversationWindow.js';
@@ -908,7 +909,7 @@ it('keeps phone viewer utilities available in the account menu and dismisses the
   const setOpen=vi.fn(),onNativeAction=vi.fn();
   const host=document.createElement('div');document.body.append(host);const root=createRoot(host);globalThis.IS_REACT_ACT_ENVIRONMENT=true;
   try {
-    await React.act(async()=>{root.render(React.createElement(MenuBar,{sectionNavigation:true,compactNavigation:true,viewerVisible:true,conversationId:'example-conversation',approvals:{items:[],open:false,setOpen},onNativeAction}));});
+    await React.act(async()=>{root.render(React.createElement(MemoryRouter,null,React.createElement(MenuBar,{sectionNavigation:true,compactNavigation:true,viewerVisible:true,conversationId:'example-conversation',approvals:{items:[],open:false,setOpen},onNativeAction})));});
     expect(host.querySelector('[data-testid="approval-bell"]')).toBeNull();
     await React.act(async()=>host.querySelector('[data-testid="user-menu-btn"]').click());
     expect(host.querySelector('[data-testid="user-menu"] [data-testid="approval-bell"]').textContent).toBe('Approvals');
